@@ -234,7 +234,7 @@ export class SandboxService {
    * GCS upload succeeds, so the running pod sees the uploaded file without
    * having to wait for the next cold-start hydrate. If the workspace has no
    * Running pod, this is a no-op (`mode: "deferred"`) — the bytes are already
-   * the canonical copy in GCS and `hydrateSharedMountFromGcs` will pull them
+   * the canonical copy in GCS and `hydrateWorkspaceMountFromGcs` will pull them
    * on the next pod boot. The caller treats either outcome as success and
    * never blocks the upload on this hop.
    *
@@ -243,7 +243,7 @@ export class SandboxService {
    * passes `null` quotas to {@link WorkspaceFileBridgeService} so the pod-side
    * pre-write guard does NOT double-count what the api already booked.
    */
-  async writeSharedInbound(input: {
+  async writeWorkspaceInbound(input: {
     assistantId: string;
     workspaceId: string;
     assistantHandle?: string | null;
@@ -276,7 +276,7 @@ export class SandboxService {
         workspaceQuotaBytes: null,
         sharedQuotaBytes: null
       };
-      const writeResult = await this.workspaceFileBridgeService.writeSharedInputControlPlane(
+      const writeResult = await this.workspaceFileBridgeService.writeWorkspaceInputControlPlane(
         bridgeCtx,
         {
           basename: input.basename,
@@ -287,7 +287,7 @@ export class SandboxService {
         return {
           ok: false,
           reason: writeResult.reason ?? "write_failed",
-          message: writeResult.reason ?? "shared_inbound_write_failed"
+          message: writeResult.reason ?? "workspace_inbound_write_failed"
         };
       }
       return {
@@ -299,7 +299,7 @@ export class SandboxService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
-        `shared_inbound_write_failed workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} error=${message}`
+        `workspace_inbound_write_failed workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} error=${message}`
       );
       return {
         ok: false,
@@ -309,7 +309,7 @@ export class SandboxService {
     }
   }
 
-  async removeSharedFileFromHotPods(input: {
+  async removeWorkspaceFileFromHotPods(input: {
     workspaceId: string;
     path: string;
     policy?: RuntimeSandboxPolicy;
@@ -318,7 +318,7 @@ export class SandboxService {
     removedFromPods: number;
     failures: Array<{ podName: string; reason: string }>;
   }> {
-    const result = await this.execPodBridgeService.removeSharedFileFromWarmPods({
+    const result = await this.execPodBridgeService.removeWorkspaceFileFromWarmPods({
       workspaceId: input.workspaceId,
       path: input.path,
       ...(input.policy === undefined ? {} : { policy: input.policy })
@@ -331,10 +331,10 @@ export class SandboxService {
   }
 
   /**
-   * ADR-126 Slice 4 Wave 2 — synchronous control-plane write of artefact bytes
-   * into `/shared/outbound/self/<basename>` (collision-aware).
+   * ADR-128 Slice 1 — synchronous control-plane write of artefact bytes
+   * into `/workspace/outbound/self/<basename>` (collision-aware).
    */
-  async writeSharedOutbound(input: {
+  async writeWorkspaceOutbound(input: {
     assistantId: string;
     workspaceId: string;
     assistantHandle?: string | null;
@@ -360,7 +360,7 @@ export class SandboxService {
           assistantId: input.assistantId,
           workspaceId: input.workspaceId,
           runtimeRequestId: `shared-outbound-write:${jobId}`,
-          toolCode: "shared_outbound_write",
+          toolCode: "workspace_outbound_write",
           status: "running",
           relativeWorkspace: ".",
           policySnapshot: this.toJsonValue(policy),
@@ -398,7 +398,7 @@ export class SandboxService {
         workspaceQuotaBytes: input.workspaceQuotaBytes ?? null,
         sharedQuotaBytes: input.sharedQuotaBytes ?? null
       };
-      const writeResult = await this.workspaceFileBridgeService.writeSharedOutboundWithCollision(
+      const writeResult = await this.workspaceFileBridgeService.writeWorkspaceOutboundWithCollision(
         bridgeCtx,
         {
           basename: input.basename,
@@ -413,7 +413,7 @@ export class SandboxService {
             status: "failed",
             completedAt: new Date(),
             violationCode: writeResult.reason ?? "write_failed",
-            violationMessage: writeResult.reason ?? "shared_outbound_write_failed",
+            violationMessage: writeResult.reason ?? "workspace_outbound_write_failed",
             resultPayload: {
               reason: writeResult.reason ?? "write_failed",
               warning: null,
@@ -427,7 +427,7 @@ export class SandboxService {
         return {
           ok: false,
           reason: writeResult.reason ?? "write_failed",
-          message: writeResult.reason ?? "shared_outbound_write_failed"
+          message: writeResult.reason ?? "workspace_outbound_write_failed"
         };
       }
       await this.prisma.sandboxJob.update({
@@ -461,10 +461,10 @@ export class SandboxService {
           data: {
             status: "failed",
             completedAt: new Date(),
-            violationCode: "shared_outbound_write_failed",
+            violationCode: "workspace_outbound_write_failed",
             violationMessage: message,
             resultPayload: {
-              reason: "shared_outbound_write_failed",
+              reason: "workspace_outbound_write_failed",
               warning: message,
               exitCode: null,
               stdout: null,
@@ -476,7 +476,7 @@ export class SandboxService {
         .catch(() => {});
       return {
         ok: false,
-        reason: "shared_outbound_write_failed",
+        reason: "workspace_outbound_write_failed",
         message
       };
     } finally {
@@ -729,9 +729,8 @@ export class SandboxService {
     ) {
       // Fire-and-forget: pre-create the session pod so its provisioning overlaps lease wait.
       // The subsequent runInSessionPod call is idempotent and will reuse this pod.
-      // ADR-126 Slice 3: resolve the handle eagerly so the bootstrap script can
-      // create `/shared/<workspaceId>/outbound/<handle>/` and the sibling
-      // mirror in parallel with the cold-start workspace push.
+      // Resolve the handle eagerly so the bootstrap script can create the
+      // assistant outbound directory in parallel with the cold-start workspace push.
       void this.resolveAssistantHandle(request.assistantId, request.assistantHandle ?? null)
         .then((assistantHandle) =>
           this.execPodBridgeService.warmSessionPod({
@@ -1144,7 +1143,7 @@ export class SandboxService {
         const path = this.requireString(args.path, "path");
         let sourceResolved;
         try {
-          const roots = WorkspaceFileBridgeService.buildMountRoots(bridgeCtx.workspaceId);
+          const roots = WorkspaceFileBridgeService.buildMountRoots();
           sourceResolved = assertAllowedMountPrefix(path, {
             roots,
             assistantHandle: bridgeCtx.assistantHandle,
@@ -1155,7 +1154,7 @@ export class SandboxService {
             return {
               reason: "path_not_attachable",
               warning:
-                "files.attach accepts only /workspace/ or /shared/<wsid>/outbound/self/ paths",
+                "files.attach accepts only /workspace scratch or /workspace/outbound/self/ paths",
               exitCode: null,
               stdout: null,
               stderr: null,
@@ -1165,12 +1164,12 @@ export class SandboxService {
           throw error;
         }
         if (
-          sourceResolved.role.kind !== "workspace" &&
-          sourceResolved.role.kind !== "shared_outbound_self"
+          sourceResolved.role.kind !== "workspace_scratch" &&
+          sourceResolved.role.kind !== "workspace_outbound_self"
         ) {
           return {
             reason: "path_not_attachable",
-            warning: "files.attach accepts only /workspace/ or /shared/<wsid>/outbound/self/ paths",
+            warning: "files.attach accepts only /workspace scratch or /workspace/outbound/self/ paths",
             exitCode: null,
             stdout: null,
             stderr: null,
@@ -1192,12 +1191,9 @@ export class SandboxService {
         }
         const sourceBasename = pathPosix.basename(sourceResolved.absolutePath);
         let targetAbsolutePath = sourceResolved.absolutePath;
-        let workspaceRelPath = this.toModelSharedRelPath(
-          sourceResolved.absolutePath,
-          bridgeCtx.workspaceId
-        );
-        if (sourceResolved.role.kind === "workspace") {
-          const outboundDir = `/shared/${bridgeCtx.workspaceId}/outbound/self`;
+        let workspaceRelPath = sourceResolved.absolutePath;
+        if (sourceResolved.role.kind === "workspace_scratch") {
+          const outboundDir = "/workspace/outbound/self";
           const listResult = await this.workspaceFileBridgeService.workspaceFileList(bridgeCtx, {
             path: outboundDir
           });
@@ -1208,7 +1204,7 @@ export class SandboxService {
           );
           const resolvedBasename = resolveMacOsCollisionBasename(sourceBasename, existingNames);
           targetAbsolutePath = `${outboundDir}/${resolvedBasename}`;
-          workspaceRelPath = `/shared/outbound/self/${resolvedBasename}`;
+          workspaceRelPath = `/workspace/outbound/self/${resolvedBasename}`;
           const copyResult = await this.workspaceFileBridgeService.workspaceFileCopy(bridgeCtx, {
             sourcePath: sourceResolved.absolutePath,
             targetPath: targetAbsolutePath
@@ -1293,9 +1289,13 @@ export class SandboxService {
   private resolvePathRole(
     bridgeCtx: WorkspaceBridgeContext,
     path: string
-  ): "workspace" | "shared_input" | "shared_outbound_self" | "shared_outbound_other" {
+  ):
+    | "workspace_input"
+    | "workspace_outbound_self"
+    | "workspace_outbound_other"
+    | "workspace_scratch" {
     try {
-      const roots = WorkspaceFileBridgeService.buildMountRoots(bridgeCtx.workspaceId);
+      const roots = WorkspaceFileBridgeService.buildMountRoots();
       const resolved = assertAllowedMountPrefix(path, {
         roots,
         assistantHandle: bridgeCtx.assistantHandle,
@@ -1303,7 +1303,7 @@ export class SandboxService {
       });
       return resolved.role.kind;
     } catch {
-      return "workspace";
+      return "workspace_scratch";
     }
   }
 
@@ -1328,14 +1328,6 @@ export class SandboxService {
       ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     };
     return MAP[ext] ?? null;
-  }
-
-  private toModelSharedRelPath(absolutePath: string, workspaceId: string): string {
-    const sharedRoot = `/shared/${workspaceId}/`;
-    if (!absolutePath.startsWith(sharedRoot)) {
-      return absolutePath;
-    }
-    return `/shared/${absolutePath.slice(sharedRoot.length)}`;
   }
 
   /**
@@ -1363,7 +1355,7 @@ export class SandboxService {
       typeof args.path === "string" && args.path.trim().length > 0
         ? args.path.trim()
         : "/workspace/";
-    const roots = WorkspaceFileBridgeService.buildMountRoots(bridgeCtx.workspaceId);
+    const roots = WorkspaceFileBridgeService.buildMountRoots();
     let containedPath: string;
     try {
       const resolved = assertAllowedMountPrefix(rawPath, {
@@ -1508,7 +1500,7 @@ export class SandboxService {
       typeof args.path === "string" && args.path.trim().length > 0
         ? args.path.trim()
         : "/workspace/";
-    const roots = WorkspaceFileBridgeService.buildMountRoots(bridgeCtx.workspaceId);
+    const roots = WorkspaceFileBridgeService.buildMountRoots();
     let containedPath: string;
     try {
       const resolved = assertAllowedMountPrefix(rawPath, {
@@ -1819,7 +1811,7 @@ export class SandboxService {
       // Materialize Tier 1 source copies into deterministic mount paths.
       const sourceMounts = this.readDocumentCodeSourceMounts(args.sourceMounts);
       for (const mount of sourceMounts) {
-        const buffer = await this.downloadSharedStoragePathBytes(workspaceId, mount.storagePath);
+        const buffer = await this.downloadWorkspaceStoragePathBytes(workspaceId, mount.storagePath);
         const targetAbsolute = this.resolveWorkspacePath(workspaceRoot, mount.mountPath);
         await fs.mkdir(dirname(targetAbsolute), { recursive: true });
         await fs.writeFile(targetAbsolute, buffer);
@@ -2236,11 +2228,11 @@ export class SandboxService {
     await this.ensureWorkspaceSessionReady(workspaceRoot, assistantId, runtimeSessionId);
   }
 
-  private async downloadSharedStoragePathBytes(
+  private async downloadWorkspaceStoragePathBytes(
     workspaceId: string,
     storagePath: string
   ): Promise<Buffer> {
-    const objectKey = this.objectStorage.buildSharedObjectKey({
+    const objectKey = this.objectStorage.buildWorkspaceObjectKey({
       workspaceId,
       workspaceRelPath: storagePath
     });
@@ -2250,7 +2242,7 @@ export class SandboxService {
       if (this.isMissingObjectStorageError(error)) {
         this.throwPolicy(
           "storage_path_not_found",
-          `Shared storage path "${storagePath}" is not available in object storage.`
+          `Workspace storage path "${storagePath}" is not available in object storage.`
         );
       }
       throw error;

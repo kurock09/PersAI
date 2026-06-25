@@ -113,9 +113,9 @@ function makeStorage() {
       deletedPrefixes.push(prefix);
       return 0;
     },
-    buildSharedPrefix(input: { workspaceId: string; subPath?: string }): string {
+    buildWorkspacePrefix(input: { workspaceId: string; subPath?: string }): string {
       const tail = input.subPath !== undefined ? `${input.subPath}/` : "";
-      return `assistant-media/workspaces/${input.workspaceId}/shared/${tail}`;
+      return `assistant-media/workspaces/${input.workspaceId}/workspace/${tail}`;
     }
   } as never;
   return { deletedPrefixes, service };
@@ -249,9 +249,9 @@ test("WorkspaceGcService: assistant_outbound lease past-due → rm -rf outbound 
 
   await gc.runDuePurgesNow();
 
-  // Pod exec: rm -rf /shared/<wsid>/outbound/<handle>
+  // Pod exec: rm -rf /workspace/outbound/<handle>
   assert.equal(exec.shellCalls.length, 1);
-  assert.ok(exec.shellCalls[0]?.shellCommand.includes(`/shared/${WS_ID}/outbound/${HANDLE}`));
+  assert.ok(exec.shellCalls[0]?.shellCommand.includes(`/workspace/outbound/${HANDLE}`));
   // GCS prefix
   assert.equal(storage.deletedPrefixes.length, 1);
   assert.ok(storage.deletedPrefixes[0]?.includes(`outbound/${HANDLE}`));
@@ -259,7 +259,7 @@ test("WorkspaceGcService: assistant_outbound lease past-due → rm -rf outbound 
   assert.equal(audit.purgedEvents[0]?.kind, "assistant_outbound");
 });
 
-test("WorkspaceGcService: workspace_shared lease past-due → rm -rf full shared dir, GCS prefix deleted, purgedAt set", async () => {
+test("WorkspaceGcService: workspace_shared lease past-due → rm persisted workspace dirs, GCS prefix deleted, purgedAt set", async () => {
   const lease: GcLease = {
     id: "lease-ws-1",
     kind: "workspace_shared",
@@ -273,10 +273,11 @@ test("WorkspaceGcService: workspace_shared lease past-due → rm -rf full shared
 
   await gc.runDuePurgesNow();
 
-  // Pod exec: rm -rf /shared/<wsid>/*
+  // Pod exec: rm persisted workspace IO dirs.
   assert.equal(exec.shellCalls.length, 1);
-  assert.ok(exec.shellCalls[0]?.shellCommand.includes(`/shared/${WS_ID}`));
-  // GCS shared prefix
+  assert.ok(exec.shellCalls[0]?.shellCommand.includes("/workspace/input"));
+  assert.ok(exec.shellCalls[0]?.shellCommand.includes("/workspace/outbound"));
+  // GCS workspace prefix
   assert.equal(storage.deletedPrefixes.length, 1);
   assert.ok(storage.deletedPrefixes[0]?.includes(WS_ID));
   assert.deepEqual(prisma.updatedLeases, ["lease-ws-1"]);

@@ -36,38 +36,31 @@ export class SandboxObjectStorageService {
     return `${prefix}/assistants/${input.assistantId}/sandbox-sessions/${input.runtimeSessionId}/workspace.tar`;
   }
 
-  /**
-   * ADR-126 Slice 3 — GCS object key for a `/shared/<workspaceId>/...` pod
-   * path. `workspaceRelPath` is the path the model sees inside the pod, e.g.
-   * `/shared/input/<name>` or `/shared/outbound/<handle>/<name>`. The
-   * workspace-id and the leading `/shared` are stripped (the workspace-id is
-   * implicit from the object prefix) so renaming an assistant handle never
-   * affects the input/ prefix.
-   */
-  buildSharedObjectKey(input: {
+  /** GCS object key for a persisted `/workspace/...` pod path. */
+  buildWorkspaceObjectKey(input: {
     workspaceId: string;
-    /** `/shared/input/<name>` or `/shared/outbound/<handle>/<name>` form. */
+    /** `/workspace/input/<name>` or `/workspace/outbound/<handle>/<name>` form. */
     workspaceRelPath: string;
   }): string {
     const prefix = this.config.PERSAI_MEDIA_OBJECT_PREFIX.trim().replace(/\/+$/g, "");
     const relative = input.workspaceRelPath
-      .replace(/^\/shared\//, "")
+      .replace(/^\/workspace\//, "")
       .replace(/^\/+/, "")
       .replace(/\\+/g, "/");
-    return `${prefix}/workspaces/${input.workspaceId}/shared/${relative}`;
+    return `${prefix}/workspaces/${input.workspaceId}/workspace/${relative}`;
   }
 
-  /** Prefix used by the GC reaper when bulk-deleting shared workspace state. */
-  buildSharedPrefix(input: { workspaceId: string; subPath?: string }): string {
+  /** Prefix used by the GC reaper when bulk-deleting persisted workspace state. */
+  buildWorkspacePrefix(input: { workspaceId: string; subPath?: string }): string {
     const prefix = this.config.PERSAI_MEDIA_OBJECT_PREFIX.trim().replace(/\/+$/g, "");
     const tail = input.subPath === undefined ? "" : `${input.subPath.replace(/^\/+|\/+$/g, "")}/`;
-    return `${prefix}/workspaces/${input.workspaceId}/shared/${tail}`;
+    return `${prefix}/workspaces/${input.workspaceId}/workspace/${tail}`;
   }
 
   /**
    * ADR-126 Slice 3 C2 — list all GCS object keys under `prefix`. Used by the
-   * shared-mount bootstrap hydrate to enumerate workspace-shared blobs to pull
-   * into a cold pod. Returns an empty array if the bucket is not configured or
+   * workspace-mount bootstrap hydrate to enumerate persisted blobs to pull into
+   * a cold pod. Returns an empty array if the bucket is not configured or
    * the list call fails — callers treat this as "nothing to hydrate".
    */
   async listPrefix(prefix: string): Promise<string[]> {

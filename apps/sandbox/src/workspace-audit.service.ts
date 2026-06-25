@@ -15,7 +15,7 @@ import { Injectable, Logger } from "@nestjs/common";
 
 export type WorkspaceFileOp = "write" | "read" | "list" | "stat" | "delete";
 
-export type SharedInputPublishedEvent = {
+export type WorkspaceInputPublishedEvent = {
   workspaceId: string;
   assistantId: string;
   uploadOriginalName: string | null;
@@ -77,10 +77,10 @@ export type WorkspaceFileAttachedEvent = {
 export class WorkspaceAuditService {
   private readonly logger = new Logger(WorkspaceAuditService.name);
 
-  recordSharedInputPublished(event: SharedInputPublishedEvent): void {
+  recordWorkspaceInputPublished(event: WorkspaceInputPublishedEvent): void {
     this.logger.log(
       [
-        "audit_event=shared_input_published",
+        "audit_event=workspace_input_published",
         `workspace_id=${event.workspaceId}`,
         `assistant_id=${event.assistantId}`,
         `surface=${event.surface}`,

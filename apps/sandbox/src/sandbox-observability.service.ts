@@ -88,8 +88,8 @@ export class SandboxObservabilityService {
     ["shared", 0]
   ]);
 
-  // ADR-126 v3 D12 — cold tar pull latency per layer (session = workspace.tar
-  // restore, shared = per-blob hydrate from `assistant-media/workspaces/<wsid>/shared/...`).
+  // Cold tar pull latency per layer (session = workspace.tar restore, shared =
+  // per-blob hydrate from the persisted workspace object prefix).
   private readonly snapshotColdPullLatency = new Map<
     SnapshotColdPullLayer,
     {

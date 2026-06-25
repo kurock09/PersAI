@@ -117,13 +117,13 @@ export class SandboxMetricsService {
       "# HELP sandbox_workspace_quota_bytes_used Approximate bytes resident under /workspace/ per assistant (last observed by the bridge).",
       "# TYPE sandbox_workspace_quota_bytes_used gauge",
       `sandbox_workspace_quota_bytes_used ${workspaceQuotaUsage.workspace}`,
-      "# HELP sandbox_shared_quota_bytes_used Approximate bytes resident under /shared/<workspaceId>/ (last observed by the bridge).",
+      "# HELP sandbox_shared_quota_bytes_used Approximate bytes resident under persisted workspace IO areas (last observed by the bridge).",
       "# TYPE sandbox_shared_quota_bytes_used gauge",
       `sandbox_shared_quota_bytes_used ${workspaceQuotaUsage.shared}`
     );
 
-    // ADR-126 v3 D12 — snapshot_cold_pull_latency_ms labelled {layer} (session = workspace.tar
-    // restore on pod recreate; shared = per-blob hydrate from the shared GCS prefix).
+    // snapshot_cold_pull_latency_ms labelled {layer} (session = workspace.tar
+    // restore on pod recreate; shared = per-blob hydrate from the persisted workspace GCS prefix).
     const snapshotColdPull = this.sandboxObservabilityService.getSnapshotColdPullLatency();
     const metricName = "snapshot_cold_pull_latency_ms";
     lines.push(

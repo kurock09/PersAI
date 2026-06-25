@@ -690,9 +690,9 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
   ]);
 
   const workspaceId = "workspace-code-1";
-  const sourceStoragePath = "/shared/input/source.pdf";
-  const sharedObjectKey = `assistant-media/workspaces/${workspaceId}/shared/input/source.pdf`;
-  const storedObjects = new Map<string, Buffer>([[sharedObjectKey, sourcePdfBytes]]);
+  const sourceStoragePath = "/workspace/input/source.pdf";
+  const workspaceObjectKey = `assistant-media/workspaces/${workspaceId}/workspace/input/source.pdf`;
+  const storedObjects = new Map<string, Buffer>([[workspaceObjectKey, sourcePdfBytes]]);
 
   const service = new SandboxService(
     {
@@ -726,8 +726,8 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
       buildSandboxObjectKey(input: { assistantId: string; jobId: string; relativePath: string }) {
         return `sandbox/${input.assistantId}/${input.jobId}/${input.relativePath}`;
       },
-      buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
-        return `assistant-media/workspaces/${input.workspaceId}/shared/${input.workspaceRelPath.replace(/^\/shared\//, "")}`;
+      buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        return `assistant-media/workspaces/${input.workspaceId}/workspace/${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
       },
       buildSessionSnapshotKey() {
         return "snap/key";

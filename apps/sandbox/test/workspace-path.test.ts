@@ -2,22 +2,19 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   assertAllowedMountPrefix,
-  buildSharedRoot,
   buildWorkspaceRoot,
   normalizeAndClampPath,
   normalizePosixPath,
   WorkspacePathError
 } from "../src/workspace-path";
 
-const WS_ID = "11111111-1111-4111-a111-111111111111";
-const SELF_HANDLE = "my-bot";
-const OTHER_HANDLE = "sibling-bot";
+const SELF_HANDLE = "bob";
+const OTHER_HANDLE = "alice";
 
 function makeCtx(opts?: { siblingHandles?: ReadonlySet<string> }) {
   return {
     roots: {
-      workspaceRoot: buildWorkspaceRoot(),
-      sharedRoot: buildSharedRoot(WS_ID)
+      workspaceRoot: buildWorkspaceRoot()
     },
     assistantHandle: SELF_HANDLE,
     siblingHandles: opts?.siblingHandles ?? new Set<string>()
@@ -106,113 +103,54 @@ test("normalizeAndClampPath: .. traversal that would escape root is rejected via
 
 // ─── assertAllowedMountPrefix ─────────────────────────────────────────────────
 
-test("assertAllowedMountPrefix: /workspace/... → kind=workspace", () => {
-  const result = assertAllowedMountPrefix("/workspace/chats/c1/out.txt", makeCtx());
-  assert.equal(result.role.kind, "workspace");
-  assert.equal(result.absolutePath, "/workspace/chats/c1/out.txt");
-  assert.equal(result.relativePath, "chats/c1/out.txt");
+test("assertAllowedMountPrefix: /workspace/input/x.txt → workspace_input", () => {
+  const result = assertAllowedMountPrefix("/workspace/input/x.txt", makeCtx());
+  assert.equal(result.role.kind, "workspace_input");
+  assert.equal(result.absolutePath, "/workspace/input/x.txt");
+  assert.equal(result.relativePath, "input/x.txt");
 });
 
-test("assertAllowedMountPrefix: /shared/<wsid>/input/... → kind=shared_input", () => {
-  const result = assertAllowedMountPrefix(`/shared/${WS_ID}/input/data.csv`, makeCtx());
-  assert.equal(result.role.kind, "shared_input");
-  assert.equal(result.relativePath, "data.csv");
-});
-
-test("assertAllowedMountPrefix: /shared/<wsid>/outbound/<self-handle>/... → kind=shared_outbound_self", () => {
-  const result = assertAllowedMountPrefix(
-    `/shared/${WS_ID}/outbound/${SELF_HANDLE}/out.png`,
-    makeCtx()
-  );
-  assert.equal(result.role.kind, "shared_outbound_self");
-  if (result.role.kind === "shared_outbound_self") {
+test("assertAllowedMountPrefix: /workspace/outbound/self/y.txt → workspace_outbound_self", () => {
+  const result = assertAllowedMountPrefix("/workspace/outbound/self/y.txt", makeCtx());
+  assert.equal(result.role.kind, "workspace_outbound_self");
+  if (result.role.kind === "workspace_outbound_self") {
     assert.equal(result.role.handle, SELF_HANDLE);
   }
 });
 
-test("assertAllowedMountPrefix: /shared/<wsid>/outbound/<sibling>/... → kind=shared_outbound_other", () => {
+test("assertAllowedMountPrefix: /workspace/outbound/alice/z.txt → workspace_outbound_other", () => {
   const ctx = makeCtx({ siblingHandles: new Set([OTHER_HANDLE]) });
-  const result = assertAllowedMountPrefix(
-    `/shared/${WS_ID}/outbound/${OTHER_HANDLE}/file.csv`,
-    ctx
-  );
-  assert.equal(result.role.kind, "shared_outbound_other");
-  if (result.role.kind === "shared_outbound_other") {
+  const result = assertAllowedMountPrefix("/workspace/outbound/alice/z.txt", ctx);
+  assert.equal(result.role.kind, "workspace_outbound_other");
+  if (result.role.kind === "workspace_outbound_other") {
     assert.equal(result.role.handle, OTHER_HANDLE);
   }
 });
 
-test("assertAllowedMountPrefix: /shared/<wsid>/outbound/<unknown> → throws outside_allowed_mount", () => {
+test("assertAllowedMountPrefix: /workspace/scratch/notes.md → workspace_scratch", () => {
+  const result = assertAllowedMountPrefix("/workspace/scratch/notes.md", makeCtx());
+  assert.equal(result.role.kind, "workspace_scratch");
+  assert.equal(result.relativePath, "scratch/notes.md");
+});
+
+test("assertAllowedMountPrefix: /workspace/outbound directly → invalid_path", () => {
   assert.throws(
-    () => assertAllowedMountPrefix(`/shared/${WS_ID}/outbound/ghost-bot/x.txt`, makeCtx()),
+    () => assertAllowedMountPrefix("/workspace/outbound", makeCtx()),
+    (e: unknown) => e instanceof WorkspacePathError && e.code === "invalid_path"
+  );
+});
+
+test("assertAllowedMountPrefix: /workspace/outbound/unknown/x.txt → outside_allowed_mount", () => {
+  assert.throws(
+    () => assertAllowedMountPrefix("/workspace/outbound/unknown/x.txt", makeCtx()),
     (e: unknown) => e instanceof WorkspacePathError && e.code === "outside_allowed_mount"
   );
 });
 
-test("assertAllowedMountPrefix: /shared/<wsid>/outbound/self → kind=shared_outbound_self (symlink target)", () => {
-  const result = assertAllowedMountPrefix(`/shared/${WS_ID}/outbound/self`, makeCtx());
-  assert.equal(result.role.kind, "shared_outbound_self");
-});
-
-test("assertAllowedMountPrefix: /shared/<wsid>/outbound/self/file → kind=shared_outbound_self", () => {
-  const result = assertAllowedMountPrefix(`/shared/${WS_ID}/outbound/self/report.pdf`, makeCtx());
-  assert.equal(result.role.kind, "shared_outbound_self");
-  if (result.role.kind === "shared_outbound_self") {
-    assert.equal(result.role.handle, SELF_HANDLE);
-  }
-});
-
-// ─── ADR-126 v3 model-facing canonical (wsId omitted) ────────────────────────
-//
-// resolveUniqueSharedInputStoragePath emits `/shared/input/<name>` and sandbox
-// attach returns `/shared/outbound/self/<name>` — both omit the workspaceId
-// because the model never sees it. assertAllowedMountPrefix must translate
-// these into the pod's physical mount root `/shared/<workspaceId>/...` instead
-// of rejecting them. Live regression 2026-06-25: `files.read /shared/input/<x>`
-// after a web upload returned `outside_allowed_mount`, breaking inbound reads
-// end-to-end.
-
-test("assertAllowedMountPrefix: model-canonical /shared/input/<name> resolves to wsId-prefixed shared_input", () => {
-  const result = assertAllowedMountPrefix("/shared/input/3470.png", makeCtx());
-  assert.equal(result.role.kind, "shared_input");
-  assert.equal(result.absolutePath, `/shared/${WS_ID}/input/3470.png`);
-  assert.equal(result.relativePath, "3470.png");
-});
-
-test("assertAllowedMountPrefix: model-canonical /shared/outbound/self/<name> resolves to wsId-prefixed shared_outbound_self", () => {
-  const result = assertAllowedMountPrefix("/shared/outbound/self/edited.png", makeCtx());
-  assert.equal(result.role.kind, "shared_outbound_self");
-  assert.equal(result.absolutePath, `/shared/${WS_ID}/outbound/self/edited.png`);
-  if (result.role.kind === "shared_outbound_self") {
-    assert.equal(result.role.handle, SELF_HANDLE);
-  }
-});
-
-test("assertAllowedMountPrefix: model-canonical /shared/outbound/<self-handle>/<x> resolves to shared_outbound_self", () => {
-  const result = assertAllowedMountPrefix(`/shared/outbound/${SELF_HANDLE}/out.png`, makeCtx());
-  assert.equal(result.role.kind, "shared_outbound_self");
-  assert.equal(result.absolutePath, `/shared/${WS_ID}/outbound/${SELF_HANDLE}/out.png`);
-});
-
-test("assertAllowedMountPrefix: model-canonical /shared/outbound/<sibling>/<x> resolves to shared_outbound_other", () => {
-  const ctx = makeCtx({ siblingHandles: new Set([OTHER_HANDLE]) });
-  const result = assertAllowedMountPrefix(`/shared/outbound/${OTHER_HANDLE}/file.csv`, ctx);
-  assert.equal(result.role.kind, "shared_outbound_other");
-  assert.equal(result.absolutePath, `/shared/${WS_ID}/outbound/${OTHER_HANDLE}/file.csv`);
-});
-
-test("assertAllowedMountPrefix: model-canonical /shared/input (bare) tolerates and resolves to shared input root", () => {
-  const result = assertAllowedMountPrefix("/shared/input", makeCtx());
-  assert.equal(result.role.kind, "shared_input");
-  assert.equal(result.absolutePath, `/shared/${WS_ID}/input`);
-  assert.equal(result.relativePath, "");
-});
-
-test("assertAllowedMountPrefix: model-canonical /shared/outbound/unknown-handle still rejects as outside_allowed_mount", () => {
-  // Translation MUST NOT bypass the handle-allowlist check: an unknown handle
-  // is still illegal even after the wsId rewrite.
+test("assertAllowedMountPrefix: retired shared path → throws outside_allowed_mount", () => {
+  const retiredPath = "/shared" + "/input/x.txt";
   assert.throws(
-    () => assertAllowedMountPrefix("/shared/outbound/nobody/x.txt", makeCtx()),
+    () => assertAllowedMountPrefix(retiredPath, makeCtx()),
     (e: unknown) => e instanceof WorkspacePathError && e.code === "outside_allowed_mount"
   );
 });
@@ -225,10 +163,6 @@ test("assertAllowedMountPrefix: /etc/passwd → throws outside_allowed_mount", (
 });
 
 // ─── builder helpers ──────────────────────────────────────────────────────────
-
-test("buildSharedRoot returns canonical /shared/<workspaceId>", () => {
-  assert.equal(buildSharedRoot(WS_ID), `/shared/${WS_ID}`);
-});
 
 test("buildWorkspaceRoot returns /workspace", () => {
   assert.equal(buildWorkspaceRoot(), "/workspace");

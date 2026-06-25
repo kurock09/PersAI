@@ -15,7 +15,7 @@ import { SandboxPrismaService } from "./sandbox-prisma.service";
 import { WorkspaceAuditService } from "./workspace-audit.service";
 
 /**
- * ADR-126 Slice 3 — deferred garbage collector for sandbox workspace state.
+ * ADR-128 Slice 1 — deferred garbage collector for sandbox workspace state.
  *
  * The reaper drains rows from `sandbox_workspace_gc_lease` whose
  * `scheduled_at <= now() AND purged_at IS NULL`, validates the kind-specific
@@ -29,18 +29,18 @@ import { WorkspaceAuditService } from "./workspace-audit.service";
  *       - delete `workspace_file_metadata` rows whose `path`
  *         starts with `/workspace/chats/<chatId>/`.
  *   * `assistant_outbound` (scheduled `now() + 7d`):
- *       - delete `/shared/<workspaceId>/outbound/<handle>/` from every warm
- *         session pod in the workspace;
+ *       - delete `/workspace/outbound/<handle>/` from every warm session pod
+ *         in the workspace;
  *       - drop the GCS prefix
- *         `<media-prefix>/workspaces/<workspaceId>/shared/outbound/<handle>/`;
+ *         `<media-prefix>/workspaces/<workspaceId>/workspace/outbound/<handle>/`;
  *       - delete `workspace_file_metadata` rows whose `workspace_id = <workspaceId>`
- *         and `path LIKE '/shared/outbound/<handle>/%'`.
+ *         and `path LIKE '/workspace/outbound/<handle>/%'`.
  *   * `workspace_shared` (scheduled `now() + 30d`):
- *       - delete `/shared/<workspaceId>/` from every warm session pod in the
- *         workspace;
- *       - drop the GCS prefix `<media-prefix>/workspaces/<workspaceId>/shared/`;
+ *       - delete workspace input/outbound persisted areas from every warm
+ *         session pod in the workspace;
+ *       - drop the GCS prefix `<media-prefix>/workspaces/<workspaceId>/workspace/`;
  *       - delete `workspace_file_metadata` rows whose `workspace_id = <workspaceId>`
- *         and `path LIKE '/shared/%'`.
+ *         and `path LIKE '/workspace/%'`.
  *
  * On any failure the lease stays open; the next tick retries. Successful
  * purges set `purged_at = now()` so the row is no longer returned by the due
@@ -243,7 +243,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
     const meta = ASSISTANT_OUTBOUND_METADATA.parse(lease.metadata);
     // GCS prefix.
     try {
-      const prefix = this.sandboxObjectStorageService.buildSharedPrefix({
+      const prefix = this.sandboxObjectStorageService.buildWorkspacePrefix({
         workspaceId: meta.workspaceId,
         subPath: `outbound/${meta.handle}`
       });
@@ -256,7 +256,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
     // Warm pods (best-effort).
     const pods = await this.execPodBridgeService.listWarmSessionPodsForWorkspace(meta.workspaceId);
     let podsTouched = 0;
-    const outboundPath = `/shared/${meta.workspaceId}/outbound/${meta.handle}`;
+    const outboundPath = `/workspace/outbound/${meta.handle}`;
     for (const pod of pods) {
       try {
         await this.execPodBridgeService.execShellInSessionPod({
@@ -277,7 +277,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
     }
     const metadataRowsRemoved = await this.deleteWorkspaceFileMetadataByPathPrefix({
       workspaceId: meta.workspaceId,
-      relPathPrefix: `/shared/outbound/${meta.handle}/`
+      relPathPrefix: `/workspace/outbound/${meta.handle}/`
     });
     await this.markLeasePurged(lease.id);
     this.workspaceAuditService.recordGcPurged({
@@ -300,7 +300,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
     WORKSPACE_SHARED_METADATA.parse(lease.metadata);
     const workspaceId = lease.targetId;
     try {
-      const prefix = this.sandboxObjectStorageService.buildSharedPrefix({ workspaceId });
+      const prefix = this.sandboxObjectStorageService.buildWorkspacePrefix({ workspaceId });
       await this.sandboxObjectStorageService.deletePrefix(prefix);
     } catch (error) {
       this.logger.warn(
@@ -309,7 +309,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
     }
     const pods = await this.execPodBridgeService.listWarmSessionPodsForWorkspace(workspaceId);
     let podsTouched = 0;
-    const sharedPath = `/shared/${workspaceId}`;
+    const workspacePersistedPath = "/workspace";
     for (const pod of pods) {
       try {
         await this.execPodBridgeService.execShellInSessionPod({
@@ -318,7 +318,10 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
           siblingHandles: pods.filter((p) => p.podName !== pod.podName).map((p) => p.handle),
           workspaceId,
           policy: this.gcSandboxPolicy(),
-          shellCommand: `rm -rf ${posixSingleQuote(sharedPath)}/*`,
+          shellCommand: [
+            `rm -rf ${posixSingleQuote(`${workspacePersistedPath}/input`)}`,
+            `rm -rf ${posixSingleQuote(`${workspacePersistedPath}/outbound`)}`
+          ].join(" && "),
           stdin: null
         });
         podsTouched += 1;
@@ -330,7 +333,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
     }
     const metadataRowsRemoved = await this.deleteWorkspaceFileMetadataByPathPrefix({
       workspaceId,
-      relPathPrefix: `/shared/`
+      relPathPrefix: `/workspace/`
     });
     await this.markLeasePurged(lease.id);
     this.workspaceAuditService.recordGcPurged({

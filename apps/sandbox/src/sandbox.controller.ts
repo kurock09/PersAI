@@ -61,8 +61,8 @@ export class SandboxController {
     return this.sandboxService.submitJob(body);
   }
 
-  @Post("/api/v1/jobs/shared-outbound-write")
-  async writeSharedOutbound(
+  @Post("/api/v1/jobs/workspace-outbound-write")
+  async writeWorkspaceOutbound(
     @Headers("authorization") authorization: string | undefined,
     @Body() body: unknown
   ) {
@@ -91,7 +91,7 @@ export class SandboxController {
     const contents = Buffer.from(contentBase64, "base64");
     const workspaceQuotaBytes = this.parseOptionalNullableNumber(row.workspaceQuotaBytes);
     const sharedQuotaBytes = this.parseOptionalNullableNumber(row.sharedQuotaBytes);
-    const result = await this.sandboxService.writeSharedOutbound({
+    const result = await this.sandboxService.writeWorkspaceOutbound({
       assistantId,
       workspaceId,
       assistantHandle,
@@ -116,14 +116,14 @@ export class SandboxController {
   }
 
   /**
-   * ADR-126 v3 amendment (2026-06-25) — control-plane inbound bytes-push.
-   * Mirror of `shared-outbound-write` but for the `/shared/<wsId>/input/`
+   * ADR-128 Slice 1 — control-plane inbound bytes-push.
+   * Mirror of `workspace-outbound-write` but for the `/workspace/input/`
    * direction; the api calls this from `manage-chat-media.stageForWebThread`
    * right after the GCS upload so the running pod can see the bytes
    * immediately (instead of only after the next cold-start hydrate).
    */
-  @Post("/api/v1/jobs/shared-inbound-write")
-  async writeSharedInbound(
+  @Post("/api/v1/jobs/workspace-inbound-write")
+  async writeWorkspaceInbound(
     @Headers("authorization") authorization: string | undefined,
     @Body() body: unknown
   ) {
@@ -148,7 +148,7 @@ export class SandboxController {
         )
       : null;
     const contents = Buffer.from(contentBase64, "base64");
-    const result = await this.sandboxService.writeSharedInbound({
+    const result = await this.sandboxService.writeWorkspaceInbound({
       assistantId,
       workspaceId,
       assistantHandle,
@@ -170,8 +170,8 @@ export class SandboxController {
     };
   }
 
-  @Post("/api/v1/control/workspaces/:workspaceId/shared/rm")
-  async removeSharedFileFromHotPods(
+  @Post("/api/v1/control/workspaces/:workspaceId/workspace/rm")
+  async removeWorkspaceFileFromHotPods(
     @Headers("authorization") authorization: string | undefined,
     @Param("workspaceId") workspaceId: string,
     @Body() body: unknown
@@ -182,7 +182,7 @@ export class SandboxController {
     }
     const row = body as Record<string, unknown>;
     const path = this.requireNonEmptyString(row.path, "path");
-    const result = await this.sandboxService.removeSharedFileFromHotPods({
+    const result = await this.sandboxService.removeWorkspaceFileFromHotPods({
       workspaceId,
       path
     });

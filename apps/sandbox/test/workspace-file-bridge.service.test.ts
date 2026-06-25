@@ -70,7 +70,7 @@ function makeStorage() {
   const savedObjects: SaveCall[] = [];
   const deletedPrefixes: string[] = [];
   const service = {
-    buildSharedObjectKey(input: { workspaceId: string; workspaceRelPath: string }): string {
+    buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }): string {
       return `test-media/workspaces/${input.workspaceId}${input.workspaceRelPath}`;
     },
     async saveObject(input: SaveCall): Promise<number> {
@@ -81,8 +81,8 @@ function makeStorage() {
       deletedPrefixes.push(prefix);
       return 0;
     },
-    buildSharedPrefix(input: { workspaceId: string; subPath?: string }): string {
-      return `test-media/workspaces/${input.workspaceId}/shared/${input.subPath ?? ""}`;
+    buildWorkspacePrefix(input: { workspaceId: string; subPath?: string }): string {
+      return `test-media/workspaces/${input.workspaceId}/workspace/${input.subPath ?? ""}`;
     }
   } as never;
   return { savedObjects, deletedPrefixes, service };
@@ -134,7 +134,7 @@ test("workspaceFileWrite: successful overwrite to /workspace/foo.txt", async () 
   assert.ok(exec.calls[0]?.shellCommand.includes("cat > '/workspace/foo.txt'"));
   assert.ok(exec.calls[0]?.shellCommand.includes("mkdir -p '/workspace'"));
   assert.equal(exec.calls[0]?.stdin?.toString(), "hello world");
-  // /workspace is not shared → no GCS mirror
+  // scratch writes are not persisted → no GCS mirror
   assert.equal(storage.savedObjects.length, 0);
   assert.equal(audit.ops.length, 1);
   assert.equal(audit.ops[0]?.status, "ok");
@@ -158,13 +158,13 @@ test("workspaceFileWrite: create_only collision (exitCode 64) → reason=create_
   assert.equal(audit.ops[0]?.status, "error");
 });
 
-test("workspaceFileWrite: shared/input path → write_denied, exec NOT called", async () => {
+test("workspaceFileWrite: workspace input path → write_denied, exec NOT called", async () => {
   const exec = makeExec();
   const audit = makeAudit();
   const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
 
   const result = await bridge.workspaceFileWrite(CTX, {
-    path: `/shared/${WS_ID}/input/upload.csv`,
+    path: "/workspace/input/upload.csv",
     contents: Buffer.from("x")
   });
 
@@ -185,7 +185,7 @@ test("workspaceFileWrite: sibling outbound path → write_denied, exec NOT calle
   );
 
   const result = await bridge.workspaceFileWrite(CTX, {
-    path: `/shared/${WS_ID}/outbound/${OTHER_HANDLE}/file.txt`,
+    path: `/workspace/outbound/${OTHER_HANDLE}/file.txt`,
     contents: Buffer.from("x")
   });
 
@@ -194,7 +194,7 @@ test("workspaceFileWrite: sibling outbound path → write_denied, exec NOT calle
   assert.equal(exec.calls.length, 0);
 });
 
-test("workspaceFileWrite: self outbound /shared/outbound/self/foo.png → exec called + saveObject called", async () => {
+test("workspaceFileWrite: self outbound /workspace/outbound/self/foo.png → exec called + saveObject called", async () => {
   const exec = makeExec([{ exitCode: 0, stdout: "", stderr: "" }]);
   const storage = makeStorage();
   const audit = makeAudit();
@@ -202,13 +202,13 @@ test("workspaceFileWrite: self outbound /shared/outbound/self/foo.png → exec c
   const contents = Buffer.from("PNG_BYTES");
 
   const result = await bridge.workspaceFileWrite(CTX, {
-    path: `/shared/${WS_ID}/outbound/self/foo.png`,
+    path: "/workspace/outbound/self/foo.png",
     contents
   });
 
   assert.equal(result.success, true);
   assert.equal(exec.calls.length, 1);
-  // exec command targets the resolved path (self symlink → /shared/<wsid>/outbound/self/foo.png)
+  // exec command targets the resolved workspace path.
   assert.ok(exec.calls[0]?.shellCommand.includes("foo.png"));
   // GCS mirror: saveObject must be called once
   assert.equal(storage.savedObjects.length, 1);
@@ -217,9 +217,9 @@ test("workspaceFileWrite: self outbound /shared/outbound/self/foo.png → exec c
   assert.equal(audit.ops[0]?.status, "ok");
 });
 
-// ─── writeSharedOutboundWithCollision ─────────────────────────────────────────
+// ─── writeWorkspaceOutboundWithCollision ──────────────────────────────────────
 
-test("writeSharedOutboundWithCollision: empty outbound dir → exact basename lands", async () => {
+test("writeWorkspaceOutboundWithCollision: empty outbound dir → exact basename lands", async () => {
   const exec = makeExec([
     { exitCode: 0, stdout: "", stderr: "" },
     { exitCode: 0, stdout: "", stderr: "" }
@@ -232,7 +232,7 @@ test("writeSharedOutboundWithCollision: empty outbound dir → exact basename la
   );
   const contents = Buffer.from("%PDF-1.4");
 
-  const result = await bridge.writeSharedOutboundWithCollision(CTX, {
+  const result = await bridge.writeWorkspaceOutboundWithCollision(CTX, {
     basename: "report.pdf",
     contents,
     collisionStrategy: "numeric_suffix"
@@ -240,13 +240,13 @@ test("writeSharedOutboundWithCollision: empty outbound dir → exact basename la
 
   assert.equal(result.success, true);
   assert.equal(result.data.resolvedBasename, "report.pdf");
-  assert.equal(result.data.workspaceRelPath, "/shared/outbound/self/report.pdf");
+  assert.equal(result.data.workspaceRelPath, "/workspace/outbound/self/report.pdf");
   assert.equal(exec.calls.length, 2);
   assert.ok(exec.calls[1]?.shellCommand.includes("report.pdf"));
 });
 
-test("writeSharedOutboundWithCollision: report.pdf exists → report (2).pdf lands", async () => {
-  const outboundDir = `/shared/${WS_ID}/outbound/self`;
+test("writeWorkspaceOutboundWithCollision: report.pdf exists → report (2).pdf lands", async () => {
+  const outboundDir = "/workspace/outbound/self";
   const exec = makeExec([
     {
       exitCode: 0,
@@ -262,7 +262,7 @@ test("writeSharedOutboundWithCollision: report.pdf exists → report (2).pdf lan
     makeAudit().service
   );
 
-  const result = await bridge.writeSharedOutboundWithCollision(CTX, {
+  const result = await bridge.writeWorkspaceOutboundWithCollision(CTX, {
     basename: "report.pdf",
     contents: Buffer.from("%PDF"),
     collisionStrategy: "numeric_suffix"
@@ -270,12 +270,12 @@ test("writeSharedOutboundWithCollision: report.pdf exists → report (2).pdf lan
 
   assert.equal(result.success, true);
   assert.equal(result.data.resolvedBasename, "report (2).pdf");
-  assert.equal(result.data.workspaceRelPath, "/shared/outbound/self/report (2).pdf");
+  assert.equal(result.data.workspaceRelPath, "/workspace/outbound/self/report (2).pdf");
   assert.ok(exec.calls[1]?.shellCommand.includes("report (2).pdf"));
 });
 
-test("writeSharedOutboundWithCollision: report.pdf and report (2).pdf exist → report (3).pdf lands", async () => {
-  const outboundDir = `/shared/${WS_ID}/outbound/self`;
+test("writeWorkspaceOutboundWithCollision: report.pdf and report (2).pdf exist → report (3).pdf lands", async () => {
+  const outboundDir = "/workspace/outbound/self";
   const exec = makeExec([
     {
       exitCode: 0,
@@ -294,7 +294,7 @@ test("writeSharedOutboundWithCollision: report.pdf and report (2).pdf exist → 
     makeAudit().service
   );
 
-  const result = await bridge.writeSharedOutboundWithCollision(CTX, {
+  const result = await bridge.writeWorkspaceOutboundWithCollision(CTX, {
     basename: "report.pdf",
     contents: Buffer.from("%PDF"),
     collisionStrategy: "numeric_suffix"
@@ -302,7 +302,7 @@ test("writeSharedOutboundWithCollision: report.pdf and report (2).pdf exist → 
 
   assert.equal(result.success, true);
   assert.equal(result.data.resolvedBasename, "report (3).pdf");
-  assert.equal(result.data.workspaceRelPath, "/shared/outbound/self/report (3).pdf");
+  assert.equal(result.data.workspaceRelPath, "/workspace/outbound/self/report (3).pdf");
 });
 
 // ─── workspaceFileRead ────────────────────────────────────────────────────────
@@ -444,13 +444,13 @@ test("workspaceFileDelete: successful delete → exec called, removed=true, audi
   assert.equal(audit.ops[0]?.status, "ok");
 });
 
-test("workspaceFileDelete: shared input path → delete_denied, exec NOT called", async () => {
+test("workspaceFileDelete: workspace input path → delete_denied, exec NOT called", async () => {
   const exec = makeExec();
   const audit = makeAudit();
   const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
 
   const result = await bridge.workspaceFileDelete(CTX, {
-    path: `/shared/${WS_ID}/input/protected.csv`
+    path: "/workspace/input/protected.csv"
   });
 
   assert.equal(result.success, false);
@@ -496,14 +496,14 @@ test("workspaceFileWrite: shared cap exceeded → shared_quota_exhausted", async
   const contents = Buffer.from("y".repeat(200));
 
   const result = await bridge.workspaceFileWrite(makeQuotaCtx({ sharedQuotaBytes: 1000 }), {
-    path: `/shared/${WS_ID}/outbound/self/out.csv`,
+    path: "/workspace/outbound/self/out.csv",
     contents
   });
 
   assert.equal(result.success, false);
   assert.equal(result.reason, "shared_quota_exhausted");
   assert.equal(exec.calls.length, 1);
-  assert.ok(exec.calls[0]?.shellCommand.includes(`du -sb '/shared/${WS_ID}/'`));
+  assert.ok(exec.calls[0]?.shellCommand.includes("du -sb '/workspace/'"));
   assert.equal(audit.ops[0]?.reason, "shared_quota_exhausted");
 });
 
@@ -549,13 +549,13 @@ test("workspaceFileWrite: current + new under cap → write proceeds", async () 
   assert.ok(exec.calls[1]?.shellCommand.includes("cat >"));
 });
 
-test("writeSharedOutboundWithCollision: shared cap exceeded → shared_quota_exhausted", async () => {
+test("writeWorkspaceOutboundWithCollision: shared cap exceeded → shared_quota_exhausted", async () => {
   const exec = makeExec([{ exitCode: 0, stdout: "900\n", stderr: "" }]);
   const audit = makeAudit();
   const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
   const contents = Buffer.from("y".repeat(200));
 
-  const result = await bridge.writeSharedOutboundWithCollision(
+  const result = await bridge.writeWorkspaceOutboundWithCollision(
     makeQuotaCtx({ sharedQuotaBytes: 1000 }),
     {
       basename: "artefact.bin",
@@ -567,7 +567,7 @@ test("writeSharedOutboundWithCollision: shared cap exceeded → shared_quota_exh
   assert.equal(result.success, false);
   assert.equal(result.reason, "shared_quota_exhausted");
   assert.equal(exec.calls.length, 1);
-  assert.ok(exec.calls[0]?.shellCommand.includes(`du -sb '/shared/${WS_ID}/'`));
+  assert.ok(exec.calls[0]?.shellCommand.includes("du -sb '/workspace/'"));
   assert.equal(audit.ops[0]?.reason, "shared_quota_exhausted");
 });
 
@@ -595,7 +595,7 @@ test("workspaceFileWrite: path traversal /workspace/../etc/passwd → throws Wor
 
 // ─── workspaceFileCopy ────────────────────────────────────────────────────────
 
-test("workspaceFileCopy: workspace→shared success (cp + GCS mirror)", async () => {
+test("workspaceFileCopy: scratch to outbound success (cp + GCS mirror)", async () => {
   const fileBytes = Buffer.from("attach-me");
   const exec = makeExec([
     { exitCode: 0, stdout: "", stderr: "" },
@@ -610,7 +610,7 @@ test("workspaceFileCopy: workspace→shared success (cp + GCS mirror)", async ()
 
   const result = await bridge.workspaceFileCopy(CTX, {
     sourcePath: "/workspace/report.csv",
-    targetPath: `/shared/${WS_ID}/outbound/self/report.csv`
+    targetPath: "/workspace/outbound/self/report.csv"
   });
 
   assert.equal(result.success, true);
@@ -619,7 +619,7 @@ test("workspaceFileCopy: workspace→shared success (cp + GCS mirror)", async ()
   assert.ok(exec.calls[0]?.shellCommand.includes("cp -f"));
 });
 
-test("workspaceFileCopy: shared_outbound_self→shared_outbound_self no-op", async () => {
+test("workspaceFileCopy: workspace_outbound_self to same path no-op", async () => {
   const exec = makeExec([
     {
       exitCode: 0,
@@ -634,7 +634,7 @@ test("workspaceFileCopy: shared_outbound_self→shared_outbound_self no-op", asy
     makeAudit().service
   );
 
-  const path = `/shared/${WS_ID}/outbound/self/report.csv`;
+  const path = "/workspace/outbound/self/report.csv";
   const result = await bridge.workspaceFileCopy(CTX, {
     sourcePath: path,
     targetPath: path
@@ -646,7 +646,7 @@ test("workspaceFileCopy: shared_outbound_self→shared_outbound_self no-op", asy
   assert.equal(exec.calls.length, 1);
 });
 
-test("workspaceFileCopy: shared_input source rejected", async () => {
+test("workspaceFileCopy: workspace_input source rejected", async () => {
   const bridge = makeBridge(
     makeExec().service,
     makeStorage().service,
@@ -657,8 +657,8 @@ test("workspaceFileCopy: shared_input source rejected", async () => {
   await assert.rejects(
     () =>
       bridge.workspaceFileCopy(CTX, {
-        sourcePath: `/shared/${WS_ID}/input/sales.csv`,
-        targetPath: `/shared/${WS_ID}/outbound/self/sales.csv`
+        sourcePath: "/workspace/input/sales.csv",
+        targetPath: "/workspace/outbound/self/sales.csv"
       }),
     (e: unknown) => e instanceof WorkspacePathError
   );
@@ -675,20 +675,20 @@ test("workspaceFileCopy: sibling outbound source rejected", async () => {
   await assert.rejects(
     () =>
       bridge.workspaceFileCopy(CTX, {
-        sourcePath: `/shared/${WS_ID}/outbound/${OTHER_HANDLE}/secret.csv`,
-        targetPath: `/shared/${WS_ID}/outbound/self/secret.csv`
+        sourcePath: `/workspace/outbound/${OTHER_HANDLE}/secret.csv`,
+        targetPath: "/workspace/outbound/self/secret.csv"
       }),
     (e: unknown) => e instanceof WorkspacePathError
   );
 });
 
-// ─── ADR-126 v3 amendment (2026-06-25): writeSharedInputControlPlane ──────────
+// ─── ADR-128 Slice 1: writeWorkspaceInputControlPlane ─────────────────────────
 //
 // Hot-pod inbound bytes-push. Called by api `manage-chat-media.stageForWebThread`
 // right after the GCS upload so the running pod sees the upload immediately
 // instead of only after the next cold-start hydrate.
 
-test("writeSharedInputControlPlane: pod Running → atomic chmod gymnastics + write + mode=written", async () => {
+test("writeWorkspaceInputControlPlane: pod Running → atomic chmod gymnastics + write + mode=written", async () => {
   const exec = makeExec([], {
     tryHotPodResponses: [{ exitCode: 0, stdout: "", stderr: "" }]
   });
@@ -696,7 +696,7 @@ test("writeSharedInputControlPlane: pod Running → atomic chmod gymnastics + wr
   const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
   const contents = Buffer.from("upload payload");
 
-  const result = await bridge.writeSharedInputControlPlane(CTX, {
+  const result = await bridge.writeWorkspaceInputControlPlane(CTX, {
     basename: "3470.png",
     contents
   });
@@ -704,8 +704,8 @@ test("writeSharedInputControlPlane: pod Running → atomic chmod gymnastics + wr
   assert.equal(result.success, true);
   assert.equal(result.reason, null);
   assert.equal(result.data.mode, "written");
-  assert.equal(result.data.workspaceRelPath, "/shared/input/3470.png");
-  assert.equal(result.data.absolutePath, `/shared/${WS_ID}/input/3470.png`);
+  assert.equal(result.data.workspaceRelPath, "/workspace/input/3470.png");
+  assert.equal(result.data.absolutePath, "/workspace/input/3470.png");
   assert.equal(result.data.bytes, contents.length);
   assert.equal(exec.tryCalls.length, 1);
   const shell = exec.tryCalls[0]?.shellCommand ?? "";
@@ -714,10 +714,10 @@ test("writeSharedInputControlPlane: pod Running → atomic chmod gymnastics + wr
   // Without `chmod 0744 input/` first the cat would fail (dir is 0444 after
   // bootstrap); without `chmod 0444` after the file the assistant could
   // overwrite uploads from inside the model surface.
-  assert.ok(shell.includes(`chmod 0744 '/shared/${WS_ID}/input'`), shell);
-  assert.ok(shell.includes(`cat > '/shared/${WS_ID}/input/3470.png'`), shell);
-  assert.ok(shell.includes(`chmod 0444 '/shared/${WS_ID}/input/3470.png'`), shell);
-  assert.ok(shell.includes(`chmod 0444 '/shared/${WS_ID}/input'`), shell);
+  assert.ok(shell.includes("chmod 0755 '/workspace/input'"), shell);
+  assert.ok(shell.includes("cat > '/workspace/input/3470.png'"), shell);
+  assert.ok(shell.includes("chmod 0444 '/workspace/input/3470.png'"), shell);
+  assert.ok(shell.includes("chmod 0555 '/workspace/input'"), shell);
   assert.equal(exec.tryCalls[0]?.stdin?.toString(), "upload payload");
   // execShellInSessionPod must NOT have been called: control-plane writes
   // must NEVER trigger cold-pod bootstrap, only push into already-warm pods.
@@ -725,7 +725,7 @@ test("writeSharedInputControlPlane: pod Running → atomic chmod gymnastics + wr
   assert.equal(audit.ops.at(-1)?.status, "ok");
 });
 
-test("writeSharedInputControlPlane: no Running pod → success with mode=deferred and no exec call", async () => {
+test("writeWorkspaceInputControlPlane: no Running pod → success with mode=deferred and no exec call", async () => {
   // tryHotPodResponses entry of `null` simulates "pod not Running" — the
   // bridge must NOT call execShellInSessionPod (would force cold-start),
   // must NOT throw, and must report mode=deferred so the api treats this as
@@ -735,7 +735,7 @@ test("writeSharedInputControlPlane: no Running pod → success with mode=deferre
   const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
   const contents = Buffer.from("payload");
 
-  const result = await bridge.writeSharedInputControlPlane(CTX, {
+  const result = await bridge.writeWorkspaceInputControlPlane(CTX, {
     basename: "deferred.bin",
     contents
   });
@@ -748,7 +748,7 @@ test("writeSharedInputControlPlane: no Running pod → success with mode=deferre
   assert.equal(audit.ops.at(-1)?.status, "ok");
 });
 
-test("writeSharedInputControlPlane: pod exec fails → success=false with reason=write_failed", async () => {
+test("writeWorkspaceInputControlPlane: pod exec fails → success=false with reason=write_failed", async () => {
   const exec = makeExec([], {
     tryHotPodResponses: [{ exitCode: 1, stdout: "", stderr: "boom" }]
   });
@@ -756,7 +756,7 @@ test("writeSharedInputControlPlane: pod exec fails → success=false with reason
   const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
   const contents = Buffer.from("payload");
 
-  const result = await bridge.writeSharedInputControlPlane(CTX, {
+  const result = await bridge.writeWorkspaceInputControlPlane(CTX, {
     basename: "broken.bin",
     contents
   });
@@ -768,13 +768,13 @@ test("writeSharedInputControlPlane: pod exec fails → success=false with reason
   assert.equal(audit.ops.at(-1)?.reason, "write_failed");
 });
 
-test("writeSharedInputControlPlane: rejects basenames with path separators (defence-in-depth)", async () => {
+test("writeWorkspaceInputControlPlane: rejects basenames with path separators (defence-in-depth)", async () => {
   const exec = makeExec();
   const audit = makeAudit();
   const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
 
   for (const evilBasename of ["../escape.png", "sub/dir.png", "", ".", "..", "\u0000nul"]) {
-    const result = await bridge.writeSharedInputControlPlane(CTX, {
+    const result = await bridge.writeWorkspaceInputControlPlane(CTX, {
       basename: evilBasename,
       contents: Buffer.from("x")
     });

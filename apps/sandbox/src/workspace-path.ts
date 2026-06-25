@@ -1,5 +1,5 @@
 /**
- * ADR-126 Slice 3 — pod-side path containment.
+ * ADR-128 Slice 1 — pod-side path containment.
  *
  * Every model-supplied path in the unified files contract is checked here
  * before it ever reaches the pod. The two helpers are intentionally narrow:
@@ -17,16 +17,14 @@
  * input is normalised to `/` so Windows-typed paths from the model still
  * resolve correctly.
  *
- * The pod-side directory layout (D2 of ADR-126):
+ * The pod-side directory layout is now a single namespace:
  *
- *   /workspace/                                — per-assistant `/workspace/`
- *     /workspace/chats/<chatId>/               — per-chat scratch (Layer B)
- *     /workspace/lib/, /workspace/.npm-global/ — install layer (Layer A)
- *   /shared/<workspaceId>/                     — workspace-shared
- *     /shared/<workspaceId>/input/             — uploaded attachments (RO)
- *     /shared/<workspaceId>/outbound/<handle>/ — this assistant's outbound (RW)
- *     /shared/<workspaceId>/outbound/<other>/  — sibling outbound (R-X)
- *     /shared/<workspaceId>/outbound/self      — symlink → outbound/<handle>
+ *   /workspace/                       — single writable user mount
+ *     /workspace/input/               — uploaded attachments (RO)
+ *     /workspace/outbound/<handle>/   — this assistant's outbound (RW)
+ *     /workspace/outbound/<other>/    — sibling outbound (R-X)
+ *     /workspace/outbound/self        — symlink → outbound/<handle>
+ *     /workspace/<free area>          — assistant scratch
  */
 
 const POSIX_SEPARATOR = "/";
@@ -34,23 +32,21 @@ const PARENT_SEGMENT = "..";
 const CURRENT_SEGMENT = ".";
 
 export type WorkspaceMountRoots = {
-  /** `/workspace` — per-assistant install layer + chat scratch. */
+  /** `/workspace` — the single writable user mount in the pod. */
   workspaceRoot: string;
-  /** `/shared/<workspaceId>` — workspace-shared input + outbound. */
-  sharedRoot: string;
 };
 
 export type WorkspaceMountRole =
-  | { kind: "workspace" }
-  | { kind: "shared_input" }
+  | { kind: "workspace_input" }
   | {
-      kind: "shared_outbound_self";
+      kind: "workspace_outbound_self";
       handle: string;
     }
   | {
-      kind: "shared_outbound_other";
+      kind: "workspace_outbound_other";
       handle: string;
-    };
+    }
+  | { kind: "workspace_scratch" };
 
 export type ResolvedWorkspacePath = {
   /** Absolute POSIX path inside the pod. */
@@ -162,46 +158,33 @@ export function assertAllowedMountPrefix(
   }
 ): ResolvedWorkspacePath {
   const workspaceRoot = normalizePosixPath(context.roots.workspaceRoot);
-  const sharedRoot = normalizePosixPath(context.roots.sharedRoot);
-  // ADR-126 v3 — model-facing canonical paths under `/shared/...` omit the
-  // workspaceId segment (`/shared/input/<name>`, `/shared/outbound/<handle>/<x>`,
-  // `/shared/outbound/self/<x>`) because the model never sees workspaceId.
-  // The pod's physical layout puts those files under `/shared/<workspaceId>/...`
-  // (see D2 in this file's header). Rewrite model-facing → physical here so the
-  // assertion below works without knowing about both shapes. Live regression
-  // 2026-06-25: `files.read /shared/input/<x>` was rejected with
-  // `outside_allowed_mount`, because resolveUniqueSharedInputStoragePath
-  // canonicalises the model path without workspaceId but assertAllowedMountPrefix
-  // required it.
-  const wsIdPrefixed = injectWorkspaceIdSegmentIfMissing(normalizePosixPath(input), sharedRoot);
-  const normalizedInput = wsIdPrefixed;
+  const normalizedInput = normalizePosixPath(input);
 
   if (
-    normalizedInput === workspaceRoot ||
-    normalizedInput.startsWith(`${workspaceRoot}${POSIX_SEPARATOR}`)
+    normalizedInput !== workspaceRoot &&
+    !normalizedInput.startsWith(`${workspaceRoot}${POSIX_SEPARATOR}`)
   ) {
-    const { relativePath } = normalizeAndClampPath(workspaceRoot, normalizedInput);
+    throw new WorkspacePathError(
+      "outside_allowed_mount",
+      `Path "${input}" is not inside the allowed /workspace mount.`
+    );
+  }
+
+  const { relativePath } = normalizeAndClampPath(workspaceRoot, normalizedInput);
+
+  const inputRoot = `${workspaceRoot}/input`;
+  if (
+    normalizedInput === inputRoot ||
+    normalizedInput.startsWith(`${inputRoot}${POSIX_SEPARATOR}`)
+  ) {
     return {
       absolutePath: normalizedInput,
       relativePath,
-      role: { kind: "workspace" }
+      role: { kind: "workspace_input" }
     };
   }
 
-  const sharedInputRoot = `${sharedRoot}/input`;
-  if (
-    normalizedInput === sharedInputRoot ||
-    normalizedInput.startsWith(`${sharedInputRoot}${POSIX_SEPARATOR}`)
-  ) {
-    const { relativePath } = normalizeAndClampPath(sharedInputRoot, normalizedInput);
-    return {
-      absolutePath: normalizedInput,
-      relativePath,
-      role: { kind: "shared_input" }
-    };
-  }
-
-  const outboundRoot = `${sharedRoot}/outbound`;
+  const outboundRoot = `${workspaceRoot}/outbound`;
   if (
     normalizedInput === outboundRoot ||
     normalizedInput.startsWith(`${outboundRoot}${POSIX_SEPARATOR}`)
@@ -210,15 +193,21 @@ export function assertAllowedMountPrefix(
       .slice(`${outboundRoot}${POSIX_SEPARATOR}`.length)
       .split(POSIX_SEPARATOR)[0];
 
+    if (normalizedInput === outboundRoot) {
+      throw new WorkspacePathError(
+        "invalid_path",
+        `Path "${input}" lives directly under /workspace/outbound which is not addressable.`
+      );
+    }
+
     // Special-case the self symlink: `outbound/self` resolves to the
     // assistant's own outbound, so treat it as the self-role.
     if (handlePart === "self") {
-      const { relativePath } = normalizeAndClampPath(outboundRoot, normalizedInput);
       return {
         absolutePath: normalizedInput,
         relativePath,
         role: {
-          kind: "shared_outbound_self",
+          kind: "workspace_outbound_self",
           handle: context.assistantHandle
         }
       };
@@ -227,24 +216,22 @@ export function assertAllowedMountPrefix(
     if (handlePart === undefined || handlePart.length === 0) {
       throw new WorkspacePathError(
         "invalid_path",
-        `Path "${input}" lives directly under /shared/<workspaceId>/outbound which is not addressable.`
+        `Path "${input}" lives directly under /workspace/outbound which is not addressable.`
       );
     }
 
     if (handlePart === context.assistantHandle) {
-      const { relativePath } = normalizeAndClampPath(outboundRoot, normalizedInput);
       return {
         absolutePath: normalizedInput,
         relativePath,
-        role: { kind: "shared_outbound_self", handle: handlePart }
+        role: { kind: "workspace_outbound_self", handle: handlePart }
       };
     }
     if (context.siblingHandles.has(handlePart)) {
-      const { relativePath } = normalizeAndClampPath(outboundRoot, normalizedInput);
       return {
         absolutePath: normalizedInput,
         relativePath,
-        role: { kind: "shared_outbound_other", handle: handlePart }
+        role: { kind: "workspace_outbound_other", handle: handlePart }
       };
     }
     throw new WorkspacePathError(
@@ -253,55 +240,11 @@ export function assertAllowedMountPrefix(
     );
   }
 
-  throw new WorkspacePathError(
-    "outside_allowed_mount",
-    `Path "${input}" is not inside any allowed mount root.`
-  );
-}
-
-/**
- * ADR-126 v3 — model-facing → physical translation for `/shared/...` paths.
- *
- * Inputs the bridge sees can be either:
- *   * already pod-physical: `/shared/<workspaceId>/input/<x>` (kept as-is), or
- *   * model-canonical: `/shared/input/<x>`, `/shared/outbound/<handle>/<x>`,
- *     `/shared/outbound/self/<x>` (rewritten to inject the workspaceId segment
- *     so the rest of assertAllowedMountPrefix can do a straight prefix match
- *     against the pod's physical mount root `/shared/<workspaceId>`).
- *
- * Anything that is not under `/shared` at all is returned unchanged. Strings
- * that already point inside the workspace's shared root (i.e. their second
- * path segment matches the workspaceId) are also returned unchanged.
- */
-export function injectWorkspaceIdSegmentIfMissing(
-  normalizedInput: string,
-  sharedRoot: string
-): string {
-  const sharedPrefix = `${POSIX_SEPARATOR}shared${POSIX_SEPARATOR}`;
-  if (!normalizedInput.startsWith(sharedPrefix) && normalizedInput !== "/shared") {
-    return normalizedInput;
-  }
-  const sharedRootWithSep = sharedRoot.endsWith(POSIX_SEPARATOR)
-    ? sharedRoot
-    : `${sharedRoot}${POSIX_SEPARATOR}`;
-  if (normalizedInput === sharedRoot || normalizedInput.startsWith(sharedRootWithSep)) {
-    return normalizedInput;
-  }
-  // The workspaceId is the segment after `/shared`. Replace
-  // `/shared/<anything that is not the workspaceId>/...` with
-  // `/shared/<workspaceId>/<anything>/...` only when the original second
-  // segment is NOT the workspaceId — i.e. the model used the canonical
-  // wsId-less form. The remainder of the path (input/outbound/...) is appended
-  // verbatim.
-  const remainder = normalizedInput.slice(sharedPrefix.length);
-  return `${sharedRootWithSep}${remainder}`;
-}
-
-/** Build the canonical `/shared/<workspaceId>` mount root for a workspace. */
-export function buildSharedRoot(workspaceId: string): string {
-  // workspaceId is a UUID from the database so it cannot contain `/`, `..`,
-  // or any other path-bending segments, but we still normalise defensively.
-  return normalizePosixPath(`/shared/${workspaceId}`);
+  return {
+    absolutePath: normalizedInput,
+    relativePath,
+    role: { kind: "workspace_scratch" }
+  };
 }
 
 /** Build the canonical `/workspace` mount root for an assistant. */

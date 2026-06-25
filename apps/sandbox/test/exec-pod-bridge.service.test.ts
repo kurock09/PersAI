@@ -28,7 +28,7 @@ import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import type { CoreV1Api, V1Pod } from "@kubernetes/client-node";
 import {
   ExecPodBridgeService,
-  SHARED_MOUNT_HYDRATE_CONCURRENCY
+  WORKSPACE_MOUNT_HYDRATE_CONCURRENCY
 } from "../src/exec-pod-bridge.service";
 
 // A valid, empty tar archive: two+ all-zero 512-byte blocks signal end-of-archive.
@@ -218,8 +218,8 @@ function buildHydrateTestBridge(input: {
   Object.defineProperty(bridge, "objectStorage", {
     configurable: true,
     value: {
-      buildSharedPrefix: ({ workspaceId }: { workspaceId: string }) =>
-        `assistant-media/workspaces/${workspaceId}/shared/`,
+      buildWorkspacePrefix: ({ workspaceId }: { workspaceId: string }) =>
+        `assistant-media/workspaces/${workspaceId}/workspace/`,
       listPrefix: async () => input.keys,
       downloadObject: input.downloadObject
     }
@@ -247,13 +247,17 @@ function buildHydrateTestBridge(input: {
     bridge,
     warnings,
     infos,
-    async hydrateSharedMountFromGcs(
+    async hydrateWorkspaceMountFromGcs(
       podName: string,
       namespace: string,
       workspaceId: string
     ): Promise<void> {
-      const method = Reflect.get(bridge, "hydrateSharedMountFromGcs");
-      assert.equal(typeof method, "function", "hydrateSharedMountFromGcs must exist on the bridge");
+      const method = Reflect.get(bridge, "hydrateWorkspaceMountFromGcs");
+      assert.equal(
+        typeof method,
+        "function",
+        "hydrateWorkspaceMountFromGcs must exist on the bridge"
+      );
       await (
         method as (
           this: ExecPodBridgeService,
@@ -280,10 +284,10 @@ test("ExecPodBridgeService: buildPodName derives stable name from jobId", () => 
   assert.ok(/^[a-z0-9-]+$/.test(name1), "pod name must be lowercase alphanumeric/hyphens");
 });
 
-test("ExecPodBridgeService: hydrateSharedMountFromGcs no-ops when no shared keys exist", async () => {
+test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs no-ops when no workspace keys exist", async () => {
   let downloadCount = 0;
   let execCount = 0;
-  const { hydrateSharedMountFromGcs, warnings } = buildHydrateTestBridge({
+  const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
     keys: [],
     downloadObject: async () => {
       downloadCount += 1;
@@ -295,18 +299,18 @@ test("ExecPodBridgeService: hydrateSharedMountFromGcs no-ops when no shared keys
     }
   });
 
-  await hydrateSharedMountFromGcs("pod-1", "persai-dev", "ws-empty");
+  await hydrateWorkspaceMountFromGcs("pod-1", "persai-dev", "ws-empty");
 
   assert.equal(downloadCount, 0, "empty hydrate must not download any blobs");
   assert.equal(execCount, 0, "empty hydrate must not open pod exec sessions");
   assert.deepEqual(warnings, [], "empty hydrate should not warn");
 });
 
-test("ExecPodBridgeService: hydrateSharedMountFromGcs executes every file when key count is within concurrency", async () => {
+test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs executes every file when key count is within concurrency", async () => {
   const keys = [
-    "assistant-media/workspaces/ws-small/shared/input/a.txt",
-    "assistant-media/workspaces/ws-small/shared/input/b.txt",
-    "assistant-media/workspaces/ws-small/shared/outbound/self/c.txt"
+    "assistant-media/workspaces/ws-small/workspace/input/a.txt",
+    "assistant-media/workspaces/ws-small/workspace/input/b.txt",
+    "assistant-media/workspaces/ws-small/workspace/outbound/self/c.txt"
   ];
   const buffers = new Map<string, Buffer>([
     [keys[0]!, Buffer.from("alpha")],
@@ -314,7 +318,7 @@ test("ExecPodBridgeService: hydrateSharedMountFromGcs executes every file when k
     [keys[2]!, Buffer.from("gamma")]
   ]);
   const writes: Array<{ shell: string; stdin: Buffer }> = [];
-  const { hydrateSharedMountFromGcs, warnings } = buildHydrateTestBridge({
+  const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
     keys,
     downloadObject: async (key) => buffers.get(key) ?? Buffer.from("missing"),
     execCommand: async (_podName, _namespace, request) => {
@@ -326,14 +330,14 @@ test("ExecPodBridgeService: hydrateSharedMountFromGcs executes every file when k
     }
   });
 
-  await hydrateSharedMountFromGcs("pod-2", "persai-dev", "ws-small");
+  await hydrateWorkspaceMountFromGcs("pod-2", "persai-dev", "ws-small");
 
   assert.equal(writes.length, keys.length, "every listed blob must be written into the pod");
   assert.deepEqual(warnings, [], "happy-path hydrate should not warn");
   assert.ok(
     writes.some(
       (write) =>
-        write.shell.includes("/shared/ws-small/input/a.txt") &&
+        write.shell.includes("/workspace/input/a.txt") &&
         write.stdin.equals(Buffer.from("alpha"))
     ),
     "a.txt must be written with its downloaded buffer"
@@ -341,7 +345,7 @@ test("ExecPodBridgeService: hydrateSharedMountFromGcs executes every file when k
   assert.ok(
     writes.some(
       (write) =>
-        write.shell.includes("/shared/ws-small/input/b.txt") &&
+        write.shell.includes("/workspace/input/b.txt") &&
         write.stdin.equals(Buffer.from("beta"))
     ),
     "b.txt must be written with its downloaded buffer"
@@ -349,22 +353,22 @@ test("ExecPodBridgeService: hydrateSharedMountFromGcs executes every file when k
   assert.ok(
     writes.some(
       (write) =>
-        write.shell.includes("/shared/ws-small/outbound/self/c.txt") &&
+        write.shell.includes("/workspace/outbound/self/c.txt") &&
         write.stdin.equals(Buffer.from("gamma"))
     ),
     "outbound file must be written with its downloaded buffer"
   );
 });
 
-test("ExecPodBridgeService: hydrateSharedMountFromGcs caps in-flight work at the concurrency constant", async () => {
-  const totalKeys = SHARED_MOUNT_HYDRATE_CONCURRENCY * 2 + 3;
+test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs caps in-flight work at the concurrency constant", async () => {
+  const totalKeys = WORKSPACE_MOUNT_HYDRATE_CONCURRENCY * 2 + 3;
   const keys = Array.from({ length: totalKeys }, (_, index) => {
-    return `assistant-media/workspaces/ws-many/shared/input/file-${index}.txt`;
+    return `assistant-media/workspaces/ws-many/workspace/input/file-${index}.txt`;
   });
   let active = 0;
   let peak = 0;
   let execCount = 0;
-  const { hydrateSharedMountFromGcs } = buildHydrateTestBridge({
+  const { hydrateWorkspaceMountFromGcs } = buildHydrateTestBridge({
     keys,
     downloadObject: async (key) => {
       active += 1;
@@ -380,24 +384,24 @@ test("ExecPodBridgeService: hydrateSharedMountFromGcs caps in-flight work at the
     }
   });
 
-  await hydrateSharedMountFromGcs("pod-3", "persai-dev", "ws-many");
+  await hydrateWorkspaceMountFromGcs("pod-3", "persai-dev", "ws-many");
 
   assert.equal(execCount, totalKeys, "all keys must still complete");
   assert.ok(
-    peak <= SHARED_MOUNT_HYDRATE_CONCURRENCY,
+    peak <= WORKSPACE_MOUNT_HYDRATE_CONCURRENCY,
     `peak in-flight work (${peak}) must not exceed the configured concurrency`
   );
   assert.equal(active, 0, "all in-flight work must drain before the hydrate resolves");
 });
 
-test("ExecPodBridgeService: hydrateSharedMountFromGcs logs download failures and continues other blobs", async () => {
+test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs download failures and continues other blobs", async () => {
   const keys = [
-    "assistant-media/workspaces/ws-download/shared/input/good-a.txt",
-    "assistant-media/workspaces/ws-download/shared/input/bad.txt",
-    "assistant-media/workspaces/ws-download/shared/input/good-b.txt"
+    "assistant-media/workspaces/ws-download/workspace/input/good-a.txt",
+    "assistant-media/workspaces/ws-download/workspace/input/bad.txt",
+    "assistant-media/workspaces/ws-download/workspace/input/good-b.txt"
   ];
   const writtenPaths: string[] = [];
-  const { hydrateSharedMountFromGcs, warnings } = buildHydrateTestBridge({
+  const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
     keys,
     downloadObject: async (key) => {
       if (key.endsWith("/bad.txt")) {
@@ -411,51 +415,53 @@ test("ExecPodBridgeService: hydrateSharedMountFromGcs logs download failures and
     }
   });
 
-  await hydrateSharedMountFromGcs("pod-4", "persai-dev", "ws-download");
+  await hydrateWorkspaceMountFromGcs("pod-4", "persai-dev", "ws-download");
 
   assert.equal(writtenPaths.length, 2, "healthy blobs must still be written");
   assert.ok(
     warnings.some((warning) =>
-      warning.includes("shared_mount_hydrate_download_failed workspace=ws-download")
+      warning.includes("workspace_mount_hydrate_download_failed workspace=ws-download")
     ),
     "download failures must be logged"
   );
   assert.ok(
-    writtenPaths.some((shell) => shell.includes("/shared/ws-download/input/good-a.txt")),
+    writtenPaths.some((shell) => shell.includes("/workspace/input/good-a.txt")),
     "good-a must still be written"
   );
   assert.ok(
-    writtenPaths.some((shell) => shell.includes("/shared/ws-download/input/good-b.txt")),
+    writtenPaths.some((shell) => shell.includes("/workspace/input/good-b.txt")),
     "good-b must still be written"
   );
 });
 
-test("ExecPodBridgeService: hydrateSharedMountFromGcs logs non-zero exec exits and still resolves", async () => {
+test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs non-zero exec exits and still resolves", async () => {
   const keys = [
-    "assistant-media/workspaces/ws-exit/shared/input/ok.txt",
-    "assistant-media/workspaces/ws-exit/shared/input/fail.txt"
+    "assistant-media/workspaces/ws-exit/workspace/input/ok.txt",
+    "assistant-media/workspaces/ws-exit/workspace/input/fail.txt"
   ];
   const executed: string[] = [];
-  const { hydrateSharedMountFromGcs, warnings } = buildHydrateTestBridge({
+  const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
     keys,
     downloadObject: async (key) => Buffer.from(key),
     execCommand: async (_podName, _namespace, request) => {
       const shell = request.args[1] ?? "";
       executed.push(shell);
-      if (shell.includes("/shared/ws-exit/input/fail.txt")) {
+      if (shell.includes("/workspace/input/fail.txt")) {
         return { exitCode: 7 };
       }
       return { exitCode: 0 };
     }
   });
 
-  await assert.doesNotReject(() => hydrateSharedMountFromGcs("pod-5", "persai-dev", "ws-exit"));
+  await assert.doesNotReject(() =>
+    hydrateWorkspaceMountFromGcs("pod-5", "persai-dev", "ws-exit")
+  );
 
   assert.equal(executed.length, keys.length, "non-zero exits must not stop other writes");
   assert.ok(
     warnings.some((warning) =>
       warning.includes(
-        "shared_mount_hydrate_write_failed workspace=ws-exit path=/shared/ws-exit/input/fail.txt exit=7"
+        "workspace_mount_hydrate_write_failed workspace=ws-exit path=/workspace/input/fail.txt exit=7"
       )
     ),
     "non-zero write exits must be logged"
@@ -846,7 +852,7 @@ test("ExecPodBridgeService: workspace push success comes from the stdin-less ver
     podPhaseSequence: ["Running"],
     execResponses: [
       // Phase 1 marker check → exit 0 → alreadyBootstrapped=true → skip Phase 2/2b/3/4
-      { exitCode: 0, stdout: "", stderr: "" }, // ensureSharedMountBootstrapped probe
+      { exitCode: 0, stdout: "", stderr: "" }, // ensureWorkspaceMountBootstrapped probe
       { exitCode: 0, stdout: "", stderr: "" }, // execWorkspaceTarPush (exit code ignored)
       { exitCode: 1, stdout: "", stderr: "" } // verifyWorkspacePushed → marker missing
     ],
@@ -1296,7 +1302,7 @@ test("ExecPodBridgeService: createExecPod injects no env vars when proxy URL is 
   assert.deepEqual(container.env, [], "env must be empty when proxy URL is not configured");
 });
 
-test("ExecPodBridgeService: removeSharedFileFromWarmPods translates model path and rm's each warm pod", async () => {
+test("ExecPodBridgeService: removeWorkspaceFileFromWarmPods rm's each warm pod", async () => {
   const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
   const execCalls: Array<{ podName: string; shellCommand: string }> = [];
   Object.defineProperty(bridge, "k8sApi", {
@@ -1333,9 +1339,9 @@ test("ExecPodBridgeService: removeSharedFileFromWarmPods translates model path a
     }
   });
 
-  const result = await bridge.removeSharedFileFromWarmPods({
+  const result = await bridge.removeWorkspaceFileFromWarmPods({
     workspaceId: "ws-rm",
-    path: "/shared/input/report.txt"
+    path: "/workspace/input/report.txt"
   });
 
   assert.equal(result.removedFromPods, 1);
@@ -1343,12 +1349,12 @@ test("ExecPodBridgeService: removeSharedFileFromWarmPods translates model path a
   assert.deepEqual(execCalls, [
     {
       podName: "ses-pod-1",
-      shellCommand: "rm -f -- '/shared/ws-rm/input/report.txt'"
+      shellCommand: "rm -f -- '/workspace/input/report.txt'"
     }
   ]);
 });
 
-test("ExecPodBridgeService: removeSharedFileFromWarmPods returns zero when no warm pod exists", async () => {
+test("ExecPodBridgeService: removeWorkspaceFileFromWarmPods returns zero when no warm pod exists", async () => {
   const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
   Object.defineProperty(bridge, "k8sApi", {
     configurable: true,
@@ -1359,137 +1365,23 @@ test("ExecPodBridgeService: removeSharedFileFromWarmPods returns zero when no wa
     }
   });
 
-  const result = await bridge.removeSharedFileFromWarmPods({
+  const result = await bridge.removeWorkspaceFileFromWarmPods({
     workspaceId: "ws-empty",
-    path: "/shared/input/missing.txt"
+    path: "/workspace/input/missing.txt"
   });
 
   assert.equal(result.removedFromPods, 0);
   assert.deepEqual(result.failures, []);
 });
 
-// ── ensureSharedMountSymlinks unit tests ────────────────────────────────────
-
-test("ExecPodBridgeService: ensureSharedMountSymlinks sends both ln -sfn commands with correct paths", async () => {
-  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
-  const capturedArgs: Array<{ podName: string; namespace: string; shellCommand: string }> = [];
-
-  Object.defineProperty(bridge, "runStdinlessProbe", {
-    configurable: true,
-    value: async (podName: string, namespace: string, shellCommand: string) => {
-      capturedArgs.push({ podName, namespace, shellCommand });
-      return true;
-    }
-  });
-
-  const access = bridge as unknown as {
-    ensureSharedMountSymlinks(
-      podName: string,
-      namespace: string,
-      workspaceId: string
-    ): Promise<void>;
-  };
-  const workspaceId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
-  await access.ensureSharedMountSymlinks("pod-sym-1", "persai-dev", workspaceId);
-
-  assert.equal(capturedArgs.length, 1, "exactly one probe exec must fire");
-  const { shellCommand, podName, namespace } = capturedArgs[0]!;
-  assert.equal(podName, "pod-sym-1");
-  assert.equal(namespace, "persai-dev");
-  assert.ok(shellCommand.includes("set -e"), "script must use set -e");
-  assert.ok(
-    shellCommand.includes(`ln -sfn '/shared/${workspaceId}/input' /shared/input`),
-    "script must link /shared/input → /shared/<workspaceId>/input"
-  );
-  assert.ok(
-    shellCommand.includes(`ln -sfn '/shared/${workspaceId}/outbound' /shared/outbound`),
-    "script must link /shared/outbound → /shared/<workspaceId>/outbound"
-  );
-  assert.ok(
-    shellCommand.includes("-sfn"),
-    "ln flags must include -s (symbolic), -f (force), -n (no-dereference)"
-  );
-});
-
-test("ExecPodBridgeService: ensureSharedMountSymlinks rejects invalid workspaceId before any exec", async () => {
-  const invalidIds = ["../etc/passwd", "not-a-uuid", "ws/bad", "hello", "", " "];
-
-  for (const badId of invalidIds) {
-    const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
-    let execFired = false;
-
-    Object.defineProperty(bridge, "runStdinlessProbe", {
-      configurable: true,
-      value: async () => {
-        execFired = true;
-        return true;
-      }
-    });
-
-    const access = bridge as unknown as {
-      ensureSharedMountSymlinks(
-        podName: string,
-        namespace: string,
-        workspaceId: string
-      ): Promise<void>;
-    };
-
-    await assert.rejects(
-      () => access.ensureSharedMountSymlinks("pod-sym-bad", "persai-dev", badId),
-      (error: unknown) => {
-        assert.ok(error instanceof Error);
-        assert.ok(
-          error.message.includes("UUID validation"),
-          `expected UUID validation error for "${badId}", got: ${error.message}`
-        );
-        return true;
-      }
-    );
-    assert.equal(execFired, false, `no exec must fire for invalid workspaceId "${badId}"`);
-  }
-});
-
-test("ExecPodBridgeService: ensureSharedMountSymlinks is idempotent (calling twice is safe)", async () => {
-  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
-  let callCount = 0;
-
-  Object.defineProperty(bridge, "runStdinlessProbe", {
-    configurable: true,
-    value: async () => {
-      callCount += 1;
-      return true;
-    }
-  });
-
-  const access = bridge as unknown as {
-    ensureSharedMountSymlinks(
-      podName: string,
-      namespace: string,
-      workspaceId: string
-    ): Promise<void>;
-  };
-  const workspaceId = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
-
-  await assert.doesNotReject(() =>
-    access.ensureSharedMountSymlinks("pod-idem", "persai-dev", workspaceId)
-  );
-  await assert.doesNotReject(() =>
-    access.ensureSharedMountSymlinks("pod-idem", "persai-dev", workspaceId)
-  );
-
-  assert.equal(callCount, 2, "probe must fire once per call (idempotent re-run is safe)");
-});
-
-test("ExecPodBridgeService: cold-start runInPod exercises Phase 2b symlinks in bootstrap", async () => {
-  // Phase 1 returns false (exitCode: 1 + no sentinel) → cold bootstrap runs.
-  // Verify that the symlinks script exec is called between Phase 2 dirs and Phase 4 chmod.
+test("ExecPodBridgeService: cold-start runInPod bootstraps workspace dirs", async () => {
+  // Phase 1 returns false (exitCode: 1 + no sentinel) so cold bootstrap runs.
   const ctx: MockK8sContext = {
     createdPods: [],
     podPhaseSequence: ["Running"],
     execResponses: [
       { exitCode: 1, stdout: "", stderr: "" }, // Phase 1 marker check → false → cold bootstrap
       { exitCode: 0, stdout: "", stderr: "" }, // Phase 2 dirs script → ok
-      { exitCode: 0, stdout: "", stderr: "" }, // Phase 2b symlinks script → ok [NEW]
       { exitCode: 0, stdout: "", stderr: "" } // Phase 4 chmod + marker script → ok
       // workspace push, verify, command, pull → unseeded → default success
     ],
@@ -1520,22 +1412,11 @@ test("ExecPodBridgeService: cold-start runInPod exercises Phase 2b symlinks in b
     await removePathWithRetries(workspaceRoot);
   }
 
-  // At least 4 bootstrap execs must have fired (Phase 1 + Phase 2 + Phase 2b + Phase 4).
-  assert.ok(ctx.execCallCount >= 4, "cold bootstrap must fire at least 4 exec calls");
-
-  // The symlinks script must appear in the captured commands.
-  const symlinkExec = ctx.execCommands.find((command) =>
-    command.some((part) => part.includes("ln -sfn") && part.includes("/shared/input"))
+  assert.ok(ctx.execCallCount >= 3, "cold bootstrap must fire marker, dirs, and chmod execs");
+  const dirsExec = ctx.execCommands.find((command) =>
+    command.some((part) => part.includes("mkdir -p '/workspace/input'"))
   );
-  assert.ok(symlinkExec !== undefined, "symlinks exec must be called during cold bootstrap");
-
-  const symlinkScript = symlinkExec?.find((part) => part.includes("ln -sfn")) ?? "";
-  assert.ok(
-    symlinkScript.includes(`/shared/${workspaceId}/input`),
-    "symlinks script must embed the correct workspaceId for /shared/input"
-  );
-  assert.ok(
-    symlinkScript.includes(`/shared/${workspaceId}/outbound`),
-    "symlinks script must embed the correct workspaceId for /shared/outbound"
-  );
+  assert.ok(dirsExec !== undefined, "dirs exec must create workspace input");
+  const dirsScript = dirsExec?.find((part) => part.includes("mkdir -p")) ?? "";
+  assert.ok(dirsScript.includes("ln -sfn '/workspace/outbound/cold-handle'"));
 });
