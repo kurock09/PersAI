@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-06-26 — ADR-128 S1 + S2 landed locally (sandbox + api+runtime+web cutover)
+
+Status: code complete, awaiting deploy + dev wipe + live validation. Baseline SHA: `8db1c269` → S1 `4eb68921` → S2 `fe4d61f3`.
+
+S1 (sandbox layer, commit `4eb68921`, 15 files, +435/-830):
+- Retired `/shared/<workspaceId>/` mount entirely. Single writable user mount `/workspace/`.
+- Deleted: `injectWorkspaceIdSegmentIfMissing`, `buildSharedRoot`, `WorkspaceMountRoots.sharedRoot`, `WorkspaceMountRole.shared_*`, `WORKSPACE_ID_UUID_RE` (no more wsId in pod paths), `ensureSharedMountBootstrapped`, `ensureSharedMountSymlinks`, `SHARED_MOUNT_*` constants, `shared-root` k8s emptyDir + `/shared` volumeMount + per-workspace `/shared/<wsid>` emptyDir.
+- Added: `ensureWorkspaceMountBootstrapped` (Phase 1 marker → 2 mkdir+`outbound/self`→`outbound/<handle>` symlink → 3 hydrate from `${prefix}/workspaces/<wsid>/workspace/` only → 4 `chmod 0555 input` / `0755 outbound`), `WORKSPACE_MOUNT_*` constants, `WorkspaceMountRole.workspace_input | workspace_outbound_self | workspace_outbound_other | workspace_scratch`, `buildWorkspaceObjectKey`, `hydrateWorkspaceMountFromGcs`, `writeWorkspaceInputControlPlane`, `writeWorkspaceOutboundWithCollision`, `removeWorkspaceFileFromHotPods`.
+- Gates green: sandbox lint, typecheck, 80/80 tests; 3× `rg` retired-symbol grep → 0 hits.
+
+S2 (api + runtime + web + Prisma seed text + shared contracts, commit `fe4d61f3`, 86 files including a `git mv` rename, +598/-535):
+- All `/shared/input/<name>` `storagePath` shapes → `/workspace/input/<name>`. Same for `/shared/outbound/self/<name>` → `/workspace/outbound/self/<name>`.
+- GCS object keys on API + runtime sides now emit `fs/workspaces/<wsid>/workspace/<rel>` exclusively.
+- Wire-protocol method names on sandbox-control-plane client match the new sandbox surface.
+- File renamed via `git mv`: `resolve-shared-input-storage-path.ts` → `resolve-workspace-input-storage-path.ts`.
+- Tool descriptions in `tool-catalog-data.ts`, `bootstrap-preset-data.ts`, `native-tool-projection.ts`, runtime tool service descriptions, and the ADR-119 golden snapshot all rewritten to the single-namespace contract: `/workspace/input/` (RO uploads), `/workspace/outbound/self/` (RW deliveries), `/workspace/<rest>` (ephemeral scratch).
+- Working Files developer block renders manifest paths verbatim. No translation layer left anywhere.
+- Fixed 12 URL-encoded `%2Fshared%2F` assertions in two web test files the subagent missed (regex didn't catch URL encoding).
+- Gates green: api/runtime/web/sandbox lint+typecheck+test (web 832/832), `corepack pnpm run format:check`, repo-wide `rg "/shared/"` excluding migrations → 0 hits, `rg` for ~14 retired symbol names → 0 hits.
+
+Two-commit atomic landing: the codebase compiles and tests only with BOTH S1 and S2 together — S1 alone breaks api/runtime/web typecheck (intentional gate); S2 alone has nothing to call (because S1 created the new sandbox surface).
+
+S3 (dev wipe + deploy + live validate) and S4 (closure docs) pending. Next step: push to main → wait for dev image publish + GitOps pin → execute GCS+DB wipe on `persai-dev` → founder live-validate xlsx upload → close ADR-128.
+
 ## 2026-06-26 — ADR-128 opened: single `/workspace/` namespace, retire `/shared/<wsid>/`
 
 Status: open. Baseline SHA: `a0400818`.
