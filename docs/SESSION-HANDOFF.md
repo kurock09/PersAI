@@ -1,5 +1,17 @@
 # SESSION-HANDOFF
 
+## 2026-06-25 — ADR-127 closure follow-up: pod-side symlinks for /shared/ model-canonical paths
+
+Scope: closure follow-up to ADR-127 (not a new ADR). Baseline SHA: `ee3fcbad` (W5 docs, post-push on `origin/main`).
+
+**What it fixes.** Model uses `/shared/input/X.xlsx` from `files.list` inside `shell` command bodies. Pod physical path is `/shared/<workspaceId>/input/X.xlsx`; `injectWorkspaceIdSegmentIfMissing` translates for `files.*` args but NOT for arbitrary shell strings. Result: ~7 tool calls (files.list → shell → "path not found" → glob → …) to read one binary file instead of 2. Fix: pod-side symlinks `/shared/input → /shared/<workspaceId>/input` and `/shared/outbound → /shared/<workspaceId>/outbound` created at cold-bootstrap (Phase 2b of `ensureSharedMountBootstrapped`).
+
+**Mount strategy extension required.** `readOnlyRootFilesystem: true` in the exec pod securityContext + no emptyDir at `/shared` (only at `/shared/<workspaceId>`) made the `/shared` parent directory read-only (EROFS). A new `shared-root` emptyDir (2Mi) is mounted at `/shared` in `createExecPod` so the bootstrap can write the two symlinks. This is the "extending pod mount strategy" the original task flagged as out-of-scope; in practice it is 5 lines in `createExecPod` and is the correct, contained fix.
+
+**What changed.** `apps/sandbox/src/exec-pod-bridge.service.ts`: constants `WORKSPACE_ID_UUID_RE` + `SHARED_MOUNT_SYMLINKS_OK_SENTINEL`, `shared-root` emptyDir volume + volumeMount, private `ensureSharedMountSymlinks`, Phase 2b call in `ensureSharedMountBootstrapped`. `apps/sandbox/test/exec-pod-bridge.service.test.ts`: clarified existing test comment + 4 new tests. Docs updated. `injectWorkspaceIdSegmentIfMissing` left untouched (defense-in-depth for `files.*` path).
+
+**Next steps.** Deploy to dev + live validate (upload `.xlsx`, run `shell` python read, confirm 2-call path). No further ADR changes needed.
+
 ## 2026-06-25 (evening) — ADR-127 W5 executed on dev (legacy GCS wipe complete) — CHECKPOINT
 
 Scope: D10 — physical wipe of `gs://persai-dev-workspaces/assistant-media/` per `infra/dev/gke/ADR-126-V3-GCS-WIPE-RUNBOOK.md` Section 2 (full wipe). Baseline SHA `ee3fcbad` (post-push). Founder approved data loss explicitly ("Dev без коммерческих, удаляй все чисто").

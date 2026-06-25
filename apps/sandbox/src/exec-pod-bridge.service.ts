@@ -43,6 +43,12 @@ const SHARED_MOUNT_BOOTSTRAP_OK_SENTINEL = "__PERSAI_SHARED_OK__";
 // Sentinel printed by the dirs+symlinks phase to confirm it succeeded before
 // GCS hydrate and chmod run.
 const SHARED_MOUNT_DIRS_OK_SENTINEL = "__PERSAI_DIRS_OK__";
+// Sentinel printed by the /shared model-canonical symlinks phase.
+const SHARED_MOUNT_SYMLINKS_OK_SENTINEL = "__PERSAI_SYMLINKS_OK__";
+// Strict UUID validation for workspaceId before any shell interpolation.
+// Defense in depth: workspaceId comes from the DB but we validate before
+// constructing shell strings regardless.
+const WORKSPACE_ID_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Permissive policy used for the GCS hydrate exec writes during pod bootstrap.
 // These are control-plane operations, not model jobs — the tight per-job limits
 // of the user-facing policy do not apply here.
@@ -934,6 +940,19 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
                 emptyDir: {
                   sizeLimit: `${String(sharedSizeMib)}Mi`
                 }
+              },
+              {
+                // ADR-127 follow-up — tiny writable emptyDir at `/shared` so
+                // the bootstrap can create `/shared/input` → `/shared/<wsId>/input`
+                // and `/shared/outbound` → `/shared/<wsId>/outbound` symlinks.
+                // `readOnlyRootFilesystem: true` makes the container image's
+                // `/shared` directory read-only; without this mount the parent
+                // dir is on the RO layer and `ln -sfn` would fail with EROFS.
+                // Only needs to hold two symlinks; 2Mi is generous.
+                name: "shared-root",
+                emptyDir: {
+                  sizeLimit: "2Mi"
+                }
               }
             ],
             containers: [
@@ -970,6 +989,15 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
                   {
                     name: "tmp",
                     mountPath: "/tmp"
+                  },
+                  {
+                    // Writable parent dir for the /shared/input and
+                    // /shared/outbound model-canonical symlinks created by
+                    // ensureSharedMountSymlinks. Must appear before the
+                    // /shared/<workspaceId> sub-mount so the kernel processes
+                    // the parent path first.
+                    name: "shared-root",
+                    mountPath: "/shared"
                   },
                   {
                     // The `shared` volume is mounted at the per-workspace path
@@ -1119,6 +1147,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
+    // Phase 2b — model-canonical symlinks: /shared/input → /shared/<workspaceId>/input
+    // and /shared/outbound → /shared/<workspaceId>/outbound. Lets the model use
+    // /shared/input/<x> inside `shell` commands without workspaceId injection.
+    await this.ensureSharedMountSymlinks(podName, namespace, workspaceId);
+
     // Phase 3: GCS hydrate — pull workspace-shared blobs into the pod.
     // Must run BEFORE chmod so the hydrate's writes into input/ succeed.
     // ADR-126 v3 D12 — record cold-pull latency for the shared-blob hydrate layer.
@@ -1149,6 +1182,55 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       throw createBridgeError(
         "process_spawn_failed",
         `Failed to bootstrap /shared/${workspaceId} for handle=${assistantHandle}.`
+      );
+    }
+  }
+
+  /**
+   * ADR-127 follow-up — create POSIX symlinks at the `/shared/` level so
+   * model-canonical paths (`/shared/input/<x>`, `/shared/outbound/<h>/<x>`)
+   * resolve inside `shell` commands verbatim, without workspaceId injection.
+   *
+   * Creates:
+   *   /shared/input    → /shared/<workspaceId>/input
+   *   /shared/outbound → /shared/<workspaceId>/outbound
+   *
+   * Called as Phase 2b inside {@link ensureSharedMountBootstrapped}, after
+   * the input/ and outbound/ directories have been created. Requires the
+   * `shared-root` emptyDir to be mounted at `/shared` in the pod spec (see
+   * {@link createExecPod}); without it, `/shared` is on the read-only root FS
+   * and `ln -sfn` would fail with EROFS.
+   *
+   * Idempotent: `ln -sfn` atomically overwrites any existing symlink at the
+   * same path, so re-running on pod re-warmup is safe and harmless.
+   */
+  private async ensureSharedMountSymlinks(
+    podName: string,
+    namespace: string,
+    workspaceId: string
+  ): Promise<void> {
+    if (!WORKSPACE_ID_UUID_RE.test(workspaceId)) {
+      throw createBridgeError(
+        "process_spawn_failed",
+        `workspaceId failed UUID validation before symlink creation: "${workspaceId}"`
+      );
+    }
+    const symlinksScript = [
+      "set -e",
+      `ln -sfn ${posixSingleQuote(`/shared/${workspaceId}/input`)} /shared/input`,
+      `ln -sfn ${posixSingleQuote(`/shared/${workspaceId}/outbound`)} /shared/outbound`,
+      `printf '%s' ${posixSingleQuote(SHARED_MOUNT_SYMLINKS_OK_SENTINEL)}`
+    ].join("\n");
+    const ok = await this.runStdinlessProbe(
+      podName,
+      namespace,
+      symlinksScript,
+      SHARED_MOUNT_SYMLINKS_OK_SENTINEL
+    );
+    if (!ok) {
+      throw createBridgeError(
+        "process_spawn_failed",
+        `Failed to create /shared model-canonical symlinks for workspace=${workspaceId}.`
       );
     }
   }

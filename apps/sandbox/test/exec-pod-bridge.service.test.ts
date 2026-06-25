@@ -838,13 +838,14 @@ test("ExecPodBridgeService: workspace push success comes from the stdin-less ver
   // Root regression (live-cluster verified): @kubernetes/client-node drops the exec
   // stdout channel and races the status frame when a non-trivial payload is streamed
   // on stdin, so the push exec's own return is unusable. Success MUST be asserted by
-  // the separate stdin-less verify probe. Here the push exec (call 0) succeeds but the
-  // verify exec (call 1) reports the marker missing (exit 1) → the whole push must fail
+  // the separate stdin-less verify probe. Here the push exec succeeds but the
+  // verify exec reports the marker missing (exit 1) → the whole push must fail
   // as a retryable spawn failure, and the command/pull must never run.
   const ctx: MockK8sContext = {
     createdPods: [],
     podPhaseSequence: ["Running"],
     execResponses: [
+      // Phase 1 marker check → exit 0 → alreadyBootstrapped=true → skip Phase 2/2b/3/4
       { exitCode: 0, stdout: "", stderr: "" }, // ensureSharedMountBootstrapped probe
       { exitCode: 0, stdout: "", stderr: "" }, // execWorkspaceTarPush (exit code ignored)
       { exitCode: 1, stdout: "", stderr: "" } // verifyWorkspacePushed → marker missing
@@ -1365,4 +1366,176 @@ test("ExecPodBridgeService: removeSharedFileFromWarmPods returns zero when no wa
 
   assert.equal(result.removedFromPods, 0);
   assert.deepEqual(result.failures, []);
+});
+
+// ── ensureSharedMountSymlinks unit tests ────────────────────────────────────
+
+test("ExecPodBridgeService: ensureSharedMountSymlinks sends both ln -sfn commands with correct paths", async () => {
+  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
+  const capturedArgs: Array<{ podName: string; namespace: string; shellCommand: string }> = [];
+
+  Object.defineProperty(bridge, "runStdinlessProbe", {
+    configurable: true,
+    value: async (podName: string, namespace: string, shellCommand: string) => {
+      capturedArgs.push({ podName, namespace, shellCommand });
+      return true;
+    }
+  });
+
+  const access = bridge as unknown as {
+    ensureSharedMountSymlinks(
+      podName: string,
+      namespace: string,
+      workspaceId: string
+    ): Promise<void>;
+  };
+  const workspaceId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+  await access.ensureSharedMountSymlinks("pod-sym-1", "persai-dev", workspaceId);
+
+  assert.equal(capturedArgs.length, 1, "exactly one probe exec must fire");
+  const { shellCommand, podName, namespace } = capturedArgs[0]!;
+  assert.equal(podName, "pod-sym-1");
+  assert.equal(namespace, "persai-dev");
+  assert.ok(shellCommand.includes("set -e"), "script must use set -e");
+  assert.ok(
+    shellCommand.includes(`ln -sfn '/shared/${workspaceId}/input' /shared/input`),
+    "script must link /shared/input → /shared/<workspaceId>/input"
+  );
+  assert.ok(
+    shellCommand.includes(`ln -sfn '/shared/${workspaceId}/outbound' /shared/outbound`),
+    "script must link /shared/outbound → /shared/<workspaceId>/outbound"
+  );
+  assert.ok(
+    shellCommand.includes("-sfn"),
+    "ln flags must include -s (symbolic), -f (force), -n (no-dereference)"
+  );
+});
+
+test("ExecPodBridgeService: ensureSharedMountSymlinks rejects invalid workspaceId before any exec", async () => {
+  const invalidIds = ["../etc/passwd", "not-a-uuid", "ws/bad", "hello", "", " "];
+
+  for (const badId of invalidIds) {
+    const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
+    let execFired = false;
+
+    Object.defineProperty(bridge, "runStdinlessProbe", {
+      configurable: true,
+      value: async () => {
+        execFired = true;
+        return true;
+      }
+    });
+
+    const access = bridge as unknown as {
+      ensureSharedMountSymlinks(
+        podName: string,
+        namespace: string,
+        workspaceId: string
+      ): Promise<void>;
+    };
+
+    await assert.rejects(
+      () => access.ensureSharedMountSymlinks("pod-sym-bad", "persai-dev", badId),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.ok(
+          error.message.includes("UUID validation"),
+          `expected UUID validation error for "${badId}", got: ${error.message}`
+        );
+        return true;
+      }
+    );
+    assert.equal(execFired, false, `no exec must fire for invalid workspaceId "${badId}"`);
+  }
+});
+
+test("ExecPodBridgeService: ensureSharedMountSymlinks is idempotent (calling twice is safe)", async () => {
+  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
+  let callCount = 0;
+
+  Object.defineProperty(bridge, "runStdinlessProbe", {
+    configurable: true,
+    value: async () => {
+      callCount += 1;
+      return true;
+    }
+  });
+
+  const access = bridge as unknown as {
+    ensureSharedMountSymlinks(
+      podName: string,
+      namespace: string,
+      workspaceId: string
+    ): Promise<void>;
+  };
+  const workspaceId = "b2c3d4e5-f6a7-8901-bcde-f12345678901";
+
+  await assert.doesNotReject(() =>
+    access.ensureSharedMountSymlinks("pod-idem", "persai-dev", workspaceId)
+  );
+  await assert.doesNotReject(() =>
+    access.ensureSharedMountSymlinks("pod-idem", "persai-dev", workspaceId)
+  );
+
+  assert.equal(callCount, 2, "probe must fire once per call (idempotent re-run is safe)");
+});
+
+test("ExecPodBridgeService: cold-start runInPod exercises Phase 2b symlinks in bootstrap", async () => {
+  // Phase 1 returns false (exitCode: 1 + no sentinel) → cold bootstrap runs.
+  // Verify that the symlinks script exec is called between Phase 2 dirs and Phase 4 chmod.
+  const ctx: MockK8sContext = {
+    createdPods: [],
+    podPhaseSequence: ["Running"],
+    execResponses: [
+      { exitCode: 1, stdout: "", stderr: "" }, // Phase 1 marker check → false → cold bootstrap
+      { exitCode: 0, stdout: "", stderr: "" }, // Phase 2 dirs script → ok
+      { exitCode: 0, stdout: "", stderr: "" }, // Phase 2b symlinks script → ok [NEW]
+      { exitCode: 0, stdout: "", stderr: "" } // Phase 4 chmod + marker script → ok
+      // workspace push, verify, command, pull → unseeded → default success
+    ],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  };
+
+  const bridge = buildMockBridge(ctx);
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-bridge-cold-"));
+  const workspaceId = "c3d4e5f6-a7b8-9012-cdef-123456789012";
+  try {
+    await fs.writeFile(join(workspaceRoot, "file.txt"), "data", "utf8");
+    await bridge.runInPod({
+      jobId: "job-cold-001",
+      runtimeSessionId: null,
+      assistantId: "assistant-cold",
+      assistantHandle: "cold-handle",
+      siblingHandles: [],
+      workspaceId,
+      workspaceRoot,
+      absoluteCwd: workspaceRoot,
+      command: "/bin/sh",
+      args: ["-c", "echo cold"],
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+    });
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
+
+  // At least 4 bootstrap execs must have fired (Phase 1 + Phase 2 + Phase 2b + Phase 4).
+  assert.ok(ctx.execCallCount >= 4, "cold bootstrap must fire at least 4 exec calls");
+
+  // The symlinks script must appear in the captured commands.
+  const symlinkExec = ctx.execCommands.find((command) =>
+    command.some((part) => part.includes("ln -sfn") && part.includes("/shared/input"))
+  );
+  assert.ok(symlinkExec !== undefined, "symlinks exec must be called during cold bootstrap");
+
+  const symlinkScript = symlinkExec?.find((part) => part.includes("ln -sfn")) ?? "";
+  assert.ok(
+    symlinkScript.includes(`/shared/${workspaceId}/input`),
+    "symlinks script must embed the correct workspaceId for /shared/input"
+  );
+  assert.ok(
+    symlinkScript.includes(`/shared/${workspaceId}/outbound`),
+    "symlinks script must embed the correct workspaceId for /shared/outbound"
+  );
 });
