@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-06-25 (evening) — ADR-127 W5 executed on dev (legacy GCS wipe complete) — CHECKPOINT
+
+Scope: D10 — physical wipe of `gs://persai-dev-workspaces/assistant-media/` per `infra/dev/gke/ADR-126-V3-GCS-WIPE-RUNBOOK.md` Section 2 (full wipe). Baseline SHA `ee3fcbad` (post-push). Founder approved data loss explicitly ("Dev без коммерческих, удаляй все чисто").
+
+### What was wiped
+
+- `gs://persai-dev-workspaces/assistant-media/assistants/<aid>/chats/<chatId>/messages/<msgId>/<UUID>.<ext>` — legacy v1/v2 fileRef-shape chat message attachment blobs
+- `gs://persai-dev-workspaces/assistant-media/assistants/<aid>/runtime-output/sessions/<sid>/requests/<rid>/<UUID>.<ext>` — legacy v1/v2 runtime-output blobs (mp3 voice notes, png images, mp4 posters, etc.)
+- `gs://persai-dev-workspaces/assistant-media/workspaces/<wsid>/shared/...` — Gen 2 (path-identity but pre-W4.5-prefix) v3 attachments and outbound files
+- `gs://persai-dev-workspaces/assistant-media/assistants/<aid>/sandbox-sessions/<sessionId>/workspace.tar` — sandbox session snapshot tars
+
+### Wipe outcome
+
+- ~1978 objects removed in ~25s via `gcloud storage rm -r --quiet gs://persai-dev-workspaces/assistant-media/`.
+- Verification: `gcloud storage ls gs://persai-dev-workspaces/assistant-media/` → `ERROR: (gcloud.storage.ls) One or more URLs matched no objects.` (expected — prefix absent).
+- `fs/` subtree alive (~40 KB at wipe time, only post-W4.5 writes including the live-test orphan file `live-test-2026-06-25.txt` and a few new uploads).
+- Top-level bucket state: `assistant-knowledge/`, `fs/`, plus historical bare-UUID directories and `workspaces/` outside the wipe scope (pre-ADR-126 era artifacts; left as-is, founder did not request).
+
+### Prod wipe
+
+NOT executed. Founder approved dev-only ("без коммерческих"). Prod wipe deferred indefinitely.
+
+### Live discovery during validation (separate issue, not part of W5)
+
+Live test surfaced a model UX issue: when the model reads a binary file (e.g. `.xlsx`) it does ~7 tool calls (files.list → shell → "Файл не по тому пути" → glob → knowledge search → ...) instead of 2 (files.list → shell python parse). Root cause: model-canonical `/shared/input/X.xlsx` paths from `files.list` do NOT exist in pod filesystem (pod has `/shared/<workspaceId>/input/X.xlsx`); path translation via `injectWorkspaceIdSegmentIfMissing` works for `files.*` tool args but NOT for arbitrary command bodies inside `shell`. This is a long-standing seam, not a W1 regression. Suggested fix: pod-side symlinks `/shared/input -> /shared/<workspaceId>/input` and `/shared/outbound -> /shared/<workspaceId>/outbound` at pod-startup. Flagged as ADR-127 follow-up; not implemented in this session.
+
+### Next steps
+
+1. Optional: ADR-127 follow-up slice — pod-side symlinks for model-canonical `/shared/` paths (estimated <100 LOC in sandbox + Dockerfile/init).
+2. Optional: small UX slice — loading skeleton in workspace files gallery during 1-2s fetch (avoid "Файлов пока нет" flash that confused live-validator subagent).
+3. Triage 3 pre-existing `files.attach` runtime test failures (unrelated to ADR-127, surfaced earlier).
+4. Prod wipe — deferred indefinitely until founder requests.
+
 ## 2026-06-25 — ADR-127 follow-up landed (drop residual ?? "assistant-media" fallbacks)
 
 Scope: Hygiene follow-up to W4.5. Removed the dead `?? "assistant-media"` nullish-coalescing fallbacks from five sites in `apps/sandbox/src/` (`sandbox-object-storage.service.ts` ×4, `workspace-gc.service.ts` ×1). `PERSAI_MEDIA_OBJECT_PREFIX` is `z.string().min(1).default("fs")` — typed `string`, never `undefined` — so option A (bare removal) was safe at all sites. Baseline SHA: `5d43256c`. Zero string-literal hits for `"assistant-media"` remain in `apps/sandbox/src/`; the only remaining reference is a code comment in `sandbox-observability.service.ts:92` (backtick notation, not a fallback) and the intentional diagnostic rejection string in `media-delivery.service.ts`. Gate: lint/format/typecheck (sandbox, api, runtime) + sandbox test suite (79/79) all green.
