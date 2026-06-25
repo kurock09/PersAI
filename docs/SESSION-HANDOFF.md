@@ -1,5 +1,11 @@
 # SESSION-HANDOFF
 
+## 2026-06-25 — ADR-127 opened (W0 done)
+
+ADR-127 opened — manifest as source of truth, pod FS as cache. Continues ADR-126 v3 (does NOT reopen it). W1–W5 plan locked. No code changes yet.
+
+Next step: W1 — manifest-as-index refactor (api + runtime + UI gallery), implements D1, D3, D4, D5 create-side.
+
 ## 2026-06-25 (evening) — ADR-126 v3: `image_edit` attachment-ref validation fix — CHECKPOINT
 
 ### Scope / root cause
