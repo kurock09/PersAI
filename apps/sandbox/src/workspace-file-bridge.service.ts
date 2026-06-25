@@ -105,6 +105,27 @@ function posixSingleQuote(value: string): string {
   return "'" + value.replace(/'/g, "'\\''") + "'";
 }
 
+/**
+ * ADR-126 v3 amendment — defense-in-depth check on basenames that flow into
+ * the control-plane inbound push. The API already canonicalises basenames via
+ * `resolveUniqueSharedInputStoragePath`, but the bridge double-checks because
+ * a bad basename here would inject into a pod-side shell command. Rules
+ * mirror `resolveMacOsCollisionBasename`'s assumptions: non-empty, no path
+ * separators, no `..`, no NUL.
+ */
+function isValidSharedInputBasename(value: string): boolean {
+  if (typeof value !== "string" || value.length === 0) {
+    return false;
+  }
+  if (value === "." || value === "..") {
+    return false;
+  }
+  if (value.includes("/") || value.includes("\\") || value.includes("\0")) {
+    return false;
+  }
+  return true;
+}
+
 @Injectable()
 export class WorkspaceFileBridgeService {
   private readonly logger = new Logger(WorkspaceFileBridgeService.name);
@@ -189,6 +210,151 @@ export class WorkspaceFileBridgeService {
         workspaceRelPath,
         resolvedBasename,
         bytes: writeResult.data.bytes
+      }
+    };
+  }
+
+  /**
+   * ADR-126 v3 amendment (2026-06-25) — control-plane inbound bytes-push.
+   *
+   * Symmetric to {@link writeSharedOutboundWithCollision} but writes into
+   * `/shared/<workspaceId>/input/<basename>` so a web upload becomes visible
+   * to the running pod immediately, not only after the next cold-pod hydrate.
+   * Caller (API `manage-chat-media.stageForWebThread`) is responsible for:
+   *   * GCS mirror (already done before this call — single source of truth),
+   *   * basename uniqueness (already resolved via
+   *     `resolveUniqueSharedInputStoragePath`),
+   *   * quota accounting (already booked on the api `assistant_files`-style
+   *     ledger; we explicitly pass nullable quotas through so the pod-side
+   *     bridge does NOT double-count).
+   *
+   * Behaviour matrix:
+   *   * pod not Running → `success: true, mode: "deferred"` (next cold-start
+   *     `hydrateSharedMountFromGcs` will pull the bytes from GCS).
+   *   * pod Running but exec fails → `success: false, reason: "write_failed"`.
+   *   * pod Running + exec ok → `success: true, mode: "written"`.
+   *
+   * The `input/` directory mode is 0444 after bootstrap (Phase 4 of
+   * `ensureSharedMountBootstrapped`), so the script temporarily flips the dir
+   * to 0744 → writes the file → flips both the file and the dir back to 0444.
+   * `set -e` ensures we never leave the dir in a writable state on partial
+   * failure.
+   */
+  async writeSharedInputControlPlane(
+    ctx: WorkspaceBridgeContext,
+    input: {
+      basename: string;
+      contents: Buffer;
+    }
+  ): Promise<
+    WorkspaceFileBridgeResult<{
+      workspaceRelPath: string;
+      absolutePath: string;
+      bytes: number;
+      mode: "written" | "deferred";
+    }>
+  > {
+    if (!isValidSharedInputBasename(input.basename)) {
+      const event: WorkspaceFileBridgeEvent = {
+        workspaceId: ctx.workspaceId,
+        assistantId: ctx.assistantId,
+        absolutePath: `/shared/${ctx.workspaceId}/input/${input.basename}`,
+        relativePath: input.basename,
+        status: "error",
+        exitCode: null,
+        bytes: null,
+        latencyMs: 0,
+        reason: "write_denied"
+      };
+      this.workspaceAuditService.recordWorkspaceFileOp("write", event);
+      return {
+        success: false,
+        reason: "write_denied",
+        latencyMs: 0,
+        data: {
+          workspaceRelPath: `/shared/input/${input.basename}`,
+          absolutePath: `/shared/${ctx.workspaceId}/input/${input.basename}`,
+          bytes: 0,
+          mode: "written"
+        }
+      };
+    }
+    const inputDir = `/shared/${ctx.workspaceId}/input`;
+    const targetPath = `${inputDir}/${input.basename}`;
+    const workspaceRelPath = `/shared/input/${input.basename}`;
+    const quotedDir = posixSingleQuote(inputDir);
+    const quotedTarget = posixSingleQuote(targetPath);
+    const shellCommand = [
+      "set -e",
+      `mkdir -p ${quotedDir}`,
+      `chmod 0744 ${quotedDir}`,
+      `cat > ${quotedTarget}`,
+      `chmod 0444 ${quotedTarget}`,
+      `chmod 0444 ${quotedDir}`
+    ].join(" && ");
+
+    const startedAt = Date.now();
+    const podResult = await this.execPodBridgeService.tryExecShellInExistingSessionPod({
+      assistantId: ctx.assistantId,
+      assistantHandle: ctx.assistantHandle,
+      siblingHandles: ctx.siblingHandles,
+      workspaceId: ctx.workspaceId,
+      policy: ctx.policy,
+      shellCommand,
+      stdin: input.contents
+    });
+    const latencyMs = Date.now() - startedAt;
+    this.sandboxObservabilityService.recordWorkspaceFileLatency("write", latencyMs);
+
+    if (podResult === null) {
+      const event: WorkspaceFileBridgeEvent = {
+        workspaceId: ctx.workspaceId,
+        assistantId: ctx.assistantId,
+        absolutePath: targetPath,
+        relativePath: `input/${input.basename}`,
+        status: "ok",
+        exitCode: 0,
+        bytes: input.contents.length,
+        latencyMs,
+        reason: null
+      };
+      this.workspaceAuditService.recordWorkspaceFileOp("write", event);
+      return {
+        success: true,
+        reason: null,
+        latencyMs,
+        data: {
+          workspaceRelPath,
+          absolutePath: targetPath,
+          bytes: input.contents.length,
+          mode: "deferred"
+        }
+      };
+    }
+
+    const success = podResult.exitCode === 0;
+    const reason: WorkspaceFileBridgeFailureReason | null = success ? null : "write_failed";
+    const event: WorkspaceFileBridgeEvent = {
+      workspaceId: ctx.workspaceId,
+      assistantId: ctx.assistantId,
+      absolutePath: targetPath,
+      relativePath: `input/${input.basename}`,
+      status: success ? "ok" : "error",
+      exitCode: podResult.exitCode,
+      bytes: success ? input.contents.length : null,
+      latencyMs,
+      reason
+    };
+    this.workspaceAuditService.recordWorkspaceFileOp("write", event);
+    return {
+      success,
+      reason,
+      latencyMs,
+      data: {
+        workspaceRelPath,
+        absolutePath: targetPath,
+        bytes: success ? input.contents.length : 0,
+        mode: "written"
       }
     };
   }

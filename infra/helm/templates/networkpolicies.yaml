@@ -54,10 +54,18 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # ADR-126 v3 amendment (2026-06-25): the api now also calls the sandbox
+    # control plane (POST /api/v1/jobs/shared-inbound-write) so a web upload
+    # becomes visible to the running pod immediately, without waiting for the
+    # next cold-start hydrate. Both runtime and api therefore need ingress to
+    # the sandbox service port.
     - from:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: runtime
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api
       ports:
         - protocol: TCP
           port: {{ .Values.sandbox.service.port }}

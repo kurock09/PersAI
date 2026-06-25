@@ -228,6 +228,88 @@ export class SandboxService {
   }
 
   /**
+   * ADR-126 v3 amendment (2026-06-25) — hot-pod inbound bytes-push.
+   *
+   * Called by api `manage-chat-media.stageForWebThread` immediately after the
+   * GCS upload succeeds, so the running pod sees the uploaded file without
+   * having to wait for the next cold-start hydrate. If the workspace has no
+   * Running pod, this is a no-op (`mode: "deferred"`) — the bytes are already
+   * the canonical copy in GCS and `hydrateSharedMountFromGcs` will pull them
+   * on the next pod boot. The caller treats either outcome as success and
+   * never blocks the upload on this hop.
+   *
+   * Quota: NOT enforced here. The api side (`media_storage_quota`) is the
+   * single accounting source for inbound bytes; the bridge intentionally
+   * passes `null` quotas to {@link WorkspaceFileBridgeService} so the pod-side
+   * pre-write guard does NOT double-count what the api already booked.
+   */
+  async writeSharedInbound(input: {
+    assistantId: string;
+    workspaceId: string;
+    assistantHandle?: string | null;
+    siblingHandles?: readonly string[] | null;
+    basename: string;
+    contents: Buffer;
+    mimeType: string;
+    policy?: RuntimeSandboxPolicy;
+  }): Promise<
+    | { ok: true; mode: "written" | "deferred"; workspaceRelPath: string; sizeBytes: number }
+    | { ok: false; reason: string; message: string }
+  > {
+    const policy = input.policy ?? DEFAULT_RUNTIME_SANDBOX_POLICY;
+    try {
+      const assistantHandle = await this.resolveAssistantHandle(
+        input.assistantId,
+        input.assistantHandle ?? null
+      );
+      const siblingHandles = await this.resolveSiblingHandles(
+        input.workspaceId,
+        input.assistantId,
+        input.siblingHandles ?? null
+      );
+      const bridgeCtx: WorkspaceBridgeContext = {
+        assistantId: input.assistantId,
+        assistantHandle,
+        siblingHandles,
+        workspaceId: input.workspaceId,
+        policy,
+        workspaceQuotaBytes: null,
+        sharedQuotaBytes: null
+      };
+      const writeResult = await this.workspaceFileBridgeService.writeSharedInputControlPlane(
+        bridgeCtx,
+        {
+          basename: input.basename,
+          contents: input.contents
+        }
+      );
+      if (!writeResult.success) {
+        return {
+          ok: false,
+          reason: writeResult.reason ?? "write_failed",
+          message: writeResult.reason ?? "shared_inbound_write_failed"
+        };
+      }
+      return {
+        ok: true,
+        mode: writeResult.data.mode,
+        workspaceRelPath: writeResult.data.workspaceRelPath,
+        sizeBytes: writeResult.data.bytes
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `shared_inbound_write_failed workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} error=${message}`
+      );
+      return {
+        ok: false,
+        reason: "write_failed",
+        message
+      };
+    }
+  }
+
+  /**
    * ADR-126 Slice 4 Wave 2 — synchronous control-plane write of artefact bytes
    * into `/shared/outbound/self/<basename>` (collision-aware).
    */

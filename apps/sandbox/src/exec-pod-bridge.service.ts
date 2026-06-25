@@ -296,6 +296,81 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * ADR-126 v3 amendment (2026-06-25) — hot-pod-only exec.
+   *
+   * Variant of {@link execShellInSessionPod} that does NOT create the session
+   * pod when it is missing or not in `Running` phase. Used by control-plane
+   * write paths whose work is "nice to have right now, but the GCS hydrate
+   * will catch up on the next cold-start anyway" — most notably the inbound
+   * upload bytes-push from `manage-chat-media.stageForWebThread`.
+   *
+   * Rationale: every web upload would otherwise pay the 5–30 s cold-start
+   * latency of provisioning + hydrating a fresh pod for a workspace that has
+   * no active sandbox session. That is both wasteful (the pod is destroyed by
+   * the idle reaper minutes later) and visible to the end user (the upload
+   * blocks on pod boot). The next genuine sandbox job naturally bootstraps
+   * the pod and pulls the same bytes from GCS via Phase 3 hydrate.
+   *
+   * Returns `null` when the pod does not exist or is not in `Running` phase —
+   * the caller treats this as `deferred`. Returns the exec result otherwise.
+   * The shared-mount bootstrap is still invoked (idempotent on warm pods);
+   * if the pod is `Running` but never had a sandbox job, this is the path
+   * that lays down /shared/<wsId>/input/ before the upload write.
+   */
+  async tryExecShellInExistingSessionPod(input: {
+    assistantId: string;
+    assistantHandle: string;
+    siblingHandles: readonly string[];
+    workspaceId: string;
+    policy: RuntimeSandboxPolicy;
+    shellCommand: string;
+    stdin?: Buffer | null;
+  }): Promise<PodExecResult | null> {
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+    const podName = this.buildSessionPodName(input.assistantId, input.workspaceId);
+    const startedAt = Date.now();
+    try {
+      const pod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
+      if (pod.status?.phase !== "Running") {
+        return null;
+      }
+    } catch (error) {
+      const isNotFound =
+        error !== null &&
+        typeof error === "object" &&
+        ((error as { code?: unknown }).code === 404 ||
+          (error as { statusCode?: unknown }).statusCode === 404 ||
+          (error as { response?: { statusCode?: unknown } }).response?.statusCode === 404);
+      if (isNotFound) {
+        return null;
+      }
+      throw createBridgeError(
+        "process_spawn_failed",
+        `Failed to read session exec pod for hot-only exec: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    await this.ensureSharedMountBootstrapped(
+      podName,
+      namespace,
+      input.workspaceId,
+      input.assistantHandle,
+      input.siblingHandles
+    );
+    const result = await this.execCommand(podName, namespace, {
+      command: "/bin/bash",
+      args: ["-lc", input.shellCommand],
+      podCwd: "/",
+      policy: input.policy,
+      stdin: input.stdin ?? null
+    });
+    return {
+      ...result,
+      durationMs: Date.now() - startedAt,
+      execPodName: podName
+    };
+  }
+
+  /**
    * Reusable workspace pod path: the pod is named after the (assistantId, workspaceId)
    * identity and reused across every chat/job for that assistant workspace. The pod is
    * NOT deleted after the job; the idle-TTL reaper cleans it up.

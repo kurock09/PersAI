@@ -137,6 +137,7 @@ import { DocumentSourceAttachmentExtractionService } from "./application/documen
 import { ListWorkspaceFileShortDescriptionsService } from "./application/list-workspace-file-short-descriptions.service";
 import { ListChatWorkspaceFilesService } from "./application/list-chat-workspace-files.service";
 import { RegisterChatAttachmentService } from "./application/register-chat-attachment.service";
+import { SandboxControlPlaneClientService } from "./application/sandbox-control-plane.client.service";
 import { WorkspaceFileMetadataService } from "./application/workspace-file-metadata.service";
 import { WORKSPACE_FILE_METADATA_REPOSITORY } from "./domain/workspace-file-metadata.repository";
 import { PrismaWorkspaceFileMetadataRepository } from "./infrastructure/persistence/prisma-workspace-file-metadata.repository";
@@ -550,6 +551,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ListWorkspaceFileShortDescriptionsService,
     ListChatWorkspaceFilesService,
     RegisterChatAttachmentService,
+    SandboxControlPlaneClientService,
     WorkspaceFileMetadataService,
     KnowledgeDocumentProcessorService,
     KnowledgeEmbeddingService,

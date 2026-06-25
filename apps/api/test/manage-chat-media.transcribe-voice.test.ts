@@ -8,6 +8,15 @@ const noopRecordModelCostLedgerService = {
   }
 } as never;
 
+const noopSandboxControlPlaneClient = {
+  isConfigured() {
+    return false;
+  },
+  async pushSharedInboundBytes() {
+    return { mode: "deferred" as const, reason: "not_configured" as const };
+  }
+} as never;
+
 const noopPrisma = {
   assistantVoiceTranscriptionEvent: {
     async create() {
@@ -76,6 +85,7 @@ async function run(): Promise<void> {
     {} as never,
     metrics,
     noopRecordModelCostLedgerService,
+    noopSandboxControlPlaneClient,
     noopPrisma
   );
 
@@ -140,6 +150,7 @@ async function run(): Promise<void> {
     {} as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
+    noopSandboxControlPlaneClient,
     noopPrisma
   );
   (
@@ -188,6 +199,7 @@ async function run(): Promise<void> {
     {} as never,
     emptyMetrics,
     noopRecordModelCostLedgerService,
+    noopSandboxControlPlaneClient,
     noopPrisma
   );
 

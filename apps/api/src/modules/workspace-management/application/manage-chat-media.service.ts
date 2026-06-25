@@ -24,6 +24,7 @@ import {
   readStoredAttachmentSemanticSummary
 } from "./media/media.types";
 import { RegisterChatAttachmentService } from "./register-chat-attachment.service";
+import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 import { resolveUniqueSharedInputStoragePath } from "./resolve-shared-input-storage-path";
 import {
@@ -69,11 +70,31 @@ export class ManageChatMediaService {
     private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
+    private readonly sandboxControlPlaneClient: SandboxControlPlaneClientService,
     private readonly prisma: WorkspaceManagementPrismaService
   ) {}
 
   private resolveLedgerSurface(surface: string): ModelCostLedgerSurface | null {
     return surface === "web" || surface === "telegram" ? surface : null;
+  }
+
+  /**
+   * Strip the canonical `/shared/input/` prefix off a model-facing storage
+   * path and return the basename used by `resolveUniqueSharedInputStoragePath`.
+   * Returns `null` for anything that is not a shared-input path (defence-
+   * in-depth — the caller already constructed the path through that helper,
+   * so a non-match should never happen in practice).
+   */
+  private extractSharedInputBasename(storagePath: string): string | null {
+    const prefix = "/shared/input/";
+    if (!storagePath.startsWith(prefix)) {
+      return null;
+    }
+    const tail = storagePath.slice(prefix.length);
+    if (tail.length === 0 || tail.includes("/")) {
+      return null;
+    }
+    return tail;
   }
 
   private async appendSttLedgerFromPersistedBillingFacts(input: {
@@ -367,6 +388,24 @@ export class ManageChatMediaService {
         )
       });
       const attachment = (await this.attachmentRepository.findById(registered.attachmentId))!;
+
+      // ADR-126 v3 amendment (2026-06-25) — best-effort hot-pod push of the
+      // uploaded inbound bytes. The canonical store is the GCS object we just
+      // wrote; this push is a latency optimisation so the running pod sees
+      // the file on the *next turn* instead of only after the next cold-start
+      // hydrate. Any failure (sandbox unreachable, pod cold, write rejected)
+      // is logged at warn and never blocks the upload — `hydrateSharedMountFromGcs`
+      // is the authoritative recovery path.
+      const sharedInputBasename = this.extractSharedInputBasename(storagePath);
+      if (sharedInputBasename !== null) {
+        await this.sandboxControlPlaneClient.pushSharedInboundBytes({
+          assistantId: assistant.id,
+          workspaceId: assistant.workspaceId,
+          basename: sharedInputBasename,
+          contents: fileBuffer,
+          mimeType
+        });
+      }
 
       const ledgerSurface = this.resolveLedgerSurface(chat.surface);
       if (ledgerSurface !== null) {

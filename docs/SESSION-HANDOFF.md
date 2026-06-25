@@ -1,5 +1,74 @@
 # SESSION-HANDOFF
 
+## 2026-06-25 (late) — ADR-126 v3 amendment: model-canonical /shared/... path translation + hot-pod inbound bytes-push — CHECKPOINT
+
+### Scope / root cause
+
+Two coupled live-regression bugs after the dev rollout of ADR-126 v3 amendment 2026-06-24 (`files.attach` assistant-bubble fix + `PERSAI_MEDIA_OBJECT_PREFIX` default):
+
+1. **Path mismatch.** `resolveUniqueSharedInputStoragePath` (api) and the sandbox `files.attach` job already returned model-canonical paths **without** the workspaceId segment (`/shared/input/<name>`, `/shared/outbound/self/<name>`) because the model never sees workspaceId. The pod-physical layout puts those files under `/shared/<workspaceId>/...` (per D2 in `apps/sandbox/src/workspace-path.ts`). `assertAllowedMountPrefix` only accepted the wsId-prefixed form, so the moment the model issued `files.read("/shared/input/3470.png")` for an uploaded inbound, the bridge rejected with `outside_allowed_mount` — and the model surfaced this as a "binary not readable" hallucination.
+2. **Inbound bytes not pushed to a hot pod.** `hydrateSharedMountFromGcs` populates `/shared/<wsId>/input/` **only** during the cold-pod bootstrap (Phase 3 of `ensureSharedMountBootstrapped`). A web upload arriving while a pod was already warm never reached the pod's FS — the chat-attachment metadata row was correct but the underlying bytes were absent from the pod, so `glob`/`files.read` saw "file not found" / "0 byte".
+
+Baseline SHA: `795472967905f6abb21a742086336136b2686cc6` (the post-`files.attach`-fix push). CI for that SHA was red due to `apps/runtime/test/runtime-config.test.ts:30` still expecting `PERSAI_MEDIA_OBJECT_PREFIX === undefined` after we introduced the default. That test is fixed in this slice (now expects `"assistant-media"`).
+
+### What changed
+
+Path translation (Part A):
+
+- `apps/sandbox/src/workspace-path.ts`: `assertAllowedMountPrefix` now translates model-canonical `/shared/<input|outbound>/...` → pod-physical `/shared/<workspaceId>/...` before the prefix check via a new `injectWorkspaceIdSegmentIfMissing` helper. wsId-prefixed inputs are unchanged (idempotent). Unknown-handle outbound paths still reject as `outside_allowed_mount` (the rewrite must not bypass the handle allowlist).
+- `apps/sandbox/test/workspace-path.test.ts`: six new tests pin model-canonical + wsId-prefixed shapes for shared_input, shared_outbound_self, shared_outbound_other, bare `/shared/input`, and an unknown-handle rejection.
+
+Hot-pod inbound bytes-push (Part B):
+
+- `apps/sandbox/src/exec-pod-bridge.service.ts`: new `tryExecShellInExistingSessionPod` that exec's into the (assistantId, workspaceId) session pod **only if it is in `Running` phase** (404 / non-Running → returns `null`). Never triggers `createExecPod` / cold-start — that work belongs to the next genuine sandbox job whose hydrate will pull the bytes from GCS.
+- `apps/sandbox/src/workspace-file-bridge.service.ts`: new `writeSharedInputControlPlane(ctx, { basename, contents })` that calls `tryExecShellInExistingSessionPod` with an atomic `chmod 0744 input/ && cat > input/<basename> && chmod 0444 input/<basename> && chmod 0444 input/` script. Defence-in-depth basename validator rejects `..`, separators, NUL. Returns `mode: "deferred"` when the pod is cold, `mode: "written"` on success. No GCS mirror here (the api already wrote the canonical GCS copy — single-write inbound).
+- `apps/sandbox/src/sandbox.service.ts`: `writeSharedInbound(input)` wrapper, mirror of `writeSharedOutbound` but quota-free (the api's `media_storage_quota` is the single accounting source for inbound bytes).
+- `apps/sandbox/src/sandbox.controller.ts`: `POST /api/v1/jobs/shared-inbound-write` endpoint, symmetric to `shared-outbound-write`.
+- `apps/api/src/modules/workspace-management/application/sandbox-control-plane.client.service.ts` (new): best-effort HTTP client. Returns `mode: "deferred"` if sandbox base URL or internal API token are unset. Never throws on misconfig / network failure / sandbox-side error — every failure mode is logged at warn and treated as `deferred` (cold-start hydrate is the authoritative recovery path).
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`: hot-pod push wired into `stageForWebThread` immediately after the GCS upload + `registerChatAttachment` succeed. Helper `extractSharedInputBasename` strips the `/shared/input/` prefix off the model-facing storagePath the API just emitted.
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts`: client registered as a provider.
+- `apps/api/test/manage-chat-media.{stage-web-thread,transcribe-voice}.test.ts`: fixtures widened with a `noopSandboxControlPlaneClient` so all eight constructor sites compile.
+
+Helm + network:
+
+- `infra/helm/values-dev.yaml`: api env block now sets `PERSAI_SANDBOX_BASE_URL: "http://sandbox:3013"` + `PERSAI_SANDBOX_TIMEOUT_MS: "20000"`.
+- `infra/helm/values.yaml`: same fields added with empty defaults so the schema is exercised.
+- `infra/helm/templates/networkpolicies.yaml`: `sandbox-ingress-runtime-only` extended with a second pod selector (`app.kubernetes.io/name: api`) so the api can reach `sandbox:3013`. Without this the push would silently fail (and the cold-start hydrate would still cover) but the api logs would fill with timeouts.
+
+CI fix:
+
+- `apps/runtime/test/runtime-config.test.ts:30`: `PERSAI_MEDIA_OBJECT_PREFIX` expected value changed from `undefined` to `"assistant-media"`, matching the schema default introduced in the 2026-06-24 fix-up. This unblocks `full-checks` job 83320895490 that has been red since the previous push.
+
+ADR:
+
+- `docs/ADR/126-unified-sandbox-workspace-files-shell-single-fs-bash-default-and-expanded-egress.md`: new top-of-file Amendment 2026-06-25 block describing both fixes, the touched files, and why GCS remains the single canonical store for inbound bytes (hot-pod push is a latency optimisation, not a second source of truth).
+
+### Gate (all green, local)
+
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+- `corepack pnpm --filter @persai/sandbox run typecheck` PASS
+- `corepack pnpm --filter @persai/sandbox test` PASS (72/72; new `writeSharedInputControlPlane` suite covers written / deferred / failed / basename-validation)
+- `corepack pnpm --filter @persai/runtime test` PASS
+- `corepack pnpm --filter @persai/api test` PASS (incl. updated `manage-chat-media.*` fixtures)
+- `corepack pnpm --filter @persai/provider-gateway test` PASS
+- `helm lint infra/helm` PASS
+
+### Live validation (after deploy)
+
+1. Upload an image in chat → no more "Chat runtime is temporarily unreachable" (the earlier `PERSAI_MEDIA_OBJECT_PREFIX` fix already covered this; this checkpoint preserves the fix).
+2. Upload an image in chat → ask the model `files list /shared/input/` → the file appears (the hot-pod push has populated the pod's FS) and `files read <path>` succeeds (the path-translation accepts the wsId-less form the model uses).
+3. With the assistant idle for >15 min (so the sandbox pod goes cold), upload another image → ask any sandbox question to trigger pod boot → the cold-start hydrate must still pull the inbound from GCS (deferred-mode path).
+
+### Follow-up
+
+- Consider hardening `manage-chat-media.uploadAttachment` (the non-staging path) with the same hot-pod push — only `stageForWebThread` is wired in this slice because it is the path the live user-visible bug came in on.
+- The `PERSAI_SANDBOX_BASE_URL` is now plumbed for the api; a future slice can consolidate other api → sandbox control-plane calls (e.g. retiring `sandbox-policy.ts`'s standalone client surface) through this single bridge.
+- The `_prisma_migrations` `failed` record auto-resolution that bit the previous push has no new fixture in this slice — it remains as a known operational watch-point until the `detect-affected.mjs` rework (architectural follow-up logged 2026-06-24 evening).
+
 ## 2026-06-25 - ADR-126 v3 `files.attach` assistant-message binding fix - CHECKPOINT
 
 ### Scope / root cause

@@ -8,6 +8,19 @@ const noopRecordModelCostLedgerService = {
   }
 } as never;
 
+// ADR-126 v3 amendment (2026-06-25): manage-chat-media now plumbs uploaded
+// inbound bytes into the running pod via the sandbox control plane. The hop
+// is best-effort and never throws, so the tests stub it out with a no-op
+// "deferred" response (matches the "sandbox not configured" production path).
+const noopSandboxControlPlaneClient = {
+  isConfigured() {
+    return false;
+  },
+  async pushSharedInboundBytes() {
+    return { mode: "deferred" as const, reason: "not_configured" as const };
+  }
+} as never;
+
 const noopPrisma = {
   assistantVoiceTranscriptionEvent: {
     async create() {
@@ -220,6 +233,7 @@ async function run(): Promise<void> {
     fakeWorkspaceFileMetadataService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
+    noopSandboxControlPlaneClient,
     noopPrisma
   );
 
@@ -372,6 +386,7 @@ async function run(): Promise<void> {
     fakeWorkspaceFileMetadataService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
+    noopSandboxControlPlaneClient,
     noopPrisma
   );
 
@@ -548,6 +563,7 @@ async function run(): Promise<void> {
     fakeWorkspaceFileMetadataService as never,
     metrics,
     noopRecordModelCostLedgerService,
+    noopSandboxControlPlaneClient,
     noopPrisma
   );
 
@@ -687,6 +703,7 @@ async function run(): Promise<void> {
     fakeWorkspaceFileMetadataService as never,
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
+    noopSandboxControlPlaneClient,
     noopPrisma
   );
 
@@ -836,6 +853,7 @@ async function run(): Promise<void> {
     fakeWorkspaceFileMetadataService as never,
     failureMetrics,
     noopRecordModelCostLedgerService,
+    noopSandboxControlPlaneClient,
     noopPrisma
   );
 
@@ -982,6 +1000,7 @@ async function run(): Promise<void> {
     fakeWorkspaceFileMetadataService as never,
     storageFailureMetrics,
     noopRecordModelCostLedgerService,
+    noopSandboxControlPlaneClient,
     noopPrisma
   );
 
@@ -1041,6 +1060,7 @@ async function run(): Promise<void> {
         fakeWorkspaceFileMetadataService as never,
         new PlatformHttpMetricsService(),
         noopRecordModelCostLedgerService,
+        noopSandboxControlPlaneClient,
         noopPrisma
       ).stageForWebThread({
         userId: "user-1",
@@ -1094,6 +1114,7 @@ async function run(): Promise<void> {
         fakeWorkspaceFileMetadataService as never,
         new PlatformHttpMetricsService(),
         noopRecordModelCostLedgerService,
+        noopSandboxControlPlaneClient,
         noopPrisma
       ).uploadAttachment({
         userId: "user-1",

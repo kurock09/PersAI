@@ -29,9 +29,15 @@ const CTX: WorkspaceBridgeContext = {
 type ExecResponse = { exitCode: number; stdout: string; stderr: string };
 type ExecCall = { shellCommand: string; stdin: Buffer | null | undefined };
 
-function makeExec(responses: ExecResponse[] = []) {
+function makeExec(
+  responses: ExecResponse[] = [],
+  options: { tryHotPodResponses?: (ExecResponse | null)[] } = {}
+) {
   let idx = 0;
+  let tryIdx = 0;
   const calls: ExecCall[] = [];
+  const tryCalls: ExecCall[] = [];
+  const tryResponses = options.tryHotPodResponses ?? [];
   const service = {
     async execShellInSessionPod(input: {
       shellCommand: string;
@@ -41,9 +47,21 @@ function makeExec(responses: ExecResponse[] = []) {
       calls.push({ shellCommand: input.shellCommand, stdin: input.stdin });
       const resp = responses[idx++] ?? { exitCode: 0, stdout: "", stderr: "" };
       return { ...resp, durationMs: 1, execPodName: "ses-test" };
+    },
+    async tryExecShellInExistingSessionPod(input: {
+      shellCommand: string;
+      stdin?: Buffer | null;
+      [k: string]: unknown;
+    }): Promise<(ExecResponse & { durationMs: number; execPodName: string }) | null> {
+      tryCalls.push({ shellCommand: input.shellCommand, stdin: input.stdin });
+      const resp = tryResponses[tryIdx++];
+      if (resp === undefined || resp === null) {
+        return null;
+      }
+      return { ...resp, durationMs: 1, execPodName: "ses-test" };
     }
   } as never;
-  return { calls, service };
+  return { calls, tryCalls, service };
 }
 
 type SaveCall = { objectKey: string; buffer: Buffer; mimeType: string };
@@ -662,4 +680,108 @@ test("workspaceFileCopy: sibling outbound source rejected", async () => {
       }),
     (e: unknown) => e instanceof WorkspacePathError
   );
+});
+
+// ─── ADR-126 v3 amendment (2026-06-25): writeSharedInputControlPlane ──────────
+//
+// Hot-pod inbound bytes-push. Called by api `manage-chat-media.stageForWebThread`
+// right after the GCS upload so the running pod sees the upload immediately
+// instead of only after the next cold-start hydrate.
+
+test("writeSharedInputControlPlane: pod Running → atomic chmod gymnastics + write + mode=written", async () => {
+  const exec = makeExec([], {
+    tryHotPodResponses: [{ exitCode: 0, stdout: "", stderr: "" }]
+  });
+  const audit = makeAudit();
+  const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
+  const contents = Buffer.from("upload payload");
+
+  const result = await bridge.writeSharedInputControlPlane(CTX, {
+    basename: "3470.png",
+    contents
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.reason, null);
+  assert.equal(result.data.mode, "written");
+  assert.equal(result.data.workspaceRelPath, "/shared/input/3470.png");
+  assert.equal(result.data.absolutePath, `/shared/${WS_ID}/input/3470.png`);
+  assert.equal(result.data.bytes, contents.length);
+  assert.equal(exec.tryCalls.length, 1);
+  const shell = exec.tryCalls[0]?.shellCommand ?? "";
+  // The shell must (a) make the input dir writable temporarily, (b) cat the
+  // bytes into the target, then (c) put both the file and the dir back to 0444.
+  // Without `chmod 0744 input/` first the cat would fail (dir is 0444 after
+  // bootstrap); without `chmod 0444` after the file the assistant could
+  // overwrite uploads from inside the model surface.
+  assert.ok(shell.includes(`chmod 0744 '/shared/${WS_ID}/input'`), shell);
+  assert.ok(shell.includes(`cat > '/shared/${WS_ID}/input/3470.png'`), shell);
+  assert.ok(shell.includes(`chmod 0444 '/shared/${WS_ID}/input/3470.png'`), shell);
+  assert.ok(shell.includes(`chmod 0444 '/shared/${WS_ID}/input'`), shell);
+  assert.equal(exec.tryCalls[0]?.stdin?.toString(), "upload payload");
+  // execShellInSessionPod must NOT have been called: control-plane writes
+  // must NEVER trigger cold-pod bootstrap, only push into already-warm pods.
+  assert.equal(exec.calls.length, 0);
+  assert.equal(audit.ops.at(-1)?.status, "ok");
+});
+
+test("writeSharedInputControlPlane: no Running pod → success with mode=deferred and no exec call", async () => {
+  // tryHotPodResponses entry of `null` simulates "pod not Running" — the
+  // bridge must NOT call execShellInSessionPod (would force cold-start),
+  // must NOT throw, and must report mode=deferred so the api treats this as
+  // "GCS hydrate will pick it up on next pod boot".
+  const exec = makeExec([], { tryHotPodResponses: [null] });
+  const audit = makeAudit();
+  const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
+  const contents = Buffer.from("payload");
+
+  const result = await bridge.writeSharedInputControlPlane(CTX, {
+    basename: "deferred.bin",
+    contents
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.reason, null);
+  assert.equal(result.data.mode, "deferred");
+  assert.equal(result.data.bytes, contents.length);
+  assert.equal(exec.calls.length, 0);
+  assert.equal(audit.ops.at(-1)?.status, "ok");
+});
+
+test("writeSharedInputControlPlane: pod exec fails → success=false with reason=write_failed", async () => {
+  const exec = makeExec([], {
+    tryHotPodResponses: [{ exitCode: 1, stdout: "", stderr: "boom" }]
+  });
+  const audit = makeAudit();
+  const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
+  const contents = Buffer.from("payload");
+
+  const result = await bridge.writeSharedInputControlPlane(CTX, {
+    basename: "broken.bin",
+    contents
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.reason, "write_failed");
+  assert.equal(result.data.mode, "written");
+  assert.equal(audit.ops.at(-1)?.status, "error");
+  assert.equal(audit.ops.at(-1)?.reason, "write_failed");
+});
+
+test("writeSharedInputControlPlane: rejects basenames with path separators (defence-in-depth)", async () => {
+  const exec = makeExec();
+  const audit = makeAudit();
+  const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
+
+  for (const evilBasename of ["../escape.png", "sub/dir.png", "", ".", "..", "\u0000nul"]) {
+    const result = await bridge.writeSharedInputControlPlane(CTX, {
+      basename: evilBasename,
+      contents: Buffer.from("x")
+    });
+    assert.equal(result.success, false, `basename=${JSON.stringify(evilBasename)}`);
+    assert.equal(result.reason, "write_denied");
+  }
+  // No exec call must have been made for any rejected basename.
+  assert.equal(exec.tryCalls.length, 0);
+  assert.equal(exec.calls.length, 0);
 });

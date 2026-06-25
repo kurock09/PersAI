@@ -161,9 +161,20 @@ export function assertAllowedMountPrefix(
     siblingHandles: ReadonlySet<string>;
   }
 ): ResolvedWorkspacePath {
-  const normalizedInput = normalizePosixPath(input);
   const workspaceRoot = normalizePosixPath(context.roots.workspaceRoot);
   const sharedRoot = normalizePosixPath(context.roots.sharedRoot);
+  // ADR-126 v3 — model-facing canonical paths under `/shared/...` omit the
+  // workspaceId segment (`/shared/input/<name>`, `/shared/outbound/<handle>/<x>`,
+  // `/shared/outbound/self/<x>`) because the model never sees workspaceId.
+  // The pod's physical layout puts those files under `/shared/<workspaceId>/...`
+  // (see D2 in this file's header). Rewrite model-facing → physical here so the
+  // assertion below works without knowing about both shapes. Live regression
+  // 2026-06-25: `files.read /shared/input/<x>` was rejected with
+  // `outside_allowed_mount`, because resolveUniqueSharedInputStoragePath
+  // canonicalises the model path without workspaceId but assertAllowedMountPrefix
+  // required it.
+  const wsIdPrefixed = injectWorkspaceIdSegmentIfMissing(normalizePosixPath(input), sharedRoot);
+  const normalizedInput = wsIdPrefixed;
 
   if (
     normalizedInput === workspaceRoot ||
@@ -246,6 +257,41 @@ export function assertAllowedMountPrefix(
     "outside_allowed_mount",
     `Path "${input}" is not inside any allowed mount root.`
   );
+}
+
+/**
+ * ADR-126 v3 — model-facing → physical translation for `/shared/...` paths.
+ *
+ * Inputs the bridge sees can be either:
+ *   * already pod-physical: `/shared/<workspaceId>/input/<x>` (kept as-is), or
+ *   * model-canonical: `/shared/input/<x>`, `/shared/outbound/<handle>/<x>`,
+ *     `/shared/outbound/self/<x>` (rewritten to inject the workspaceId segment
+ *     so the rest of assertAllowedMountPrefix can do a straight prefix match
+ *     against the pod's physical mount root `/shared/<workspaceId>`).
+ *
+ * Anything that is not under `/shared` at all is returned unchanged. Strings
+ * that already point inside the workspace's shared root (i.e. their second
+ * path segment matches the workspaceId) are also returned unchanged.
+ */
+function injectWorkspaceIdSegmentIfMissing(normalizedInput: string, sharedRoot: string): string {
+  const sharedPrefix = `${POSIX_SEPARATOR}shared${POSIX_SEPARATOR}`;
+  if (!normalizedInput.startsWith(sharedPrefix) && normalizedInput !== "/shared") {
+    return normalizedInput;
+  }
+  const sharedRootWithSep = sharedRoot.endsWith(POSIX_SEPARATOR)
+    ? sharedRoot
+    : `${sharedRoot}${POSIX_SEPARATOR}`;
+  if (normalizedInput === sharedRoot || normalizedInput.startsWith(sharedRootWithSep)) {
+    return normalizedInput;
+  }
+  // The workspaceId is the segment after `/shared`. Replace
+  // `/shared/<anything that is not the workspaceId>/...` with
+  // `/shared/<workspaceId>/<anything>/...` only when the original second
+  // segment is NOT the workspaceId — i.e. the model used the canonical
+  // wsId-less form. The remainder of the path (input/outbound/...) is appended
+  // verbatim.
+  const remainder = normalizedInput.slice(sharedPrefix.length);
+  return `${sharedRootWithSep}${remainder}`;
 }
 
 /** Build the canonical `/shared/<workspaceId>` mount root for a workspace. */

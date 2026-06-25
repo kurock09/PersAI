@@ -115,6 +115,61 @@ export class SandboxController {
     };
   }
 
+  /**
+   * ADR-126 v3 amendment (2026-06-25) — control-plane inbound bytes-push.
+   * Mirror of `shared-outbound-write` but for the `/shared/<wsId>/input/`
+   * direction; the api calls this from `manage-chat-media.stageForWebThread`
+   * right after the GCS upload so the running pod can see the bytes
+   * immediately (instead of only after the next cold-start hydrate).
+   */
+  @Post("/api/v1/jobs/shared-inbound-write")
+  async writeSharedInbound(
+    @Headers("authorization") authorization: string | undefined,
+    @Body() body: unknown
+  ) {
+    this.assertAuthorized(authorization);
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      throw new ServiceUnavailableException("Request body must be an object.");
+    }
+    const row = body as Record<string, unknown>;
+    const assistantId = this.requireNonEmptyString(row.assistantId, "assistantId");
+    const workspaceId = this.requireNonEmptyString(row.workspaceId, "workspaceId");
+    const basename = this.requireNonEmptyString(row.basename, "basename");
+    const contentBase64 = this.requireNonEmptyString(row.contentBase64, "contentBase64");
+    const mimeType =
+      typeof row.mimeType === "string" && row.mimeType.trim().length > 0
+        ? row.mimeType.trim()
+        : "application/octet-stream";
+    const assistantHandle =
+      typeof row.handle === "string" && row.handle.trim().length > 0 ? row.handle.trim() : null;
+    const siblingHandles = Array.isArray(row.siblingHandles)
+      ? row.siblingHandles.filter(
+          (value): value is string => typeof value === "string" && value.trim().length > 0
+        )
+      : null;
+    const contents = Buffer.from(contentBase64, "base64");
+    const result = await this.sandboxService.writeSharedInbound({
+      assistantId,
+      workspaceId,
+      assistantHandle,
+      siblingHandles,
+      basename,
+      contents,
+      mimeType
+    });
+    if (!result.ok) {
+      throw new ServiceUnavailableException({
+        reason: result.reason,
+        message: result.message
+      });
+    }
+    return {
+      mode: result.mode,
+      workspaceRelPath: result.workspaceRelPath,
+      sizeBytes: result.sizeBytes
+    };
+  }
+
   @Get("/api/v1/jobs/:jobId")
   async getJob(
     @Headers("authorization") authorization: string | undefined,
