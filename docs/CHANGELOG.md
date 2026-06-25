@@ -5,6 +5,8 @@
 
 ## 2026-06-25
 
+- **Hygiene (ADR-127 follow-up — drop residual `?? "assistant-media"` fallbacks).** Removed the now-dead nullish-coalescing fallback `?? "assistant-media"` from all five sites in `apps/sandbox/src/` (`sandbox-object-storage.service.ts` ×4, `workspace-gc.service.ts` ×1). `PERSAI_MEDIA_OBJECT_PREFIX` is typed `string` (schema guarantees presence), so option A (bare removal) applied at every site. Zero string-literal hits for `"assistant-media"` remain in `apps/sandbox/src/`. Gate: lint/format/typecheck (sandbox, api, runtime) + sandbox test suite (79/79) all green.
+
 - **Change (ADR-127 W4.5 — D9: `PERSAI_MEDIA_OBJECT_PREFIX` default rename).** Default value changed from `"assistant-media"` to `"fs"` in all three config schemas (`api-config.ts`, `runtime-config.ts`, `sandbox-config.ts`) and all six explicit Helm pins in `values.yaml` / `values-dev.yaml`. `ADR-126-V3-GCS-WIPE-RUNBOOK.md` annotated with an ADR-127 D9 note explaining pre-D9 vs post-D9 prefix semantics. No DB changes; no GCS object moves; no logic delta. Wipe runbook (W5 / D10) remains pending.
 
 - **Change (ADR-127 W4 — drop objectKey fallback in isAttachmentRef; D8).** One-shot Prisma migration `20260625000000_adr127_w4_drop_objectkey_fallback_data_migration` rewrites `assistant_media_jobs.request_json.attachments[].objectKey` → `storagePath` (idempotent; rows already carrying `storagePath` are untouched). Both `isAttachmentRef` validators (`EnqueueRuntimeDeferredMediaJobService`, `WorkspaceMediaJobSchedulerService`) now require `storagePath` only; `objectKey` fallback branch removed. Three ADR-127 W4 regression tests added to each test file.

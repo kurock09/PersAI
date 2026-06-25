@@ -19,9 +19,7 @@ export class SandboxObjectStorageService {
     jobId: string;
     relativePath: string;
   }): string {
-    const prefix = (this.config.PERSAI_MEDIA_OBJECT_PREFIX ?? "assistant-media")
-      .trim()
-      .replace(/\/+$/g, "");
+    const prefix = this.config.PERSAI_MEDIA_OBJECT_PREFIX.trim().replace(/\/+$/g, "");
     const normalized = input.relativePath.replace(/\\/g, "/").replace(/^\/+/, "");
     const extension = extname(normalized).replace(/^\./, "").toLowerCase() || "bin";
     return `${prefix}/assistants/${input.assistantId}/sandbox/jobs/${input.jobId}/${randomUUID()}.${extension}`;
@@ -34,9 +32,7 @@ export class SandboxObjectStorageService {
    * GCS creds stay control-plane-only; exec pods never see this key.
    */
   buildSessionSnapshotKey(input: { assistantId: string; runtimeSessionId: string }): string {
-    const prefix = (this.config.PERSAI_MEDIA_OBJECT_PREFIX ?? "assistant-media")
-      .trim()
-      .replace(/\/+$/g, "");
+    const prefix = this.config.PERSAI_MEDIA_OBJECT_PREFIX.trim().replace(/\/+$/g, "");
     return `${prefix}/assistants/${input.assistantId}/sandbox-sessions/${input.runtimeSessionId}/workspace.tar`;
   }
 
@@ -53,9 +49,7 @@ export class SandboxObjectStorageService {
     /** `/shared/input/<name>` or `/shared/outbound/<handle>/<name>` form. */
     workspaceRelPath: string;
   }): string {
-    const prefix = (this.config.PERSAI_MEDIA_OBJECT_PREFIX ?? "assistant-media")
-      .trim()
-      .replace(/\/+$/g, "");
+    const prefix = this.config.PERSAI_MEDIA_OBJECT_PREFIX.trim().replace(/\/+$/g, "");
     const relative = input.workspaceRelPath
       .replace(/^\/shared\//, "")
       .replace(/^\/+/, "")
@@ -65,9 +59,7 @@ export class SandboxObjectStorageService {
 
   /** Prefix used by the GC reaper when bulk-deleting shared workspace state. */
   buildSharedPrefix(input: { workspaceId: string; subPath?: string }): string {
-    const prefix = (this.config.PERSAI_MEDIA_OBJECT_PREFIX ?? "assistant-media")
-      .trim()
-      .replace(/\/+$/g, "");
+    const prefix = this.config.PERSAI_MEDIA_OBJECT_PREFIX.trim().replace(/\/+$/g, "");
     const tail = input.subPath === undefined ? "" : `${input.subPath.replace(/^\/+|\/+$/g, "")}/`;
     return `${prefix}/workspaces/${input.workspaceId}/shared/${tail}`;
   }

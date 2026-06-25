@@ -367,9 +367,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
   }
 
   private mediaPrefix(): string {
-    return (this.config.PERSAI_MEDIA_OBJECT_PREFIX ?? "assistant-media")
-      .trim()
-      .replace(/\/+$/g, "");
+    return this.config.PERSAI_MEDIA_OBJECT_PREFIX.trim().replace(/\/+$/g, "");
   }
 
   private gcSandboxPolicy(): RuntimeSandboxPolicyShape {

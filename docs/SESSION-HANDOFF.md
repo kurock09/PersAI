@@ -1,5 +1,9 @@
 # SESSION-HANDOFF
 
+## 2026-06-25 — ADR-127 follow-up landed (drop residual ?? "assistant-media" fallbacks)
+
+Scope: Hygiene follow-up to W4.5. Removed the dead `?? "assistant-media"` nullish-coalescing fallbacks from five sites in `apps/sandbox/src/` (`sandbox-object-storage.service.ts` ×4, `workspace-gc.service.ts` ×1). `PERSAI_MEDIA_OBJECT_PREFIX` is `z.string().min(1).default("fs")` — typed `string`, never `undefined` — so option A (bare removal) was safe at all sites. Baseline SHA: `5d43256c`. Zero string-literal hits for `"assistant-media"` remain in `apps/sandbox/src/`; the only remaining reference is a code comment in `sandbox-observability.service.ts:92` (backtick notation, not a fallback) and the intentional diagnostic rejection string in `media-delivery.service.ts`. Gate: lint/format/typecheck (sandbox, api, runtime) + sandbox test suite (79/79) all green.
+
 ## 2026-06-25 — ADR-127 W4.5 landed (PERSAI_MEDIA_OBJECT_PREFIX default rename: assistant-media → fs)
 
 Scope: ADR-127 D9 only. Default value of `PERSAI_MEDIA_OBJECT_PREFIX` changed from `"assistant-media"` to `"fs"` in all three config schemas (`packages/config/src/api-config.ts`, `runtime-config.ts`, `sandbox-config.ts`) and all six explicit Helm pins in `infra/helm/values.yaml` / `values-dev.yaml`. `ADR-126-V3-GCS-WIPE-RUNBOOK.md` annotated with ADR-127 D9 semantics note. No DB changes; no GCS object moves; no logic delta — this is a deploy-config-only rename that takes effect on the next pod rollout. New writes after W4.5 deploy land under `<bucket>/fs/...`; the legacy `assistant-media/` prefix is wiped by the wipe runbook in W5 / D10. Baseline SHA: `92b28082` (W4 commit).
