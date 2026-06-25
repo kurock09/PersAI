@@ -4178,7 +4178,10 @@ export function AssistantSettings({
           onToggle={() => setOpenSection((current) => (current === "files" ? null : "files"))}
           className="order-7"
         >
-          <WorkspaceFilesGallery chatId={galleryChatId} />
+          <WorkspaceFilesGallery
+            chatId={galleryChatId}
+            workspaceId={assistant?.workspaceId ?? null}
+          />
         </Section>
 
         {/* 5. Skills */}

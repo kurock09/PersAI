@@ -525,6 +525,55 @@ export class MediaDeliveryService {
     return this.downloadChatFileByPath(input);
   }
 
+  /**
+   * ADR-127 W1 — workspace-scoped delivery for files that may not have a
+   * chat-attachment row (model `files.write` orphans). Existence comes from
+   * `workspace_file_metadata`; bytes from GCS via `buildSharedObjectKey`.
+   * The chat-scoped variants above stay live for backward compatibility.
+   */
+  async downloadWorkspaceFileByPath(input: { workspaceId: string; path: string }): Promise<{
+    buffer: Buffer;
+    contentType: string;
+    mimeType: string;
+    originalFilename: string | null;
+  }> {
+    const metadata = await this.workspaceFileMetadataService.get({
+      workspaceId: input.workspaceId,
+      path: input.path
+    });
+    if (metadata === null) {
+      throw new NotFoundException("File not found.");
+    }
+    const objectKey = this.mediaObjectStorage.buildSharedObjectKey({
+      workspaceId: input.workspaceId,
+      workspaceRelPath: input.path
+    });
+    const downloaded = await this.mediaObjectStorage.downloadObject(objectKey);
+    if (downloaded === null) {
+      throw new GoneException("(file no longer available)");
+    }
+    const basename = (() => {
+      const trimmed = input.path.replace(/\/+$/, "");
+      const idx = trimmed.lastIndexOf("/");
+      return idx === -1 || idx === trimmed.length - 1 ? trimmed : trimmed.slice(idx + 1);
+    })();
+    return {
+      buffer: downloaded.buffer,
+      contentType: downloaded.contentType,
+      mimeType: metadata.mimeType,
+      originalFilename: basename.length > 0 ? basename : null
+    };
+  }
+
+  async previewWorkspaceFileByPath(input: { workspaceId: string; path: string }): Promise<{
+    buffer: Buffer;
+    contentType: string;
+    mimeType: string;
+    originalFilename: string | null;
+  }> {
+    return this.downloadWorkspaceFileByPath(input);
+  }
+
   private resolveRegisterKind(artifact: MediaArtifact): RegisterChatAttachmentKind {
     switch (artifact.sourceToolCode) {
       case "image_generate":

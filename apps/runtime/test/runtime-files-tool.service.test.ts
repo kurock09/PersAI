@@ -309,3 +309,294 @@ test("files.write shared_quota_exhausted surfaces stable reason to model", async
   assert.equal(result.payload.action, "skipped");
   assert.equal(result.payload.reason, "shared_quota_exhausted");
 });
+
+// ADR-127 W1 — `/shared/...` listings come from `workspace_file_metadata`,
+// not from the pod FS. The runtime must call the internal API and ignore
+// the sandbox `find` for shared paths.
+test("files.list /shared/ path reads from manifest API and skips sandbox", async () => {
+  let manifestCalled = false;
+  let sandboxCalled = false;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion() {
+        sandboxCalled = true;
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({ items: [] })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      },
+      async listWorkspaceFilesFromManifest(input: Record<string, unknown>) {
+        manifestCalled = true;
+        assert.equal(input.workspaceId, "workspace-1");
+        assert.equal(input.pathPrefix, "/shared/input");
+        assert.equal(input.assistantHandle, "my-bot");
+        return {
+          items: [
+            {
+              path: "/shared/input/photo.jpg",
+              type: "file",
+              role: "shared_input",
+              sizeBytes: 1200,
+              mimeType: "image/jpeg",
+              modifiedAt: "2026-06-20T10:00:00.000Z",
+              shortDescription: "front-door selfie"
+            }
+          ]
+        };
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-list-shared",
+      name: "files",
+      arguments: { action: "list", path: "/shared/input" }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: null,
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(manifestCalled, true);
+  assert.equal(sandboxCalled, false);
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.requestedAction, "list");
+  assert.equal(result.payload.action, "listed");
+  const items = (result.payload as { items?: unknown }).items;
+  assert.ok(Array.isArray(items));
+  assert.equal(items.length, 1);
+  const first = items[0] as Record<string, unknown>;
+  assert.equal(first.path, "/shared/input/photo.jpg");
+  assert.equal(first.shortDescription, "front-door selfie");
+});
+
+test("files.list /workspace/ path keeps sandbox find behavior", async () => {
+  let manifestCalled = false;
+  let sandboxCalled = false;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion() {
+        sandboxCalled = true;
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({
+            items: [
+              {
+                path: "/workspace/scratch.txt",
+                type: "file",
+                role: "workspace",
+                sizeBytes: 4,
+                mimeType: "text/plain",
+                modifiedAt: "2026-06-20T10:00:00.000Z"
+              }
+            ]
+          })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      },
+      async listWorkspaceFilesFromManifest() {
+        manifestCalled = true;
+        return { items: [] };
+      },
+      async listWorkspaceFileShortDescriptions() {
+        return [];
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-list-workspace",
+      name: "files",
+      arguments: { action: "list", path: "/workspace" }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: null,
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(manifestCalled, false);
+  assert.equal(sandboxCalled, true);
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.action, "listed");
+});
+
+// ADR-127 W1 — after a successful sandbox write on `/shared/...`, the
+// runtime upserts `workspace_file_metadata` via the internal API. A
+// `/workspace/...` write must NOT upsert (scratch stays pod-only).
+test("files.write /shared/ path upserts manifest", async () => {
+  let upsertCalled = false;
+  let upsertInput: Record<string, unknown> | undefined;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion() {
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({ sizeBytes: 42 })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      },
+      async upsertWorkspaceFileMetadata(input: Record<string, unknown>) {
+        upsertCalled = true;
+        upsertInput = input;
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-write-shared",
+      name: "files",
+      arguments: {
+        action: "write",
+        path: "/shared/outbound/self/notes.md",
+        content: "# notes\nhello"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: null,
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.action, "written");
+  assert.equal(upsertCalled, true);
+  assert.equal(upsertInput?.workspaceId, "workspace-1");
+  assert.equal(upsertInput?.path, "/shared/outbound/self/notes.md");
+  assert.equal(upsertInput?.mimeType, "text/markdown");
+  assert.equal(upsertInput?.sizeBytes, 42);
+});
+
+test("files.write /workspace/ path does NOT upsert manifest", async () => {
+  let upsertCalled = false;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion() {
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({ sizeBytes: 4 })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      },
+      async upsertWorkspaceFileMetadata() {
+        upsertCalled = true;
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-write-workspace",
+      name: "files",
+      arguments: {
+        action: "write",
+        path: "/workspace/scratch.txt",
+        content: "data"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: null,
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.action, "written");
+  assert.equal(upsertCalled, false);
+});
+
+test("files.write /shared/ upsert failure is swallowed; write still succeeds", async () => {
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion() {
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({ sizeBytes: 3 })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      },
+      async upsertWorkspaceFileMetadata() {
+        throw new Error("api down");
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-write-shared-upsert-fail",
+      name: "files",
+      arguments: {
+        action: "write",
+        path: "/shared/outbound/self/note.txt",
+        content: "abc"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: null,
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.action, "written");
+});

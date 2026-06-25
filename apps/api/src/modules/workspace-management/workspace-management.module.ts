@@ -45,6 +45,7 @@ import { InternalRuntimeMemoryController } from "./interface/http/internal-runti
 import { InternalRuntimeCompactionEnqueueController } from "./interface/http/internal-runtime-compaction-enqueue.controller";
 import { InternalRuntimeDocumentJobsEnqueueController } from "./interface/http/internal-runtime-document-jobs-enqueue.controller";
 import { InternalRuntimeFilesController } from "./interface/http/internal-runtime-files-controller";
+import { InternalWorkspaceFilesController } from "./interface/http/internal-workspace-files.controller";
 import { InternalRuntimeMediaJobsEnqueueController } from "./interface/http/internal-runtime-media-jobs-enqueue.controller";
 import { InternalRuntimeMediaJobsCheckpointController } from "./interface/http/internal-runtime-media-jobs-checkpoint.controller";
 import { InternalRuntimeMemoryHydrationController } from "./interface/http/internal-runtime-memory-hydration.controller";
@@ -135,9 +136,11 @@ import { ListKnowledgeIndexingJobsService } from "./application/list-knowledge-i
 import { DocumentExtractionService } from "./application/document-extraction.service";
 import { DocumentSourceAttachmentExtractionService } from "./application/document-source-attachment-extraction.service";
 import { ListWorkspaceFileShortDescriptionsService } from "./application/list-workspace-file-short-descriptions.service";
+import { ListWorkspaceFilesFromManifestService } from "./application/list-workspace-files-from-manifest.service";
 import { ListChatWorkspaceFilesService } from "./application/list-chat-workspace-files.service";
 import { RegisterChatAttachmentService } from "./application/register-chat-attachment.service";
 import { SandboxControlPlaneClientService } from "./application/sandbox-control-plane.client.service";
+import { UpsertWorkspaceFileMetadataFromRuntimeService } from "./application/upsert-workspace-file-metadata-from-runtime.service";
 import { WorkspaceFileMetadataService } from "./application/workspace-file-metadata.service";
 import { WORKSPACE_FILE_METADATA_REPOSITORY } from "./domain/workspace-file-metadata.repository";
 import { PrismaWorkspaceFileMetadataRepository } from "./infrastructure/persistence/prisma-workspace-file-metadata.repository";
@@ -451,6 +454,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeCompactionEnqueueController,
     InternalRuntimeDocumentJobsEnqueueController,
     InternalRuntimeFilesController,
+    InternalWorkspaceFilesController,
     InternalRuntimeMediaJobsEnqueueController,
     InternalRuntimeMediaJobsCheckpointController,
     InternalRuntimeTaskRegistryController,
@@ -549,9 +553,11 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     DocumentExtractionService,
     DocumentSourceAttachmentExtractionService,
     ListWorkspaceFileShortDescriptionsService,
+    ListWorkspaceFilesFromManifestService,
     ListChatWorkspaceFilesService,
     RegisterChatAttachmentService,
     SandboxControlPlaneClientService,
+    UpsertWorkspaceFileMetadataFromRuntimeService,
     WorkspaceFileMetadataService,
     KnowledgeDocumentProcessorService,
     KnowledgeEmbeddingService,

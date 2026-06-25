@@ -216,6 +216,10 @@ export class MediaAttachmentController {
     });
   }
 
+  // ADR-127 W1 — kept for backward compatibility with existing web clients
+  // that still address files by `(chatId, path)`. The workspace-scoped
+  // variants (`GET /assistant/workspaces/:workspaceId/files[...]`) handle
+  // manifest-only orphan files that have no chatId.
   @Get("assistant/chats/web/:chatId/files")
   async downloadChatFile(
     @Req() req: RequestWithPlatformContext,
@@ -304,6 +308,113 @@ export class MediaAttachmentController {
       assistantId: assistant.id,
       workspaceId: assistant.workspaceId,
       chatId,
+      path: storagePath
+    });
+
+    res.setHeader(
+      "Content-Type",
+      this.resolveDownloadContentType(result.contentType, result.mimeType)
+    );
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.statusCode = 200;
+    res.setHeader("Content-Length", String(result.buffer.length));
+    res.end(result.buffer);
+  }
+
+  // ADR-127 W1 — workspace-scoped delivery for files whose existence is
+  // recorded in `workspace_file_metadata` but who have no chat origin
+  // (model `files.write` orphans). Auth gate: resolve the assistant from
+  // the auth context and require its workspaceId to match the path.
+  // Streaming logic mirrors `downloadChatFile` so existing clients see
+  // identical headers (range, content-disposition, content-type, BOM).
+  @Get("assistant/workspaces/:workspaceId/files")
+  async downloadWorkspaceFile(
+    @Req() req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext,
+    @Param("workspaceId") workspaceId: string,
+    @Query("path") path: string | undefined,
+    @Query("download") download?: string
+  ): Promise<void> {
+    const assistant = await this.resolveRequestAssistant(req);
+    if (assistant.workspaceId !== workspaceId) {
+      throw new NotFoundException("Workspace not found for this assistant.");
+    }
+    const storagePath = typeof path === "string" ? path.trim() : "";
+    if (storagePath.length === 0) {
+      throw new BadRequestException("path query parameter is required.");
+    }
+
+    const result = await this.mediaDeliveryService.downloadWorkspaceFileByPath({
+      workspaceId,
+      path: storagePath
+    });
+
+    const payload = this.prepareDownloadPayload({
+      buffer: result.buffer,
+      contentType: this.resolveDownloadContentType(result.contentType, result.mimeType),
+      forceDownload: download === "1"
+    });
+
+    res.setHeader("Content-Type", payload.contentType);
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.setHeader("Accept-Ranges", "bytes");
+    const resolvedDownloadFilename = this.resolveDownloadFilename(
+      result.originalFilename,
+      result.mimeType
+    );
+    if (resolvedDownloadFilename !== null) {
+      res.setHeader(
+        "Content-Disposition",
+        this.buildContentDisposition(
+          resolvedDownloadFilename,
+          download === "1" ? "attachment" : "inline"
+        )
+      );
+    }
+
+    const totalSize = payload.buffer.length;
+    const rangeHeader = typeof req.headers?.range === "string" ? req.headers.range : undefined;
+    const parsedRange = rangeHeader ? this.parseSingleByteRange(rangeHeader, totalSize) : null;
+
+    if (parsedRange) {
+      const slice = payload.buffer.subarray(parsedRange.start, parsedRange.end + 1);
+      res.statusCode = 206;
+      res.setHeader("Content-Range", `bytes ${parsedRange.start}-${parsedRange.end}/${totalSize}`);
+      res.setHeader("Content-Length", String(slice.length));
+      res.end(slice);
+      return;
+    }
+
+    if (rangeHeader && !parsedRange) {
+      res.statusCode = 416;
+      res.setHeader("Content-Range", `bytes */${totalSize}`);
+      res.end();
+      return;
+    }
+
+    res.statusCode = 200;
+    res.setHeader("Content-Length", String(totalSize));
+    res.end(payload.buffer);
+  }
+
+  @Get("assistant/workspaces/:workspaceId/files/preview")
+  async previewWorkspaceFile(
+    @Req() _req: RequestWithPlatformContext,
+    @Res() res: ResponseWithPlatformContext,
+    @Param("workspaceId") workspaceId: string,
+    @Query("path") path: string | undefined
+  ): Promise<void> {
+    const assistant = await this.resolveRequestAssistant(_req);
+    if (assistant.workspaceId !== workspaceId) {
+      throw new NotFoundException("Workspace not found for this assistant.");
+    }
+    const storagePath = typeof path === "string" ? path.trim() : "";
+    if (storagePath.length === 0) {
+      throw new BadRequestException("path query parameter is required.");
+    }
+
+    const result = await this.mediaDeliveryService.previewWorkspaceFileByPath({
+      workspaceId,
       path: storagePath
     });
 

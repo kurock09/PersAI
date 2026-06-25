@@ -18,6 +18,7 @@ import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import {
   buildChatFileUrl,
+  buildWorkspaceFileUrl,
   deleteChatWorkspaceFile,
   listChatWorkspaceFiles,
   type ChatWorkspaceFileTile
@@ -44,6 +45,30 @@ function formatBytes(bytes: number): string {
 
 function fileLabel(file: ChatWorkspaceFileTile): string {
   return file.originalFilename ?? file.storagePath.split("/").pop() ?? "file";
+}
+
+// ADR-127 W1 — pick chat-scoped URL when the tile has a chat origin,
+// otherwise fall back to the workspace-scoped URL (manifest orphan).
+function buildTileUrl(input: {
+  tile: { chatId: string | null; storagePath: string };
+  workspaceId: string | null;
+  download?: boolean;
+}): string | null {
+  if (input.tile.chatId !== null) {
+    return buildChatFileUrl({
+      chatId: input.tile.chatId,
+      storagePath: input.tile.storagePath,
+      ...(input.download === true ? { download: true } : {})
+    });
+  }
+  if (input.workspaceId !== null) {
+    return buildWorkspaceFileUrl({
+      workspaceId: input.workspaceId,
+      storagePath: input.tile.storagePath,
+      ...(input.download === true ? { download: true } : {})
+    });
+  }
+  return null;
 }
 
 function documentIcon(mimeType: string) {
@@ -99,7 +124,18 @@ function TileMenu({
   );
 }
 
-export function WorkspaceFilesGallery({ chatId }: { chatId: string | null }) {
+// ADR-127 W1 — `workspaceId` enables the gallery to render manifest-only
+// orphan tiles (model `files.write` with no chat attachment). When the
+// caller does not have a workspaceId in hand, orphan tiles will fall back
+// to chat-scoped URLs which 404 cleanly until the parent threads it
+// through.
+export function WorkspaceFilesGallery({
+  chatId,
+  workspaceId
+}: {
+  chatId: string | null;
+  workspaceId: string | null;
+}) {
   const t = useTranslations("settings");
   const { getToken } = useAuth();
   const [filter, setFilter] = useState<GalleryFilter>("all");
@@ -187,33 +223,35 @@ export function WorkspaceFilesGallery({ chatId }: { chatId: string | null }) {
 
   const openPreview = useCallback(
     (file: ChatWorkspaceFileTile) => {
-      const galleryItems = previewableMedia.map((item) => ({
-        src: buildChatFileUrl({ chatId: item.chatId, storagePath: item.storagePath }),
-        downloadUrl: buildChatFileUrl({
-          chatId: item.chatId,
-          storagePath: item.storagePath,
-          download: true
-        }),
-        filename: fileLabel(item),
-        alt: fileLabel(item)
-      }));
+      const galleryItems = previewableMedia
+        .map((item) => {
+          const src = buildTileUrl({ tile: item, workspaceId });
+          if (src === null) return null;
+          const downloadUrl = buildTileUrl({ tile: item, workspaceId, download: true }) ?? src;
+          return {
+            src,
+            downloadUrl,
+            filename: fileLabel(item),
+            alt: fileLabel(item)
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
       const currentIndex = previewableMedia.findIndex(
         (item) => item.storagePath === file.storagePath
       );
+      const fileSrc = buildTileUrl({ tile: file, workspaceId });
+      if (fileSrc === null) return;
+      const fileDownloadUrl = buildTileUrl({ tile: file, workspaceId, download: true }) ?? fileSrc;
       setPreview({
-        src: buildChatFileUrl({ chatId: file.chatId, storagePath: file.storagePath }),
-        downloadUrl: buildChatFileUrl({
-          chatId: file.chatId,
-          storagePath: file.storagePath,
-          download: true
-        }),
+        src: fileSrc,
+        downloadUrl: fileDownloadUrl,
         filename: fileLabel(file),
         mediaType: file.attachmentType === "video" ? "video" : "image",
         galleryItems,
         currentIndex: currentIndex >= 0 ? currentIndex : 0
       });
     },
-    [previewableMedia]
+    [previewableMedia, workspaceId]
   );
 
   const handleTileClick = useCallback(
@@ -222,25 +260,34 @@ export function WorkspaceFilesGallery({ chatId }: { chatId: string | null }) {
         openPreview(file);
         return;
       }
-      const url = buildChatFileUrl({
-        chatId: file.chatId,
-        storagePath: file.storagePath,
-        download: true
-      });
+      const url = buildTileUrl({ tile: file, workspaceId, download: true });
+      if (url === null) return;
       window.open(url, "_blank", "noopener,noreferrer");
     },
-    [openPreview]
+    [openPreview, workspaceId]
   );
 
   const handleDelete = useCallback(
     async (file: ChatWorkspaceFileTile) => {
+      // ADR-127 W1 — delete UI for orphan files (`chatId === null`) ships
+      // in W3 with the matching workspace-scoped DELETE endpoint. For
+      // now, ignore the click to avoid 4xx noise; the menu still renders
+      // so the affordance is visible.
+      if (file.chatId === null) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          "workspace-files-gallery: delete skipped — orphan tile (chatId=null) handled in ADR-127 W3."
+        );
+        return;
+      }
+      const chatIdForDelete = file.chatId;
       const token = await getToken({ skipCache: true });
       if (!token) return;
       setBusyPath(file.storagePath);
       setFeedback(null);
       try {
         await deleteChatWorkspaceFile(token, {
-          chatId: file.chatId,
+          chatId: chatIdForDelete,
           storagePath: file.storagePath
         });
         setFiles((current) => current.filter((row) => row.storagePath !== file.storagePath));
@@ -319,12 +366,15 @@ export function WorkspaceFilesGallery({ chatId }: { chatId: string | null }) {
               const label = fileLabel(file);
               const thumbUrl =
                 file.attachmentType === "image" && file.thumbnailStoragePath
-                  ? buildChatFileUrl({
-                      chatId: file.chatId,
-                      storagePath: file.thumbnailStoragePath
+                  ? buildTileUrl({
+                      tile: { chatId: file.chatId, storagePath: file.thumbnailStoragePath },
+                      workspaceId
                     })
                   : file.attachmentType === "video" && file.posterStoragePath
-                    ? buildChatFileUrl({ chatId: file.chatId, storagePath: file.posterStoragePath })
+                    ? buildTileUrl({
+                        tile: { chatId: file.chatId, storagePath: file.posterStoragePath },
+                        workspaceId
+                      })
                     : null;
               const DocIcon = documentIcon(file.mimeType);
               const showMenu = hoveredPath === file.storagePath;
@@ -383,11 +433,8 @@ export function WorkspaceFilesGallery({ chatId }: { chatId: string | null }) {
                     open={showMenu}
                     busy={busyPath === file.storagePath}
                     onDownload={() => {
-                      const url = buildChatFileUrl({
-                        chatId: file.chatId,
-                        storagePath: file.storagePath,
-                        download: true
-                      });
+                      const url = buildTileUrl({ tile: file, workspaceId, download: true });
+                      if (url === null) return;
                       window.open(url, "_blank", "noopener,noreferrer");
                     }}
                     onDelete={() => void handleDelete(file)}

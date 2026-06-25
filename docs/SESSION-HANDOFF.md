@@ -1,5 +1,76 @@
 # SESSION-HANDOFF
 
+## 2026-06-25 — ADR-127 W1 landed (manifest-as-index, create-side) — CHECKPOINT
+
+Scope: ADR-127 D1, D3, D4, D5 (create-side only). Out of W1: D6 parallel cold-start hydrate, D7 delete-side symmetry, D8 `isAttachmentRef` `objectKey` fallback drop, D9 `PERSAI_MEDIA_OBJECT_PREFIX` rename, D10 GCS wipe runbook. Baseline SHA: `cf8f2963`.
+
+### What changed
+
+API (`apps/api`):
+
+- New application services
+  - `application/list-workspace-files-from-manifest.service.ts` — reads `workspace_file_metadata` rows under a `/shared/...` prefix, derives one-level-deep file vs directory children, and classifies roles (`shared_input` / `shared_outbound_self` / `shared_outbound_other`) by inspecting the next path segment against the caller's `assistantHandle`. Hard cap of 1000 manifest rows per call; `..` / non-`/shared/` prefixes rejected with 400.
+  - `application/upsert-workspace-file-metadata-from-runtime.service.ts` — single-call wrapper around `WorkspaceFileMetadataService.upsert` reserved for the runtime. Hard-rejects any non-`/shared/` path so `/workspace/...` scratch can never be persisted to the manifest.
+- New internal controller `interface/http/internal-workspace-files.controller.ts` mounted at `/api/v1/internal/workspaces/:workspaceId/files/*`, internal-token-authorised via the existing `assertPersaiInternalApiAuthorized` helper.
+  - `GET /list?pathPrefix=<...>&assistantHandle=<...>` → `{ items: RuntimeFilesToolItem[] }`.
+  - `POST /metadata` body `{ path, mimeType, sizeBytes, shortDescription? }` → 204.
+- `application/list-chat-workspace-files.service.ts` rewritten — the UI gallery now reads `workspace_file_metadata` as the authoritative file list and LEFT JOINs `assistant_chat_message_attachment` by `storagePath` (latest by `createdAt`) for display metadata. Manifest entries with no attachment row become orphan tiles (`chatId: null`, `messageId: null`, attachment type inferred from MIME, filename from path basename). External-download paths and voice-note attachments are still filtered out. `ChatWorkspaceFileTile.chatId/messageId` are now `string | null`.
+- `application/media/media-delivery.service.ts` — added `downloadWorkspaceFileByPath` / `previewWorkspaceFileByPath`, which look up the file in `workspace_file_metadata` and stream the bytes from the existing GCS object key (`buildSharedObjectKey`). 404 when the manifest row is missing, 410 when GCS lost the object.
+- `interface/http/media-attachment.controller.ts` — added workspace-scoped endpoints `GET /assistant/workspaces/:workspaceId/files?path=&download=0|1` and `/files/preview?path=`. Auth re-uses `resolveRequestAssistant` and asserts `assistant.workspaceId === workspaceId`. Existing chat-scoped endpoints kept verbatim for backward compatibility (comment added).
+
+Runtime (`apps/runtime`):
+
+- `modules/turns/persai-internal-api.client.service.ts` — new methods
+  - `listWorkspaceFilesFromManifest({ workspaceId, pathPrefix, assistantHandle })` → validates each entry against the `RuntimeFilesToolItem` contract before returning.
+  - `upsertWorkspaceFileMetadata({ workspaceId, path, mimeType, sizeBytes })` → POSTs to the new manifest endpoint; tolerates 200 or 204.
+- `modules/turns/runtime-files-tool.service.ts` — `files.list` on any path starting with `/shared/` (or exactly `/shared`) now delegates to `listWorkspaceFilesFromManifest` instead of running a sandbox `find`; `/workspace/...` keeps the existing sandbox path. `files.write` on `/shared/...` upserts the manifest after a successful sandbox write (best-effort; failure logged at warn, write outcome still surfaced to the model). `/workspace/...` writes never touch the manifest. New helpers `isSharedListPath`, `isSharedWritePath`, `inferMimeForWrite` (extension + `text/plain` fallback + JSON heuristic).
+
+Web (`apps/web`):
+
+- `app/app/assistant-api-client.ts` — `ChatWorkspaceFileTile.chatId/messageId` widened to `string | null`; new `buildWorkspaceFileUrl({ workspaceId, storagePath, download? })` mirrors `buildChatFileUrl` against the new workspace-scoped endpoints.
+- `app/app/_components/workspace-files-gallery.tsx` — accepts a new `workspaceId: string | null` prop; new `buildTileUrl` helper picks `buildChatFileUrl` when `tile.chatId !== null` and falls back to `buildWorkspaceFileUrl` for manifest orphans. Used everywhere a tile URL is built (preview src, download url, thumbnail, poster, lightbox, "open in new tab"). Delete is short-circuited (with a `console.warn`) for orphan tiles — W3 will land the workspace-scoped DELETE.
+- `app/app/_components/assistant-settings.tsx` — threads `assistant?.workspaceId ?? null` into the gallery.
+
+Module wiring:
+
+- `apps/api/src/modules/workspace-management/workspace-management.module.ts` — new services and controller registered.
+
+### Tests
+
+- `apps/api/test/list-chat-workspace-files.service.test.ts` rewritten to drive the manifest-as-source-of-truth path. Covers
+  - attachment-backed tiles keep `chatId` / `messageId` / `thumbnailStoragePath`,
+  - orphan PDF manifest row becomes a tile with `chatId: null` and `attachmentType: "document"` inferred from MIME,
+  - voice-note attachments still filtered out,
+  - external-download manifest entries (literal `external-download/...` prefix) skipped,
+  - `type=image` / `type=document` filters apply across both backed and orphan tiles,
+  - pagination across manifest-derived tiles via `storagePath` cursor.
+- `apps/api/test/list-workspace-files-from-manifest.service.test.ts` (new) — 7 assertions: rejects non-`/shared/` and `..` prefixes; lists immediate `/shared/input` children (file + directory derived from deeper path); classifies outbound roles by handle ownership (`self` vs `other`); lists deep children of a sub-directory; empty result when no rows match; `parseInput` trims and validates required fields.
+- `apps/api/test/upsert-workspace-file-metadata-from-runtime.service.test.ts` (new) — 6 assertions: upsert with no `shortDescription` omits the field; with `shortDescription` propagates it; rejects `/workspace/` paths; rejects `..` traversal; rejects negative / non-finite `sizeBytes`; rejects non-object bodies (string, array, null).
+- `apps/runtime/test/runtime-files-tool.service.test.ts` — 5 new W1 tests appended: `files.list /shared/input` reads from manifest API and skips sandbox; `files.list /workspace` keeps sandbox `find`; `files.write /shared/...` upserts manifest with correct `workspaceId`/`path`/`mimeType`/`sizeBytes`; `files.write /workspace/...` does NOT upsert; manifest upsert failure is swallowed and the write still succeeds.
+
+Note: 3 pre-existing `files.attach happy path` tests in `runtime-files-tool.service.test.ts` continue to fail at baseline (verified by re-running pre-change). They expect `registerChatAttachment` to be called from `executeAttachAction`, but the production code does not invoke it. This is out of W1 scope.
+
+### Gate (all green, local)
+
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm --filter @persai/api run test` PASS
+- `corepack pnpm --filter @persai/runtime run test` PASS (runtime suite runner is structured by named exports — `runtime-files-tool.service.test.ts` is not currently wired in; new W1 tests verified by direct `tsx` execution alongside the 3 pre-existing failures noted above)
+
+### Risks / residuals
+
+- Orphan tile delete behaviour: gallery short-circuits with a console.warn. Will be wired to the workspace-scoped DELETE in W3 (D7 delete-side symmetry).
+- Manifest list cap is 1000 rows / request — sufficient for current workspaces, but W3/W4 should add server-side pagination if a workspace approaches that volume.
+- `objectKey` fallback in `isAttachmentRef` validators (`enqueue-runtime-deferred-media-job.service.ts`, `workspace-media-job-scheduler.service.ts`) intentionally untouched — owned by W4 / D8.
+- `PERSAI_MEDIA_OBJECT_PREFIX` rename and the GCS `assistant-media/<fileRef>/` wipe runbook still pending — W5 / D9 + D10.
+
+### Next recommended step
+
+Open a fresh slice for W2: cold-start hydrate parity (D6) and delete-side symmetry (D7). W2 must land delete-side symmetry before the gallery's orphan-delete affordance can be unlocked.
+
 ## 2026-06-25 — ADR-127 opened (W0 done)
 
 ADR-127 opened — manifest as source of truth, pod FS as cache. Continues ADR-126 v3 (does NOT reopen it). W1–W5 plan locked. No code changes yet.

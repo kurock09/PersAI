@@ -4356,6 +4356,26 @@ export function buildChatFileUrl(input: {
   return `${url.pathname}${url.search}`;
 }
 
+// ADR-127 W1 — workspace-scoped URL for files that have a manifest entry
+// but no chat origin (model `files.write` orphans). Mirrors
+// `buildChatFileUrl` so the gallery can pick either based on whether
+// `tile.chatId` is null.
+export function buildWorkspaceFileUrl(input: {
+  workspaceId: string;
+  storagePath: string;
+  download?: boolean;
+}): string {
+  const url = new URL(
+    `/api/v1/assistant/workspaces/${encodeURIComponent(input.workspaceId)}/files`,
+    "https://persai.local"
+  );
+  url.searchParams.set("path", input.storagePath);
+  if (input.download === true) {
+    url.searchParams.set("download", "1");
+  }
+  return `${url.pathname}${url.search}`;
+}
+
 export function getAssistantAttachmentPreviewUrl(input: {
   chatId: string;
   path: string | null;
@@ -4384,8 +4404,11 @@ export type ChatWorkspaceFileTile = {
   sizeBytes: number;
   attachmentType: string;
   createdAt: string;
-  chatId: string;
-  messageId: string;
+  // ADR-127 W1 — `chatId` and `messageId` are null when the tile comes
+  // from a manifest row with no joined chat attachment (model `files.write`
+  // orphans). UI must fall back to `buildWorkspaceFileUrl` in that case.
+  chatId: string | null;
+  messageId: string | null;
 };
 
 export async function listChatWorkspaceFiles(

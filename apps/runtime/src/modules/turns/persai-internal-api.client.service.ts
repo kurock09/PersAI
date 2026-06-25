@@ -15,6 +15,7 @@ import type {
   PersaiRuntimeKnowledgeSource,
   PersaiRuntimeTier,
   PersaiRuntimeTodoWriteStatus,
+  RuntimeFilesToolItem,
   RuntimeKnowledgeDocument,
   RuntimeKnowledgeSearchHit,
   RuntimeMemoryWriteItem,
@@ -743,6 +744,125 @@ export class PersaiInternalApiClientService {
       attachmentId: payload.attachmentId,
       storagePath: payload.storagePath
     };
+  }
+
+  /**
+   * ADR-127 W1 — list workspace files from `workspace_file_metadata` for a
+   * `/shared/...` prefix. The manifest is the authoritative file index;
+   * the runtime calls this instead of a sandbox `find` for `files.list`.
+   * Returns one-level-deep entries; directories are derived from path
+   * components.
+   */
+  async listWorkspaceFilesFromManifest(input: {
+    workspaceId: string;
+    pathPrefix: string;
+    assistantHandle: string;
+  }): Promise<{ items: RuntimeFilesToolItem[] }> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const url =
+      `/api/v1/internal/workspaces/${encodeURIComponent(input.workspaceId)}/files/list` +
+      `?pathPrefix=${encodeURIComponent(input.pathPrefix)}` +
+      `&assistantHandle=${encodeURIComponent(input.assistantHandle)}`;
+    const response = await this.fetchJson(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`
+      }
+    });
+    if (!response.ok) {
+      const error = this.extractError(response.body);
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException(
+          error.message ?? "PersAI internal API workspace files list request failed."
+        );
+      }
+      throw new BadRequestException(
+        error.message ?? "PersAI internal API rejected the workspace files list request."
+      );
+    }
+    const payload = this.asObject(response.body);
+    const items = payload?.items;
+    if (!Array.isArray(items)) {
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid workspace files list response."
+      );
+    }
+    const validated: RuntimeFilesToolItem[] = [];
+    for (const entry of items) {
+      const row = this.asObject(entry);
+      if (row === null) continue;
+      if (
+        typeof row.path !== "string" ||
+        (row.type !== "file" && row.type !== "directory") ||
+        (row.role !== "workspace" &&
+          row.role !== "shared_input" &&
+          row.role !== "shared_outbound_self" &&
+          row.role !== "shared_outbound_other") ||
+        typeof row.sizeBytes !== "number" ||
+        (row.mimeType !== null && typeof row.mimeType !== "string") ||
+        (row.modifiedAt !== null && typeof row.modifiedAt !== "string")
+      ) {
+        continue;
+      }
+      const item: RuntimeFilesToolItem = {
+        path: row.path,
+        type: row.type,
+        role: row.role,
+        sizeBytes: row.sizeBytes,
+        mimeType: row.mimeType,
+        modifiedAt: row.modifiedAt
+      };
+      if (typeof row.shortDescription === "string") {
+        item.shortDescription = row.shortDescription;
+      } else if (row.shortDescription === null) {
+        item.shortDescription = null;
+      }
+      validated.push(item);
+    }
+    return { items: validated };
+  }
+
+  /**
+   * ADR-127 W1 — upsert a `workspace_file_metadata` row after a successful
+   * runtime `files.write` on `/shared/...`. The API is the only writer of
+   * the manifest; the runtime is the only caller of this endpoint.
+   */
+  async upsertWorkspaceFileMetadata(input: {
+    workspaceId: string;
+    path: string;
+    mimeType: string;
+    sizeBytes: number;
+  }): Promise<void> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const url = `/api/v1/internal/workspaces/${encodeURIComponent(input.workspaceId)}/files/metadata`;
+    const response = await this.fetchJson(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        path: input.path,
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes
+      })
+    });
+    if (response.status === 204 || response.ok) {
+      return;
+    }
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API workspace file metadata upsert failed."
+      );
+    }
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the workspace file metadata upsert."
+    );
   }
 
   /**

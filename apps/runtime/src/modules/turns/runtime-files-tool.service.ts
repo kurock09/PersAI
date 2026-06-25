@@ -170,6 +170,13 @@ export class RuntimeFilesToolService {
     },
     request: FilesListRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
+    // ADR-127 D3 — `/shared/...` listings come from the authoritative
+    // `workspace_file_metadata` manifest, not from a pod `find`. Pod FS is
+    // a cache and may be stale; the manifest is the single source of
+    // truth for "what files exist" in the shared workspace.
+    if (this.isSharedListPath(request.path)) {
+      return this.executeListFromManifest(params, request);
+    }
     const job = await this.runSandboxJob(params, {
       action: "list",
       path: request.path,
@@ -208,6 +215,55 @@ export class RuntimeFilesToolService {
       },
       isError: false
     };
+  }
+
+  private async executeListFromManifest(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      sessionId: string;
+      requestId: string;
+    },
+    request: FilesListRequest
+  ): Promise<RuntimeFilesToolExecutionResult> {
+    const assistantHandle = params.bundle.metadata.assistantHandle ?? "";
+    try {
+      const result = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
+        workspaceId: params.bundle.metadata.workspaceId,
+        pathPrefix: request.path,
+        assistantHandle
+      });
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "list",
+          action: "listed",
+          reason: null,
+          warning: null,
+          path: request.path,
+          items: result.items,
+          item: result.items[0] ?? null
+        },
+        isError: false
+      };
+    } catch (error) {
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "list",
+          action: "skipped",
+          reason: "files_failed",
+          warning: error instanceof Error ? error.message : "Files list (manifest) failed.",
+          path: request.path
+        },
+        isError: true
+      };
+    }
+  }
+
+  private isSharedListPath(path: string): boolean {
+    return path === "/shared" || path.startsWith("/shared/");
   }
 
   private async executeReadAction(
@@ -414,6 +470,27 @@ export class RuntimeFilesToolService {
       };
     }
     const writeOutcome = this.parseWriteContent(job.content);
+    // ADR-127 D5 create-side — propagate the sandbox-side write to the
+    // authoritative manifest for `/shared/...` paths. `/workspace/...` is
+    // per-assistant scratch and stays pod-only by design. The upsert is
+    // best-effort: failure is logged at warn and the write outcome is
+    // still surfaced to the model. W3 will tighten consistency once
+    // delete-side symmetry lands.
+    if (this.isSharedWritePath(request.path)) {
+      const sizeBytes = writeOutcome.sizeBytes ?? request.content.length;
+      try {
+        await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
+          workspaceId: params.bundle.metadata.workspaceId,
+          path: request.path,
+          mimeType: this.inferMimeForWrite(request.path, request.content),
+          sizeBytes
+        });
+      } catch (error) {
+        this.logger.warn(
+          `files_write_manifest_upsert_failed path=${request.path} reason=${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
     return {
       payload: {
         toolCode: "files",
@@ -427,6 +504,38 @@ export class RuntimeFilesToolService {
       },
       isError: false
     };
+  }
+
+  private isSharedWritePath(path: string): boolean {
+    return path.startsWith("/shared/");
+  }
+
+  // The model passes raw text content via `files.write`. Without sniffing
+  // file bytes (which the sandbox already did), pick a conservative mime
+  // type from the extension and fall back to `text/plain` so the manifest
+  // can store something meaningful.
+  private inferMimeForWrite(path: string, content: string): string {
+    const lower = path.toLowerCase();
+    if (lower.endsWith(".json")) return "application/json";
+    if (lower.endsWith(".csv")) return "text/csv";
+    if (lower.endsWith(".tsv")) return "text/tab-separated-values";
+    if (lower.endsWith(".md")) return "text/markdown";
+    if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
+    if (lower.endsWith(".xml")) return "application/xml";
+    if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "application/yaml";
+    if (lower.endsWith(".txt") || lower.endsWith(".log")) return "text/plain";
+    // Heuristic: structured JSON-like content with no extension still benefits
+    // from a richer mime than octet-stream so the gallery can categorise it.
+    const trimmed = content.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        JSON.parse(trimmed);
+        return "application/json";
+      } catch {
+        // Fall through to text/plain.
+      }
+    }
+    return "text/plain";
   }
 
   private async executeDeleteAction(

@@ -1,5 +1,8 @@
+// ADR-127 W1 — manifest is the authoritative file index. Attachment table is
+// joined LEFT for display metadata (chat origin, thumbnail). Files written by
+// the model via files.write have no attachment row → chatId/messageId nullable.
+
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { AssistantChatMessageAttachment } from "../domain/assistant-chat-message-attachment.entity";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -19,15 +22,45 @@ export type ChatWorkspaceFileTile = {
   sizeBytes: number;
   attachmentType: string;
   createdAt: string;
-  chatId: string;
-  messageId: string;
+  // Nullable per ADR-127 D4 — files written by the model via `files.write`
+  // have a manifest row but no chat-attachment row, so they cannot be
+  // attributed to any chat or assistant message.
+  chatId: string | null;
+  messageId: string | null;
 };
 
 const DEFAULT_LIMIT = 48;
 const MAX_LIMIT = 100;
+const MANIFEST_MAX_FETCH = 1_000;
 const GALLERY_ATTACHMENT_TYPES = new Set(["image", "video", "document", "audio"]);
 
-function isVoiceNoteAttachment(attachment: AssistantChatMessageAttachment): boolean {
+type ManifestRow = {
+  path: string;
+  mimeType: string;
+  sizeBytes: bigint;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type AttachmentRow = {
+  id: string;
+  messageId: string;
+  chatId: string;
+  assistantId: string;
+  workspaceId: string;
+  attachmentType: string;
+  storagePath: string | null;
+  thumbnailStoragePath: string | null;
+  posterStoragePath: string | null;
+  originalFilename: string | null;
+  mimeType: string;
+  sizeBytes: bigint;
+  processingStatus: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: Date;
+};
+
+function isVoiceNoteAttachment(attachment: AttachmentRow): boolean {
   if (attachment.attachmentType === "voice") {
     return true;
   }
@@ -38,26 +71,21 @@ function isVoiceNoteAttachment(attachment: AssistantChatMessageAttachment): bool
   return metadata.source === "voice_input" || metadata.audioAsVoice === true;
 }
 
-function isGalleryEligible(attachment: AssistantChatMessageAttachment): boolean {
-  if (attachment.processingStatus !== "ready") {
-    return false;
+function inferAttachmentTypeFromMime(mimeType: string): string {
+  const normalized = mimeType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  if (normalized.startsWith("image/")) return "image";
+  if (normalized.startsWith("video/")) return "video";
+  if (normalized.startsWith("audio/")) return "audio";
+  return "document";
+}
+
+function basenameFromPath(path: string): string {
+  const trimmed = path.replace(/\/+$/, "");
+  const idx = trimmed.lastIndexOf("/");
+  if (idx === -1 || idx === trimmed.length - 1) {
+    return trimmed;
   }
-  if (attachment.storagePath === null || attachment.storagePath.trim().length === 0) {
-    return false;
-  }
-  if (attachment.attachmentType === "tool_output") {
-    return false;
-  }
-  if (!GALLERY_ATTACHMENT_TYPES.has(attachment.attachmentType)) {
-    return false;
-  }
-  if (attachment.storagePath.startsWith(EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX)) {
-    return false;
-  }
-  if (isVoiceNoteAttachment(attachment)) {
-    return false;
-  }
-  return true;
+  return trimmed.slice(idx + 1);
 }
 
 function matchesTypeFilter(
@@ -70,39 +98,6 @@ function matchesTypeFilter(
   return attachmentType === type;
 }
 
-function dedupeByStoragePath(
-  attachments: AssistantChatMessageAttachment[]
-): AssistantChatMessageAttachment[] {
-  const byPath = new Map<string, AssistantChatMessageAttachment>();
-  for (const attachment of attachments) {
-    const storagePath = attachment.storagePath;
-    if (storagePath === null) {
-      continue;
-    }
-    const existing = byPath.get(storagePath);
-    if (existing === undefined || attachment.createdAt > existing.createdAt) {
-      byPath.set(storagePath, attachment);
-    }
-  }
-  return [...byPath.values()];
-}
-
-function toTile(attachment: AssistantChatMessageAttachment): ChatWorkspaceFileTile {
-  return {
-    storagePath: attachment.storagePath!,
-    thumbnailStoragePath: attachment.thumbnailStoragePath,
-    posterStoragePath: attachment.posterStoragePath,
-    originalFilename: attachment.originalFilename,
-    mimeType: attachment.mimeType,
-    sizeBytes: Number(attachment.sizeBytes),
-    attachmentType: attachment.attachmentType,
-    createdAt: attachment.createdAt.toISOString(),
-    chatId: attachment.chatId,
-    messageId: attachment.messageId
-  };
-}
-
-/** ADR-126 v3 W5 — workspace-scoped tile gallery rows for Settings → Files. */
 @Injectable()
 export class ListChatWorkspaceFilesService {
   constructor(
@@ -129,37 +124,131 @@ export class ListChatWorkspaceFilesService {
     const typeFilter = this.parseTypeFilter(input.type);
     const limit = this.parseLimit(input.limit);
 
-    const records = await this.prisma.assistantChatMessageAttachment.findMany({
-      where: {
-        workspaceId: chat.workspaceId,
-        assistantId: assistant.id
-      },
-      orderBy: { createdAt: "desc" }
-    });
+    const [manifestRowsRaw, attachmentRowsRaw] = await Promise.all([
+      this.prisma.workspaceFileMetadata.findMany({
+        where: { workspaceId: chat.workspaceId },
+        orderBy: { createdAt: "desc" },
+        take: MANIFEST_MAX_FETCH
+      }),
+      this.prisma.assistantChatMessageAttachment.findMany({
+        where: {
+          workspaceId: chat.workspaceId,
+          assistantId: assistant.id,
+          NOT: { storagePath: null }
+        },
+        orderBy: { createdAt: "desc" }
+      })
+    ]);
+    const manifestRows: ManifestRow[] = [];
+    for (const raw of manifestRowsRaw) {
+      const normalized = this.normalizeManifestRow(raw);
+      if (normalized !== null) {
+        manifestRows.push(normalized);
+      }
+    }
+    const attachmentRows: unknown[] = attachmentRowsRaw;
 
-    const eligible = dedupeByStoragePath(
-      records
-        .map((record) => this.mapRecord(record))
-        .filter(isGalleryEligible)
-        .filter((attachment) => matchesTypeFilter(attachment.attachmentType, typeFilter))
-    ).sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime());
+    const attachmentByPath = new Map<string, AttachmentRow>();
+    for (const raw of attachmentRows) {
+      const row = this.normalizeAttachmentRow(raw);
+      if (row === null) {
+        continue;
+      }
+      if (row.storagePath === null) {
+        continue;
+      }
+      const existing = attachmentByPath.get(row.storagePath);
+      if (existing === undefined || row.createdAt > existing.createdAt) {
+        attachmentByPath.set(row.storagePath, row);
+      }
+    }
+
+    const tiles: ChatWorkspaceFileTile[] = [];
+    for (const manifest of manifestRows) {
+      if (manifest.path.startsWith(EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX)) {
+        continue;
+      }
+      const attachment = attachmentByPath.get(manifest.path);
+      if (attachment !== undefined) {
+        if (attachment.processingStatus !== "ready") {
+          continue;
+        }
+        if (attachment.attachmentType === "tool_output") {
+          continue;
+        }
+        if (isVoiceNoteAttachment(attachment)) {
+          continue;
+        }
+        if (!GALLERY_ATTACHMENT_TYPES.has(attachment.attachmentType)) {
+          continue;
+        }
+        if (!matchesTypeFilter(attachment.attachmentType, typeFilter)) {
+          continue;
+        }
+        tiles.push({
+          storagePath: manifest.path,
+          thumbnailStoragePath: attachment.thumbnailStoragePath,
+          posterStoragePath: attachment.posterStoragePath,
+          originalFilename: attachment.originalFilename,
+          mimeType: attachment.mimeType,
+          sizeBytes: Number(attachment.sizeBytes),
+          attachmentType: attachment.attachmentType,
+          createdAt: attachment.createdAt.toISOString(),
+          chatId: attachment.chatId,
+          messageId: attachment.messageId
+        });
+        continue;
+      }
+      // Orphan manifest entry: model `files.write` produced this file with no
+      // chat origin. Synthesise a tile from path + mime; chatId/messageId
+      // remain null so the UI can fall back to workspace-scoped download URLs.
+      const inferredType = inferAttachmentTypeFromMime(manifest.mimeType);
+      if (!GALLERY_ATTACHMENT_TYPES.has(inferredType)) {
+        continue;
+      }
+      if (!matchesTypeFilter(inferredType, typeFilter)) {
+        continue;
+      }
+      tiles.push({
+        storagePath: manifest.path,
+        thumbnailStoragePath: null,
+        posterStoragePath: null,
+        originalFilename: basenameFromPath(manifest.path),
+        mimeType: manifest.mimeType,
+        sizeBytes: Number(manifest.sizeBytes),
+        attachmentType: inferredType,
+        createdAt: manifest.createdAt.toISOString(),
+        chatId: null,
+        messageId: null
+      });
+    }
+
+    tiles.sort((left, right) => {
+      const leftMs = Date.parse(left.createdAt);
+      const rightMs = Date.parse(right.createdAt);
+      if (rightMs !== leftMs) {
+        return rightMs - leftMs;
+      }
+      return left.storagePath.localeCompare(right.storagePath);
+    });
 
     let startIndex = 0;
     if (typeof input.cursor === "string" && input.cursor.trim().length > 0) {
-      const cursorIndex = eligible.findIndex((row) => row.storagePath === input.cursor!.trim());
+      const cursorPath = input.cursor.trim();
+      const cursorIndex = tiles.findIndex((row) => row.storagePath === cursorPath);
       if (cursorIndex >= 0) {
         startIndex = cursorIndex + 1;
       }
     }
 
-    const page = eligible.slice(startIndex, startIndex + limit);
+    const page = tiles.slice(startIndex, startIndex + limit);
     const nextCursor =
-      startIndex + limit < eligible.length && page.length > 0
-        ? page[page.length - 1]!.storagePath!
+      startIndex + limit < tiles.length && page.length > 0
+        ? (page[page.length - 1]?.storagePath ?? null)
         : null;
 
     return {
-      files: page.map(toTile),
+      files: page,
       nextCursor
     };
   }
@@ -188,58 +277,77 @@ export class ListChatWorkspaceFilesService {
     return Math.min(Math.floor(value), MAX_LIMIT);
   }
 
-  private mapRecord(record: {
-    id: string;
-    messageId: string;
-    chatId: string;
-    assistantId: string;
-    workspaceId: string;
-    attachmentType: AssistantChatMessageAttachment["attachmentType"];
-    storagePath: string | null;
-    thumbnailStoragePath: string | null;
-    posterStoragePath: string | null;
-    originalFilename: string | null;
-    mimeType: string;
-    sizeBytes: bigint;
-    durationMs: number | null;
-    width: number | null;
-    height: number | null;
-    processingStatus: AssistantChatMessageAttachment["processingStatus"];
-    transcription: string | null;
-    billingFactsJson: unknown;
-    metadata: unknown;
-    clientTurnId: string | null;
-    clientAttachmentId: string | null;
-    createdAt: Date;
-  }): AssistantChatMessageAttachment {
+  private normalizeManifestRow(raw: unknown): ManifestRow | null {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return null;
+    }
+    const row = raw as Record<string, unknown>;
+    if (
+      typeof row.path !== "string" ||
+      typeof row.mimeType !== "string" ||
+      typeof row.sizeBytes !== "bigint" ||
+      !(row.createdAt instanceof Date) ||
+      !(row.updatedAt instanceof Date)
+    ) {
+      return null;
+    }
     return {
-      id: record.id,
-      messageId: record.messageId,
-      chatId: record.chatId,
-      assistantId: record.assistantId,
-      workspaceId: record.workspaceId,
-      attachmentType: record.attachmentType,
-      storagePath: record.storagePath,
-      thumbnailStoragePath: record.thumbnailStoragePath,
-      posterStoragePath: record.posterStoragePath,
-      originalFilename: record.originalFilename,
-      mimeType: record.mimeType,
-      sizeBytes: record.sizeBytes,
-      durationMs: record.durationMs,
-      width: record.width,
-      height: record.height,
-      processingStatus: record.processingStatus,
-      transcription: record.transcription,
-      billingFacts: null,
-      metadata:
-        record.metadata !== null &&
-        typeof record.metadata === "object" &&
-        !Array.isArray(record.metadata)
-          ? (record.metadata as Record<string, unknown>)
-          : null,
-      clientTurnId: record.clientTurnId,
-      clientAttachmentId: record.clientAttachmentId,
-      createdAt: record.createdAt
+      path: row.path,
+      mimeType: row.mimeType,
+      sizeBytes: row.sizeBytes,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt
+    };
+  }
+
+  private normalizeAttachmentRow(raw: unknown): AttachmentRow | null {
+    if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+      return null;
+    }
+    const row = raw as Record<string, unknown>;
+    if (
+      typeof row.id !== "string" ||
+      typeof row.messageId !== "string" ||
+      typeof row.chatId !== "string" ||
+      typeof row.assistantId !== "string" ||
+      typeof row.workspaceId !== "string" ||
+      typeof row.attachmentType !== "string" ||
+      typeof row.mimeType !== "string" ||
+      typeof row.processingStatus !== "string" ||
+      !(row.createdAt instanceof Date)
+    ) {
+      return null;
+    }
+    const sizeBytes = row.sizeBytes;
+    if (typeof sizeBytes !== "bigint") {
+      return null;
+    }
+    const storagePath = typeof row.storagePath === "string" ? row.storagePath : null;
+    const thumbnailStoragePath =
+      typeof row.thumbnailStoragePath === "string" ? row.thumbnailStoragePath : null;
+    const posterStoragePath =
+      typeof row.posterStoragePath === "string" ? row.posterStoragePath : null;
+    const originalFilename = typeof row.originalFilename === "string" ? row.originalFilename : null;
+    const metadata =
+      row.metadata !== null && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+        ? (row.metadata as Record<string, unknown>)
+        : null;
+    return {
+      id: row.id,
+      messageId: row.messageId,
+      chatId: row.chatId,
+      assistantId: row.assistantId,
+      workspaceId: row.workspaceId,
+      attachmentType: row.attachmentType,
+      storagePath,
+      thumbnailStoragePath,
+      posterStoragePath,
+      originalFilename,
+      mimeType: row.mimeType,
+      sizeBytes,
+      processingStatus: row.processingStatus,
+      metadata,
+      createdAt: row.createdAt
     };
   }
 }
