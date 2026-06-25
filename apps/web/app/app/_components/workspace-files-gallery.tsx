@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ComponentType, useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
+  Archive,
   Download,
   FileAudio,
   FileSpreadsheet,
@@ -72,13 +73,34 @@ function buildTileUrl(input: {
   return null;
 }
 
-function documentIcon(mimeType: string) {
+function documentIcon(mimeType: string): {
+  icon: ComponentType<{ className?: string }>;
+  colorClass: string;
+} {
   const normalized = mimeType.toLowerCase();
-  if (normalized.includes("pdf")) return FileType;
+  if (normalized.includes("pdf")) return { icon: FileType, colorClass: "text-red-500" };
   if (normalized.includes("sheet") || normalized.includes("excel") || normalized.includes("csv")) {
-    return FileSpreadsheet;
+    return { icon: FileSpreadsheet, colorClass: "text-emerald-500" };
   }
-  return FileText;
+  if (
+    normalized.includes("word") ||
+    normalized.includes("msword") ||
+    normalized.includes("docx") ||
+    normalized.includes("odt")
+  ) {
+    return { icon: FileText, colorClass: "text-blue-500" };
+  }
+  if (
+    normalized.includes("zip") ||
+    normalized.includes("archive") ||
+    normalized.includes("tar") ||
+    normalized.includes("gzip") ||
+    normalized.includes("x-rar") ||
+    normalized.includes("x-7z")
+  ) {
+    return { icon: Archive, colorClass: "text-amber-500" };
+  }
+  return { icon: FileText, colorClass: "text-text-muted" };
 }
 
 function TileMenu({
@@ -361,7 +383,7 @@ export function WorkspaceFilesGallery({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
             {files.map((file) => {
               const label = fileLabel(file);
               const thumbUrl =
@@ -376,12 +398,12 @@ export function WorkspaceFilesGallery({
                         workspaceId
                       })
                     : null;
-              const DocIcon = documentIcon(file.mimeType);
+              const { icon: DocIcon, colorClass: docColorClass } = documentIcon(file.mimeType);
               const showMenu = hoveredPath === file.storagePath;
               return (
                 <div
                   key={file.storagePath}
-                  className="group relative aspect-square overflow-hidden rounded-2xl border border-border/70 bg-surface-raised shadow-sm transition hover:border-border-strong hover:shadow-md"
+                  className="group"
                   onMouseEnter={() => setHoveredPath(file.storagePath)}
                   onMouseLeave={() =>
                     setHoveredPath((current) => (current === file.storagePath ? null : current))
@@ -391,54 +413,79 @@ export function WorkspaceFilesGallery({
                     setHoveredPath(file.storagePath);
                   }}
                 >
-                  <button
-                    type="button"
-                    className="absolute inset-0 flex h-full w-full flex-col"
-                    onClick={() => handleTileClick(file)}
-                    data-testid={`workspace-file-tile-${file.attachmentType}`}
-                  >
-                    {thumbUrl ? (
-                      <AuthenticatedAttachmentImage
-                        src={thumbUrl}
-                        alt={label}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-surface to-surface-raised px-3 text-center">
-                        {file.attachmentType === "video" ? (
-                          <Video className="h-8 w-8 text-text-subtle" />
-                        ) : file.attachmentType === "audio" ? (
-                          <FileAudio className="h-8 w-8 text-text-subtle" />
-                        ) : file.attachmentType === "document" ? (
-                          <DocIcon className="h-8 w-8 text-text-subtle" />
-                        ) : (
-                          <ImageIcon className="h-8 w-8 text-text-subtle" />
-                        )}
-                        <span className="line-clamp-2 text-[11px] font-medium text-text-muted">
-                          {label}
+                  <div className="relative aspect-square overflow-hidden rounded-md border border-border/70 bg-surface-raised transition hover:border-border-strong">
+                    <button
+                      type="button"
+                      className="absolute inset-0 flex h-full w-full items-center justify-center"
+                      onClick={() => handleTileClick(file)}
+                      data-testid={`workspace-file-tile-${file.attachmentType}`}
+                    >
+                      {thumbUrl ? (
+                        <AuthenticatedAttachmentImage
+                          src={thumbUrl}
+                          alt={label}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-surface-raised">
+                          {file.attachmentType === "video" ? (
+                            <Video className="h-10 w-10 text-text-muted" />
+                          ) : file.attachmentType === "audio" ? (
+                            <FileAudio className="h-10 w-10 text-purple-500" />
+                          ) : file.attachmentType === "document" ? (
+                            <DocIcon className={cn("h-10 w-10", docColorClass)} />
+                          ) : (
+                            <ImageIcon className="h-10 w-10 text-text-muted" />
+                          )}
+                        </div>
+                      )}
+                      {file.attachmentType === "video" ? (
+                        <span className="pointer-events-none absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/30 text-white">
+                          <Play className="h-4 w-4" />
                         </span>
-                      </div>
-                    )}
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/35 to-transparent px-2 py-2 text-left">
-                      <p className="truncate text-[11px] font-medium text-white">{label}</p>
-                      <p className="text-[10px] text-white/75">{formatBytes(file.sizeBytes)}</p>
+                      ) : null}
+                    </button>
+
+                    {/* Mobile: always-visible trash icon */}
+                    <div className="absolute right-1.5 top-1.5 z-20 md:hidden">
+                      <button
+                        type="button"
+                        disabled={busyPath === file.storagePath}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleDelete(file);
+                        }}
+                        className="flex h-7 w-7 items-center justify-center rounded-full bg-surface/90 text-text-subtle backdrop-blur transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-60"
+                        aria-label={t("filesDelete")}
+                        title={t("filesDelete")}
+                      >
+                        {busyPath === file.storagePath ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                      </button>
                     </div>
-                    {file.attachmentType === "video" ? (
-                      <span className="pointer-events-none absolute left-1/2 top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white">
-                        <Play className="h-4 w-4" />
-                      </span>
-                    ) : null}
-                  </button>
-                  <TileMenu
-                    open={showMenu}
-                    busy={busyPath === file.storagePath}
-                    onDownload={() => {
-                      const url = buildTileUrl({ tile: file, workspaceId, download: true });
-                      if (url === null) return;
-                      window.open(url, "_blank", "noopener,noreferrer");
-                    }}
-                    onDelete={() => void handleDelete(file)}
-                  />
+
+                    {/* Desktop: hover menu with download + delete */}
+                    <div className="hidden md:block">
+                      <TileMenu
+                        open={showMenu}
+                        busy={busyPath === file.storagePath}
+                        onDownload={() => {
+                          const url = buildTileUrl({ tile: file, workspaceId, download: true });
+                          if (url === null) return;
+                          window.open(url, "_blank", "noopener,noreferrer");
+                        }}
+                        onDelete={() => void handleDelete(file)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-1.5 space-y-0.5 px-0.5">
+                    <p className="truncate text-[12px] font-medium text-text">{label}</p>
+                    <p className="text-[11px] text-text-muted">{formatBytes(file.sizeBytes)}</p>
+                  </div>
                 </div>
               );
             })}
