@@ -1,5 +1,9 @@
 # SESSION-HANDOFF
 
+## 2026-06-25 — ADR-127 W4.5 landed (PERSAI_MEDIA_OBJECT_PREFIX default rename: assistant-media → fs)
+
+Scope: ADR-127 D9 only. Default value of `PERSAI_MEDIA_OBJECT_PREFIX` changed from `"assistant-media"` to `"fs"` in all three config schemas (`packages/config/src/api-config.ts`, `runtime-config.ts`, `sandbox-config.ts`) and all six explicit Helm pins in `infra/helm/values.yaml` / `values-dev.yaml`. `ADR-126-V3-GCS-WIPE-RUNBOOK.md` annotated with ADR-127 D9 semantics note. No DB changes; no GCS object moves; no logic delta — this is a deploy-config-only rename that takes effect on the next pod rollout. New writes after W4.5 deploy land under `<bucket>/fs/...`; the legacy `assistant-media/` prefix is wiped by the wipe runbook in W5 / D10. Baseline SHA: `92b28082` (W4 commit).
+
 ## 2026-06-25 — ADR-127 W4 landed (drop objectKey fallback in isAttachmentRef + data migration)
 
 Scope: ADR-127 D8 only. Remove the legacy `objectKey` fallback branches from both `isAttachmentRef` validators plus a one-shot Prisma SQL migration that rewrites any in-flight `assistant_media_jobs.request_json` rows still carrying `objectKey`. Baseline SHA: `e65d21df` (W3 commit). Residuals: W4.5 (`PERSAI_MEDIA_OBJECT_PREFIX` rename) and W5 (GCS wipe runbook) remain open. Migration SQL is locally authored; live application happens on the next dev deploy.

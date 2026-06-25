@@ -67,7 +67,10 @@ const baseApiConfigSchema = z.object({
     .default(60_000),
   PERSAI_WEB_BASE_URL: optionalUrl,
   PERSAI_MEDIA_BUCKET_NAME: z.string().optional(),
-  PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("assistant-media"),
+  // ADR-127 D9 (2026-06-25): default changed from "assistant-media" to "fs".
+  // New writes land under <bucket>/fs/... The legacy "assistant-media" prefix
+  // is wiped by the ADR-126-V3-GCS-WIPE-RUNBOOK.md (W5 / D10).
+  PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("fs"),
   PERSAI_KNOWLEDGE_OBJECT_PREFIX: z.string().min(1).default("assistant-knowledge"),
   PERSAI_INTERNAL_API_TOKEN: z.string().optional(),
   PERSAI_SANDBOX_BASE_URL: optionalUrl,

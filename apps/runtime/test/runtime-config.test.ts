@@ -27,10 +27,11 @@ export async function runRuntimeConfigTest(): Promise<void> {
   assert.equal(config.RUNTIME_BUNDLE_MARKER_TTL_SECONDS, 7200);
   assert.equal(config.RUNTIME_PROVIDER_GATEWAY_BASE_URL, undefined);
   assert.equal(config.PERSAI_MEDIA_BUCKET_NAME, undefined);
-  // ADR-126 v3 amendment (2026-06-25): PERSAI_MEDIA_OBJECT_PREFIX defaults to
-  // "assistant-media" so the runtime/sandbox/api address the same key namespace
-  // even when the helm env block forgets the variable. See runtime-config.ts.
-  assert.equal(config.PERSAI_MEDIA_OBJECT_PREFIX, "assistant-media");
+  // ADR-127 D9 (2026-06-25): PERSAI_MEDIA_OBJECT_PREFIX default changed from
+  // "assistant-media" to "fs". New writes land under <bucket>/fs/...
+  // The schema default keeps the namespace addressable even when the helm env
+  // block forgets the variable (see runtime-config.ts regression note).
+  assert.equal(config.PERSAI_MEDIA_OBJECT_PREFIX, "fs");
   assert.equal(config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS, 9000);
   assert.equal(config.RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS, 15000);
   assert.equal(config.RUNTIME_SANDBOX_TIMEOUT_MS, 30000);

@@ -1,5 +1,13 @@
 # ADR-126 v3 — GCS legacy wipe runbook (dev + prod)
 
+> **ADR-127 D9 note (added 2026-06-25):** As of W4.5 the `PERSAI_MEDIA_OBJECT_PREFIX`
+> default value changed from `assistant-media` to `fs`. New writes after the W4.5
+> deploy land under `gs://persai-{env}-workspaces/fs/...`. **This runbook still
+> targets `assistant-media/` intentionally** — that is the legacy prefix being
+> wiped. If you re-run this runbook on a cluster that has already had W4.5
+> deployed AND the legacy wipe completed, the `gcloud storage rm -r` will be a
+> no-op against an empty prefix, which is the expected steady-state.
+
 **Purpose.** Wipe the legacy `<fileRef>`-shaped object layout (v1 / v2 — `assistant_files`-keyed blobs at `assistant-media/uploads/...`, `assistant-media/generated/...`, `assistant-media/<uuid>.<ext>`, `assistant-media/assistants/<aid>/chats/...`, `assistant-media/assistants/<aid>/runtime-output/...`) before the first v3 image lands in production. The operational bucket prefix `PERSAI_MEDIA_OBJECT_PREFIX` (default `"assistant-media"`) is **deploy config**, not file identity — see ADR-126 v3 "Amendment 2026-06-24 (post-Closure)" for the formal clarification. v3 production code writes to two well-defined sub-prefixes **under that operational prefix**:
 
 - `<prefix>/workspaces/<workspaceId>/shared/…` (v3 shared-files mirror, produced by `SandboxObjectStorageService.buildSharedObjectKey` and `PersaiMediaObjectStorageService.buildSharedObjectKey`)

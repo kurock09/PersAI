@@ -74,7 +74,7 @@ api:
     PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "10000"
     PERSAI_WEB_BASE_URL: "https://persai.dev"
     PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
-    PERSAI_MEDIA_OBJECT_PREFIX: "assistant-media"
+    PERSAI_MEDIA_OBJECT_PREFIX: "fs"
     # ADR-126 v3 amendment (2026-06-25): api calls the sandbox control plane
     # (POST /api/v1/jobs/shared-inbound-write) so a web upload becomes visible
     # to the running pod immediately instead of only after the next cold-start
@@ -374,7 +374,7 @@ runtime:
     PERSAI_API_BASE_URL: "http://api-internal:3002"
     PERSAI_WEB_BASE_URL: "https://persai.dev"
     PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
-    PERSAI_MEDIA_OBJECT_PREFIX: "assistant-media"
+    PERSAI_MEDIA_OBJECT_PREFIX: "fs"
     RUNTIME_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
     RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "90000"
     RUNTIME_SANDBOX_BASE_URL: "http://sandbox:3013"
@@ -450,7 +450,7 @@ sandbox:
     GCP_PROJECT_ID: project-44786b14-b7d7-4554-a8a
     GCP_REGION: europe-west1
     PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
-    PERSAI_MEDIA_OBJECT_PREFIX: "assistant-media"
+    PERSAI_MEDIA_OBJECT_PREFIX: "fs"
     SANDBOX_MAX_PENDING_JOBS: "16"
     SANDBOX_MAX_PENDING_JOBS_PER_WORKSPACE: "4"
     SANDBOX_MAX_POLL_WAIT_MS: "1500"

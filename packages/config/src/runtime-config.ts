@@ -41,7 +41,9 @@ const baseRuntimeConfigSchema = z.object({
   // default, getObjectPrefix() threw, and every chat turn carrying an image
   // attachment failed with "Chat runtime is temporarily unreachable" because
   // TurnContextHydrationService.downloadDirectInputAttachmentBytes blew up.
-  PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("assistant-media"),
+  // ADR-127 D9 (2026-06-25): default changed from "assistant-media" to "fs".
+  // New writes land under <bucket>/fs/... The legacy prefix is wiped by W5.
+  PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("fs"),
   RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   RUNTIME_SANDBOX_BASE_URL: optionalUrl,
