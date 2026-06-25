@@ -71,6 +71,10 @@ const EXEC_CLOSE_STATUS_GRACE_MS = 250;
 // Readable.from([tarball]) arrived in the pod as 0 bytes, while the same tar split
 // into 64 KiB chunks arrived byte-for-byte (sha256 match) and `tar -tf` passed.
 const WORKSPACE_PUSH_CHUNK_BYTES = 64 * 1024;
+// ADR-127 W2 — bounded fan-out for cold `/shared/<workspaceId>/...` hydrate. Wide
+// enough to overlap GCS fetch + pod-exec write latency without bursting the API
+// server with one exec websocket per object.
+export const SHARED_MOUNT_HYDRATE_CONCURRENCY = 12;
 
 export type PodExecResult = {
   exitCode: number | null;
@@ -1121,45 +1125,88 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     if (keys.length === 0) {
+      this.logger.log(
+        `shared_mount_hydrate_done workspace=${workspaceId} objects=0 elapsed_ms=0 concurrency=${SHARED_MOUNT_HYDRATE_CONCURRENCY}`
+      );
       return;
     }
+    const startedAt = Date.now();
     const sharedRoot = `/shared/${workspaceId}/`;
-    for (const key of keys) {
-      const relPath = key.slice(sharedPrefix.length);
-      // Skip GCS "directory" placeholder objects (key ends with "/").
-      if (relPath.length === 0 || relPath.endsWith("/")) {
-        continue;
-      }
-      const absolutePath = `${sharedRoot}${relPath}`;
-      let buffer: Buffer;
-      try {
-        buffer = await this.objectStorage.downloadObject(key);
-      } catch (error) {
-        this.logger.warn(
-          `shared_mount_hydrate_download_failed workspace=${workspaceId} key=${key} error=${describeUnknownError(error)}`
-        );
-        continue;
-      }
-      const parentDir = absolutePath.slice(0, absolutePath.lastIndexOf("/"));
-      const writeShell = `mkdir -p ${posixSingleQuote(parentDir)} && cat > ${posixSingleQuote(absolutePath)}`;
-      try {
-        const result = await this.execCommand(podName, namespace, {
-          command: "/bin/bash",
-          args: ["-lc", writeShell],
-          podCwd: "/",
-          policy: BOOTSTRAP_HYDRATE_POLICY,
-          stdin: buffer
-        });
-        if (result.exitCode !== 0) {
-          this.logger.warn(
-            `shared_mount_hydrate_write_failed workspace=${workspaceId} path=${absolutePath} exit=${String(result.exitCode)}`
-          );
+    const hydrateTargets = keys
+      .map((key) => {
+        const relPath = key.slice(sharedPrefix.length);
+        return { key, relPath };
+      })
+      .filter(({ relPath }) => {
+        // Skip GCS "directory" placeholder objects (key ends with "/").
+        return relPath.length > 0 && !relPath.endsWith("/");
+      });
+    // `listPrefix()` only returns keys, not object sizes, so we cannot cheaply
+    // single out large blobs for serial fallback in this slice. Keep concurrency
+    // conservative to bound the worst-case transient buffer footprint.
+    let nextIndex = 0;
+    const workerCount = Math.min(SHARED_MOUNT_HYDRATE_CONCURRENCY, hydrateTargets.length);
+    const workers = Array.from({ length: workerCount }, async () => {
+      for (;;) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        const target = hydrateTargets[currentIndex];
+        if (target === undefined) {
+          return;
         }
-      } catch (error) {
-        this.logger.warn(
-          `shared_mount_hydrate_write_failed workspace=${workspaceId} path=${absolutePath} error=${describeUnknownError(error)}`
+        await this.hydrateSharedMountObjectFromGcs(
+          podName,
+          namespace,
+          workspaceId,
+          target.key,
+          `${sharedRoot}${target.relPath}`
         );
       }
+    });
+    await Promise.allSettled(workers);
+    this.logger.log(
+      `shared_mount_hydrate_done workspace=${workspaceId} objects=${hydrateTargets.length} elapsed_ms=${Date.now() - startedAt} concurrency=${workerCount}`
+    );
+  }
+
+  private async hydrateSharedMountObjectFromGcs(
+    podName: string,
+    namespace: string,
+    workspaceId: string,
+    key: string,
+    absolutePath: string
+  ): Promise<void> {
+    if (this.objectStorage === null) {
+      return;
+    }
+    let buffer: Buffer;
+    try {
+      buffer = await this.objectStorage.downloadObject(key);
+    } catch (error) {
+      this.logger.warn(
+        `shared_mount_hydrate_download_failed workspace=${workspaceId} key=${key} error=${describeUnknownError(error)}`
+      );
+      return;
+    }
+    const parentDir = absolutePath.slice(0, absolutePath.lastIndexOf("/"));
+    const writeShell = `mkdir -p ${posixSingleQuote(parentDir)} && cat > ${posixSingleQuote(absolutePath)}`;
+    try {
+      const result = await this.execCommand(podName, namespace, {
+        command: "/bin/bash",
+        args: ["-lc", writeShell],
+        podCwd: "/",
+        policy: BOOTSTRAP_HYDRATE_POLICY,
+        stdin: buffer
+      });
+      if (result.exitCode !== 0) {
+        this.logger.warn(
+          `shared_mount_hydrate_write_failed workspace=${workspaceId} path=${absolutePath} exit=${String(result.exitCode)}`
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `shared_mount_hydrate_write_failed workspace=${workspaceId} path=${absolutePath} error=${describeUnknownError(error)}`
+      );
     }
   }
 

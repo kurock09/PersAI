@@ -1,5 +1,27 @@
 # SESSION-HANDOFF
 
+## 2026-06-25 — ADR-127 W2 landed (parallel cold-start hydrate)
+
+Scope: ADR-127 D6 only. Out of W2: D7 delete-side symmetry, D8 `isAttachmentRef` `objectKey` fallback drop, D9 `PERSAI_MEDIA_OBJECT_PREFIX` rename, D10 GCS wipe runbook. Baseline SHA: `76473a89`.
+
+### What changed
+
+Sandbox (`apps/sandbox`):
+
+- `apps/sandbox/src/exec-pod-bridge.service.ts` now hydrates `/shared/<workspaceId>/...` with a bounded worker pool instead of a serial `for` loop. The cold-start GCS pull still enumerates the same keys and performs the same per-file `downloadObject` -> pod `execCommand` write, but it now runs up to `SHARED_MOUNT_HYDRATE_CONCURRENCY = 12` concurrent workers and waits with `Promise.allSettled` semantics so one bad blob no longer stalls or aborts the full hydrate.
+- Per-file warn logs are unchanged (`shared_mount_hydrate_download_failed`, `shared_mount_hydrate_write_failed`). Outer `recordSnapshotColdPull("shared", elapsedMs)` remains unchanged. Because the observability service still exposes no object-count metric helper, hydrate completion now emits a single grep-friendly info line: `shared_mount_hydrate_done workspace=<id> objects=<n> elapsed_ms=<ms> concurrency=12`.
+- `apps/sandbox/test/exec-pod-bridge.service.test.ts` gained focused coverage for the hydrate helper: empty-list no-op; all writes complete when `N <= concurrency`; peak in-flight work never exceeds the exported constant when `N > concurrency`; download failures warn and do not block siblings; non-zero pod-exec exits warn and the hydrate still resolves.
+
+### Expected latency outcome
+
+Cold-start hydrate latency should stop scaling linearly with object count for ordinary workspaces because GCS downloads and pod-exec writes now overlap. The actual W2 acceptance target (`p50 < 5 s for 200 files`) is **not** verifiable in unit tests and must be measured on the next `persai-dev` rollout.
+
+### Residuals
+
+- The optional large-blob serial fallback was **not** implemented in W2 because `SandboxObjectStorageService.listPrefix()` currently returns keys only, not object sizes. The code documents this residual and keeps concurrency conservative (`12`) to bound transient buffer pressure.
+- Delete-side symmetry remains open: workspace/gallery delete behavior and manifest/GCS/pod best-effort delete convergence are still owned by W3 / D7.
+- `objectKey` fallback removal, media-prefix rename, and GCS wipe remain untouched by design (W4/W4.5/W5).
+
 ## 2026-06-25 — ADR-127 W1 landed (manifest-as-index, create-side) — CHECKPOINT
 
 Scope: ADR-127 D1, D3, D4, D5 (create-side only). Out of W1: D6 parallel cold-start hydrate, D7 delete-side symmetry, D8 `isAttachmentRef` `objectKey` fallback drop, D9 `PERSAI_MEDIA_OBJECT_PREFIX` rename, D10 GCS wipe runbook. Baseline SHA: `cf8f2963`.

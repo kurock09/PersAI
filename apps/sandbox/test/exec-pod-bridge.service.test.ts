@@ -26,7 +26,10 @@ async function removePathWithRetries(path: string): Promise<void> {
 import type { SandboxConfig } from "@persai/config";
 import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import type { CoreV1Api, V1Pod } from "@kubernetes/client-node";
-import { ExecPodBridgeService } from "../src/exec-pod-bridge.service";
+import {
+  ExecPodBridgeService,
+  SHARED_MOUNT_HYDRATE_CONCURRENCY
+} from "../src/exec-pod-bridge.service";
 
 // A valid, empty tar archive: two+ all-zero 512-byte blocks signal end-of-archive.
 // The control plane's workspace pull (`tar -cf - -C /workspace .`) always produces a
@@ -194,6 +197,75 @@ function buildMockBridge(ctx: MockK8sContext): ExecPodBridgeService {
   return bridge;
 }
 
+function buildHydrateTestBridge(input: {
+  keys: string[];
+  downloadObject: (key: string) => Promise<Buffer>;
+  execCommand?: (
+    podName: string,
+    namespace: string,
+    request: {
+      command: string;
+      args: string[];
+      podCwd: string;
+      policy: unknown;
+      stdin?: Buffer;
+    }
+  ) => Promise<{ exitCode: number | null }>;
+}) {
+  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
+  const warnings: string[] = [];
+  const infos: string[] = [];
+  Object.defineProperty(bridge, "objectStorage", {
+    configurable: true,
+    value: {
+      buildSharedPrefix: ({ workspaceId }: { workspaceId: string }) =>
+        `assistant-media/workspaces/${workspaceId}/shared/`,
+      listPrefix: async () => input.keys,
+      downloadObject: input.downloadObject
+    }
+  });
+  Object.defineProperty(bridge, "logger", {
+    configurable: true,
+    value: {
+      warn(message: string) {
+        warnings.push(message);
+      },
+      log(message: string) {
+        infos.push(message);
+      }
+    }
+  });
+  Object.defineProperty(bridge, "execCommand", {
+    configurable: true,
+    value:
+      input.execCommand ??
+      (async () => {
+        return { exitCode: 0 };
+      })
+  });
+  return {
+    bridge,
+    warnings,
+    infos,
+    async hydrateSharedMountFromGcs(
+      podName: string,
+      namespace: string,
+      workspaceId: string
+    ): Promise<void> {
+      const method = Reflect.get(bridge, "hydrateSharedMountFromGcs");
+      assert.equal(typeof method, "function", "hydrateSharedMountFromGcs must exist on the bridge");
+      await (
+        method as (
+          this: ExecPodBridgeService,
+          podName: string,
+          namespace: string,
+          workspaceId: string
+        ) => Promise<void>
+      ).call(bridge, podName, namespace, workspaceId);
+    }
+  };
+}
+
 test("ExecPodBridgeService: buildPodName derives stable name from jobId", () => {
   const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
   const access = bridge as unknown as {
@@ -206,6 +278,188 @@ test("ExecPodBridgeService: buildPodName derives stable name from jobId", () => 
   assert.ok(name1.startsWith("exec-"), "pod name must start with exec-");
   assert.ok(name1.length <= 63, "pod name must fit k8s 63-char limit");
   assert.ok(/^[a-z0-9-]+$/.test(name1), "pod name must be lowercase alphanumeric/hyphens");
+});
+
+test("ExecPodBridgeService: hydrateSharedMountFromGcs no-ops when no shared keys exist", async () => {
+  let downloadCount = 0;
+  let execCount = 0;
+  const { hydrateSharedMountFromGcs, warnings } = buildHydrateTestBridge({
+    keys: [],
+    downloadObject: async () => {
+      downloadCount += 1;
+      return Buffer.from("");
+    },
+    execCommand: async () => {
+      execCount += 1;
+      return { exitCode: 0 };
+    }
+  });
+
+  await hydrateSharedMountFromGcs("pod-1", "persai-dev", "ws-empty");
+
+  assert.equal(downloadCount, 0, "empty hydrate must not download any blobs");
+  assert.equal(execCount, 0, "empty hydrate must not open pod exec sessions");
+  assert.deepEqual(warnings, [], "empty hydrate should not warn");
+});
+
+test("ExecPodBridgeService: hydrateSharedMountFromGcs executes every file when key count is within concurrency", async () => {
+  const keys = [
+    "assistant-media/workspaces/ws-small/shared/input/a.txt",
+    "assistant-media/workspaces/ws-small/shared/input/b.txt",
+    "assistant-media/workspaces/ws-small/shared/outbound/self/c.txt"
+  ];
+  const buffers = new Map<string, Buffer>([
+    [keys[0]!, Buffer.from("alpha")],
+    [keys[1]!, Buffer.from("beta")],
+    [keys[2]!, Buffer.from("gamma")]
+  ]);
+  const writes: Array<{ shell: string; stdin: Buffer }> = [];
+  const { hydrateSharedMountFromGcs, warnings } = buildHydrateTestBridge({
+    keys,
+    downloadObject: async (key) => buffers.get(key) ?? Buffer.from("missing"),
+    execCommand: async (_podName, _namespace, request) => {
+      writes.push({
+        shell: request.args[1] ?? "",
+        stdin: request.stdin ?? Buffer.alloc(0)
+      });
+      return { exitCode: 0 };
+    }
+  });
+
+  await hydrateSharedMountFromGcs("pod-2", "persai-dev", "ws-small");
+
+  assert.equal(writes.length, keys.length, "every listed blob must be written into the pod");
+  assert.deepEqual(warnings, [], "happy-path hydrate should not warn");
+  assert.ok(
+    writes.some(
+      (write) =>
+        write.shell.includes("/shared/ws-small/input/a.txt") &&
+        write.stdin.equals(Buffer.from("alpha"))
+    ),
+    "a.txt must be written with its downloaded buffer"
+  );
+  assert.ok(
+    writes.some(
+      (write) =>
+        write.shell.includes("/shared/ws-small/input/b.txt") &&
+        write.stdin.equals(Buffer.from("beta"))
+    ),
+    "b.txt must be written with its downloaded buffer"
+  );
+  assert.ok(
+    writes.some(
+      (write) =>
+        write.shell.includes("/shared/ws-small/outbound/self/c.txt") &&
+        write.stdin.equals(Buffer.from("gamma"))
+    ),
+    "outbound file must be written with its downloaded buffer"
+  );
+});
+
+test("ExecPodBridgeService: hydrateSharedMountFromGcs caps in-flight work at the concurrency constant", async () => {
+  const totalKeys = SHARED_MOUNT_HYDRATE_CONCURRENCY * 2 + 3;
+  const keys = Array.from({ length: totalKeys }, (_, index) => {
+    return `assistant-media/workspaces/ws-many/shared/input/file-${index}.txt`;
+  });
+  let active = 0;
+  let peak = 0;
+  let execCount = 0;
+  const { hydrateSharedMountFromGcs } = buildHydrateTestBridge({
+    keys,
+    downloadObject: async (key) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return Buffer.from(key);
+    },
+    execCommand: async () => {
+      execCount += 1;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return { exitCode: 0 };
+    }
+  });
+
+  await hydrateSharedMountFromGcs("pod-3", "persai-dev", "ws-many");
+
+  assert.equal(execCount, totalKeys, "all keys must still complete");
+  assert.ok(
+    peak <= SHARED_MOUNT_HYDRATE_CONCURRENCY,
+    `peak in-flight work (${peak}) must not exceed the configured concurrency`
+  );
+  assert.equal(active, 0, "all in-flight work must drain before the hydrate resolves");
+});
+
+test("ExecPodBridgeService: hydrateSharedMountFromGcs logs download failures and continues other blobs", async () => {
+  const keys = [
+    "assistant-media/workspaces/ws-download/shared/input/good-a.txt",
+    "assistant-media/workspaces/ws-download/shared/input/bad.txt",
+    "assistant-media/workspaces/ws-download/shared/input/good-b.txt"
+  ];
+  const writtenPaths: string[] = [];
+  const { hydrateSharedMountFromGcs, warnings } = buildHydrateTestBridge({
+    keys,
+    downloadObject: async (key) => {
+      if (key.endsWith("/bad.txt")) {
+        throw new Error("boom");
+      }
+      return Buffer.from(key);
+    },
+    execCommand: async (_podName, _namespace, request) => {
+      writtenPaths.push(request.args[1] ?? "");
+      return { exitCode: 0 };
+    }
+  });
+
+  await hydrateSharedMountFromGcs("pod-4", "persai-dev", "ws-download");
+
+  assert.equal(writtenPaths.length, 2, "healthy blobs must still be written");
+  assert.ok(
+    warnings.some((warning) =>
+      warning.includes("shared_mount_hydrate_download_failed workspace=ws-download")
+    ),
+    "download failures must be logged"
+  );
+  assert.ok(
+    writtenPaths.some((shell) => shell.includes("/shared/ws-download/input/good-a.txt")),
+    "good-a must still be written"
+  );
+  assert.ok(
+    writtenPaths.some((shell) => shell.includes("/shared/ws-download/input/good-b.txt")),
+    "good-b must still be written"
+  );
+});
+
+test("ExecPodBridgeService: hydrateSharedMountFromGcs logs non-zero exec exits and still resolves", async () => {
+  const keys = [
+    "assistant-media/workspaces/ws-exit/shared/input/ok.txt",
+    "assistant-media/workspaces/ws-exit/shared/input/fail.txt"
+  ];
+  const executed: string[] = [];
+  const { hydrateSharedMountFromGcs, warnings } = buildHydrateTestBridge({
+    keys,
+    downloadObject: async (key) => Buffer.from(key),
+    execCommand: async (_podName, _namespace, request) => {
+      const shell = request.args[1] ?? "";
+      executed.push(shell);
+      if (shell.includes("/shared/ws-exit/input/fail.txt")) {
+        return { exitCode: 7 };
+      }
+      return { exitCode: 0 };
+    }
+  });
+
+  await assert.doesNotReject(() => hydrateSharedMountFromGcs("pod-5", "persai-dev", "ws-exit"));
+
+  assert.equal(executed.length, keys.length, "non-zero exits must not stop other writes");
+  assert.ok(
+    warnings.some((warning) =>
+      warning.includes(
+        "shared_mount_hydrate_write_failed workspace=ws-exit path=/shared/ws-exit/input/fail.txt exit=7"
+      )
+    ),
+    "non-zero write exits must be logged"
+  );
 });
 
 test("ExecPodBridgeService: toPodCwd maps workspace root to /workspace", () => {
