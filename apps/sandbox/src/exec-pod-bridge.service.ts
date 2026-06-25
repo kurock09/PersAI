@@ -185,10 +185,20 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(SANDBOX_CONFIG) private readonly config: SandboxConfig,
     private readonly prisma: SandboxPrismaService,
-    // @Optional() so unit tests that call new ExecPodBridgeService(config, prisma)
-    // without a third argument receive null rather than a DI error.
-    @Optional() private readonly objectStorage: SandboxObjectStorageService | null = null,
-    @Optional() private readonly observability: SandboxObservabilityService | null = null
+    // Explicit `@Inject(Class)` is required here: when the param type is
+    // declared as `Class | null` the TS emitDecoratorMetadata reflection records
+    // `design:paramtypes` as `Object`, which Nest cannot resolve to a provider,
+    // and `@Optional()` then silently substitutes the default `null`. That
+    // regression caused the cold-pod GCS hydrate to no-op in prod (ADR-128
+    // 2026-06-26): files lived in GCS but never re-materialised in a fresh pod.
+    // Tests instantiate the service directly with positional args (passing
+    // `null`), so the runtime default remains `null` for that path.
+    @Optional()
+    @Inject(SandboxObjectStorageService)
+    private readonly objectStorage: SandboxObjectStorageService | null = null,
+    @Optional()
+    @Inject(SandboxObservabilityService)
+    private readonly observability: SandboxObservabilityService | null = null
   ) {
     this.kc = new KubeConfig();
     this.kc.loadFromCluster();
