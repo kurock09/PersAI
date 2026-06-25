@@ -1,6 +1,6 @@
 # SESSION-HANDOFF
 
-## 2026-06-25 (evening) — ADR-126 v3: `image_edit` attachment-ref validation fix — CHECKPOINT (local, not committed)
+## 2026-06-25 (evening) — ADR-126 v3: `image_edit` attachment-ref validation fix — CHECKPOINT
 
 ### Scope / root cause
 
@@ -17,16 +17,22 @@ Runtime sends valid `storagePath` refs; API rejects them because it still requir
 - Both `isAttachmentRef` helpers now validate `storagePath` (legacy `objectKey` fallback for old persisted payloads).
 - New test in `apps/api/test/enqueue-runtime-deferred-media-job.service.test.ts` — `image_edit` with `/shared/input/3534.jpg` attachment parses and enqueues.
 
-### Gate (local)
+### Gate (all green, local)
 
-- `pnpm exec tsx test/enqueue-runtime-deferred-media-job.service.test.ts` PASS
-- `pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm -r --if-present run lint` PASS
+- `corepack pnpm run format:check` PASS
+- `corepack pnpm --filter @persai/api run typecheck` PASS
+- `corepack pnpm --filter @persai/web run typecheck` PASS
+- `corepack pnpm --filter @persai/api run test` PASS
+
+### Push
+
+- Commit: `c1f10340` on `main` (rebased over gitops pin `8c57b439` for `adeff5c0`).
 
 ### Next recommended step
 
-1. Commit + push this fix; pin dev api image.
-2. Re-test live: upload JPEG → `image_edit` on `image #N` alias.
-3. Continue ADR-126 live closure checklist (`files.attach`, gallery, cold-pod upload).
+1. Wait for dev image pin of api (or full affected set) + re-test live: upload JPEG → `image_edit` on `image #N` alias.
+2. Continue ADR-126 live closure checklist (`files.attach`, gallery, cold-pod upload).
 
 ## 2026-06-25 (late) — ADR-126 v3 amendment: model-canonical /shared/... path translation + hot-pod inbound bytes-push — CHECKPOINT
 
