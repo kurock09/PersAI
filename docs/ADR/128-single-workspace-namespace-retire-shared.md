@@ -94,22 +94,46 @@ Six actions: list, read, preview, write, delete, attach.
 
 No mention of `/shared/`. No model-facing notion of `workspaceId`.
 
-### Back-fill migration
+### Clean cutover — no transition window, no back-fill
 
-A one-shot Prisma migration walks every existing row in `workspace_file_metadata` and `AssistantChatMessageAttachment` and rewrites:
+**No prod has launched yet.** This is the last chance to do a clean break before user data exists at scale. The cutover therefore:
 
-```
-/shared/input/X.xlsx       →  /workspace/input/X.xlsx
-/shared/outbound/self/Y    →  /workspace/outbound/self/Y
-/shared/outbound/<h>/Z     →  /workspace/outbound/<h>/Z
-/shared/<wsid>/input/X     →  /workspace/input/X     (defensive — physical paths should not be in DB but migrate any that leaked)
-/shared/<wsid>/outbound/.. →  /workspace/outbound/.. (defensive)
-```
+- Does NOT keep a transitional dual-prefix GCS reader. Writer emits ONLY `fs/workspaces/<wsid>/workspace/<relPath>` after deploy; reader looks ONLY there.
+- Does NOT do a string-rewrite back-fill of existing `/shared/...` rows in DB. Instead, **all dev DB rows in `workspace_file_metadata` and all `AssistantChatMessageAttachment` rows whose `storagePath` does not start with `/workspace/` are deleted** as part of the cutover deploy.
+- Wipes legacy GCS subtrees `gs://persai-dev-workspaces/fs/workspaces/*/shared/` and any sibling pre-cutover paths during the same operational step.
 
-GCS layout is **kept** during migration:
+This is acceptable because:
+- Dev is non-commercial (founder explicitly approved data loss for the 2026-06-25 W5 wipe under the same reasoning).
+- Prod is not launched. The cutover lands BEFORE the 1000-user prod rollout. Prod will be born clean — never had a `/shared/` row.
+- Keeping any transitional reader/back-fill = carrying legacy into prod. That violates the orchestration directive.
 
-- Old objects under `fs/workspaces/<wsid>/shared/...` remain readable.
-- Manifest now points to `/workspace/...` paths, but the GCS lookup must continue to find them. Solution: the GCS prefix in `buildObjectKey` keeps a static `workspace/` tail under the new code, AND the cold-start hydrate checks both `workspace/` and the legacy `shared/` GCS prefixes for transitional cases. Once dev validates that all post-cutover objects are written under `fs/workspaces/<wsid>/workspace/...`, a second GCS wipe runbook step is added to delete the legacy `fs/workspaces/<wsid>/shared/...` tree.
+### Exact symbol contract (binding on the implementation)
+
+The implementation MUST converge on these names — any subagent or refactor pass that diverges is rejected:
+
+| Old (delete) | New |
+| ------------ | --- |
+| `injectWorkspaceIdSegmentIfMissing` | (deleted, no replacement — no translation needed) |
+| `buildSharedRoot(workspaceId)` | (deleted; mount root is always `/workspace`) |
+| `WorkspaceMountRoots.sharedRoot` | (field removed; only `workspaceRoot: "/workspace"` remains) |
+| `WorkspaceMountRole.shared_input` | `WorkspaceMountRole.workspace_input` |
+| `WorkspaceMountRole.shared_outbound_self` | `WorkspaceMountRole.workspace_outbound_self` |
+| `WorkspaceMountRole.shared_outbound_other` | `WorkspaceMountRole.workspace_outbound_other` |
+| `WorkspaceMountRole.workspace` (free area) | `WorkspaceMountRole.workspace_scratch` |
+| `buildSharedObjectKey(wsid, relPath)` | `buildWorkspaceObjectKey(wsid, relPath)` → `${prefix}/workspaces/${wsid}/workspace/${relPath}` |
+| `writeSharedInputControlPlane` | `writeWorkspaceInputControlPlane` |
+| `writeSharedOutboundWithCollision` | `writeWorkspaceOutboundWithCollision` |
+| `removeSharedFileFromHotPods` | `removeWorkspaceFileFromHotPods` |
+| `hydrateSharedMountFromGcs` | `hydrateWorkspaceMountFromGcs` |
+| `ensureSharedMountBootstrapped` | `ensureWorkspaceMountBootstrapped` |
+| `ensureSharedMountSymlinks` (Phase 2b) | (deleted — no symlinks needed) |
+| `SHARED_MOUNT_BOOTSTRAP_MARKER` | `WORKSPACE_MOUNT_BOOTSTRAP_MARKER` (`/tmp/.persai_workspace_bootstrap_ok`) |
+| `SHARED_MOUNT_BOOTSTRAP_OK_SENTINEL` | `WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL` (`__PERSAI_WORKSPACE_OK__`) |
+| `SHARED_MOUNT_DIRS_OK_SENTINEL` | `WORKSPACE_MOUNT_DIRS_OK_SENTINEL` |
+| `SHARED_MOUNT_SYMLINKS_OK_SENTINEL` | (deleted) |
+| `shared-root` k8s emptyDir + `/shared` volumeMount | (deleted) |
+| `<assistant>-shared` k8s emptyDir at `/shared/<wsid>` | (deleted) |
+| (new) | `workspace` k8s emptyDir at `/workspace` (already exists; extend its scope to subsume input/outbound) |
 
 ### Out of scope
 
@@ -120,62 +144,107 @@ GCS layout is **kept** during migration:
 
 ## Slices
 
-### Slice 1 — Pod bootstrap + path containment
+### Slice 1 — Sandbox layer (pod bootstrap + path containment + bridge + GCS)
 
-- `apps/sandbox/src/workspace-path.ts`: delete `injectWorkspaceIdSegmentIfMissing`, `buildSharedRoot`, `WorkspaceMountRole.shared_*`. Keep `normalizeAndClampPath`, `normalizePosixPath`. Add `WorkspaceMountRole.workspace_input`, `workspace_outbound_self`, `workspace_outbound_other`.
-- `apps/sandbox/src/exec-pod-bridge.service.ts`: rewrite `ensureSharedMountBootstrapped` → `ensureWorkspaceMountBootstrapped`. Phase 1 marker, Phase 2 dirs at `/workspace/input/`, `/workspace/outbound/`, `/workspace/outbound/self/` symlink, Phase 3 GCS hydrate from `fs/workspaces/<wsid>/workspace/` (plus legacy `fs/workspaces/<wsid>/shared/` for transition), Phase 4 chmod `/workspace/input/` to `0555`.
-- Remove `shared-root` emptyDir from `createExecPod`. Keep `workspace` emptyDir. Drop the `/shared/<wsid>` mount entirely.
-- Delete the `/shared/input → /shared/<wsid>/input` and `/shared/outbound → /shared/<wsid>/outbound` symlinks created in the 2026-06-25 closure follow-up.
+This slice does the entire sandbox-side refactor in one coherent cut. After it lands, the sandbox compiles and tests pass with the new symbol surface, but the API/runtime layer is still emitting `/shared/...` paths — those calls will fail validation. That's intentional gating between S1 and S2.
 
-### Slice 2 — Sandbox bridge
+Files (touched/created):
 
-- `apps/sandbox/src/workspace-file-bridge.service.ts`: rename `writeSharedInputControlPlane` → `writeWorkspaceInput`, `writeSharedOutboundWithCollision` → `writeWorkspaceOutbound`, `removeSharedFileFromHotPods` → `removeWorkspaceFileFromHotPods`. All path I/O happens at `/workspace/...` shape; physical paths in audit logs become `/workspace/...`.
-- `apps/sandbox/src/sandbox-object-storage.service.ts`: `buildSharedObjectKey` → `buildWorkspaceObjectKey` returning `fs/workspaces/<wsid>/workspace/<relPath>`. Legacy `shared/` reader path stays for the transition window.
-- `apps/sandbox/src/workspace-gc.service.ts`: drop any `shared`-prefixed branching.
+- `apps/sandbox/src/workspace-path.ts`
+  - Delete: `injectWorkspaceIdSegmentIfMissing`, `buildSharedRoot`.
+  - Change `WorkspaceMountRoots`: drop `sharedRoot`; keep only `workspaceRoot: "/workspace"`.
+  - Change `WorkspaceMountRole`: drop all `shared_*` variants; add `workspace_input`, `workspace_outbound_self`, `workspace_outbound_other`, `workspace_scratch`.
+  - Rewrite `assertAllowedMountPrefix`: single-root prefix match against `/workspace/`, classify the role by sub-path (`/workspace/input/...` → `workspace_input`, `/workspace/outbound/self/...` → `workspace_outbound_self`, `/workspace/outbound/<handle>/...` → `workspace_outbound_other`, anything else under `/workspace/` → `workspace_scratch`).
+- `apps/sandbox/src/exec-pod-bridge.service.ts`
+  - Delete: `SHARED_MOUNT_BOOTSTRAP_MARKER`, `SHARED_MOUNT_BOOTSTRAP_OK_SENTINEL`, `SHARED_MOUNT_DIRS_OK_SENTINEL`, `SHARED_MOUNT_SYMLINKS_OK_SENTINEL`, `ensureSharedMountSymlinks`, `ensureSharedMountBootstrapped`.
+  - Add: `WORKSPACE_MOUNT_BOOTSTRAP_MARKER` (`/tmp/.persai_workspace_bootstrap_ok`), `WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL` (`__PERSAI_WORKSPACE_OK__`), `WORKSPACE_MOUNT_DIRS_OK_SENTINEL`.
+  - Add: `ensureWorkspaceMountBootstrapped(assistantHandle, workspaceId)`:
+    - Phase 1 — fast-path marker check.
+    - Phase 2 — mkdir `/workspace/input`, `/workspace/outbound`, `/workspace/outbound/<handle>`, symlink `/workspace/outbound/self → /workspace/outbound/<handle>`. Print `__PERSAI_DIRS_OK__`.
+    - Phase 3 — hydrate from GCS prefix `${PERSAI_MEDIA_OBJECT_PREFIX}/workspaces/${wsid}/workspace/` ONLY. No legacy prefix read.
+    - Phase 4 — `chmod 0555 /workspace/input` and `chmod 0755 /workspace/outbound /workspace/outbound/<handle>`. Touch marker.
+  - Rename `hydrateSharedMountFromGcs` → `hydrateWorkspaceMountFromGcs`. Read prefix is `${PERSAI_MEDIA_OBJECT_PREFIX}/workspaces/${wsid}/workspace/`.
+  - Delete `shared-root` emptyDir volume + `/shared` volumeMount from `createExecPod`. Delete the per-workspace `/shared/<wsid>` emptyDir + mount.
+  - The existing `workspace` emptyDir at `/workspace` becomes the sole writable mount.
+- `apps/sandbox/src/workspace-file-bridge.service.ts`
+  - Rename methods/symbols per the contract table above.
+  - Audit-log path field renders pod-canonical (`/workspace/...`) verbatim; no synthetic `/shared/...` strings anywhere.
+- `apps/sandbox/src/sandbox-object-storage.service.ts`
+  - Rename `buildSharedObjectKey` → `buildWorkspaceObjectKey(wsid, relPath)` → `${prefix}/workspaces/${wsid}/workspace/${relPath}`.
+  - Drop any code that reads from a `shared/` GCS tail.
+- `apps/sandbox/src/workspace-gc.service.ts`
+  - Drop `shared`-prefixed branching. GC operates on `/workspace/` mount + `${prefix}/workspaces/<wsid>/workspace/` GCS subtree only.
+- `apps/sandbox/src/workspace-files.service.ts`, `apps/sandbox/src/workspace-mount.service.ts`, `apps/sandbox/src/workspace-runner.service.ts` (or equivalent): align with the new names; audit any string that mentions `/shared/`, `shared_`, or `SharedRoot` and update.
+- Tests under `apps/sandbox/test/`: rewrite the affected suites to the new symbol surface. The unit tests that assert `/shared/...` prefixes are deleted or rewritten to assert `/workspace/...`.
 
-### Slice 3 — API / runtime path generation
+Gate: `corepack pnpm --filter @persai/sandbox run lint && corepack pnpm --filter @persai/sandbox run typecheck && corepack pnpm --filter @persai/sandbox run test`.
 
-- `apps/api/src/modules/workspace-management/application/register-chat-attachment.service.ts`: emit `/workspace/input/...` `storagePath` for new uploads.
-- `apps/api/src/modules/workspace-management/application/upload-chat-attachment.service.ts` (or equivalent): mirror.
-- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`: outbound delivery service emits `/workspace/outbound/self/...`.
-- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`: drop any `/shared/` references in path validation; rely on `WorkspacePath` helper.
-- `apps/runtime/src/modules/turns/native-tool-projection.ts`: tool description text references only `/workspace/...`.
-- `apps/runtime/src/modules/turns/turn-execution.service.ts`: Working Files block renders pod-canonical paths verbatim (no translation).
+### Slice 2 — API + runtime path generation + tool descriptions
 
-### Slice 4 — DB back-fill migration
+Files (touched):
 
-- New Prisma migration: rewrite `workspace_file_metadata.path` and `AssistantChatMessageAttachment.storage_path` from any `/shared/...` shape to `/workspace/...`. Idempotent.
+- `apps/api/src/modules/workspace-management/application/register-chat-attachment.service.ts`
+  - All emitted `storagePath` shapes change from `/shared/input/<name>` to `/workspace/input/<name>`.
+- `apps/api/src/modules/workspace-management/application/upload-chat-attachment.service.ts` (or sibling upload paths)
+  - Same shape change.
+- `apps/api/src/modules/workspace-management/application/manage-chat-media.service.ts`
+  - Outbound delivery: `/shared/outbound/self/<name>` → `/workspace/outbound/self/<name>`.
+- `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-media-job.service.ts` and `workspace-media-job-scheduler.service.ts`
+  - Any path emission/validation that references `/shared/...` becomes `/workspace/...`.
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`
+  - Path validation drops `/shared/` branches. Single-namespace validator over `/workspace/`.
+- `apps/runtime/src/modules/turns/native-tool-projection.ts` (and any `tools.json`/markdown that ships tool descriptions to the model)
+  - Tool description text is rewritten to the single-namespace contract above.
+- `apps/runtime/src/modules/turns/turn-execution.service.ts`
+  - Working Files block renders pod-canonical paths verbatim. Drop any translation.
+- `apps/web/...` UI: any user-visible string that mentions `/shared/` becomes `/workspace/` (gallery tooltips, error messages, etc.).
+- All affected tests: assertions update from `/shared/...` to `/workspace/...`.
 
-### Slice 5 — GCS layout + transition reads
+Gate: `corepack pnpm --filter @persai/api run lint && corepack pnpm --filter @persai/api run typecheck && corepack pnpm --filter @persai/runtime run lint && corepack pnpm --filter @persai/runtime run typecheck && corepack pnpm --filter @persai/web run typecheck && corepack pnpm -r --if-present run lint`.
 
-- Sandbox object storage writer paths emit `fs/workspaces/<wsid>/workspace/<relPath>`.
-- Sandbox hydrate reader checks both `workspace/` and legacy `shared/` GCS prefixes during the transition window.
-- After dev live-validation confirms no new objects land under `shared/`, add Section "Workspace-namespace cutover GCS cleanup" to the GCS wipe runbook (`infra/dev/gke/ADR-126-V3-GCS-WIPE-RUNBOOK.md`) — wipe `fs/workspaces/*/shared/`. Execute on dev. Defer on prod until a prod cutover is scheduled.
+### Slice 3 — Dev wipe + deploy
 
-### Slice 6 — Closure
+Operational, executed by the orchestrator (not a subagent):
 
-- Remove the transitional `shared/` GCS reader (legacy is empty after wipe).
-- Update `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/API-BOUNDARY.md` to reference only `/workspace/...`.
-- Update `AGENTS.md` ADR list with ADR-128 closure entry.
-- Update `docs/SESSION-HANDOFF.md` and `docs/CHANGELOG.md`.
+1. Wait for S1 + S2 image publish + GitOps pin.
+2. Wait for sandbox + api + runtime + web deploys to stabilize on dev.
+3. Execute on dev:
+   - `gcloud storage rm -r --quiet gs://persai-dev-workspaces/fs/workspaces/`
+     (wipes any pre-cutover `fs/workspaces/*/shared/` content; the post-cutover writer has not yet been driven so the directory is empty or only contains a few legacy rows.)
+   - `kubectl exec -n persai-dev <api-pod> -- node -e "const { PrismaClient } = require('@prisma/client'); const p = new PrismaClient(); (async () => { const m = await p.workspaceFileMetadata.deleteMany({}); const a = await p.assistantChatMessageAttachment.deleteMany({}); console.log({ manifest: m.count, attachments: a.count }); await p.$disconnect(); })();"`
+   - Verify gallery returns empty, `files.list /workspace/input/` returns empty, no orphan GCS objects.
+4. Founder live-validation: upload a fresh xlsx, run `read /workspace/input/<name>` from chat. Confirm 2-call success (files.list + files.read).
+
+Acceptance: zero `/shared/...` strings in any deployed image's running config or audit output. New uploads land at `/workspace/input/<name>` in DB, GCS, pod, all three.
+
+### Slice 4 — Closure
+
+- Update `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/API-BOUNDARY.md`, `docs/TEST-PLAN.md` to reference only `/workspace/...`. Delete every remaining `/shared/<workspaceId>/` reference except in closed-ADR archive docs (ADR-126 v3, ADR-127, this ADR — historical context only).
+- `AGENTS.md` — move ADR-128 from "Open" to closed-archive line.
+- `docs/SESSION-HANDOFF.md` checkpoint with closure SHA + dev live-validation result.
+- `docs/CHANGELOG.md` closure entry.
+- ripgrep gate: `rg "/shared/" apps/ packages/ infra/ docs/ -g '!docs/ADR/*' -g '!docs/CHANGELOG*.md' -g '!docs/SESSION-HANDOFF.md'` returns zero results. `rg "buildSharedRoot|injectWorkspaceIdSegmentIfMissing|hydrateSharedMountFromGcs|writeSharedInputControlPlane|writeSharedOutboundWithCollision|removeSharedFileFromHotPods|ensureSharedMountBootstrapped|ensureSharedMountSymlinks|shared_input|shared_outbound|sharedRoot" apps/ packages/` returns zero results.
 
 ---
 
 ## Invariants after closure
 
 1. The model sees exactly one namespace: `/workspace/...`. No `/shared/...` mention anywhere model-facing.
-2. The pod has exactly one writable mount: `/workspace/` (plus `/tmp`).
+2. The pod has exactly one writable user mount: `/workspace/` (plus `/tmp`).
 3. `workspaceId` does not appear in any pod-side path.
 4. Manifest `path` and `AssistantChatMessageAttachment.storagePath` both hold `/workspace/...` shape — single identity, single shape.
 5. Sandbox audit logs print model-facing paths verbatim.
 6. `files.list /workspace/input/` works (mode 0555 on the dir).
-7. The `injectWorkspaceIdSegmentIfMissing` translation function is deleted from the codebase.
-8. No symlinks are required to make any model-facing path resolve.
+7. The `injectWorkspaceIdSegmentIfMissing` translation function is deleted from the codebase. No translation layer of any kind exists between model-facing paths and pod-physical paths.
+8. No symlinks are required to make any model-facing path resolve (the `/workspace/outbound/self → /workspace/outbound/<handle>` symlink is a real handle-aliasing convenience, not a namespace bridge).
+9. No dual-prefix readers, no back-fill code, no `// legacy` branches anywhere in active code paths.
+10. ripgrep on `apps/`, `packages/`, `infra/` for `"/shared/"`, `buildSharedRoot`, `injectWorkspaceIdSegmentIfMissing`, `WorkspaceMountRoots.sharedRoot`, `shared_input`, `shared_outbound`, `hydrateSharedMountFromGcs`, `writeSharedInputControlPlane`, `writeSharedOutboundWithCollision`, `removeSharedFileFromHotPods`, `ensureSharedMountBootstrapped`, `ensureSharedMountSymlinks` returns **zero** hits.
 
 ---
 
 ## Risks
 
-- **Live xlsx workflow disruption during cutover**: founder is in the middle of using the existing `/shared/input/...` paths. Slice 4 back-fill must execute before the new sandbox image starts writing `/workspace/input/...` paths, so manifest rows align with what new code expects. Order matters: deploy DB migration first, then sandbox/runtime, in two phases.
-- **GCS reader regression**: if Slice 1 hydrate forgets the legacy `shared/` prefix, all pre-cutover files vanish from cold-bootstrapped pods. Mitigated by explicit dual-prefix read in transition window.
-- **Tool description bias**: model has historical priors about `/workspace/` semantics (ephemeral, private). When the tool description tells it `/workspace/input/` is the user-shared region, the model may still occasionally default to `/workspace/` for outputs. Slice 3's tool description rewrite must be unambiguous.
+- **Cutover deploy ordering**: if the API/runtime image lands before the sandbox image, the API will emit `/workspace/...` paths that the sandbox does not yet recognize → 500s. Order: sandbox first (S1 image), then API + runtime + web (S2 image) — both should be in the same GitOps pin, but the image build for sandbox must precede or coincide.
+- **Tool description bias**: model has historical priors about `/workspace/` semantics (ephemeral, private). When the tool description tells it `/workspace/input/` is the user-shared region, the model may still occasionally default to `/workspace/` for outputs. Tool description rewrite (S2) must be unambiguous: `input/` (RO), `outbound/self/` (RW deliver), bare `/workspace/<name>` (scratch).
+- **Dev data wipe**: founder's current dev chats lose their attachments. Acceptable per the orchestration directive ("без коммерческих"); founder confirmed in W5 wipe context.
+- **Prod readiness**: this ADR must close BEFORE prod launches. Prod data must never have a `/shared/...` row.
