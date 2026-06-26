@@ -577,6 +577,7 @@
     "code": "код",
     "lines": "{count} строк",
     "uploadFailed": "Не удалось загрузить",
+    "attachmentTooLarge": "Файл слишком большой. Максимальный размер — {limit} МБ.",
     "fileDeleted": "файл удалён",
     "externalVideoDownload": "Скачать",
     "externalVideoDefaultName": "видео",

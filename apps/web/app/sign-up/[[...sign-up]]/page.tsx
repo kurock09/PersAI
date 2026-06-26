@@ -21,7 +21,7 @@ type Stage = "form" | "verify";
 
 export default function SignUpPage() {
   const t = useTranslations("auth");
-  const { signUp, errors: clerkErrors, fetchStatus } = useSignUp();
+  const { signUp, errors: clerkErrors } = useSignUp();
   const { isSignedIn, isLoaded: authLoaded } = useAuth();
   const searchParams = useSearchParams();
   const [stage, setStage] = useState<Stage>("form");
@@ -29,14 +29,16 @@ export default function SignUpPage() {
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const isBusy = fetchStatus === "fetching";
+  const isBusy = submitting;
   const currentSearch = searchParams.toString();
   const signInHref = withSafeRedirectParam("/sign-in", currentSearch);
   const forgotPasswordHref = withSafeRedirectParam("/sign-in?mode=forgot-password", currentSearch);
 
   const handleSubmit = useCallback(async () => {
-    if (!email.trim() || !password) return;
+    if (isBusy || !email.trim() || !password) return;
+    setSubmitting(true);
     setError(null);
     try {
       const { error: pwError } = await signUp.password({
@@ -52,29 +54,35 @@ export default function SignUpPage() {
       setStage("verify");
     } catch {
       setError(t("somethingWrong"));
+    } finally {
+      setSubmitting(false);
     }
-  }, [email, password, signUp, t]);
+  }, [email, password, isBusy, signUp, t]);
 
   const handleVerify = useCallback(async () => {
-    if (!code.trim()) return;
+    if (isBusy || !code.trim()) return;
+    setSubmitting(true);
     setError(null);
     try {
       await signUp.verifications.verifyEmailCode({ code: code.trim() });
 
       if (signUp.status === "complete") {
-        await signUp.finalize({
+        void signUp.finalize({
           navigate: async ({ decorateUrl }) => {
             const target = getSafeRedirectPathFromSearch(window.location.search) ?? "/app/setup";
             navigateAfterClerkAuth(decorateUrl(target));
           }
         });
+        return;
       } else {
         setError(t("verificationIncomplete"));
       }
     } catch {
       setError(t("verificationFailed"));
+    } finally {
+      setSubmitting(false);
     }
-  }, [code, signUp, t]);
+  }, [code, isBusy, signUp, t]);
 
   if (!authLoaded || !signUp) {
     return (

@@ -40,6 +40,8 @@ import { useTouchDevice } from "./use-touch-device";
 import { ATTACHMENTS_ONLY_PLACEHOLDER } from "./attachments-only-placeholder";
 
 const MAX_FILES = 5;
+const MAX_CHAT_UPLOAD_BYTES = 25 * 1024 * 1024;
+const MAX_CHAT_UPLOAD_MB = Math.floor(MAX_CHAT_UPLOAD_BYTES / (1024 * 1024));
 
 /** Ignore thumb jitter before computing swipe distance. */
 const VOICE_GESTURE_SLOP_PX = 12;
@@ -289,14 +291,22 @@ function resolveDocumentJobElapsedSeconds(
   return Math.max(0, Math.floor((nowMs - startedAtMs) / 1000));
 }
 
-function collectAcceptedFiles(files: Iterable<File>, existingCount: number): File[] {
+function collectAcceptedFiles(
+  files: Iterable<File>,
+  existingCount: number
+): { accepted: File[]; oversized: File[] } {
   const accepted: File[] = [];
+  const oversized: File[] = [];
   for (const file of files) {
     if (!isAcceptedFile(file)) continue;
+    if (file.size > MAX_CHAT_UPLOAD_BYTES) {
+      oversized.push(file);
+      continue;
+    }
     if (existingCount + accepted.length >= MAX_FILES) break;
     accepted.push(file);
   }
-  return accepted;
+  return { accepted, oversized };
 }
 
 type RecordingState = "idle" | "recording" | "transcribing";
@@ -373,6 +383,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   const [draftText, setDraftText] = useState("");
   const [isComposerMultiline, setIsComposerMultiline] = useState(false);
   const [addToKnowledgeBase, setAddToKnowledgeBase] = useState(false);
+  const [attachmentFeedback, setAttachmentFeedback] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [cameraPreviewState, setCameraPreviewState] = useState<
@@ -505,6 +516,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     setIsComposerMultiline(false);
     setPendingFiles([]);
     setAddToKnowledgeBase(false);
+    setAttachmentFeedback(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (!isTouchDevice || shouldRestoreComposerFocusAfterSend()) {
       focusRestoreDeadlineRef.current = Date.now() + 400;
@@ -529,21 +541,32 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     [handleSend, isStreaming, disabled, isTouchDevice, sendBlockedByFailedSlot]
   );
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files;
-    if (!selected) return;
-    setPendingFiles((prev) => {
-      return [...prev, ...collectAcceptedFiles(Array.from(selected), prev.length)];
-    });
-    e.target.value = "";
-  }, []);
+  const appendFiles = useCallback(
+    (files: Iterable<File>) => {
+      setPendingFiles((prev) => {
+        const { accepted, oversized } = collectAcceptedFiles(files, prev.length);
+        setAttachmentFeedback(
+          oversized.length > 0 ? t("attachmentTooLarge", { limit: MAX_CHAT_UPLOAD_MB }) : null
+        );
+        return accepted.length > 0 ? [...prev, ...accepted] : prev;
+      });
+    },
+    [t]
+  );
 
-  const appendFiles = useCallback((files: Iterable<File>) => {
-    setPendingFiles((prev) => [...prev, ...collectAcceptedFiles(files, prev.length)]);
-  }, []);
+  const handleFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const selected = e.target.files;
+      if (!selected) return;
+      appendFiles(Array.from(selected));
+      e.target.value = "";
+    },
+    [appendFiles]
+  );
 
   const removeFile = useCallback((index: number) => {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+    setAttachmentFeedback(null);
   }, []);
 
   // Outside click + Escape close for the attachment tiles popover. Excludes
@@ -673,7 +696,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const pastedFiles = collectAcceptedFiles(
+      const { accepted: pastedFiles, oversized } = collectAcceptedFiles(
         Array.from(e.clipboardData.items)
           .filter((item) => item.kind === "file")
           .map((item) => item.getAsFile())
@@ -681,12 +704,18 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         pendingFiles.length
       );
       if (pastedFiles.length === 0) {
+        setAttachmentFeedback(
+          oversized.length > 0 ? t("attachmentTooLarge", { limit: MAX_CHAT_UPLOAD_MB }) : null
+        );
         return;
       }
       e.preventDefault();
+      setAttachmentFeedback(
+        oversized.length > 0 ? t("attachmentTooLarge", { limit: MAX_CHAT_UPLOAD_MB }) : null
+      );
       appendFiles(pastedFiles);
     },
-    [appendFiles, pendingFiles.length]
+    [appendFiles, pendingFiles.length, t]
   );
 
   const handleDragEnter = useCallback(
@@ -1183,6 +1212,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             {t("dropFilesHere")}
           </div>
         )}
+        {attachmentFeedback ? (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          >
+            {attachmentFeedback}
+          </div>
+        ) : null}
 
         <div className="relative">
           {(activeMediaJobs.length > 0 || activeDocumentJobs.length > 0) && (

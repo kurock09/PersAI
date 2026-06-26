@@ -1,5 +1,56 @@
 # SESSION-HANDOFF
 
+## 2026-06-27 — Chat upload 10MB web proxy cap fix
+
+Status: code fixed locally; web typecheck PASS; web lint PASS; focused chat-input test PASS (26/26); format:check PASS. Pending full repo gate with the current UI/auth/thumbnail diff, commit/push, deploy, then live retry of 11MB and 24MB chat uploads through `persai.dev`; also manually try a >25MiB file and confirm localized rejection.
+
+**Incident.** Founder reported 24MB and 11MB files failing on upload. API contract allows chat uploads up to `MAX_MEDIA_FILE_BYTES = 25 * 1024 * 1024`, so 11MB should pass and 24MiB should be near but under the API cap.
+
+**Cluster evidence.**
+
+- Web pod logs showed: `Request body exceeded 10MB for /api/v1/assistant/chat/web/stage-attachment. Only the first 10MB will be available unless configured ... middlewareClientMaxBodySize`.
+- API pod logs for the same endpoint showed multer `Request aborted`, which is the downstream symptom after the web proxy truncates/aborts the multipart request.
+- Ingress routes `persai.dev /` to `web:3000`; client uploads use same-origin `/api/v1/...`, so they pass through the Next app route proxy `apps/web/app/api/v1/[[...path]]/route.ts` before reaching API. Direct `api.persai.dev` is not the browser upload path.
+
+**Fix.** `apps/web/next.config.ts` now sets `experimental.proxyClientMaxBodySize = 25 * 1024 * 1024`, aligned with API `MAX_MEDIA_FILE_BYTES`. This keeps the browser's same-origin API proxy working while preserving API-side validation as the real upload limit.
+
+**UX follow-up.** The composer now rejects picker/paste/drop files larger than 25MiB before staging, keeps them out of pending attachments, and shows localized feedback next to the composer: RU `Файл слишком большой. Максимальный размер — 25 МБ.` / EN `File is too large. Maximum size is 25 MB.` Normal files selected alongside oversized files still attach.
+
+**Checks.**
+
+- `corepack pnpm exec vitest run --config vitest.config.ts "app/app/_components/chat-input.test.tsx"` — PASS (26/26).
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run lint` — PASS.
+- `corepack pnpm run format:check` — PASS.
+
+## 2026-06-27 — Assistant files gallery, preview thumbnails, auth spinner guard
+
+Status: code fixed locally; focused web tests PASS (129/129); focused API media controller test PASS; full repo lint PASS; full format:check PASS; API typecheck PASS; web typecheck PASS; accidentally broad API suite PASS. Pending commit/push, deploy, and live validation on the Assistant Files gallery + chat image right-click + sign-in long-lived tab.
+
+**Scope.** Founder asked for five related UX/debug items after screenshot review: cap the Assistant Files gallery to 3 rows with scroll; make gallery tile background match the quiet media-limit cards in "Limits and plan"; fix chat thumbnails so right-click/open-image no longer opens a full-size asset from the inline thumbnail; inspect browser state for the thumbnail/auth issue; investigate a recurring sign-in spinner that clears after F5.
+
+**Browser evidence.** Live browser on `https://persai.dev/sign-in` showed the page fully rendered, Clerk loaded, `clerk.browser.js` returning 200, no failed Clerk/_next resources, and Clerk API/token requests returning 200. The visible problem was the submit button stuck disabled with spinner. This is not the earlier cached 404 Clerk JS proxy failure; it is a client busy-state issue after/around Clerk actions.
+
+**Fix.**
+
+- `WorkspaceFilesGallery` now scrolls after roughly three rows and uses the same calm `border-border/45 bg-background/35` surface as `LimitMetricCard`, with hover raising only slightly.
+- Chat/gallery inline previews now use `/files/preview` URLs, while lightbox/download/open-full paths keep the original file URL.
+- `MediaAttachmentController` preview endpoints now downscale `image/*` payloads to a 256px webp when `sharp` is available; non-images and sharp failures fall back to the original payload.
+- `sign-in` and `sign-up` no longer bind submit disabled/spinner state to Clerk's global `fetchStatus`; they use local submit state with `finally`, and complete-auth paths fire `finalize()` without waiting indefinitely before releasing the UI.
+
+**Regression checks.**
+
+- `corepack pnpm exec vitest run --config vitest.config.ts "app/sign-in/[[...sign-in]]/page.test.tsx" "app/sign-up/[[...sign-up]]/page.test.tsx" "app/app/_components/chat-message.test.tsx" "app/app/assistant-api-client.test.ts"` — PASS (129/129).
+- `corepack pnpm exec tsx test/media-attachment.controller.test.ts` — PASS.
+- Changed-file prettier checks — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+- `corepack pnpm run format:check` — PASS.
+- Accidentally broad `corepack pnpm --filter @persai/api test -- media-attachment.controller.test.ts` ran the API suite and completed PASS.
+
+**Known residual.** Accidentally broad web package test command ran most/all web tests and failed only on unrelated `app/admin/plans/page.test.tsx` timeout (`renders provider-grouped text slot options...` at 5000ms). The changed web tests passed in that broad run and in the later direct focused run.
+
 ## 2026-06-27 — Telegram media safety rejection delivery fix
 
 Status: code fixed locally; focused media-job scheduler test PASS (19/19); focused completion-delivery test PASS (17/17). Pending full AGENTS gate, commit/push, deploy, then live retry of a Telegram `image_provider_safety_rejected` request.

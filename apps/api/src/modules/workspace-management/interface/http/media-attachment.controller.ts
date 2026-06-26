@@ -337,14 +337,15 @@ export class MediaAttachmentController {
       path: storagePath
     });
 
-    res.setHeader(
-      "Content-Type",
-      this.resolveDownloadContentType(result.contentType, result.mimeType)
-    );
+    const payload = await this.preparePreviewPayload({
+      buffer: result.buffer,
+      contentType: this.resolveDownloadContentType(result.contentType, result.mimeType)
+    });
+    res.setHeader("Content-Type", payload.contentType);
     res.setHeader("Cache-Control", "private, max-age=3600");
     res.statusCode = 200;
-    res.setHeader("Content-Length", String(result.buffer.length));
-    res.end(result.buffer);
+    res.setHeader("Content-Length", String(payload.buffer.length));
+    res.end(payload.buffer);
   }
 
   // ADR-127 W1 — workspace-scoped delivery for files whose existence is
@@ -444,14 +445,15 @@ export class MediaAttachmentController {
       path: storagePath
     });
 
-    res.setHeader(
-      "Content-Type",
-      this.resolveDownloadContentType(result.contentType, result.mimeType)
-    );
+    const payload = await this.preparePreviewPayload({
+      buffer: result.buffer,
+      contentType: this.resolveDownloadContentType(result.contentType, result.mimeType)
+    });
+    res.setHeader("Content-Type", payload.contentType);
     res.setHeader("Cache-Control", "private, max-age=3600");
     res.statusCode = 200;
-    res.setHeader("Content-Length", String(result.buffer.length));
-    res.end(result.buffer);
+    res.setHeader("Content-Length", String(payload.buffer.length));
+    res.end(payload.buffer);
   }
 
   @HttpCode(202)
@@ -570,6 +572,28 @@ export class MediaAttachmentController {
       return { buffer: input.buffer, contentType };
     }
     return { buffer: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), input.buffer]), contentType };
+  }
+
+  private async preparePreviewPayload(input: {
+    buffer: Buffer;
+    contentType: string;
+  }): Promise<{ buffer: Buffer; contentType: string }> {
+    const normalizedContentType = input.contentType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+    if (!normalizedContentType.startsWith("image/")) {
+      return input;
+    }
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+      const sharpFn = require("sharp") as any;
+      const result = await sharpFn(input.buffer)
+        .rotate()
+        .resize(256, 256, { fit: "inside", withoutEnlargement: true })
+        .webp({ quality: 78 })
+        .toBuffer();
+      return { buffer: result as Buffer, contentType: "image/webp" };
+    } catch {
+      return input;
+    }
   }
 
   private resolveDownloadContentType(

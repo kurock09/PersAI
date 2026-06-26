@@ -19,7 +19,9 @@ import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import {
   buildChatFileUrl,
+  buildChatFilePreviewUrl,
   buildWorkspaceFileUrl,
+  buildWorkspaceFilePreviewUrl,
   deleteChatWorkspaceFile,
   deleteWorkspaceFile,
   listChatWorkspaceFiles,
@@ -55,8 +57,15 @@ function buildTileUrl(input: {
   tile: { chatId: string | null; storagePath: string };
   workspaceId: string | null;
   download?: boolean;
+  preview?: boolean;
 }): string | null {
   if (input.tile.chatId !== null) {
+    if (input.preview === true) {
+      return buildChatFilePreviewUrl({
+        chatId: input.tile.chatId,
+        storagePath: input.tile.storagePath
+      });
+    }
     return buildChatFileUrl({
       chatId: input.tile.chatId,
       storagePath: input.tile.storagePath,
@@ -64,6 +73,12 @@ function buildTileUrl(input: {
     });
   }
   if (input.workspaceId !== null) {
+    if (input.preview === true) {
+      return buildWorkspaceFilePreviewUrl({
+        workspaceId: input.workspaceId,
+        storagePath: input.tile.storagePath
+      });
+    }
     return buildWorkspaceFileUrl({
       workspaceId: input.workspaceId,
       storagePath: input.tile.storagePath,
@@ -383,112 +398,118 @@ export function WorkspaceFilesGallery({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-            {files.map((file) => {
-              const label = fileLabel(file);
-              const thumbUrl =
-                file.attachmentType === "image" && file.thumbnailStoragePath
-                  ? buildTileUrl({
-                      tile: { chatId: file.chatId, storagePath: file.thumbnailStoragePath },
-                      workspaceId
-                    })
-                  : file.attachmentType === "video" && file.posterStoragePath
+          <div className="max-h-[min(64vh,540px)] overflow-y-auto pr-1">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+              {files.map((file) => {
+                const label = fileLabel(file);
+                const thumbUrl =
+                  file.attachmentType === "image" && file.thumbnailStoragePath
                     ? buildTileUrl({
-                        tile: { chatId: file.chatId, storagePath: file.posterStoragePath },
-                        workspaceId
+                        tile: { chatId: file.chatId, storagePath: file.thumbnailStoragePath },
+                        workspaceId,
+                        preview: true
                       })
-                    : null;
-              const { icon: DocIcon, colorClass: docColorClass } = documentIcon(file.mimeType);
-              const showMenu = hoveredPath === file.storagePath;
-              return (
-                <div
-                  key={file.storagePath}
-                  className="group"
-                  onMouseEnter={() => setHoveredPath(file.storagePath)}
-                  onMouseLeave={() =>
-                    setHoveredPath((current) => (current === file.storagePath ? null : current))
-                  }
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setHoveredPath(file.storagePath);
-                  }}
-                >
-                  <div className="relative aspect-square overflow-hidden rounded-md border border-border/70 bg-surface-raised transition hover:border-border-strong">
-                    <button
-                      type="button"
-                      className="absolute inset-0 flex h-full w-full items-center justify-center"
-                      onClick={() => handleTileClick(file)}
-                      data-testid={`workspace-file-tile-${file.attachmentType}`}
-                    >
-                      {thumbUrl ? (
-                        <AuthenticatedAttachmentImage
-                          src={thumbUrl}
-                          alt={label}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-surface-raised">
-                          {file.attachmentType === "video" ? (
-                            <Video className="h-10 w-10 text-text-muted" />
-                          ) : file.attachmentType === "audio" ? (
-                            <FileAudio className="h-10 w-10 text-purple-500" />
-                          ) : file.attachmentType === "document" ? (
-                            <DocIcon className={cn("h-10 w-10", docColorClass)} />
-                          ) : (
-                            <ImageIcon className="h-10 w-10 text-text-muted" />
-                          )}
-                        </div>
-                      )}
-                      {file.attachmentType === "video" ? (
-                        <span className="pointer-events-none absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/30 text-white">
-                          <Play className="h-4 w-4" />
-                        </span>
-                      ) : null}
-                    </button>
-
-                    {/* Mobile: always-visible trash icon */}
-                    <div className="absolute right-1.5 top-1.5 z-20 md:hidden">
+                    : file.attachmentType === "video" && file.posterStoragePath
+                      ? buildTileUrl({
+                          tile: { chatId: file.chatId, storagePath: file.posterStoragePath },
+                          workspaceId,
+                          preview: true
+                        })
+                      : file.attachmentType === "image" || file.attachmentType === "video"
+                        ? buildTileUrl({ tile: file, workspaceId, preview: true })
+                        : null;
+                const { icon: DocIcon, colorClass: docColorClass } = documentIcon(file.mimeType);
+                const showMenu = hoveredPath === file.storagePath;
+                return (
+                  <div
+                    key={file.storagePath}
+                    className="group"
+                    onMouseEnter={() => setHoveredPath(file.storagePath)}
+                    onMouseLeave={() =>
+                      setHoveredPath((current) => (current === file.storagePath ? null : current))
+                    }
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setHoveredPath(file.storagePath);
+                    }}
+                  >
+                    <div className="relative aspect-square overflow-hidden rounded-xl border border-border/45 bg-background/35 transition-colors hover:bg-surface-raised/45 hover:border-border/70">
                       <button
                         type="button"
-                        disabled={busyPath === file.storagePath}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleDelete(file);
-                        }}
-                        className="flex h-7 w-7 items-center justify-center rounded-full bg-surface/90 text-text-subtle backdrop-blur transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-60"
-                        aria-label={t("filesDelete")}
-                        title={t("filesDelete")}
+                        className="absolute inset-0 flex h-full w-full items-center justify-center"
+                        onClick={() => handleTileClick(file)}
+                        data-testid={`workspace-file-tile-${file.attachmentType}`}
                       >
-                        {busyPath === file.storagePath ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        {thumbUrl ? (
+                          <AuthenticatedAttachmentImage
+                            src={thumbUrl}
+                            alt={label}
+                            className="h-full w-full object-cover"
+                          />
                         ) : (
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <div className="flex h-full w-full items-center justify-center bg-transparent">
+                            {file.attachmentType === "video" ? (
+                              <Video className="h-10 w-10 text-text-muted" />
+                            ) : file.attachmentType === "audio" ? (
+                              <FileAudio className="h-10 w-10 text-purple-500" />
+                            ) : file.attachmentType === "document" ? (
+                              <DocIcon className={cn("h-10 w-10", docColorClass)} />
+                            ) : (
+                              <ImageIcon className="h-10 w-10 text-text-muted" />
+                            )}
+                          </div>
                         )}
+                        {file.attachmentType === "video" ? (
+                          <span className="pointer-events-none absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/30 text-white">
+                            <Play className="h-4 w-4" />
+                          </span>
+                        ) : null}
                       </button>
+
+                      {/* Mobile: always-visible trash icon */}
+                      <div className="absolute right-1.5 top-1.5 z-20 md:hidden">
+                        <button
+                          type="button"
+                          disabled={busyPath === file.storagePath}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDelete(file);
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded-full bg-surface/90 text-text-subtle backdrop-blur transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-60"
+                          aria-label={t("filesDelete")}
+                          title={t("filesDelete")}
+                        >
+                          {busyPath === file.storagePath ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Desktop: hover menu with download + delete */}
+                      <div className="hidden md:block">
+                        <TileMenu
+                          open={showMenu}
+                          busy={busyPath === file.storagePath}
+                          onDownload={() => {
+                            const url = buildTileUrl({ tile: file, workspaceId, download: true });
+                            if (url === null) return;
+                            window.open(url, "_blank", "noopener,noreferrer");
+                          }}
+                          onDelete={() => void handleDelete(file)}
+                        />
+                      </div>
                     </div>
 
-                    {/* Desktop: hover menu with download + delete */}
-                    <div className="hidden md:block">
-                      <TileMenu
-                        open={showMenu}
-                        busy={busyPath === file.storagePath}
-                        onDownload={() => {
-                          const url = buildTileUrl({ tile: file, workspaceId, download: true });
-                          if (url === null) return;
-                          window.open(url, "_blank", "noopener,noreferrer");
-                        }}
-                        onDelete={() => void handleDelete(file)}
-                      />
+                    <div className="mt-1.5 space-y-0.5 px-0.5">
+                      <p className="truncate text-[12px] font-medium text-text">{label}</p>
+                      <p className="text-[11px] text-text-muted">{formatBytes(file.sizeBytes)}</p>
                     </div>
                   </div>
-
-                  <div className="mt-1.5 space-y-0.5 px-0.5">
-                    <p className="truncate text-[12px] font-medium text-text">{label}</p>
-                    <p className="text-[11px] text-text-muted">{formatBytes(file.sizeBytes)}</p>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
           {nextCursor ? (
             <div className="flex justify-center pt-2">

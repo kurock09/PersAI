@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
+const API_UPLOAD_PROXY_BODY_LIMIT_BYTES = 25 * 1024 * 1024;
 
 /**
  * Do not use next.config `rewrites()` for `/api/v1/*` → external API: Next.js 16 can surface
@@ -11,6 +12,11 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const nextConfig: NextConfig = {
   typedRoutes: true,
   transpilePackages: ["@persai/contracts", "@persai/types"],
+  experimental: {
+    // Keep the same-origin /api/v1 proxy aligned with API `MAX_MEDIA_FILE_BYTES`.
+    // Next defaults this proxy buffer to 10MB, which truncates valid chat uploads.
+    proxyClientMaxBodySize: API_UPLOAD_PROXY_BODY_LIMIT_BYTES
+  },
   /**
    * ADR-076 Slice 1 — opt every response in to the `Sec-CH-Prefers-Color-Scheme`
    * client hint. `Accept-CH` advertises that we want it on subsequent requests;

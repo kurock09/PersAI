@@ -18,6 +18,11 @@ function toFileList(files: File[]): FileList {
   } as unknown as FileList;
 }
 
+function withSize(file: File, size: number): File {
+  Object.defineProperty(file, "size", { configurable: true, value: size });
+  return file;
+}
+
 function enableTouchDevice() {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === "(pointer: coarse)",
@@ -149,6 +154,34 @@ describe("ChatInput", () => {
     });
 
     expect(screen.queryByLabelText("knowledgeAddToBase")).toBeNull();
+  });
+
+  it("shows a localized file-size error before staging oversized uploads", () => {
+    const onSend = vi.fn();
+    render(
+      <ChatInput
+        onSend={onSend}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+      />
+    );
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const oversized = withSize(
+      new File(["x"], "too-large.pdf", { type: "application/pdf" }),
+      26 * 1024 * 1024
+    );
+    fireEvent.change(fileInput, {
+      target: {
+        files: toFileList([oversized])
+      }
+    });
+
+    expect(screen.getByText("attachmentTooLarge")).toBeInTheDocument();
+    expect(screen.queryByText("too-large.pdf")).toBeNull();
+    fireEvent.click(screen.getByTitle("send"));
+    expect(onSend).not.toHaveBeenCalled();
   });
 
   it("shows attachment ordinals on staged thumbnails only when multiple files are pending", async () => {

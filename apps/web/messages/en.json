@@ -577,6 +577,7 @@
     "code": "code",
     "lines": "{count} lines",
     "uploadFailed": "Upload failed",
+    "attachmentTooLarge": "File is too large. Maximum size is {limit} MB.",
     "fileDeleted": "file deleted",
     "externalVideoDownload": "Download",
     "externalVideoDefaultName": "video",

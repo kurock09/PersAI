@@ -4356,6 +4356,15 @@ export function buildChatFileUrl(input: {
   return `${url.pathname}${url.search}`;
 }
 
+export function buildChatFilePreviewUrl(input: { chatId: string; storagePath: string }): string {
+  const url = new URL(
+    `/api/v1/assistant/chats/web/${encodeURIComponent(input.chatId)}/files/preview`,
+    "https://persai.local"
+  );
+  url.searchParams.set("path", input.storagePath);
+  return `${url.pathname}${url.search}`;
+}
+
 // ADR-127 W1 — workspace-scoped URL for files that have a manifest entry
 // but no chat origin (model `files.write` orphans). Mirrors
 // `buildChatFileUrl` so the gallery can pick either based on whether
@@ -4376,6 +4385,18 @@ export function buildWorkspaceFileUrl(input: {
   return `${url.pathname}${url.search}`;
 }
 
+export function buildWorkspaceFilePreviewUrl(input: {
+  workspaceId: string;
+  storagePath: string;
+}): string {
+  const url = new URL(
+    `/api/v1/assistant/workspaces/${encodeURIComponent(input.workspaceId)}/files/preview`,
+    "https://persai.local"
+  );
+  url.searchParams.set("path", input.storagePath);
+  return `${url.pathname}${url.search}`;
+}
+
 export function getAssistantAttachmentPreviewUrl(input: {
   chatId: string;
   path: string | null;
@@ -4384,13 +4405,16 @@ export function getAssistantAttachmentPreviewUrl(input: {
   attachmentType?: string | null;
 }): string | null {
   if (input.attachmentType === "image" && typeof input.thumbnailStoragePath === "string") {
-    return buildChatFileUrl({ chatId: input.chatId, storagePath: input.thumbnailStoragePath });
+    return buildChatFilePreviewUrl({
+      chatId: input.chatId,
+      storagePath: input.thumbnailStoragePath
+    });
   }
   if (input.attachmentType === "video" && typeof input.posterStoragePath === "string") {
-    return buildChatFileUrl({ chatId: input.chatId, storagePath: input.posterStoragePath });
+    return buildChatFilePreviewUrl({ chatId: input.chatId, storagePath: input.posterStoragePath });
   }
   if (typeof input.path === "string" && input.path.trim().length > 0) {
-    return buildChatFileUrl({ chatId: input.chatId, storagePath: input.path });
+    return buildChatFilePreviewUrl({ chatId: input.chatId, storagePath: input.path });
   }
   return null;
 }

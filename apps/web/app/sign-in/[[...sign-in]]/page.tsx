@@ -22,7 +22,7 @@ type Stage = "form" | "verify" | "forgot-request" | "forgot-code" | "forgot-pass
 export default function SignInPage() {
   const t = useTranslations("auth");
   const { isSignedIn, isLoaded: authLoaded } = useAuth();
-  const { signIn, errors: clerkErrors, fetchStatus } = useSignIn();
+  const { signIn, errors: clerkErrors } = useSignIn();
   const searchParams = useSearchParams();
   const currentSearch = searchParams.toString();
   const signUpHref = withSafeRedirectParam("/sign-up", currentSearch);
@@ -35,8 +35,9 @@ export default function SignInPage() {
   const [resetPassword, setResetPassword] = useState("");
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const isBusy = fetchStatus === "fetching";
+  const isBusy = submitting;
 
   useEffect(() => {
     if (searchParams.get("mode") === "forgot-password") {
@@ -55,7 +56,8 @@ export default function SignInPage() {
   }, [signIn]);
 
   const handlePasswordSubmit = useCallback(async () => {
-    if (!email.trim() || !password) return;
+    if (isBusy || !email.trim() || !password) return;
+    setSubmitting(true);
     setError(null);
     try {
       const { error: pwError } = await signIn.password({
@@ -68,7 +70,8 @@ export default function SignInPage() {
       }
 
       if (signIn.status === "complete") {
-        await finalize();
+        void finalize();
+        return;
       } else if (signIn.status === "needs_client_trust") {
         const emailCodeFactor = signIn.supportedSecondFactors?.find(
           (f: { strategy: string }) => f.strategy === "email_code"
@@ -85,23 +88,29 @@ export default function SignInPage() {
       }
     } catch {
       setError(t("somethingWrong"));
+    } finally {
+      setSubmitting(false);
     }
-  }, [email, password, signIn, finalize, t]);
+  }, [email, password, isBusy, signIn, finalize, t]);
 
   const handleVerifyCode = useCallback(async () => {
-    if (!code.trim()) return;
+    if (isBusy || !code.trim()) return;
+    setSubmitting(true);
     setError(null);
     try {
       await signIn.mfa.verifyEmailCode({ code: code.trim() });
       if (signIn.status === "complete") {
-        await finalize();
+        void finalize();
+        return;
       } else {
         setError(t("verificationFailed"));
       }
     } catch {
       setError(t("verificationFailed"));
+    } finally {
+      setSubmitting(false);
     }
-  }, [code, signIn, finalize, t]);
+  }, [code, isBusy, signIn, finalize, t]);
 
   const resetForgotPasswordState = useCallback(async () => {
     setResetCode("");
@@ -112,7 +121,8 @@ export default function SignInPage() {
   }, [signIn]);
 
   const handleForgotRequest = useCallback(async () => {
-    if (!resetEmail.trim()) return;
+    if (isBusy || !resetEmail.trim()) return;
+    setSubmitting(true);
     setError(null);
     try {
       const { error: createError } = await signIn.create({
@@ -132,11 +142,14 @@ export default function SignInPage() {
       setStage("forgot-code");
     } catch {
       setError(t("somethingWrong"));
+    } finally {
+      setSubmitting(false);
     }
-  }, [resetEmail, signIn, t]);
+  }, [resetEmail, isBusy, signIn, t]);
 
   const handleForgotVerifyCode = useCallback(async () => {
-    if (!resetCode.trim()) return;
+    if (isBusy || !resetCode.trim()) return;
+    setSubmitting(true);
     setError(null);
     try {
       const { error: verifyError } = await signIn.resetPasswordEmailCode.verifyCode({
@@ -154,16 +167,19 @@ export default function SignInPage() {
       }
     } catch {
       setError(t("verificationFailed"));
+    } finally {
+      setSubmitting(false);
     }
-  }, [resetCode, signIn, t]);
+  }, [resetCode, isBusy, signIn, t]);
 
   const handleForgotSubmitPassword = useCallback(async () => {
-    if (!resetPassword.trim() || !resetPasswordConfirm.trim()) return;
+    if (isBusy || !resetPassword.trim() || !resetPasswordConfirm.trim()) return;
     if (resetPassword !== resetPasswordConfirm) {
       setError(t("passwordMismatch"));
       return;
     }
 
+    setSubmitting(true);
     setError(null);
     try {
       const { error: passwordError } = await signIn.resetPasswordEmailCode.submitPassword({
@@ -175,7 +191,8 @@ export default function SignInPage() {
       }
 
       if (signIn.status === "complete") {
-        await finalize();
+        void finalize();
+        return;
       } else if (signIn.status === "needs_second_factor") {
         setError(t("additionalVerification"));
       } else {
@@ -183,8 +200,10 @@ export default function SignInPage() {
       }
     } catch {
       setError(t("passwordResetFailed"));
+    } finally {
+      setSubmitting(false);
     }
-  }, [finalize, resetPassword, resetPasswordConfirm, signIn, t]);
+  }, [finalize, resetPassword, resetPasswordConfirm, isBusy, signIn, t]);
 
   const fieldErrors = clerkErrors?.fields as unknown as Record<string, unknown> | undefined;
 
