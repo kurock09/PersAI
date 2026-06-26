@@ -2,13 +2,15 @@
 
 ## 2026-06-26 — Clerk proxy cached major-version JS 404 fix
 
-Status: code fixed locally; focused web proxy test PASS; full AGENTS gate PASS. Pending commit/push, deploy, then live retry of sign-in/sign-out from a fresh tab and a long-lived tab.
+Status: code fixed locally; focused web proxy test PASS; full AGENTS gate PASS for the initial proxy rewrite. Follow-up cache-bypass layer added after founder confirmed Ctrl+F5 fixes affected browsers but in-app users cannot force-refresh. Pending repeat gate, commit/push, deploy, then live retry of sign-in/sign-out from a fresh tab and a long-lived tab without Ctrl+F5.
 
 **Incident.** The earlier auth-form investigation proved pods/ingress were healthy, but founder console output during a slow sign-out/sign-in path showed the real client failure: repeated `GET https://persai.dev/clerk-proxy/npm/@clerk/clerk-js@6/dist/clerk.browser.js net::ERR_ABORTED 404 (Not Found)`, followed by strict-MIME rejection (`text/plain` instead of executable JavaScript) and `Clerk: Failed to load Clerk JS (code="failed_to_load_clerk_js")`.
 
 **Confirmed root cause.** The custom `apps/web/app/clerk-proxy/[[...path]]/route.ts` proxies `/clerk-proxy/npm/*` to jsDelivr. The floating major-only URL `@clerk/clerk-js@6/dist/clerk.browser.js` is now cached as a long-lived CDN 404 (`cf-cache-status=HIT`, `cache-control: public, max-age=31536000`) while exact pinned URLs such as `@6.22.0` and `@6.4.0` return `200 application/javascript`. So the failure was not GKE ingress or auth middleware; it was a brittle floating CDN alias behind our proxy.
 
-**Fix.** The Clerk npm proxy now rewrites major-only `@clerk/clerk-js@6/*` requests to pinned `@clerk/clerk-js@6.22.0/*` before fetching jsDelivr. This repairs both new builds and already-open/stale browser chunks that still request the broken `@6` URL. Regression test `app/clerk-proxy/[[...path]]/route.test.ts` covers the exact failing browser URL and asserts the upstream request is pinned and the response strips misleading encoding headers while preserving JavaScript content type.
+**Fix.** The Clerk npm proxy now rewrites major-only `@clerk/clerk-js@6/*` requests to pinned `@clerk/clerk-js@6.22.0/*` before fetching jsDelivr. Regression test `app/clerk-proxy/[[...path]]/route.test.ts` covers the exact failing browser URL and asserts the upstream request is pinned and the response strips misleading encoding headers while preserving JavaScript content type.
+
+**Cache-bypass follow-up.** A browser that already cached the old 404 for `@clerk/clerk-js@6/dist/clerk.browser.js` may not hit the server-side rewrite until a hard refresh, which is not available in the installed app. To avoid relying on Ctrl+F5, web build/runtime env now sets `NEXT_PUBLIC_CLERK_JS_URL=/clerk-proxy/npm/@clerk/clerk-js@6.22.0/dist/clerk.browser.js` in `infra/helm/values.yaml`, `infra/helm/values-dev.yaml`, and `.github/workflows/dev-image-publish.yml`. New HTML/client bundles therefore request a different exact-version URL that is not poisoned by the local cached `@6` 404; the server rewrite remains a fallback for already-stale chunks.
 
 ## 2026-06-26 — Intermittent auth form load investigation and guard
 
