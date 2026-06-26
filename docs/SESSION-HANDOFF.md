@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-06-26 — Intermittent auth form load investigation and guard
+
+Status: code fixed locally; targeted web auth tests PASS; web typecheck PASS; format PASS; full AGENTS gate PASS. Pending commit/push, deploy, then live retry from a fresh and long-lived browser tab.
+
+**Incident.** Users reported the sign-in form intermittently not loading. Cluster state was healthy: web/api pods Ready, zero restarts, GCE ingress backends HEALTHY, and repeated public probes to `/sign-in` + `/sign-up` returned 200 with `Cache-Control: private, no-cache, no-store`. Web pod logs did show `Failed to find Server Action ... older or newer deployment`, which is consistent with stale open tabs posting old Next server-action IDs after a rollout, but the custom sign-in/sign-up pages do not use server actions.
+
+**Confirmed risk.** Browser validation loaded the sign-in route and Clerk proxy resources, but the auth pages only gated on `useAuth().isLoaded`. The custom form also depends on `useSignIn()` / `useSignUp()` resources; when those resources lag behind Clerk auth initialization, the page can render before the form resource exists and fail client-side without a server log.
+
+**Fix.** `sign-in` and `sign-up` now keep the loading shell until both `authLoaded` and the relevant Clerk resource (`signIn` / `signUp`) are available. Added regression tests for unloaded Clerk sign-in/sign-up resources.
+
+## 2026-06-26 — Danilov `files.read maxBytes` stdout regression fix
+
+Status: code fixed locally; focused sandbox test PASS (81/81); sandbox typecheck PASS; full AGENTS gate PASS. Pending commit/push, deploy, then live retry on Danilov `LOG016.TXT` / `LOG011 (3).TXT`.
+
+**Incident.** User `mr.danilov.r.s@gmail.com` / workspace `2d29a9b3-76f8-436f-a189-d7470ac3ef3b` reported the same sandbox error again while asking to decode an 8.1 MB Betaflight Blackbox text log. DB showed no current pending jobs and no live `sandbox_workspace_backlog_full`; after the stale backlog fix, later shell jobs completed under session pod `ses-36e74690c345a0103f630efce644f33e` with policy snapshot `maxMemoryBytesPerJob=1073741824` and `maxConcurrentProcesses=40`.
+
+**Confirmed root cause.** The old backlog error persisted in the model's later 18:00 answer, but the actual failing sandbox rows at 17:44 were `files.read` jobs blocked with `stdout_limit_exceeded`. Their request payload explicitly had `{"action":"read","path":"/workspace/LOG011 (3).TXT","maxBytes":10000}`, but `SandboxService.executeFilesBridgeAction` ignored `args.maxBytes` and called `workspaceFileRead` without it. The bridge therefore used its 16 MiB default, base64-encoded the large file through model-visible stdout, and hit `maxStdoutBytes=131072` before it could return the intended 10 KB preview.
+
+**Fix.** `files.read` now validates optional positive integer `maxBytes` and forwards it to `WorkspaceFileBridgeService.workspaceFileRead`. Regression test `SandboxService: files.read forwards model-requested maxBytes to workspace bridge` covers the Danilov payload shape and proves `maxBytes: 10000` reaches the bridge.
+
 ## 2026-06-26 — Sandbox exec pod memory/emptyDir limit fix for full-size image ops
 
 Status: code fixed locally; focused checks PASS; AGENTS gate PASS. Pending commit/push, migration approval/dev rollout, runtime materialization refresh, then live validation on `3530.jpg` full-size multi-effect Pillow batch.

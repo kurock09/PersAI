@@ -567,6 +567,74 @@ test("SandboxService: session snapshot round-trip — save then restore adds eph
   }
 });
 
+test("SandboxService: files.read forwards model-requested maxBytes to workspace bridge", async () => {
+  let capturedRead: {
+    path: string;
+    maxBytes?: number;
+  } | null = null;
+  const service = new SandboxService(
+    {} as never,
+    {} as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never,
+    {
+      async workspaceFileRead(
+        _ctx: unknown,
+        input: {
+          path: string;
+          maxBytes?: number;
+        }
+      ) {
+        capturedRead = input;
+        return {
+          success: true,
+          reason: null,
+          latencyMs: 1,
+          data: {
+            path: input.path,
+            bytes: Buffer.from("partial blackbox text", "utf8"),
+            truncated: true
+          }
+        };
+      }
+    } as never
+  );
+
+  const result = await (
+    service as unknown as {
+      executeFilesBridgeAction(
+        bridgeCtx: unknown,
+        args: Record<string, unknown>
+      ): Promise<{ reason: string | null; content: string | null }>;
+    }
+  ).executeFilesBridgeAction(
+    {
+      assistantId: "assistant-read-1",
+      assistantHandle: "reader",
+      siblingHandles: [],
+      workspaceId: "workspace-read-1",
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+      workspaceQuotaBytes: null,
+      sharedQuotaBytes: null
+    },
+    {
+      action: "read",
+      path: "/workspace/LOG011 (3).TXT",
+      maxBytes: 10_000
+    }
+  );
+
+  assert.equal(result.reason, null);
+  assert.deepEqual(capturedRead, {
+    path: "/workspace/LOG011 (3).TXT",
+    maxBytes: 10_000
+  });
+  const payload = JSON.parse(result.content!) as { content: string; truncated: boolean };
+  assert.equal(payload.content, "partial blackbox text");
+  assert.equal(payload.truncated, true);
+});
+
 test("SandboxService: render_html_to_pdf runs weasyprint command and removes transient .render-input.html", async () => {
   const capturedRunInPodCalls: Array<{
     command: string;

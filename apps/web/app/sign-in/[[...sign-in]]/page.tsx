@@ -188,7 +188,7 @@ export default function SignInPage() {
 
   const fieldErrors = clerkErrors?.fields as unknown as Record<string, unknown> | undefined;
 
-  if (!authLoaded) {
+  if (!authLoaded || !signIn) {
     return (
       <PublicAuthShell showFooter>
         <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden />

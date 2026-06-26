@@ -9,22 +9,29 @@ const routerState = vi.hoisted(() => ({
   searchParams: new URLSearchParams()
 }));
 
+const clerkState = vi.hoisted(() => ({
+  signUpLoaded: true
+}));
+
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
     isSignedIn: false,
     isLoaded: true
   }),
   useSignUp: () => ({
-    signUp: {
-      status: "missing_requirements",
-      sso: vi.fn(async () => ({ error: null })),
-      password: vi.fn(async () => ({ error: null })),
-      verifications: {
-        sendEmailCode: vi.fn(async () => undefined),
-        verifyEmailCode: vi.fn(async () => undefined)
-      },
-      finalize: vi.fn(async () => undefined)
-    },
+    isLoaded: clerkState.signUpLoaded,
+    signUp: clerkState.signUpLoaded
+      ? {
+          status: "missing_requirements",
+          sso: vi.fn(async () => ({ error: null })),
+          password: vi.fn(async () => ({ error: null })),
+          verifications: {
+            sendEmailCode: vi.fn(async () => undefined),
+            verifyEmailCode: vi.fn(async () => undefined)
+          },
+          finalize: vi.fn(async () => undefined)
+        }
+      : undefined,
     errors: undefined,
     fetchStatus: "idle"
   })
@@ -60,6 +67,16 @@ describe("SignUpPage", () => {
 
   beforeEach(() => {
     routerState.searchParams = new URLSearchParams();
+    clerkState.signUpLoaded = true;
+  });
+
+  it("waits for the Clerk sign-up resource before rendering the custom form", () => {
+    clerkState.signUpLoaded = false;
+
+    renderWithIntl(<SignUpPage />);
+
+    expect(screen.queryByPlaceholderText("you@example.com")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign up" })).not.toBeInTheDocument();
   });
 
   it("links to the custom forgot-password flow", () => {

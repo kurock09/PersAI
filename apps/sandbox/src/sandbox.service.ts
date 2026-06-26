@@ -1084,8 +1084,10 @@ export class SandboxService {
 
       if (action === "read") {
         const path = this.requireString(args.path, "path");
+        const maxBytes = this.optionalPositiveInteger(args.maxBytes, "maxBytes");
         const result = await this.workspaceFileBridgeService.workspaceFileRead(bridgeCtx, {
-          path
+          path,
+          ...(maxBytes === undefined ? {} : { maxBytes })
         });
         if (!result.success || result.data === null) {
           return {
@@ -2493,6 +2495,16 @@ export class SandboxService {
   private requireString(value: unknown, fieldName: string): string {
     if (typeof value !== "string" || value.trim().length === 0) {
       throw this.createPolicyError("invalid_arguments", `${fieldName} must be a non-empty string.`);
+    }
+    return value;
+  }
+
+  private optionalPositiveInteger(value: unknown, fieldName: string): number | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+      throw this.createPolicyError("invalid_arguments", `${fieldName} must be a positive integer.`);
     }
     return value;
   }

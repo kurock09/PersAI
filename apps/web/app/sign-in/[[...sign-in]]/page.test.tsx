@@ -10,6 +10,7 @@ const routerState = vi.hoisted(() => ({
 }));
 
 const clerkMocks = vi.hoisted(() => {
+  let signInLoaded = true;
   const signInResource = {
     status: "needs_identifier",
     supportedSecondFactors: [],
@@ -36,6 +37,12 @@ const clerkMocks = vi.hoisted(() => {
   };
 
   return {
+    get signInLoaded() {
+      return signInLoaded;
+    },
+    set signInLoaded(value: boolean) {
+      signInLoaded = value;
+    },
     signInResource
   };
 });
@@ -46,7 +53,8 @@ vi.mock("@clerk/nextjs", () => ({
     isLoaded: true
   }),
   useSignIn: () => ({
-    signIn: clerkMocks.signInResource,
+    isLoaded: clerkMocks.signInLoaded,
+    signIn: clerkMocks.signInLoaded ? clerkMocks.signInResource : undefined,
     errors: undefined,
     fetchStatus: "idle"
   })
@@ -82,6 +90,7 @@ describe("SignInPage", () => {
 
   beforeEach(() => {
     routerState.searchParams = new URLSearchParams();
+    clerkMocks.signInLoaded = true;
     clerkMocks.signInResource.status = "needs_identifier";
     clerkMocks.signInResource.sso.mockClear();
     clerkMocks.signInResource.password.mockClear();
@@ -93,6 +102,15 @@ describe("SignInPage", () => {
     clerkMocks.signInResource.resetPasswordEmailCode.sendCode.mockClear();
     clerkMocks.signInResource.resetPasswordEmailCode.verifyCode.mockClear();
     clerkMocks.signInResource.resetPasswordEmailCode.submitPassword.mockClear();
+  });
+
+  it("waits for the Clerk sign-in resource before rendering the custom form", () => {
+    clerkMocks.signInLoaded = false;
+
+    renderWithIntl(<SignInPage />);
+
+    expect(screen.queryByPlaceholderText("you@example.com")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
 
   it("runs the forgot-password flow from the custom sign-in screen", async () => {

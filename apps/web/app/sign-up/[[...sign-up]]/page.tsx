@@ -76,7 +76,7 @@ export default function SignUpPage() {
     }
   }, [code, signUp, t]);
 
-  if (!authLoaded) {
+  if (!authLoaded || !signUp) {
     return (
       <PublicAuthShell showFooter>
         <Loader2 className="h-8 w-8 animate-spin text-accent" aria-hidden />
