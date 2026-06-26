@@ -635,6 +635,67 @@ test("SandboxService: files.read forwards model-requested maxBytes to workspace 
   assert.equal(payload.truncated, true);
 });
 
+test("SandboxService: control-plane workspace write can hydrate bytes from workspace storage", async () => {
+  let downloadedObjectKey: string | null = null;
+  let capturedWrite: { basename: string; contents: Buffer } | null = null;
+  const service = new SandboxService(
+    {} as never,
+    {
+      buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }) {
+        return `fs/workspaces/${input.workspaceId}${input.workspaceRelPath}`;
+      },
+      async downloadObject(objectKey: string) {
+        downloadedObjectKey = objectKey;
+        return Buffer.from("csv-bytes", "utf8");
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never,
+    {
+      async writeWorkspaceFileControlPlane(
+        _ctx: unknown,
+        input: { basename: string; contents: Buffer }
+      ) {
+        capturedWrite = input;
+        return {
+          success: true,
+          reason: null,
+          latencyMs: 1,
+          data: {
+            workspaceRelPath: `/workspace/${input.basename}`,
+            absolutePath: `/workspace/${input.basename}`,
+            bytes: input.contents.length,
+            mode: "written" as const
+          }
+        };
+      }
+    } as never
+  );
+
+  const result = await service.writeWorkspaceFileControlPlane({
+    assistantId: "assistant-write-1",
+    workspaceId: "workspace-write-1",
+    assistantHandle: "writer",
+    siblingHandles: [],
+    basename: "LOG006.01 (2).csv",
+    storagePath: "/workspace/LOG006.01 (2).csv",
+    mimeType: "text/csv"
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    mode: "written",
+    workspaceRelPath: "/workspace/LOG006.01 (2).csv",
+    sizeBytes: 9
+  });
+  assert.equal(downloadedObjectKey, "fs/workspaces/workspace-write-1/workspace/LOG006.01 (2).csv");
+  assert.notEqual(capturedWrite, null);
+  const write = capturedWrite as unknown as { basename: string; contents: Buffer };
+  assert.equal(write.basename, "LOG006.01 (2).csv");
+  assert.equal(write.contents.toString("utf8"), "csv-bytes");
+});
+
 test("SandboxService: render_html_to_pdf runs weasyprint command and removes transient .render-input.html", async () => {
   const capturedRunInPodCalls: Array<{
     command: string;

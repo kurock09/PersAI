@@ -139,7 +139,17 @@ export class SandboxController {
     const assistantId = this.requireNonEmptyString(row.assistantId, "assistantId");
     const workspaceId = this.requireNonEmptyString(row.workspaceId, "workspaceId");
     const basename = this.requireNonEmptyString(row.basename, "basename");
-    const contentBase64 = this.requireNonEmptyString(row.contentBase64, "contentBase64");
+    const contentBase64 =
+      typeof row.contentBase64 === "string" && row.contentBase64.trim().length > 0
+        ? row.contentBase64.trim()
+        : null;
+    const storagePath =
+      typeof row.storagePath === "string" && row.storagePath.trim().length > 0
+        ? row.storagePath.trim()
+        : null;
+    if (contentBase64 === null && storagePath === null) {
+      throw new ServiceUnavailableException("Either contentBase64 or storagePath is required.");
+    }
     const mimeType =
       typeof row.mimeType === "string" && row.mimeType.trim().length > 0
         ? row.mimeType.trim()
@@ -151,14 +161,14 @@ export class SandboxController {
           (value): value is string => typeof value === "string" && value.trim().length > 0
         )
       : null;
-    const contents = Buffer.from(contentBase64, "base64");
     const result = await this.sandboxService.writeWorkspaceFileControlPlane({
       assistantId,
       workspaceId,
       assistantHandle,
       siblingHandles,
       basename,
-      contents,
+      contents: contentBase64 === null ? null : Buffer.from(contentBase64, "base64"),
+      storagePath,
       mimeType
     });
     if (!result.ok) {

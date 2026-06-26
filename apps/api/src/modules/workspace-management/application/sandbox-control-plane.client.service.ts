@@ -47,7 +47,8 @@ export class SandboxControlPlaneClientService {
     assistantId: string;
     workspaceId: string;
     basename: string;
-    contents: Buffer;
+    storagePath?: string | null;
+    contents?: Buffer | null;
     mimeType: string;
   }): Promise<{ mode: "written" | "deferred" | "error"; reason: string | null }> {
     const baseUrl = this.config.PERSAI_SANDBOX_BASE_URL?.trim();
@@ -68,7 +69,9 @@ export class SandboxControlPlaneClientService {
           assistantId: input.assistantId,
           workspaceId: input.workspaceId,
           basename: input.basename,
-          contentBase64: input.contents.toString("base64"),
+          ...(input.storagePath
+            ? { storagePath: input.storagePath }
+            : { contentBase64: input.contents?.toString("base64") ?? "" }),
           mimeType: input.mimeType
         }),
         signal: controller.signal

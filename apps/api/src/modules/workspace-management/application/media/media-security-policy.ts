@@ -60,6 +60,8 @@ const DANGEROUS_FILE_EXTENSIONS = new Set([
   ".wsf"
 ]);
 
+const SAFE_TOOL_OUTPUT_SOURCE_EXTENSIONS = new Set([".js", ".mjs", ".py", ".rb", ".sh"]);
+
 const SAFE_MIME_BY_EXTENSION: Record<string, string> = {
   ".aac": "audio/aac",
   ".avi": "video/x-msvideo",
@@ -198,6 +200,19 @@ function isAudioMime(mime: string): boolean {
   return mime.startsWith("audio/");
 }
 
+function isBlockedExtension(input: {
+  extension: string | null;
+  surface: MediaValidationSurface;
+}): boolean {
+  if (input.extension === null || !DANGEROUS_FILE_EXTENSIONS.has(input.extension)) {
+    return false;
+  }
+  return !(
+    input.surface === "tool_output_persist" &&
+    SAFE_TOOL_OUTPUT_SOURCE_EXTENSIONS.has(input.extension)
+  );
+}
+
 function resolveMaxAllowedBytes(input: {
   surface: MediaValidationSurface;
   headerMime: string | null;
@@ -246,7 +261,7 @@ export async function validatePersaiMediaFile(params: {
       `File exceeds maximum size of ${String(maxAllowedBytes / (1024 * 1024))}MB.`
     );
   }
-  if (normalizedExtension && DANGEROUS_FILE_EXTENSIONS.has(normalizedExtension)) {
+  if (isBlockedExtension({ extension: normalizedExtension, surface: params.surface })) {
     throw new BadRequestException(
       `Files with ${normalizedExtension} extension are blocked by security policy.`
     );

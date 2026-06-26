@@ -402,7 +402,7 @@ export class ManageChatMediaService {
           assistantId: assistant.id,
           workspaceId: assistant.workspaceId,
           basename: workspaceBasename,
-          contents: fileBuffer,
+          storagePath,
           mimeType
         });
       }

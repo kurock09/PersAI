@@ -248,7 +248,8 @@ export class SandboxService {
     assistantHandle?: string | null;
     siblingHandles?: readonly string[] | null;
     basename: string;
-    contents: Buffer;
+    contents?: Buffer | null;
+    storagePath?: string | null;
     mimeType: string;
     policy?: RuntimeSandboxPolicy;
   }): Promise<
@@ -257,6 +258,18 @@ export class SandboxService {
   > {
     const policy = input.policy ?? DEFAULT_RUNTIME_SANDBOX_POLICY;
     try {
+      const contents =
+        input.contents ??
+        (input.storagePath
+          ? await this.downloadWorkspaceStoragePathBytes(input.workspaceId, input.storagePath)
+          : null);
+      if (contents === null) {
+        return {
+          ok: false,
+          reason: "missing_contents",
+          message: "workspace_write_missing_contents"
+        };
+      }
       const assistantHandle = await this.resolveAssistantHandle(
         input.assistantId,
         input.assistantHandle ?? null
@@ -279,7 +292,7 @@ export class SandboxService {
         bridgeCtx,
         {
           basename: input.basename,
-          contents: input.contents
+          contents
         }
       );
       if (!writeResult.success) {

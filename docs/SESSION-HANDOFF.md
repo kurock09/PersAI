@@ -1,5 +1,61 @@
 # SESSION-HANDOFF
 
+## 2026-06-27 — `parse_v7.py` delivery blocked by hardcoded extension policy
+
+Status: code fixed locally; focused media-security-policy test PASS; full AGENTS gate PASS; broad API suite PASS from the package test runner. Pending commit/push, deploy, then live retry `files.attach({path:"/workspace/parse_v7.py"})`.
+
+**Incident.** Founder asked the assistant to send `parse_v7.py`; the assistant twice reported it was attached, but the final answer contained the honesty correction `Поправка: файл не был реально доставлен в этот чат.`
+
+**Live evidence.**
+
+- `/workspace/parse_v7.py` exists in the session pod and reads correctly (`4791` bytes).
+- GCS object exists at `fs/workspaces/24926096-953e-49b9-af56-f3551ce6f602/workspace/parse_v7.py` (`4791` bytes).
+- `workspace_file_metadata` has `/workspace/parse_v7.py`, but no chat attachment row exists.
+- API log contains the exact delivery failure: `Failed to deliver media artifact "/workspace/parse_v7.py": BadRequestException: Files with .py extension are blocked by security policy.`
+
+**Root cause.** `apps/api/src/modules/workspace-management/application/media/media-security-policy.ts` used one hardcoded `DANGEROUS_FILE_EXTENSIONS` denylist for every surface. That is appropriate for raw user uploads, but too broad for sandbox/tool-generated source files whose bytes already live in the user's workspace and are being attached back to that same user's chat.
+
+**Fix.** Dangerous extensions remain blocked for `chat_upload` and other inbound surfaces. For `tool_output_persist`, safe text source extensions (`.py`, `.js`, `.mjs`, `.rb`, `.sh`) are now allowed to pass the extension gate while MIME/sniffing validation still runs. Regression test pins `.py` as blocked for `chat_upload` but allowed for `tool_output_persist`.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/media-security-policy.test.ts` — PASS.
+- broad `corepack pnpm --filter @persai/api test -- test/manage-chat-media.stage-web-thread.test.ts` package runner — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm run format:check` — PASS.
+
+## 2026-06-27 — LOG006 hot-pod upload sync timeout fix
+
+Status: code fixed locally; sandbox focused test PASS (82/82); API chat-media staging regression PASS; broad API suite PASS from the package test runner; full AGENTS gate PASS. Pending commit/push, deploy, then live retry of a duplicate ~10MB CSV upload and immediate `files.read` on the duplicate path.
+
+**Incident.** Founder pasted a live assistant answer for `LOG006.01.csv` (9.5 MiB / 10,006,879 bytes) where `files.list` showed metadata but `files.read`/shell/path checks claimed the file was absent from the sandbox. Founder then asked to check again because the file should already be there.
+
+**Confirmed live state.**
+
+- DB had two successful attachment + manifest rows for the same original file: `/workspace/LOG006.01.csv` created at `2026-06-26T22:19:35Z` and `/workspace/LOG006.01 (2).csv` created at `2026-06-26T22:24:22Z`, both `ready`, both `text/csv`, both `10006879` bytes.
+- GCS had both canonical objects at `fs/workspaces/24926096-953e-49b9-af56-f3551ce6f602/workspace/...`, both `10006879` bytes.
+- The running session pod physically had `/workspace/LOG006.01.csv` and it read correctly; first CSV headers were present.
+- The duplicate `/workspace/LOG006.01 (2).csv` was absent from the running pod before manual repair.
+- Sandbox logs showed the root cause for the duplicate: `workspace_write_control_plane_failed workspace=24926096-953e-49b9-af56-f3551ce6f602 assistant=2f8cf38e-a6d9-4609-b83a-2b748246fcec basename=LOG006.01 (2).csv error=Sandbox process exceeded 15000ms.`
+
+**Manual unblock.** The current live session pod was unblocked by copying `/workspace/LOG006.01.csv` to `/workspace/LOG006.01 (2).csv`; after that both paths exist physically in the pod. This was an operational repair only, not the durable fix.
+
+**Root cause.** The control-plane hot-push path sent uploaded bytes from API to sandbox as `contentBase64` inside JSON and then wrote stdin into the pod. A 10MB CSV becomes a ~13MB JSON body and, under an already busy workspace/session, can exceed the sandbox process timeout. Because hot-push is best-effort, DB + GCS stay correct but a running pod can lag until a cold hydrate or manual repair.
+
+**Fix.** API now sends `storagePath` for staged web uploads instead of embedding `contents` in the control-plane JSON. The sandbox control-plane endpoint remains backward-compatible with `contentBase64`, but for `storagePath` it downloads the canonical workspace object from GCS and passes those bytes to the existing `WorkspaceFileBridgeService.writeWorkspaceFileControlPlane` bridge. This keeps GCS as source-of-truth, removes base64 body overhead, and avoids timing out the HTTP JSON hop for 10–25MB uploads.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/sandbox test -- test/sandbox.service.test.ts` — PASS (82/82).
+- `corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts` — PASS.
+- broad `corepack pnpm --filter @persai/api test -- test/manage-chat-media.stage-web-thread.test.ts` package runner — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm run format:check` — PASS.
+
 ## 2026-06-27 — Chat upload 10MB web proxy cap fix
 
 Status: code fixed locally; web typecheck PASS; web lint PASS; focused chat-input test PASS (26/26); format:check PASS. Pending full repo gate with the current UI/auth/thumbnail diff, commit/push, deploy, then live retry of 11MB and 24MB chat uploads through `persai.dev`; also manually try a >25MiB file and confirm localized rejection.

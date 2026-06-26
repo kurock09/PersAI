@@ -100,6 +100,26 @@ async function run(): Promise<void> {
       }),
     /blocked by security policy/
   );
+
+  await assert.rejects(
+    () =>
+      validatePersaiMediaFile({
+        buffer: Buffer.from("print('x')"),
+        mimeType: "text/plain",
+        originalFilename: "payload.py",
+        surface: "chat_upload"
+      }),
+    /blocked by security policy/
+  );
+
+  const sandboxSourceFile = await validatePersaiMediaFile({
+    buffer: Buffer.from("print('x')"),
+    mimeType: "text/plain",
+    originalFilename: "parse_v7.py",
+    surface: "tool_output_persist"
+  });
+  assert.equal(sandboxSourceFile.effectiveMimeType, "text/plain");
+  assert.equal(sandboxSourceFile.normalizedExtension, ".py");
 }
 
 void run();

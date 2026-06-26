@@ -424,6 +424,16 @@ async function run(): Promise<void> {
   const deletedStagingMessageIds: string[] = [];
   const deletedStoragePaths: string[] = [];
   const releasedBytes: bigint[] = [];
+  const hotPushInputs: Array<Record<string, unknown>> = [];
+  const spySandboxControlPlaneClient = {
+    isConfigured() {
+      return true;
+    },
+    async pushWorkspaceFileBytes(input: Record<string, unknown>) {
+      hotPushInputs.push(input);
+      return { mode: "written" as const, reason: null };
+    }
+  } as never;
   const service = new ManageChatMediaService(
     {
       async execute({ userId }: { userId: string }) {
@@ -563,7 +573,7 @@ async function run(): Promise<void> {
     fakeWorkspaceFileMetadataService as never,
     metrics,
     noopRecordModelCostLedgerService,
-    noopSandboxControlPlaneClient,
+    spySandboxControlPlaneClient,
     noopPrisma
   );
 
@@ -580,6 +590,10 @@ async function run(): Promise<void> {
   assert.equal(staged.chatId, "chat-1");
   assert.equal(staged.messageId, "msg-1");
   assert.equal(staged.attachment.storagePath, lastRegisterChatAttachmentInput?.storagePath);
+  assert.equal(hotPushInputs.length, 1);
+  assert.equal(hotPushInputs[0]?.storagePath, staged.attachment.storagePath);
+  assert.equal(hotPushInputs[0]?.basename, "image.png");
+  assert.equal(Object.hasOwn(hotPushInputs[0] ?? {}, "contents"), false);
   assert.deepEqual(deletedStagingMessageIds, []);
   assert.deepEqual(deletedStoragePaths, []);
   assert.deepEqual(releasedBytes, []);
