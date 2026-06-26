@@ -1377,10 +1377,7 @@ describe("SendWebChatTurnService", () => {
           assistantMessage: "reply with discovered files",
           respondedAt: "2026-04-05T12:00:01.000Z",
           media: [],
-          discoveredFilePaths: [
-            "/workspace/outbound/self/report-a.pdf",
-            "/workspace/outbound/self/report-b.pdf"
-          ]
+          discoveredFilePaths: ["/workspace/report-a.pdf", "/workspace/report-b.pdf"]
         })
       } as never,
       {
@@ -1454,10 +1451,7 @@ describe("SendWebChatTurnService", () => {
     assert.deepEqual(
       (capturedCreateMessageInput as Record<string, unknown>).metadata,
       {
-        discoveredFilePaths: [
-          "/workspace/outbound/self/report-a.pdf",
-          "/workspace/outbound/self/report-b.pdf"
-        ]
+        discoveredFilePaths: ["/workspace/report-a.pdf", "/workspace/report-b.pdf"]
       },
       "metadata.discoveredFilePaths must match the runtime return value in insertion order"
     );

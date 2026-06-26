@@ -26,7 +26,7 @@ import {
 import { RegisterChatAttachmentService } from "./register-chat-attachment.service";
 import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
-import { resolveUniqueWorkspaceInputStoragePath } from "./resolve-workspace-input-storage-path";
+import { resolveUniqueWorkspaceStoragePath } from "./resolve-workspace-storage-path";
 import {
   createAssistantInboundConflict,
   createMediaStorageQuotaExceededError
@@ -79,14 +79,14 @@ export class ManageChatMediaService {
   }
 
   /**
-   * Strip the canonical `/workspace/input/` prefix off a model-facing storage
-   * path and return the basename used by `resolveUniqueWorkspaceInputStoragePath`.
-   * Returns `null` for anything that is not a workspace-input path (defence-
+   * Strip the canonical `/workspace/` prefix off a model-facing storage path
+   * and return the basename used by `resolveUniqueWorkspaceStoragePath`.
+   * Returns `null` for anything that is not a flat workspace path (defence-
    * in-depth — the caller already constructed the path through that helper,
    * so a non-match should never happen in practice).
    */
-  private extractWorkspaceInputBasename(storagePath: string): string | null {
-    const prefix = "/workspace/input/";
+  private extractWorkspaceBasename(storagePath: string): string | null {
+    const prefix = "/workspace/";
     if (!storagePath.startsWith(prefix)) {
       return null;
     }
@@ -167,7 +167,7 @@ export class ManageChatMediaService {
     });
     const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
     const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
-    const storagePath = await resolveUniqueWorkspaceInputStoragePath({
+    const storagePath = await resolveUniqueWorkspaceStoragePath({
       workspaceId: assistant.workspaceId,
       filename: validated.originalFilename,
       mimeType,
@@ -320,7 +320,7 @@ export class ManageChatMediaService {
 
       const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
       const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
-      const storagePath = await resolveUniqueWorkspaceInputStoragePath({
+      const storagePath = await resolveUniqueWorkspaceStoragePath({
         workspaceId: assistant.workspaceId,
         filename: validated.originalFilename,
         mimeType,
@@ -389,19 +389,19 @@ export class ManageChatMediaService {
       });
       const attachment = (await this.attachmentRepository.findById(registered.attachmentId))!;
 
-      // ADR-126 v3 amendment (2026-06-25) — best-effort hot-pod push of the
-      // uploaded inbound bytes. The canonical store is the GCS object we just
-      // wrote; this push is a latency optimisation so the running pod sees
-      // the file on the *next turn* instead of only after the next cold-start
-      // hydrate. Any failure (sandbox unreachable, pod cold, write rejected)
-      // is logged at warn and never blocks the upload — `hydrateWorkspaceMountFromGcs`
-      // is the authoritative recovery path.
-      const workspaceInputBasename = this.extractWorkspaceInputBasename(storagePath);
-      if (workspaceInputBasename !== null) {
-        await this.sandboxControlPlaneClient.pushWorkspaceInboundBytes({
+      // ADR-128 Slice 4 — best-effort hot-pod push of the uploaded bytes.
+      // The canonical store is the GCS object we just wrote; this push is a
+      // latency optimisation so the running pod sees the file on the *next
+      // turn* instead of only after the next cold-start hydrate. Any failure
+      // (sandbox unreachable, pod cold, write rejected) is logged at warn and
+      // never blocks the upload — `hydrateWorkspaceMountFromGcs` is the
+      // authoritative recovery path.
+      const workspaceBasename = this.extractWorkspaceBasename(storagePath);
+      if (workspaceBasename !== null) {
+        await this.sandboxControlPlaneClient.pushWorkspaceFileBytes({
           assistantId: assistant.id,
           workspaceId: assistant.workspaceId,
-          basename: workspaceInputBasename,
+          basename: workspaceBasename,
           contents: fileBuffer,
           mimeType
         });

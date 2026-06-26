@@ -8,29 +8,20 @@ import { resolveMacOsCollisionBasename } from "./shared-outbound-basename";
 import {
   WorkspacePathError,
   assertAllowedMountPrefix,
-  buildWorkspaceRoot,
-  type ResolvedWorkspacePath,
-  type WorkspaceMountRoots
+  WORKSPACE_MOUNT_ROOT,
+  type ResolvedWorkspacePath
 } from "./workspace-path";
 
 /**
- * ADR-126 Slice 3 — model-facing path primitives (list/read/stat/write/delete)
- * for the `files.*` tool, operating on the single `/workspace` namespace
- * via the exec API. The runtime tool
- * (`apps/runtime/src/modules/turns/runtime-files-tool.service.ts`) delegates
- * here for every read/write/list/stat/delete it issues on behalf of the model.
+ * ADR-128 Slice 4 — model-facing path primitives (list/read/stat/write/delete/copy)
+ * for the `files.*` tool, operating on the single flat `/workspace` namespace
+ * via the exec API.
  *
- * This bridge is *not* the upload ingestion path. Founder/web uploads land in
- * GCS via the API's `assistant-file-registry.service.ts`
- * (`mirrorUploadToSharedGcs`) and are hydrated into pods lazily by the warm
- * pod's mount layer — they do not flow through this file.
- *
- * Responsibilities owned here: container-side path containment (via
- * {@link assertAllowedMountPrefix}), audit emission (via
- * {@link WorkspaceAuditService}), and `chmod` role enforcement (workspace vs
- * input vs outbound). Path containment runs before any shell command is
- * composed; every model-supplied path is single-quote escaped via
- * {@link posixSingleQuote} before interpolation.
+ * Every model-supplied path is validated by {@link assertAllowedMountPrefix}
+ * before any shell command is composed; every interpolated value is
+ * single-quote escaped via {@link posixSingleQuote}. There are no roles,
+ * no read-only sub-trees, and no sibling-handle classification — anything
+ * under `/workspace/` is read/write/delete for the model.
  */
 
 export type WorkspaceBridgeContext = {
@@ -48,7 +39,6 @@ export type WorkspaceFileBridgeFailureReason =
   | "create_only_collision"
   | "write_failed"
   | "workspace_quota_exhausted"
-  | "shared_quota_exhausted"
   | "path_not_found"
   | "read_failed"
   | "list_failed"
@@ -57,17 +47,9 @@ export type WorkspaceFileBridgeFailureReason =
   | "delete_failed"
   | "copy_failed";
 
-/**
- * Outcome of a bridge primitive. Returned to the caller and emitted to the
- * audit log via {@link WorkspaceAuditService}. The bridge never throws on
- * non-existent-path read/delete; instead the result carries `success=false`
- * with a stable reason code that the model-facing tool surfaces verbatim.
- */
 export type WorkspaceFileBridgeResult<T> = {
   success: boolean;
-  /** Stable, model-visible reason when `success === false`. */
   reason: WorkspaceFileBridgeFailureReason | null;
-  /** Latency in milliseconds for the underlying pod exec. */
   latencyMs: number;
   data: T;
 };
@@ -93,10 +75,9 @@ export type WorkspaceFileReadResult = {
 };
 
 /**
- * Maximum bytes we will return from a single bridge read. The pod-side `head`
- * we shell into is bounded so a runaway file does not stream gigabytes through
- * the exec WebSocket. `files.read` will reject anything larger via the
- * model-facing policy; this is the bridge-level hard ceiling.
+ * Maximum bytes returned from a single bridge read. `files.read` rejects
+ * larger requests upstream via the model-facing policy; this is the
+ * bridge-level hard ceiling.
  */
 const MAX_READ_BYTES = 16 * 1024 * 1024;
 
@@ -105,14 +86,12 @@ function posixSingleQuote(value: string): string {
 }
 
 /**
- * ADR-128 Slice 1 — defense-in-depth check on basenames that flow into
- * the control-plane inbound push. The API already canonicalises basenames via
- * its upload path, but the bridge double-checks because
- * a bad basename here would inject into a pod-side shell command. Rules
- * mirror `resolveMacOsCollisionBasename`'s assumptions: non-empty, no path
+ * ADR-128 Slice 4 — defense-in-depth check on basenames that flow into a
+ * control-plane workspace write. Rules mirror
+ * `resolveMacOsCollisionBasename`'s assumptions: non-empty, no path
  * separators, no `..`, no NUL.
  */
-function isValidWorkspaceInputBasename(value: string): boolean {
+function isValidWorkspaceBasename(value: string): boolean {
   if (typeof value !== "string" || value.length === 0) {
     return false;
   }
@@ -136,34 +115,19 @@ export class WorkspaceFileBridgeService {
     private readonly workspaceAuditService: WorkspaceAuditService
   ) {}
 
-  /** Build the canonical mount-root pair for a workspace. */
-  static buildMountRoots(): WorkspaceMountRoots {
-    return {
-      workspaceRoot: buildWorkspaceRoot()
-    };
+  /**
+   * Resolve and validate a model-supplied path. Throws
+   * {@link WorkspacePathError} on any escape attempt.
+   */
+  resolveModelPath(_ctx: WorkspaceBridgeContext, modelPath: string): ResolvedWorkspacePath {
+    return assertAllowedMountPrefix(modelPath);
   }
 
   /**
-   * Resolve and validate a model-supplied path against the canonical mount
-   * roots for this assistant. Throws `WorkspacePathError` on any escape
-   * attempt. Exposed publicly so the runtime tool layer can compute the
-   * resolved role (e.g. to decide whether `files.write` is allowed) without
-   * re-running the bridge.
+   * ADR-128 Slice 4 — control-plane artefact write into
+   * `/workspace/<basename>` with macOS-style collision resolution.
    */
-  resolveModelPath(ctx: WorkspaceBridgeContext, modelPath: string): ResolvedWorkspacePath {
-    const roots = WorkspaceFileBridgeService.buildMountRoots();
-    return assertAllowedMountPrefix(modelPath, {
-      roots,
-      assistantHandle: ctx.assistantHandle,
-      siblingHandles: new Set(ctx.siblingHandles)
-    });
-  }
-
-  /**
-   * ADR-128 Slice 1 — control-plane artefact write into
-   * `/workspace/outbound/self/<basename>` with macOS-style collision resolution.
-   */
-  async writeWorkspaceOutboundWithCollision(
+  async writeWorkspaceFileWithCollision(
     ctx: WorkspaceBridgeContext,
     input: {
       basename: string;
@@ -178,10 +142,9 @@ export class WorkspaceFileBridgeService {
       bytes: number;
     }>
   > {
-    const outboundDir = "/workspace/outbound/self";
     let resolvedBasename = input.basename;
     if (input.collisionStrategy === "numeric_suffix") {
-      const listResult = await this.workspaceFileList(ctx, { path: outboundDir });
+      const listResult = await this.workspaceFileList(ctx, { path: WORKSPACE_MOUNT_ROOT });
       const existingNames = new Set(
         (listResult.success ? listResult.data : [])
           .filter((entry) => entry.type === "file")
@@ -192,20 +155,19 @@ export class WorkspaceFileBridgeService {
       );
       resolvedBasename = resolveMacOsCollisionBasename(input.basename, existingNames);
     }
-    const targetPath = `${outboundDir}/${resolvedBasename}`;
+    const targetPath = `${WORKSPACE_MOUNT_ROOT}/${resolvedBasename}`;
     const writeResult = await this.workspaceFileWrite(ctx, {
       path: targetPath,
       contents: input.contents,
       mode: "overwrite"
     });
-    const workspaceRelPath = `/workspace/outbound/self/${resolvedBasename}`;
     return {
       success: writeResult.success,
       reason: writeResult.reason,
       latencyMs: writeResult.latencyMs,
       data: {
         resolvedPath: writeResult.data.resolvedPath,
-        workspaceRelPath,
+        workspaceRelPath: targetPath,
         resolvedBasename,
         bytes: writeResult.data.bytes
       }
@@ -213,12 +175,12 @@ export class WorkspaceFileBridgeService {
   }
 
   /**
-   * ADR-128 Slice 1 — control-plane inbound bytes-push.
+   * ADR-128 Slice 4 — control-plane workspace bytes-push.
    *
-   * Symmetric to {@link writeWorkspaceOutboundWithCollision} but writes into
-   * `/workspace/input/<basename>` so a web upload becomes visible
-   * to the running pod immediately, not only after the next cold-pod hydrate.
-   * Caller (API `manage-chat-media.stageForWebThread`) is responsible for:
+   * Writes directly to `/workspace/<basename>` so a web upload becomes
+   * visible to the running pod immediately, not only after the next
+   * cold-pod hydrate. Caller (API `manage-chat-media.stageForWebThread`) is
+   * responsible for:
    *   * GCS mirror (already done before this call — single source of truth),
    *   * basename uniqueness,
    *   * quota accounting (already booked by the API; nullable quotas are
@@ -229,14 +191,8 @@ export class WorkspaceFileBridgeService {
    *     `hydrateWorkspaceMountFromGcs` will pull the bytes from GCS).
    *   * pod Running but exec fails → `success: false, reason: "write_failed"`.
    *   * pod Running + exec ok → `success: true, mode: "written"`.
-   *
-   * The `input/` directory mode is 0555 after bootstrap (Phase 4 of
-   * `ensureWorkspaceMountBootstrapped`), so the script temporarily flips the dir
-   * to 0755 → writes the file → flips the file to 0444 and the dir back to 0555.
-   * `set -e` ensures we never leave the dir in a writable state on partial
-   * failure.
    */
-  async writeWorkspaceInputControlPlane(
+  async writeWorkspaceFileControlPlane(
     ctx: WorkspaceBridgeContext,
     input: {
       basename: string;
@@ -250,11 +206,11 @@ export class WorkspaceFileBridgeService {
       mode: "written" | "deferred";
     }>
   > {
-    if (!isValidWorkspaceInputBasename(input.basename)) {
+    if (!isValidWorkspaceBasename(input.basename)) {
       const event: WorkspaceFileBridgeEvent = {
         workspaceId: ctx.workspaceId,
         assistantId: ctx.assistantId,
-        absolutePath: `/workspace/input/${input.basename}`,
+        absolutePath: `${WORKSPACE_MOUNT_ROOT}/${input.basename}`,
         relativePath: input.basename,
         status: "error",
         exitCode: null,
@@ -268,25 +224,21 @@ export class WorkspaceFileBridgeService {
         reason: "write_denied",
         latencyMs: 0,
         data: {
-          workspaceRelPath: `/workspace/input/${input.basename}`,
-          absolutePath: `/workspace/input/${input.basename}`,
+          workspaceRelPath: `${WORKSPACE_MOUNT_ROOT}/${input.basename}`,
+          absolutePath: `${WORKSPACE_MOUNT_ROOT}/${input.basename}`,
           bytes: 0,
           mode: "written"
         }
       };
     }
-    const inputDir = "/workspace/input";
-    const targetPath = `${inputDir}/${input.basename}`;
-    const workspaceRelPath = `/workspace/input/${input.basename}`;
-    const quotedDir = posixSingleQuote(inputDir);
+    const targetPath = `${WORKSPACE_MOUNT_ROOT}/${input.basename}`;
+    const quotedDir = posixSingleQuote(WORKSPACE_MOUNT_ROOT);
     const quotedTarget = posixSingleQuote(targetPath);
     const shellCommand = [
       "set -e",
       `mkdir -p ${quotedDir}`,
       `chmod 0755 ${quotedDir}`,
-      `cat > ${quotedTarget}`,
-      `chmod 0444 ${quotedTarget}`,
-      `chmod 0555 ${quotedDir}`
+      `cat > ${quotedTarget}`
     ].join(" && ");
 
     const startedAt = Date.now();
@@ -307,7 +259,7 @@ export class WorkspaceFileBridgeService {
         workspaceId: ctx.workspaceId,
         assistantId: ctx.assistantId,
         absolutePath: targetPath,
-        relativePath: `input/${input.basename}`,
+        relativePath: input.basename,
         status: "ok",
         exitCode: 0,
         bytes: input.contents.length,
@@ -320,7 +272,7 @@ export class WorkspaceFileBridgeService {
         reason: null,
         latencyMs,
         data: {
-          workspaceRelPath,
+          workspaceRelPath: targetPath,
           absolutePath: targetPath,
           bytes: input.contents.length,
           mode: "deferred"
@@ -334,7 +286,7 @@ export class WorkspaceFileBridgeService {
       workspaceId: ctx.workspaceId,
       assistantId: ctx.assistantId,
       absolutePath: targetPath,
-      relativePath: `input/${input.basename}`,
+      relativePath: input.basename,
       status: success ? "ok" : "error",
       exitCode: podResult.exitCode,
       bytes: success ? input.contents.length : null,
@@ -347,7 +299,7 @@ export class WorkspaceFileBridgeService {
       reason,
       latencyMs,
       data: {
-        workspaceRelPath,
+        workspaceRelPath: targetPath,
         absolutePath: targetPath,
         bytes: success ? input.contents.length : 0,
         mode: "written"
@@ -364,37 +316,8 @@ export class WorkspaceFileBridgeService {
     }
   ): Promise<WorkspaceFileBridgeResult<{ resolvedPath: string; bytes: number }>> {
     const resolved = this.resolveModelPath(ctx, input.path);
-    // Sibling outbound and input are not writable from the model
-    // surface. The bridge service is the only legitimate write path; we treat
-    // the model attempt to write here as a typed bridge-layer rejection (the
-    // sandbox file tool surfaces this as a stable reason code rather than a
-    // generic file-not-allowed error).
-    if (
-      resolved.role.kind === "workspace_outbound_other" ||
-      resolved.role.kind === "workspace_input"
-    ) {
-      const event: WorkspaceFileBridgeEvent = {
-        workspaceId: ctx.workspaceId,
-        assistantId: ctx.assistantId,
-        absolutePath: resolved.absolutePath,
-        relativePath: resolved.relativePath,
-        status: "error",
-        exitCode: null,
-        bytes: null,
-        latencyMs: 0,
-        reason: "write_denied"
-      };
-      this.workspaceAuditService.recordWorkspaceFileOp("write", event);
-      return {
-        success: false,
-        reason: "write_denied",
-        latencyMs: 0,
-        data: { resolvedPath: resolved.absolutePath, bytes: 0 }
-      };
-    }
     const quotaExhaustedReason = await this.checkStorageQuotaBeforeWrite(
       ctx,
-      resolved,
       input.contents.length
     );
     if (quotaExhaustedReason !== null) {
@@ -458,8 +381,7 @@ export class WorkspaceFileBridgeService {
     };
     this.workspaceAuditService.recordWorkspaceFileOp("write", event);
 
-    if (success && this.isPersistedWorkspaceRole(resolved)) {
-      // Mirror the bytes to GCS so cold pods can rematerialise them.
+    if (success) {
       try {
         await this.sandboxObjectStorageService.saveObject({
           objectKey: this.sandboxObjectStorageService.buildWorkspaceObjectKey({
@@ -573,9 +495,6 @@ export class WorkspaceFileBridgeService {
   ): Promise<WorkspaceFileBridgeResult<WorkspaceFileListing[]>> {
     const resolved = this.resolveModelPath(ctx, input.path);
     const maxEntries = Math.min(Math.max(input.maxEntries ?? 200, 1), 1_000);
-    // `find -maxdepth 1` lists the direct children of the directory only,
-    // mirroring the model's expectation of `files.list <dir>`. `printf` uses
-    // tab as the field separator so a single split call recovers the columns.
     const shellCommand = `if [ ! -d ${posixSingleQuote(resolved.absolutePath)} ]; then echo path_not_found >&2; exit 65; fi; find ${posixSingleQuote(resolved.absolutePath)} -mindepth 1 -maxdepth 1 -printf '%p\\t%y\\t%s\\t%T@\\n' | head -n ${String(maxEntries)}`;
     const startedAt = Date.now();
     const podResult = await this.execPodBridgeService.execShellInSessionPod({
@@ -739,21 +658,6 @@ export class WorkspaceFileBridgeService {
   > {
     const sourceResolved = this.resolveModelPath(ctx, input.sourcePath);
     const targetResolved = this.resolveModelPath(ctx, input.targetPath);
-    if (
-      sourceResolved.role.kind !== "workspace_scratch" &&
-      sourceResolved.role.kind !== "workspace_outbound_self"
-    ) {
-      throw new WorkspacePathError(
-        "outside_allowed_mount",
-        "files.attach source must be under /workspace scratch or /workspace/outbound/self/"
-      );
-    }
-    if (targetResolved.role.kind !== "workspace_outbound_self") {
-      throw new WorkspacePathError(
-        "outside_allowed_mount",
-        "files.attach target must be under /workspace/outbound/self/"
-      );
-    }
     if (sourceResolved.absolutePath === targetResolved.absolutePath) {
       const stat = await this.workspaceFileStat(ctx, { path: sourceResolved.absolutePath });
       const bytes = stat.success && stat.data.type === "file" ? stat.data.sizeBytes : 0;
@@ -859,29 +763,6 @@ export class WorkspaceFileBridgeService {
     input: { path: string; recursive?: boolean }
   ): Promise<WorkspaceFileBridgeResult<{ removed: boolean }>> {
     const resolved = this.resolveModelPath(ctx, input.path);
-    if (
-      resolved.role.kind === "workspace_outbound_other" ||
-      resolved.role.kind === "workspace_input"
-    ) {
-      const event: WorkspaceFileBridgeEvent = {
-        workspaceId: ctx.workspaceId,
-        assistantId: ctx.assistantId,
-        absolutePath: resolved.absolutePath,
-        relativePath: resolved.relativePath,
-        status: "error",
-        exitCode: null,
-        bytes: null,
-        latencyMs: 0,
-        reason: "delete_denied"
-      };
-      this.workspaceAuditService.recordWorkspaceFileOp("delete", event);
-      return {
-        success: false,
-        reason: "delete_denied",
-        latencyMs: 0,
-        data: { removed: false }
-      };
-    }
     const recursive = input.recursive === true;
     const shellCommand = `if [ ! -e ${posixSingleQuote(resolved.absolutePath)} ]; then echo path_not_found >&2; exit 65; fi; rm ${recursive ? "-rf" : "-f"} ${posixSingleQuote(resolved.absolutePath)}`;
     const startedAt = Date.now();
@@ -925,7 +806,7 @@ export class WorkspaceFileBridgeService {
     };
     this.workspaceAuditService.recordWorkspaceFileOp("delete", event);
 
-    if (success && this.isPersistedWorkspaceRole(resolved)) {
+    if (success) {
       try {
         const relPath = this.toWorkspaceRelPath(resolved.absolutePath);
         const objectKey = this.sandboxObjectStorageService.buildWorkspaceObjectKey({
@@ -958,28 +839,23 @@ export class WorkspaceFileBridgeService {
 
   private async checkStorageQuotaBeforeWrite(
     ctx: WorkspaceBridgeContext,
-    resolved: ResolvedWorkspacePath,
     newBytes: number
-  ): Promise<"workspace_quota_exhausted" | "shared_quota_exhausted" | null> {
-    let cap: number | null;
-    let subtree: string;
-    let exhaustedReason: "workspace_quota_exhausted" | "shared_quota_exhausted";
-
-    if (resolved.role.kind === "workspace_scratch") {
-      cap = ctx.workspaceQuotaBytes;
-      subtree = "/workspace/";
-      exhaustedReason = "workspace_quota_exhausted";
-    } else if (this.isPersistedWorkspaceRole(resolved)) {
-      cap = ctx.sharedQuotaBytes;
-      subtree = "/workspace/";
-      exhaustedReason = "shared_quota_exhausted";
-    } else {
+  ): Promise<"workspace_quota_exhausted" | null> {
+    // ADR-128 Slice 4: a single flat workspace has a single quota. We respect
+    // whichever non-null cap the caller supplied (the API books bytes against
+    // `sharedQuotaBytes`; older surfaces still pass `workspaceQuotaBytes`).
+    // Pick the tighter of the two so neither plumbing path can over-consume.
+    const candidateCaps = [ctx.sharedQuotaBytes, ctx.workspaceQuotaBytes].filter(
+      (value): value is number => typeof value === "number" && Number.isFinite(value)
+    );
+    if (candidateCaps.length === 0) {
       return null;
     }
-
-    if (cap === null) {
-      return null;
-    }
+    const cap = candidateCaps.reduce(
+      (acc, value) => Math.min(acc, value),
+      Number.POSITIVE_INFINITY
+    );
+    const subtree = `${WORKSPACE_MOUNT_ROOT}/`;
 
     const duCommand = `du -sb ${posixSingleQuote(subtree)} | cut -f1`;
     const duResult = await this.execPodBridgeService.execShellInSessionPod({
@@ -1005,16 +881,17 @@ export class WorkspaceFileBridgeService {
       return null;
     }
     if (currentBytes + newBytes > cap) {
-      return exhaustedReason;
+      return "workspace_quota_exhausted";
     }
     return null;
   }
 
-  private isPersistedWorkspaceRole(resolved: ResolvedWorkspacePath): boolean {
-    return resolved.role.kind !== "workspace_scratch";
-  }
-
   private toWorkspaceRelPath(absolutePath: string): string {
-    return absolutePath.startsWith("/workspace/") ? absolutePath : `/workspace/${absolutePath}`;
+    return absolutePath.startsWith(`${WORKSPACE_MOUNT_ROOT}/`)
+      ? absolutePath
+      : `${WORKSPACE_MOUNT_ROOT}/${absolutePath}`;
   }
 }
+
+// Defensive: callers may still pattern-match `WorkspacePathError` instances.
+export { WorkspacePathError };

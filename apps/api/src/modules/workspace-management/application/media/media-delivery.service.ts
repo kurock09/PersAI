@@ -46,7 +46,7 @@ import {
   RegisterChatAttachmentService,
   type RegisterChatAttachmentKind
 } from "../register-chat-attachment.service";
-import { resolveUniqueWorkspaceInputStoragePath } from "../resolve-workspace-input-storage-path";
+import { resolveUniqueWorkspaceStoragePath } from "../resolve-workspace-storage-path";
 import { WorkspaceFileMetadataService } from "../workspace-file-metadata.service";
 import { TrackWorkspaceQuotaUsageService } from "../track-workspace-quota-usage.service";
 import {
@@ -609,7 +609,7 @@ export class MediaDeliveryService {
     ) {
       return Promise.resolve(input.artifact.objectKey);
     }
-    return resolveUniqueWorkspaceInputStoragePath({
+    return resolveUniqueWorkspaceStoragePath({
       workspaceId: input.workspaceId,
       filename: input.filename,
       mimeType: input.mimeType,

@@ -102,8 +102,8 @@ function createService(input?: {
           return (
             input?.attachments ?? [
               {
-                thumbnailStoragePath: "/workspace/input/report-thumb.png",
-                posterStoragePath: "/workspace/input/report-poster.png"
+                thumbnailStoragePath: "/workspace/report-thumb.png",
+                posterStoragePath: "/workspace/report-poster.png"
               }
             ]
           );
@@ -131,19 +131,19 @@ test("deleteChatWorkspaceFile removes manifest row and best-effort hot pod copy"
   await harness.service.deleteChatWorkspaceFile({
     userId: "user-1",
     chatId: "chat-1",
-    storagePath: "/workspace/input/report.txt"
+    storagePath: "/workspace/report.txt"
   });
 
   assert.deepEqual(harness.deletedObjectKeys, [
-    "gcs:/workspace/input/report.txt",
-    "gcs:/workspace/input/report-thumb.png",
-    "gcs:/workspace/input/report-poster.png"
+    "gcs:/workspace/report.txt",
+    "gcs:/workspace/report-thumb.png",
+    "gcs:/workspace/report-poster.png"
   ]);
   assert.deepEqual(harness.manifestDeletes, [
-    { workspaceId: "workspace-1", path: "/workspace/input/report.txt" }
+    { workspaceId: "workspace-1", path: "/workspace/report.txt" }
   ]);
   assert.deepEqual(harness.hotPodRemovals, [
-    { workspaceId: "workspace-1", path: "/workspace/input/report.txt" }
+    { workspaceId: "workspace-1", path: "/workspace/report.txt" }
   ]);
   assert.equal(harness.attachmentUpdates.length, 1);
 });
@@ -157,7 +157,7 @@ test("deleteChatWorkspaceFile swallows hot pod rm failure after durable delete",
     harness.service.deleteChatWorkspaceFile({
       userId: "user-1",
       chatId: "chat-1",
-      storagePath: "/workspace/input/report.txt"
+      storagePath: "/workspace/report.txt"
     })
   );
   assert.equal(harness.manifestDeletes.length, 1);
@@ -172,7 +172,7 @@ test("deleteChatWorkspaceFile surfaces manifest delete failure", async () => {
     harness.service.deleteChatWorkspaceFile({
       userId: "user-1",
       chatId: "chat-1",
-      storagePath: "/workspace/input/report.txt"
+      storagePath: "/workspace/report.txt"
     }),
     /db down/
   );
@@ -187,15 +187,15 @@ test("deleteWorkspaceFile deletes GCS + manifest + hot pod copy for orphan tiles
   await harness.service.deleteWorkspaceFile({
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    path: "/workspace/outbound/self/orphan.txt"
+    path: "/workspace/orphan.txt"
   });
 
-  assert.deepEqual(harness.deletedObjectKeys, ["gcs:/workspace/outbound/self/orphan.txt"]);
+  assert.deepEqual(harness.deletedObjectKeys, ["gcs:/workspace/orphan.txt"]);
   assert.deepEqual(harness.manifestDeletes, [
-    { workspaceId: "workspace-1", path: "/workspace/outbound/self/orphan.txt" }
+    { workspaceId: "workspace-1", path: "/workspace/orphan.txt" }
   ]);
   assert.deepEqual(harness.hotPodRemovals, [
-    { workspaceId: "workspace-1", path: "/workspace/outbound/self/orphan.txt" }
+    { workspaceId: "workspace-1", path: "/workspace/orphan.txt" }
   ]);
   assert.equal(harness.attachmentUpdates.length, 0);
 });
@@ -211,7 +211,7 @@ test("deleteWorkspaceFile returns 404 when manifest row and object are both abse
     harness.service.deleteWorkspaceFile({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/outbound/self/missing.txt"
+      path: "/workspace/missing.txt"
     }),
     NotFoundException
   );

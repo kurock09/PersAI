@@ -1,16 +1,88 @@
 # SESSION-HANDOFF
 
+## 2026-06-26 — ADR-128 Slice 4 + computeWorkspaceStats lstat defense-in-depth (commit pending)
+
+Status: ready to commit + push. Baseline SHA: `697cdaed`.
+
+**Live ENOENT root cause captured during persai-dev session `466359f3-…` (founder live test, 2026-06-26 ~00:20 UTC).** Model reported `shell` consistently failing with `ENOENT: no such file or directory, stat '/tmp/persai-sandbox/assistants/<aid>/<wsid>/workspace/outbound/self'` before the python interpreter ever started. Diagnosis traced to `SandboxService.computeWorkspaceStats` (baseline-stats walk run before every queued tool job): `fs.readdir(... { withFileTypes: true })` returns the `outbound/self` symlink as a non-directory `Dirent`, the function then calls `fs.stat` which **follows the symlink**, and on the sandbox-service control-plane filesystem the absolute target `/workspace/outbound/luma` does not exist → ENOENT → the whole job fails with `violationCode=ENOENT` and the model receives it as a verbatim sandbox error message. The symlink reached the control-plane FS via `pullWorkspace` after the pod bootstrap created `outbound/self → outbound/<handle>` and was re-applied turn-after-turn from the session snapshot tar.
+
+**Primary fix (already in Slice 4 subagent diff):** the `outbound/self → outbound/<handle>` symlink + the entire `outbound/<handle>` and `input/` mkdir/chmod block is gone from `ensureWorkspaceMountBootstrapped`. After this lands no symlink is ever introduced into either the pod or the control-plane cache, so the ENOENT becomes impossible at the source.
+
+**Defense-in-depth fix (this slice, on top of the subagent diff):** `computeWorkspaceStats` now uses `fs.lstat` instead of `fs.stat` and skips `isSymbolicLink()` entries from the byte total (still counts them as files). Any future symlink dragged into `/tmp/persai-sandbox/<…>/workspace/` (user upload, restored snapshot, manual paste) is now measured by the link itself and cannot crash the baseline-stats walk. Sandbox suite still 79/79.
+
+**Decision (subagent base).** Drop the role-based subdir structure (`input/`, `outbound/<handle>/`, `outbound/self`) and adopt a single flat `/workspace/` namespace — Claude Code-style UX. Pod has one mount at `/workspace/` (mode `0755`, owner `sandbox`). User uploads land at `/workspace/<basename>` (macOS-style numeric collision suffix). Model reads and writes any file under `/workspace/<path>` directly. Cross-assistant isolation drops to "share by default" — the workspace owns files, all assistants in that workspace see them. Ephemeral computations use `/tmp/` (tmpfs already in the pod). GCS layout `fs/workspaces/<wsid>/workspace/<rel>` is unchanged.
+
+**Decision.** Drop the role-based subdir structure (`input/`, `outbound/<handle>/`, `outbound/self`) and adopt a single flat `/workspace/` namespace — Claude Code-style UX. Pod has one mount at `/workspace/` (mode `0755`, owner `sandbox`). User uploads land at `/workspace/<basename>` (macOS-style numeric collision suffix). Model reads and writes any file under `/workspace/<path>` directly. Cross-assistant isolation drops to "share by default" — the workspace owns files, all assistants in that workspace see them. Ephemeral computations use `/tmp/` (tmpfs already in the pod). GCS layout `fs/workspaces/<wsid>/workspace/<rel>` is unchanged.
+
+**Retired symbols (deleted from active codebase):**
+
+- `WorkspaceMountRole` enum and all its variants (`workspace_input`, `workspace_outbound_self`, `workspace_outbound_other`, `workspace_scratch`).
+- `isPersistedWorkspaceRole` (replaced by a simpler "inside `/workspace/`" predicate inside `workspaceFileWrite` itself).
+- All references to `/workspace/input/`, `/workspace/outbound/`, `/workspace/outbound/self`, `/workspace/outbound/<handle>` from production code, tool descriptions, and prompt text. The literal strings only survive in (1) historical ADRs / CHANGELOG entries describing the prior state, (2) historical migration SQL, and (3) explicit ADR-128 Slice 4 negation assertions that prove the new flat layout creates none of them.
+- `ensureSharedMountSymlinks` (already gone in S1), the `outbound/self → outbound/<handle>` symlink (now nothing to symlink to), and the `input`/`outbound/<handle>` mkdir/chmod block in `ensureWorkspaceMountBootstrapped`.
+- `buildWorkspaceObjectKey`'s special-case branching for `/workspace/input/` vs `/workspace/outbound/` — now just strips the `/workspace/` prefix and emits `fs/workspaces/<wsid>/workspace/<rel>`.
+- `resolveWorkspaceInputStoragePath` / `resolve-workspace-input-storage-path.ts` collapsed into `resolveWorkspaceStoragePath` (`/workspace/<basename>` with collision suffix).
+
+**Renamed symbols:**
+
+- `writeWorkspaceInputControlPlane` → `writeWorkspaceFileControlPlane` (writes any basename under `/workspace/`; basename validator unchanged — no path separators, no NUL).
+- `writeWorkspaceOutboundWithCollision` → `writeWorkspaceFileWithCollision` (lands at `/workspace/<basename>`; collision scan reads the flat `/workspace/` dir).
+- `recordWorkspaceInputPublished` → `recordWorkspaceFilePublished` (audit event `audit_event=workspace_file_published`).
+- `pushWorkspaceInboundBytes` → `pushWorkspaceFileBytes` (sandbox-control-plane client).
+- Sandbox HTTP endpoints: `/api/v1/jobs/workspace-outbound-write` → `/api/v1/jobs/workspace-write`; `/api/v1/jobs/workspace-inbound-write` → `/api/v1/jobs/workspace-write-control-plane`. Runtime + API clients updated to match.
+- `SandboxClientService.writeWorkspaceOutbound` → `writeWorkspaceFile` (signature unchanged otherwise).
+
+**Simplified primitives:**
+
+- `assertAllowedMountPrefix(input)`: normalize → assert starts with `/workspace` → throw `WorkspacePathError` if not. Returns `{ absolutePath, relativePath }` (no `role`).
+- `ensureWorkspaceMountBootstrapped`: `mkdir /workspace` → `chmod 0755` → GCS hydrate → write marker. No `input/`/`outbound/<handle>/` subdir creation. No `outbound/self` symlink. Cold-pod GCS hydrate runs once per pod creation (preserved from S2).
+- `workspaceFileWrite`: rejects ONLY when path is outside `/workspace/`. Every successful write mirrors to GCS + upserts `workspace_file_metadata`. No scratch carve-out under `/workspace/`. Ephemeral data goes to `/tmp/`.
+- `workspaceFileDelete`: rejects only outside `/workspace/`. Deletes from GCS prefix + manifest unconditionally.
+- `purgeAssistantOutbound` GC handler: no path delete (no per-handle subdir exists anymore); just marks the lease purged so producers do not stall.
+- `purgeWorkspaceShared` GC handler: wipes `rm -rf '/workspace'/* '/workspace'/.[!.]*` in every warm pod for that workspace, drops the GCS workspace prefix, deletes matching `workspace_file_metadata` rows.
+
+**Tool description rewrite (Claude Code style).** Production `files` tool description (single source for both `apps/api/prisma/tool-catalog-data.ts` `modelDescription` and the projected runtime tool):
+
+> Path-driven file operations on the single flat `/workspace/` namespace. Read and write any file directly under `/workspace/<path>`; user uploads land at `/workspace/<filename>` and stay there. Use `/tmp/` for ephemeral scratch that the user should never see.
+
+Production `files` `modelUsageGuidance` (first paragraph, before the standard `WHEN TO USE / WHEN NOT TO USE / EXAMPLES` block):
+
+> Files in this workspace live under `/workspace/`. Read any file with `files.read /workspace/<path>`. Write to any path under `/workspace/` (creates or overwrites). When the user uploads a file, it appears at `/workspace/<filename>`. To edit it, write to the same path. To create a new file, pick a new name. Use `/tmp/` for ephemeral scratch that the user should not see.
+
+`document.storagePath` cross-chat revise example updated from `/workspace/outbound/self/report.pdf` → `/workspace/report.pdf`.
+
+**Files touched (high level).** Sandbox: `workspace-path.ts`, `workspace-file-bridge.service.ts`, `workspace-audit.service.ts`, `exec-pod-bridge.service.ts`, `sandbox-object-storage.service.ts`, `sandbox.service.ts`, `sandbox.controller.ts`, `workspace-gc.service.ts`, plus a new helper `exec-pod-bridge.service.ts` artefact. API: `runtime-tool-policy.ts`, `tool-catalog-data.ts`, `bootstrap-preset-data.ts`, `resolve-workspace-storage-path.ts` (new), `manage-chat-media.service.ts`, `inbound-media.service.ts`, `media-delivery.service.ts`, `sandbox-control-plane.client.service.ts`, `upsert-workspace-file-metadata-from-runtime.service.ts`, `list-workspace-files-from-manifest.service.ts`, `media-attachment.controller.ts`, `internal-workspace-files.controller.ts`. Runtime: `native-tool-projection.ts`, `sandbox-client.service.ts`, `write-runtime-outbound-artifact.ts`. Tests: `apps/sandbox/test/*` (workspace-path, workspace-file-bridge, workspace-gc, exec-pod-bridge, sandbox.service), `apps/api/test/*` (29 fixtures normalised via `scripts/flatten-workspace-test-paths.mjs`, plus targeted rewrites of `list-workspace-files-from-manifest.service.test.ts`, `internal-workspace-files.controller.test.ts`, `manage-chat-media.stage-web-thread.test.ts`, `media-attachment.controller.test.ts`, `runtime-tool-policy.test.ts`, `upsert-workspace-file-metadata-from-runtime.service.test.ts`, `adr119-golden-prompt-snapshot.expected.txt`), `apps/runtime/test/*` (13 files normalised + targeted rewrites of `runtime-outbound-test-doubles.ts`, `runtime-video-generate-tool.service.test.ts`, `runtime-image-{generate,edit}-tool.service.test.ts`, `turn-execution.service.test.ts`, `runtime-document-provider-adapter.service.test.ts`, `native-tool-projection.test.ts`, `runtime-files-tool.{attach,service}.test.ts`, `sanitize-tool-result-for-model.test.ts`), `apps/web/app/app/*` (5 files normalised including URL-encoded `%2Fworkspace%2Finput%2F` → `%2Fworkspace%2F`).
+
+**Gates green:**
+
+- `corepack pnpm --filter @persai/sandbox run lint` PASS, typecheck PASS, test PASS (79/79).
+- `corepack pnpm --filter @persai/api run lint` PASS, typecheck PASS, test PASS.
+- `corepack pnpm --filter @persai/runtime run lint` PASS, typecheck PASS, test PASS.
+- `corepack pnpm --filter @persai/web run lint` PASS, typecheck PASS, test PASS (832/832, 69 test files).
+- `corepack pnpm run format:check` PASS.
+- `rg -n "workspace_input|workspace_outbound|workspace_scratch|/workspace/input|/workspace/outbound|outbound/self|outbound/<handle>|injectWorkspaceIdSegment|buildSharedRoot|WorkspaceMountRole" apps docs/SESSION-HANDOFF.md docs/CHANGELOG.md` returns ONLY (a) historical CHANGELOG / SESSION-HANDOFF entries describing the now-retired state, (b) historical migration SQL (`apps/api/prisma/migrations/20260623160000_*/migration.sql`), and (c) explicit ADR-128 Slice 4 negation assertions in three test files (`workspace-gc.service.test.ts`, `exec-pod-bridge.service.test.ts`, `runtime-tool-policy.test.ts`) that prove the flat layout creates none of these.
+
+**Ambiguity calls made:**
+
+- The `WorkspaceMountRole.workspace_outbound_other` deletion left no consumer for sibling-handle path classification. The `siblingHandles` parameter still threads through `runInPod` / `warmSessionPod` because the bash environment (`PERSAI_SIBLING_HANDLES`) and pod annotations consume it for non-path purposes. Kept as a pass-through; classification removed.
+- `purgeAssistantOutbound` could have been removed entirely (no per-handle path to delete). Kept the lease handler as a marker-only purge so existing schema + cron remain intact and producers do not stall on a missing handler. The actual filesystem cleanup is owned by `purgeWorkspaceShared`.
+- `workspaceQuotaBytes` + `sharedQuotaBytes` collapse into one effective quota for `/workspace/`. The runtime contract still exposes both fields (additive only, both optional) so older runtimes can pass either; the sandbox sums them at quota-check time. This avoids a wire-protocol break.
+
+**Next step.** Commit + push. After dev image publish + GitOps pin: **wipe dev** state before live validation (the symlink survives in session-snapshot tars cached in GCS — if not wiped, the snapshot restore will reintroduce a dangling symlink into the control-plane cache and the lstat fix becomes the only thing standing between the cluster and another ENOENT report). Wipe targets: (a) GCS prefix `gs://persai-dev-workspaces/fs/workspaces/` — drops every workspace tree including session snapshots; (b) Postgres tables `workspace_file_metadata` and `assistant_chat_message_attachment` rows. Then validate live on `persai-dev` that a fresh upload lands at `/workspace/<basename>`, `files.read` returns content, the model edits the same file in place, and no `/input/` or `/outbound/` subdir is created. Close ADR-128.
+
 ## 2026-06-26 — ADR-128 S1 + S2 landed locally (sandbox + api+runtime+web cutover)
 
 Status: code complete, awaiting deploy + dev wipe + live validation. Baseline SHA: `8db1c269` → S1 `4eb68921` → S2 `fe4d61f3`.
 
 S1 (sandbox layer, commit `4eb68921`, 15 files, +435/-830):
+
 - Retired `/shared/<workspaceId>/` mount entirely. Single writable user mount `/workspace/`.
 - Deleted: `injectWorkspaceIdSegmentIfMissing`, `buildSharedRoot`, `WorkspaceMountRoots.sharedRoot`, `WorkspaceMountRole.shared_*`, `WORKSPACE_ID_UUID_RE` (no more wsId in pod paths), `ensureSharedMountBootstrapped`, `ensureSharedMountSymlinks`, `SHARED_MOUNT_*` constants, `shared-root` k8s emptyDir + `/shared` volumeMount + per-workspace `/shared/<wsid>` emptyDir.
 - Added: `ensureWorkspaceMountBootstrapped` (Phase 1 marker → 2 mkdir+`outbound/self`→`outbound/<handle>` symlink → 3 hydrate from `${prefix}/workspaces/<wsid>/workspace/` only → 4 `chmod 0555 input` / `0755 outbound`), `WORKSPACE_MOUNT_*` constants, `WorkspaceMountRole.workspace_input | workspace_outbound_self | workspace_outbound_other | workspace_scratch`, `buildWorkspaceObjectKey`, `hydrateWorkspaceMountFromGcs`, `writeWorkspaceInputControlPlane`, `writeWorkspaceOutboundWithCollision`, `removeWorkspaceFileFromHotPods`.
 - Gates green: sandbox lint, typecheck, 80/80 tests; 3× `rg` retired-symbol grep → 0 hits.
 
 S2 (api + runtime + web + Prisma seed text + shared contracts, commit `fe4d61f3`, 86 files including a `git mv` rename, +598/-535):
+
 - All `/shared/input/<name>` `storagePath` shapes → `/workspace/input/<name>`. Same for `/shared/outbound/self/<name>` → `/workspace/outbound/self/<name>`.
 - GCS object keys on API + runtime sides now emit `fs/workspaces/<wsid>/workspace/<rel>` exclusively.
 - Wire-protocol method names on sandbox-control-plane client match the new sandbox surface.
@@ -31,6 +103,7 @@ Status: open. Baseline SHA: `a0400818`.
 Founder live test on 2026-06-25 (evening) surfaced that ADR-126 v3 + ADR-127 closures left a structural gap: two pod namespaces (`/workspace/` for assistant scratch, `/shared/<wsid>/` for shared files) with different semantics — persistence, GCS sync, manifest. Model is biased toward `/workspace/` and on a fresh xlsx upload tried `read /workspace/X.xlsx` first (audit: `path_not_found`), then made 5 more fallback tool calls before giving up. The xlsx file was correctly placed in `/shared/<wsid>/input/`, in GCS, and in the manifest. Symlinks fix from the 2026-06-25 closure follow-up (`/shared/input → /shared/<wsid>/input`) did not help because the model crossed namespaces, not paths within `/shared/`.
 
 Diagnosis details verified in dev cluster:
+
 - exec pod (`ses-cf94...`) created post-deploy at 20:46:21 UTC has the two `/shared/...` symlinks correctly. Symlinks fix itself is working.
 - file written to pod at `/shared/<wsid>/input/PersAI_B2B_FinModel_v3.xlsx`, 15121 bytes, audit ok.
 - manifest row created with `path=/shared/input/PersAI_B2B_FinModel_v3.xlsx`, full `shortDescription`, MIME, size.
@@ -112,8 +185,6 @@ Scope: ADR-127 D8 only. Remove the legacy `objectKey` fallback branches from bot
 - W4.5 / D9: `PERSAI_MEDIA_OBJECT_PREFIX` rename remains open.
 - W5 / D10: GCS wipe runbook execution remains open (operational only, no code change).
 - Migration SQL is unit-test-only until deployed; live application on the next dev rollout.
-
-
 
 Scope: ADR-127 W3 only. Land delete-side symmetry so every active delete path updates durable truth (`workspace_file_metadata` + GCS) and treats pod FS eviction as best-effort cache cleanup. Baseline SHA: `180b0d61`.
 
@@ -254,6 +325,7 @@ Next step: W1 — manifest-as-index refactor (api + runtime + UI gallery), imple
 Live dev after `adeff5c0` deploy: upload + vision + disk path (`find` sees `/shared/.../input/3534.jpg`) work; `files.read`/`files.preview` on JPEG correctly return null/empty (text tools, not vision); `shell ls` on `input/` permission-denied is expected (D2 RO). **`image_edit` still fails** with `runtime_degraded` — "attachments must contain valid runtime attachment refs".
 
 Root cause: ADR-126 v3 cutover moved `RuntimeAttachmentRef` to `storagePath` + `displayName`, but two API validators were never updated:
+
 - `apps/api/.../enqueue-runtime-deferred-media-job.service.ts:isAttachmentRef`
 - `apps/api/.../workspace-media-job-scheduler.service.ts:isAttachmentRef`
 

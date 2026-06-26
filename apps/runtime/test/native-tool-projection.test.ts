@@ -363,9 +363,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           toolCode: "files",
           displayName: "Files",
           description:
-            "Path-driven workspace operations on `/workspace/...`. Three regions:\n- `/workspace/input/` — files the user has shared with this assistant (read-only).\n- `/workspace/outbound/self/` — files this assistant produces and delivers to the user (read-write).\n- `/workspace/<anywhere else>` — model scratch (ephemeral, not delivered, not preserved across pod restart).",
+            "Path-driven file operations on the single flat `/workspace/` namespace. Read and write any file directly under `/workspace/<path>`; user uploads land at `/workspace/<filename>` and stay there. Use `/tmp/` for ephemeral scratch that the user should never see.",
           usageGuidance:
-            "Path-driven workspace operations on `/workspace/...`. Three regions:\n- `/workspace/input/` — files the user has shared with this assistant (read-only).\n- `/workspace/outbound/self/` — files this assistant produces and delivers to the user (read-write).\n- `/workspace/<anywhere else>` — model scratch (ephemeral, not delivered, not preserved across pod restart).",
+            "Files in this workspace live under `/workspace/`. Read any file with `files.read /workspace/<path>`. Write to any path under `/workspace/` (creates or overwrites). When the user uploads a file, it appears at `/workspace/<filename>`. To edit it, write to the same path. To create a new file, pick a new name. Use `/tmp/` for ephemeral scratch that the user should not see.",
           kind: "plan",
           executionMode: "inline",
           usageRule: "allowed",
@@ -573,13 +573,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     webSearch?.description,
     "Search the public web for current external facts.\nUse this when the answer depends on recent external information or links. May be called in parallel with other independent searches."
   );
-  assert.match(
-    files?.description ?? "",
-    /Path-driven workspace operations on `\/workspace\/\.\.\.`/
-  );
-  assert.match(files?.description ?? "", /`\/workspace\/input\/`/);
-  assert.match(files?.description ?? "", /`\/workspace\/outbound\/self\/`/);
-  assert.match(files?.description ?? "", /`\/workspace\/<anywhere else>`/);
+  assert.match(files?.description ?? "", /single flat `\/workspace\/` namespace/);
+  assert.doesNotMatch(files?.description ?? "", /\/workspace\/input/);
+  assert.doesNotMatch(files?.description ?? "", /\/workspace\/outbound/);
   // ADR-126 v3 D6 — files surface is six actions: list, read, preview, write, delete, attach.
   assert.doesNotMatch(files?.description ?? "", /write.and.send|files\.send|files\.search/);
   assert.doesNotMatch(files?.description ?? "", /fileRef|alias|relativePath/);
@@ -880,7 +876,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     documentProperties?.storagePath?.description ?? "",
-    /\/workspace\/outbound\/self\//,
+    /\/workspace\//,
     "storagePath description must contain a /workspace/ path example"
   );
   assert.doesNotMatch(

@@ -19,7 +19,7 @@ import { validatePersaiMediaFile } from "./media-security-policy";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { RegisterChatAttachmentService } from "../register-chat-attachment.service";
 import { WorkspaceFileMetadataService } from "../workspace-file-metadata.service";
-import { resolveUniqueWorkspaceInputStoragePath } from "../resolve-workspace-input-storage-path";
+import { resolveUniqueWorkspaceStoragePath } from "../resolve-workspace-storage-path";
 
 class MediaStorageQuotaExceededError extends Error {
   constructor(
@@ -74,7 +74,7 @@ export class InboundMediaService {
           raw.originalFilename
         );
 
-        const storagePath = await resolveUniqueWorkspaceInputStoragePath({
+        const storagePath = await resolveUniqueWorkspaceStoragePath({
           workspaceId: params.workspaceId,
           filename: raw.originalFilename,
           mimeType: processed.normalizedMime,

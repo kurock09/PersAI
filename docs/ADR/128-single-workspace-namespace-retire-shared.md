@@ -248,3 +248,84 @@ Acceptance: zero `/shared/...` strings in any deployed image's running config or
 - **Tool description bias**: model has historical priors about `/workspace/` semantics (ephemeral, private). When the tool description tells it `/workspace/input/` is the user-shared region, the model may still occasionally default to `/workspace/` for outputs. Tool description rewrite (S2) must be unambiguous: `input/` (RO), `outbound/self/` (RW deliver), bare `/workspace/<name>` (scratch).
 - **Dev data wipe**: founder's current dev chats lose their attachments. Acceptable per the orchestration directive ("без коммерческих"); founder confirmed in W5 wipe context.
 - **Prod readiness**: this ADR must close BEFORE prod launches. Prod data must never have a `/shared/...` row.
+
+---
+
+## Slice 4 — Flatten `/workspace/` to a single-namespace, role-free filesystem (2026-06-26)
+
+Slice 4 supersedes Slices 1–3 by replacing the role-based subdir structure with a single flat `/workspace/` root. It is the final closure of the dual-namespace migration.
+
+### Motivation
+
+After S1+S2 cutover (single `/workspace/` root with `input/` + `outbound/<handle>/`), founder live test surfaced a second UX problem: the subdirs leak into the model's mental model. Users uploaded files appear in `/workspace/input/`, model outputs in `/workspace/outbound/<handle>/`, and "edit this file" produced a NEW file in outbound instead of updating the original. This is wrong for a 1-user + 1-2-assistant product targeting Claude Code-style UX. The founder is also fed up with explaining `outbound/self → outbound/<handle>` symlink semantics to the model.
+
+GCS and DB on `persai-dev` are wiped (per S3 dev wipe runbook). There is no production data to migrate. This is the cheapest moment to flatten.
+
+### Decision
+
+- Single pod mount at `/workspace/` (mode `0755`, owner `sandbox`).
+- No `input/`, no `outbound/`, no `outbound/self`, no `outbound/<handle>`, no symlinks.
+- User uploads land directly at `/workspace/<basename>` (macOS-style numeric collision suffix: `report.pdf`, `report (2).pdf`, `report (3).pdf`).
+- Model reads + writes any file under `/workspace/<path>` directly. To edit a user file in place, write to the same path. To create a new file, choose a new name.
+- Every write under `/workspace/*` mirrors to GCS at `fs/workspaces/<wsid>/workspace/<rel>` and upserts `workspace_file_metadata`. There is no scratch carve-out under `/workspace/`.
+- Ephemeral computation uses `/tmp/` (already a tmpfs in the pod).
+- Cross-assistant isolation drops to "share by default" — the workspace owns files, all assistants in that workspace see them. Multi-assistant scoping (if ever needed) becomes a manifest-level concern, not a path-level concern.
+
+### Retired symbols
+
+- `WorkspaceMountRole` enum and all variants (`workspace_input`, `workspace_outbound_self`, `workspace_outbound_other`, `workspace_scratch`).
+- `isPersistedWorkspaceRole` — replaced by a simpler "is inside `/workspace/`" check inside `workspaceFileWrite` itself.
+- All references to `/workspace/input`, `/workspace/outbound`, `/workspace/outbound/self`, `/workspace/outbound/<handle>` from production code, tool descriptions, prompt text, and golden snapshots.
+- `ensureSharedMountSymlinks` (already gone in S1) plus the `outbound/self` symlink creation step + `input`/`outbound/<handle>` mkdir/chmod block in `ensureWorkspaceMountBootstrapped`.
+- `buildWorkspaceObjectKey`'s role-based special-casing — now strips `/workspace/` prefix and emits `fs/workspaces/<wsid>/workspace/<rel>`.
+- `resolveWorkspaceInputStoragePath` (and `resolve-workspace-input-storage-path.ts`) — collapsed into `resolveWorkspaceStoragePath(basename)` that returns `/workspace/<basename>` with collision suffix.
+
+### Renamed symbols
+
+- `writeWorkspaceInputControlPlane` → `writeWorkspaceFileControlPlane`.
+- `writeWorkspaceOutboundWithCollision` → `writeWorkspaceFileWithCollision`.
+- `recordWorkspaceInputPublished` → `recordWorkspaceFilePublished` (audit event `audit_event=workspace_file_published`).
+- `pushWorkspaceInboundBytes` → `pushWorkspaceFileBytes` on the sandbox-control-plane client.
+- Sandbox HTTP endpoints: `/api/v1/jobs/workspace-outbound-write` → `/api/v1/jobs/workspace-write`; `/api/v1/jobs/workspace-inbound-write` → `/api/v1/jobs/workspace-write-control-plane`.
+- `SandboxClientService.writeWorkspaceOutbound` → `writeWorkspaceFile`.
+
+### Simplified primitives
+
+- `assertAllowedMountPrefix(input)`: normalize → assert starts with `/workspace` → throw `WorkspacePathError` if not. Returns `{ absolutePath, relativePath }` (no `role`).
+- `ensureWorkspaceMountBootstrapped`: `mkdir /workspace` → `chmod 0755` → GCS hydrate → marker. No `input/`/`outbound/<handle>/` subdir creation. No `outbound/self` symlink. Cold-pod hydrate runs once per pod creation.
+- `workspaceFileWrite`: rejects only when path is outside `/workspace/`. Mirrors every write to GCS + upserts manifest. No role check.
+- `workspaceFileDelete`: same shape.
+- GC handler `purgeAssistantOutbound` becomes a marker-only purge (no per-handle subdir to remove). The lease still exists on the schema for backward compatibility; the handler just marks it purged so producers do not stall.
+- GC handler `purgeWorkspaceShared`: wipes `rm -rf '/workspace'/* '/workspace'/.[!.]*` in every warm pod for the workspace, drops the GCS workspace prefix, deletes matching `workspace_file_metadata` rows.
+
+### Tool description (Claude Code-style)
+
+Production `files` `description` (single source for both `tool-catalog-data.ts` `modelDescription` and the runtime native-tool projection):
+
+> Path-driven file operations on the single flat `/workspace/` namespace. Read and write any file directly under `/workspace/<path>`; user uploads land at `/workspace/<filename>` and stay there. Use `/tmp/` for ephemeral scratch that the user should never see.
+
+Production `files` `modelUsageGuidance` (first paragraph; the standard `WHEN TO USE / WHEN NOT TO USE / EXAMPLES` block follows):
+
+> Files in this workspace live under `/workspace/`. Read any file with `files.read /workspace/<path>`. Write to any path under `/workspace/` (creates or overwrites). When the user uploads a file, it appears at `/workspace/<filename>`. To edit it, write to the same path. To create a new file, pick a new name. Use `/tmp/` for ephemeral scratch that the user should not see.
+
+`document.storagePath` cross-chat revise example updated from `/workspace/outbound/self/report.pdf` → `/workspace/report.pdf`.
+
+### Why not keep `input/` + `outbound/` for "safety"?
+
+- The role distinction protected nothing the model could actually break. Writing to a "wrong" path was a UX irritant, not a security boundary.
+- The model is the only writer that matters; the user does not interact with the filesystem directly. Path semantics existed only for the model.
+- "Share by default" matches the founder's product shape (single user, 1-2 assistants). Multi-assistant isolation, if ever required, belongs in the manifest layer, not in the filesystem layer.
+- Claude Code and Cursor agents both operate on a single flat workspace. The model has the strongest prior for that shape — fighting it costs tool-call budget.
+
+### GCS prefix unchanged
+
+The GCS key shape stays `fs/workspaces/<wsid>/workspace/<rel>` (S2 already established this). After Slice 4, `<rel>` no longer has an `input/` or `outbound/<handle>/` segment — `<rel>` is just the relative path under `/workspace/` (typically a flat basename like `report.pdf`, or any subdir the model chose to create).
+
+### Acceptance criteria
+
+- `rg -n "workspace_input|workspace_outbound|workspace_scratch|/workspace/input|/workspace/outbound|outbound/self|outbound/<handle>|injectWorkspaceIdSegment|buildSharedRoot|WorkspaceMountRole" apps docs/SESSION-HANDOFF.md docs/CHANGELOG.md` returns only historical context (CHANGELOG entries, migration SQL) plus explicit ADR-128 Slice 4 negation assertions in tests that prove the new layout.
+- `corepack pnpm --filter @persai/{sandbox,api,runtime,web} run lint` PASS.
+- `corepack pnpm --filter @persai/{sandbox,api,runtime,web} run typecheck` PASS.
+- `corepack pnpm --filter @persai/{sandbox,api,runtime,web} run test` PASS (sandbox 79/79, web 832/832, api + runtime suites green).
+- `corepack pnpm run format:check` PASS.
+- Live validation (post-deploy): founder uploads a fresh file → it appears at `/workspace/<basename>`; `files.read /workspace/<basename>` returns content; model edits the file in place by writing to the same path; no `/input/` or `/outbound/` subdir is created anywhere in the workspace.

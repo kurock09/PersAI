@@ -1493,7 +1493,7 @@ async function runPresentationPdfToPptxExportQueuesPptxRender(): Promise<void> {
           currentOutputFormat: "pdf" as const,
           latestDeliveredFile: {
             attachmentId: "attachment-pdf-1",
-            storagePath: "/workspace/outbound/self/deck.pdf",
+            storagePath: "/workspace/deck.pdf",
             mimeType: "application/pdf",
             sizeBytes: 1000,
             originalFilename: "deck.pdf"

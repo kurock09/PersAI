@@ -77,7 +77,7 @@ test("files.attach happy path workspace source emits assistant artifact", async 
       content: JSON.stringify({
         action: "attached",
         attachment: {
-          workspaceRelPath: "/workspace/outbound/self/report.csv",
+          workspaceRelPath: "/workspace/report.csv",
           sourcePath: "/workspace/report.csv",
           sizeBytes: 12,
           mimeType: "text/csv",
@@ -106,12 +106,12 @@ test("files.attach happy path workspace source emits assistant artifact", async 
   assert.equal(apiCalled, false);
   assert.equal(result.isError, false);
   assert.equal(result.payload.action, "attached");
-  assert.equal(result.payload.path, "/workspace/outbound/self/report.csv");
+  assert.equal(result.payload.path, "/workspace/report.csv");
   assert.equal(result.payload.sizeBytes, 12);
   assert.equal(result.discoveredFileHandles, undefined);
   assert.equal(result.artifacts?.length, 1);
   const artifact = result.artifacts?.[0];
-  assert.equal(artifact?.storagePath, "/workspace/outbound/self/report.csv");
+  assert.equal(artifact?.storagePath, "/workspace/report.csv");
   assert.equal(artifact?.mimeType, "text/csv");
   assert.equal(artifact?.sizeBytes, 12);
   assert.equal(artifact?.kind, "file");
@@ -124,7 +124,7 @@ test("files.attach happy path workspace source emits assistant artifact", async 
   assert.ok(!modelJson.includes("/workspace/report.csv"));
 });
 
-test("files.attach happy path workspace_outbound_self emits assistant artifact", async () => {
+test("files.attach happy path /workspace/ file emits assistant artifact", async () => {
   let apiCalled = false;
   const service = createService({
     sandboxJob: {
@@ -134,8 +134,8 @@ test("files.attach happy path workspace_outbound_self emits assistant artifact",
       violationMessage: null,
       content: JSON.stringify({
         attachment: {
-          workspaceRelPath: "/workspace/outbound/self/report.csv",
-          sourcePath: "/workspace/outbound/self/report.csv",
+          workspaceRelPath: "/workspace/report.csv",
+          sourcePath: "/workspace/report.csv",
           sizeBytes: 12,
           mimeType: "image/png",
           displayName: "report.png"
@@ -155,7 +155,7 @@ test("files.attach happy path workspace_outbound_self emits assistant artifact",
     toolCall: {
       id: "tc-2",
       name: "files",
-      arguments: { action: "attach", path: "/workspace/outbound/self/report.csv" }
+      arguments: { action: "attach", path: "/workspace/report.csv" }
     },
     ...attachToolCallParams
   });
@@ -173,14 +173,14 @@ test("files.attach sandbox path_not_attachable does not call API", async () => {
     sandboxJob: {
       status: "completed",
       reason: "path_not_attachable",
-      warning: "files.attach accepts only /workspace/ or /workspace/outbound/self/ paths",
+      warning: "files.attach accepts only /workspace/ or /workspace/ paths",
       violationMessage: null,
       content: null
     },
     apiClient: {
       async registerChatAttachment() {
         apiCalled = true;
-        return { attachmentId: "attachment-3", storagePath: "/workspace/outbound/self/report.csv" };
+        return { attachmentId: "attachment-3", storagePath: "/workspace/report.csv" };
       }
     }
   });
@@ -190,7 +190,7 @@ test("files.attach sandbox path_not_attachable does not call API", async () => {
     toolCall: {
       id: "tc-3",
       name: "files",
-      arguments: { action: "attach", path: "/workspace/input/sales.csv" }
+      arguments: { action: "attach", path: "/workspace/sales.csv" }
     },
     ...attachToolCallParams
   });

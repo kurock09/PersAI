@@ -77,13 +77,8 @@ export class InternalWorkspaceFilesController {
   ): Promise<void> {
     this.assertAuthorized(req);
     const trimmedPath = typeof path === "string" ? path.trim() : "";
-    if (
-      !trimmedPath.startsWith("/workspace/input/") &&
-      !trimmedPath.startsWith("/workspace/outbound/")
-    ) {
-      throw new BadRequestException(
-        'path must start with "/workspace/input/" or "/workspace/outbound/".'
-      );
+    if (!trimmedPath.startsWith("/workspace/")) {
+      throw new BadRequestException('path must start with "/workspace/".');
     }
     await this.workspaceFileMetadataService.delete({
       workspaceId,

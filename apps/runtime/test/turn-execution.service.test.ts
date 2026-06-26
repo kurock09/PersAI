@@ -1748,7 +1748,7 @@ class FakeRuntimeSandboxToolService {
               mimeType: "text/plain",
               sizeBytes: 64,
               logicalSizeBytes: 64,
-              storagePath: "/workspace/outbound/self/report.txt"
+              storagePath: "/workspace/report.txt"
             }
           ]
         }
@@ -2041,9 +2041,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
   const sandboxClient = {
-    async writeWorkspaceOutbound(input: { contentBase64: string }) {
+    async writeWorkspaceFile(input: { contentBase64: string }) {
       return {
-        workspaceRelPath: "/workspace/outbound/self/test-artefact.bin",
+        workspaceRelPath: "/workspace/test-artefact.bin",
         sizeBytes: Buffer.from(input.contentBase64, "base64").length
       };
     }
@@ -2906,7 +2906,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     {
       sourceToolCode: null,
       workspaceId: "workspace-1",
-      storagePath: "/workspace/outbound/self/working-image.png",
+      storagePath: "/workspace/working-image.png",
       displayName: "working-image.png",
       mimeType: "image/png",
       sizeBytes: 64,

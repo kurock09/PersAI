@@ -796,10 +796,6 @@ export class PersaiInternalApiClientService {
       if (
         typeof row.path !== "string" ||
         (row.type !== "file" && row.type !== "directory") ||
-        (row.role !== "workspace_scratch" &&
-          row.role !== "workspace_input" &&
-          row.role !== "workspace_outbound_self" &&
-          row.role !== "workspace_outbound_other") ||
         typeof row.sizeBytes !== "number" ||
         (row.mimeType !== null && typeof row.mimeType !== "string") ||
         (row.modifiedAt !== null && typeof row.modifiedAt !== "string")
@@ -809,7 +805,6 @@ export class PersaiInternalApiClientService {
       const item: RuntimeFilesToolItem = {
         path: row.path,
         type: row.type,
-        role: row.role,
         sizeBytes: row.sizeBytes,
         mimeType: row.mimeType,
         modifiedAt: row.modifiedAt

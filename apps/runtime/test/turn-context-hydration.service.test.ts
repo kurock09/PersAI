@@ -1985,9 +1985,9 @@ export async function runRecentdiscoveredFileHandlesHydrationTest(): Promise<voi
     persaiInternalApiClient.shortDescriptionsByPath.set(storagePath, shortDescription ?? null);
   }
 
-  const pathA = "/workspace/outbound/self/discoveries/viking.png";
-  const pathB = "/workspace/outbound/self/discoveries/revenue.xlsx";
-  const pathC = "/workspace/outbound/self/discoveries/logo.svg";
+  const pathA = "/workspace/discoveries/viking.png";
+  const pathB = "/workspace/discoveries/revenue.xlsx";
+  const pathC = "/workspace/discoveries/logo.svg";
 
   // Scenario 1 — last 5 assistant messages contain 3 distinct discovered paths.
   // All 3 appear in Working Files with sticky `file #N` labels and semanticSummaryHint.
@@ -2036,10 +2036,7 @@ export async function runRecentdiscoveredFileHandlesHydrationTest(): Promise<voi
   {
     const { service, prisma, persaiInternalApiClient } = buildHarness();
     prisma.chat = { id: "chat-recent-2" };
-    const paths = Array.from(
-      { length: 7 },
-      (_, index) => `/workspace/outbound/self/f${String(index + 1)}.png`
-    );
+    const paths = Array.from({ length: 7 }, (_, index) => `/workspace/f${String(index + 1)}.png`);
     for (const storagePath of paths) {
       registerPath(persaiInternalApiClient, storagePath);
     }
@@ -2075,8 +2072,8 @@ export async function runRecentdiscoveredFileHandlesHydrationTest(): Promise<voi
   {
     const { service, prisma, persaiInternalApiClient } = buildHarness();
     prisma.chat = { id: "chat-recent-3" };
-    const alivePath = "/workspace/outbound/self/alive.png";
-    const deletedPath = "/workspace/outbound/self/deleted.png";
+    const alivePath = "/workspace/alive.png";
+    const deletedPath = "/workspace/deleted.png";
     registerPath(persaiInternalApiClient, alivePath, "Surviving file");
     prisma.messages = [
       {
@@ -2106,8 +2103,8 @@ export async function runRecentdiscoveredFileHandlesHydrationTest(): Promise<voi
   {
     const { service, prisma, persaiInternalApiClient } = buildHarness();
     prisma.chat = { id: "chat-recent-4" };
-    const sharedPhotoPath = "/workspace/input/photo.png";
-    const otherPath = "/workspace/outbound/self/other.png";
+    const sharedPhotoPath = "/workspace/photo.png";
+    const otherPath = "/workspace/other.png";
     registerPath(persaiInternalApiClient, sharedPhotoPath, "The shared photo");
     registerPath(persaiInternalApiClient, otherPath, "Other file");
     prisma.messages = [

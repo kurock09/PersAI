@@ -473,21 +473,19 @@ describe("assistant files client", () => {
     expect(
       buildChatFileUrl({
         chatId: "chat-1",
-        storagePath: "/workspace/input/photo.jpg"
+        storagePath: "/workspace/photo.jpg"
       })
-    ).toBe("/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Finput%2Fphoto.jpg");
+    ).toBe("/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto.jpg");
   });
 
   it("adds explicit chat file download mode when requested", () => {
     expect(
       buildChatFileUrl({
         chatId: "chat-1",
-        storagePath: "/workspace/input/photo.jpg",
+        storagePath: "/workspace/photo.jpg",
         download: true
       })
-    ).toBe(
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Finput%2Fphoto.jpg&download=1"
-    );
+    ).toBe("/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto.jpg&download=1");
   });
 
   it("builds a version-aware original presentation download url", () => {
@@ -550,7 +548,7 @@ describe("assistant files client", () => {
         JSON.stringify({
           files: [
             {
-              storagePath: "/workspace/input/spec.pdf",
+              storagePath: "/workspace/spec.pdf",
               thumbnailStoragePath: null,
               posterStoragePath: null,
               originalFilename: "spec.pdf",
@@ -574,7 +572,7 @@ describe("assistant files client", () => {
     ).resolves.toEqual({
       files: [
         {
-          storagePath: "/workspace/input/spec.pdf",
+          storagePath: "/workspace/spec.pdf",
           thumbnailStoragePath: null,
           posterStoragePath: null,
           originalFilename: "spec.pdf",

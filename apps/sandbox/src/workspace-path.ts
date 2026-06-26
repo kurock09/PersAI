@@ -1,59 +1,35 @@
 /**
- * ADR-128 Slice 1 — pod-side path containment.
+ * ADR-128 Slice 4 — pod-side path containment for the single `/workspace`
+ * namespace.
  *
- * Every model-supplied path in the unified files contract is checked here
- * before it ever reaches the pod. The two helpers are intentionally narrow:
+ * Every model-supplied path in the unified files contract is validated here
+ * before it reaches the pod. The helpers are intentionally narrow:
  *
  *   * {@link normalizeAndClampPath}: takes a model-supplied path and a
  *     declared mount root, returns the absolute pod path iff the supplied
  *     path resolves strictly inside the mount root.
  *   * {@link assertAllowedMountPrefix}: validates that a model-supplied path
- *     (already normalized) starts with one of the allow-listed mount-root
- *     prefixes for the (assistantId, workspaceId) pair. This is the only
- *     place that knows the canonical roots the model can touch.
+ *     lives inside `/workspace` (or is the root itself). There are no roles,
+ *     no input/outbound subdirs, no handle classification — the workspace is
+ *     flat by design.
  *
  * The helpers are POSIX-only by construction — they manipulate the
  * forward-slash pod namespace, not the host filesystem. Any backslash in the
  * input is normalised to `/` so Windows-typed paths from the model still
  * resolve correctly.
- *
- * The pod-side directory layout is now a single namespace:
- *
- *   /workspace/                       — single writable user mount
- *     /workspace/input/               — uploaded attachments (RO)
- *     /workspace/outbound/<handle>/   — this assistant's outbound (RW)
- *     /workspace/outbound/<other>/    — sibling outbound (R-X)
- *     /workspace/outbound/self        — symlink → outbound/<handle>
- *     /workspace/<free area>          — assistant scratch
  */
 
 const POSIX_SEPARATOR = "/";
 const PARENT_SEGMENT = "..";
 const CURRENT_SEGMENT = ".";
 
-export type WorkspaceMountRoots = {
-  /** `/workspace` — the single writable user mount in the pod. */
-  workspaceRoot: string;
-};
-
-export type WorkspaceMountRole =
-  | { kind: "workspace_input" }
-  | {
-      kind: "workspace_outbound_self";
-      handle: string;
-    }
-  | {
-      kind: "workspace_outbound_other";
-      handle: string;
-    }
-  | { kind: "workspace_scratch" };
+export const WORKSPACE_MOUNT_ROOT = "/workspace";
 
 export type ResolvedWorkspacePath = {
   /** Absolute POSIX path inside the pod. */
   absolutePath: string;
-  /** Mount-relative path (e.g. `chats/<id>/file.txt` for /workspace). */
+  /** Mount-relative path (e.g. `notes.md` for `/workspace/notes.md`). */
   relativePath: string;
-  role: WorkspaceMountRole;
 };
 
 export class WorkspacePathError extends Error {
@@ -98,8 +74,6 @@ export function normalizePosixPath(input: string): string {
     }
     if (segment === PARENT_SEGMENT) {
       if (out.length === 0) {
-        // `..` above the root is a hard reject — it can never resolve to a
-        // legal pod path even after clamping.
         throw new WorkspacePathError("invalid_path", `Path escapes filesystem root: ${input}`);
       }
       out.pop();
@@ -144,110 +118,25 @@ export function normalizeAndClampPath(
 }
 
 /**
- * Validate that `input` lives inside one of the legal mount roots for this
- * assistant/workspace and classify which role it falls under (so callers
- * can apply role-specific behaviour, e.g. RO input, RW self-outbound,
- * read-execute sibling outbound, /workspace scratch).
+ * Validate that `input` lives inside the single `/workspace` mount root.
+ * Throws {@link WorkspacePathError} with code `outside_allowed_mount` when
+ * the input resolves anywhere else (including `/tmp/` and `/`).
  */
-export function assertAllowedMountPrefix(
-  input: string,
-  context: {
-    roots: WorkspaceMountRoots;
-    assistantHandle: string;
-    siblingHandles: ReadonlySet<string>;
-  }
-): ResolvedWorkspacePath {
-  const workspaceRoot = normalizePosixPath(context.roots.workspaceRoot);
+export function assertAllowedMountPrefix(input: string): ResolvedWorkspacePath {
   const normalizedInput = normalizePosixPath(input);
-
   if (
-    normalizedInput !== workspaceRoot &&
-    !normalizedInput.startsWith(`${workspaceRoot}${POSIX_SEPARATOR}`)
+    normalizedInput !== WORKSPACE_MOUNT_ROOT &&
+    !normalizedInput.startsWith(`${WORKSPACE_MOUNT_ROOT}${POSIX_SEPARATOR}`)
   ) {
     throw new WorkspacePathError(
       "outside_allowed_mount",
       `Path "${input}" is not inside the allowed /workspace mount.`
     );
   }
-
-  const { relativePath } = normalizeAndClampPath(workspaceRoot, normalizedInput);
-
-  const inputRoot = `${workspaceRoot}/input`;
-  if (
-    normalizedInput === inputRoot ||
-    normalizedInput.startsWith(`${inputRoot}${POSIX_SEPARATOR}`)
-  ) {
-    return {
-      absolutePath: normalizedInput,
-      relativePath,
-      role: { kind: "workspace_input" }
-    };
-  }
-
-  const outboundRoot = `${workspaceRoot}/outbound`;
-  if (
-    normalizedInput === outboundRoot ||
-    normalizedInput.startsWith(`${outboundRoot}${POSIX_SEPARATOR}`)
-  ) {
-    const handlePart = normalizedInput
-      .slice(`${outboundRoot}${POSIX_SEPARATOR}`.length)
-      .split(POSIX_SEPARATOR)[0];
-
-    if (normalizedInput === outboundRoot) {
-      throw new WorkspacePathError(
-        "invalid_path",
-        `Path "${input}" lives directly under /workspace/outbound which is not addressable.`
-      );
-    }
-
-    // Special-case the self symlink: `outbound/self` resolves to the
-    // assistant's own outbound, so treat it as the self-role.
-    if (handlePart === "self") {
-      return {
-        absolutePath: normalizedInput,
-        relativePath,
-        role: {
-          kind: "workspace_outbound_self",
-          handle: context.assistantHandle
-        }
-      };
-    }
-
-    if (handlePart === undefined || handlePart.length === 0) {
-      throw new WorkspacePathError(
-        "invalid_path",
-        `Path "${input}" lives directly under /workspace/outbound which is not addressable.`
-      );
-    }
-
-    if (handlePart === context.assistantHandle) {
-      return {
-        absolutePath: normalizedInput,
-        relativePath,
-        role: { kind: "workspace_outbound_self", handle: handlePart }
-      };
-    }
-    if (context.siblingHandles.has(handlePart)) {
-      return {
-        absolutePath: normalizedInput,
-        relativePath,
-        role: { kind: "workspace_outbound_other", handle: handlePart }
-      };
-    }
-    throw new WorkspacePathError(
-      "outside_allowed_mount",
-      `Path "${input}" references unknown assistant handle "${handlePart}".`
-    );
-  }
-
-  return {
-    absolutePath: normalizedInput,
-    relativePath,
-    role: { kind: "workspace_scratch" }
-  };
+  return normalizeAndClampPath(WORKSPACE_MOUNT_ROOT, normalizedInput);
 }
 
-/** Build the canonical `/workspace` mount root for an assistant. */
+/** The canonical `/workspace` mount root. */
 export function buildWorkspaceRoot(): string {
-  return "/workspace";
+  return WORKSPACE_MOUNT_ROOT;
 }

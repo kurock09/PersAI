@@ -12,10 +12,12 @@ export type ListWorkspaceFilesFromManifestOutcome = {
   items: RuntimeFilesToolItem[];
 };
 
-// ADR-128 Slice 2 — manifest-as-index reader for model-facing `files.list` over
-// persisted `/workspace/input/...` and `/workspace/outbound/...` paths. Returns one-level-deep entries derived from the
-// `workspace_file_metadata` rows whose path falls under `pathPrefix`.
-// Directories are synthesised from path components (no FS access).
+// ADR-128 Slice 4 — manifest-as-index reader for model-facing `files.list`
+// over the flat `/workspace/` namespace. Returns one-level-deep entries
+// derived from the `workspace_file_metadata` rows whose path falls under
+// `pathPrefix`. Directories are synthesised from path components (no FS
+// access). There is no role classification — every entry is just a file or
+// directory under `/workspace/`.
 @Injectable()
 export class ListWorkspaceFilesFromManifestService {
   // Listings cap. The manifest is the authoritative index and a single
@@ -100,7 +102,6 @@ export class ListWorkspaceFilesFromManifestService {
       items.push({
         path: entry.filePath,
         type: entry.type,
-        role: this.classifyRole(entry.filePath, input.assistantHandle),
         sizeBytes: entry.sizeBytes,
         mimeType: entry.mimeType,
         modifiedAt: entry.modifiedAt,
@@ -121,7 +122,7 @@ export class ListWorkspaceFilesFromManifestService {
   private assertWorkspacePrefix(pathPrefix: string): void {
     if (!this.isPersistedWorkspacePrefix(pathPrefix)) {
       throw new BadRequestException(
-        'pathPrefix must start with "/workspace/input" or "/workspace/outbound" (the manifest is authoritative for input/outbound workspace paths).'
+        'pathPrefix must start with "/workspace" — the manifest is authoritative for the flat workspace.'
       );
     }
     if (pathPrefix.includes("..")) {
@@ -134,27 +135,7 @@ export class ListWorkspaceFilesFromManifestService {
   }
 
   private isPersistedWorkspacePrefix(pathPrefix: string): boolean {
-    return (
-      pathPrefix === "/workspace/input" ||
-      pathPrefix.startsWith("/workspace/input/") ||
-      pathPrefix === "/workspace/outbound" ||
-      pathPrefix.startsWith("/workspace/outbound/")
-    );
-  }
-
-  private classifyRole(path: string, assistantHandle: string): RuntimeFilesToolItem["role"] {
-    if (path === "/workspace/input" || path.startsWith("/workspace/input/")) {
-      return "workspace_input";
-    }
-    if (path === "/workspace/outbound" || path.startsWith("/workspace/outbound/")) {
-      const tail = path.slice("/workspace/outbound/".length);
-      const handle = tail.split("/", 1)[0] ?? "";
-      if (handle === "self" || (handle.length > 0 && handle === assistantHandle)) {
-        return "workspace_outbound_self";
-      }
-      return "workspace_outbound_other";
-    }
-    return "workspace_scratch";
+    return pathPrefix === "/workspace" || pathPrefix.startsWith("/workspace/");
   }
 
   private requiredString(value: unknown, field: string): string {

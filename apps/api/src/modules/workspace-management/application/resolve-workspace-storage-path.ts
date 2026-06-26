@@ -1,5 +1,15 @@
 import type { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 
+/**
+ * ADR-128 Slice 4 — flat workspace storage paths.
+ *
+ * Every persisted workspace file (user upload, model artefact, anything
+ * else) lives directly under `/workspace/<basename>`. This module sanitises
+ * the basename and resolves macOS-style numeric collision suffixes against
+ * the canonical `workspace_file_metadata` manifest. There is no role-based
+ * subdir carve-out.
+ */
+
 export function sanitizeWorkspaceFilename(filename: string): string {
   const trimmed = filename.trim();
   const collapsed = trimmed.replace(/[\\/]+/g, "-");
@@ -25,7 +35,12 @@ export function deriveFilenameFromMime(referenceId: string, mimeType: string): s
   return `${referenceId}.bin`;
 }
 
-export function buildWorkspaceInputStoragePath(
+/**
+ * Build the pod-absolute storage path for a workspace file. After ADR-128
+ * Slice 4 this is simply `/workspace/<basename>` — there is no role-based
+ * subdirectory carve-out.
+ */
+export function buildWorkspaceStoragePath(
   filename: string | null,
   mimeType: string,
   referenceId: string
@@ -33,7 +48,7 @@ export function buildWorkspaceInputStoragePath(
   const basename = sanitizeWorkspaceFilename(
     filename ?? deriveFilenameFromMime(referenceId, mimeType)
   );
-  return `/workspace/input/${basename}`;
+  return `/workspace/${basename}`;
 }
 
 function applyNumericSuffix(basename: string, index: number): string {
@@ -46,8 +61,12 @@ function applyNumericSuffix(basename: string, index: number): string {
   return `${stem} (${index})${ext}`;
 }
 
-/** ADR-128 Slice 2 — macOS-style collision suffix for `/workspace/input/` uploads. */
-export async function resolveUniqueWorkspaceInputStoragePath(input: {
+/**
+ * Resolve a unique flat workspace storage path with macOS-style numeric
+ * collision suffix. The manifest is the source of truth for "which basenames
+ * already exist under `/workspace/`".
+ */
+export async function resolveUniqueWorkspaceStoragePath(input: {
   workspaceId: string;
   filename: string | null;
   mimeType: string;
@@ -57,7 +76,7 @@ export async function resolveUniqueWorkspaceInputStoragePath(input: {
   const preferredBasename = sanitizeWorkspaceFilename(
     input.filename ?? deriveFilenameFromMime(input.referenceId, input.mimeType)
   );
-  let candidate = `/workspace/input/${preferredBasename}`;
+  let candidate = `/workspace/${preferredBasename}`;
   let suffix = 2;
   while (
     await input.workspaceFileMetadataService.get({
@@ -65,7 +84,7 @@ export async function resolveUniqueWorkspaceInputStoragePath(input: {
       path: candidate
     })
   ) {
-    candidate = `/workspace/input/${applyNumericSuffix(preferredBasename, suffix)}`;
+    candidate = `/workspace/${applyNumericSuffix(preferredBasename, suffix)}`;
     suffix += 1;
   }
   return candidate;

@@ -817,10 +817,11 @@ model Assistant {
   id                                   String                                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId                               String                                @map("user_id") @db.Uuid
   workspaceId                          String                                @map("workspace_id") @db.Uuid
-  /// ADR-126 Slice 3 — stable, URL/path-safe identifier for this assistant
-  /// inside its workspace. Used as the directory name under
-  /// `/workspace/outbound/<handle>/` inside session pods and the
-  /// corresponding GCS prefix `workspaces/<workspaceId>/workspace/outbound/<handle>/`.
+  /// Stable, URL/path-safe identifier for this assistant inside its
+  /// workspace. After ADR-128 Slice 4 the flat `/workspace/` namespace no
+  /// longer uses the handle for path classification, but the handle is
+  /// still kept as a stable per-assistant name for audit logs, pod
+  /// annotations, and bash environment hints.
   /// Generated from `draft_display_name` via
   /// `generateAssistantHandle(displayName)` and de-duplicated via
   /// `ensureHandleUnique(prisma, workspaceId, base)`. Unique per workspace;

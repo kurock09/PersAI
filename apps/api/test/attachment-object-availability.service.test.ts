@@ -13,7 +13,7 @@ function createAttachment(
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
     attachmentType: "image",
-    storagePath: "/workspace/input/image.png",
+    storagePath: "/workspace/image.png",
     originalFilename: "image.png",
     mimeType: "image/png",
     sizeBytes: 128n,
@@ -57,7 +57,7 @@ describe("AttachmentObjectAvailabilityService", () => {
       attachments: [createAttachment()]
     });
 
-    assert.deepEqual(checkedKeys, ["workspaces/workspace-1/workspace/input/image.png"]);
+    assert.deepEqual(checkedKeys, ["workspaces/workspace-1/workspace/image.png"]);
   });
 
   test("fails before runtime when a ready attachment object is missing", async () => {

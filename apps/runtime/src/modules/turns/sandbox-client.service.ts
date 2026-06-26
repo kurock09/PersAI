@@ -58,7 +58,7 @@ export class SandboxClientService {
     return current;
   }
 
-  async writeWorkspaceOutbound(input: {
+  async writeWorkspaceFile(input: {
     assistantId: string;
     workspaceId: string;
     handle: string;
@@ -70,7 +70,7 @@ export class SandboxClientService {
     workspaceQuotaBytes?: number | null;
     sharedQuotaBytes?: number | null;
   }): Promise<{ workspaceRelPath: string; sizeBytes: number }> {
-    const response = await this.fetchJson("/api/v1/jobs/workspace-outbound-write", {
+    const response = await this.fetchJson("/api/v1/jobs/workspace-write", {
       method: "POST",
       headers: this.buildHeaders(),
       body: JSON.stringify({
@@ -92,7 +92,7 @@ export class SandboxClientService {
     });
     if (!response.ok) {
       throw new ServiceUnavailableException(
-        `Sandbox workspace-outbound-write failed with status ${String(response.status)}.`
+        `Sandbox workspace-write failed with status ${String(response.status)}.`
       );
     }
     if (
@@ -100,15 +100,11 @@ export class SandboxClientService {
       typeof response.body !== "object" ||
       Array.isArray(response.body)
     ) {
-      throw new BadGatewayException(
-        "Sandbox workspace-outbound-write returned an invalid response."
-      );
+      throw new BadGatewayException("Sandbox workspace-write returned an invalid response.");
     }
     const payload = response.body as Record<string, unknown>;
     if (typeof payload.workspaceRelPath !== "string" || typeof payload.sizeBytes !== "number") {
-      throw new BadGatewayException(
-        "Sandbox workspace-outbound-write returned an invalid payload."
-      );
+      throw new BadGatewayException("Sandbox workspace-write returned an invalid payload.");
     }
     return {
       workspaceRelPath: payload.workspaceRelPath,

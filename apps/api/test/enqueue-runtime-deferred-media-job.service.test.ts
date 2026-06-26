@@ -445,7 +445,7 @@ async function run(): Promise<void> {
         {
           attachmentId: "att-1",
           kind: "image",
-          storagePath: "/workspace/input/3534.jpg",
+          storagePath: "/workspace/3534.jpg",
           mimeType: "image/jpeg",
           displayName: "3534.jpg",
           sizeBytes: 2800000,
@@ -497,7 +497,7 @@ async function run(): Promise<void> {
         {
           attachmentId: "att-w4-sp",
           kind: "image",
-          storagePath: "/workspace/input/photo.jpg",
+          storagePath: "/workspace/photo.jpg",
           mimeType: "image/jpeg",
           displayName: "photo.jpg",
           sizeBytes: 1024,
@@ -580,7 +580,7 @@ async function run(): Promise<void> {
             {
               attachmentId: "att-w4-good",
               kind: "image",
-              storagePath: "/workspace/input/good.jpg",
+              storagePath: "/workspace/good.jpg",
               mimeType: "image/jpeg",
               displayName: "good.jpg",
               sizeBytes: 1024,

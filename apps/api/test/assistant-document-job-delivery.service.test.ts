@@ -90,7 +90,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-1",
-              path: "/workspace/outbound/self/file-1.pdf",
+              path: "/workspace/file-1.pdf",
               mimeType: "application/pdf",
               originalFilename: "brief.pdf"
             }
@@ -213,7 +213,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-presentation-1",
-              path: "/workspace/outbound/self/file-presentation-1.pdf",
+              path: "/workspace/file-presentation-1.pdf",
               mimeType: "application/pdf",
               originalFilename: "board-deck.pdf"
             }
@@ -343,7 +343,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-presentation-2",
-              path: "/workspace/outbound/self/file-presentation-2.pdf",
+              path: "/workspace/file-presentation-2.pdf",
               mimeType: "application/pdf",
               originalFilename: "school-deck.pdf"
             }
@@ -945,7 +945,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         artifacts: [
           {
             kind: "file",
-            path: "/workspace/outbound/self/file-1.pdf",
+            path: "/workspace/file-1.pdf",
             mimeType: "application/pdf",
             filename: "report.pdf"
           }
@@ -1467,7 +1467,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-llm-1",
-              path: "/workspace/outbound/self/file-llm-1.pdf",
+              path: "/workspace/file-llm-1.pdf",
               mimeType: "application/pdf",
               originalFilename: "brief.pdf"
             }
@@ -1510,7 +1510,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         artifacts: [
           {
             kind: "file",
-            objectKey: "/workspace/outbound/self/file-llm-1.pdf",
+            objectKey: "/workspace/file-llm-1.pdf",
             mimeType: "application/pdf",
             filename: "brief.pdf"
           }
@@ -1575,7 +1575,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         listByMessageId: async () => [
           {
             id: "attachment-cache-1",
-            storagePath: "/workspace/outbound/self/file-cache-1.pdf",
+            storagePath: "/workspace/file-cache-1.pdf",
             mimeType: "application/pdf"
           }
         ]
@@ -1749,7 +1749,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-cache-2",
-              path: "/workspace/outbound/self/file-cache-2.pdf",
+              path: "/workspace/file-cache-2.pdf",
               mimeType: "application/pdf",
               originalFilename: "brief.pdf"
             }

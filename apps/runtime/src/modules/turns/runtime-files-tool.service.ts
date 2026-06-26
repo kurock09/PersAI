@@ -170,11 +170,9 @@ export class RuntimeFilesToolService {
     },
     request: FilesListRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    // ADR-128 Slice 2 — persisted `/workspace/input` and `/workspace/outbound`
-    // listings come from the authoritative
-    // `workspace_file_metadata` manifest, not from a pod `find`. Pod FS is
-    // a cache and may be stale; the manifest is the single source of
-    // truth for "what files exist" in the persisted workspace.
+    // ADR-128 Slice 4 — the flat workspace is fully manifest-backed; every
+    // path under `/workspace/` lists from `workspace_file_metadata` instead
+    // of a pod `find` because the pod FS is a cache and may be stale.
     if (this.isPersistedWorkspaceListPath(request.path)) {
       return this.executeListFromManifest(params, request);
     }
@@ -264,12 +262,7 @@ export class RuntimeFilesToolService {
   }
 
   private isPersistedWorkspaceListPath(path: string): boolean {
-    return (
-      path === "/workspace/input" ||
-      path.startsWith("/workspace/input/") ||
-      path === "/workspace/outbound" ||
-      path.startsWith("/workspace/outbound/")
-    );
+    return path === "/workspace" || path === "/workspace/" || path.startsWith("/workspace/");
   }
 
   private async executeReadAction(
@@ -476,12 +469,9 @@ export class RuntimeFilesToolService {
       };
     }
     const writeOutcome = this.parseWriteContent(job.content);
-    // ADR-128 Slice 2 — propagate persisted workspace writes to the
-    // authoritative manifest. Scratch elsewhere under `/workspace/...` stays
-    // pod-only by design. The upsert is
-    // best-effort: failure is logged at warn and the write outcome is
-    // still surfaced to the model. W3 will tighten consistency once
-    // delete-side symmetry lands.
+    // ADR-128 Slice 4 — every successful write under `/workspace/` mirrors to
+    // the authoritative manifest. The upsert is best-effort: failure is logged
+    // at warn and the write outcome is still surfaced to the model.
     if (this.isPersistedWorkspaceWritePath(request.path)) {
       const sizeBytes = writeOutcome.sizeBytes ?? request.content.length;
       try {
@@ -513,7 +503,7 @@ export class RuntimeFilesToolService {
   }
 
   private isPersistedWorkspaceWritePath(path: string): boolean {
-    return path.startsWith("/workspace/input/") || path.startsWith("/workspace/outbound/");
+    return path.startsWith("/workspace/");
   }
 
   // The model passes raw text content via `files.write`. Without sniffing
@@ -892,14 +882,12 @@ export class RuntimeFilesToolService {
         const row = entry as Record<string, unknown>;
         const path = typeof row.path === "string" ? row.path : null;
         const type = row.type === "directory" ? "directory" : "file";
-        const role = this.readListRole(row.role);
-        if (path === null || role === null) {
+        if (path === null) {
           continue;
         }
         items.push({
           path,
           type,
-          role,
           sizeBytes: typeof row.sizeBytes === "number" ? row.sizeBytes : 0,
           mimeType: typeof row.mimeType === "string" ? row.mimeType : null,
           modifiedAt: typeof row.modifiedAt === "string" ? row.modifiedAt : null
@@ -909,18 +897,6 @@ export class RuntimeFilesToolService {
     } catch {
       return [];
     }
-  }
-
-  private readListRole(value: unknown): RuntimeFilesToolItem["role"] | null {
-    if (
-      value === "workspace_scratch" ||
-      value === "workspace_input" ||
-      value === "workspace_outbound_self" ||
-      value === "workspace_outbound_other"
-    ) {
-      return value;
-    }
-    return null;
   }
 
   private parseReadContent(content: string | null): {

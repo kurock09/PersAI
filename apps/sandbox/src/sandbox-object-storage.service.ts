@@ -36,15 +36,19 @@ export class SandboxObjectStorageService {
     return `${prefix}/assistants/${input.assistantId}/sandbox-sessions/${input.runtimeSessionId}/workspace.tar`;
   }
 
-  /** GCS object key for a persisted `/workspace/...` pod path. */
+  /**
+   * GCS object key for a persisted `/workspace/...` pod path. After ADR-128
+   * Slice 4 the workspace is flat — the relative form is simply the basename
+   * (or any subdirectory the model chose to create).
+   */
   buildWorkspaceObjectKey(input: {
     workspaceId: string;
-    /** `/workspace/input/<name>` or `/workspace/outbound/<handle>/<name>` form. */
+    /** Absolute pod path like `/workspace/<basename>`. */
     workspaceRelPath: string;
   }): string {
     const prefix = this.config.PERSAI_MEDIA_OBJECT_PREFIX.trim().replace(/\/+$/g, "");
     const relative = input.workspaceRelPath
-      .replace(/^\/workspace\//, "")
+      .replace(/^\/workspace\/?/, "")
       .replace(/^\/+/, "")
       .replace(/\\+/g, "/");
     return `${prefix}/workspaces/${input.workspaceId}/workspace/${relative}`;

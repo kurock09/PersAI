@@ -296,17 +296,13 @@ export type RuntimeFileCapability = (typeof PERSAI_RUNTIME_FILE_CAPABILITIES)[nu
 /**
  * The single model-visible item shape returned by `files.list`, `files.read`,
  * `files.preview`, `files.write`, and `files.delete`. There is no `fileRef`
- * field — addressing is by pod-absolute `path` only.
+ * field — addressing is by pod-absolute `path` only. After ADR-128 Slice 4
+ * the workspace is flat and role-free; the previous `role` field is gone.
  */
 export interface RuntimeFilesToolItem {
   /** Pod-absolute path under the single `/workspace/...` namespace. */
   path: string;
   type: "file" | "directory";
-  role:
-    | "workspace_scratch"
-    | "workspace_input"
-    | "workspace_outbound_self"
-    | "workspace_outbound_other";
   sizeBytes: number;
   mimeType: string | null;
   modifiedAt: string | null;

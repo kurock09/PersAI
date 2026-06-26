@@ -1,7 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 
 /**
- * ADR-126 Slice 3 — structured audit events emitted by the unified files
+ * ADR-128 Slice 4 — structured audit events emitted by the unified files
  * contract. Every primitive on {@link WorkspaceFileBridgeService} produces an
  * event here so the unified files trail is queryable end-to-end (web /
  * Telegram upload → pod exec primitives → GC purge).
@@ -15,7 +15,7 @@ import { Injectable, Logger } from "@nestjs/common";
 
 export type WorkspaceFileOp = "write" | "read" | "list" | "stat" | "delete";
 
-export type WorkspaceInputPublishedEvent = {
+export type WorkspaceFilePublishedEvent = {
   workspaceId: string;
   assistantId: string;
   uploadOriginalName: string | null;
@@ -77,10 +77,10 @@ export type WorkspaceFileAttachedEvent = {
 export class WorkspaceAuditService {
   private readonly logger = new Logger(WorkspaceAuditService.name);
 
-  recordWorkspaceInputPublished(event: WorkspaceInputPublishedEvent): void {
+  recordWorkspaceFilePublished(event: WorkspaceFilePublishedEvent): void {
     this.logger.log(
       [
-        "audit_event=workspace_input_published",
+        "audit_event=workspace_file_published",
         `workspace_id=${event.workspaceId}`,
         `assistant_id=${event.assistantId}`,
         `surface=${event.surface}`,

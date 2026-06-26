@@ -235,7 +235,7 @@ test("WorkspaceGcService: assistant_outbound lease future-dated → no purge on 
   assert.equal(audit.purgedEvents.length, 0);
 });
 
-test("WorkspaceGcService: assistant_outbound lease past-due → rm -rf outbound dir, GCS prefix deleted, purgedAt set", async () => {
+test("WorkspaceGcService: assistant_outbound lease past-due → purgedAt set (flat workspace has no per-assistant subtree to rm)", async () => {
   const lease: GcLease = {
     id: "lease-ao-1",
     kind: "assistant_outbound",
@@ -249,12 +249,10 @@ test("WorkspaceGcService: assistant_outbound lease past-due → rm -rf outbound 
 
   await gc.runDuePurgesNow();
 
-  // Pod exec: rm -rf /workspace/outbound/<handle>
-  assert.equal(exec.shellCalls.length, 1);
-  assert.ok(exec.shellCalls[0]?.shellCommand.includes(`/workspace/outbound/${HANDLE}`));
-  // GCS prefix
-  assert.equal(storage.deletedPrefixes.length, 1);
-  assert.ok(storage.deletedPrefixes[0]?.includes(`outbound/${HANDLE}`));
+  // ADR-128 Slice 4 — flat workspace, no /workspace/outbound/<handle> subtree
+  // to remove. Lease is marked purged so producers do not stall.
+  assert.equal(exec.shellCalls.length, 0);
+  assert.equal(storage.deletedPrefixes.length, 0);
   assert.deepEqual(prisma.updatedLeases, ["lease-ao-1"]);
   assert.equal(audit.purgedEvents[0]?.kind, "assistant_outbound");
 });
@@ -273,10 +271,12 @@ test("WorkspaceGcService: workspace_shared lease past-due → rm persisted works
 
   await gc.runDuePurgesNow();
 
-  // Pod exec: rm persisted workspace IO dirs.
+  // ADR-128 Slice 4 — flat workspace: wipe every entry under /workspace/ in one shell.
   assert.equal(exec.shellCalls.length, 1);
-  assert.ok(exec.shellCalls[0]?.shellCommand.includes("/workspace/input"));
-  assert.ok(exec.shellCalls[0]?.shellCommand.includes("/workspace/outbound"));
+  assert.ok(exec.shellCalls[0]?.shellCommand.includes("/workspace"));
+  assert.ok(exec.shellCalls[0]?.shellCommand.includes("rm -rf"));
+  assert.ok(!exec.shellCalls[0]?.shellCommand.includes("/workspace/input"));
+  assert.ok(!exec.shellCalls[0]?.shellCommand.includes("/workspace/outbound"));
   // GCS workspace prefix
   assert.equal(storage.deletedPrefixes.length, 1);
   assert.ok(storage.deletedPrefixes[0]?.includes(WS_ID));

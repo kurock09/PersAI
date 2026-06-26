@@ -23,7 +23,6 @@ import {
   WorkspaceFileBridgeService,
   type WorkspaceBridgeContext
 } from "./workspace-file-bridge.service";
-import { resolveMacOsCollisionBasename } from "./shared-outbound-basename";
 import { WorkspacePathError, assertAllowedMountPrefix } from "./workspace-path";
 
 type WorkspaceStats = {
@@ -228,7 +227,7 @@ export class SandboxService {
   }
 
   /**
-   * ADR-126 v3 amendment (2026-06-25) — hot-pod inbound bytes-push.
+   * ADR-128 Slice 4 — hot-pod control-plane workspace bytes-push.
    *
    * Called by api `manage-chat-media.stageForWebThread` immediately after the
    * GCS upload succeeds, so the running pod sees the uploaded file without
@@ -243,7 +242,7 @@ export class SandboxService {
    * passes `null` quotas to {@link WorkspaceFileBridgeService} so the pod-side
    * pre-write guard does NOT double-count what the api already booked.
    */
-  async writeWorkspaceInbound(input: {
+  async writeWorkspaceFileControlPlane(input: {
     assistantId: string;
     workspaceId: string;
     assistantHandle?: string | null;
@@ -276,7 +275,7 @@ export class SandboxService {
         workspaceQuotaBytes: null,
         sharedQuotaBytes: null
       };
-      const writeResult = await this.workspaceFileBridgeService.writeWorkspaceInputControlPlane(
+      const writeResult = await this.workspaceFileBridgeService.writeWorkspaceFileControlPlane(
         bridgeCtx,
         {
           basename: input.basename,
@@ -287,7 +286,7 @@ export class SandboxService {
         return {
           ok: false,
           reason: writeResult.reason ?? "write_failed",
-          message: writeResult.reason ?? "workspace_inbound_write_failed"
+          message: writeResult.reason ?? "workspace_write_failed"
         };
       }
       return {
@@ -299,7 +298,7 @@ export class SandboxService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
-        `workspace_inbound_write_failed workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} error=${message}`
+        `workspace_write_control_plane_failed workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} error=${message}`
       );
       return {
         ok: false,
@@ -331,10 +330,10 @@ export class SandboxService {
   }
 
   /**
-   * ADR-128 Slice 1 — synchronous control-plane write of artefact bytes
-   * into `/workspace/outbound/self/<basename>` (collision-aware).
+   * ADR-128 Slice 4 — synchronous control-plane write of artefact bytes
+   * into `/workspace/<basename>` (collision-aware).
    */
-  async writeWorkspaceOutbound(input: {
+  async writeWorkspaceFile(input: {
     assistantId: string;
     workspaceId: string;
     assistantHandle?: string | null;
@@ -359,8 +358,8 @@ export class SandboxService {
           id: jobId,
           assistantId: input.assistantId,
           workspaceId: input.workspaceId,
-          runtimeRequestId: `shared-outbound-write:${jobId}`,
-          toolCode: "workspace_outbound_write",
+          runtimeRequestId: `workspace-write:${jobId}`,
+          toolCode: "workspace_write",
           status: "running",
           relativeWorkspace: ".",
           policySnapshot: this.toJsonValue(policy),
@@ -398,7 +397,7 @@ export class SandboxService {
         workspaceQuotaBytes: input.workspaceQuotaBytes ?? null,
         sharedQuotaBytes: input.sharedQuotaBytes ?? null
       };
-      const writeResult = await this.workspaceFileBridgeService.writeWorkspaceOutboundWithCollision(
+      const writeResult = await this.workspaceFileBridgeService.writeWorkspaceFileWithCollision(
         bridgeCtx,
         {
           basename: input.basename,
@@ -413,7 +412,7 @@ export class SandboxService {
             status: "failed",
             completedAt: new Date(),
             violationCode: writeResult.reason ?? "write_failed",
-            violationMessage: writeResult.reason ?? "workspace_outbound_write_failed",
+            violationMessage: writeResult.reason ?? "workspace_write_failed",
             resultPayload: {
               reason: writeResult.reason ?? "write_failed",
               warning: null,
@@ -427,7 +426,7 @@ export class SandboxService {
         return {
           ok: false,
           reason: writeResult.reason ?? "write_failed",
-          message: writeResult.reason ?? "workspace_outbound_write_failed"
+          message: writeResult.reason ?? "workspace_write_failed"
         };
       }
       await this.prisma.sandboxJob.update({
@@ -461,10 +460,10 @@ export class SandboxService {
           data: {
             status: "failed",
             completedAt: new Date(),
-            violationCode: "workspace_outbound_write_failed",
+            violationCode: "workspace_write_failed",
             violationMessage: message,
             resultPayload: {
-              reason: "workspace_outbound_write_failed",
+              reason: "workspace_write_failed",
               warning: message,
               exitCode: null,
               stdout: null,
@@ -476,7 +475,7 @@ export class SandboxService {
         .catch(() => {});
       return {
         ok: false,
-        reason: "workspace_outbound_write_failed",
+        reason: "workspace_write_failed",
         message
       };
     } finally {
@@ -1032,7 +1031,6 @@ export class SandboxService {
         const items = entries.map((entry) => ({
           path: entry.path,
           type: entry.type,
-          role: this.resolvePathRole(bridgeCtx, entry.path),
           sizeBytes: entry.sizeBytes,
           mimeType: this.mimeTypeFromPath(entry.path),
           modifiedAt: entry.modifiedAt
@@ -1140,21 +1138,19 @@ export class SandboxService {
       }
 
       if (action === "attach") {
+        // ADR-128 Slice 4: `files.attach` is a thin wrapper that confirms the
+        // file lives under `/workspace/` and surfaces it to the assistant
+        // message as an attachment. The flat workspace has no role-based
+        // copy step — every file under `/workspace/` is already addressable.
         const path = this.requireString(args.path, "path");
         let sourceResolved;
         try {
-          const roots = WorkspaceFileBridgeService.buildMountRoots();
-          sourceResolved = assertAllowedMountPrefix(path, {
-            roots,
-            assistantHandle: bridgeCtx.assistantHandle,
-            siblingHandles: new Set(bridgeCtx.siblingHandles)
-          });
+          sourceResolved = assertAllowedMountPrefix(path);
         } catch (error) {
           if (error instanceof WorkspacePathError) {
             return {
               reason: "path_not_attachable",
-              warning:
-                "files.attach accepts only /workspace scratch or /workspace/outbound/self/ paths",
+              warning: "files.attach accepts only paths under /workspace/",
               exitCode: null,
               stdout: null,
               stderr: null,
@@ -1162,20 +1158,6 @@ export class SandboxService {
             };
           }
           throw error;
-        }
-        if (
-          sourceResolved.role.kind !== "workspace_scratch" &&
-          sourceResolved.role.kind !== "workspace_outbound_self"
-        ) {
-          return {
-            reason: "path_not_attachable",
-            warning:
-              "files.attach accepts only /workspace scratch or /workspace/outbound/self/ paths",
-            exitCode: null,
-            stdout: null,
-            stderr: null,
-            content: null
-          };
         }
         const statResult = await this.workspaceFileBridgeService.workspaceFileStat(bridgeCtx, {
           path: sourceResolved.absolutePath
@@ -1190,38 +1172,9 @@ export class SandboxService {
             content: null
           };
         }
-        const sourceBasename = pathPosix.basename(sourceResolved.absolutePath);
-        let targetAbsolutePath = sourceResolved.absolutePath;
-        let workspaceRelPath = sourceResolved.absolutePath;
-        if (sourceResolved.role.kind === "workspace_scratch") {
-          const outboundDir = "/workspace/outbound/self";
-          const listResult = await this.workspaceFileBridgeService.workspaceFileList(bridgeCtx, {
-            path: outboundDir
-          });
-          const existingNames = new Set(
-            (listResult.success ? listResult.data : [])
-              .filter((entry) => entry.type === "file")
-              .map((entry) => pathPosix.basename(entry.path))
-          );
-          const resolvedBasename = resolveMacOsCollisionBasename(sourceBasename, existingNames);
-          targetAbsolutePath = `${outboundDir}/${resolvedBasename}`;
-          workspaceRelPath = `/workspace/outbound/self/${resolvedBasename}`;
-          const copyResult = await this.workspaceFileBridgeService.workspaceFileCopy(bridgeCtx, {
-            sourcePath: sourceResolved.absolutePath,
-            targetPath: targetAbsolutePath
-          });
-          if (!copyResult.success) {
-            return {
-              reason: copyResult.reason ?? "copy_failed",
-              warning: null,
-              exitCode: null,
-              stdout: null,
-              stderr: null,
-              content: null
-            };
-          }
-        }
-        const mimeType = this.mimeTypeFromPath(targetAbsolutePath) ?? "application/octet-stream";
+        const workspaceRelPath = sourceResolved.absolutePath;
+        const mimeType =
+          this.mimeTypeFromPath(sourceResolved.absolutePath) ?? "application/octet-stream";
         const displayName = pathPosix.basename(workspaceRelPath);
         return {
           reason: null,
@@ -1283,32 +1236,6 @@ export class SandboxService {
   }
 
   /**
-   * Derive the mount role for a path using the bridge context, for inclusion
-   * in list-action item metadata. Falls back to "workspace" on any resolution
-   * failure so a single bad path never aborts the whole listing.
-   */
-  private resolvePathRole(
-    bridgeCtx: WorkspaceBridgeContext,
-    path: string
-  ):
-    | "workspace_input"
-    | "workspace_outbound_self"
-    | "workspace_outbound_other"
-    | "workspace_scratch" {
-    try {
-      const roots = WorkspaceFileBridgeService.buildMountRoots();
-      const resolved = assertAllowedMountPrefix(path, {
-        roots,
-        assistantHandle: bridgeCtx.assistantHandle,
-        siblingHandles: new Set(bridgeCtx.siblingHandles)
-      });
-      return resolved.role.kind;
-    } catch {
-      return "workspace_scratch";
-    }
-  }
-
-  /**
    * Derive a MIME type from a path's file extension using a small inline map.
    * Returns null for unknown extensions.
    */
@@ -1356,14 +1283,9 @@ export class SandboxService {
       typeof args.path === "string" && args.path.trim().length > 0
         ? args.path.trim()
         : "/workspace/";
-    const roots = WorkspaceFileBridgeService.buildMountRoots();
     let containedPath: string;
     try {
-      const resolved = assertAllowedMountPrefix(rawPath, {
-        roots,
-        assistantHandle: bridgeCtx.assistantHandle,
-        siblingHandles: new Set(bridgeCtx.siblingHandles)
-      });
+      const resolved = assertAllowedMountPrefix(rawPath);
       containedPath = resolved.absolutePath;
     } catch (error) {
       if (error instanceof WorkspacePathError) {
@@ -1501,14 +1423,9 @@ export class SandboxService {
       typeof args.path === "string" && args.path.trim().length > 0
         ? args.path.trim()
         : "/workspace/";
-    const roots = WorkspaceFileBridgeService.buildMountRoots();
     let containedPath: string;
     try {
-      const resolved = assertAllowedMountPrefix(rawPath, {
-        roots,
-        assistantHandle: bridgeCtx.assistantHandle,
-        siblingHandles: new Set(bridgeCtx.siblingHandles)
-      });
+      const resolved = assertAllowedMountPrefix(rawPath);
       containedPath = resolved.absolutePath;
     } catch (error) {
       if (error instanceof WorkspacePathError) {
@@ -1955,9 +1872,6 @@ export class SandboxService {
         select: { handle: true }
       });
       if (row === null || row.handle.length === 0) {
-        // Defensive: emit a stable fallback so the bootstrap script always
-        // produces a valid `outbound/<handle>` directory name even if the
-        // Assistant row is missing or the column drift happens.
         return fallback;
       }
       return row.handle;
@@ -1970,8 +1884,10 @@ export class SandboxService {
   }
 
   /**
-   * ADR-126 Slice 3 — resolve sibling assistant handles for the
-   * `outbound/<otherHandle>/` mirror inside the workspace.
+   * Resolve sibling assistant handles. Retained as a passthrough piece of pod
+   * context for tools that still want the list (e.g. bash environment hints);
+   * after ADR-128 Slice 4 the flat workspace itself no longer uses sibling
+   * handles for any path classification.
    */
   private async resolveSiblingHandles(
     workspaceId: string,
@@ -2451,7 +2367,17 @@ export class SandboxService {
           await visit(absolutePath);
           continue;
         }
-        const stat = await fs.stat(absolutePath);
+        // ADR-128 Slice 4 defense-in-depth: use `lstat` so any symlink (e.g.
+        // restored from a pre-flat session snapshot whose target now dangles
+        // on the control-plane filesystem) is measured by the link itself
+        // and not by its resolved target. Following the symlink to a missing
+        // target previously threw ENOENT and crashed the entire shell turn
+        // before it ever reached the pod.
+        const stat = await fs.lstat(absolutePath);
+        if (stat.isSymbolicLink()) {
+          fileCount++;
+          continue;
+        }
         fileCount++;
         totalBytes += stat.size;
       }

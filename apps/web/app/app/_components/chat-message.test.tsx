@@ -205,8 +205,8 @@ function makeUserMessage(
 function makeImageAttachment(id: string): NonNullable<ChatMessage["attachments"]>[number] {
   return {
     id,
-    path: "/workspace/input/photo.jpg",
-    thumbnailStoragePath: "/workspace/input/photo.jpg.thumb.webp",
+    path: "/workspace/photo.jpg",
+    thumbnailStoragePath: "/workspace/photo.jpg.thumb.webp",
     posterStoragePath: null,
     attachmentType: "image",
     originalFilename: "photo.jpg",
@@ -220,9 +220,9 @@ function makeImageAttachment(id: string): NonNullable<ChatMessage["attachments"]
 function makeVideoAttachment(id: string): NonNullable<ChatMessage["attachments"]>[number] {
   return {
     id,
-    path: "/workspace/input/clip.mp4",
+    path: "/workspace/clip.mp4",
     thumbnailStoragePath: null,
-    posterStoragePath: "/workspace/input/clip.mp4.poster.jpg",
+    posterStoragePath: "/workspace/clip.mp4.poster.jpg",
     attachmentType: "video",
     originalFilename: "clip.mp4",
     mimeType: "video/mp4",
@@ -534,13 +534,13 @@ describe("ChatMessageBubble — canonical file attachments", () => {
           attachments: [
             {
               ...makeImageAttachment("att-image-1"),
-              path: "/workspace/input/photo-1.jpg",
-              thumbnailStoragePath: "/workspace/input/photo-1.jpg.thumb.webp"
+              path: "/workspace/photo-1.jpg",
+              thumbnailStoragePath: "/workspace/photo-1.jpg.thumb.webp"
             },
             {
               ...makeImageAttachment("att-image-2"),
-              path: "/workspace/input/photo-2.jpg",
-              thumbnailStoragePath: "/workspace/input/photo-2.jpg.thumb.webp"
+              path: "/workspace/photo-2.jpg",
+              thumbnailStoragePath: "/workspace/photo-2.jpg.thumb.webp"
             }
           ]
         })}
@@ -553,20 +553,20 @@ describe("ChatMessageBubble — canonical file attachments", () => {
     const lightbox = screen.getByTestId("mock-image-lightbox");
     expect(lightbox).toHaveAttribute(
       "data-src",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Finput%2Fphoto-1.jpg"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto-1.jpg"
     );
     expect(lightbox).toHaveAttribute("data-gallery-count", "2");
     expect(lightbox).toHaveAttribute("data-current-index", "0");
     expect(imageLightboxMock).toHaveBeenCalledWith(
       expect.objectContaining({
         open: true,
-        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Finput%2Fphoto-1.jpg",
+        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto-1.jpg",
         galleryItems: [
           expect.objectContaining({
-            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Finput%2Fphoto-1.jpg"
+            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto-1.jpg"
           }),
           expect.objectContaining({
-            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Finput%2Fphoto-2.jpg"
+            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto-2.jpg"
           })
         ],
         currentIndex: 0,
@@ -586,7 +586,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
               attachmentType: "document",
               originalFilename: "spec.pdf",
               mimeType: "application/pdf",
-              path: "/workspace/input/spec.pdf",
+              path: "/workspace/spec.pdf",
               thumbnailStoragePath: null,
               posterStoragePath: null
             }
@@ -597,7 +597,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /spec\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Finput%2Fspec.pdf&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fspec.pdf&download=1"
     );
   });
 
@@ -609,7 +609,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
           attachments: [
             {
               id: "persisted-att-1",
-              path: "/workspace/input/after-refresh.pdf",
+              path: "/workspace/after-refresh.pdf",
               thumbnailStoragePath: null,
               posterStoragePath: null,
               attachmentType: "document",
@@ -626,7 +626,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /after-refresh\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Finput%2Fafter-refresh.pdf&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fafter-refresh.pdf&download=1"
     );
   });
 
@@ -638,7 +638,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
           attachments: [
             {
               id: "presentation-pdf-1",
-              path: "/workspace/outbound/self/board-deck.pdf",
+              path: "/workspace/board-deck.pdf",
               thumbnailStoragePath: null,
               posterStoragePath: null,
               attachmentType: "document",
@@ -665,7 +665,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /board-deck\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Foutbound%2Fself%2Fboard-deck.pdf&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fboard-deck.pdf&download=1"
     );
     const pptxButton = screen.getByRole("button", {
       name: /presentationDownloadPptxAction|Download PPTX|Скачать PPTX/i
@@ -681,7 +681,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
           attachments: [
             {
               id: "presentation-pdf-2",
-              path: "/workspace/outbound/self/school-deck.pdf",
+              path: "/workspace/school-deck.pdf",
               thumbnailStoragePath: null,
               posterStoragePath: null,
               attachmentType: "document",
@@ -800,18 +800,18 @@ describe("ChatMessageBubble — video attachment preview", () => {
     const lightbox = screen.getByTestId("mock-image-lightbox");
     expect(lightbox).toHaveAttribute(
       "data-src",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Finput%2Fclip.mp4"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fclip.mp4"
     );
     expect(lightbox).toHaveAttribute(
       "data-download-url",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Finput%2Fclip.mp4&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fclip.mp4&download=1"
     );
     expect(lightbox).toHaveAttribute("data-filename", "clip.mp4");
     expect(lightbox).toHaveAttribute("data-media-type", "video");
     expect(imageLightboxMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         open: true,
-        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Finput%2Fclip.mp4",
+        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fclip.mp4",
         mediaType: "video"
       })
     );
@@ -1440,7 +1440,7 @@ describe("ChatMessageBubble — file attachment pill layout", () => {
           attachments: [
             {
               id: "att-word-1",
-              path: "/workspace/input/report.docx",
+              path: "/workspace/report.docx",
               thumbnailStoragePath: null,
               posterStoragePath: null,
               attachmentType: "document",

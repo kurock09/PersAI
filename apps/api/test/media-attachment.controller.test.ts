@@ -26,7 +26,7 @@ async function run(): Promise<void> {
     {
       async downloadChatFileByPath(input: { path: string; chatId: string }) {
         assert.equal(input.chatId, "chat-1");
-        assert.equal(input.path, "/workspace/outbound/self/recommendations.md");
+        assert.equal(input.path, "/workspace/recommendations.md");
         return {
           buffer: Buffer.from("Привет\n", "utf8"),
           contentType: "text/markdown",
@@ -82,7 +82,7 @@ async function run(): Promise<void> {
     req as never,
     downloadResponse as never,
     "chat-1",
-    "/workspace/outbound/self/recommendations.md",
+    "/workspace/recommendations.md",
     "1"
   );
   assert.equal(downloadResponse.headers.get("Content-Type"), "text/markdown; charset=utf-8");
@@ -98,7 +98,7 @@ async function run(): Promise<void> {
     req as never,
     inlineResponse as never,
     "chat-1",
-    "/workspace/outbound/self/recommendations.md",
+    "/workspace/recommendations.md",
     undefined
   );
   assert.equal(inlineResponse.headers.get("Content-Type"), "text/markdown; charset=utf-8");
@@ -149,42 +149,30 @@ async function run(): Promise<void> {
     req as never,
     octetResponse as never,
     "chat-1",
-    "/workspace/outbound/self/clip.mp4",
+    "/workspace/clip.mp4",
     "1"
   );
   assert.equal(octetResponse.headers.get("Content-Type"), "video/mp4");
 
   await assert.doesNotReject(() =>
-    controller.deleteWorkspaceFile(
-      req as never,
-      "workspace-1",
-      "/workspace/outbound/self/orphan.txt"
-    )
+    controller.deleteWorkspaceFile(req as never, "workspace-1", "/workspace/orphan.txt")
   );
   assert.deepEqual(deletedWorkspaceFileInput, {
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    path: "/workspace/outbound/self/orphan.txt"
+    path: "/workspace/orphan.txt"
   });
 
   await assert.rejects(
-    controller.deleteWorkspaceFile(
-      req as never,
-      "workspace-2",
-      "/workspace/outbound/self/orphan.txt"
-    ),
+    controller.deleteWorkspaceFile(req as never, "workspace-2", "/workspace/orphan.txt"),
     { name: "ForbiddenException" }
   );
   await assert.rejects(
-    controller.deleteWorkspaceFile(req as never, "workspace-1", "/workspace/scratch.txt"),
+    controller.deleteWorkspaceFile(req as never, "workspace-1", "/tmp/escape.txt"),
     { name: "BadRequestException" }
   );
   await assert.rejects(
-    controller.deleteWorkspaceFile(
-      {} as never,
-      "workspace-1",
-      "/workspace/outbound/self/orphan.txt"
-    ),
+    controller.deleteWorkspaceFile({} as never, "workspace-1", "/workspace/orphan.txt"),
     { name: "UnauthorizedException" }
   );
 

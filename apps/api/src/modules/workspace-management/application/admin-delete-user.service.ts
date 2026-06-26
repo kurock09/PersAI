@@ -73,11 +73,13 @@ export class AdminDeleteUserService {
         let workspaceDeleted = false;
         if (assistant) {
           const aid = assistant.id;
-          // ADR-126 Slice 3 — schedule the assistant's `/workspace/outbound/<handle>/`
-          // and the GCS-side mirror for deferred GC. We write the lease BEFORE
-          // the source row is deleted so the schedule survives the hard-delete
-          // even though the foreign key relationship is intentionally absent
-          // from the lease table (see `sandbox_workspace_gc_lease`).
+          // ADR-128 Slice 4 — schedule the assistant for deferred GC. The flat
+          // workspace has no per-assistant subtree to purge, so the lease is
+          // mostly a structural placeholder kept for compatibility with the
+          // existing GC pipeline; we still write it BEFORE the source row is
+          // deleted so the schedule survives the hard-delete even though the
+          // foreign key relationship is intentionally absent from the lease
+          // table (see `sandbox_workspace_gc_lease`).
           await tx.sandboxWorkspaceGcLease.create({
             data: {
               kind: "assistant_outbound",

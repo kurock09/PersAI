@@ -4,14 +4,14 @@ import { loadApiConfig } from "@persai/config";
 type ResolvedSandboxConfig = ReturnType<typeof loadApiConfig>;
 
 /**
- * ADR-126 v3 amendment (2026-06-25) — best-effort control-plane bridge from
- * the api into the sandbox process for operations that exist outside a
- * runtime turn (most notably: pushing freshly uploaded inbound bytes into
- * the workspace's running pod so the model sees them on its next turn).
+ * ADR-128 Slice 4 — best-effort control-plane bridge from the api into the
+ * sandbox process for operations that exist outside a runtime turn (most
+ * notably: pushing freshly uploaded bytes into the workspace's running pod
+ * so the model sees them on its next turn).
  *
  * Design constraints:
  *   * The api MUST treat this client as best-effort. The canonical store for
- *     inbound bytes is GCS (already written by `manage-chat-media`). The
+ *     uploaded bytes is GCS (already written by `manage-chat-media`). The
  *     sandbox cold-start hydrate path (`hydrateWorkspaceMountFromGcs`) is the
  *     authoritative recovery mechanism. Failing or skipping the hot-pod push
  *     never blocks the upload or corrupts state.
@@ -19,8 +19,8 @@ type ResolvedSandboxConfig = ReturnType<typeof loadApiConfig>;
  *     sandbox-side rejection. All such cases are logged at warn and the
  *     caller treats them as `deferred` (i.e. "the cold-start hydrate will
  *     pick this up at the next pod boot").
- *   * No quota accounting happens here. The api already booked the inbound
- *     bytes on the `media_storage_quota` ledger.
+ *   * No quota accounting happens here. The api already booked the bytes on
+ *     the `media_storage_quota` ledger.
  */
 @Injectable()
 export class SandboxControlPlaneClientService {
@@ -43,7 +43,7 @@ export class SandboxControlPlaneClientService {
     );
   }
 
-  async pushWorkspaceInboundBytes(input: {
+  async pushWorkspaceFileBytes(input: {
     assistantId: string;
     workspaceId: string;
     basename: string;
@@ -58,7 +58,7 @@ export class SandboxControlPlaneClientService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.config.PERSAI_SANDBOX_TIMEOUT_MS);
     try {
-      const response = await fetch(`${baseUrl}/api/v1/jobs/workspace-inbound-write`, {
+      const response = await fetch(`${baseUrl}/api/v1/jobs/workspace-write-control-plane`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -76,7 +76,7 @@ export class SandboxControlPlaneClientService {
       if (!response.ok) {
         const body = await this.safeReadBodyText(response);
         this.logger.warn(
-          `workspace_inbound_push_http_error workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} status=${String(response.status)} body=${body.slice(0, 256)}`
+          `workspace_file_push_http_error workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} status=${String(response.status)} body=${body.slice(0, 256)}`
         );
         return { mode: "error", reason: `http_${response.status}` };
       }
@@ -86,7 +86,7 @@ export class SandboxControlPlaneClientService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(
-        `workspace_inbound_push_failed workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} error=${message}`
+        `workspace_file_push_failed workspace=${input.workspaceId} assistant=${input.assistantId} basename=${input.basename} error=${message}`
       );
       return { mode: "error", reason: message };
     } finally {

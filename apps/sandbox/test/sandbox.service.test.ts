@@ -690,8 +690,8 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
   ]);
 
   const workspaceId = "workspace-code-1";
-  const sourceStoragePath = "/workspace/input/source.pdf";
-  const workspaceObjectKey = `assistant-media/workspaces/${workspaceId}/workspace/input/source.pdf`;
+  const sourceStoragePath = "/workspace/source.pdf";
+  const workspaceObjectKey = `assistant-media/workspaces/${workspaceId}/workspace/source.pdf`;
   const storedObjects = new Map<string, Buffer>([[workspaceObjectKey, sourcePdfBytes]]);
 
   const service = new SandboxService(

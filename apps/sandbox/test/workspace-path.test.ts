@@ -8,19 +8,6 @@ import {
   WorkspacePathError
 } from "../src/workspace-path";
 
-const SELF_HANDLE = "bob";
-const OTHER_HANDLE = "alice";
-
-function makeCtx(opts?: { siblingHandles?: ReadonlySet<string> }) {
-  return {
-    roots: {
-      workspaceRoot: buildWorkspaceRoot()
-    },
-    assistantHandle: SELF_HANDLE,
-    siblingHandles: opts?.siblingHandles ?? new Set<string>()
-  };
-}
-
 // ─── normalizePosixPath ───────────────────────────────────────────────────────
 
 test("normalizePosixPath: preserves canonical absolute path", () => {
@@ -103,61 +90,42 @@ test("normalizeAndClampPath: .. traversal that would escape root is rejected via
 
 // ─── assertAllowedMountPrefix ─────────────────────────────────────────────────
 
-test("assertAllowedMountPrefix: /workspace/input/x.txt → workspace_input", () => {
-  const result = assertAllowedMountPrefix("/workspace/input/x.txt", makeCtx());
-  assert.equal(result.role.kind, "workspace_input");
-  assert.equal(result.absolutePath, "/workspace/input/x.txt");
-  assert.equal(result.relativePath, "input/x.txt");
+test("assertAllowedMountPrefix: /workspace/x.txt → flat workspace file", () => {
+  const result = assertAllowedMountPrefix("/workspace/x.txt");
+  assert.equal(result.absolutePath, "/workspace/x.txt");
+  assert.equal(result.relativePath, "x.txt");
 });
 
-test("assertAllowedMountPrefix: /workspace/outbound/self/y.txt → workspace_outbound_self", () => {
-  const result = assertAllowedMountPrefix("/workspace/outbound/self/y.txt", makeCtx());
-  assert.equal(result.role.kind, "workspace_outbound_self");
-  if (result.role.kind === "workspace_outbound_self") {
-    assert.equal(result.role.handle, SELF_HANDLE);
-  }
+test("assertAllowedMountPrefix: nested subdirectory under /workspace/ is allowed", () => {
+  const result = assertAllowedMountPrefix("/workspace/notes/2026/today.md");
+  assert.equal(result.absolutePath, "/workspace/notes/2026/today.md");
+  assert.equal(result.relativePath, "notes/2026/today.md");
 });
 
-test("assertAllowedMountPrefix: /workspace/outbound/alice/z.txt → workspace_outbound_other", () => {
-  const ctx = makeCtx({ siblingHandles: new Set([OTHER_HANDLE]) });
-  const result = assertAllowedMountPrefix("/workspace/outbound/alice/z.txt", ctx);
-  assert.equal(result.role.kind, "workspace_outbound_other");
-  if (result.role.kind === "workspace_outbound_other") {
-    assert.equal(result.role.handle, OTHER_HANDLE);
-  }
+test("assertAllowedMountPrefix: bare /workspace returns empty relative path", () => {
+  const result = assertAllowedMountPrefix("/workspace");
+  assert.equal(result.absolutePath, "/workspace");
+  assert.equal(result.relativePath, "");
 });
 
-test("assertAllowedMountPrefix: /workspace/scratch/notes.md → workspace_scratch", () => {
-  const result = assertAllowedMountPrefix("/workspace/scratch/notes.md", makeCtx());
-  assert.equal(result.role.kind, "workspace_scratch");
-  assert.equal(result.relativePath, "scratch/notes.md");
-});
-
-test("assertAllowedMountPrefix: /workspace/outbound directly → invalid_path", () => {
+test("assertAllowedMountPrefix: retired shared path → throws outside_allowed_mount", () => {
+  const retiredPath = "/shared" + "/x.txt";
   assert.throws(
-    () => assertAllowedMountPrefix("/workspace/outbound", makeCtx()),
-    (e: unknown) => e instanceof WorkspacePathError && e.code === "invalid_path"
-  );
-});
-
-test("assertAllowedMountPrefix: /workspace/outbound/unknown/x.txt → outside_allowed_mount", () => {
-  assert.throws(
-    () => assertAllowedMountPrefix("/workspace/outbound/unknown/x.txt", makeCtx()),
+    () => assertAllowedMountPrefix(retiredPath),
     (e: unknown) => e instanceof WorkspacePathError && e.code === "outside_allowed_mount"
   );
 });
 
-test("assertAllowedMountPrefix: retired shared path → throws outside_allowed_mount", () => {
-  const retiredPath = "/shared" + "/input/x.txt";
+test("assertAllowedMountPrefix: /tmp paths are rejected (use exec/shell for ephemeral state)", () => {
   assert.throws(
-    () => assertAllowedMountPrefix(retiredPath, makeCtx()),
+    () => assertAllowedMountPrefix("/tmp/notes.md"),
     (e: unknown) => e instanceof WorkspacePathError && e.code === "outside_allowed_mount"
   );
 });
 
 test("assertAllowedMountPrefix: /etc/passwd → throws outside_allowed_mount", () => {
   assert.throws(
-    () => assertAllowedMountPrefix("/etc/passwd", makeCtx()),
+    () => assertAllowedMountPrefix("/etc/passwd"),
     (e: unknown) => e instanceof WorkspacePathError && e.code === "outside_allowed_mount"
   );
 });

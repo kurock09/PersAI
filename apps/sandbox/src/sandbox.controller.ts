@@ -61,8 +61,13 @@ export class SandboxController {
     return this.sandboxService.submitJob(body);
   }
 
-  @Post("/api/v1/jobs/workspace-outbound-write")
-  async writeWorkspaceOutbound(
+  /**
+   * ADR-128 Slice 4 — model-driven workspace write.
+   * Lands artefacts directly at `/workspace/<basename>` with optional macOS-style
+   * collision-suffix resolution.
+   */
+  @Post("/api/v1/jobs/workspace-write")
+  async writeWorkspace(
     @Headers("authorization") authorization: string | undefined,
     @Body() body: unknown
   ) {
@@ -91,7 +96,7 @@ export class SandboxController {
     const contents = Buffer.from(contentBase64, "base64");
     const workspaceQuotaBytes = this.parseOptionalNullableNumber(row.workspaceQuotaBytes);
     const sharedQuotaBytes = this.parseOptionalNullableNumber(row.sharedQuotaBytes);
-    const result = await this.sandboxService.writeWorkspaceOutbound({
+    const result = await this.sandboxService.writeWorkspaceFile({
       assistantId,
       workspaceId,
       assistantHandle,
@@ -116,14 +121,13 @@ export class SandboxController {
   }
 
   /**
-   * ADR-128 Slice 1 — control-plane inbound bytes-push.
-   * Mirror of `workspace-outbound-write` but for the `/workspace/input/`
-   * direction; the api calls this from `manage-chat-media.stageForWebThread`
-   * right after the GCS upload so the running pod can see the bytes
-   * immediately (instead of only after the next cold-start hydrate).
+   * ADR-128 Slice 4 — control-plane workspace bytes-push.
+   * The api calls this from `manage-chat-media.stageForWebThread` right after
+   * the GCS upload so the running pod can see the bytes immediately (instead
+   * of only after the next cold-start hydrate).
    */
-  @Post("/api/v1/jobs/workspace-inbound-write")
-  async writeWorkspaceInbound(
+  @Post("/api/v1/jobs/workspace-write-control-plane")
+  async writeWorkspaceControlPlane(
     @Headers("authorization") authorization: string | undefined,
     @Body() body: unknown
   ) {
@@ -148,7 +152,7 @@ export class SandboxController {
         )
       : null;
     const contents = Buffer.from(contentBase64, "base64");
-    const result = await this.sandboxService.writeWorkspaceInbound({
+    const result = await this.sandboxService.writeWorkspaceFileControlPlane({
       assistantId,
       workspaceId,
       assistantHandle,

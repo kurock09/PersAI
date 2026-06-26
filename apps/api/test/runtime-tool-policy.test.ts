@@ -259,30 +259,24 @@ async function run(): Promise<void> {
   const cronPolicy = toolPolicies.find((tool) => tool.toolCode === "cron");
   assert.equal(cronPolicy?.perTurnCap, null, "hidden-internal policies have null perTurnCap");
   const filesPolicy = toolPolicies.find((tool) => tool.toolCode === "files");
+  // ADR-128 Slice 4 — flat workspace. The description/usage guidance no longer
+  // mentions /workspace/input/, /workspace/outbound/self/, or role-based regions.
   assert.match(
     filesPolicy?.description ?? "",
-    /Path-driven workspace operations on `\/workspace\/\.\.\.`/
+    /Path-driven file operations on the single flat `\/workspace\/` namespace/
   );
-  assert.match(filesPolicy?.description ?? "", /`\/workspace\/input\/`/);
-  assert.match(filesPolicy?.description ?? "", /`\/workspace\/outbound\/self\/`/);
-  assert.match(filesPolicy?.description ?? "", /`\/workspace\/<anywhere else>`/);
-  // ADR-126 v3 D6 — files surface is six actions: list, read, preview, write, delete, attach.
-  // The previous "Five actions" wording predates the v3 cutover; see ADR-126 v3 Amendment block.
+  assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/input/);
+  assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/outbound/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /write-and-send|files\.send|files\.search/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /coming soon/i);
   assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN TO USE:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN NOT TO USE:/m);
-  assert.match(filesPolicy?.usageGuidance ?? "", /`\/workspace\/input\/`/);
-  assert.match(filesPolicy?.usageGuidance ?? "", /`\/workspace\/outbound\/self\/`/);
-  assert.match(filesPolicy?.usageGuidance ?? "", /`\/workspace\/<anywhere else>`/);
+  assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/input/);
+  assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/outbound/);
   assert.match(filesPolicy?.usageGuidance ?? "", /^SIX ACTIONS:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^EXAMPLES:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^GOTCHAS:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /six actions|Six actions/i);
-  assert.match(
-    filesPolicy?.usageGuidance ?? "",
-    /Path-driven workspace operations on `\/workspace\/\.\.\.`/
-  );
   assert.match(filesPolicy?.usageGuidance ?? "", /action:"attach"/);
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /coming soon/i);
   assert.doesNotMatch(

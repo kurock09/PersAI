@@ -251,15 +251,15 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * ADR-126 Slice 3 — public, audited control-plane primitive used by
+   * ADR-128 Slice 4 — public, audited control-plane primitive used by
    * {@link WorkspaceFileBridgeService} to run inline `bash -lc` against a
-   * warm session pod (e.g. write a file under `/workspace/input/`).
-   * Idempotently ensures the pod exists and the `/workspace` mount has been
-   * bootstrapped (input/outbound directories created, self-symlink wired).
+   * warm session pod (e.g. write a file under `/workspace/`).
+   * Idempotently ensures the pod exists and the single flat `/workspace`
+   * mount has been bootstrapped.
    *
    * Unlike {@link runInPod}, this path:
    *   * does NOT push or pull `/workspace/` — the bridge is meant for the
-   *     persisted workspace subtree which is mirrored directly to GCS by the caller;
+   *     persisted workspace which is mirrored directly to GCS by the caller;
    *   * does NOT take the workspace lease — the bridge is invoked outside of
    *     a sandbox-job lifecycle (e.g. during upload hydration) and operates
    *     on persisted workspace paths outside the normal lease.
@@ -325,7 +325,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
    * the caller treats this as `deferred`. Returns the exec result otherwise.
    * The workspace-mount bootstrap is still invoked (idempotent on warm pods);
    * if the pod is `Running` but never had a sandbox job, this is the path
-   * that lays down /workspace/input/ before the upload write.
+   * that lays down `/workspace/` before the upload write.
    */
   async tryExecShellInExistingSessionPod(input: {
     assistantId: string;
@@ -1021,8 +1021,9 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * ADR-128 Slice 1 — bootstrap the single `/workspace` mount inside a
-   * session or ephemeral pod.
+   * ADR-128 Slice 4 — bootstrap the single flat `/workspace` mount inside a
+   * session or ephemeral pod. No role-based subdirectories, no symlinks. All
+   * files live directly under `/workspace/`.
    */
   private async ensureWorkspaceMountBootstrapped(
     podName: string,
@@ -1039,11 +1040,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       );
     }
     const workspaceRoot = "/workspace";
-    const outboundRoot = `${workspaceRoot}/outbound`;
-    const selfOutbound = `${outboundRoot}/${assistantHandle}`;
-    const inputRoot = `${workspaceRoot}/input`;
 
-    // Phase 1: skip the full bootstrap sequence on warm pods.
     const alreadyBootstrapped = await this.runStdinlessProbe(
       podName,
       namespace,
@@ -1054,15 +1051,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // Phase 2: create directories and self-symlink.
     const dirsScript = [
       "set -e",
-      `mkdir -p ${posixSingleQuote(inputRoot)}`,
-      `mkdir -p ${posixSingleQuote(outboundRoot)}`,
-      `mkdir -p ${posixSingleQuote(selfOutbound)}`,
-      // `outbound/self` is a stable shortcut so the model can address its own
-      // outbound directory without knowing its handle.
-      `ln -sfn ${posixSingleQuote(selfOutbound)} ${posixSingleQuote(`${outboundRoot}/self`)}`,
+      `mkdir -p ${posixSingleQuote(workspaceRoot)}`,
+      `chmod 0755 ${posixSingleQuote(workspaceRoot)}`,
       `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_DIRS_OK_SENTINEL)}`
     ].join("\n");
     const dirsOk = await this.runStdinlessProbe(
@@ -1074,29 +1066,24 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     if (!dirsOk) {
       throw createBridgeError(
         "process_spawn_failed",
-        `Failed to create workspace directories for handle=${assistantHandle}.`
+        `Failed to create workspace directory for handle=${assistantHandle}.`
       );
     }
 
-    // Phase 3: GCS hydrate — pull persisted workspace blobs into the pod.
-    // Must run BEFORE chmod so the hydrate's writes into input/ succeed.
     const workspaceHydrateStartedAt = Date.now();
     await this.hydrateWorkspaceMountFromGcs(podName, namespace, workspaceId);
     this.observability?.recordSnapshotColdPull("shared", Date.now() - workspaceHydrateStartedAt);
 
-    // Phase 4: enforce access matrix and write the bootstrap marker.
-    const chmodScript = [
+    const markerScript = [
       "set -e",
-      `chmod 0555 ${posixSingleQuote(inputRoot)}`,
-      `chmod 0755 ${posixSingleQuote(outboundRoot)}`,
-      `chmod 0755 ${posixSingleQuote(selfOutbound)}`,
+      `chmod 0755 ${posixSingleQuote(workspaceRoot)}`,
       `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL)} > ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_MARKER)}`,
       `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL)}`
     ].join("\n");
     const ok = await this.runStdinlessProbe(
       podName,
       namespace,
-      chmodScript,
+      markerScript,
       WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL
     );
     if (!ok) {

@@ -10,8 +10,8 @@ async function run(): Promise<void> {
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       attachmentType: "image",
-      storagePath: "/workspace/input/photo.jpg",
-      thumbnailStoragePath: "/workspace/input/photo.jpg.thumb.webp",
+      storagePath: "/workspace/photo.jpg",
+      thumbnailStoragePath: "/workspace/photo.jpg.thumb.webp",
       posterStoragePath: null,
       originalFilename: "photo.jpg",
       mimeType: "image/jpeg",
@@ -34,7 +34,7 @@ async function run(): Promise<void> {
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       attachmentType: "voice",
-      storagePath: "/workspace/input/note.webm",
+      storagePath: "/workspace/note.webm",
       thumbnailStoragePath: null,
       posterStoragePath: null,
       originalFilename: "note.webm",
@@ -58,9 +58,9 @@ async function run(): Promise<void> {
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       attachmentType: "video",
-      storagePath: "/workspace/outbound/self/clip.mp4",
+      storagePath: "/workspace/clip.mp4",
       thumbnailStoragePath: null,
-      posterStoragePath: "/workspace/outbound/self/clip.mp4.poster.jpg",
+      posterStoragePath: "/workspace/clip.mp4.poster.jpg",
       originalFilename: "clip.mp4",
       mimeType: "video/mp4",
       sizeBytes: BigInt(5000),
@@ -82,28 +82,28 @@ async function run(): Promise<void> {
   // download that the gallery must skip.
   const manifest = [
     {
-      path: "/workspace/input/photo.jpg",
+      path: "/workspace/photo.jpg",
       mimeType: "image/jpeg",
       sizeBytes: BigInt(1200),
       createdAt: new Date("2026-06-20T10:00:00.000Z"),
       updatedAt: new Date("2026-06-20T10:00:00.000Z")
     },
     {
-      path: "/workspace/input/note.webm",
+      path: "/workspace/note.webm",
       mimeType: "audio/webm",
       sizeBytes: BigInt(900),
       createdAt: new Date("2026-06-21T10:00:00.000Z"),
       updatedAt: new Date("2026-06-21T10:00:00.000Z")
     },
     {
-      path: "/workspace/outbound/self/clip.mp4",
+      path: "/workspace/clip.mp4",
       mimeType: "video/mp4",
       sizeBytes: BigInt(5000),
       createdAt: new Date("2026-06-22T10:00:00.000Z"),
       updatedAt: new Date("2026-06-22T10:00:00.000Z")
     },
     {
-      path: "/workspace/outbound/self/report.pdf",
+      path: "/workspace/report.pdf",
       mimeType: "application/pdf",
       sizeBytes: BigInt(2048),
       createdAt: new Date("2026-06-23T10:00:00.000Z"),
@@ -161,11 +161,11 @@ async function run(): Promise<void> {
   assert.equal(orphan?.attachmentType, "document");
   assert.equal(orphan?.originalFilename, "report.pdf");
 
-  const attached = all.files.find((file) => file.storagePath === "/workspace/input/photo.jpg");
+  const attached = all.files.find((file) => file.storagePath === "/workspace/photo.jpg");
   assert.ok(attached);
   assert.equal(attached?.chatId, "chat-1");
   assert.equal(attached?.messageId, "msg-1");
-  assert.equal(attached?.thumbnailStoragePath, "/workspace/input/photo.jpg.thumb.webp");
+  assert.equal(attached?.thumbnailStoragePath, "/workspace/photo.jpg.thumb.webp");
 
   assert.equal(
     all.files.some((file) => file.storagePath.includes("note.webm")),
@@ -184,7 +184,7 @@ async function run(): Promise<void> {
     type: "image"
   });
   assert.equal(images.files.length, 1);
-  assert.equal(images.files[0]?.thumbnailStoragePath, "/workspace/input/photo.jpg.thumb.webp");
+  assert.equal(images.files[0]?.thumbnailStoragePath, "/workspace/photo.jpg.thumb.webp");
 
   const documents = await service.execute({
     userId: "user-1",
@@ -193,7 +193,7 @@ async function run(): Promise<void> {
   });
   assert.equal(documents.files.length, 1);
   assert.equal(documents.files[0]?.chatId, null);
-  assert.equal(documents.files[0]?.storagePath, "/workspace/outbound/self/report.pdf");
+  assert.equal(documents.files[0]?.storagePath, "/workspace/report.pdf");
 
   const paged = await service.execute({
     userId: "user-1",

@@ -127,7 +127,7 @@ EXAMPLES:
 - document({descriptorMode:"create_pdf_document", prompt:"…"}) — produce a prose/editorial PDF (HTML→PDF).
 - document({descriptorMode:"create_data_document", outputFormat:"xlsx", prompt:"…"}) — produce a native spreadsheet, Word doc (outputFormat:"docx"), or data-driven PDF (outputFormat:"pdf") for tables/spreadsheets/structured data. Defaults to xlsx.
 - document({descriptorMode:"revise_document", docId:"…", prompt:"…"}) — apply revisions to an existing PDF document in the current chat.
-- document({descriptorMode:"revise_document", storagePath:"/workspace/outbound/self/report.pdf", prompt:"…"}) — revise a file from Working Files or a prior chat via workspace path.
+- document({descriptorMode:"revise_document", storagePath:"/workspace/report.pdf", prompt:"…"}) — revise a file from Working Files or a prior chat via workspace path.
 GOTCHAS:
 - Data documents (create_data_document): use for spreadsheets, structured tables, and large data exports where exact tabular/native-Office output matters; size is not limited by the reply length.
 - Presentations: PDF-first unless the user explicitly wants editable PPTX/PowerPoint.
@@ -305,28 +305,23 @@ GOTCHAS:
     description:
       "Path-driven workspace file operations: list, read, preview, write, delete, attach.",
     modelDescription:
-      "Path-driven workspace operations on `/workspace/...`. Three regions:\n- `/workspace/input/` — files the user has shared with this assistant (read-only).\n- `/workspace/outbound/self/` — files this assistant produces and delivers to the user (read-write).\n- `/workspace/<anywhere else>` — model scratch (ephemeral, not delivered, not preserved across pod restart).",
+      "Path-driven file operations on the single flat `/workspace/` namespace. Read and write any file directly under `/workspace/<path>`; user uploads land at `/workspace/<filename>` and stay there. Use `/tmp/` for ephemeral scratch that the user should never see.",
     // policy-overridden: the real model-facing text is supplied by
     // runtime-tool-policy.ts resolveRuntimeToolUsageGuidance and always
     // supersedes this catalog value. Edit the hardcoded override there, not here.
-    modelUsageGuidance: `Path-driven workspace operations on \`/workspace/...\`. Three regions:
-- \`/workspace/input/\` — files the user has shared with this assistant (read-only).
-- \`/workspace/outbound/self/\` — files this assistant produces and delivers to the user (read-write).
-- \`/workspace/<anywhere else>\` — model scratch (ephemeral, not delivered, not preserved across pod restart).
+    modelUsageGuidance: `Files in this workspace live under \`/workspace/\`. Read any file with \`files.read /workspace/<path>\`. Write to any path under \`/workspace/\` (creates or overwrites). When the user uploads a file, it appears at \`/workspace/<filename>\`. To edit it, write to the same path. To create a new file, pick a new name. Use \`/tmp/\` for ephemeral scratch that the user should not see.
 WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace file to chat.
 WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a NEW structured document (use document).
 EXAMPLES:
-- files({action:"list", path:"/workspace/input/"}) — enumerate user-shared uploads.
-- files({action:"read", path:"/workspace/input/report.csv"}) — read a user upload from the read-only input mount.
+- files({action:"list", path:"/workspace/"}) — see every file in the workspace.
+- files({action:"read", path:"/workspace/report.csv"}) — read any file under /workspace/.
 - files({action:"preview", path:"/workspace/notes.md", maxBytes:4096}) — peek at the head of a large file.
-- files({action:"write", path:"/workspace/draft.txt", content:"hello"}) — write or overwrite a pod-private file.
-- files({action:"write", path:"/workspace/outbound/self/result.json", content:"{}"}) — publish an artefact to your own outbound share.
+- files({action:"write", path:"/workspace/draft.txt", content:"hello"}) — write or overwrite a file.
 - files({action:"delete", path:"/workspace/tmp.bin"}) — remove an unneeded file.
-- files({action:"attach", path:"/workspace/draft.txt"}) — deliver an existing pod-private file to the user.
-- files({action:"attach", path:"/workspace/outbound/self/result.json"}) — deliver an already-produced artefact to the user.
+- files({action:"attach", path:"/workspace/draft.txt"}) — deliver a file to the user as a chat attachment.
 GOTCHAS:
 - Six actions only: list, read, preview, write, delete, attach. There is no fileRef, no alias, no search/send/edit.
-- Paths must be pod-absolute. /workspace/input/ is user-shared read-only input. /workspace/outbound/self/ is your produced/delivered artefacts (read/write). Other /workspace/... paths are scratch.
+- Paths must be pod-absolute and under /workspace/. Use /tmp/ for ephemeral scratch.
 - For list supply the directory path; for read/preview/write/delete/attach supply the file path.
 - attach delivers an EXISTING file; it does not regenerate. If the file is not yet written, write it first.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,

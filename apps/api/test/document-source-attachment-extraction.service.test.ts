@@ -56,7 +56,7 @@ async function extractsSupportedSourcesThroughSharedDocumentExtraction(): Promis
       {
         attachmentId: "att-1",
         kind: "file",
-        storagePath: "/workspace/outbound/self/source.md",
+        storagePath: "/workspace/source.md",
         mimeType: "text/markdown",
         displayName: "source.md",
         sizeBytes: 128
@@ -64,9 +64,7 @@ async function extractsSupportedSourcesThroughSharedDocumentExtraction(): Promis
     ]
   });
 
-  assert.deepEqual(downloadCalls, [
-    "media/workspaces/workspace-1/workspace/outbound/self/source.md"
-  ]);
+  assert.deepEqual(downloadCalls, ["media/workspaces/workspace-1/workspace/source.md"]);
   assert.equal(extractionCalls.length, 1);
   assert.equal(result.length, 1);
   assert.equal(result[0]!.text, "Real extracted text");
@@ -108,7 +106,7 @@ async function skipsUnsupportedBinaryAttachments(): Promise<void> {
       {
         attachmentId: "att-image",
         kind: "image",
-        storagePath: "/workspace/outbound/self/photo.png",
+        storagePath: "/workspace/photo.png",
         mimeType: "image/png",
         displayName: "photo.png",
         sizeBytes: 1024

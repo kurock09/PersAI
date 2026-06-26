@@ -9,10 +9,10 @@ export type UpsertWorkspaceFileMetadataFromRuntimeInput = {
   shortDescription: string | null;
 };
 
-// ADR-128 Slice 2 — runtime-driven manifest writes after a successful sandbox
-// `files.write` on a persisted `/workspace/input/...` or `/workspace/outbound/...`
-// path. The API owns the upsert so the sandbox does not need DB access.
-// Scratch paths elsewhere under `/workspace/...` stay pod-only by design.
+// ADR-128 Slice 4 — runtime-driven manifest writes after a successful sandbox
+// `files.write` on any `/workspace/...` path. The flat workspace has no role
+// carve-out, so every successful write feeds the manifest. The api owns the
+// upsert so the sandbox does not need DB access.
 @Injectable()
 export class UpsertWorkspaceFileMetadataFromRuntimeService {
   constructor(private readonly workspaceFileMetadataService: WorkspaceFileMetadataService) {}
@@ -25,7 +25,7 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
     const path = this.requiredString(row.path, "path");
     if (!this.isPersistedWorkspacePath(path)) {
       throw new BadRequestException(
-        'path must start with "/workspace/input/" or "/workspace/outbound/" — only persisted workspace files are tracked in the manifest.'
+        'path must start with "/workspace/" — only files inside the workspace mount are tracked in the manifest.'
       );
     }
     if (path.includes("..")) {
@@ -68,6 +68,6 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
   }
 
   private isPersistedWorkspacePath(path: string): boolean {
-    return path.startsWith("/workspace/input/") || path.startsWith("/workspace/outbound/");
+    return path.startsWith("/workspace/");
   }
 }

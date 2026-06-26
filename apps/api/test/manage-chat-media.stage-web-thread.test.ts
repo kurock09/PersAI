@@ -16,7 +16,7 @@ const noopSandboxControlPlaneClient = {
   isConfigured() {
     return false;
   },
-  async pushWorkspaceInboundBytes() {
+  async pushWorkspaceFileBytes() {
     return { mode: "deferred" as const, reason: "not_configured" as const };
   }
 } as never;
@@ -91,7 +91,7 @@ function buildAttachmentFromRegisterInput(
     assistantId: input.assistantId ?? assistant.id,
     workspaceId: input.workspaceId ?? assistant.workspaceId,
     attachmentType: input.attachmentType ?? "document",
-    storagePath: input.storagePath ?? "/workspace/input/note.txt",
+    storagePath: input.storagePath ?? "/workspace/note.txt",
     originalFilename: input.originalFilename ?? "note.txt",
     mimeType: input.mimeType ?? "text/plain",
     sizeBytes: BigInt(Number(input.sizeBytes ?? 0)),

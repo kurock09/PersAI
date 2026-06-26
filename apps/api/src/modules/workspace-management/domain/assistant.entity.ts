@@ -13,10 +13,12 @@ export type Assistant = {
   userId: string;
   workspaceId: string;
   /**
-   * ADR-126 Slice 3 — stable, URL/path-safe identifier used as the directory
-   * name under `/workspace/outbound/<handle>/` inside session pods.
-   * Generated from `draftDisplayName` and de-duplicated per workspace; remains
-   * stable across rename.
+   * Stable, URL/path-safe identifier for the assistant. After ADR-128 Slice 4
+   * the workspace is flat and no longer uses the handle for path
+   * classification, but the handle is still useful as an addressable name
+   * in audit logs, pod annotations, and bash environment hints.
+   * Generated from `draftDisplayName` and de-duplicated per workspace;
+   * remains stable across rename.
    */
   handle: string;
   draftDisplayName: string | null;

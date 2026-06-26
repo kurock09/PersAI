@@ -31,14 +31,14 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     const { service, calls } = buildService();
     const input = service.parseInput({
       workspaceId: "workspace-1",
-      path: "/workspace/outbound/alice/notes.md",
+      path: "/workspace/notes.md",
       mimeType: "text/markdown",
       sizeBytes: 128
     });
     await service.execute(input);
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.workspaceId, "workspace-1");
-    assert.equal(calls[0]?.path, "/workspace/outbound/alice/notes.md");
+    assert.equal(calls[0]?.path, "/workspace/notes.md");
     assert.equal(calls[0]?.mimeType, "text/markdown");
     assert.equal(calls[0]?.sizeBytes, 128);
     assert.equal(calls[0]?.shortDescription, undefined);
@@ -48,7 +48,7 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     const { service, calls } = buildService();
     const input = service.parseInput({
       workspaceId: "workspace-1",
-      path: "/workspace/input/recipe.md",
+      path: "/workspace/recipe.md",
       mimeType: "text/markdown",
       sizeBytes: 256,
       shortDescription: "Mom's pie crust"
@@ -57,13 +57,13 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     assert.equal(calls[0]?.shortDescription, "Mom's pie crust");
   });
 
-  test("rejects /workspace/ scratch paths", () => {
+  test("rejects paths outside /workspace/ (e.g. /tmp/)", () => {
     const { service } = buildService();
     assert.throws(
       () =>
         service.parseInput({
           workspaceId: "workspace-1",
-          path: "/workspace/scratch/tmp.bin",
+          path: "/tmp/scratch.bin",
           mimeType: "application/octet-stream",
           sizeBytes: 1
         }),
@@ -91,7 +91,7 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
       () =>
         service.parseInput({
           workspaceId: "workspace-1",
-          path: "/workspace/input/a.txt",
+          path: "/workspace/a.txt",
           mimeType: "text/plain",
           sizeBytes: -1
         }),
@@ -101,7 +101,7 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
       () =>
         service.parseInput({
           workspaceId: "workspace-1",
-          path: "/workspace/input/a.txt",
+          path: "/workspace/a.txt",
           mimeType: "text/plain",
           sizeBytes: Number.NaN
         }),

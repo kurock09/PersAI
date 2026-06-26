@@ -318,9 +318,7 @@ class FakePersaiInternalApiClientService {
 export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   const providerGatewayClientService = new FakeProviderGatewayClientService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
-  const sandboxClient = createFakeSandboxClientForOutboundWrite(
-    "/workspace/outbound/self/speech-openai.mp3"
-  );
+  const sandboxClient = createFakeSandboxClientForOutboundWrite("/workspace/speech-openai.mp3");
   const service = new RuntimeTtsToolService(
     providerGatewayClientService as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
@@ -381,7 +379,7 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   assert.equal(providerGatewayClientService.speechCalls.length, 1);
   assert.equal(providerGatewayClientService.speechCalls[0]?.credential.providerId, "openai");
   assert.equal(providerGatewayClientService.speechCalls[0]?.credential.modelKey, "gpt-4o-mini-tts");
-  assert.equal(result.artifacts[0]?.storagePath, "/workspace/outbound/self/speech-openai.mp3");
+  assert.equal(result.artifacts[0]?.storagePath, "/workspace/speech-openai.mp3");
   assert.equal(result.artifacts[0]?.mimeType, "audio/ogg");
   assert.deepEqual(persaiInternalApiClientService.quotaCalls, [
     {

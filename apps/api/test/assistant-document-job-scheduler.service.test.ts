@@ -672,7 +672,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-1",
-                  storagePath: "/workspace/outbound/self/deck-v2.pptx",
+                  storagePath: "/workspace/deck-v2.pptx",
                   kind: "file",
                   sourceToolCode: "document",
                   mimeType:
@@ -854,7 +854,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-html-1",
-                  storagePath: "/workspace/outbound/self/doc.pdf",
+                  storagePath: "/workspace/doc.pdf",
                   kind: "file",
                   sourceToolCode: "document",
                   mimeType: "application/pdf",
@@ -1043,7 +1043,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-struct-1",
-                  storagePath: "/workspace/outbound/self/large-doc.pdf",
+                  storagePath: "/workspace/large-doc.pdf",
                   kind: "file",
                   sourceToolCode: "document",
                   mimeType: "application/pdf",
@@ -1210,7 +1210,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-revise-1",
-                  storagePath: "/workspace/outbound/self/revised.pdf",
+                  storagePath: "/workspace/revised.pdf",
                   kind: "file",
                   sourceToolCode: "document",
                   mimeType: "application/pdf",
@@ -1433,7 +1433,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-ledger-1",
-                  storagePath: "/workspace/outbound/self/ledger-doc.pdf",
+                  storagePath: "/workspace/ledger-doc.pdf",
                   kind: "file",
                   sourceToolCode: "document",
                   mimeType: "application/pdf",
@@ -1597,7 +1597,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
               artifacts: [
                 {
                   artifactId: "artifact-null-usage-1",
-                  storagePath: "/workspace/outbound/self/null-usage.pdf",
+                  storagePath: "/workspace/null-usage.pdf",
                   kind: "file",
                   sourceToolCode: "document",
                   mimeType: "application/pdf",

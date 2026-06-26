@@ -308,9 +308,9 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs no-ops when no workspac
 
 test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs executes every file when key count is within concurrency", async () => {
   const keys = [
-    "assistant-media/workspaces/ws-small/workspace/input/a.txt",
-    "assistant-media/workspaces/ws-small/workspace/input/b.txt",
-    "assistant-media/workspaces/ws-small/workspace/outbound/self/c.txt"
+    "assistant-media/workspaces/ws-small/workspace/a.txt",
+    "assistant-media/workspaces/ws-small/workspace/b.txt",
+    "assistant-media/workspaces/ws-small/workspace/c.txt"
   ];
   const buffers = new Map<string, Buffer>([
     [keys[0]!, Buffer.from("alpha")],
@@ -337,31 +337,29 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs executes every file whe
   assert.ok(
     writes.some(
       (write) =>
-        write.shell.includes("/workspace/input/a.txt") && write.stdin.equals(Buffer.from("alpha"))
+        write.shell.includes("/workspace/a.txt") && write.stdin.equals(Buffer.from("alpha"))
     ),
     "a.txt must be written with its downloaded buffer"
   );
   assert.ok(
     writes.some(
-      (write) =>
-        write.shell.includes("/workspace/input/b.txt") && write.stdin.equals(Buffer.from("beta"))
+      (write) => write.shell.includes("/workspace/b.txt") && write.stdin.equals(Buffer.from("beta"))
     ),
     "b.txt must be written with its downloaded buffer"
   );
   assert.ok(
     writes.some(
       (write) =>
-        write.shell.includes("/workspace/outbound/self/c.txt") &&
-        write.stdin.equals(Buffer.from("gamma"))
+        write.shell.includes("/workspace/c.txt") && write.stdin.equals(Buffer.from("gamma"))
     ),
-    "outbound file must be written with its downloaded buffer"
+    "third file must be written with its downloaded buffer"
   );
 });
 
 test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs caps in-flight work at the concurrency constant", async () => {
   const totalKeys = WORKSPACE_MOUNT_HYDRATE_CONCURRENCY * 2 + 3;
   const keys = Array.from({ length: totalKeys }, (_, index) => {
-    return `assistant-media/workspaces/ws-many/workspace/input/file-${index}.txt`;
+    return `assistant-media/workspaces/ws-many/workspace/file-${index}.txt`;
   });
   let active = 0;
   let peak = 0;
@@ -394,9 +392,9 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs caps in-flight work at 
 
 test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs download failures and continues other blobs", async () => {
   const keys = [
-    "assistant-media/workspaces/ws-download/workspace/input/good-a.txt",
-    "assistant-media/workspaces/ws-download/workspace/input/bad.txt",
-    "assistant-media/workspaces/ws-download/workspace/input/good-b.txt"
+    "assistant-media/workspaces/ws-download/workspace/good-a.txt",
+    "assistant-media/workspaces/ws-download/workspace/bad.txt",
+    "assistant-media/workspaces/ws-download/workspace/good-b.txt"
   ];
   const writtenPaths: string[] = [];
   const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
@@ -423,19 +421,19 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs download failures 
     "download failures must be logged"
   );
   assert.ok(
-    writtenPaths.some((shell) => shell.includes("/workspace/input/good-a.txt")),
+    writtenPaths.some((shell) => shell.includes("/workspace/good-a.txt")),
     "good-a must still be written"
   );
   assert.ok(
-    writtenPaths.some((shell) => shell.includes("/workspace/input/good-b.txt")),
+    writtenPaths.some((shell) => shell.includes("/workspace/good-b.txt")),
     "good-b must still be written"
   );
 });
 
 test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs non-zero exec exits and still resolves", async () => {
   const keys = [
-    "assistant-media/workspaces/ws-exit/workspace/input/ok.txt",
-    "assistant-media/workspaces/ws-exit/workspace/input/fail.txt"
+    "assistant-media/workspaces/ws-exit/workspace/ok.txt",
+    "assistant-media/workspaces/ws-exit/workspace/fail.txt"
   ];
   const executed: string[] = [];
   const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
@@ -444,7 +442,7 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs non-zero exec exit
     execCommand: async (_podName, _namespace, request) => {
       const shell = request.args[1] ?? "";
       executed.push(shell);
-      if (shell.includes("/workspace/input/fail.txt")) {
+      if (shell.includes("/workspace/fail.txt")) {
         return { exitCode: 7 };
       }
       return { exitCode: 0 };
@@ -457,7 +455,7 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs non-zero exec exit
   assert.ok(
     warnings.some((warning) =>
       warning.includes(
-        "workspace_mount_hydrate_write_failed workspace=ws-exit path=/workspace/input/fail.txt exit=7"
+        "workspace_mount_hydrate_write_failed workspace=ws-exit path=/workspace/fail.txt exit=7"
       )
     ),
     "non-zero write exits must be logged"
@@ -1337,7 +1335,7 @@ test("ExecPodBridgeService: removeWorkspaceFileFromWarmPods rm's each warm pod",
 
   const result = await bridge.removeWorkspaceFileFromWarmPods({
     workspaceId: "ws-rm",
-    path: "/workspace/input/report.txt"
+    path: "/workspace/report.txt"
   });
 
   assert.equal(result.removedFromPods, 1);
@@ -1345,7 +1343,7 @@ test("ExecPodBridgeService: removeWorkspaceFileFromWarmPods rm's each warm pod",
   assert.deepEqual(execCalls, [
     {
       podName: "ses-pod-1",
-      shellCommand: "rm -f -- '/workspace/input/report.txt'"
+      shellCommand: "rm -f -- '/workspace/report.txt'"
     }
   ]);
 });
@@ -1363,7 +1361,7 @@ test("ExecPodBridgeService: removeWorkspaceFileFromWarmPods returns zero when no
 
   const result = await bridge.removeWorkspaceFileFromWarmPods({
     workspaceId: "ws-empty",
-    path: "/workspace/input/missing.txt"
+    path: "/workspace/missing.txt"
   });
 
   assert.equal(result.removedFromPods, 0);
@@ -1410,9 +1408,15 @@ test("ExecPodBridgeService: cold-start runInPod bootstraps workspace dirs", asyn
 
   assert.ok(ctx.execCallCount >= 3, "cold bootstrap must fire marker, dirs, and chmod execs");
   const dirsExec = ctx.execCommands.find((command) =>
-    command.some((part) => part.includes("mkdir -p '/workspace/input'"))
+    command.some((part) => part.includes("mkdir -p '/workspace'"))
   );
-  assert.ok(dirsExec !== undefined, "dirs exec must create workspace input");
+  assert.ok(dirsExec !== undefined, "dirs exec must create /workspace");
   const dirsScript = dirsExec?.find((part) => part.includes("mkdir -p")) ?? "";
-  assert.ok(dirsScript.includes("ln -sfn '/workspace/outbound/cold-handle'"));
+  // ADR-128 Slice 4: flat workspace has no subdirs, no outbound symlink.
+  assert.ok(!dirsScript.includes("ln -sfn"), "no outbound/self symlink on flat workspace");
+  assert.ok(!dirsScript.includes("/workspace/input"), "no /workspace/input on flat workspace");
+  assert.ok(
+    !dirsScript.includes("/workspace/outbound"),
+    "no /workspace/outbound on flat workspace"
+  );
 });

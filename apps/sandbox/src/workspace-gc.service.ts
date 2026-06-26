@@ -15,32 +15,18 @@ import { SandboxPrismaService } from "./sandbox-prisma.service";
 import { WorkspaceAuditService } from "./workspace-audit.service";
 
 /**
- * ADR-128 Slice 1 — deferred garbage collector for sandbox workspace state.
+ * ADR-128 Slice 4 — deferred garbage collector for sandbox workspace state.
  *
  * The reaper drains rows from `sandbox_workspace_gc_lease` whose
  * `scheduled_at <= now() AND purged_at IS NULL`, validates the kind-specific
- * `metadata` blob against a Zod schema, then performs the matching purge:
+ * `metadata` blob against a Zod schema, then performs the matching purge.
  *
- *   * `chat_scratch` (scheduled `now()`):
- *       - delete `/workspace/chats/<chatId>/` from every warm session pod
- *         in the (assistantId, workspaceId) tuple;
- *       - drop the GCS snapshot subtree under
- *         `<media-prefix>/assistants/<assistantId>/sandbox-sessions/(any)/chats/<chatId>/`;
- *       - delete `workspace_file_metadata` rows whose `path`
- *         starts with `/workspace/chats/<chatId>/`.
- *   * `assistant_outbound` (scheduled `now() + 7d`):
- *       - delete `/workspace/outbound/<handle>/` from every warm session pod
- *         in the workspace;
- *       - drop the GCS prefix
- *         `<media-prefix>/workspaces/<workspaceId>/workspace/outbound/<handle>/`;
- *       - delete `workspace_file_metadata` rows whose `workspace_id = <workspaceId>`
- *         and `path LIKE '/workspace/outbound/<handle>/%'`.
- *   * `workspace_shared` (scheduled `now() + 30d`):
- *       - delete workspace input/outbound persisted areas from every warm
- *         session pod in the workspace;
- *       - drop the GCS prefix `<media-prefix>/workspaces/<workspaceId>/workspace/`;
- *       - delete `workspace_file_metadata` rows whose `workspace_id = <workspaceId>`
- *         and `path LIKE '/workspace/%'`.
+ * After ADR-128 Slice 4 the workspace is flat (no input/outbound/handle
+ * subdirectories), so the per-chat and per-assistant subtree purges become
+ * cleanup of their respective auxiliary state only — session snapshot GCS
+ * for `chat_scratch`, lease bookkeeping for `assistant_outbound`. The
+ * `workspace_shared` purge still wipes the entire `/workspace/` subtree for
+ * the workspace.
  *
  * On any failure the lease stays open; the next tick retries. Successful
  * purges set `purged_at = now()` so the row is no longer returned by the due
@@ -177,59 +163,26 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
   }): Promise<void> {
     const startedAt = Date.now();
     const meta = CHAT_SCRATCH_METADATA.parse(lease.metadata);
-    const chatId = lease.targetId;
-    const chatPath = `/workspace/chats/${chatId}`;
-    // Purge from every warm session pod for this assistant+workspace.
-    const pods = await this.execPodBridgeService.listWarmSessionPodsForWorkspace(meta.workspaceId);
-    let podsTouched = 0;
-    for (const pod of pods.filter((p) => p.assistantId === meta.assistantId)) {
-      try {
-        // We can use the unprivileged session-pod path to run `rm -rf`.
-        await this.execPodBridgeService.execShellInSessionPod({
-          assistantId: pod.assistantId,
-          assistantHandle: pod.handle,
-          siblingHandles: pods
-            .filter((p) => p.assistantId !== pod.assistantId)
-            .map((p) => p.handle),
-          workspaceId: meta.workspaceId,
-          // A trivial sandbox policy is fine for a one-shot `rm`; the call only
-          // depends on the timeout/stdout caps and these are sufficient.
-          policy: this.gcSandboxPolicy(),
-          shellCommand: `rm -rf ${posixSingleQuote(chatPath)}`,
-          stdin: null
-        });
-        podsTouched += 1;
-      } catch (error) {
-        this.logger.warn(
-          `workspace_gc_chat_scratch_pod_purge_failed pod=${pod.podName} chat=${chatId} reason=${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    }
-    // GCS snapshot subtree.
+    // ADR-128 Slice 4 — the flat workspace has no chat-scoped subtree, so the
+    // only remaining work is to drop the assistant's session-snapshot GCS
+    // subtree (per-session tarballs that are no longer addressable once the
+    // chat is gone).
     try {
-      // `assistants/<aid>/sandbox-sessions/*/chats/<chatId>/` — best effort.
-      // The bucket prefix is implicit in the storage service; we delete the
-      // entire snapshot subtree by enumerating, which is safe because chat
-      // scratch lives under that prefix.
       const snapshotPrefix = `${this.mediaPrefix()}/assistants/${meta.assistantId}/sandbox-sessions/`;
       await this.sandboxObjectStorageService.deletePrefix(snapshotPrefix);
     } catch (error) {
       this.logger.warn(
-        `workspace_gc_chat_scratch_gcs_purge_failed chat=${chatId} reason=${error instanceof Error ? error.message : String(error)}`
+        `workspace_gc_chat_scratch_gcs_purge_failed chat=${lease.targetId} reason=${error instanceof Error ? error.message : String(error)}`
       );
     }
-    const metadataRowsRemoved = await this.deleteWorkspaceFileMetadataByPathPrefix({
-      workspaceId: meta.workspaceId,
-      relPathPrefix: `/workspace/chats/${chatId}/`
-    });
     await this.markLeasePurged(lease.id);
     this.workspaceAuditService.recordGcPurged({
       leaseId: lease.id,
       kind: lease.kind,
       targetId: lease.targetId,
       durationMs: Date.now() - startedAt,
-      metadataRowsRemoved,
-      podsTouched
+      metadataRowsRemoved: 0,
+      podsTouched: 0
     });
   }
 
@@ -239,54 +192,19 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
     targetId: string;
     metadata: Prisma.JsonValue;
   }): Promise<void> {
+    // ADR-128 Slice 4 — the flat workspace has no per-assistant subtree, so
+    // this lease has nothing path-shaped to purge anymore. We still validate
+    // the metadata blob and mark the lease purged so producers do not stall.
     const startedAt = Date.now();
-    const meta = ASSISTANT_OUTBOUND_METADATA.parse(lease.metadata);
-    // GCS prefix.
-    try {
-      const prefix = this.sandboxObjectStorageService.buildWorkspacePrefix({
-        workspaceId: meta.workspaceId,
-        subPath: `outbound/${meta.handle}`
-      });
-      await this.sandboxObjectStorageService.deletePrefix(prefix);
-    } catch (error) {
-      this.logger.warn(
-        `workspace_gc_assistant_outbound_gcs_purge_failed handle=${meta.handle} reason=${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-    // Warm pods (best-effort).
-    const pods = await this.execPodBridgeService.listWarmSessionPodsForWorkspace(meta.workspaceId);
-    let podsTouched = 0;
-    const outboundPath = `/workspace/outbound/${meta.handle}`;
-    for (const pod of pods) {
-      try {
-        await this.execPodBridgeService.execShellInSessionPod({
-          assistantId: pod.assistantId,
-          assistantHandle: pod.handle,
-          siblingHandles: pods.filter((p) => p.podName !== pod.podName).map((p) => p.handle),
-          workspaceId: meta.workspaceId,
-          policy: this.gcSandboxPolicy(),
-          shellCommand: `rm -rf ${posixSingleQuote(outboundPath)}`,
-          stdin: null
-        });
-        podsTouched += 1;
-      } catch (error) {
-        this.logger.warn(
-          `workspace_gc_assistant_outbound_pod_purge_failed pod=${pod.podName} reason=${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    }
-    const metadataRowsRemoved = await this.deleteWorkspaceFileMetadataByPathPrefix({
-      workspaceId: meta.workspaceId,
-      relPathPrefix: `/workspace/outbound/${meta.handle}/`
-    });
+    ASSISTANT_OUTBOUND_METADATA.parse(lease.metadata);
     await this.markLeasePurged(lease.id);
     this.workspaceAuditService.recordGcPurged({
       leaseId: lease.id,
       kind: lease.kind,
       targetId: lease.targetId,
       durationMs: Date.now() - startedAt,
-      metadataRowsRemoved,
-      podsTouched
+      metadataRowsRemoved: 0,
+      podsTouched: 0
     });
   }
 
@@ -309,7 +227,6 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
     }
     const pods = await this.execPodBridgeService.listWarmSessionPodsForWorkspace(workspaceId);
     let podsTouched = 0;
-    const workspacePersistedPath = "/workspace";
     for (const pod of pods) {
       try {
         await this.execPodBridgeService.execShellInSessionPod({
@@ -318,10 +235,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
           siblingHandles: pods.filter((p) => p.podName !== pod.podName).map((p) => p.handle),
           workspaceId,
           policy: this.gcSandboxPolicy(),
-          shellCommand: [
-            `rm -rf ${posixSingleQuote(`${workspacePersistedPath}/input`)}`,
-            `rm -rf ${posixSingleQuote(`${workspacePersistedPath}/outbound`)}`
-          ].join(" && "),
+          shellCommand: `rm -rf ${posixSingleQuote("/workspace")}/* ${posixSingleQuote("/workspace")}/.[!.]*`,
           stdin: null
         });
         podsTouched += 1;

@@ -1,13 +1,14 @@
 import { Prisma, type Prisma as PrismaTypes } from "@prisma/client";
 
 /**
- * ADR-126 Slice 3 — handle generation + per-workspace de-duplication.
+ * Handle generation + per-workspace de-duplication.
  *
- * The handle is the stable, URL/path-safe identifier used to name the
- * per-assistant outbound directory inside session pods
- * (`/workspace/outbound/<handle>/`) and the corresponding GCS
- * prefix (`workspaces/<workspaceId>/workspace/outbound/<handle>/`). Once written
- * at creation time it must remain stable across rename — renaming an
+ * The handle is the stable, URL/path-safe identifier for an assistant.
+ * After ADR-128 Slice 4 the flat `/workspace/` namespace no longer uses
+ * the handle as a path classifier, but the handle is still kept because
+ * downstream surfaces (audit logs, pod annotations, bash env hints, sibling
+ * lookups) want a stable per-assistant name. Once written at creation
+ * time the handle must remain stable across rename — renaming an
  * assistant does NOT re-slug.
  *
  * The slug algorithm matches the migration backfill in

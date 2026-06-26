@@ -52,7 +52,7 @@ function createService(input: {
     async registerChatAttachment() {
       return {
         attachmentId: "attachment-1",
-        storagePath: "/workspace/outbound/self/report.csv"
+        storagePath: "/workspace/report.csv"
       };
     },
     ...input.apiClient
@@ -84,7 +84,7 @@ test("files.attach happy path workspace source creates API row and hides attachm
       content: JSON.stringify({
         action: "attached",
         attachment: {
-          workspaceRelPath: "/workspace/outbound/self/report.csv",
+          workspaceRelPath: "/workspace/report.csv",
           sourcePath: "/workspace/report.csv",
           sizeBytes: 12,
           mimeType: "text/csv",
@@ -98,7 +98,7 @@ test("files.attach happy path workspace source creates API row and hides attachm
         apiInput = input as Record<string, unknown>;
         return {
           attachmentId: "attachment-1",
-          storagePath: "/workspace/outbound/self/report.csv"
+          storagePath: "/workspace/report.csv"
         };
       }
     }
@@ -120,18 +120,15 @@ test("files.attach happy path workspace source creates API row and hides attachm
   assert.equal(apiInput?.chatId, undefined);
   assert.equal(result.isError, false);
   assert.equal(result.payload.action, "attached");
-  assert.equal(result.payload.path, "/workspace/outbound/self/report.csv");
+  assert.equal(result.payload.path, "/workspace/report.csv");
   assert.equal(result.payload.sizeBytes, 12);
-  assert.equal(
-    result.discoveredFileHandles?.[0]?.storagePath,
-    "/workspace/outbound/self/report.csv"
-  );
+  assert.equal(result.discoveredFileHandles?.[0]?.storagePath, "/workspace/report.csv");
   const modelJson = stringifyToolResultPayloadForModel(result.payload);
   assert.ok(!modelJson.includes("attachment-1"));
   assert.ok(!modelJson.includes('"attachmentId"'));
 });
 
-test("files.attach happy path workspace_outbound_self still calls API", async () => {
+test("files.attach happy path /workspace/ file still calls API", async () => {
   let apiCalled = false;
   const service = createService({
     sandboxJob: {
@@ -141,8 +138,8 @@ test("files.attach happy path workspace_outbound_self still calls API", async ()
       violationMessage: null,
       content: JSON.stringify({
         attachment: {
-          workspaceRelPath: "/workspace/outbound/self/report.csv",
-          sourcePath: "/workspace/outbound/self/report.csv",
+          workspaceRelPath: "/workspace/report.csv",
+          sourcePath: "/workspace/report.csv",
           sizeBytes: 12,
           mimeType: "text/csv",
           displayName: "report.csv"
@@ -155,7 +152,7 @@ test("files.attach happy path workspace_outbound_self still calls API", async ()
         assert.equal(input.channel, "web");
         assert.equal(input.externalThreadKey, "web-1782153682653");
         assert.equal(input.chatId, undefined);
-        return { attachmentId: "attachment-2", storagePath: "/workspace/outbound/self/report.csv" };
+        return { attachmentId: "attachment-2", storagePath: "/workspace/report.csv" };
       }
     }
   });
@@ -165,7 +162,7 @@ test("files.attach happy path workspace_outbound_self still calls API", async ()
     toolCall: {
       id: "tc-2",
       name: "files",
-      arguments: { action: "attach", path: "/workspace/outbound/self/report.csv" }
+      arguments: { action: "attach", path: "/workspace/report.csv" }
     },
     ...attachToolCallParams
   });
@@ -180,14 +177,14 @@ test("files.attach sandbox path_not_attachable does not call API", async () => {
     sandboxJob: {
       status: "completed",
       reason: "path_not_attachable",
-      warning: "files.attach accepts only /workspace/ or /workspace/outbound/self/ paths",
+      warning: "files.attach accepts only /workspace/ or /workspace/ paths",
       violationMessage: null,
       content: null
     },
     apiClient: {
       async registerChatAttachment() {
         apiCalled = true;
-        return { attachmentId: "attachment-3", storagePath: "/workspace/outbound/self/report.csv" };
+        return { attachmentId: "attachment-3", storagePath: "/workspace/report.csv" };
       }
     }
   });
@@ -197,7 +194,7 @@ test("files.attach sandbox path_not_attachable does not call API", async () => {
     toolCall: {
       id: "tc-3",
       name: "files",
-      arguments: { action: "attach", path: "/workspace/input/sales.csv" }
+      arguments: { action: "attach", path: "/workspace/sales.csv" }
     },
     ...attachToolCallParams
   });
@@ -216,7 +213,7 @@ test("files.attach API failure returns files_attach_failed", async () => {
       violationMessage: null,
       content: JSON.stringify({
         attachment: {
-          workspaceRelPath: "/workspace/outbound/self/report.csv",
+          workspaceRelPath: "/workspace/report.csv",
           sourcePath: "/workspace/report.csv",
           sizeBytes: 12,
           mimeType: "text/csv",
@@ -295,7 +292,7 @@ test("files.write shared_quota_exhausted surfaces stable reason to model", async
       name: "files",
       arguments: {
         action: "write",
-        path: "/workspace/outbound/self/out.csv",
+        path: "/workspace/out.csv",
         content: "data"
       }
     },
@@ -340,14 +337,13 @@ test("files.list /workspace/ path reads from manifest API and skips sandbox", as
       async listWorkspaceFilesFromManifest(input: Record<string, unknown>) {
         manifestCalled = true;
         assert.equal(input.workspaceId, "workspace-1");
-        assert.equal(input.pathPrefix, "/workspace/input");
+        assert.equal(input.pathPrefix, "/workspace");
         assert.equal(input.assistantHandle, "my-bot");
         return {
           items: [
             {
-              path: "/workspace/input/photo.jpg",
+              path: "/workspace/photo.jpg",
               type: "file",
-              role: "workspace_input",
               sizeBytes: 1200,
               mimeType: "image/jpeg",
               modifiedAt: "2026-06-20T10:00:00.000Z",
@@ -364,7 +360,7 @@ test("files.list /workspace/ path reads from manifest API and skips sandbox", as
     toolCall: {
       id: "tc-list-shared",
       name: "files",
-      arguments: { action: "list", path: "/workspace/input" }
+      arguments: { action: "list", path: "/workspace" }
     },
     sessionId: "session-1",
     requestId: "request-1",
@@ -383,7 +379,7 @@ test("files.list /workspace/ path reads from manifest API and skips sandbox", as
   assert.ok(Array.isArray(items));
   assert.equal(items.length, 1);
   const first = items[0] as Record<string, unknown>;
-  assert.equal(first.path, "/workspace/input/photo.jpg");
+  assert.equal(first.path, "/workspace/photo.jpg");
   assert.equal(first.shortDescription, "front-door selfie");
 });
 
@@ -405,7 +401,6 @@ test("files.list /workspace/ path keeps sandbox find behavior", async () => {
               {
                 path: "/workspace/scratch.txt",
                 type: "file",
-                role: "workspace_scratch",
                 sizeBytes: 4,
                 mimeType: "text/plain",
                 modifiedAt: "2026-06-20T10:00:00.000Z"
@@ -487,7 +482,7 @@ test("files.write /workspace/ path upserts manifest", async () => {
       name: "files",
       arguments: {
         action: "write",
-        path: "/workspace/outbound/self/notes.md",
+        path: "/workspace/notes.md",
         content: "# notes\nhello"
       }
     },
@@ -503,7 +498,7 @@ test("files.write /workspace/ path upserts manifest", async () => {
   assert.equal(result.payload.action, "written");
   assert.equal(upsertCalled, true);
   assert.equal(upsertInput?.workspaceId, "workspace-1");
-  assert.equal(upsertInput?.path, "/workspace/outbound/self/notes.md");
+  assert.equal(upsertInput?.path, "/workspace/notes.md");
   assert.equal(upsertInput?.mimeType, "text/markdown");
   assert.equal(upsertInput?.sizeBytes, 42);
 });
@@ -588,7 +583,7 @@ test("files.write /workspace/ upsert failure is swallowed; write still succeeds"
       name: "files",
       arguments: {
         action: "write",
-        path: "/workspace/outbound/self/note.txt",
+        path: "/workspace/note.txt",
         content: "abc"
       }
     },
@@ -630,7 +625,7 @@ test("files.delete /workspace/ path deletes manifest after sandbox rm", async ()
       name: "files",
       arguments: {
         action: "delete",
-        path: "/workspace/outbound/self/note.txt"
+        path: "/workspace/note.txt"
       }
     },
     sessionId: "session-1",
@@ -645,7 +640,7 @@ test("files.delete /workspace/ path deletes manifest after sandbox rm", async ()
   assert.equal(result.payload.action, "deleted");
   assert.equal(manifestDeleteCalled, true);
   assert.equal(manifestDeleteInput?.workspaceId, "workspace-1");
-  assert.equal(manifestDeleteInput?.path, "/workspace/outbound/self/note.txt");
+  assert.equal(manifestDeleteInput?.path, "/workspace/note.txt");
 });
 
 test("files.delete /workspace/ path does NOT delete manifest", async () => {

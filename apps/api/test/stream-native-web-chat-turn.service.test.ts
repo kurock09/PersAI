@@ -104,7 +104,7 @@ describe("WebRuntimeStreamClientService", () => {
             artifact: {
               artifactId: "artifact-1",
               kind: "image",
-              storagePath: "/workspace/outbound/self/stream.png",
+              storagePath: "/workspace/stream.png",
               mimeType: "image/png",
               filename: "stream.png",
               sizeBytes: 64,
@@ -121,7 +121,7 @@ describe("WebRuntimeStreamClientService", () => {
                 {
                   artifactId: "artifact-1",
                   kind: "image",
-                  storagePath: "/workspace/outbound/self/stream.png",
+                  storagePath: "/workspace/stream.png",
                   mimeType: "image/png",
                   filename: "stream.png",
                   sizeBytes: 64,
@@ -226,7 +226,7 @@ describe("WebRuntimeStreamClientService", () => {
           media: [
             {
               source: "persai_object_storage",
-              objectKey: "/workspace/outbound/self/stream.png",
+              objectKey: "/workspace/stream.png",
               type: "image",
               mimeType: "image/png",
               filename: "stream.png",
@@ -644,7 +644,7 @@ describe("WebRuntimeStreamClientService", () => {
             artifact: {
               artifactId: "artifact-degraded-1",
               kind: "image",
-              storagePath: "/workspace/outbound/self/degraded.png",
+              storagePath: "/workspace/degraded.png",
               mimeType: "image/png",
               filename: "degraded.png",
               sizeBytes: 512,
@@ -662,7 +662,7 @@ describe("WebRuntimeStreamClientService", () => {
               {
                 artifactId: "artifact-degraded-1",
                 kind: "image",
-                storagePath: "/workspace/outbound/self/degraded.png",
+                storagePath: "/workspace/degraded.png",
                 mimeType: "image/png",
                 filename: "degraded.png",
                 sizeBytes: 512,
@@ -705,7 +705,7 @@ describe("WebRuntimeStreamClientService", () => {
           media: [
             {
               source: "persai_object_storage",
-              objectKey: "/workspace/outbound/self/degraded.png",
+              objectKey: "/workspace/degraded.png",
               type: "image",
               mimeType: "image/png",
               filename: "degraded.png",

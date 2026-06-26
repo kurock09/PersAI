@@ -145,7 +145,6 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       item: {
         path: "/workspace/uploads/report.txt",
         type: "file",
-        role: "workspace_scratch",
         sizeBytes: 42,
         mimeType: "text/plain",
         modifiedAt: null,
@@ -155,7 +154,6 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
         {
           path: "/workspace/uploads/report.txt",
           type: "file",
-          role: "workspace_scratch",
           sizeBytes: 42,
           mimeType: "text/plain",
           modifiedAt: null
@@ -176,7 +174,6 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       fileRefs?: string[];
     };
     assert.equal(parsed.item.path, "/workspace/uploads/report.txt");
-    assert.equal(parsed.item.role, "workspace_scratch");
     assert.equal(parsed.item.shortDescription, "Quarterly revenue report for the EMEA region.");
     assert.equal(parsed.items[0]?.path, "/workspace/uploads/report.txt");
     assert.equal(parsed.content, "hello");

@@ -1,7 +1,7 @@
 export function createFakeSandboxClientForOutboundWrite(
-  workspaceRelPath = "/workspace/outbound/self/test-artefact.bin"
+  workspaceRelPath = "/workspace/test-artefact.bin"
 ): {
-  writeWorkspaceOutbound(input: {
+  writeWorkspaceFile(input: {
     contentBase64: string;
     workspaceQuotaBytes?: number | null;
     sharedQuotaBytes?: number | null;
@@ -11,7 +11,7 @@ export function createFakeSandboxClientForOutboundWrite(
   }>;
 } {
   return {
-    async writeWorkspaceOutbound(input: {
+    async writeWorkspaceFile(input: {
       contentBase64: string;
       workspaceQuotaBytes?: number | null;
       sharedQuotaBytes?: number | null;
