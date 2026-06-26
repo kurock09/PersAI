@@ -28,16 +28,20 @@ const CTX: WorkspaceBridgeContext = {
 
 type ExecResponse = { exitCode: number; stdout: string; stderr: string };
 type ExecCall = { shellCommand: string; stdin: Buffer | null | undefined };
+type ReadFileCall = { absolutePath: string; maxBytes: number };
 
 function makeExec(
   responses: ExecResponse[] = [],
-  options: { tryHotPodResponses?: (ExecResponse | null)[] } = {}
+  options: { tryHotPodResponses?: (ExecResponse | null)[]; fileReadBytes?: Buffer[] } = {}
 ) {
   let idx = 0;
   let tryIdx = 0;
+  let readIdx = 0;
   const calls: ExecCall[] = [];
   const tryCalls: ExecCall[] = [];
+  const readFileCalls: ReadFileCall[] = [];
   const tryResponses = options.tryHotPodResponses ?? [];
+  const fileReadBytes = options.fileReadBytes ?? [];
   const service = {
     async execShellInSessionPod(input: {
       shellCommand: string;
@@ -59,9 +63,18 @@ function makeExec(
         return null;
       }
       return { ...resp, durationMs: 1, execPodName: "ses-test" };
+    },
+    async readWorkspaceFileFromSessionPod(input: {
+      absolutePath: string;
+      maxBytes: number;
+      [k: string]: unknown;
+    }): Promise<{ bytes: Buffer; durationMs: number; execPodName: string }> {
+      readFileCalls.push({ absolutePath: input.absolutePath, maxBytes: input.maxBytes });
+      const bytes = fileReadBytes[readIdx++] ?? Buffer.alloc(0);
+      return { bytes, durationMs: 1, execPodName: "ses-test" };
     }
   } as never;
-  return { calls, tryCalls, service };
+  return { calls, tryCalls, readFileCalls, service };
 }
 
 type SaveCall = { objectKey: string; buffer: Buffer; mimeType: string };
@@ -655,14 +668,8 @@ test("workspaceFileCopy: source outside /workspace rejected", async () => {
 // ─── workspaceFilePersist ─────────────────────────────────────────────────────
 
 test("workspaceFilePersist: exec-created /workspace file is mirrored to GCS for delivery", async () => {
-  const fileBytes = Buffer.from("deliver me");
-  const exec = makeExec([
-    {
-      exitCode: 0,
-      stdout: `${fileBytes.toString("base64")}\n`,
-      stderr: ""
-    }
-  ]);
+  const fileBytes = Buffer.alloc(200 * 1024, 7);
+  const exec = makeExec([], { fileReadBytes: [fileBytes] });
   const storage = makeStorage();
   const audit = makeAudit();
   const bridge = makeBridge(exec.service, storage.service, makeObs().service, audit.service);
@@ -677,10 +684,12 @@ test("workspaceFilePersist: exec-created /workspace file is mirrored to GCS for 
   assert.equal(result.data.bytes, fileBytes.length);
   assert.equal(storage.savedObjects.length, 1);
   assert.ok(storage.savedObjects[0]?.objectKey.includes(`${WS_ID}/workspace/thumb.jpg`));
-  assert.equal(storage.savedObjects[0]?.buffer.toString(), "deliver me");
+  assert.equal(storage.savedObjects[0]?.buffer.length, fileBytes.length);
   assert.equal(storage.savedObjects[0]?.mimeType, "image/jpeg");
-  assert.equal(audit.ops.at(-1)?.op, "read");
-  assert.equal(audit.ops.at(-1)?.status, "ok");
+  assert.equal(exec.calls.length, 0);
+  assert.equal(exec.readFileCalls.length, 1);
+  assert.equal(exec.readFileCalls[0]?.absolutePath, "/workspace/thumb.jpg");
+  assert.equal(exec.readFileCalls[0]?.maxBytes, CTX.policy.telegramMaxOutboundBytes);
 });
 
 // ─── writeWorkspaceFileControlPlane ───────────────────────────────────────────

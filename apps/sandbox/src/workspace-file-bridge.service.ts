@@ -772,29 +772,30 @@ export class WorkspaceFileBridgeService {
     }>
   > {
     const resolved = this.resolveModelPath(ctx, input.path);
-    const readResult = await this.workspaceFileRead(ctx, {
-      path: resolved.absolutePath,
-      maxBytes: MAX_READ_BYTES
-    });
-    if (!readResult.success || readResult.data === null) {
-      return {
-        success: false,
-        reason: readResult.reason ?? "read_failed",
-        latencyMs: readResult.latencyMs,
-        data: {
-          path: resolved.absolutePath,
-          bytes: 0
-        }
-      };
-    }
-    if (readResult.data.truncated) {
+    const startedAt = Date.now();
+    let bytes: Buffer;
+    try {
+      const readResult = await this.execPodBridgeService.readWorkspaceFileFromSessionPod({
+        assistantId: ctx.assistantId,
+        assistantHandle: ctx.assistantHandle,
+        siblingHandles: ctx.siblingHandles,
+        workspaceId: ctx.workspaceId,
+        policy: ctx.policy,
+        absolutePath: resolved.absolutePath,
+        maxBytes: Math.max(ctx.policy.webMaxOutboundBytes, ctx.policy.telegramMaxOutboundBytes)
+      });
+      bytes = readResult.bytes;
+    } catch (error) {
+      this.logger.warn(
+        `workspace_file_publish_pod_read_failed workspace=${ctx.workspaceId} path=${resolved.absolutePath} reason=${error instanceof Error ? error.message : String(error)}`
+      );
       return {
         success: false,
         reason: "publish_failed",
-        latencyMs: readResult.latencyMs,
+        latencyMs: Date.now() - startedAt,
         data: {
           path: resolved.absolutePath,
-          bytes: readResult.data.bytes.length
+          bytes: 0
         }
       };
     }
@@ -805,7 +806,7 @@ export class WorkspaceFileBridgeService {
           workspaceId: ctx.workspaceId,
           workspaceRelPath: this.toWorkspaceRelPath(resolved.absolutePath)
         }),
-        buffer: readResult.data.bytes,
+        buffer: bytes,
         mimeType: input.mimeType
       });
     } catch (error) {
@@ -815,10 +816,10 @@ export class WorkspaceFileBridgeService {
       return {
         success: false,
         reason: "publish_failed",
-        latencyMs: readResult.latencyMs,
+        latencyMs: Date.now() - startedAt,
         data: {
           path: resolved.absolutePath,
-          bytes: readResult.data.bytes.length
+          bytes: bytes.length
         }
       };
     }
@@ -826,10 +827,10 @@ export class WorkspaceFileBridgeService {
     return {
       success: true,
       reason: null,
-      latencyMs: readResult.latencyMs,
+      latencyMs: Date.now() - startedAt,
       data: {
         path: resolved.absolutePath,
-        bytes: readResult.data.bytes.length
+        bytes: bytes.length
       }
     };
   }

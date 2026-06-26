@@ -81,6 +81,12 @@ export type PodExecResult = {
   execPodName: string;
 };
 
+export type PodFileReadResult = {
+  bytes: Buffer;
+  durationMs: number;
+  execPodName: string;
+};
+
 type BridgeError = Error & { code: string; blocked: boolean };
 
 // `blocked` marks a terminal policy/limit/workload block (non-retryable). Bridge
@@ -300,6 +306,45 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     });
     return {
       ...result,
+      durationMs: Date.now() - startedAt,
+      execPodName: podName
+    };
+  }
+
+  async readWorkspaceFileFromSessionPod(input: {
+    assistantId: string;
+    assistantHandle: string;
+    siblingHandles: readonly string[];
+    workspaceId: string;
+    policy: RuntimeSandboxPolicy;
+    absolutePath: string;
+    maxBytes: number;
+  }): Promise<PodFileReadResult> {
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+    const podName = this.buildSessionPodName(input.assistantId, input.workspaceId);
+    const startedAt = Date.now();
+    await this.ensureSessionPodRunning(
+      podName,
+      namespace,
+      input.policy,
+      input.assistantId,
+      input.workspaceId,
+      input.assistantHandle
+    );
+    await this.ensureWorkspaceMountBootstrapped(
+      podName,
+      namespace,
+      input.workspaceId,
+      input.assistantHandle,
+      input.siblingHandles
+    );
+    const bytes = await this.readFileBytesFromPod(podName, namespace, {
+      absolutePath: input.absolutePath,
+      maxBytes: input.maxBytes,
+      policy: input.policy
+    });
+    return {
+      bytes,
       durationMs: Date.now() - startedAt,
       execPodName: podName
     };
@@ -1559,6 +1604,169 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     );
 
     return Promise.race([resultPromise, timeoutPromise]);
+  }
+
+  private async readFileBytesFromPod(
+    podName: string,
+    namespace: string,
+    options: {
+      absolutePath: string;
+      maxBytes: number;
+      policy: RuntimeSandboxPolicy;
+    }
+  ): Promise<Buffer> {
+    if (!options.absolutePath.startsWith("/workspace/")) {
+      throw createBridgeError(
+        "path_not_attachable",
+        `Workspace file read path must be under /workspace/: ${options.absolutePath}`,
+        true
+      );
+    }
+    const quotedPath = posixSingleQuote(options.absolutePath);
+    const shellCommand = [
+      `if [ ! -f ${quotedPath} ]; then echo path_not_found >&2; exit 65; fi`,
+      `size="$(stat -c '%s' ${quotedPath})"`,
+      `if [ "$size" -gt ${String(options.maxBytes)} ]; then echo workspace_file_too_large >&2; exit 66; fi`,
+      `cat ${quotedPath}`
+    ].join("; ");
+    const resultPromise = new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
+      const statusReceived = { value: false };
+      const settled = { value: false };
+      let totalBytes = 0;
+      let limitError: BridgeError | null = null;
+
+      const stdout = new Writable({
+        write(chunk: Buffer, _encoding: string, callback: () => void) {
+          totalBytes += chunk.length;
+          if (totalBytes > options.maxBytes && limitError === null) {
+            limitError = createBridgeError(
+              "workspace_file_too_large",
+              `Workspace file exceeded ${String(options.maxBytes)} bytes during publish.`,
+              true
+            );
+          }
+          if (limitError === null) {
+            chunks.push(chunk);
+          }
+          callback();
+        }
+      });
+      const stderr = new Writable({
+        write(chunk: Buffer, _encoding: string, callback: () => void) {
+          if (Buffer.concat(stderrChunks).length < 8192) {
+            stderrChunks.push(chunk);
+          }
+          callback();
+        }
+      });
+      const finish = (fn: () => void) => {
+        if (settled.value) {
+          return;
+        }
+        settled.value = true;
+        fn();
+      };
+
+      this.execApi
+        .exec(
+          namespace,
+          podName,
+          "exec",
+          ["/bin/sh", "-c", shellCommand],
+          stdout,
+          stderr,
+          null,
+          false,
+          (status: V1Status) => {
+            statusReceived.value = true;
+            const exitCode = extractExitCode(status);
+            if (limitError !== null) {
+              finish(() => reject(limitError));
+              return;
+            }
+            if (exitCode !== 0) {
+              const stderrMessage = Buffer.concat(stderrChunks).toString("utf8").trim();
+              finish(() =>
+                reject(
+                  createBridgeError(
+                    exitCode === 65
+                      ? "path_not_found"
+                      : exitCode === 66
+                        ? "workspace_file_too_large"
+                        : "sandbox_failed",
+                    stderrMessage.length > 0
+                      ? stderrMessage
+                      : `Workspace file read failed with exit ${String(exitCode)}.`,
+                    exitCode === 65 || exitCode === 66
+                  )
+                )
+              );
+              return;
+            }
+            finish(() => resolve(Buffer.concat(chunks)));
+          }
+        )
+        .then((ws) => {
+          ws.on("close", () => {
+            if (statusReceived.value) {
+              return;
+            }
+            setTimeout(() => {
+              if (statusReceived.value) {
+                return;
+              }
+              finish(() =>
+                reject(
+                  limitError ??
+                    createBridgeError(
+                      "sandbox_failed",
+                      "Workspace file read WebSocket closed without status",
+                      false
+                    )
+                )
+              );
+            }, EXEC_CLOSE_STATUS_GRACE_MS);
+          });
+          ws.on("error", (err: Error) => {
+            finish(() =>
+              reject(
+                createBridgeError(
+                  "sandbox_failed",
+                  `Workspace file read WebSocket error: ${describeUnknownError(err)}`,
+                  false
+                )
+              )
+            );
+          });
+        })
+        .catch((error: unknown) =>
+          finish(() =>
+            reject(
+              createBridgeError(
+                "sandbox_failed",
+                `Workspace file read exec failed: ${describeUnknownError(error)}`,
+                false
+              )
+            )
+          )
+        );
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            createBridgeError(
+              "process_timeout",
+              `Workspace file read exceeded ${String(options.policy.maxProcessRuntimeMs)}ms.`,
+              true
+            )
+          ),
+        options.policy.maxProcessRuntimeMs
+      )
+    );
+    return await Promise.race([resultPromise, timeoutPromise]);
   }
 
   private async pullWorkspace(

@@ -1,5 +1,15 @@
 # SESSION-HANDOFF
 
+## 2026-06-26 — Clean `files.attach` publish path: no model stdout cap
+
+Status: code fixed and verified; focused sandbox tests PASS (80/80); sandbox typecheck PASS; AGENTS gate PASS. Next operational step after push: dev rollout, then live validation with full-size `sharp_fix.jpg` / `blur_fix.jpg` style files.
+
+**Incident.** The first `files.attach` delivery fix made exec-created files deliverable by publishing pod bytes to GCS before returning `attached`, but the first implementation reused `workspaceFileRead`, which moves file bytes through the model-facing stdout/base64 path. Live validation then showed attach attempts for `/workspace/sharp_fix.jpg` and `/workspace/blur_fix.jpg` blocked with `stdout_limit_exceeded` / `Sandbox stdout exceeded 131072 bytes`; smaller recompressed files delivered successfully. The 128 KiB cap is the normal `RuntimeSandboxPolicy.maxStdoutBytes` default and should remain for model-visible command output.
+
+**Fix.** Added a control-plane-only `ExecPodBridgeService.readWorkspaceFileFromSessionPod` path that ensures the session pod and flat `/workspace` mount, checks the file size in-pod before transfer, then streams raw bytes through a private exec stdout collector that is not governed by `maxStdoutBytes`. `WorkspaceFileBridgeService.workspaceFilePersist` now uses that raw pod-file read and saves bytes directly to GCS. Oversized files are rejected by delivery-size policy before transfer (`workspace_file_too_large`), not by stdout policy after partial streaming.
+
+**Regression test.** `workspaceFilePersist: exec-created /workspace file is mirrored to GCS for delivery` now uses a 200 KiB payload and asserts no `execShellInSessionPod`/base64 read is used.
+
 ## 2026-06-26 — `files.attach` delivery regression for exec-created workspace files (pending commit)
 
 Status: code fixed locally; focused sandbox tests PASS (80/80); AGENTS gate PASS. Pending commit/push, dev rollout, then live validation on `info@gemeral-fly.com` / workspace `24926096-953e-49b9-af56-f3551ce6f602`.
