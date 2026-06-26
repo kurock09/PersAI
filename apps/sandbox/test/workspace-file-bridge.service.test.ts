@@ -652,6 +652,37 @@ test("workspaceFileCopy: source outside /workspace rejected", async () => {
   );
 });
 
+// ─── workspaceFilePersist ─────────────────────────────────────────────────────
+
+test("workspaceFilePersist: exec-created /workspace file is mirrored to GCS for delivery", async () => {
+  const fileBytes = Buffer.from("deliver me");
+  const exec = makeExec([
+    {
+      exitCode: 0,
+      stdout: `${fileBytes.toString("base64")}\n`,
+      stderr: ""
+    }
+  ]);
+  const storage = makeStorage();
+  const audit = makeAudit();
+  const bridge = makeBridge(exec.service, storage.service, makeObs().service, audit.service);
+
+  const result = await bridge.workspaceFilePersist(CTX, {
+    path: "/workspace/thumb.jpg",
+    mimeType: "image/jpeg"
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.reason, null);
+  assert.equal(result.data.bytes, fileBytes.length);
+  assert.equal(storage.savedObjects.length, 1);
+  assert.ok(storage.savedObjects[0]?.objectKey.includes(`${WS_ID}/workspace/thumb.jpg`));
+  assert.equal(storage.savedObjects[0]?.buffer.toString(), "deliver me");
+  assert.equal(storage.savedObjects[0]?.mimeType, "image/jpeg");
+  assert.equal(audit.ops.at(-1)?.op, "read");
+  assert.equal(audit.ops.at(-1)?.status, "ok");
+});
+
 // ─── writeWorkspaceFileControlPlane ───────────────────────────────────────────
 //
 // Hot-pod inbound bytes-push for the flat workspace. Called by api

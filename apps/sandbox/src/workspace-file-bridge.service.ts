@@ -45,7 +45,8 @@ export type WorkspaceFileBridgeFailureReason =
   | "stat_failed"
   | "delete_denied"
   | "delete_failed"
-  | "copy_failed";
+  | "copy_failed"
+  | "publish_failed";
 
 export type WorkspaceFileBridgeResult<T> = {
   success: boolean;
@@ -754,6 +755,81 @@ export class WorkspaceFileBridgeService {
         sourcePath: sourceResolved.absolutePath,
         targetPath: targetResolved.absolutePath,
         bytes
+      }
+    };
+  }
+
+  async workspaceFilePersist(
+    ctx: WorkspaceBridgeContext,
+    input: {
+      path: string;
+      mimeType: string;
+    }
+  ): Promise<
+    WorkspaceFileBridgeResult<{
+      path: string;
+      bytes: number;
+    }>
+  > {
+    const resolved = this.resolveModelPath(ctx, input.path);
+    const readResult = await this.workspaceFileRead(ctx, {
+      path: resolved.absolutePath,
+      maxBytes: MAX_READ_BYTES
+    });
+    if (!readResult.success || readResult.data === null) {
+      return {
+        success: false,
+        reason: readResult.reason ?? "read_failed",
+        latencyMs: readResult.latencyMs,
+        data: {
+          path: resolved.absolutePath,
+          bytes: 0
+        }
+      };
+    }
+    if (readResult.data.truncated) {
+      return {
+        success: false,
+        reason: "publish_failed",
+        latencyMs: readResult.latencyMs,
+        data: {
+          path: resolved.absolutePath,
+          bytes: readResult.data.bytes.length
+        }
+      };
+    }
+
+    try {
+      await this.sandboxObjectStorageService.saveObject({
+        objectKey: this.sandboxObjectStorageService.buildWorkspaceObjectKey({
+          workspaceId: ctx.workspaceId,
+          workspaceRelPath: this.toWorkspaceRelPath(resolved.absolutePath)
+        }),
+        buffer: readResult.data.bytes,
+        mimeType: input.mimeType
+      });
+    } catch (error) {
+      this.logger.warn(
+        `workspace_file_publish_gcs_persist_failed workspace=${ctx.workspaceId} path=${resolved.absolutePath} reason=${error instanceof Error ? error.message : String(error)}`
+      );
+      return {
+        success: false,
+        reason: "publish_failed",
+        latencyMs: readResult.latencyMs,
+        data: {
+          path: resolved.absolutePath,
+          bytes: readResult.data.bytes.length
+        }
+      };
+    }
+
+    return {
+      success: true,
+      reason: null,
+      latencyMs: readResult.latencyMs,
+      data: {
+        path: resolved.absolutePath,
+        bytes: readResult.data.bytes.length
       }
     };
   }

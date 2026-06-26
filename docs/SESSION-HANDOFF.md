@@ -1,5 +1,17 @@
 # SESSION-HANDOFF
 
+## 2026-06-26 — `files.attach` delivery regression for exec-created workspace files (pending commit)
+
+Status: code fixed locally; focused sandbox tests PASS (80/80); AGENTS gate PASS. Pending commit/push, dev rollout, then live validation on `info@gemeral-fly.com` / workspace `24926096-953e-49b9-af56-f3551ce6f602`.
+
+**Incident.** User uploaded `3484.jpg` and asked the assistant to process it in the sandbox. The model ran Python/Pillow successfully and created `/workspace/thumb.jpg`, `/workspace/sharp.jpg`, and `/workspace/blur_overlay.jpg`; subsequent `files.attach` jobs for all three files completed with `exitCode=0` and returned valid `{"action":"attached","attachment":{...}}` payloads. However, no `assistant_chat_message_attachments` rows were created for those three outputs, and every assistant message was corrected by final delivery honesty with `Поправка: изображение или другой медиафайл не был реально доставлен в этот чат.`
+
+**Confirmed root cause.** `files.attach` only statted the file in the running pod and surfaced an artifact to runtime. API delivery later tried to download the artifact from canonical GCS path `fs/workspaces/<workspaceId>/workspace/<file>`, but those objects did not exist. This path happens when files are created by `exec`/`shell`: they exist in the pod filesystem, but were not mirrored into GCS before attachment delivery. `files.write` and `workspaceFileCopy` already mirrored bytes; `files.attach` did not.
+
+**Fix.** Added `WorkspaceFileBridgeService.workspaceFilePersist`, which reads an existing `/workspace/*` pod file and saves it to GCS using the flat workspace object key. `SandboxService` now calls that persist step inside the `files.attach` action before returning `attached`; if persistence fails, attach is skipped with a typed warning instead of letting API delivery fail silently. Regression test: `workspaceFilePersist: exec-created /workspace file is mirrored to GCS for delivery`.
+
+**Validation evidence.** DB showed the source upload row for `/workspace/3484.jpg`, successful sandbox `files.attach` jobs for `/workspace/thumb.jpg`, `/workspace/sharp.jpg`, and `/workspace/blur_overlay.jpg`, and zero delivered attachment rows for those outputs. `gcloud storage ls` confirmed the expected GCS objects were missing before the fix.
+
 ## 2026-06-26 — Sandbox bootstrap/backlog regression fix (pending commit)
 
 Status: code fixed locally; sandbox lint/typecheck PASS; sandbox tests PASS (79/79). Pending commit, push, dev rollout, then live validation for `mr.danilov.r.s@gmail.com`.

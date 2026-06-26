@@ -1213,6 +1213,23 @@ export class SandboxService {
         const mimeType =
           this.mimeTypeFromPath(sourceResolved.absolutePath) ?? "application/octet-stream";
         const displayName = pathPosix.basename(workspaceRelPath);
+        const persistResult = await this.workspaceFileBridgeService.workspaceFilePersist(
+          bridgeCtx,
+          {
+            path: sourceResolved.absolutePath,
+            mimeType
+          }
+        );
+        if (!persistResult.success) {
+          return {
+            reason: persistResult.reason ?? "files_attach_failed",
+            warning: `files.attach could not persist ${sourceResolved.absolutePath} for delivery.`,
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          };
+        }
         return {
           reason: null,
           warning: null,
