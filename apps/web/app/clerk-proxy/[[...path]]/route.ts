@@ -3,6 +3,8 @@ import { fapiUrlFromPublishableKey, stripTrailingSlashes } from "@clerk/backend/
 const NPM_PREFIX = "/clerk-proxy/npm/";
 const JSDELIVR_NPM = "https://cdn.jsdelivr.net/npm/";
 const PROXY_PATH = "/clerk-proxy";
+const CLERK_JS_MAJOR_ONLY_PREFIX = "@clerk/clerk-js@6/";
+const PINNED_CLERK_JS_VERSION = "6.22.0";
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -225,7 +227,10 @@ async function proxyNpmStatic(request: Request): Promise<Response | null> {
     return null;
   }
 
-  const subPath = url.pathname.slice(NPM_PREFIX.length);
+  const rawSubPath = url.pathname.slice(NPM_PREFIX.length);
+  const subPath = rawSubPath.startsWith(CLERK_JS_MAJOR_ONLY_PREFIX)
+    ? `@clerk/clerk-js@${PINNED_CLERK_JS_VERSION}/${rawSubPath.slice(CLERK_JS_MAJOR_ONLY_PREFIX.length)}`
+    : rawSubPath;
   const target = `${JSDELIVR_NPM}${subPath}${url.search}`;
   const res = await fetch(target, {
     method,
