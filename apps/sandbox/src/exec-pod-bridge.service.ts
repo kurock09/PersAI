@@ -1053,8 +1053,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
     const dirsScript = [
       "set -e",
-      `mkdir -p ${posixSingleQuote(workspaceRoot)}`,
-      `chmod 0755 ${posixSingleQuote(workspaceRoot)}`,
+      `test -d ${posixSingleQuote(workspaceRoot)}`,
+      `test -w ${posixSingleQuote(workspaceRoot)}`,
       `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_DIRS_OK_SENTINEL)}`
     ].join("\n");
     const dirsOk = await this.runStdinlessProbe(
@@ -1076,7 +1076,6 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
     const markerScript = [
       "set -e",
-      `chmod 0755 ${posixSingleQuote(workspaceRoot)}`,
       `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL)} > ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_MARKER)}`,
       `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL)}`
     ].join("\n");
@@ -1346,14 +1345,16 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     return new Promise<boolean>((resolve) => {
       const settled = { value: false };
       const stdoutBuf: Buffer[] = [];
+      const stderrBuf: Buffer[] = [];
       const stdout = new Writable({
         write(chunk: Buffer, _enc: string, cb: () => void) {
           stdoutBuf.push(chunk);
           cb();
         }
       });
-      const drain = new Writable({
-        write(_chunk: Buffer, _enc: string, cb: () => void) {
+      const stderr = new Writable({
+        write(chunk: Buffer, _enc: string, cb: () => void) {
+          stderrBuf.push(chunk);
           cb();
         }
       });
@@ -1361,6 +1362,13 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       const finish = (value: boolean) => {
         if (settled.value) return;
         settled.value = true;
+        if (!value) {
+          const stderrMessage = Buffer.concat(stderrBuf).toString("utf8").trim();
+          const stdoutMessage = Buffer.concat(stdoutBuf).toString("utf8").trim();
+          this.logger.warn(
+            `stdinless_probe_failed pod=${podName} sentinel=${sentinel} stdout=${JSON.stringify(stdoutMessage)} stderr=${JSON.stringify(stderrMessage)}`
+          );
+        }
         resolve(value);
       };
 
@@ -1371,7 +1379,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           "exec",
           ["/bin/sh", "-c", shellCommand],
           stdout,
-          drain,
+          stderr,
           null,
           false,
           (status: V1Status) => {

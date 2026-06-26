@@ -652,9 +652,46 @@ export class SandboxService {
     return candidate as RuntimeSandboxPolicy;
   }
 
+  private async failStalePendingJobsBeforeBacklogCount(
+    request: RuntimeSandboxJobRequest
+  ): Promise<void> {
+    const pendingJobs = await this.prisma.sandboxJob.findMany({
+      where: {
+        OR: [
+          {
+            assistantId: request.assistantId,
+            workspaceId: request.workspaceId
+          },
+          {
+            status: {
+              in: [...PENDING_SANDBOX_JOB_STATUSES]
+            }
+          }
+        ],
+        status: {
+          in: [...PENDING_SANDBOX_JOB_STATUSES]
+        }
+      },
+      orderBy: { createdAt: "asc" },
+      take: 100,
+      select: {
+        id: true,
+        status: true,
+        toolCode: true,
+        policySnapshot: true,
+        createdAt: true,
+        startedAt: true,
+        completedAt: true
+      }
+    });
+    await Promise.all(pendingJobs.map((job) => this.failStaleJobIfNeeded(job)));
+  }
+
   private async resolvePreflightViolation(
     request: RuntimeSandboxJobRequest
   ): Promise<{ code: string; message: string } | null> {
+    await this.failStalePendingJobsBeforeBacklogCount(request);
+
     const [pendingJobs, workspacePendingJobs] = await Promise.all([
       this.prisma.sandboxJob.count({
         where: {

@@ -188,6 +188,9 @@ async function run(): Promise<void> {
   const blockedService = new SandboxService(
     {
       sandboxJob: {
+        async findMany() {
+          return [];
+        },
         async count(input: { where: Record<string, unknown> }) {
           if ("createdAt" in input.where) {
             return 1;
@@ -253,6 +256,9 @@ async function run(): Promise<void> {
   const backlogService = new SandboxService(
     {
       sandboxJob: {
+        async findMany() {
+          return [];
+        },
         async count(input: { where: Record<string, unknown> }) {
           return "createdAt" in input.where ? 0 : 1;
         },

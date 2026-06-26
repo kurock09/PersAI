@@ -1406,12 +1406,14 @@ test("ExecPodBridgeService: cold-start runInPod bootstraps workspace dirs", asyn
     await removePathWithRetries(workspaceRoot);
   }
 
-  assert.ok(ctx.execCallCount >= 3, "cold bootstrap must fire marker, dirs, and chmod execs");
+  assert.ok(ctx.execCallCount >= 3, "cold bootstrap must fire marker, dirs, and bootstrap execs");
   const dirsExec = ctx.execCommands.find((command) =>
-    command.some((part) => part.includes("mkdir -p '/workspace'"))
+    command.some((part) => part.includes("test -d '/workspace'"))
   );
-  assert.ok(dirsExec !== undefined, "dirs exec must create /workspace");
-  const dirsScript = dirsExec?.find((part) => part.includes("mkdir -p")) ?? "";
+  assert.ok(dirsExec !== undefined, "dirs exec must verify /workspace exists and is writable");
+  const dirsScript = dirsExec?.find((part) => part.includes("test -d")) ?? "";
+  assert.ok(dirsScript.includes("test -w '/workspace'"));
+  assert.ok(!dirsScript.includes("chmod 0755 '/workspace'"));
   // ADR-128 Slice 4: flat workspace has no subdirs, no outbound symlink.
   assert.ok(!dirsScript.includes("ln -sfn"), "no outbound/self symlink on flat workspace");
   assert.ok(!dirsScript.includes("/workspace/input"), "no /workspace/input on flat workspace");
