@@ -916,6 +916,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     const memMb = Math.ceil(policy.maxMemoryBytesPerJob / (1024 * 1024));
     const memLimit = `${Math.max(memMb, 64)}Mi`;
     const memRequest = `${Math.min(Math.max(memMb, 64), 256)}Mi`;
+    const emptyDirSizeLimit = `${this.config.SANDBOX_SHARED_EMPTYDIR_SIZE_MIB}Mi`;
     try {
       await this.k8sApi.createNamespacedPod({
         namespace,
@@ -956,13 +957,13 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
               {
                 name: "workspace",
                 emptyDir: {
-                  sizeLimit: "256Mi"
+                  sizeLimit: emptyDirSizeLimit
                 }
               },
               {
                 name: "tmp",
                 emptyDir: {
-                  sizeLimit: "256Mi"
+                  sizeLimit: emptyDirSizeLimit
                 }
               }
             ],

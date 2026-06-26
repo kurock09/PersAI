@@ -1,5 +1,15 @@
 # SESSION-HANDOFF
 
+## 2026-06-26 — Sandbox exec pod memory/emptyDir limit fix for full-size image ops
+
+Status: code fixed locally; focused checks PASS; AGENTS gate PASS. Pending commit/push, migration approval/dev rollout, runtime materialization refresh, then live validation on `3530.jpg` full-size multi-effect Pillow batch.
+
+**Incident.** Founder live validation on workspace `24926096-953e-49b9-af56-f3551ce6f602` / assistant `2f8cf38e-a6d9-4609-b83a-2b748246fcec` processed `3530.jpg` (`3000x4000`, 939 KiB). `files.attach` delivery on the final `a1.jpg`, `a2.jpg`, `a3.jpg` outputs succeeded under sandbox image `65082a2e`, proving the stdout-cap delivery fix worked. However, several earlier `shell`/`exec` jobs failed with `Workspace tar pull failed ... cannot exec in a stopped state`; cluster events showed the session pod repeatedly entered `phase=Failed` and was recreated under the same `ses-cf948...` name.
+
+**Confirmed root cause.** The failing commands were all single-process Pillow batches that opened the full-size image and created multiple large intermediates (crop, blur, full-image blur, sharpen/contrast) before process exit. The active workspace is on plan `ultima`; dev DB showed every stored plan `billingProviderHints.sandboxPolicy.maxMemoryBytesPerJob` still at `268435456` bytes (`256 MiB`), matching the Admin Plans UI. The exec pod also hardcoded `/workspace` and `/tmp` emptyDir size limits to `256Mi`, ignoring `SANDBOX_SHARED_EMPTYDIR_SIZE_MIB=512`. When the Python process killed the pod, the control-plane post-command `pullWorkspace` tried to run `tar` in a stopped container and surfaced the misleading `cannot exec in a stopped state` error.
+
+**Fix.** Raised `DEFAULT_RUNTIME_SANDBOX_POLICY.maxMemoryBytesPerJob` to `1 GiB` for new/default policies, added migration `20260626165000_adr128_sandbox_plan_memory_1g` to raise stored plan sandbox memory caps to at least `1 GiB` and bump global config generation so existing materialized runtime bundles become stale, and made exec pod `/workspace` + `/tmp` emptyDir limits use `SANDBOX_SHARED_EMPTYDIR_SIZE_MIB` instead of hardcoded `256Mi`. Added exec-pod spec regression assertions for `1024Mi` memory limit and `512Mi` emptyDir limits.
+
 ## 2026-06-26 — Clean `files.attach` publish path: no model stdout cap
 
 Status: code fixed and verified; focused sandbox tests PASS (80/80); sandbox typecheck PASS; AGENTS gate PASS. Next operational step after push: dev rollout, then live validation with full-size `sharp_fix.jpg` / `blur_fix.jpg` style files.

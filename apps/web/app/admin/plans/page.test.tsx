@@ -118,7 +118,7 @@ function createPlanState(): AdminPlanState {
       maxDirectoryCountPerJob: 128,
       maxProcessRuntimeMs: 15_000,
       maxCpuMsPerJob: 15_000,
-      maxMemoryBytesPerJob: 256 * 1024 * 1024,
+      maxMemoryBytesPerJob: 1024 * 1024 * 1024,
       maxConcurrentProcesses: 4,
       maxStdoutBytes: 128 * 1024,
       maxStderrBytes: 128 * 1024,

@@ -521,6 +521,12 @@ test("ExecPodBridgeService: createExecPod creates pod with correct spec", async 
   assert.ok(workspaceMount !== undefined, "must have /workspace volumeMount");
   const tmpMount = container.volumeMounts?.find((vm) => vm.mountPath === "/tmp");
   assert.ok(tmpMount !== undefined, "must have /tmp volumeMount");
+  assert.equal(container.resources?.requests?.memory, "256Mi");
+  assert.equal(container.resources?.limits?.memory, "1024Mi");
+  const workspaceVolume = pod.body.spec?.volumes?.find((volume) => volume.name === "workspace");
+  assert.equal(workspaceVolume?.emptyDir?.sizeLimit, "512Mi");
+  const tmpVolume = pod.body.spec?.volumes?.find((volume) => volume.name === "tmp");
+  assert.equal(tmpVolume?.emptyDir?.sizeLimit, "512Mi");
 });
 
 test("ExecPodBridgeService: waitForPodRunning succeeds when pod reaches Running", async () => {
