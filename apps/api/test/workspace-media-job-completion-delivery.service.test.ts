@@ -216,6 +216,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       {
         async deliverPersistedAssistantMessageBestEffort(input: Record<string, unknown>) {
           sendReplyCalls.push(input);
+          return { status: "delivered" };
         }
       } as never,
       {
@@ -1285,7 +1286,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       } as never,
       {
         async deliverPersistedAssistantMessageBestEffort() {
-          return undefined;
+          return { status: "delivered" };
         }
       } as never,
       {
@@ -1688,6 +1689,7 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
       {
         async deliverPersistedAssistantMessageBestEffort(input: Record<string, unknown>) {
           outboundCalls.push(input);
+          return { status: "delivered" };
         }
       } as never,
       {
@@ -1715,5 +1717,99 @@ describe("AssistantMediaJobCompletionDeliveryService", () => {
     assert.equal(outboundCalls[0]?.assistantMessageId, "assistant-message-tg-predelivery-fail-1");
     assert.equal(outboundCalls[0]?.chatId, "chat-tg-predelivery-fail-1");
     assert.match(String(outboundCalls[0]?.text), /видео|video|couldn't|не удалось/i);
+  });
+
+  test("delivers scheduler-authored telegram safety rejection before closing the job", async () => {
+    const finalUpdates: Array<Record<string, unknown>> = [];
+    const outboundCalls: Array<Record<string, unknown>> = [];
+    const messageUpdates: Array<Record<string, unknown>> = [];
+    const service = new AssistantMediaJobCompletionDeliveryService(
+      {
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            $queryRaw: async () => [
+              {
+                id: "job-tg-safety-1",
+                assistantId: "assistant-1",
+                userId: "user-1",
+                workspaceId: "workspace-1",
+                chatId: "chat-tg-safety-1",
+                surface: "telegram",
+                kind: "image",
+                sourceUserMessageId: "user-message-tg-safety-1",
+                requestJson: {
+                  attachments: [],
+                  sourceUserMessageText: "сделай голову в форме яйца",
+                  sourceUserMessageCreatedAt: "2026-06-26T18:40:00.000Z"
+                },
+                resultText:
+                  "Провайдер отклонил запрос по safety policy. Попробуйте переформулировать.",
+                artifactsJson: [],
+                completionAssistantMessageId: "assistant-message-tg-safety-1",
+                lastErrorCode: "image_provider_safety_rejected",
+                lastErrorMessage:
+                  "The provider rejected the original image prompt under its safety system.",
+                attemptCount: 1,
+                maxAttempts: 5
+              }
+            ],
+            assistantMediaJob: { update: async () => undefined }
+          }),
+        assistantMediaJob: {
+          updateMany: async (input: Record<string, unknown>) => {
+            finalUpdates.push(input);
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        createMessage: async () => {
+          throw new Error("createMessage should not run when completion message already exists");
+        },
+        updateMessageContent: async (messageId: string, assistantId: string, content: string) => {
+          messageUpdates.push({ messageId, assistantId, content });
+          return null;
+        }
+      } as never,
+      {
+        deliver: async () => {
+          throw new Error("media delivery should not run for terminal safety failure");
+        }
+      } as never,
+      {
+        async deliverPersistedAssistantMessageBestEffort(input: Record<string, unknown>) {
+          outboundCalls.push(input);
+          return { status: "delivered" };
+        }
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram config should not resolve for terminal failure notice");
+        }
+      } as never,
+      {
+        async maybeFrame() {
+          return { text: null, usage: null };
+        },
+        async maybeFrameFailure() {
+          return null;
+        }
+      } as never,
+      noopRecordModelCostLedgerService,
+      noopAssistantRepository,
+      noopTrackWorkspaceQuotaUsageService
+    );
+
+    const processed = await service.processPendingBatch();
+
+    assert.equal(processed, 1);
+    assert.equal(outboundCalls.length, 1);
+    assert.equal(outboundCalls[0]?.assistantMessageId, "assistant-message-tg-safety-1");
+    assert.equal(outboundCalls[0]?.chatId, "chat-tg-safety-1");
+    assert.match(String(outboundCalls[0]?.text), /safety|безопас/i);
+    assert.equal(finalUpdates.at(-1)?.data?.status, "failed");
+    assert.equal(finalUpdates.at(-1)?.data?.lastErrorCode, "image_provider_safety_rejected");
+    assert.ok(finalUpdates.at(-1)?.data?.deliveredAt instanceof Date);
+    assert.equal(messageUpdates.length, 1);
   });
 });

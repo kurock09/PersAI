@@ -46,6 +46,8 @@ type ClaimedCompletionPendingMediaJob = {
   resultText: string | null;
   artifactsJson: unknown;
   completionAssistantMessageId: string | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
   attemptCount: number;
   maxAttempts: number;
   claimToken: string;
@@ -185,6 +187,8 @@ export class AssistantMediaJobCompletionDeliveryService {
           resultText: string | null;
           artifactsJson: unknown;
           completionAssistantMessageId: string | null;
+          lastErrorCode: string | null;
+          lastErrorMessage: string | null;
           attemptCount: number;
           maxAttempts: number;
         }>
@@ -202,6 +206,8 @@ export class AssistantMediaJobCompletionDeliveryService {
           "result_text" AS "resultText",
           "artifacts_json" AS "artifactsJson",
           "completion_assistant_message_id" AS "completionAssistantMessageId",
+          "last_error_code" AS "lastErrorCode",
+          "last_error_message" AS "lastErrorMessage",
           "attempt_count" AS "attemptCount",
           "max_attempts" AS "maxAttempts"
         FROM "assistant_media_jobs"
@@ -227,11 +233,15 @@ export class AssistantMediaJobCompletionDeliveryService {
           data: {
             schedulerClaimToken: claimToken,
             schedulerClaimedAt: now,
-            schedulerClaimExpiresAt: claimExpiresAt
+            schedulerClaimExpiresAt: claimExpiresAt,
+            attemptCount: {
+              increment: 1
+            }
           }
         });
         claimed.push({
           ...row,
+          attemptCount: row.attemptCount + 1,
           claimToken
         });
       }
@@ -266,15 +276,26 @@ export class AssistantMediaJobCompletionDeliveryService {
 
     const artifacts = this.parseArtifacts(job.artifactsJson);
     if (artifacts === null || artifacts.length === 0) {
-      // ADR-105 §5: pre-delivery-loop terminal failure. Same reasoning as above
-      // — reconcile the full reserved N once.
+      const code =
+        job.surface === "telegram" && typeof job.lastErrorCode === "string"
+          ? job.lastErrorCode
+          : "completion_artifacts_missing";
+      const message =
+        job.surface === "telegram" && typeof job.lastErrorMessage === "string"
+          ? job.lastErrorMessage
+          : "Media job has no artifacts to deliver.";
+      // For Telegram, the scheduler can intentionally put terminal execution
+      // failures into completion_pending with zero artifacts so the user-visible
+      // failure notice is delivered by the retryable delivery worker.
       await this.failDelivery(
         job,
         false,
-        "completion_artifacts_missing",
-        "Media job has no artifacts to deliver.",
-        "en",
-        true,
+        code,
+        message,
+        inferAssistantMediaJobFailureLocale({
+          sourceText: requestPayload.sourceUserMessageText
+        }),
+        job.surface !== "telegram",
         failContext
       );
       return;
@@ -500,11 +521,49 @@ export class AssistantMediaJobCompletionDeliveryService {
     const completionAssistantMessageId =
       (await this.ensureFailureMessage(job, failureMessage)) ?? job.completionAssistantMessageId;
 
+    let deliveredAt: Date | null = null;
+    if (job.surface === "telegram" && completionAssistantMessageId !== null) {
+      const noticeResult =
+        await this.telegramAssistantChatOutboundService.deliverPersistedAssistantMessageBestEffort({
+          assistantId: job.assistantId,
+          chatId: job.chatId,
+          workspaceId: job.workspaceId,
+          assistantMessageId: completionAssistantMessageId,
+          text: failureMessage
+        });
+      if (noticeResult.status !== "delivered") {
+        const canRetryNotice = job.attemptCount < job.maxAttempts;
+        const noticeMessage = `Telegram failure notice ${noticeResult.status}: ${noticeResult.reason}`;
+        await this.prisma.assistantMediaJob.updateMany({
+          where: { id: job.id, schedulerClaimToken: job.claimToken },
+          data: {
+            status: canRetryNotice ? "completion_pending" : "failed",
+            failedAt: canRetryNotice ? null : new Date(),
+            nextRetryAt: canRetryNotice
+              ? new Date(Date.now() + computeRetryBackoffMs(job.attemptCount))
+              : null,
+            schedulerClaimToken: null,
+            schedulerClaimedAt: null,
+            schedulerClaimExpiresAt: null,
+            lastErrorCode: code,
+            lastErrorMessage: truncateLastError(message),
+            completionAssistantMessageId
+          }
+        });
+        this.logger.warn(
+          `Telegram terminal media failure notice not delivered jobId=${job.id} attempt=${job.attemptCount}/${job.maxAttempts}: ${noticeMessage}`
+        );
+        return;
+      }
+      deliveredAt = new Date();
+    }
+
     await this.prisma.assistantMediaJob.updateMany({
       where: { id: job.id, schedulerClaimToken: job.claimToken },
       data: {
         status: "failed",
         failedAt: new Date(),
+        deliveredAt,
         schedulerClaimToken: null,
         schedulerClaimedAt: null,
         schedulerClaimExpiresAt: null,
@@ -513,16 +572,6 @@ export class AssistantMediaJobCompletionDeliveryService {
         ...(completionAssistantMessageId === null ? {} : { completionAssistantMessageId })
       }
     });
-
-    if (job.surface === "telegram" && completionAssistantMessageId !== null) {
-      await this.telegramAssistantChatOutboundService.deliverPersistedAssistantMessageBestEffort({
-        assistantId: job.assistantId,
-        chatId: job.chatId,
-        workspaceId: job.workspaceId,
-        assistantMessageId: completionAssistantMessageId,
-        text: failureMessage
-      });
-    }
   }
 
   /**

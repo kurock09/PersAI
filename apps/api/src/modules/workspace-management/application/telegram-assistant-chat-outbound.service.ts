@@ -21,6 +21,11 @@ export type TelegramAssistantTextNoticeInput = {
   mediaAlreadyDelivered?: boolean;
 };
 
+export type TelegramAssistantTextNoticeResult =
+  | { status: "delivered" }
+  | { status: "skipped"; reason: string }
+  | { status: "failed"; reason: string };
+
 @Injectable()
 export class TelegramAssistantChatOutboundService {
   private readonly logger = new Logger(TelegramAssistantChatOutboundService.name);
@@ -34,18 +39,18 @@ export class TelegramAssistantChatOutboundService {
 
   async deliverPersistedAssistantMessageBestEffort(
     input: TelegramAssistantTextNoticeInput
-  ): Promise<void> {
+  ): Promise<TelegramAssistantTextNoticeResult> {
     try {
       const chat = await this.assistantChatRepository.findChatById(input.chatId);
       if (chat === null || chat.surface !== "telegram") {
-        return;
+        return { status: "skipped", reason: "telegram_chat_missing_or_wrong_surface" };
       }
 
       const config = await this.resolveTelegramChannelRuntimeConfigService.resolveByAssistantId(
         input.assistantId
       );
       if (config === null || config.outbound !== true) {
-        return;
+        return { status: "skipped", reason: "telegram_outbound_unavailable" };
       }
 
       await this.telegramBotClientService.sendAssistantTurnReply({
@@ -63,12 +68,15 @@ export class TelegramAssistantChatOutboundService {
         },
         mediaAlreadyDelivered: input.mediaAlreadyDelivered ?? false
       });
+      return { status: "delivered" };
     } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
       this.logger.warn(
         `Telegram assistant text notice failed assistantId=${input.assistantId} chatId=${input.chatId} messageId=${input.assistantMessageId}: ${
-          error instanceof Error ? error.message : String(error)
+          reason
         }`
       );
+      return { status: "failed", reason };
     }
   }
 }

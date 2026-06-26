@@ -83,7 +83,6 @@ function createService(overrides?: {
   const finalUpdates: Array<Record<string, unknown>> = [];
   const createdMessages: Array<Record<string, unknown>> = [];
   const releaseCalls: Array<Record<string, unknown>> = [];
-  const outboundCalls: Array<Record<string, unknown>> = [];
   const prisma = {
     $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
       callback({
@@ -219,16 +218,10 @@ function createService(overrides?: {
       async releaseAssistantMonthlyMediaQuota(input: Record<string, unknown>) {
         releaseCalls.push(input);
       }
-    } as never,
-    {
-      async deliverPersistedAssistantMessageBestEffort(input: Record<string, unknown>) {
-        outboundCalls.push(input);
-        return undefined;
-      }
     } as never
   );
 
-  return { service, txUpdates, finalUpdates, createdMessages, releaseCalls, outboundCalls };
+  return { service, txUpdates, finalUpdates, createdMessages, releaseCalls };
 }
 
 describe("AssistantMediaJobSchedulerService", () => {
@@ -1127,8 +1120,8 @@ describe("AssistantMediaJobSchedulerService", () => {
     assert.equal(finalUpdates[0]?.data?.lastErrorCode, "invalid_request_payload");
   });
 
-  test("pushes telegram failure notice when scheduler failJob runs on telegram surface", async () => {
-    const { service, finalUpdates, outboundCalls } = createService({
+  test("moves telegram terminal failures to durable completion delivery instead of one-shot outbound", async () => {
+    const { service, finalUpdates, createdMessages } = createService({
       queryRows: [
         {
           id: "job-tg-fail-1",
@@ -1169,10 +1162,11 @@ describe("AssistantMediaJobSchedulerService", () => {
     const processed = await service.processDueJobsBatch();
 
     assert.equal(processed, 1);
-    assert.equal(finalUpdates[0]?.data?.status, "failed");
-    assert.equal(outboundCalls.length, 1);
-    assert.equal(outboundCalls[0]?.assistantMessageId, "assistant-message-1");
-    assert.equal(outboundCalls[0]?.chatId, "chat-telegram-fail-1");
-    assert.match(String(outboundCalls[0]?.text), /видео|video|couldn't|не удалось/i);
+    assert.equal(finalUpdates[0]?.data?.status, "completion_pending");
+    assert.equal(finalUpdates[0]?.data?.completionAssistantMessageId, "assistant-message-1");
+    assert.equal(finalUpdates[0]?.data?.lastErrorCode, "heygen_job_failed");
+    assert.deepEqual(finalUpdates[0]?.data?.artifactsJson, []);
+    assert.match(String(finalUpdates[0]?.data?.resultText), /видео|video|couldn't|не удалось/i);
+    assert.equal(createdMessages.length, 1);
   });
 });

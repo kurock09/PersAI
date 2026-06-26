@@ -32,7 +32,6 @@ import { LEASE_HEARTBEAT_INTERVAL_MS } from "./scheduler-lease.constants";
 import { SchedulerLeaseService } from "./scheduler-lease.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.service";
-import { TelegramAssistantChatOutboundService } from "./telegram-assistant-chat-outbound.service";
 
 type FailJobContext = {
   sourceUserMessageText: string;
@@ -144,8 +143,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     private readonly schedulerLeaseService: SchedulerLeaseService,
     private readonly backgroundSchedulerMetricsService: BackgroundSchedulerMetricsService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
-    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService,
-    private readonly telegramAssistantChatOutboundService: TelegramAssistantChatOutboundService
+    private readonly trackWorkspaceQuotaUsageService: TrackWorkspaceQuotaUsageService
   ) {}
 
   onModuleInit(): void {
@@ -851,11 +849,32 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       );
     }
 
+    const failedAt = new Date();
+    if (job.surface === "telegram" && completionAssistantMessageId !== null) {
+      await this.prisma.assistantMediaJob.updateMany({
+        where: { id: job.id, schedulerClaimToken: job.claimToken },
+        data: {
+          status: "completion_pending",
+          resultText: failureMessage,
+          artifactsJson: [] as unknown as Prisma.InputJsonValue,
+          completedAt: failedAt,
+          nextRetryAt: null,
+          schedulerClaimToken: null,
+          schedulerClaimedAt: null,
+          schedulerClaimExpiresAt: null,
+          lastErrorCode: code,
+          lastErrorMessage: truncateLastError(message),
+          completionAssistantMessageId
+        }
+      });
+      return;
+    }
+
     await this.prisma.assistantMediaJob.updateMany({
       where: { id: job.id, schedulerClaimToken: job.claimToken },
       data: {
         status: "failed",
-        failedAt: new Date(),
+        failedAt,
         schedulerClaimToken: null,
         schedulerClaimedAt: null,
         schedulerClaimExpiresAt: null,
@@ -864,16 +883,6 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
         ...(completionAssistantMessageId === null ? {} : { completionAssistantMessageId })
       }
     });
-
-    if (job.surface === "telegram" && completionAssistantMessageId !== null) {
-      await this.telegramAssistantChatOutboundService.deliverPersistedAssistantMessageBestEffort({
-        assistantId: job.assistantId,
-        chatId: job.chatId,
-        workspaceId: job.workspaceId,
-        assistantMessageId: completionAssistantMessageId,
-        text: failureMessage
-      });
-    }
   }
 
   /**

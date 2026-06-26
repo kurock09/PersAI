@@ -1,5 +1,20 @@
 # SESSION-HANDOFF
 
+## 2026-06-27 — Telegram media safety rejection delivery fix
+
+Status: code fixed locally; focused media-job scheduler test PASS (19/19); focused completion-delivery test PASS (17/17). Pending full AGENTS gate, commit/push, deploy, then live retry of a Telegram `image_provider_safety_rejected` request.
+
+**Incident.** Founder clarified the Danilov failed media job was not a queue/backlog stall: provider execution failed terminally with `image_provider_safety_rejected`. Web already gives the model/runtime a normal failure-framing path, but Telegram users often saw no first visible message when the provider rejected the image request.
+
+**Confirmed shape.** Danilov's recent failed Telegram job (`814b9ba0-3280-43b7-987f-5725f44eb6d2`) had `surface=telegram`, `lastErrorCode=image_provider_safety_rejected`, and a persisted assistant completion message (`0a18df81-d68a-4e77-92f4-aa07cf32eae0`) whose content correctly explained the safety rejection. So the failure-framing path worked. The weak point was delivery: `AssistantMediaJobSchedulerService.failJob` closed the row as `failed` and then made a one-shot `TelegramAssistantChatOutboundService.deliverPersistedAssistantMessageBestEffort(...)` call. If that call skipped or failed after the DB terminal update, there was no durable retry path and the user could see a silent drop.
+
+**Fix.** Telegram terminal media failures no longer send directly from the scheduler. The scheduler still releases the reserved media units and creates the assistant-authored failure message, but for `surface=telegram` it moves the job into `completion_pending` with `artifactsJson=[]`, `resultText=<failureMessage>`, and the original `lastErrorCode/lastErrorMessage` preserved. `AssistantMediaJobCompletionDeliveryService` now treats this zero-artifact Telegram shape as a durable failure-notice delivery task: it sends the persisted assistant message through Telegram, marks the job `failed` and sets `deliveredAt` only after the text notice is actually delivered, and keeps the row retryable (`completion_pending` + `nextRetryAt`) if the notice is skipped or fails. `TelegramAssistantChatOutboundService` now returns an explicit `delivered | skipped | failed` result instead of silently returning `void`.
+
+**Regression tests.**
+
+- `apps/api/test/workspace-media-job-scheduler.service.test.ts`: proves scheduler-side Telegram terminal failure moves to durable `completion_pending` instead of direct one-shot outbound.
+- `apps/api/test/workspace-media-job-completion-delivery.service.test.ts`: proves scheduler-authored `image_provider_safety_rejected` with zero artifacts is delivered to Telegram before the job closes `failed`, preserving the original error code and setting `deliveredAt`.
+
 ## 2026-06-26 — Clerk proxy cached major-version JS 404 fix
 
 Status: code fixed locally; focused web proxy test PASS; full AGENTS gate PASS for the initial proxy rewrite. Follow-up cache-bypass layer added after founder confirmed Ctrl+F5 fixes affected browsers but in-app users cannot force-refresh. Pending repeat gate, commit/push, deploy, then live retry of sign-in/sign-out from a fresh tab and a long-lived tab without Ctrl+F5.
