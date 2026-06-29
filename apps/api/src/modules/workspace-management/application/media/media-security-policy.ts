@@ -60,23 +60,87 @@ const DANGEROUS_FILE_EXTENSIONS = new Set([
   ".wsf"
 ]);
 
-const SAFE_TOOL_OUTPUT_SOURCE_EXTENSIONS = new Set([".js", ".mjs", ".py", ".rb", ".sh"]);
+const SAFE_TEXT_CODE_EXTENSIONS = new Set([
+  ".c",
+  ".cc",
+  ".cpp",
+  ".cs",
+  ".css",
+  ".dart",
+  ".dockerfile",
+  ".env.example",
+  ".go",
+  ".h",
+  ".hpp",
+  ".html",
+  ".htm",
+  ".ini",
+  ".java",
+  ".js",
+  ".json",
+  ".jsonl",
+  ".jsx",
+  ".kt",
+  ".lua",
+  ".md",
+  ".mjs",
+  ".php",
+  ".pl",
+  ".py",
+  ".r",
+  ".rb",
+  ".rs",
+  ".scss",
+  ".sh",
+  ".sql",
+  ".svg",
+  ".swift",
+  ".toml",
+  ".ts",
+  ".tsv",
+  ".tsx",
+  ".txt",
+  ".xml",
+  ".yaml",
+  ".yml"
+]);
 
 const SAFE_MIME_BY_EXTENSION: Record<string, string> = {
   ".aac": "audio/aac",
   ".avi": "video/x-msvideo",
+  ".c": "text/plain",
+  ".cc": "text/plain",
+  ".cpp": "text/plain",
+  ".cs": "text/plain",
   ".csv": "text/csv",
+  ".css": "text/css",
+  ".dart": "text/plain",
+  ".dockerfile": "text/plain",
   ".doc": "application/msword",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".env.example": "text/plain",
   ".flac": "audio/flac",
   ".gif": "image/gif",
+  ".go": "text/plain",
+  ".h": "text/plain",
+  ".hpp": "text/plain",
   ".heic": "image/heic",
   ".heif": "image/heif",
+  ".htm": "text/html",
+  ".html": "text/html",
+  ".ini": "text/plain",
+  ".java": "text/plain",
   ".jpeg": "image/jpeg",
   ".jpg": "image/jpeg",
+  ".js": "text/plain",
   ".json": "application/json",
+  ".jsonl": "application/x-ndjson",
+  ".jsx": "text/plain",
+  ".kt": "text/plain",
+  ".lua": "text/plain",
   ".m4a": "audio/mp4",
   ".md": "text/markdown",
+  ".mjs": "text/plain",
   ".mov": "video/quicktime",
   ".mp3": "audio/mpeg",
   ".mp4": "video/mp4",
@@ -84,24 +148,46 @@ const SAFE_MIME_BY_EXTENSION: Record<string, string> = {
   ".ogg": "audio/ogg",
   ".opus": "audio/opus",
   ".pdf": "application/pdf",
+  ".php": "text/plain",
+  ".pl": "text/plain",
   ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   ".png": "image/png",
+  ".py": "text/plain",
+  ".r": "text/plain",
+  ".rb": "text/plain",
+  ".rs": "text/plain",
+  ".scss": "text/css",
+  ".sh": "text/plain",
+  ".sql": "text/plain",
+  ".swift": "text/plain",
+  ".toml": "application/toml",
+  ".ts": "text/plain",
+  ".tsv": "text/tab-separated-values",
   ".txt": "text/plain",
+  ".tsx": "text/plain",
   ".wav": "audio/wav",
   ".webm": "video/webm",
   ".webp": "image/webp",
+  ".xml": "application/xml",
   ".xls": "application/vnd.ms-excel",
-  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".yaml": "application/yaml",
+  ".yml": "application/yaml"
 };
 
 const ALLOWED_MEDIA_MIMES = new Set([
   "application/json",
   "application/msword",
   "application/pdf",
+  "application/toml",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/xml",
+  "application/x-ndjson",
+  "application/yaml",
+  "application/x-yaml",
   "audio/aac",
   "audio/flac",
   "audio/mp4",
@@ -119,8 +205,13 @@ const ALLOWED_MEDIA_MIMES = new Set([
   "image/png",
   "image/webp",
   "text/csv",
+  "text/css",
+  "text/html",
   "text/markdown",
   "text/plain",
+  "text/tab-separated-values",
+  "text/xml",
+  "text/yaml",
   "video/mp4",
   "video/quicktime",
   "video/webm",
@@ -149,7 +240,14 @@ function normalizeExtension(filename: string | null | undefined): string | null 
   if (typeof filename !== "string" || filename.trim().length === 0) {
     return null;
   }
-  const ext = path.extname(filename.trim()).toLowerCase();
+  const normalizedFilename = filename.trim().toLowerCase();
+  if (normalizedFilename === "dockerfile" || normalizedFilename.endsWith(".dockerfile")) {
+    return ".dockerfile";
+  }
+  if (normalizedFilename.endsWith(".env.example")) {
+    return ".env.example";
+  }
+  const ext = path.extname(normalizedFilename);
   return ext.length > 0 ? ext : null;
 }
 
@@ -207,10 +305,13 @@ function isBlockedExtension(input: {
   if (input.extension === null || !DANGEROUS_FILE_EXTENSIONS.has(input.extension)) {
     return false;
   }
-  return !(
-    input.surface === "tool_output_persist" &&
-    SAFE_TOOL_OUTPUT_SOURCE_EXTENSIONS.has(input.extension)
-  );
+  if (
+    (input.surface === "chat_upload" || input.surface === "tool_output_persist") &&
+    SAFE_TEXT_CODE_EXTENSIONS.has(input.extension)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function resolveMaxAllowedBytes(input: {

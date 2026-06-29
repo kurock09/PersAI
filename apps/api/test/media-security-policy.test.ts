@@ -90,27 +90,23 @@ async function run(): Promise<void> {
     /Generic binary uploads are blocked|Unsupported or unsafe file type/
   );
 
-  await assert.rejects(
-    () =>
-      validatePersaiMediaFile({
-        buffer: Buffer.from("console.log('x')"),
-        mimeType: "text/plain",
-        originalFilename: "payload.js",
-        surface: "chat_upload"
-      }),
-    /blocked by security policy/
-  );
+  const chatSourceFile = await validatePersaiMediaFile({
+    buffer: Buffer.from("console.log('x')"),
+    mimeType: "text/plain",
+    originalFilename: "payload.js",
+    surface: "chat_upload"
+  });
+  assert.equal(chatSourceFile.effectiveMimeType, "text/plain");
+  assert.equal(chatSourceFile.normalizedExtension, ".js");
 
-  await assert.rejects(
-    () =>
-      validatePersaiMediaFile({
-        buffer: Buffer.from("print('x')"),
-        mimeType: "text/plain",
-        originalFilename: "payload.py",
-        surface: "chat_upload"
-      }),
-    /blocked by security policy/
-  );
+  const chatPythonFile = await validatePersaiMediaFile({
+    buffer: Buffer.from("print('x')"),
+    mimeType: "text/plain",
+    originalFilename: "payload.py",
+    surface: "chat_upload"
+  });
+  assert.equal(chatPythonFile.effectiveMimeType, "text/plain");
+  assert.equal(chatPythonFile.normalizedExtension, ".py");
 
   const sandboxSourceFile = await validatePersaiMediaFile({
     buffer: Buffer.from("print('x')"),
@@ -120,6 +116,43 @@ async function run(): Promise<void> {
   });
   assert.equal(sandboxSourceFile.effectiveMimeType, "text/plain");
   assert.equal(sandboxSourceFile.normalizedExtension, ".py");
+
+  const sandboxHtmlFile = await validatePersaiMediaFile({
+    buffer: Buffer.from("<!doctype html><title>Report</title>"),
+    mimeType: "text/html",
+    originalFilename: "report.html",
+    surface: "tool_output_persist"
+  });
+  assert.equal(sandboxHtmlFile.effectiveMimeType, "text/html");
+  assert.equal(sandboxHtmlFile.normalizedExtension, ".html");
+
+  const sandboxTypescriptFile = await validatePersaiMediaFile({
+    buffer: Buffer.from("export const value: string = 'ok';"),
+    mimeType: "application/octet-stream",
+    originalFilename: "report.ts",
+    surface: "tool_output_persist"
+  });
+  assert.equal(sandboxTypescriptFile.effectiveMimeType, "text/plain");
+  assert.equal(sandboxTypescriptFile.normalizedExtension, ".ts");
+
+  const extraTextSourceCases = [
+    ["events.jsonl", "application/x-ndjson", ".jsonl"],
+    ["rows.tsv", "text/tab-separated-values", ".tsv"],
+    ["settings.ini", "text/plain", ".ini"],
+    ["service.env.example", "text/plain", ".env.example"],
+    ["Dockerfile", "text/plain", ".dockerfile"]
+  ] as const;
+
+  for (const [originalFilename, effectiveMimeType, normalizedExtension] of extraTextSourceCases) {
+    const validated = await validatePersaiMediaFile({
+      buffer: Buffer.from("key=value\n"),
+      mimeType: "application/octet-stream",
+      originalFilename,
+      surface: "chat_upload"
+    });
+    assert.equal(validated.effectiveMimeType, effectiveMimeType);
+    assert.equal(validated.normalizedExtension, normalizedExtension);
+  }
 }
 
 void run();

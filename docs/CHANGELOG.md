@@ -3,6 +3,10 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-06-29
+
+- **Fix (chat/file delivery — broader text/source artifacts).** Expanded the media validation allowlist for ordinary text/source files so chat uploads and sandbox/tool-generated artifacts such as HTML, CSS, TypeScript/JSX, JSONL, TSV, INI, `.env.example`, Dockerfile, YAML, TOML, XML, SQL, and common language source files can be accepted instead of being rejected by missing MIME/extension coverage. Safe text/source extensions now bypass the old dangerous-extension block for `chat_upload` and `tool_output_persist`, while unknown generic binaries remain blocked. Focused policy tests cover raw `.js`/`.py` chat upload acceptance, HTML delivery, generic-octet TypeScript fallback, and the compound/no-extension formats.
+
 ## 2026-06-27
 
 - **Fix (sandbox file delivery — tool-generated source files are deliverable).** Live retry of `files.attach` for `/workspace/parse_v7.py` showed the sandbox publish path was correct (`parse_v7.py` existed in the session pod and in GCS at `4791` bytes), but API delivery rejected the chat attachment with `Files with .py extension are blocked by security policy.` Root cause: `media-security-policy.ts` used a single hardcoded dangerous-extension denylist for both user uploads and sandbox/tool output delivery. Fix: user/chat uploads remain blocked for dangerous extensions, but `tool_output_persist` now allows safe text source extensions (`.py`, `.js`, `.mjs`, `.rb`, `.sh`) to be delivered as normal attachments after MIME/sniffing validation still passes. Focused policy test covers `.py` blocked for `chat_upload` and allowed for `tool_output_persist`.

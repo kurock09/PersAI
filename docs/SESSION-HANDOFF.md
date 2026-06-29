@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — Broader text/source artifact delivery
+
+Status: code fixed locally; focused policy test PASS; full AGENTS gate PASS. Pending commit/push if requested, deploy, then live retry for source/text chat uploads and `/workspace` artifacts.
+
+**Scope.** Founder asked not to overcomplicate the prior `.py` delivery fix, to include the full safe text/source list previously discussed, and to allow user chat uploads of source files because the sandbox is isolated.
+
+**Fix.** `media-security-policy.ts` now covers the broader ordinary text/source list for both `chat_upload` and `tool_output_persist`: HTML/CSS/XML/YAML/TOML/SQL, JSONL/TSV/INI, `.env.example`, Dockerfile, and common language source files (`.ts`, `.tsx`, `.jsx`, `.go`, `.rs`, `.java`, `.php`, `.c`, `.cpp`, etc.). Safe text/source extensions bypass the old dangerous-extension block on those two surfaces. Unknown generic binaries remain blocked.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/media-security-policy.test.ts` — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+- `corepack pnpm run format:check` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+
 ## 2026-06-27 — `parse_v7.py` delivery blocked by hardcoded extension policy
 
 Status: code fixed locally; focused media-security-policy test PASS; full AGENTS gate PASS; broad API suite PASS from the package test runner. Pending commit/push, deploy, then live retry `files.attach({path:"/workspace/parse_v7.py"})`.
