@@ -395,12 +395,7 @@ export type InternalEnqueueDeferredDocumentJobInput = {
   attachments: RuntimeDocumentJobRunRequest["attachments"];
   directToolExecution: {
     toolCode: "document";
-    descriptorMode:
-      | "create_pdf_document"
-      | "create_presentation"
-      | "revise_document"
-      | "export_or_redeliver"
-      | "create_data_document";
+    descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
     path?: string | null;
     request: RuntimeDocumentJobRunRequest["directToolExecution"]["request"];
   };

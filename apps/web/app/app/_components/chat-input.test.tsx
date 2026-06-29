@@ -471,7 +471,7 @@ describe("ChatInput", () => {
         activeDocumentJobs={[
           {
             id: "doc-job-1",
-            documentType: "pdf_document",
+            documentType: "presentation",
             descriptorMode: "export_or_redeliver",
             status: "ready_for_delivery",
             createdAt: "2026-05-05T12:00:00Z",

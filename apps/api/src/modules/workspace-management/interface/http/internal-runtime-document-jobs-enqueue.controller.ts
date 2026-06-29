@@ -24,7 +24,7 @@ export class InternalRuntimeDocumentJobsEnqueueController {
         docId: string;
         versionId: string;
         renderJobId: string;
-        documentType: "pdf_document" | "presentation" | "data_document";
+        documentType: "presentation";
       }
     | {
         ok: true;

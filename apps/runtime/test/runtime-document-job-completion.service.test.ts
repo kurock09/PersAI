@@ -119,7 +119,7 @@ describe("RuntimeDocumentJobCompletionService", () => {
         surface: "web",
         chatId: "chat-1",
         outputFormat: "pdf",
-        descriptorMode: "create_pdf_document",
+        descriptorMode: "create_presentation",
         sourceUserMessageId: "user-message-1",
         sourceUserMessageText: "Create a concise business brief.",
         sourceUserMessageCreatedAt: "2026-05-16T16:00:00.000Z"
@@ -162,7 +162,7 @@ describe("RuntimeDocumentJobCompletionService", () => {
     const serializedMessages = JSON.stringify(recordedProviderRequest.messages);
     assert.match(serializedMessages, /Create a concise business brief/);
     assert.match(serializedMessages, /Your document is ready/);
-    assert.match(serializedMessages, /create_pdf_document/);
+    assert.match(serializedMessages, /create_presentation/);
     assert.match(
       String(recordedProviderRequest.developerInstructions ?? ""),
       /Do not claim the file was already sent, attached, uploaded, or delivered/
@@ -284,7 +284,7 @@ describe("RuntimeDocumentJobCompletionService", () => {
         surface: "web",
         chatId: "chat-1",
         outputFormat: "pdf",
-        descriptorMode: "create_pdf_document",
+        descriptorMode: "create_presentation",
         sourceUserMessageId: "user-message-1",
         sourceUserMessageText: "Create a concise business brief.",
         sourceUserMessageCreatedAt: "2026-05-16T16:00:00.000Z"

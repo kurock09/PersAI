@@ -20,7 +20,6 @@ import { TrackWorkspaceQuotaUsageService } from "./track-workspace-quota-usage.s
 import { AssistantDocumentJobCompletionTurnService } from "./assistant-document-job-completion-turn.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
 import {
-  buildAssistantDocumentJobApplyingEditsMessage,
   buildAssistantDocumentJobFailureMessage,
   buildAssistantDocumentJobPreparingMessage,
   buildAssistantDocumentJobSuccessFallbackMessage,
@@ -48,13 +47,8 @@ type ClaimedReadyDocumentJob = {
 };
 
 type PersistedDeliveryPayload = {
-  descriptorMode?:
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver"
-    | "create_data_document";
-  outputFormat?: "pdf" | "pptx" | "xlsx" | "docx";
+  descriptorMode?: "create_presentation" | "revise_document" | "export_or_redeliver";
+  outputFormat?: "pdf" | "pptx";
   sourceUserMessageId?: string;
   sourceUserMessageText?: string;
   sourceUserMessageCreatedAt?: string;
@@ -86,17 +80,12 @@ type TerminalExecutionFailureInput = {
     workspaceId: string;
     chatId: string;
     surface: "web" | "telegram";
-    outputFormat: "pdf" | "pptx" | "xlsx" | "docx";
+    outputFormat: "pdf" | "pptx";
     sourceUserMessageId: string;
     attemptCount: number;
     maxAttempts: number;
   };
-  descriptorMode:
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver"
-    | "create_data_document";
+  descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
   failure: {
@@ -262,19 +251,11 @@ export class AssistantDocumentJobDeliveryService {
           preferredLocale: null,
           sourceText: this.readSourceUserMessageText(currentPayload)
         });
-        // ADR-097 Slice 2: patch-revise PDF jobs show "Applying edits..." instead
-        // of "Preparing your document..." since it's one targeted LLM call, not a
-        // full re-generation. Presentation revise keeps the generic placeholder.
-        const isPdfPatchRevise =
-          currentPayload.descriptorMode === "revise_document" &&
-          (currentPayload.outputFormat === "pdf" || currentPayload.outputFormat === undefined);
         const completionMessage = await this.assistantChatRepository.createMessage({
           chatId: job.chatId,
           assistantId: job.assistantId,
           author: "assistant",
-          content: isPdfPatchRevise
-            ? buildAssistantDocumentJobApplyingEditsMessage(placeholderLocale)
-            : buildAssistantDocumentJobPreparingMessage(placeholderLocale)
+          content: buildAssistantDocumentJobPreparingMessage(placeholderLocale)
         });
         completionAssistantMessageId = completionMessage.id;
         const remembered = await this.rememberCompletionMessage(
@@ -480,20 +461,13 @@ export class AssistantDocumentJobDeliveryService {
       payload.providerStatus = row.providerStatus as Record<string, unknown>;
     }
     if (
-      row.descriptorMode === "create_pdf_document" ||
       row.descriptorMode === "create_presentation" ||
       row.descriptorMode === "revise_document" ||
-      row.descriptorMode === "export_or_redeliver" ||
-      row.descriptorMode === "create_data_document"
+      row.descriptorMode === "export_or_redeliver"
     ) {
       payload.descriptorMode = row.descriptorMode;
     }
-    if (
-      row.outputFormat === "pdf" ||
-      row.outputFormat === "pptx" ||
-      row.outputFormat === "xlsx" ||
-      row.outputFormat === "docx"
-    ) {
+    if (row.outputFormat === "pdf" || row.outputFormat === "pptx") {
       payload.outputFormat = row.outputFormat;
     }
     if (typeof row.sourceUserMessageId === "string") {
@@ -720,32 +694,21 @@ export class AssistantDocumentJobDeliveryService {
 
   private readDescriptorMode(
     payload: PersistedDeliveryPayload
-  ):
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver"
-    | "create_data_document" {
+  ): "create_presentation" | "revise_document" | "export_or_redeliver" {
     const row = payload as unknown as Record<string, unknown>;
     const descriptorMode = row.descriptorMode;
     if (
-      descriptorMode === "create_pdf_document" ||
       descriptorMode === "create_presentation" ||
       descriptorMode === "revise_document" ||
-      descriptorMode === "export_or_redeliver" ||
-      descriptorMode === "create_data_document"
+      descriptorMode === "export_or_redeliver"
     ) {
       return descriptorMode;
     }
-    return "create_pdf_document";
+    return "create_presentation";
   }
 
-  private readOutputFormat(payload: PersistedDeliveryPayload): "pdf" | "pptx" | "xlsx" | "docx" {
-    return payload.outputFormat === "pptx" ||
-      payload.outputFormat === "xlsx" ||
-      payload.outputFormat === "docx"
-      ? payload.outputFormat
-      : "pdf";
+  private readOutputFormat(payload: PersistedDeliveryPayload): "pdf" | "pptx" {
+    return payload.outputFormat === "pptx" ? "pptx" : "pdf";
   }
 
   private readSourceUserMessageId(payload: PersistedDeliveryPayload): string {
@@ -1192,21 +1155,8 @@ export class AssistantDocumentJobDeliveryService {
     return `${message.slice(0, DOCUMENT_DELIVERY_LAST_ERROR_MAX_CHARS - 3)}...`;
   }
 
-  private inferDocumentType(
-    payload: PersistedDeliveryPayload
-  ): "pdf_document" | "presentation" | "data_document" | null {
-    if (payload.descriptorMode === "create_data_document") {
-      return "data_document";
-    }
-    if (payload.descriptorMode === "create_presentation") {
-      return "presentation";
-    }
-    const row = payload as Record<string, unknown>;
-    const provider =
-      typeof payload.providerStatus?.provider === "string"
-        ? payload.providerStatus.provider
-        : row.provider;
-    return provider === "gamma" ? "presentation" : "pdf_document";
+  private inferDocumentType(_payload: PersistedDeliveryPayload): "presentation" {
+    return "presentation";
   }
 
   private readWorkspaceFacts(value: unknown) {

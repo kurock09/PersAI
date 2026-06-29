@@ -4454,33 +4454,29 @@ export class TurnExecutionService {
     );
     if (locale?.toLowerCase().startsWith("ru")) {
       if (hasMixedModes || primaryDescriptorMode === null) {
-        return "Запрос принят. Готовлю документ и пришлю его отдельно, когда он будет готов.";
+        return "Запрос принят. Готовлю презентацию и пришлю её отдельно, когда она будет готова.";
       }
       switch (primaryDescriptorMode) {
         case "create_presentation":
           return "Запрос принят. Готовлю презентацию и пришлю её отдельно, когда она будет готова.";
         case "revise_document":
-          return "Запрос принят. Обновляю документ и пришлю новую версию отдельно, когда она будет готова.";
+          return "Запрос принят. Обновляю презентацию и пришлю новую версию отдельно, когда она будет готова.";
         case "export_or_redeliver":
-          return "Запрос принят. Готовлю документ и пришлю его отдельно, когда он будет готов.";
-        case "create_pdf_document":
         default:
-          return "Запрос принят. Готовлю документ и пришлю его отдельно, когда он будет готов.";
+          return "Запрос принят. Готовлю презентацию и пришлю её отдельно, когда она будет готова.";
       }
     }
     if (hasMixedModes || primaryDescriptorMode === null) {
-      return "Request accepted. I am preparing the document and will send it separately when it is ready.";
+      return "Request accepted. I am preparing the presentation and will send it separately when it is ready.";
     }
     switch (primaryDescriptorMode) {
       case "create_presentation":
         return "Request accepted. I am preparing the presentation and will send it separately when it is ready.";
       case "revise_document":
-        return "Request accepted. I am revising the document and will send the updated version separately when it is ready.";
+        return "Request accepted. I am revising the presentation and will send the updated version separately when it is ready.";
       case "export_or_redeliver":
-        return "Request accepted. I am preparing the document and will send it separately when it is ready.";
-      case "create_pdf_document":
       default:
-        return "Request accepted. I am preparing the document and will send it separately when it is ready.";
+        return "Request accepted. I am preparing the presentation and will send it separately when it is ready.";
     }
   }
 
@@ -5261,14 +5257,13 @@ export class TurnExecutionService {
       return null;
     }
     if (
-      row.descriptorMode !== "create_pdf_document" &&
       row.descriptorMode !== "create_presentation" &&
       row.descriptorMode !== "revise_document" &&
       row.descriptorMode !== "export_or_redeliver"
     ) {
       return null;
     }
-    if (row.documentType !== "pdf_document" && row.documentType !== "presentation") {
+    if (row.documentType !== "presentation") {
       return null;
     }
     return {
@@ -5279,7 +5274,7 @@ export class TurnExecutionService {
         ? { versionId: row.versionId }
         : {}),
       descriptorMode: row.descriptorMode,
-      documentType: row.documentType
+      documentType: "presentation"
     };
   }
 

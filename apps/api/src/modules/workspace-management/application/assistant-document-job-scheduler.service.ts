@@ -29,19 +29,18 @@ const DOCUMENT_JOB_RETRY_MAX_DELAY_MS = 60 * 60 * 1000;
 const DOCUMENT_JOB_LAST_ERROR_MAX_CHARS = 1_000;
 const DOCUMENT_JOB_SCHEDULER_KEY = "document_job";
 
+// ADR-129 hard cutover: the document scheduler only runs presentation jobs.
+// Non-presentation document descriptor modes are rejected at the API enqueue
+// boundary; historical sandbox rows are skipped at SQL claim time and the
+// queue stays presentation-only.
 type DocumentJobRequestPayload = {
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
-  descriptorMode:
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver"
-    | "create_data_document";
+  descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
   sourceJson: {
     prompt: string;
     instructions?: string | null;
-    outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
+    outputFormat?: "pdf" | "pptx" | null;
     docId?: string | null;
     requestedName?: string | null;
     visualStyle?: PersaiRuntimePresentationVisualStyle | null;
@@ -51,25 +50,8 @@ type DocumentJobRequestPayload = {
     targetSlideCount?: number | null;
     outline?: unknown;
     metadata?: Record<string, unknown> | null;
-    transferMode?: "verbatim" | "transform" | null;
-    contentIntent?: "preserve_content" | "rewrite_content" | null;
-    editOperation?: "style_only" | "content_patch" | "section_rewrite" | null;
-    targetSectionIds?: string[] | null;
   };
-  // Attachments persisted on the job at enqueue time. Optional / nullable
-  // so jobs queued before this field existed still parse cleanly.
   sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
-  /**
-   * ADR-097 Slice 2 — patch-revise. For PDF revise jobs, the post-repair HTML
-   * persisted on the previous AssistantDocumentVersion is forwarded here so
-   * the runtime worker can apply SEARCH/REPLACE patches. Null for create,
-   * presentation, or pre-Slice-1 legacy versions (those are rejected at
-   * enqueue time).
-   */
-  previousVersionRenderedHtml?: string | null;
-  previousVersionStructureJson?: Record<string, unknown> | null;
-  previousVersionStyleProfileJson?: Record<string, unknown> | null;
-  previousVersionEditStrategy?: "fast_small" | "structured_large" | null;
 };
 
 type ClaimedDocumentJob = {
@@ -81,7 +63,7 @@ type ClaimedDocumentJob = {
   workspaceId: string;
   chatId: string;
   surface: "web" | "telegram";
-  provider: "sandbox" | "gamma";
+  provider: "gamma";
   outputFormat: "pdf" | "pptx";
   sourceUserMessageId: string;
   requestJson: unknown;
@@ -269,7 +251,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           workspaceId: string;
           chatId: string;
           surface: "web" | "telegram";
-          provider: "sandbox" | "gamma";
+          provider: "gamma";
           outputFormat: "pdf" | "pptx";
           status: "queued" | "running" | "ready_for_delivery";
           sourceUserMessageId: string | null;
@@ -297,22 +279,25 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           "attempt_count" AS "attemptCount",
           "max_attempts" AS "maxAttempts"
         FROM "assistant_document_render_jobs"
-        WHERE (
-            "status" = 'queued'
-            AND ("next_retry_at" IS NULL OR "next_retry_at" <= NOW())
-          )
-          OR (
-            "status" = 'running'
-            AND "scheduler_claim_expires_at" IS NOT NULL
-            AND "scheduler_claim_expires_at" <= NOW()
-          )
-          OR (
-            "status" = 'ready_for_delivery'
-            AND (
-              "scheduler_claim_expires_at" IS NULL
-              OR "scheduler_claim_expires_at" <= NOW()
+        WHERE "provider" = 'gamma'
+          AND (
+            (
+              "status" = 'queued'
+              AND ("next_retry_at" IS NULL OR "next_retry_at" <= NOW())
             )
-            AND ("next_retry_at" IS NULL OR "next_retry_at" <= NOW())
+            OR (
+              "status" = 'running'
+              AND "scheduler_claim_expires_at" IS NOT NULL
+              AND "scheduler_claim_expires_at" <= NOW()
+            )
+            OR (
+              "status" = 'ready_for_delivery'
+              AND (
+                "scheduler_claim_expires_at" IS NULL
+                OR "scheduler_claim_expires_at" <= NOW()
+              )
+              AND ("next_retry_at" IS NULL OR "next_retry_at" <= NOW())
+            )
           )
         ORDER BY "created_at" ASC
         FOR UPDATE SKIP LOCKED
@@ -451,35 +436,11 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           sourceUserMessageText: requestPayload.sourceUserMessageText,
           sourceUserMessageCreatedAt: requestPayload.sourceUserMessageCreatedAt
         },
-        // Raw attachment refs stay available for trace/debug metadata, while
-        // sourceFiles carries API-owned extraction output from the shared
-        // document extraction pipeline.
         attachments,
         sourceFiles,
-        // ADR-097 Slice 2: forward previousVersionRenderedHtml for PDF revise
-        // jobs. The field is absent for create/presentation jobs and for legacy
-        // PDF versions (which are rejected at enqueue time, so they never reach
-        // the scheduler).
-        ...(typeof requestPayload.previousVersionRenderedHtml === "string"
-          ? { previousVersionRenderedHtml: requestPayload.previousVersionRenderedHtml }
-          : {}),
-        ...(requestPayload.previousVersionStructureJson !== null &&
-        requestPayload.previousVersionStructureJson !== undefined
-          ? { previousVersionStructureJson: requestPayload.previousVersionStructureJson }
-          : {}),
-        ...(requestPayload.previousVersionStyleProfileJson !== null &&
-        requestPayload.previousVersionStyleProfileJson !== undefined
-          ? { previousVersionStyleProfileJson: requestPayload.previousVersionStyleProfileJson }
-          : {}),
-        ...(requestPayload.previousVersionEditStrategy !== null &&
-        requestPayload.previousVersionEditStrategy !== undefined
-          ? { previousVersionEditStrategy: requestPayload.previousVersionEditStrategy }
-          : {}),
         directToolExecution: {
           toolCode: "document",
-          descriptorMode:
-            requestPayload.descriptorMode ??
-            (job.provider === "sandbox" ? "create_pdf_document" : "create_presentation"),
+          descriptorMode: requestPayload.descriptorMode,
           request: {
             ...requestPayload.sourceJson
           }
@@ -527,7 +488,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           await this.failJob(
             job,
             "document_template_not_configured",
-            "Document rendering failed (template_not_configured state — should not occur with sandbox renderer).",
+            "Presentation rendering failed (template_not_configured state from Gamma).",
             outcome.result.providerStatus ?? null,
             { requestPayload, retryable: false }
           );
@@ -556,9 +517,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
             schedulerClaimedAt: null,
             schedulerClaimExpiresAt: null,
             providerStatusJson: {
-              descriptorMode:
-                requestPayload.descriptorMode ??
-                (job.provider === "sandbox" ? "create_pdf_document" : "create_presentation"),
+              descriptorMode: requestPayload.descriptorMode,
               outputFormat: job.outputFormat,
               sourceUserMessageId: job.sourceUserMessageId,
               sourceUserMessageText: requestPayload.sourceUserMessageText,
@@ -574,34 +533,10 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
         if (claimed.count === 0) {
           return;
         }
-        const renderedHtml =
-          typeof outcome.result.renderedHtml === "string" ? outcome.result.renderedHtml : null;
-        const structureJson =
-          outcome.result.structureJson !== null && outcome.result.structureJson !== undefined
-            ? (outcome.result.structureJson as Prisma.InputJsonValue)
-            : undefined;
-        const styleProfileJson =
-          outcome.result.styleProfileJson !== null && outcome.result.styleProfileJson !== undefined
-            ? (outcome.result.styleProfileJson as Prisma.InputJsonValue)
-            : undefined;
-        const editStrategy =
-          outcome.result.editStrategy === "fast_small" ||
-          outcome.result.editStrategy === "structured_large"
-            ? outcome.result.editStrategy
-            : undefined;
-        const structureVersion =
-          typeof outcome.result.structureVersion === "number"
-            ? outcome.result.structureVersion
-            : undefined;
         await tx.assistantDocumentVersion.update({
           where: { id: job.versionId },
           data: {
-            status: "rendering",
-            ...(renderedHtml !== null ? { renderedHtml } : {}),
-            ...(structureJson !== undefined ? { structureJson } : {}),
-            ...(styleProfileJson !== undefined ? { styleProfileJson } : {}),
-            ...(editStrategy !== undefined ? { editStrategy } : {}),
-            ...(structureVersion !== undefined ? { structureVersion } : {})
+            status: "rendering"
           }
         });
         await this.upsertProviderMapping(tx, job, {
@@ -759,25 +694,24 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
     ) {
       return null;
     }
+    const descriptorMode =
+      row.descriptorMode === "create_presentation" ||
+      row.descriptorMode === "revise_document" ||
+      row.descriptorMode === "export_or_redeliver"
+        ? row.descriptorMode
+        : null;
+    if (descriptorMode === null) {
+      return null;
+    }
     return {
       sourceUserMessageText: row.sourceUserMessageText,
       sourceUserMessageCreatedAt: row.sourceUserMessageCreatedAt,
-      descriptorMode:
-        row.descriptorMode === "create_pdf_document" ||
-        row.descriptorMode === "create_presentation" ||
-        row.descriptorMode === "revise_document" ||
-        row.descriptorMode === "export_or_redeliver" ||
-        row.descriptorMode === "create_data_document"
-          ? row.descriptorMode
-          : "create_pdf_document",
+      descriptorMode,
       sourceJson: {
         prompt: sourceJson.prompt,
         instructions: typeof sourceJson.instructions === "string" ? sourceJson.instructions : null,
         outputFormat:
-          sourceJson.outputFormat === "pdf" ||
-          sourceJson.outputFormat === "pptx" ||
-          sourceJson.outputFormat === "xlsx" ||
-          sourceJson.outputFormat === "docx"
+          sourceJson.outputFormat === "pdf" || sourceJson.outputFormat === "pptx"
             ? sourceJson.outputFormat
             : null,
         docId: typeof sourceJson.docId === "string" ? sourceJson.docId : null,
@@ -814,53 +748,11 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
           typeof sourceJson.metadata === "object" &&
           !Array.isArray(sourceJson.metadata)
             ? (sourceJson.metadata as Record<string, unknown>)
-            : null,
-        transferMode:
-          sourceJson.transferMode === "verbatim" || sourceJson.transferMode === "transform"
-            ? sourceJson.transferMode
-            : null,
-        contentIntent:
-          sourceJson.contentIntent === "preserve_content" ||
-          sourceJson.contentIntent === "rewrite_content"
-            ? sourceJson.contentIntent
-            : null,
-        editOperation:
-          sourceJson.editOperation === "style_only" ||
-          sourceJson.editOperation === "content_patch" ||
-          sourceJson.editOperation === "section_rewrite"
-            ? sourceJson.editOperation
-            : null,
-        targetSectionIds: Array.isArray(sourceJson.targetSectionIds)
-          ? sourceJson.targetSectionIds.filter(
-              (entry): entry is string => typeof entry === "string"
-            )
-          : null
+            : null
       },
       sourceUserMessageAttachments: this.parseAttachmentsFromPersistedJson(
         row.sourceUserMessageAttachments
-      ),
-      previousVersionRenderedHtml:
-        typeof row.previousVersionRenderedHtml === "string" &&
-        row.previousVersionRenderedHtml.length > 0
-          ? row.previousVersionRenderedHtml
-          : null,
-      previousVersionStructureJson:
-        row.previousVersionStructureJson !== null &&
-        typeof row.previousVersionStructureJson === "object" &&
-        !Array.isArray(row.previousVersionStructureJson)
-          ? (row.previousVersionStructureJson as Record<string, unknown>)
-          : null,
-      previousVersionStyleProfileJson:
-        row.previousVersionStyleProfileJson !== null &&
-        typeof row.previousVersionStyleProfileJson === "object" &&
-        !Array.isArray(row.previousVersionStyleProfileJson)
-          ? (row.previousVersionStyleProfileJson as Record<string, unknown>)
-          : null,
-      previousVersionEditStrategy:
-        row.previousVersionEditStrategy === "fast_small" ||
-        row.previousVersionEditStrategy === "structured_large"
-          ? row.previousVersionEditStrategy
-          : null
+      )
     };
   }
 

@@ -2759,52 +2759,31 @@ export interface RuntimeDocumentJobRunRequest {
   workspaceId: string;
   runtimeTier: PersaiRuntimeTier;
   runtimeBundleDocument: string;
+  // ADR-129 hard cutover: deferred document jobs are presentation-only.
+  // Non-presentation document work (PDF/DOCX/XLSX) flows through the visible
+  // workspace workflow and never reaches the runtime worker.
   job: {
     id: string;
     docId: string;
     versionId: string;
     surface: "web" | "telegram";
     chatId: string;
-    provider: "sandbox" | "gamma";
-    outputFormat: "pdf" | "pptx" | "xlsx" | "docx";
+    provider: "gamma";
+    outputFormat: "pdf" | "pptx";
     sourceUserMessageId: string;
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
   };
-  // Attachments from the user message that triggered this document job.
+  // Attachments from the user message that triggered this presentation job.
   // Mirrors the media path and remains available for trace/debug metadata.
   // Source extraction itself is API-owned and passed through sourceFiles.
   attachments: RuntimeAttachmentRef[];
-  // API-extracted source payloads for transient generation attachments. These
+  // API-extracted source payloads for presentation source attachments. These
   // are not persisted into Knowledge unless the user explicitly saves them.
   sourceFiles?: RuntimeDocumentSourceFile[];
-  /**
-   * For revise_document PDF jobs, the scheduler passes the exact
-   * post-repairHtmlDocument HTML persisted on the previous
-   * AssistantDocumentVersion so the worker can either apply patch-revise
-   * updates or lazily upgrade into the structured revise path. Null for
-   * create_pdf_document, create_presentation, export_or_redeliver, presentation
-   * revise jobs, or any PDF version created before renderedHtml persistence
-   * (those are rejected at enqueue time with
-   * document_revise_unsupported_legacy_version).
-   */
-  previousVersionRenderedHtml?: string | null;
-  /**
-   * Structured document snapshot from the previous version. When present with
-   * editStrategy=structured_large, the worker edits structure/style instead of
-   * whole-HTML SEARCH/REPLACE patches.
-   */
-  previousVersionStructureJson?: Record<string, unknown> | null;
-  previousVersionStyleProfileJson?: Record<string, unknown> | null;
-  previousVersionEditStrategy?: "fast_small" | "structured_large" | null;
   directToolExecution: {
     toolCode: "document";
-    descriptorMode:
-      | "create_pdf_document"
-      | "create_presentation"
-      | "revise_document"
-      | "export_or_redeliver"
-      | "create_data_document";
+    descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
     request: {
       prompt: string;
       instructions?: string | null;
@@ -2855,14 +2834,6 @@ export interface RuntimeDocumentJobRunResult {
   rawText: string | null;
   providerStatus?: Record<string, unknown> | null;
   billingFacts?: RuntimeBillingFacts | null;
-  /** Exact post-repairHtmlDocument HTML sent to WeasyPrint/sandbox. Null for Gamma/pptx
-   *  or when generation failed. Persisted on AssistantDocumentVersion so later
-   *  revise paths can reuse stable document truth without re-generating. */
-  renderedHtml?: string | null;
-  structureJson?: Record<string, unknown> | null;
-  styleProfileJson?: Record<string, unknown> | null;
-  editStrategy?: "fast_small" | "structured_large" | null;
-  structureVersion?: number | null;
 }
 
 export type RuntimeDocumentGammaCompanionOriginal =
@@ -3106,13 +3077,8 @@ export interface RuntimeDeferredDocumentJobSummary {
   toolCode: "document";
   docId?: string | null;
   versionId?: string | null;
-  descriptorMode:
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver"
-    | "create_data_document";
-  documentType: "pdf_document" | "presentation" | "data_document";
+  descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
+  documentType: "presentation";
 }
 
 export interface RuntimeTurnResult {

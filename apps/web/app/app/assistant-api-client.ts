@@ -4601,12 +4601,8 @@ export type WebChatActiveMediaJobState = AssistantWebChatActiveMediaJobState;
 
 export type WebChatActiveDocumentJobState = {
   id: string;
-  documentType: "pdf_document" | "presentation";
-  descriptorMode:
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver";
+  documentType: "presentation";
+  descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
   status: "queued" | "running" | "provider_processing" | "fetching_output" | "ready_for_delivery";
   createdAt: string;
   startedAt: string | null;

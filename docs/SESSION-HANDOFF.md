@@ -1,5 +1,36 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 deep cleanup: presentation-only deferred document pipeline
+
+Status: implemented locally on top of the ADR-129 hard-cutover checkpoint after founder feedback that the hard cutover had not gone far enough ("ЧИСТО"). AGENTS verification gate and focused document checks pass; push/deploy remains blocked until explicit approval.
+
+**Scope.** Deferred `document` jobs are now strictly presentation-only end-to-end. `RuntimeDeferredDocumentJobSummary`, `AssistantWebChatActiveDocumentJobState`, the runtime deferred-document follow-up acknowledgement, the web active-job chip, the runtime `document` tool parser, the `runtime-document-provider-adapter` worker, the runtime jobs controller, the API enqueue/job/scheduler/delivery/read/completion/failure surfaces, and the runtime contract were narrowed to `descriptorMode ∈ {create_presentation, revise_document, export_or_redeliver}` and `documentType = "presentation"`. The Prisma `AssistantDocumentRenderProvider` enum was shrunk to `gamma` and `AssistantDocumentOutputFormat` to `pdf | pptx` via the `20260629200000_adr129_presentation_only_document_enums` migration, which also purges historical non-presentation render-job rows and drops dead PDF-structure columns from `assistant_document_versions`.
+
+Visible-workspace PDF/XLSX/DOCX work is unchanged: it still goes through `document.extract → document.render → document.inspect → optional document.register_version → files.attach`. The `AssistantDocumentType`, `AssistantDocumentDescriptorMode`, and the chat-attachment `documentLink` metadata stay wide because `document.register_version` continues to register PDF/XLSX/DOCX visible documents into `AssistantDocument` rows.
+
+**Fix.** Removed dead code paths:
+- runtime `buildRetiredDescriptorModeResult` and its dispatch; retired descriptor modes now fail at parse with `invalid_arguments` and a guidance that points at the visible workspace actions.
+- `resolvePresentationDescriptorMode`, the `kind: "legacy"` variant union, and the `outputFormat ∈ {xlsx, docx}` branches in the presentation enqueue / normalize path.
+- the `create_pdf_document` default branch in the deferred document acknowledgement copy and the `pdf_document` branch in `extractDeferredDocumentJob`.
+- the `create_pdf_document` fallback label and the `pdf_document` documentType branch in the web active-document-job chip.
+- the obsolete worker-path tests (`PDF revise`, `create_pdf_document`, `storagePath-based PDF`, `create_data_document`, `legacy xlsx outputFormat`) — collapsed into a single compact parse-rejection test that exercises the new error message.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+- `corepack pnpm run format:check` — PASS (after formatting touched runtime test file).
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-document-tool.service.test.ts test/deferred-document-acknowledgement.test.ts test/internal-runtime-document-jobs.controller.test.ts test/runtime-document-job-completion.service.test.ts test/native-tool-projection.test.ts` — PASS (29/29).
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/turn-execution.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx --test test/document-workspace-extraction.service.test.ts test/document-workspace-version-registration.service.test.ts test/enqueue-runtime-deferred-document-job.service.test.ts test/assistant-document-job-scheduler.service.test.ts test/assistant-document-job-read.service.test.ts test/assistant-document-job-delivery.service.test.ts test/assistant-document-job.service.test.ts` — PASS (24/24).
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-input.test.tsx app/app/_components/chat-message.test.tsx app/app/_components/use-chat.test.tsx app/app/_components/sidebar.test.tsx` — PASS (193/193).
+
+**Residual.** ADR-129 still pending live validation (Wave 7) and the cache-prefix rollout SHA noted in ADR-117. The remaining mentions of `create_pdf_document` / `create_data_document` / `pdf_document` / `data_document` in active code live exclusively in the `document.register_version` visible-workspace registration path (`runtime-document-tool.service`, `persai-internal-api.client.service`, `assistant-document-job.service`, `document-workspace-version-registration.service`, `read-attachment-document-link`) and historical migration SQL — these are part of the new architecture, not legacy garbage.
+
+**Next recommended step.** Commit this checkpoint, then push/deploy after explicit approval and run Wave 7 live validation.
+
 ## 2026-06-29 — ADR-129 hard cutover cleanup; presentations preserved
 
 Status: implemented locally after founder cleanup feedback; AGENTS gate and focused document checks pass.

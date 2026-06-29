@@ -24,13 +24,8 @@ type DocumentJobCompletionInput = {
   workspaceId: string;
   chatId: string;
   surface: "web" | "telegram";
-  outputFormat: "pdf" | "pptx" | "xlsx" | "docx";
-  descriptorMode:
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver"
-    | "create_data_document";
+  outputFormat: "pdf" | "pptx";
+  descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
   sourceUserMessageId: string;
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
@@ -46,13 +41,8 @@ type DocumentJobFailureFramingInput = {
   workspaceId: string;
   chatId: string;
   surface: "web" | "telegram";
-  outputFormat: "pdf" | "pptx" | "xlsx" | "docx";
-  descriptorMode:
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver"
-    | "create_data_document";
+  outputFormat: "pdf" | "pptx";
+  descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
   sourceUserMessageId: string;
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;

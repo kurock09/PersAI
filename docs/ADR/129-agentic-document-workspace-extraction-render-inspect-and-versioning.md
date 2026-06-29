@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented locally through Wave 6 plus hard-cutover cleanup; final deploy/live validation pending.
+Implemented locally through Wave 6, hard-cutover cleanup, and deep cleanup (deferred document pipeline narrowed to presentation-only end-to-end, including Prisma enum shrink for render-job tables); final deploy/live validation pending.
 
 ## Date
 
@@ -407,6 +407,21 @@ Run full gate, deploy, and live validate:
 2. upload a complex XLSX, extract workbook summary, create a new XLSX, inspect sheets/formulas/sample rows, revise, attach;
 3. create a DOCX, inspect headings/tables, revise with `python-docx`, attach;
 4. refresh chat and verify document metadata survives.
+
+### Deep cleanup follow-up (2026-06-29)
+
+After the hard cutover the founder flagged that the cleanup had not gone far enough ("ЧИСТО"). The orchestrator then carried the cleanup further on top of the hard cutover, treating the deferred `document` job pipeline as presentation-only end-to-end. The scope of this follow-up was:
+
+- runtime `document` tool parser collapses to a single `presentation_enqueue` shape with `descriptorMode ∈ {create_presentation, revise_document, export_or_redeliver}` and `outputFormat ∈ {pdf, pptx}`. Retired descriptor modes (`create_pdf_document`, `create_data_document`) now fail at parse with `invalid_arguments` and a guidance that points at the visible workspace actions. `buildRetiredDescriptorModeResult`, `resolvePresentationDescriptorMode`, and the runtime-side dispatch through them were removed.
+- `RuntimeDeferredDocumentJobSummary`, `AssistantWebChatActiveDocumentJobState`, the deferred-document acknowledgement copy, `extractDeferredDocumentJob`, the runtime jobs controller, the web active-document-job chip, and the API enqueue/job/scheduler/delivery/read/completion/failure surfaces were narrowed to `documentType = "presentation"`. The dead `create_pdf_document` default branches in the acknowledgement copy and web chip were removed.
+- the runtime worker (`runtime-document-provider-adapter.service.ts`) was already Gamma-only after the hard cutover; this follow-up made the rest of the deferred pipeline match.
+- the Prisma `AssistantDocumentRenderProvider` enum was shrunk to `gamma` and `AssistantDocumentOutputFormat` to `pdf | pptx` via the `20260629200000_adr129_presentation_only_document_enums` migration, which also purges historical non-presentation render-job rows and drops the dead PDF-structure columns (`rendered_html`, `structure_json`, `style_profile_json`, `edit_strategy`, `structure_version`) from `assistant_document_versions`.
+- the obsolete worker-path runtime tests (`PDF revise`, `create_pdf_document`, `storagePath-based PDF`, `create_data_document`, `legacy xlsx outputFormat`) were collapsed into a single compact parse-rejection test that exercises the new error message.
+
+Out of scope (explicit founder directive "не зацеп презентации" + `document.register_version` reality):
+
+- visible-workspace document registration still writes PDF/XLSX/DOCX rows into `AssistantDocument`, so the broader Prisma enums (`AssistantDocumentType`, `AssistantDocumentDescriptorMode`) and the chat-attachment `documentLink` metadata stay wide. They are not legacy in the new architecture.
+- presentation generation, delivery, and the `gamma` worker remain operational on the existing presentation worker path.
 
 ## Verification gate
 

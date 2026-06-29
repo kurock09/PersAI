@@ -74,17 +74,13 @@ function buildRevisionContext(currentVersionNumber = 3): AssistantDocumentRevisi
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
     chatId: "chat-1",
-    documentType: "pdf_document",
+    documentType: "presentation",
     currentVersionId: "version-current",
     currentVersionNumber,
-    currentVersionRenderedHtml: "<html><body><h1>Current</h1></body></html>",
-    currentVersionStructureJson: null,
-    currentVersionStyleProfileJson: null,
-    currentVersionEditStrategy: null,
     currentSourceJson: {
-      prompt: "Original report",
+      prompt: "Original deck",
       outputFormat: "pdf",
-      requestedName: "report"
+      requestedName: "deck"
     }
   };
 }
@@ -102,7 +98,7 @@ async function runEnqueueRevisionUsesLatestPersistedVersionNumber(): Promise<voi
     surface: "web",
     sourceUserMessageId: "message-1",
     revisionContext: buildRevisionContext(3),
-    provider: "sandbox",
+    provider: "gamma",
     outputFormat: "pdf",
     request: {
       sourceUserMessageText: "Add an appendix",
@@ -112,8 +108,7 @@ async function runEnqueueRevisionUsesLatestPersistedVersionNumber(): Promise<voi
         prompt: "Add an appendix",
         outputFormat: "pdf"
       }
-    },
-    previousVersionRenderedHtml: "<html><body><h1>Current</h1></body></html>"
+    }
   });
 
   assert.equal(result.docId, "doc-1");
@@ -139,7 +134,7 @@ async function runEnqueueRevisionRetriesUniqueVersionConflict(): Promise<void> {
     surface: "web",
     sourceUserMessageId: "message-2",
     revisionContext: buildRevisionContext(3),
-    provider: "sandbox",
+    provider: "gamma",
     outputFormat: "pdf",
     request: {
       sourceUserMessageText: "Tighten the summary",
@@ -149,8 +144,7 @@ async function runEnqueueRevisionRetriesUniqueVersionConflict(): Promise<void> {
         prompt: "Tighten the summary",
         outputFormat: "pdf"
       }
-    },
-    previousVersionRenderedHtml: "<html><body><h1>Current</h1></body></html>"
+    }
   });
 
   assert.equal(result.versionId, "version-5");

@@ -1,11 +1,16 @@
 import type {
   AssistantDocumentDescriptorMode,
-  AssistantDocumentOutputFormat,
   AssistantDocumentStatus,
   AssistantDocumentType,
   AssistantDocumentVersionStatus
 } from "@prisma/client";
 import type { AssistantWebChatMessageAttachmentDocumentLink } from "./web-chat.types";
+
+// document_link.outputFormat spans both deferred presentation jobs (pdf/pptx)
+// and visible workspace documents (pdf/xlsx/docx), so we keep the chat-attachment
+// surface union wider than the Prisma render-job enum, which is narrowed to the
+// deferred (presentation) pipeline only after the ADR-129 hard cutover.
+type AssistantDocumentLinkOutputFormat = "pdf" | "pptx" | "xlsx" | "docx";
 
 type MutableDocumentLink = AssistantWebChatMessageAttachmentDocumentLink & {
   renderJobId?: string | null;
@@ -47,7 +52,7 @@ export function buildAssistantDocumentLinkMetadata(input: {
   versionNumber: number | null;
   descriptorMode: AssistantDocumentDescriptorMode | null;
   documentType: AssistantDocumentType | null;
-  outputFormat: AssistantDocumentOutputFormat | null;
+  outputFormat: AssistantDocumentLinkOutputFormat | null;
   documentStatus: AssistantDocumentStatus | null;
   versionStatus: AssistantDocumentVersionStatus | null;
   renderJobId?: string | null;

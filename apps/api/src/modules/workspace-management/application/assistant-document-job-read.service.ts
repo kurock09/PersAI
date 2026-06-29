@@ -43,26 +43,17 @@ function toRuntimeOpenDocumentJobStatus(
 }
 
 function normalizeDescriptorMode(
-  value: unknown,
-  documentType: AssistantDocumentType
+  value: unknown
 ): AssistantWebChatActiveDocumentJobState["descriptorMode"] {
   const mode = value as AssistantDocumentDescriptorMode | undefined;
   if (
-    mode === "create_pdf_document" ||
     mode === "create_presentation" ||
     mode === "revise_document" ||
-    mode === "export_or_redeliver" ||
-    mode === "create_data_document"
+    mode === "export_or_redeliver"
   ) {
     return mode;
   }
-  if (documentType === "presentation") {
-    return "create_presentation";
-  }
-  if (documentType === "data_document") {
-    return "create_data_document";
-  }
-  return "create_pdf_document";
+  return "create_presentation";
 }
 
 function normalizeSourceSummary(value: unknown): string | null {
@@ -112,18 +103,17 @@ export class AssistantDocumentJobReadService {
       }
     });
 
-    return rows.map((row) => ({
-      id: row.id,
-      documentType: row.document.documentType,
-      descriptorMode: normalizeDescriptorMode(
-        row.version?.descriptorMode,
-        row.document.documentType
-      ),
-      status: toWebOpenDocumentJobStatus(row.status),
-      createdAt: row.createdAt.toISOString(),
-      startedAt: row.startedAt?.toISOString() ?? null,
-      updatedAt: row.updatedAt.toISOString()
-    }));
+    return rows
+      .filter((row) => row.document.documentType === "presentation")
+      .map((row) => ({
+        id: row.id,
+        documentType: "presentation",
+        descriptorMode: normalizeDescriptorMode(row.version?.descriptorMode),
+        status: toWebOpenDocumentJobStatus(row.status),
+        createdAt: row.createdAt.toISOString(),
+        startedAt: row.startedAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt.toISOString()
+      }));
   }
 
   async listOpenJobsForRuntimeContext(input: {
@@ -161,19 +151,18 @@ export class AssistantDocumentJobReadService {
       }
     });
 
-    return rows.map((row) => ({
-      jobId: row.id,
-      descriptorMode: normalizeDescriptorMode(
-        row.version?.descriptorMode,
-        row.document.documentType
-      ),
-      documentType: row.document.documentType,
-      status: toRuntimeOpenDocumentJobStatus(row.status),
-      sourceSummary: normalizeSourceSummary(row.version?.sourceSummaryText),
-      createdAt: row.createdAt.toISOString(),
-      startedAt: row.startedAt?.toISOString() ?? null,
-      updatedAt: row.updatedAt.toISOString()
-    }));
+    return rows
+      .filter((row) => row.document.documentType === "presentation")
+      .map((row) => ({
+        jobId: row.id,
+        descriptorMode: normalizeDescriptorMode(row.version?.descriptorMode),
+        documentType: "presentation",
+        status: toRuntimeOpenDocumentJobStatus(row.status),
+        sourceSummary: normalizeSourceSummary(row.version?.sourceSummaryText),
+        createdAt: row.createdAt.toISOString(),
+        startedAt: row.startedAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt.toISOString()
+      }));
   }
 
   async listJobDeliveryUpdatesForRuntimeContext(input: {
@@ -246,10 +235,12 @@ export class AssistantDocumentJobReadService {
       })
     ]);
     return [
-      ...finalizingRows.map((row) => this.toRuntimeJobDeliveryUpdate(row, "finalizing_delivery")),
-      ...recentDeliveredRows.map((row) =>
-        this.toRuntimeJobDeliveryUpdate(row, "delivered_recently")
-      )
+      ...finalizingRows
+        .filter((row) => row.document.documentType === "presentation")
+        .map((row) => this.toRuntimeJobDeliveryUpdate(row, "finalizing_delivery")),
+      ...recentDeliveredRows
+        .filter((row) => row.document.documentType === "presentation")
+        .map((row) => this.toRuntimeJobDeliveryUpdate(row, "delivered_recently"))
     ];
   }
 
@@ -274,11 +265,8 @@ export class AssistantDocumentJobReadService {
     return {
       kind: "document",
       jobId: row.id,
-      descriptorMode: normalizeDescriptorMode(
-        row.version?.descriptorMode,
-        row.document.documentType
-      ),
-      documentType: row.document.documentType,
+      descriptorMode: normalizeDescriptorMode(row.version?.descriptorMode),
+      documentType: "presentation",
       deliveryStatus,
       sourceSummary: normalizeSourceSummary(row.version?.sourceSummaryText),
       createdAt: row.createdAt.toISOString(),

@@ -72,19 +72,19 @@ describe("RuntimeDocumentJobRunService", () => {
         versionId: "version-1",
         surface: "web",
         chatId: "chat-1",
-        provider: "sandbox",
-        outputFormat: "pdf",
+        provider: "gamma",
+        outputFormat: "pptx",
         sourceUserMessageId: "message-1",
-        sourceUserMessageText: "Create a PDF brief",
+        sourceUserMessageText: "Make a startup deck",
         sourceUserMessageCreatedAt: "2026-05-15T12:00:00.000Z"
       },
       attachments: [],
       directToolExecution: {
         toolCode: "document",
-        descriptorMode: "create_pdf_document",
+        descriptorMode: "create_presentation",
         request: {
-          prompt: "Create a PDF brief",
-          requestedName: "brief"
+          prompt: "Make a startup deck",
+          requestedName: "startup-deck"
         }
       }
     });
@@ -97,7 +97,7 @@ describe("RuntimeDocumentJobRunService", () => {
     assert.ok(capturedRequest);
     assert.equal(
       (capturedRequest as { request: { job: { provider: string } } }).request.job.provider,
-      "sandbox"
+      "gamma"
     );
   });
 });

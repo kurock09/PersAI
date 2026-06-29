@@ -273,10 +273,8 @@ function resolveDocumentJobLabel(
     case "export_or_redeliver":
       return t("documentJobRedeliver");
     case "create_presentation":
-      return t("documentJobPresentation");
-    case "create_pdf_document":
     default:
-      return t("documentJobPdf");
+      return t("documentJobPresentation");
   }
 }
 

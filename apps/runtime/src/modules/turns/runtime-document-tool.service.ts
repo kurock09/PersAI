@@ -110,44 +110,15 @@ export class RuntimeDocumentToolService {
       });
     }
 
-    const presentationDescriptorMode = this.resolvePresentationDescriptorMode({
+    return this.enqueuePresentationDescriptorToolCall({
+      bundle: params.bundle,
       descriptorMode: parsed.descriptorMode,
-      outputFormat: parsed.request.outputFormat ?? null
+      request: parsed.request,
+      sourceUserMessageId: params.deferToAsyncDocumentJob.sourceUserMessageId,
+      sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText,
+      currentAttachments: params.deferToAsyncDocumentJob.currentAttachments,
+      availableAttachments: params.deferToAsyncDocumentJob.availableAttachments
     });
-    if (presentationDescriptorMode !== null) {
-      return this.enqueuePresentationDescriptorToolCall({
-        bundle: params.bundle,
-        descriptorMode: presentationDescriptorMode,
-        request: parsed.request,
-        sourceUserMessageId: params.deferToAsyncDocumentJob.sourceUserMessageId,
-        sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText,
-        currentAttachments: params.deferToAsyncDocumentJob.currentAttachments,
-        availableAttachments: params.deferToAsyncDocumentJob.availableAttachments
-      });
-    }
-
-    return this.buildRetiredDescriptorModeResult(parsed.request);
-  }
-
-  private resolvePresentationDescriptorMode(input: {
-    descriptorMode:
-      | "create_pdf_document"
-      | "create_presentation"
-      | "revise_document"
-      | "export_or_redeliver"
-      | "create_data_document";
-    outputFormat: "pdf" | "pptx" | "xlsx" | "docx" | null;
-  }): "create_presentation" | "revise_document" | "export_or_redeliver" | null {
-    if (input.descriptorMode === "create_presentation") {
-      return "create_presentation";
-    }
-    if (
-      input.outputFormat === "pptx" &&
-      (input.descriptorMode === "revise_document" || input.descriptorMode === "export_or_redeliver")
-    ) {
-      return input.descriptorMode;
-    }
-    return null;
   }
 
   private async enqueuePresentationDescriptorToolCall(params: {
@@ -156,7 +127,7 @@ export class RuntimeDocumentToolService {
     request: {
       prompt: string;
       instructions?: string | null;
-      outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
+      outputFormat?: "pdf" | "pptx" | null;
       docId?: string | null;
       storagePath?: string | null;
       requestedName?: string | null;
@@ -819,45 +790,6 @@ export class RuntimeDocumentToolService {
     };
   }
 
-  private buildRetiredDescriptorModeResult(input: {
-    prompt: string;
-    outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
-    requestedName?: string | null;
-  }): RuntimeDocumentToolExecutionResult {
-    return {
-      payload: {
-        toolCode: "document",
-        executionMode: "inline",
-        requestedAction: null,
-        descriptorMode: null,
-        documentType: null,
-        provider: null,
-        prompt: input.prompt,
-        outputFormat: input.outputFormat ?? null,
-        docId: null,
-        requestedName: input.requestedName ?? null,
-        artifacts: [],
-        usage: null,
-        action: "skipped",
-        reason: "descriptor_mode_retired",
-        warning:
-          "Document descriptor modes and background document jobs are retired. Use the visible workspace document workflow.",
-        guidance: [
-          "Use the visible workspace workflow instead:",
-          "extract source sidecars first when they will help,",
-          "create or edit source files under `/workspace`,",
-          "call `document.render`, inspect with `document.inspect`,",
-          "optionally persist metadata with `document.register_version`,",
-          "then use `files.attach` for final delivery."
-        ].join(" "),
-        jobId: null,
-        canSendFileNow: false
-      },
-      artifacts: [],
-      isError: false
-    };
-  }
-
   private readDocumentArguments(value: unknown):
     | {
         kind: "extract";
@@ -897,17 +829,12 @@ export class RuntimeDocumentToolService {
         };
       }
     | {
-        kind: "legacy";
-        descriptorMode:
-          | "create_pdf_document"
-          | "create_presentation"
-          | "revise_document"
-          | "export_or_redeliver"
-          | "create_data_document";
+        kind: "presentation_enqueue";
+        descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
         request: {
           prompt: string;
           instructions?: string | null;
-          outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
+          outputFormat?: "pdf" | "pptx" | null;
           docId?: string | null;
           /** ADR-126 v3 — workspace storage path for cross-chat revise. */
           storagePath?: string | null;
@@ -1007,14 +934,12 @@ export class RuntimeDocumentToolService {
     }
     const descriptorMode = row.descriptorMode;
     if (
-      descriptorMode !== "create_pdf_document" &&
       descriptorMode !== "create_presentation" &&
       descriptorMode !== "revise_document" &&
-      descriptorMode !== "export_or_redeliver" &&
-      descriptorMode !== "create_data_document"
+      descriptorMode !== "export_or_redeliver"
     ) {
       return new Error(
-        "document.descriptorMode must be create_pdf_document, create_presentation, revise_document, export_or_redeliver, or create_data_document."
+        "document.descriptorMode must be create_presentation, revise_document, or export_or_redeliver. PDF/DOCX/XLSX work uses the visible workspace actions (document.extract / document.render / document.inspect / document.register_version)."
       );
     }
     if (typeof row.prompt !== "string" || row.prompt.trim().length === 0) {
@@ -1030,14 +955,9 @@ export class RuntimeDocumentToolService {
       return new Error("document.metadata must be an object when provided.");
     }
     const outputFormat =
-      row.outputFormat === "pdf" ||
-      row.outputFormat === "pptx" ||
-      row.outputFormat === "xlsx" ||
-      row.outputFormat === "docx"
-        ? row.outputFormat
-        : null;
+      row.outputFormat === "pdf" || row.outputFormat === "pptx" ? row.outputFormat : null;
     return {
-      kind: "legacy",
+      kind: "presentation_enqueue",
       descriptorMode,
       request: {
         prompt: row.prompt.trim(),
@@ -1151,7 +1071,7 @@ export class RuntimeDocumentToolService {
     request: {
       prompt: string;
       instructions?: string | null;
-      outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
+      outputFormat?: "pdf" | "pptx" | null;
       docId?: string | null;
       storagePath?: string | null;
       requestedName?: string | null;
@@ -1165,7 +1085,7 @@ export class RuntimeDocumentToolService {
   }): {
     prompt: string;
     instructions?: string | null;
-    outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
+    outputFormat?: "pdf" | "pptx" | null;
     docId?: string | null;
     storagePath?: string | null;
     requestedName?: string | null;

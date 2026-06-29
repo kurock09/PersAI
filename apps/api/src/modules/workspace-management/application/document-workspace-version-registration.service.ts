@@ -1,9 +1,12 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import type {
-  AssistantDocumentDescriptorMode,
-  AssistantDocumentOutputFormat
-} from "@prisma/client";
 import { AssistantDocumentJobService } from "./assistant-document-job.service";
+
+// Visible-workspace document outputs are PDF/XLSX/DOCX (presentations are
+// excluded because they never use document.register_version — they go through
+// the deferred Gamma render pipeline). This is intentionally a local string
+// union and not the Prisma `AssistantDocumentOutputFormat` enum, which only
+// covers the deferred render-job table (pdf/pptx after the ADR-129 hard cutover).
+type VisibleWorkspaceDocumentOutputFormat = "pdf" | "xlsx" | "docx";
 import type {
   AssistantDocumentInspectionSummary,
   AssistantDocumentWorkspaceFacts
@@ -274,8 +277,8 @@ export class DocumentWorkspaceVersionRegistrationService {
   private resolveDescriptorMode(input: {
     descriptorMode: WorkspaceDocumentRegisterVersionInput["descriptorMode"];
     docId: string | null;
-    outputFormat: AssistantDocumentOutputFormat;
-  }): AssistantDocumentDescriptorMode | null {
+    outputFormat: VisibleWorkspaceDocumentOutputFormat;
+  }): WorkspaceDocumentRegisterVersionAccepted["descriptorMode"] | null {
     if (input.docId !== null) {
       return input.descriptorMode === null || input.descriptorMode === "revise_document"
         ? "revise_document"
@@ -387,7 +390,9 @@ function normalizeWorkspaceDirectory(value: string): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function resolveOutputFormatFromPath(path: string): "pdf" | "pptx" | "xlsx" | "docx" | null {
+function resolveOutputFormatFromPath(
+  path: string
+): VisibleWorkspaceDocumentOutputFormat | "pptx" | null {
   const lowered = path.toLowerCase();
   if (lowered.endsWith(".pdf")) {
     return "pdf";

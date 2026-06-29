@@ -2689,8 +2689,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   openDocumentJobsRequest.openDocumentJobs = [
     {
       jobId: "doc-job-1",
-      descriptorMode: "create_pdf_document",
-      documentType: "pdf_document",
+      descriptorMode: "create_presentation",
+      documentType: "presentation",
       status: "running",
       sourceSummary: "сделай pdf по брифу",
       createdAt: "2026-04-11T12:00:00.000Z",
@@ -2711,7 +2711,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     providerGatewayClient.calls[openDocumentJobsOffset]?.developerInstructions ?? "",
-    /1\. create_pdf_document \(pdf_document\) job is running; source: "сделай pdf по брифу"; created 2026-04-11T12:00:00\.000Z, started 2026-04-11T12:01:00\.000Z\./
+    /1\. create_presentation \(presentation\) job is running; source: "сделай pdf по брифу"; created 2026-04-11T12:00:00\.000Z, started 2026-04-11T12:01:00\.000Z\./
   );
   const deliveryUpdatesRequest = createRuntimeTurnRequest();
   deliveryUpdatesRequest.message.text = "оно еще делается?";
@@ -2734,8 +2734,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     {
       kind: "document",
       jobId: "doc-delivery-1",
-      descriptorMode: "create_pdf_document",
-      documentType: "pdf_document",
+      descriptorMode: "create_presentation",
+      documentType: "presentation",
       deliveryStatus: "delivered_recently",
       sourceSummary: "сделай pdf по брифу",
       createdAt: "2026-04-11T12:00:00.000Z",
@@ -2774,7 +2774,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   );
   assert.match(
     providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
-    /2\. create_pdf_document \(pdf_document\) job is delivered_recently; source: "сделай pdf по брифу"; completed 2026-04-11T12:02:30\.000Z; delivered 2026-04-11T12:02:45\.000Z\./
+    /2\. create_presentation \(presentation\) job is delivered_recently; source: "сделай pdf по брифу"; completed 2026-04-11T12:02:30\.000Z; delivered 2026-04-11T12:02:45\.000Z\./
   );
   assert.match(
     providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",

@@ -5,7 +5,6 @@ import type {
   AssistantChatSurface,
   AssistantDocumentDescriptorMode,
   AssistantDocumentOutputFormat,
-  AssistantDocumentRenderProvider,
   AssistantDocumentType
 } from "@prisma/client";
 import type {
@@ -29,7 +28,7 @@ const MAX_REVISION_VERSION_ALLOCATION_ATTEMPTS = 3;
 export type AssistantDocumentSourcePayload = {
   prompt: string;
   instructions?: string | null;
-  outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
+  outputFormat?: "pdf" | "pptx" | null;
   docId?: string | null;
   requestedName?: string | null;
   visualStyle?: PersaiRuntimePresentationVisualStyle | null;
@@ -51,13 +50,11 @@ export type AssistantDocumentSourcePayload = {
 export type AssistantDocumentRequestPayload = {
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
-  descriptorMode: AssistantDocumentDescriptorMode;
+  descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
   sourceJson: AssistantDocumentSourcePayload;
-  // Attachments from the triggering user message. Persisted on the render
-  // job's requestJson so the runtime worker can inline text-extractable
-  // source content (txt/md/csv/json/xml/html) directly into the HTML
-  // generation prompt. Optional/nullable for backward compatibility with
-  // previously enqueued jobs that predate this field.
+  // Attachments from the triggering user message. Presentation workers can use
+  // these as source material; non-presentation documents use visible workspace
+  // extraction/render/inspect instead of deferred jobs.
   sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
 };
 
@@ -66,15 +63,10 @@ export type AssistantDocumentRevisionContext = {
   assistantId: string;
   workspaceId: string;
   chatId: string;
-  documentType: AssistantDocumentType;
+  documentType: "presentation";
   currentVersionId: string;
   currentVersionNumber: number;
   currentSourceJson: AssistantDocumentSourcePayload;
-  /** ADR-097 Slice 2 — null when the version pre-dates Slice 1 (legacy). */
-  currentVersionRenderedHtml: string | null;
-  currentVersionStructureJson: Record<string, unknown> | null;
-  currentVersionStyleProfileJson: Record<string, unknown> | null;
-  currentVersionEditStrategy: "fast_small" | "structured_large" | null;
 };
 
 export type AssistantDocumentExportOrRedeliverContext = AssistantDocumentRevisionContext & {
@@ -85,7 +77,7 @@ export type AssistantDocumentExportOrRedeliverContext = AssistantDocumentRevisio
     | "ready"
     | "failed"
     | "superseded";
-  currentOutputFormat: AssistantDocumentOutputFormat;
+  currentOutputFormat: "pdf" | "pptx";
   latestDeliveredFile: {
     attachmentId: string;
     storagePath: string;
@@ -95,6 +87,12 @@ export type AssistantDocumentExportOrRedeliverContext = AssistantDocumentRevisio
   } | null;
 };
 
+// Visible-workspace document outputs are PDF/XLSX/DOCX. Presentations are not
+// registered via document.register_version — they go through the deferred Gamma
+// render pipeline. The Prisma enum AssistantDocumentOutputFormat is intentionally
+// narrowed to the deferred render-job tables only (pdf/pptx).
+export type VisibleWorkspaceDocumentOutputFormat = "pdf" | "xlsx" | "docx";
+
 export type RegisterVisibleWorkspaceDocumentVersionInput = {
   assistantId: string;
   userId: string;
@@ -102,8 +100,8 @@ export type RegisterVisibleWorkspaceDocumentVersionInput = {
   chatId: string;
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
-  descriptorMode: AssistantDocumentDescriptorMode;
-  outputFormat: AssistantDocumentOutputFormat;
+  descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document";
+  outputFormat: VisibleWorkspaceDocumentOutputFormat;
   requestedName: string | null;
   docId?: string | null;
   workspaceFacts: AssistantDocumentWorkspaceFacts;
@@ -136,10 +134,10 @@ export class AssistantDocumentJobService {
     chatId: string;
     surface: AssistantChatSurface;
     sourceUserMessageId: string;
-    descriptorMode: AssistantDocumentDescriptorMode;
-    documentType: AssistantDocumentType;
-    provider: AssistantDocumentRenderProvider;
-    outputFormat: AssistantDocumentOutputFormat;
+    descriptorMode: "create_presentation";
+    documentType: "presentation";
+    provider: "gamma";
+    outputFormat: "pdf" | "pptx";
     request: AssistantDocumentRequestPayload;
   }): Promise<{ docId: string; versionId: string; renderJobId: string; status: "queued" }> {
     return this.prisma.$transaction(async (tx) => {
@@ -235,11 +233,7 @@ export class AssistantDocumentJobService {
           select: {
             id: true,
             versionNumber: true,
-            sourceJson: true,
-            renderedHtml: true,
-            structureJson: true,
-            styleProfileJson: true,
-            editStrategy: true
+            sourceJson: true
           }
         }
       }
@@ -248,7 +242,8 @@ export class AssistantDocumentJobService {
       document === null ||
       document.currentVersionId === null ||
       document.currentVersion === null ||
-      document.currentVersion.id !== document.currentVersionId
+      document.currentVersion.id !== document.currentVersionId ||
+      document.documentType !== "presentation"
     ) {
       return null;
     }
@@ -257,24 +252,24 @@ export class AssistantDocumentJobService {
       assistantId: document.assistantId,
       workspaceId: document.workspaceId,
       chatId: document.chatId,
-      documentType: document.documentType,
+      documentType: "presentation",
       currentVersionId: document.currentVersion.id,
       currentVersionNumber: document.currentVersion.versionNumber,
-      currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
-      ...this.mapStructuredVersionFields(document.currentVersion)
+      currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson)
     };
   }
 
   /**
-   * ADR-126 v3 — resolve a workspace storage path to a revision context for
-   * cross-chat PDF revise via the attachment's persisted documentLink metadata.
+   * Resolve a workspace storage path to a presentation revision context via
+   * attachment documentLink metadata. Historical PDF/data rows are not a
+   * deferred-job revision target after ADR-129.
    */
   async findRevisionContextByStoragePath(input: {
     assistantId: string;
     storagePath: string;
   }): Promise<
     | { ok: true; context: AssistantDocumentRevisionContext }
-    | { ok: false; reason: "not_found" | "not_pdf_document" }
+    | { ok: false; reason: "not_found" | "not_presentation" }
   > {
     const storagePath = input.storagePath.trim();
     if (storagePath.length === 0) {
@@ -327,11 +322,7 @@ export class AssistantDocumentJobService {
           select: {
             id: true,
             versionNumber: true,
-            sourceJson: true,
-            renderedHtml: true,
-            structureJson: true,
-            styleProfileJson: true,
-            editStrategy: true
+            sourceJson: true
           }
         }
       }
@@ -339,8 +330,8 @@ export class AssistantDocumentJobService {
     if (document === null) {
       return { ok: false, reason: "not_found" };
     }
-    if (document.documentType !== "pdf_document") {
-      return { ok: false, reason: "not_pdf_document" };
+    if (document.documentType !== "presentation") {
+      return { ok: false, reason: "not_presentation" };
     }
     if (
       document.currentVersionId === null ||
@@ -356,11 +347,10 @@ export class AssistantDocumentJobService {
         assistantId: document.assistantId,
         workspaceId: document.workspaceId,
         chatId: document.chatId,
-        documentType: document.documentType,
+        documentType: "presentation",
         currentVersionId: document.currentVersion.id,
         currentVersionNumber: document.currentVersion.versionNumber,
-        currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
-        ...this.mapStructuredVersionFields(document.currentVersion)
+        currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson)
       }
     };
   }
@@ -374,18 +364,8 @@ export class AssistantDocumentJobService {
     sourceUserMessageId: string;
     revisionContext: AssistantDocumentRevisionContext;
     request: AssistantDocumentRequestPayload;
-    provider: AssistantDocumentRenderProvider;
-    outputFormat: AssistantDocumentOutputFormat;
-    /**
-     * ADR-097 Slice 2 — for PDF revise jobs, the HTML persisted on the
-     * previous version is forwarded here so the scheduler can pass it to the
-     * runtime worker. Null for presentations or when absent for legacy versions
-     * (caller must pre-validate before calling enqueueRevision).
-     */
-    previousVersionRenderedHtml: string | null;
-    previousVersionStructureJson?: Record<string, unknown> | null;
-    previousVersionStyleProfileJson?: Record<string, unknown> | null;
-    previousVersionEditStrategy?: "fast_small" | "structured_large" | null;
+    provider: "gamma";
+    outputFormat: "pdf" | "pptx";
   }): Promise<{ docId: string; versionId: string; renderJobId: string; status: "queued" }> {
     const mergedSourceJson = this.buildRevisionSourcePayload(
       input.revisionContext.currentSourceJson,
@@ -448,22 +428,7 @@ export class AssistantDocumentJobService {
               sourceUserMessageId: input.sourceUserMessageId,
               requestJson: {
                 ...input.request,
-                sourceJson: mergedSourceJson,
-                ...(input.previousVersionRenderedHtml !== null
-                  ? { previousVersionRenderedHtml: input.previousVersionRenderedHtml }
-                  : {}),
-                ...(input.previousVersionStructureJson !== null &&
-                input.previousVersionStructureJson !== undefined
-                  ? { previousVersionStructureJson: input.previousVersionStructureJson }
-                  : {}),
-                ...(input.previousVersionStyleProfileJson !== null &&
-                input.previousVersionStyleProfileJson !== undefined
-                  ? { previousVersionStyleProfileJson: input.previousVersionStyleProfileJson }
-                  : {}),
-                ...(input.previousVersionEditStrategy !== null &&
-                input.previousVersionEditStrategy !== undefined
-                  ? { previousVersionEditStrategy: input.previousVersionEditStrategy }
-                  : {})
+                sourceJson: mergedSourceJson
               } as never
             },
             select: { id: true }
@@ -538,11 +503,7 @@ export class AssistantDocumentJobService {
             id: true,
             versionNumber: true,
             sourceJson: true,
-            status: true,
-            renderedHtml: true,
-            structureJson: true,
-            styleProfileJson: true,
-            editStrategy: true
+            status: true
           }
         }
       }
@@ -551,7 +512,8 @@ export class AssistantDocumentJobService {
       document === null ||
       document.currentVersionId === null ||
       document.currentVersion === null ||
-      document.currentVersion.id !== document.currentVersionId
+      document.currentVersion.id !== document.currentVersionId ||
+      document.documentType !== "presentation"
     ) {
       return null;
     }
@@ -565,10 +527,9 @@ export class AssistantDocumentJobService {
       assistantId: document.assistantId,
       workspaceId: document.workspaceId,
       chatId: document.chatId,
-      documentType: document.documentType,
+      documentType: "presentation",
       currentVersionId: document.currentVersion.id,
       currentVersionNumber: document.currentVersion.versionNumber,
-      ...this.mapStructuredVersionFields(document.currentVersion),
       currentVersionStatus: document.currentVersion.status,
       currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
       currentOutputFormat: this.resolveCurrentOutputFormat({
@@ -663,11 +624,7 @@ export class AssistantDocumentJobService {
           select: {
             id: true,
             versionNumber: true,
-            sourceJson: true,
-            renderedHtml: true,
-            structureJson: true,
-            styleProfileJson: true,
-            editStrategy: true
+            sourceJson: true
           }
         }
       }
@@ -676,7 +633,8 @@ export class AssistantDocumentJobService {
       document === null ||
       document.currentVersionId === null ||
       document.currentVersion === null ||
-      document.currentVersion.id !== document.currentVersionId
+      document.currentVersion.id !== document.currentVersionId ||
+      document.documentType !== "presentation"
     ) {
       return null;
     }
@@ -685,11 +643,10 @@ export class AssistantDocumentJobService {
       assistantId: document.assistantId,
       workspaceId: document.workspaceId,
       chatId: document.chatId,
-      documentType: document.documentType,
+      documentType: "presentation",
       currentVersionId: document.currentVersion.id,
       currentVersionNumber: document.currentVersion.versionNumber,
-      currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson),
-      ...this.mapStructuredVersionFields(document.currentVersion)
+      currentSourceJson: this.normalizeSourcePayload(document.currentVersion.sourceJson)
     };
   }
 
@@ -701,8 +658,8 @@ export class AssistantDocumentJobService {
     surface: AssistantChatSurface;
     sourceUserMessageId: string;
     exportContext: AssistantDocumentExportOrRedeliverContext;
-    provider: AssistantDocumentRenderProvider;
-    outputFormat: AssistantDocumentOutputFormat;
+    provider: "gamma";
+    outputFormat: "pdf" | "pptx";
     request: AssistantDocumentRequestPayload;
     preserveCurrentVersionStatus?: boolean;
   }): Promise<{ docId: string; versionId: string; renderJobId: string; status: "queued" }> {
@@ -765,8 +722,8 @@ export class AssistantDocumentJobService {
     surface: AssistantChatSurface;
     sourceUserMessageId: string;
     redeliveryContext: AssistantDocumentExportOrRedeliverContext;
-    provider: AssistantDocumentRenderProvider;
-    outputFormat: AssistantDocumentOutputFormat;
+    provider: "gamma";
+    outputFormat: "pdf" | "pptx";
     request: AssistantDocumentRequestPayload;
   }): Promise<{
     docId: string;
@@ -819,7 +776,7 @@ export class AssistantDocumentJobService {
     versionNumber: number;
     descriptorMode: AssistantDocumentDescriptorMode;
     documentType: AssistantDocumentType;
-    outputFormat: AssistantDocumentOutputFormat;
+    outputFormat: VisibleWorkspaceDocumentOutputFormat;
   }> {
     const requestedName =
       typeof input.requestedName === "string" && input.requestedName.trim().length > 0
@@ -1013,12 +970,7 @@ export class AssistantDocumentJobService {
       prompt: typeof row.prompt === "string" ? row.prompt : "",
       instructions: typeof row.instructions === "string" ? row.instructions : null,
       outputFormat:
-        row.outputFormat === "pdf" ||
-        row.outputFormat === "pptx" ||
-        row.outputFormat === "xlsx" ||
-        row.outputFormat === "docx"
-          ? row.outputFormat
-          : null,
+        row.outputFormat === "pdf" || row.outputFormat === "pptx" ? row.outputFormat : null,
       docId: typeof row.docId === "string" ? row.docId : null,
       requestedName: typeof row.requestedName === "string" ? row.requestedName : null,
       visualStyle: this.readPresentationVisualStyle(row.visualStyle),
@@ -1049,39 +1001,6 @@ export class AssistantDocumentJobService {
         ? row.targetSectionIds.filter((entry): entry is string => typeof entry === "string")
         : null
     };
-  }
-
-  private mapStructuredVersionFields(version: {
-    renderedHtml: string | null;
-    structureJson: unknown;
-    styleProfileJson: unknown;
-    editStrategy: string | null;
-  }): Pick<
-    AssistantDocumentRevisionContext,
-    | "currentVersionRenderedHtml"
-    | "currentVersionStructureJson"
-    | "currentVersionStyleProfileJson"
-    | "currentVersionEditStrategy"
-  > {
-    return {
-      currentVersionRenderedHtml: version.renderedHtml ?? null,
-      currentVersionStructureJson: this.normalizeJsonObject(version.structureJson),
-      currentVersionStyleProfileJson: this.normalizeJsonObject(version.styleProfileJson),
-      currentVersionEditStrategy: this.normalizeEditStrategy(version.editStrategy)
-    };
-  }
-
-  private normalizeJsonObject(value: unknown): Record<string, unknown> | null {
-    if (value === null || typeof value !== "object" || Array.isArray(value)) {
-      return null;
-    }
-    return value as Record<string, unknown>;
-  }
-
-  private normalizeEditStrategy(
-    value: string | null | undefined
-  ): "fast_small" | "structured_large" | null {
-    return value === "fast_small" || value === "structured_large" ? value : null;
   }
 
   private buildRevisionSourcePayload(
@@ -1176,13 +1095,8 @@ export class AssistantDocumentJobService {
     documentType: AssistantDocumentType;
     sourceJson: AssistantDocumentSourcePayload;
     deliveredMimeType: string | null;
-  }): AssistantDocumentOutputFormat {
-    if (
-      input.sourceJson.outputFormat === "pdf" ||
-      input.sourceJson.outputFormat === "pptx" ||
-      input.sourceJson.outputFormat === "xlsx" ||
-      input.sourceJson.outputFormat === "docx"
-    ) {
+  }): "pdf" | "pptx" {
+    if (input.sourceJson.outputFormat === "pdf" || input.sourceJson.outputFormat === "pptx") {
       return input.sourceJson.outputFormat;
     }
     if (input.deliveredMimeType === "application/pdf") {
@@ -1194,31 +1108,16 @@ export class AssistantDocumentJobService {
     ) {
       return "pptx";
     }
-    if (
-      input.deliveredMimeType ===
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    ) {
-      return "xlsx";
-    }
-    if (
-      input.deliveredMimeType ===
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    ) {
-      return "docx";
-    }
-    if (input.documentType === "data_document") {
-      return "xlsx";
-    }
     return "pdf";
   }
 
   private buildVisibleWorkspaceSourcePayload(input: {
     sourceUserMessageText: string;
-    outputFormat: AssistantDocumentOutputFormat;
+    outputFormat: VisibleWorkspaceDocumentOutputFormat;
     requestedName: string | null;
     docId: string | null;
     workspaceFacts: AssistantDocumentWorkspaceFacts;
-  }): AssistantDocumentSourcePayload {
+  }): Record<string, unknown> {
     return {
       prompt: input.sourceUserMessageText.trim(),
       instructions: null,
@@ -1258,23 +1157,13 @@ export class AssistantDocumentJobService {
     if (lowered.endsWith(".pptx")) {
       return "pptx";
     }
-    if (lowered.endsWith(".xlsx")) {
-      return "xlsx";
-    }
-    if (lowered.endsWith(".docx")) {
-      return "docx";
-    }
     return null;
   }
 
   private resolveDocumentTypeFromOutputFormat(
-    outputFormat: AssistantDocumentOutputFormat
-  ): AssistantDocumentType {
-    return outputFormat === "xlsx" || outputFormat === "docx"
-      ? "data_document"
-      : outputFormat === "pptx"
-        ? "presentation"
-        : "pdf_document";
+    outputFormat: VisibleWorkspaceDocumentOutputFormat
+  ): "pdf_document" | "data_document" {
+    return outputFormat === "xlsx" || outputFormat === "docx" ? "data_document" : "pdf_document";
   }
 
   private basename(path: string | null): string | null {

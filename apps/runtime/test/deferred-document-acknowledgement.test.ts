@@ -33,16 +33,16 @@ describe("deferred document acknowledgement", () => {
         deferredDocumentJobs: Array<{
           jobId: string;
           toolCode: "document";
-          descriptorMode: "create_pdf_document";
-          documentType: "pdf_document";
+          descriptorMode: "create_presentation";
+          documentType: "presentation";
         }>
       ) => string | null;
     };
     const docJob = {
       jobId: "doc-parity-1",
       toolCode: "document" as const,
-      descriptorMode: "create_pdf_document" as const,
-      documentType: "pdf_document" as const
+      descriptorMode: "create_presentation" as const,
+      documentType: "presentation" as const
     };
     const stubToolExchange = [{ toolCall: { name: "document" }, toolResult: {} }];
     // Simulate what both stream and sync paths now pass: deferredDocumentJobs populated
@@ -96,8 +96,8 @@ describe("deferred document acknowledgement", () => {
         deferredDocumentJobs: Array<{
           jobId: string;
           toolCode: "document";
-          descriptorMode: "create_pdf_document";
-          documentType: "pdf_document";
+          descriptorMode: "create_presentation";
+          documentType: "presentation";
         }>
       ) => string | null;
     };
@@ -114,8 +114,8 @@ describe("deferred document acknowledgement", () => {
         {
           jobId: "doc-job-1",
           toolCode: "document",
-          descriptorMode: "create_pdf_document",
-          documentType: "pdf_document"
+          descriptorMode: "create_presentation",
+          documentType: "presentation"
         }
       ]
     );
@@ -143,8 +143,8 @@ describe("deferred document acknowledgement", () => {
         deferredDocumentJobs: Array<{
           jobId: string;
           toolCode: "document";
-          descriptorMode: "create_pdf_document";
-          documentType: "pdf_document";
+          descriptorMode: "create_presentation";
+          documentType: "presentation";
         }>
       ) => string | null;
     };
@@ -161,8 +161,8 @@ describe("deferred document acknowledgement", () => {
         {
           jobId: "doc-job-continue-1",
           toolCode: "document",
-          descriptorMode: "create_pdf_document",
-          documentType: "pdf_document"
+          descriptorMode: "create_presentation",
+          documentType: "presentation"
         }
       ]
     );
@@ -186,8 +186,8 @@ describe("deferred document acknowledgement", () => {
       deferredDocumentJobs: Array<{
         jobId: string;
         toolCode: "document";
-        descriptorMode: "create_presentation" | "create_pdf_document";
-        documentType: "presentation" | "pdf_document";
+        descriptorMode: "create_presentation";
+        documentType: "presentation";
       }>;
       locale: string | null;
     }): string;
@@ -264,7 +264,7 @@ describe("deferred document acknowledgement", () => {
 
     const reordered = service.reorderToolCallsDocumentFirst([
       { id: "tc-files-1", name: "files", arguments: { action: "send" } },
-      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "create_pdf_document" } }
+      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "create_presentation" } }
     ]);
 
     assert.equal(reordered[0]?.name, "document");
@@ -281,7 +281,7 @@ describe("deferred document acknowledgement", () => {
     const reordered = service.reorderToolCallsDocumentFirst([
       { id: "tc-files-1", name: "files", arguments: { action: "send" } },
       { id: "tc-other-1", name: "web_search", arguments: {} },
-      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "create_pdf_document" } },
+      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "revise_document" } },
       { id: "tc-files-2", name: "files", arguments: { action: "write_and_send" } },
       { id: "tc-doc-2", name: "document", arguments: { descriptorMode: "create_presentation" } }
     ]);
@@ -308,7 +308,7 @@ describe("deferred document acknowledgement", () => {
     assert.equal(reordered, input);
 
     const input2 = [
-      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "create_pdf_document" } },
+      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "create_presentation" } },
       { id: "tc-other-1", name: "web_search", arguments: {} }
     ];
     const reordered2 = service.reorderToolCallsDocumentFirst(input2);

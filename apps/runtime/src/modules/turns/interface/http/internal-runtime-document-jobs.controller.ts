@@ -62,16 +62,6 @@ export class InternalRuntimeDocumentJobsController {
     const job = this.objectField(row.job, "job");
     const direct = this.objectField(row.directToolExecution, "directToolExecution");
     const request = this.objectField(direct.request, "directToolExecution.request");
-    // ADR-097 Slice 2 — patch-revise loop. The scheduler forwards the exact
-    // previous-version rendered HTML for revise_document PDF jobs so the worker
-    // can apply SEARCH/REPLACE patches instead of re-generating the document.
-    // Empty strings and non-strings collapse to null (the adapter treats null
-    // as "no patch-revise available" and falls back to single-shot or chunked).
-    const previousVersionRenderedHtml =
-      typeof row.previousVersionRenderedHtml === "string" &&
-      row.previousVersionRenderedHtml.length > 0
-        ? row.previousVersionRenderedHtml
-        : null;
 
     return {
       assistantId: this.requiredString(row.assistantId, "assistantId"),
@@ -104,7 +94,6 @@ export class InternalRuntimeDocumentJobsController {
       },
       attachments: this.attachments(row.attachments),
       sourceFiles: this.sourceFiles(row.sourceFiles),
-      ...(previousVersionRenderedHtml === null ? {} : { previousVersionRenderedHtml }),
       directToolExecution: {
         toolCode: this.toolCode(direct.toolCode),
         descriptorMode: this.descriptorMode(direct.descriptorMode),
@@ -254,18 +243,18 @@ export class InternalRuntimeDocumentJobsController {
     throw new BadRequestException("job.surface must be one of web or telegram.");
   }
 
-  private provider(value: unknown): "sandbox" | "gamma" {
-    if (value === "sandbox" || value === "gamma") {
+  private provider(value: unknown): "gamma" {
+    if (value === "gamma") {
       return value;
     }
-    throw new BadRequestException("job.provider must be one of sandbox or gamma.");
+    throw new BadRequestException("job.provider must be gamma (presentation-only worker).");
   }
 
-  private outputFormat(value: unknown): "pdf" | "pptx" | "xlsx" | "docx" {
-    if (value === "pdf" || value === "pptx" || value === "xlsx" || value === "docx") {
+  private outputFormat(value: unknown): "pdf" | "pptx" {
+    if (value === "pdf" || value === "pptx") {
       return value;
     }
-    throw new BadRequestException("outputFormat must be one of pdf, pptx, xlsx, or docx.");
+    throw new BadRequestException("outputFormat must be one of pdf or pptx.");
   }
 
   private toolCode(value: unknown): "document" {
@@ -277,22 +266,17 @@ export class InternalRuntimeDocumentJobsController {
 
   private descriptorMode(
     value: unknown
-  ):
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver"
-    | "create_data_document" {
+  ): "create_presentation" | "revise_document" | "export_or_redeliver" {
     if (
-      value === "create_pdf_document" ||
       value === "create_presentation" ||
       value === "revise_document" ||
-      value === "export_or_redeliver" ||
-      value === "create_data_document"
+      value === "export_or_redeliver"
     ) {
       return value;
     }
-    throw new BadRequestException("directToolExecution.descriptorMode is invalid.");
+    throw new BadRequestException(
+      "directToolExecution.descriptorMode must be one of create_presentation, revise_document, or export_or_redeliver."
+    );
   }
 
   private presentationVisualStyle(

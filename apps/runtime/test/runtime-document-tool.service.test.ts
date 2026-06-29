@@ -650,158 +650,56 @@ describe("RuntimeDocumentToolService", () => {
     assert.deepEqual(capturedAttachments[0], []);
   });
 
-  test("PDF revise descriptor calls are retired instead of enqueued", async () => {
-    let enqueueCalls = 0;
+  test("retired PDF/data descriptor modes are rejected at parse time", async () => {
     const service = new RuntimeDocumentToolService({
       async enqueueDeferredDocumentJob() {
-        enqueueCalls += 1;
-        throw new Error("PDF revise must not enqueue a background document job");
+        throw new Error("retired descriptor modes must not enqueue a background document job");
       }
     } as never);
 
-    const result = await service.executeToolCall({
-      bundle: createBundle(),
-      toolCall: {
-        id: "tool-1",
-        name: "document",
-        arguments: {
-          descriptorMode: "revise_document",
-          prompt: "Пересобери приложенный PDF в новом светло-зелёном стиле",
-          docId: "previous attachment #1",
-          outputFormat: "pdf"
-        }
-      },
-      deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-4",
-        sourceUserMessageText: "Пересобери мой документ в новый PDF",
-        currentAttachments: [
-          {
-            attachmentId: "att-current-pdf",
-            kind: "file",
-            storagePath: "assistant-media/current.pdf",
-            mimeType: "application/pdf",
-            displayName: "current.pdf",
-            sizeBytes: 2048,
-            aliases: ["file #1"]
+    const retiredCases: ReadonlyArray<{
+      descriptorMode: "create_pdf_document" | "create_data_document";
+      outputFormat: "pdf" | "xlsx" | "docx" | null;
+    }> = [
+      { descriptorMode: "create_pdf_document", outputFormat: "pdf" },
+      { descriptorMode: "create_pdf_document", outputFormat: "xlsx" },
+      { descriptorMode: "create_data_document", outputFormat: "xlsx" },
+      { descriptorMode: "create_data_document", outputFormat: "docx" },
+      { descriptorMode: "create_data_document", outputFormat: null }
+    ];
+
+    for (const args of retiredCases) {
+      const result = await service.executeToolCall({
+        bundle: createBundle(),
+        toolCall: {
+          id: `tool-retired-${args.descriptorMode}-${args.outputFormat ?? "none"}`,
+          name: "document",
+          arguments: {
+            descriptorMode: args.descriptorMode,
+            prompt: "irrelevant retired descriptor",
+            ...(args.outputFormat === null ? {} : { outputFormat: args.outputFormat })
           }
-        ],
-        availableAttachments: []
-      }
-    });
-
-    assert.equal(enqueueCalls, 0);
-    assert.equal(result.payload.action, "skipped");
-    assert.equal(result.payload.reason, "descriptor_mode_retired");
-    assert.match(result.payload.guidance ?? "", /document\.render|files\.attach/i);
-  });
-
-  test("create_pdf_document descriptor calls are retired instead of enqueued", async () => {
-    let enqueueCalls = 0;
-    const service = new RuntimeDocumentToolService({
-      async enqueueDeferredDocumentJob() {
-        enqueueCalls += 1;
-        throw new Error("create_pdf_document must not enqueue a background document job");
-      }
-    } as never);
-
-    const result = await service.executeToolCall({
-      bundle: createBundle(),
-      toolCall: {
-        id: "tool-create-pdf",
-        name: "document",
-        arguments: {
-          descriptorMode: "create_pdf_document",
-          prompt: "Create a PDF brief",
-          outputFormat: "pdf"
+        },
+        deferToAsyncDocumentJob: {
+          sourceUserMessageId: "msg-retired",
+          sourceUserMessageText: "noop",
+          currentAttachments: [],
+          availableAttachments: []
         }
-      },
-      deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-create-pdf",
-        sourceUserMessageText: "Сделай PDF",
-        currentAttachments: [],
-        availableAttachments: []
-      }
-    });
+      });
 
-    assert.equal(enqueueCalls, 0);
-    assert.equal(result.isError, false);
-    assert.equal(result.payload.action, "skipped");
-    assert.equal(result.payload.reason, "descriptor_mode_retired");
-    assert.match(result.payload.guidance ?? "", /document\.render|files\.attach/i);
-  });
-
-  test("PDF revise with docId is retired before legacy hidden revision handling", async () => {
-    let enqueueCalls = 0;
-    const service = new RuntimeDocumentToolService({
-      async enqueueDeferredDocumentJob() {
-        enqueueCalls += 1;
-        throw new Error("PDF revise must not enqueue hidden legacy revision");
-      }
-    } as never);
-
-    const result = await service.executeToolCall({
-      bundle: createBundle(),
-      toolCall: {
-        id: "tool-legacy-revise",
-        name: "document",
-        arguments: {
-          descriptorMode: "revise_document",
-          prompt: "Update the conclusion section",
-          docId: "a1b2c3d4-e5f6-1234-a1b2-c3d4e5f6a1b2",
-          outputFormat: "pdf"
-        }
-      },
-      deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-legacy-revise",
-        sourceUserMessageText: "Обнови заключение",
-        currentAttachments: [],
-        availableAttachments: []
-      }
-    });
-
-    assert.equal(enqueueCalls, 0);
-    assert.equal(result.isError, false);
-    assert.equal(result.payload.action, "skipped");
-    assert.equal(result.payload.reason, "descriptor_mode_retired");
-  });
-
-  test("PDF revise with visible workspace source still returns visible workflow guidance", async () => {
-    let enqueueCalls = 0;
-    const service = new RuntimeDocumentToolService({
-      async enqueueDeferredDocumentJob() {
-        enqueueCalls += 1;
-        throw new Error("PDF revise must not enqueue hidden visible-workspace guard");
-      }
-    } as never);
-
-    const result = await service.executeToolCall({
-      bundle: createBundle(),
-      toolCall: {
-        id: "tool-visible-workspace-revise",
-        name: "document",
-        arguments: {
-          descriptorMode: "revise_document",
-          prompt: "Update the executive summary",
-          docId: "12345678-1234-4234-9234-1234567890ab",
-          outputFormat: "pdf"
-        }
-      },
-      deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-visible-workspace-revise",
-        sourceUserMessageText: "Обнови summary",
-        currentAttachments: [],
-        availableAttachments: []
-      }
-    });
-
-    assert.equal(enqueueCalls, 0);
-    assert.equal(result.isError, false);
-    assert.equal(result.payload.action, "skipped");
-    assert.equal(result.payload.reason, "descriptor_mode_retired");
-    assert.match(
-      result.payload.guidance ?? "",
-      /document\.render|document\.inspect|document\.register_version|files\.attach/i
-    );
+      assert.equal(result.isError, true);
+      assert.equal(result.payload.action, "skipped");
+      assert.equal(result.payload.reason, "invalid_arguments");
+      assert.match(
+        result.payload.warning ?? "",
+        /create_presentation, revise_document, or export_or_redeliver/
+      );
+      assert.match(
+        result.payload.warning ?? "",
+        /visible workspace actions|document\.extract|document\.render|document\.inspect|document\.register_version/
+      );
+    }
   });
 
   test("maps rejected enqueue into skipped payload", async () => {
@@ -1018,142 +916,6 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(capturedInputs[0]!.directToolExecution.request.targetSlideCount, 7);
     assert.equal(capturedInputs[1]!.directToolExecution.request.targetSlideCount, 30);
     assert.equal(capturedInputs[2]!.directToolExecution.request.targetSlideCount, null);
-  });
-
-  test("storagePath-based PDF descriptor calls are retired instead of enqueued", async () => {
-    let enqueueCalls = 0;
-    const service = new RuntimeDocumentToolService({
-      async enqueueDeferredDocumentJob() {
-        enqueueCalls += 1;
-        throw new Error("storagePath PDF revise must not enqueue a background document job");
-      }
-    } as never);
-
-    const result = await service.executeToolCall({
-      bundle: createBundle(),
-      toolCall: {
-        id: "tool-alias-1",
-        name: "document",
-        arguments: {
-          descriptorMode: "revise_document",
-          prompt: "Make it shorter",
-          storagePath: "last generated file" // alias, not a canonical path
-        }
-      },
-      deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-alias-1",
-        sourceUserMessageText: "Make it shorter",
-        currentAttachments: [],
-        availableAttachments: []
-      }
-    });
-
-    assert.equal(enqueueCalls, 0);
-    assert.equal(result.payload.action, "skipped");
-    assert.equal(result.payload.reason, "descriptor_mode_retired");
-  });
-
-  test("create_data_document is retired for normal model-facing calls", async () => {
-    let enqueueCalls = 0;
-    const service = new RuntimeDocumentToolService({
-      async enqueueDeferredDocumentJob() {
-        enqueueCalls += 1;
-        return {
-          accepted: true as const,
-          jobId: "doc-data-legacy"
-        };
-      }
-    } as never);
-    const result = await service.executeToolCall({
-      bundle: createBundle(),
-      toolCall: {
-        id: "tool-data-retired-1",
-        name: "document",
-        arguments: {
-          descriptorMode: "create_data_document",
-          prompt: "Build a spreadsheet of monthly revenue",
-          outputFormat: "docx"
-        }
-      },
-      deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-data-retired-1",
-        sourceUserMessageText: "Сделай Word",
-        currentAttachments: [],
-        availableAttachments: []
-      }
-    });
-    assert.equal(result.isError, false);
-    assert.equal(enqueueCalls, 0);
-    assert.equal(result.payload.action, "skipped");
-    assert.equal(result.payload.reason, "descriptor_mode_retired");
-    assert.equal(result.payload.descriptorMode, null);
-    assert.equal(result.payload.documentType, null);
-    assert.equal(result.payload.provider, null);
-    assert.equal(result.payload.outputFormat, "docx");
-    assert.equal(result.payload.canSendFileNow, false);
-    assert.match(result.payload.warning ?? "", /retired/i);
-    assert.match(
-      result.payload.guidance ?? "",
-      /document\.render|document\.inspect|document\.register_version|files\.attach/i
-    );
-  });
-
-  test("retired create_data_document without outputFormat stays generic skipped result", async () => {
-    const service = new RuntimeDocumentToolService({
-      async enqueueDeferredDocumentJob() {
-        throw new Error("enqueueDeferredDocumentJob must not run for retired create_data_document");
-      }
-    } as never);
-    const result = await service.executeToolCall({
-      bundle: createBundle(),
-      toolCall: {
-        id: "tool-data-retired-2",
-        name: "document",
-        arguments: {
-          descriptorMode: "create_data_document",
-          prompt: "Spreadsheet with no explicit format"
-        }
-      },
-      deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-data-retired-2",
-        sourceUserMessageText: "Сделай таблицу без формата",
-        currentAttachments: [],
-        availableAttachments: []
-      }
-    });
-    assert.equal(result.payload.action, "skipped");
-    assert.equal(result.payload.outputFormat, null);
-  });
-
-  test("legacy descriptor xlsx outputFormat is retired in favor of visible workflow", async () => {
-    const service = new RuntimeDocumentToolService({
-      async enqueueDeferredDocumentJob() {
-        throw new Error("enqueueDeferredDocumentJob must not run for retired xlsx outputFormat");
-      }
-    } as never);
-    const result = await service.executeToolCall({
-      bundle: createBundle(),
-      toolCall: {
-        id: "tool-data-retired-3",
-        name: "document",
-        arguments: {
-          descriptorMode: "create_pdf_document",
-          prompt: "Build a spreadsheet",
-          outputFormat: "xlsx"
-        }
-      },
-      deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-data-retired-3",
-        sourceUserMessageText: "Сделай spreadsheet",
-        currentAttachments: [],
-        availableAttachments: []
-      }
-    });
-    assert.equal(result.isError, false);
-    assert.equal(result.payload.action, "skipped");
-    assert.equal(result.payload.reason, "descriptor_mode_retired");
-    assert.equal(result.payload.outputFormat, "xlsx");
-    assert.match(result.payload.guidance ?? "", /document\.render|files\.attach/i);
   });
 });
 

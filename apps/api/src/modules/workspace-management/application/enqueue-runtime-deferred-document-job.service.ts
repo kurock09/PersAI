@@ -1,10 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type {
-  AssistantDocumentDescriptorMode,
-  AssistantDocumentOutputFormat,
-  AssistantDocumentRenderProvider,
-  AssistantDocumentType
-} from "@prisma/client";
+import type { AssistantDocumentOutputFormat } from "@prisma/client";
 import type { RuntimeAttachmentRef } from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_REPOSITORY,
@@ -15,7 +10,6 @@ import {
   type AssistantDocumentRevisionContext,
   type AssistantDocumentSourcePayload
 } from "./assistant-document-job.service";
-import { normalizeDocumentWorkspaceFacts } from "./assistant-document-link-metadata";
 import { QuotaGroundedLimitCopyService } from "./quota-grounded-limit-copy.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./read-internal-runtime-quota-status.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
@@ -26,12 +20,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 
 type DocumentDirectToolExecutionPayload = {
   toolCode: "document";
-  descriptorMode:
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver"
-    | "create_data_document";
+  descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
   request: AssistantDocumentSourcePayload;
   /** ADR-126 v3 — workspace storage path for cross-chat revise. Mutually exclusive with request.docId. */
   path?: string | null;
@@ -140,7 +129,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         docId: string;
         versionId: string;
         renderJobId: string;
-        documentType: "pdf_document" | "presentation" | "data_document";
+        documentType: "presentation";
       }
     | {
         accepted: false;
@@ -177,16 +166,6 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     }
 
     const descriptorMode = input.directToolExecution.descriptorMode;
-    if (descriptorMode === "create_pdf_document" || descriptorMode === "create_data_document") {
-      return {
-        accepted: false,
-        code: "descriptor_mode_retired",
-        message:
-          "Background PDF/DOCX/XLSX document generation is retired. Use document.extract/render/inspect/register_version with visible /workspace files, then files.attach.",
-        guidance:
-          "Create or edit visible source files under /workspace, render the checked output with document.render, inspect it with document.inspect, optionally register metadata with document.register_version, then deliver with files.attach."
-      };
-    }
     const skipQuotaPrecheckForPersistedRedelivery =
       descriptorMode === "export_or_redeliver" &&
       (await this.shouldBypassQuotaPrecheckForPersistedRedelivery({
@@ -210,14 +189,9 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     }
 
     const resolvedShape =
-      descriptorMode === "revise_document"
+      descriptorMode === "revise_document" || descriptorMode === "export_or_redeliver"
         ? null
-        : descriptorMode === "export_or_redeliver"
-          ? null
-          : this.resolveExecutionShape(
-              descriptorMode,
-              input.directToolExecution.request.outputFormat
-            );
+        : this.resolveExecutionShape();
     const sourceUserMessageAttachmentsForPayload =
       input.sourceUserMessageAttachments === undefined ||
       input.sourceUserMessageAttachments.length === 0
@@ -440,51 +414,18 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     return requestedOutputFormat === context.currentOutputFormat;
   }
 
-  private resolveExecutionShape(
-    descriptorMode: AssistantDocumentDescriptorMode,
-    requestedOutputFormat?: string | null
-  ): {
-    documentType: AssistantDocumentType;
-    provider: AssistantDocumentRenderProvider;
-    outputFormat: AssistantDocumentOutputFormat;
+  private resolveExecutionShape(): {
+    documentType: "presentation";
+    provider: "gamma";
+    outputFormat: "pdf" | "pptx";
   } {
-    if (descriptorMode === "create_pdf_document") {
-      return {
-        documentType: "pdf_document",
-        provider: "sandbox",
-        outputFormat: "pdf"
-      };
-    }
-    if (descriptorMode === "create_presentation") {
-      return {
-        documentType: "presentation",
-        provider: "gamma",
-        // First-class chat presentation delivery is PDF by backend contract.
-        // The model may still emit outputFormat=pptx, but it cannot opt the
-        // ordinary create path into PPTX; editable PPTX is prepared separately.
-        outputFormat: "pdf"
-      };
-    }
-    if (descriptorMode === "create_data_document") {
-      // Default to xlsx; model may explicitly request docx or pdf for data docs.
-      const fmt: AssistantDocumentOutputFormat =
-        requestedOutputFormat === "docx"
-          ? "docx"
-          : requestedOutputFormat === "pdf"
-            ? "pdf"
-            : "xlsx";
-      return {
-        documentType: "data_document",
-        provider: "sandbox",
-        outputFormat: fmt
-      };
-    }
-    if (descriptorMode === "revise_document") {
-      throw new BadRequestException(
-        "revise_document execution shape must be resolved from the existing document context."
-      );
-    }
-    throw new BadRequestException("Unsupported document descriptor mode.");
+    return {
+      documentType: "presentation",
+      provider: "gamma",
+      // First-class chat presentation delivery is PDF by backend contract.
+      // Editable PPTX is prepared through an explicit export_or_redeliver path.
+      outputFormat: "pdf"
+    };
   }
 
   private async enqueueRevision(input: {
@@ -509,7 +450,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         docId: string;
         versionId: string;
         renderJobId: string;
-        documentType: "pdf_document" | "presentation" | "data_document";
+        documentType: "presentation";
       }
     | {
         accepted: false;
@@ -533,21 +474,6 @@ export class EnqueueRuntimeDeferredDocumentJobService {
             chatId: input.chatId
           });
     if (revisionContext === null) {
-      // ADR-097 Slice 2: for PDF revise with no existing document in chat,
-      // return the dedicated honest error instead of "document_not_found".
-      // Presentations keep the existing "document_not_found" wording since
-      // the Gamma path is untouched in this slice.
-      const isPdfModeRequest = (input.request.sourceJson.outputFormat ?? "pdf") !== "pptx";
-      if (requestedDocId.length === 0 && isPdfModeRequest) {
-        return {
-          accepted: false,
-          code: "revise_document_requires_existing_pdf",
-          message:
-            "revise_document requires an existing PDF document in this chat — there is no previous document to patch.",
-          guidance:
-            "Create or edit visible source files under /workspace, render the PDF with document.render, inspect it with document.inspect, optionally register metadata with document.register_version, then deliver with files.attach."
-        };
-      }
       return {
         accepted: false,
         code: "document_not_found",
@@ -558,60 +484,35 @@ export class EnqueueRuntimeDeferredDocumentJobService {
             : "Use a document created in this chat, or create a new document if there is no existing document to revise."
       };
     }
-
-    const visibleWorkspaceGuidance = this.buildVisibleWorkspacePdfRevisionGuidance(revisionContext);
-    if (revisionContext.documentType === "pdf_document" && visibleWorkspaceGuidance !== null) {
+    if (revisionContext.documentType !== "presentation") {
       return {
         accepted: false,
-        code: "revise_document_requires_visible_workspace_workflow",
+        code: "revise_document_requires_presentation",
         message:
-          "This PDF already has visible workspace source files. Revise the workspace project and rerender it instead of using the hidden PDF patch path.",
-        guidance: visibleWorkspaceGuidance
+          "Deferred revise_document only supports Gamma presentations. PDF/DOCX/XLSX documents must be revised through the visible workspace workflow.",
+        guidance:
+          "Use document.extract/render/inspect/register_version with visible /workspace files, then deliver the checked output with files.attach."
       };
     }
 
-    // For PDF documents, revise paths require renderedHtml from the previous
-    // version. Legacy versions (created before renderedHtml persistence) have
-    // renderedHtml === null and are rejected with an explicit error. No silent
-    // full-regeneration fallback.
-    if (
-      revisionContext.documentType === "pdf_document" &&
-      revisionContext.currentVersionRenderedHtml === null
-    ) {
-      return {
-        accepted: false,
-        code: "document_revise_unsupported_legacy_version",
-        message:
-          "This document version was created before patch-editing was enabled and cannot be revised directly — please create a new document instead. / Эта версия документа была создана до перехода на патч-редактирование и не может быть отредактирована напрямую — создайте новый документ.",
-        guidance: null
-      };
-    }
-
-    const provider = revisionContext.documentType === "presentation" ? "gamma" : "sandbox";
+    const provider = "gamma";
     // Chat delivery is PDF-only for presentations, by system contract. We do
     // not inherit the previous version's outputFormat AND we do not honour a
     // model-supplied outputFormat=pptx on revisions either. Editable PPTX is
     // prepared as a separate explicit user action, so the in-chat file for a
     // presentation revision is always the PDF.
-    const outputFormat: AssistantDocumentOutputFormat =
-      revisionContext.documentType === "presentation" ? "pdf" : "pdf";
+    const outputFormat: AssistantDocumentOutputFormat = "pdf";
     const requestSourceJson: AssistantDocumentSourcePayload = {
       ...input.request.sourceJson,
       outputFormat
     };
     const sourceJson =
-      input.enrichPresentationTheme === true && revisionContext.documentType === "presentation"
+      input.enrichPresentationTheme === true
         ? await this.applyGammaThemeSelection(
             requestSourceJson,
             input.request.sourceUserMessageText
           )
         : requestSourceJson;
-    // Pass previousVersionRenderedHtml for PDF revise jobs. For presentations
-    // the Gamma path is untouched, so we pass null.
-    const previousVersionRenderedHtml =
-      revisionContext.documentType === "pdf_document"
-        ? revisionContext.currentVersionRenderedHtml
-        : null;
     const created = await this.assistantDocumentJobService.enqueueRevision({
       assistantId: input.assistantId,
       userId: input.userId,
@@ -625,11 +526,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       request: {
         ...input.request,
         sourceJson
-      },
-      previousVersionRenderedHtml,
-      previousVersionStructureJson: revisionContext.currentVersionStructureJson,
-      previousVersionStyleProfileJson: revisionContext.currentVersionStyleProfileJson,
-      previousVersionEditStrategy: revisionContext.currentVersionEditStrategy
+      }
     });
     return {
       accepted: true,
@@ -640,12 +537,6 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     };
   }
 
-  /**
-   * ADR-126 v3 — resolve a workspace storage path to a revision context for
-   * cross-chat PDF revise. Returns a typed result so the caller can emit the
-   * correct user-visible error without silent fallbacks. Pure: no side effects,
-   * no logging.
-   */
   private async resolveStoragePathToRevisionContext(
     assistantId: string,
     storagePath: string
@@ -658,19 +549,11 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       storagePath
     });
     if (!result.ok) {
-      if (result.reason === "not_pdf_document") {
-        return {
-          ok: false,
-          code: "revise_document_path_not_a_pdf_document",
-          message:
-            "The file identified by path is not a PDF document — revise_document only supports PDF documents via path. Presentations and other document types must be revised using docId within the chat where they were created."
-        };
-      }
       return {
         ok: false,
         code: "revise_document_path_not_found",
         message:
-          "The path does not resolve to a PDF document accessible to this assistant. Verify the path is a valid workspace storage path for a document produced by this assistant."
+          "The path does not resolve to a Gamma presentation accessible to this assistant. Use docId for presentations, or revise PDF/DOCX/XLSX files through the visible workspace workflow."
       };
     }
     return { ok: true, context: result.context };
@@ -697,7 +580,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         docId: string;
         versionId: string;
         renderJobId: string;
-        documentType: "pdf_document" | "presentation" | "data_document";
+        documentType: "presentation";
       }
     | {
         accepted: false;
@@ -715,35 +598,14 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     }
     const revisionContext = resolved.context;
 
-    if (revisionContext.documentType !== "pdf_document") {
+    if (revisionContext.documentType !== "presentation") {
       return {
         accepted: false,
-        code: "revise_document_path_not_a_pdf_document",
+        code: "revise_document_requires_presentation",
         message:
-          "The file identified by path is not a PDF document — revise_document only supports PDF documents via path.",
-        guidance: null
-      };
-    }
-
-    const visibleWorkspaceGuidance = this.buildVisibleWorkspacePdfRevisionGuidance(revisionContext);
-    if (visibleWorkspaceGuidance !== null) {
-      return {
-        accepted: false,
-        code: "revise_document_requires_visible_workspace_workflow",
-        message:
-          "This PDF already has visible workspace source files. Revise the workspace project and rerender it instead of using the hidden PDF patch path.",
-        guidance: visibleWorkspaceGuidance
-      };
-    }
-
-    // Guard: latest version must have renderedHtml for the revise path.
-    if (revisionContext.currentVersionRenderedHtml === null) {
-      return {
-        accepted: false,
-        code: "document_revise_unsupported_legacy_version",
-        message:
-          "This document version was created before patch-editing was enabled and cannot be revised directly — please create a new document instead. / Эта версия документа была создана до перехода на патч-редактирование и не может быть отредактирована напрямую — создайте новый документ.",
-        guidance: null
+          "Deferred revise_document only supports Gamma presentations. PDF/DOCX/XLSX documents must be revised through the visible workspace workflow.",
+        guidance:
+          "Use document.extract/render/inspect/register_version with visible /workspace files, then deliver the checked output with files.attach."
       };
     }
 
@@ -761,23 +623,19 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       surface: input.surface,
       sourceUserMessageId: input.sourceUserMessageId,
       revisionContext,
-      provider: "sandbox",
+      provider: "gamma",
       outputFormat,
       request: {
         ...input.request,
         sourceJson: requestSourceJson
-      },
-      previousVersionRenderedHtml: revisionContext.currentVersionRenderedHtml,
-      previousVersionStructureJson: revisionContext.currentVersionStructureJson,
-      previousVersionStyleProfileJson: revisionContext.currentVersionStyleProfileJson,
-      previousVersionEditStrategy: revisionContext.currentVersionEditStrategy
+      }
     });
     return {
       accepted: true,
       docId: created.docId,
       versionId: created.versionId,
       renderJobId: created.renderJobId,
-      documentType: "pdf_document"
+      documentType: "presentation"
     };
   }
 
@@ -802,7 +660,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         docId: string;
         versionId: string;
         renderJobId: string;
-        documentType: "pdf_document" | "presentation" | "data_document";
+        documentType: "presentation";
       }
     | {
         accepted: false;
@@ -842,6 +700,16 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         message: "The requested document could not be found for this assistant chat.",
         guidance:
           "Use a document created in this chat, or create a new document if you do not have a valid doc_id."
+      };
+    }
+    if (exportContext.documentType !== "presentation") {
+      return {
+        accepted: false,
+        code: "export_or_redeliver_requires_presentation",
+        message:
+          "Deferred export_or_redeliver only supports Gamma presentations. PDF/DOCX/XLSX files must be delivered through the visible workspace workflow.",
+        guidance:
+          "Use document.extract/render/inspect/register_version with visible /workspace files, then deliver the checked output with files.attach."
       };
     }
     if (exportContext.currentVersionStatus !== "ready") {
@@ -888,7 +756,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       };
     }
 
-    const provider = exportContext.documentType === "presentation" ? "gamma" : "sandbox";
+    const provider = "gamma";
     const outputFormat = requestedOutputFormat;
     const created =
       exportContext.latestDeliveredFile !== null &&
@@ -937,14 +805,21 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       "directToolExecution.descriptorMode"
     );
     if (
-      descriptorMode !== "create_pdf_document" &&
       descriptorMode !== "create_presentation" &&
       descriptorMode !== "revise_document" &&
-      descriptorMode !== "export_or_redeliver" &&
-      descriptorMode !== "create_data_document"
+      descriptorMode !== "export_or_redeliver"
     ) {
+      if (descriptorMode === "create_pdf_document" || descriptorMode === "create_data_document") {
+        throw new BadRequestException({
+          code: "descriptor_mode_retired",
+          message:
+            "Background PDF/DOCX/XLSX document generation is retired. Use document.extract/render/inspect/register_version with visible /workspace files, then files.attach.",
+          guidance:
+            "Create or edit visible source files under /workspace, render the checked output with document.render, inspect it with document.inspect, optionally register metadata with document.register_version, then deliver with files.attach."
+        });
+      }
       throw new BadRequestException(
-        "directToolExecution.descriptorMode must be create_pdf_document, create_presentation, revise_document, export_or_redeliver, or create_data_document."
+        "directToolExecution.descriptorMode must be create_presentation, revise_document, or export_or_redeliver."
       );
     }
     const request = this.objectValue(row.request, "directToolExecution.request");
@@ -958,10 +833,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         prompt: this.requiredString(request.prompt, "directToolExecution.request.prompt"),
         instructions: typeof request.instructions === "string" ? request.instructions : null,
         outputFormat:
-          request.outputFormat === "pdf" ||
-          request.outputFormat === "pptx" ||
-          request.outputFormat === "xlsx" ||
-          request.outputFormat === "docx"
+          request.outputFormat === "pdf" || request.outputFormat === "pptx"
             ? request.outputFormat
             : null,
         docId: typeof request.docId === "string" ? request.docId : null,
@@ -1013,32 +885,6 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       return null;
     }
     return Math.min(rounded, 30);
-  }
-
-  private buildVisibleWorkspacePdfRevisionGuidance(
-    revisionContext: AssistantDocumentRevisionContext
-  ): string | null {
-    const workspaceFacts = normalizeDocumentWorkspaceFacts(
-      revisionContext.currentSourceJson.metadata?.documentWorkspace
-    );
-    if (workspaceFacts.workspaceProjectPath === null || workspaceFacts.outputPath === null) {
-      return null;
-    }
-    const steps = [
-      `Edit the existing workspace source under ${workspaceFacts.workspaceProjectPath}.`,
-      `Rerender the PDF to ${workspaceFacts.outputPath} with document.render.`
-    ];
-    if (workspaceFacts.inspectionPath !== null) {
-      steps.push(
-        `Inspect the result at ${workspaceFacts.inspectionPath} with document.inspect or refresh that sidecar before delivery.`
-      );
-    } else {
-      steps.push("Inspect the rerendered PDF with document.inspect before delivery.");
-    }
-    steps.push(
-      "Then persist the new version with document.register_version and deliver the final PDF with files.attach."
-    );
-    return steps.join(" ");
   }
 
   private objectValue(value: unknown, fieldName: string): Record<string, unknown> {

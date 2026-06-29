@@ -1,5 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import type { AssistantDocumentOutputFormat } from "@prisma/client";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
   EnqueueRuntimeDeferredDocumentJobService,
@@ -269,7 +268,7 @@ function normalizeSourcePayload(value: unknown): AssistantDocumentSourcePayload 
   };
 }
 
-function readOutputFormat(value: unknown): AssistantDocumentOutputFormat | null {
+function readOutputFormat(value: unknown): "pdf" | "pptx" | null {
   return value === "pdf" || value === "pptx" ? value : null;
 }
 
