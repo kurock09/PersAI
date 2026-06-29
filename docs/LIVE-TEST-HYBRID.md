@@ -122,7 +122,7 @@ The active path truth is:
 - API owns canonical chat/message persistence
 - runtime owns request-time execution
 - provider-gateway owns provider client interaction
-- sandbox owns isolated file/process execution plus canonical persisted `AssistantFile` output
+- sandbox owns isolated file/process execution plus canonical persisted workspace-file output
 
 ### If the stream looks pathologically slow
 

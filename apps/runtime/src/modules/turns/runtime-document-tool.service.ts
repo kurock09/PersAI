@@ -871,9 +871,11 @@ export class RuntimeDocumentToolService {
           'descriptorMode="create_data_document" is retired for normal model-facing document generation.',
         guidance: [
           "Use the visible workspace workflow instead:",
+          "extract source sidecars first when they will help,",
           "create or edit source files under `/workspace`,",
-          "call `document.render`, optionally `document.inspect`,",
-          "then `document.register_version` and `files.attach` for delivery."
+          "call `document.render`, inspect with `document.inspect`,",
+          "optionally persist metadata with `document.register_version`,",
+          "then use `files.attach` for final delivery."
         ].join(" "),
         jobId: null,
         canSendFileNow: false
@@ -915,10 +917,12 @@ export class RuntimeDocumentToolService {
           "Legacy document descriptor calls no longer produce XLSX/DOCX through hidden generation.",
         guidance: [
           "Use the visible workspace workflow for native spreadsheet or Word outputs:",
+          "extract source sidecars first when they will help,",
           "create or edit source files under `/workspace`,",
           "call `document.render` with the requested format,",
           "inspect with `document.inspect`,",
-          "then `document.register_version` and `files.attach` for delivery."
+          "optionally persist metadata with `document.register_version`,",
+          "then use `files.attach` for final delivery."
         ].join(" "),
         jobId: null,
         canSendFileNow: false

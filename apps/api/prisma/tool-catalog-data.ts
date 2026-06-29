@@ -118,12 +118,13 @@ GOTCHAS:
     code: "document",
     displayName: "Document",
     description:
-      "Create and revise user-ready PDF documents and presentations through async document providers.",
+      "Create, revise, inspect, and register user-ready documents through a visible workspace workflow.",
     modelDescription:
-      "Create or revise user-ready business documents, reports, proposals, and slide decks through the unified document tool.",
+      "Create or revise user-ready PDFs, presentations, spreadsheets, and DOCX files through the unified document workflow.",
     modelUsageGuidance: `WHEN TO USE: User explicitly asks for a generated PDF, presentation, deck, proposal, report, a visible workspace-built spreadsheet/Excel file, a visible workspace-built Word/DOCX file, or a revision to an existing PersAI document. Use this even when source material is an uploaded image/file.
 WHEN NOT TO USE: User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (chat delivery is a separate explicit action — do not regenerate a document just to resend it).
 EXAMPLES:
+- document({action:"extract", path:"/workspace/source.pdf"}) — turn an existing workspace source into visible extraction sidecars before reading or reusing it.
 - document({descriptorMode:"create_pdf_document", prompt:"…"}) — produce a prose/editorial PDF (HTML→PDF).
 - document({action:"render", projectPath:"/workspace/report", outputPath:"/workspace/report/output.xlsx", format:"xlsx"}) — build a visible spreadsheet from workspace source files.
 - document({action:"inspect", path:"/workspace/report/output.xlsx"}) — inspect the rendered XLSX/DOCX/PDF before delivery.
@@ -131,7 +132,8 @@ EXAMPLES:
 - document({descriptorMode:"revise_document", docId:"…", prompt:"…"}) — apply revisions to an existing PDF document in the current chat.
 - document({descriptorMode:"revise_document", storagePath:"/workspace/report.pdf", prompt:"…"}) — revise a file from Working Files or a prior chat via workspace path.
 GOTCHAS:
-- Native spreadsheets/Word outputs now use the visible /workspace workflow (render -> inspect -> optional register_version -> files.attach) instead of the retired opaque create_data_document path.
+- For document work from an uploaded or existing workspace source, the normal flow is: extract if needed, create or edit visible \`/workspace\` source files, render, inspect, optionally register_version, then files.attach.
+- Native spreadsheets/Word outputs now use the visible \`/workspace\` workflow instead of the retired opaque create_data_document path.
 - Presentations: PDF-first unless the user explicitly wants editable PPTX/PowerPoint.
 - Fill \`visualStyle\`, \`imagePolicy\`, and \`visualDensity\` only when the user's visual intent is clear. For ordinary school, educational, and standard business decks, prefer visual defaults that stay readable and presentation-native. Use \`text_only\` only when the user explicitly wants no images; use \`text_heavy\` only when they explicitly want dense slide copy.
 - Runs may go async. Never claim delivery until the delivered file actually arrives; until then, say it is in progress.`,
@@ -322,7 +324,7 @@ EXAMPLES:
 - files({action:"delete", path:"/workspace/tmp.bin"}) — remove an unneeded file.
 - files({action:"attach", path:"/workspace/draft.txt"}) — deliver a file to the user as a chat attachment.
 GOTCHAS:
-- Six actions only: list, read, preview, write, delete, attach. There is no fileRef, no alias, no search/send/edit.
+- Six actions only: list, read, preview, write, delete, attach. There is no legacy file-id selector and no search/send/edit action here.
 - Paths must be pod-absolute and under /workspace/. Use /tmp/ for ephemeral scratch.
 - For list supply the directory path; for read/preview/write/delete/attach supply the file path.
 - attach delivers an EXISTING file; it does not regenerate. If the file is not yet written, write it first.`,

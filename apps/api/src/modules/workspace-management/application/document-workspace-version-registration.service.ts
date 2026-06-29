@@ -226,7 +226,7 @@ export class DocumentWorkspaceVersionRegistrationService {
         accepted: false,
         code: "invalid_descriptor_mode",
         message:
-          "document.register_version must use revise_document for an existing docId, or create_pdf_document/create_data_document for a new visible output."
+          "document.register_version must use revise_document for an existing docId. For a new visible workspace output, omit descriptorMode or use create_pdf_document for PDF outputs."
       };
     }
 

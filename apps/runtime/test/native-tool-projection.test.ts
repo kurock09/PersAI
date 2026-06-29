@@ -888,14 +888,19 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   ]);
   assert.match(
     document?.description ?? "",
-    /document\.render.*xlsx|document\.inspect.*files\.attach|visible workspace workflow/i
+    /document\.extract|document\.render.*xlsx|document\.inspect.*files\.attach|visible workspace loop/i
   );
   assert.doesNotMatch(
     document?.description ?? "",
     /create_data_document/,
     "tool description must not advertise retired create_data_document"
   );
-  assert.match(document?.description ?? "", /existing PersAI document ids/);
+  assert.doesNotMatch(
+    document?.description ?? "",
+    /async document providers|PDFMonkey|\/workspace\/input|\/workspace\/outbound/i,
+    "tool description must not teach retired provider or namespace wording"
+  );
+  assert.match(document?.description ?? "", /current chat's existing document/);
   assert.doesNotMatch(
     documentProperties?.descriptorMode?.description ?? "",
     /create_data_document/,

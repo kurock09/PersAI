@@ -1,5 +1,27 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 Wave 6 tool docs, active wording, and cleanup
+
+Status: code/docs implemented locally; focused API/runtime tests PASS; api/runtime/web typechecks PASS; repo lint PASS; format:check PASS. Pending parent audit; do not commit/push from this subagent.
+
+**Scope.** Implemented the bounded ADR-129 Wave 6 slice: clean up active model-facing document wording plus the active docs that still described retired file/provider truth for the document workflow.
+
+**Fix.** The model-facing `document` descriptor, the seeded tool catalog entry, and the prompt selection guide now consistently teach the visible workspace flow: `document.extract` when source sidecars help, create/edit visible `/workspace` source files, `document.render`, `document.inspect`, optional `document.register_version`, then final `files.attach`. Retired wording about async document providers, PDFMonkey-backed PDF generation, hidden XLSX/DOCX generators, old role-based workspace subpaths, and old file-identity terms was removed from the active document/tool surfaces. Active guidance docs (`ARCHITECTURE`, `API-BOUNDARY`, `DATA-MODEL`, `LIVE-TEST-HYBRID`) were narrowed to the current path-based file/document truth so the startup-reading docs no longer contradict ADR-129/ADR-128 on this surface.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-data.test.ts` — PASS.
+- `corepack pnpm run format:check` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+
+**Residual.** This wave is intentionally wording/docs cleanup only. It does not remove the remaining internal compatibility code for historical `create_data_document` rows or deferred presentation/PDF worker paths. The repo also started this session with unrelated untracked files already present; they were left untouched.
+
+**Next recommended step.** Parent audit this Wave 6 diff, then either commit Waves 5-6 together if accepted or proceed to ADR-129 Wave 7 closure/live validation.
+
 ## 2026-06-29 — ADR-129 Wave 5 PDF revise from visible workspace source
 
 Status: code implemented locally; focused API/runtime tests PASS; API/runtime typechecks PASS; format:check PASS. Pending parent audit, then commit Wave 5 or move to Wave 6 wording/cleanup.

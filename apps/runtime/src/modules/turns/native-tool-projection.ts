@@ -1313,8 +1313,9 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         'Use action="inspect" to validate an existing `/workspace/...` PDF/XLSX/DOCX, write a visible `*.inspect.json` sidecar, and return a compact summary of counts/warnings/suggested reads.',
         'Use action="render" to build a visible `/workspace/...` project into a concrete PDF/XLSX/DOCX output path. PDF render uses an HTML entrypoint when available; XLSX/DOCX render uses a visible Python build script (default `build.py`).',
         'Use action="register_version" after a visible render/inspect workflow to register the current `/workspace/...` output as PersAI document/version metadata. This records version facts only; the final user-visible delivery still happens separately through `files.attach` on the same output path.',
+        "For high-quality document work, prefer the visible workspace loop: extract sidecars when helpful, create or edit real source files under `/workspace`, render the output, inspect it, optionally register the version, then attach the checked file.",
         "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
-        "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to modify an existing PDF (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. Follow the Working Files document-role guidance: prefer DOC_CURRENT_SOURCE for a newly attached source file the user wants turned into a PDF, and use DOC_LAST_DELIVERED_PDF only when the user explicitly wants to modify an already generated PDF. revise_document with no docId or storagePath auto-resolves to the latest matching PDF in the current chat. Reference an existing chat document from another chat by its workspace storagePath (visible in the Working Files block). Use docId only when you already have the exact UUID for the current chat's existing document. Do not pass both storagePath and docId.",
+        "Use create_pdf_document for deferred PDF generation, create_presentation for presentation generation, revise_document to modify an existing PDF (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. Follow the Working Files document-role guidance: prefer DOC_CURRENT_SOURCE for a newly attached source file the user wants turned into a PDF, and use DOC_LAST_DELIVERED_PDF only when the user explicitly wants to modify an already generated PDF. revise_document with no docId or storagePath auto-resolves to the latest matching PDF in the current chat. Reference an existing chat document from another chat by its workspace storagePath (visible in the Working Files block). Use docId only when you already have the exact UUID for the current chat's existing document. Do not pass both storagePath and docId.",
         "Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
         "When the user has attached a source file (txt, md, csv, json, html, xml, pdf, docx) and asks to rebuild, convert, restyle, translate, or summarize it, the backend worker will AUTOMATICALLY inline that file's text content into document generation; you do not need to pre-read it. Call create_pdf_document with transferMode=verbatim when the user wants the source text copied without rewriting. Call transferMode=transform when the user wants restyling or layout/color changes — the worker keeps the full extracted source text and applies presentation styling; it does NOT summarize or drop sections.",
         "You SHOULD also set contentIntent explicitly. Use contentIntent=preserve_content when the user wants the original document content preserved and only the formatting, visual style, layout, or output format should change. Use contentIntent=rewrite_content only when the user explicitly wants the document text/content rewritten. If contentIntent is omitted, the runtime defaults to preserving content.",
@@ -1368,7 +1369,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         path: {
           type: "string",
           description:
-            'Source file path for `action="extract"` or `action="inspect"`. Must be an existing `/workspace/...` file. Reject old namespaces such as `/shared/...`, `/workspace/input/...`, and `/workspace/outbound/...`.'
+            'Source file path for `action="extract"` or `action="inspect"`. Must be an existing `/workspace/...` file in the flat workspace namespace.'
         },
         mode: {
           type: "string",
@@ -1412,7 +1413,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
             "export_or_redeliver"
           ],
           description:
-            "Document operation mode for the async PDF/presentation paths: create_pdf_document, create_presentation, revise_document, or export_or_redeliver."
+            "Deferred document operation mode for the PDF/presentation paths: create_pdf_document, create_presentation, revise_document, or export_or_redeliver."
         },
         prompt: {
           type: "string",

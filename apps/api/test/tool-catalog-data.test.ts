@@ -55,6 +55,32 @@ function testSkillCatalogRowMentionsPlanIntake(): void {
   );
 }
 
+function testDocumentCatalogRowTeachesVisibleWorkflow(): void {
+  const rows = TOOL_CATALOG.filter((t) => t.code === "document");
+  assert.strictEqual(rows.length, 1, "TOOL_CATALOG must contain exactly one document row");
+  const row = rows[0];
+  assert.ok(
+    row.description.includes("visible workspace workflow"),
+    "document description must teach the visible workspace workflow"
+  );
+  assert.ok(
+    row.modelUsageGuidance.includes('document({action:"extract"'),
+    "document guidance must include document.extract"
+  );
+  assert.ok(
+    row.modelUsageGuidance.includes(
+      "render, inspect, optionally register_version, then files.attach"
+    ),
+    "document guidance must teach the render -> inspect -> optional register_version -> files.attach flow"
+  );
+  assert.ok(
+    !/async document providers|PDFMonkey|fileRef|AssistantFile|\/workspace\/input|\/workspace\/outbound/i.test(
+      `${row.description}\n${row.modelDescription}\n${row.modelUsageGuidance}`
+    ),
+    "document catalog wording must not contain retired provider, file-identity, or namespace language"
+  );
+}
+
 function testStarterTrialPolicyTodoWrite(): void {
   const policy = STARTER_TRIAL_TOOL_POLICY["todo_write"];
   assert.ok(policy !== undefined, "STARTER_TRIAL_TOOL_POLICY must have a todo_write entry");
@@ -66,6 +92,7 @@ function testStarterTrialPolicyTodoWrite(): void {
 export async function runToolCatalogDataTest(): Promise<void> {
   testTodoWriteCatalogRow();
   testSkillCatalogRowMentionsPlanIntake();
+  testDocumentCatalogRowTeachesVisibleWorkflow();
   testStarterTrialPolicyTodoWrite();
   console.log("[tool-catalog-data] all tests passed");
 }
