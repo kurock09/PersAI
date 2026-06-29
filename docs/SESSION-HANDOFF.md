@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 Wave 2 `document.render` / `document.inspect`
+
+Status: code implemented locally; focused API/runtime tests PASS; API/runtime typechecks PASS; full format/lint PASS. Pending commit, then ADR-129 Wave 3.
+
+**Scope.** Implemented explicit visible-workspace `document.inspect` and `document.render` actions without removing the old `create_data_document` path or changing version registration/final delivery.
+
+**Fix.** API now owns `document.inspect` through an internal runtime endpoint and writes visible `/workspace/*.inspect.json` sidecars for PDF/XLSX/DOCX using canonical GCS + `workspace_file_metadata` with hot-pod sync. Runtime now parses `action: "inspect"` and returns compact inspection counts/warnings. Runtime also parses `action: "render"` for visible workspace projects: HTML entrypoints render to PDF through sandbox execution, and Python `build.py` entrypoints can render PDF/XLSX/DOCX to an explicit `/workspace/...` output, then persist the output back to canonical workspace state.
+
+**Orchestrator audit fixes.** Added tests for Python `build.py` XLSX render and honest unsupported render, rejected inspect output paths that could overwrite the source document, required inspect sidecars to use `*.inspect.json`, and required render output extensions to match the declared format.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-inspection.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS.
+- `corepack pnpm run format:check` — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+
+**Residual.** DOCX inspect is implemented through `mammoth`, but no generated DOCX fixture test was added in this wave because the API package does not already carry a DOCX-generation test helper/dependency. Cover with a compact fixture/helper in a later test-hardening pass.
+
+**Next recommended step.** Commit Wave 2, then start ADR-129 Wave 3: version registration + document metadata drift fixes for workspace source/output/inspection facts.
+
 ## 2026-06-29 — ADR-129 Wave 1 `document.extract` sidecars
 
 Status: code implemented locally; focused API/runtime tests PASS; API/runtime/sandbox typechecks PASS. Pending broader lint/format gate, commit, then ADR-129 Wave 2.

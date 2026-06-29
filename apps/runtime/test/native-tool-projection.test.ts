@@ -844,6 +844,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         path?: { description?: string };
         mode?: { enum?: unknown[]; description?: string };
         outputDir?: { description?: string };
+        depth?: { enum?: unknown[]; description?: string };
+        projectPath?: { description?: string };
+        format?: { enum?: unknown[]; description?: string };
+        entrypoint?: { description?: string };
+        outputPath?: { description?: string };
         descriptorMode?: { enum?: unknown[] };
         docId?: { description?: string };
         storagePath?: { description?: string };
@@ -853,11 +858,19 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       };
     }
   )?.properties;
-  assert.deepEqual(documentProperties?.action?.enum, ["extract"]);
-  assert.match(documentProperties?.action?.description ?? "", /visible sidecar files/i);
-  assert.match(documentProperties?.path?.description ?? "", /existing `?\/workspace\//i);
+  assert.deepEqual(documentProperties?.action?.enum, ["extract", "inspect", "render"]);
+  assert.match(
+    documentProperties?.action?.description ?? "",
+    /visible extraction sidecars|visible inspect sidecars|deterministic render/i
+  );
+  assert.match(documentProperties?.path?.description ?? "", /extract|inspect/i);
   assert.deepEqual(documentProperties?.mode?.enum, ["auto", "text", "ocr", "layout"]);
   assert.match(documentProperties?.outputDir?.description ?? "", /basename\.extract/i);
+  assert.deepEqual(documentProperties?.depth?.enum, ["quick", "standard", "deep"]);
+  assert.match(documentProperties?.projectPath?.description ?? "", /project directory/i);
+  assert.deepEqual(documentProperties?.format?.enum, ["pdf", "xlsx", "docx"]);
+  assert.match(documentProperties?.entrypoint?.description ?? "", /report\.html|build\.py/i);
+  assert.match(documentProperties?.outputPath?.description ?? "", /inspect|render/i);
   assert.deepEqual(documentProperties?.descriptorMode?.enum, [
     "create_pdf_document",
     "create_presentation",

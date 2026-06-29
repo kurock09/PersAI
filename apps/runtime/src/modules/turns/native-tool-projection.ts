@@ -1310,6 +1310,8 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
       policy,
       [
         'Use action="extract" to turn an existing `/workspace/...` source file into visible sidecar files under `/workspace/<name>.extract` (or your chosen outputDir). The result is compact and points to the manifest/text/sheet paths to read next with `files.read` or `grep`.',
+        'Use action="inspect" to validate an existing `/workspace/...` PDF/XLSX/DOCX, write a visible `*.inspect.json` sidecar, and return a compact summary of counts/warnings/suggested reads.',
+        'Use action="render" to build a visible `/workspace/...` project into a concrete PDF/XLSX/DOCX output path. PDF render uses an HTML entrypoint when available; XLSX/DOCX render uses a visible Python build script (default `build.py`).',
         "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
         "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to modify an existing PDF (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. Follow the Working Files document-role guidance: prefer DOC_CURRENT_SOURCE for a newly attached source file the user wants turned into a PDF, and use DOC_LAST_DELIVERED_PDF only when the user explicitly wants to modify an already generated PDF. revise_document with no docId or storagePath auto-resolves to the latest matching PDF in the current chat. Reference an existing chat document from another chat by its workspace storagePath (visible in the Working Files block). Use docId only when you already have the exact UUID for the current chat's existing document. Do not pass both storagePath and docId.",
         "Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
@@ -1336,7 +1338,13 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         {
           required: ["action", "path"],
           properties: {
-            action: { enum: ["extract"] }
+            action: { enum: ["extract", "inspect"] }
+          }
+        },
+        {
+          required: ["action", "projectPath", "outputPath", "format"],
+          properties: {
+            action: { enum: ["render"] }
           }
         },
         {
@@ -1346,14 +1354,14 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
       properties: {
         action: {
           type: "string",
-          enum: ["extract"],
+          enum: ["extract", "inspect", "render"],
           description:
-            'Explicit extraction action. Use `action="extract"` with a `/workspace/...` source path to write visible extraction sidecars instead of generating a delivered document.'
+            'Explicit workspace-visible document action. Use `action="extract"` for visible extraction sidecars, `action="inspect"` for visible inspect sidecars, and `action="render"` for deterministic render from visible `/workspace/...` project files.'
         },
         path: {
           type: "string",
           description:
-            'Source file path for `action="extract"`. Must be an existing `/workspace/...` file. Reject old namespaces such as `/shared/...`, `/workspace/input/...`, and `/workspace/outbound/...`.'
+            'Source file path for `action="extract"` or `action="inspect"`. Must be an existing `/workspace/...` file. Reject old namespaces such as `/shared/...`, `/workspace/input/...`, and `/workspace/outbound/...`.'
         },
         mode: {
           type: "string",
@@ -1365,6 +1373,28 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           type: "string",
           description:
             'Optional sidecar directory for `action="extract"`. Must stay under `/workspace/...`. Default: sibling `<basename>.extract` directory next to the source file.'
+        },
+        depth: {
+          type: "string",
+          enum: ["quick", "standard", "deep"],
+          description:
+            'Optional inspection depth for `action="inspect"`. Quick keeps the sidecar compact, standard is the default, and deep returns richer sample rows/paragraphs while still keeping the tool result compact.'
+        },
+        projectPath: {
+          type: "string",
+          description:
+            'Project directory for `action="render"`. Must be a `/workspace/...` folder containing visible source files such as HTML/CSS/assets or a Python build script.'
+        },
+        format: {
+          type: "string",
+          enum: ["pdf", "xlsx", "docx"],
+          description:
+            'Required for `action="render"`. PDF renders from visible HTML or a visible Python build script; XLSX/DOCX render through a visible Python build script.'
+        },
+        entrypoint: {
+          type: "string",
+          description:
+            'Optional render entrypoint for `action="render"`. Use a project-relative path like `report.html` or `build.py`, or an absolute `/workspace/...` path. If omitted, runtime prefers `index.html` / `report.html` for PDF and defaults to `build.py` for XLSX/DOCX.'
         },
         descriptorMode: {
           type: "string",
@@ -1392,6 +1422,11 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           enum: ["pdf", "pptx", "xlsx", "docx"],
           description:
             "Optional requested output format. For create_data_document choose xlsx (spreadsheet, default), docx (Word), or pdf (data-driven PDF). Chat delivery for create_presentation and presentation revise_document is always PDF — do not set this to pptx for those modes. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint."
+        },
+        outputPath: {
+          type: "string",
+          description:
+            'Optional sidecar/output path depending on action. For `action="inspect"`, writes the JSON sidecar there (default: sibling `<basename>.inspect.json`). For `action="render"`, this is the required final `/workspace/...` output file path.'
         },
         docId: {
           type: "string",

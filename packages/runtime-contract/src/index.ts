@@ -2019,7 +2019,7 @@ export interface RuntimeVideoGenerateToolResult {
 export interface RuntimeDocumentToolResult {
   toolCode: "document";
   executionMode: "worker" | "inline";
-  requestedAction?: "extract" | null;
+  requestedAction?: "extract" | "inspect" | "render" | null;
   descriptorMode:
     | "create_pdf_document"
     | "create_presentation"
@@ -2035,7 +2035,7 @@ export interface RuntimeDocumentToolResult {
   requestedName: string | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
-  action: "generated" | "skipped" | "pending_delivery" | "extracted";
+  action: "generated" | "skipped" | "pending_delivery" | "extracted" | "inspected" | "rendered";
   reason: string | null;
   warning: string | null;
   guidance?: string | null;
@@ -2044,6 +2044,8 @@ export interface RuntimeDocumentToolResult {
   canSendFileNow?: boolean;
   messageToUser?: string | null;
   extraction?: RuntimeDocumentExtractionSummary | null;
+  inspection?: RuntimeDocumentInspectionSummary | null;
+  render?: RuntimeDocumentRenderSummary | null;
 }
 
 export interface RuntimeDocumentExtractionSummary {
@@ -2064,6 +2066,33 @@ export interface RuntimeDocumentExtractionSummary {
   } | null;
   quality?: RuntimeFilesReadExtractionQuality | null;
   warnings?: string[];
+}
+
+export interface RuntimeDocumentInspectionSummary {
+  sourcePath: string;
+  inspectPath: string;
+  format: "pdf" | "xlsx" | "docx";
+  counts: {
+    pageCount: number | null;
+    sheetCount: number | null;
+    formulaCount: number | null;
+    blankSheetCount: number | null;
+    paragraphCount: number | null;
+    headingCount: number | null;
+    tableCount: number | null;
+    textCharCount: number | null;
+  };
+  warnings: string[];
+  suggestedReadPaths: string[];
+}
+
+export interface RuntimeDocumentRenderSummary {
+  projectPath: string;
+  outputPath: string;
+  format: "pdf" | "xlsx" | "docx";
+  entrypointPath: string;
+  sizeBytes: number;
+  mimeType: string;
 }
 
 export const PERSAI_RUNTIME_TTS_PROVIDER_IDS = ["elevenlabs", "yandex", "openai"] as const;

@@ -972,6 +972,112 @@ export class PersaiInternalApiClientService {
     return { items: validated };
   }
 
+  async inspectDocumentInWorkspace(input: {
+    assistantId: string;
+    workspaceId: string;
+    path: string;
+    depth: "quick" | "standard" | "deep";
+    outputPath: string | null;
+  }): Promise<
+    | {
+        accepted: true;
+        sourcePath: string;
+        inspectPath: string;
+        format: "pdf" | "xlsx" | "docx";
+        counts: {
+          pageCount: number | null;
+          sheetCount: number | null;
+          formulaCount: number | null;
+          blankSheetCount: number | null;
+          paragraphCount: number | null;
+          headingCount: number | null;
+          tableCount: number | null;
+          textCharCount: number | null;
+        };
+        warnings: string[];
+        suggestedReadPaths: string[];
+      }
+    | {
+        accepted: false;
+        code: string;
+        message: string;
+      }
+  > {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/document-inspect", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    const payload = this.asObject(response.body);
+    if (response.ok) {
+      if (
+        payload?.ok === true &&
+        payload.accepted === true &&
+        typeof payload.sourcePath === "string" &&
+        typeof payload.inspectPath === "string" &&
+        (payload.format === "pdf" || payload.format === "xlsx" || payload.format === "docx")
+      ) {
+        const counts = this.asObject(payload.counts);
+        return {
+          accepted: true,
+          sourcePath: payload.sourcePath,
+          inspectPath: payload.inspectPath,
+          format: payload.format,
+          counts: {
+            pageCount: typeof counts?.pageCount === "number" ? counts.pageCount : null,
+            sheetCount: typeof counts?.sheetCount === "number" ? counts.sheetCount : null,
+            formulaCount: typeof counts?.formulaCount === "number" ? counts.formulaCount : null,
+            blankSheetCount:
+              typeof counts?.blankSheetCount === "number" ? counts.blankSheetCount : null,
+            paragraphCount:
+              typeof counts?.paragraphCount === "number" ? counts.paragraphCount : null,
+            headingCount: typeof counts?.headingCount === "number" ? counts.headingCount : null,
+            tableCount: typeof counts?.tableCount === "number" ? counts.tableCount : null,
+            textCharCount: typeof counts?.textCharCount === "number" ? counts.textCharCount : null
+          },
+          warnings: Array.isArray(payload.warnings)
+            ? payload.warnings.filter((entry): entry is string => typeof entry === "string")
+            : [],
+          suggestedReadPaths: Array.isArray(payload.suggestedReadPaths)
+            ? payload.suggestedReadPaths.filter(
+                (entry): entry is string => typeof entry === "string"
+              )
+            : []
+        };
+      }
+      if (
+        payload?.ok === true &&
+        payload.accepted === false &&
+        typeof payload.code === "string" &&
+        typeof payload.message === "string"
+      ) {
+        return {
+          accepted: false,
+          code: payload.code,
+          message: payload.message
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid document inspect response."
+      );
+    }
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API document inspect request failed."
+      );
+    }
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the document inspect request."
+    );
+  }
+
   /**
    * ADR-128 Slice 2 — upsert a `workspace_file_metadata` row after a successful
    * runtime `files.write` on a persisted `/workspace/...` path. The API is the only writer of
