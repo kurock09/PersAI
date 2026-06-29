@@ -1314,6 +1314,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         'Use action="render" to build a visible `/workspace/...` project into a concrete PDF/XLSX/DOCX output path. PDF render uses an HTML entrypoint by default; it does not auto-run a DOCX/XLSX Python builder as a PDF renderer. XLSX/DOCX render uses a visible Python build script (default `build.py`).',
         'Use action="register_version" after a visible render/inspect workflow to register the current `/workspace/...` output as PersAI document/version metadata. This records version facts only; the final user-visible delivery still happens separately through `files.attach` on the same output path.',
         "For high-quality document work, prefer the visible workspace loop: extract sidecars when helpful, create or edit real source files under `/workspace`, render the output, inspect it, optionally register the version, then attach the checked file.",
+        "Never use descriptorMode=revise_document, docId, or storagePath to revise an uploaded DOCX/PDF/XLSX workspace file. Those fields are only for PersAI-managed presentation revision/export flows, not for ordinary `/workspace/...` document edits.",
         "For a simple new PDF request, do not call document before a source entrypoint exists. First write `/workspace/<project>/index.html` with files.write, then call document.render with format=pdf, then document.inspect, then files.attach the rendered PDF.",
         "For a simple new DOCX/XLSX request, do not call document before a source build script exists. First write `/workspace/<project>/build.py` with files.write, then call document.render with format=docx or xlsx, then document.inspect, then files.attach the rendered file.",
         "For Python-based document.render, write the final file exactly to the provided PERSAI_OUTPUT_PATH environment variable. The runtime executes the Python entrypoint from projectPath; do not chdir into /workspace yourself and do not construct paths like /workspace/workspace/....",
@@ -1408,7 +1409,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           type: "string",
           enum: ["create_presentation", "revise_document", "export_or_redeliver"],
           description:
-            "Presentation-only deferred operation mode. Do not use descriptorMode for PDF/DOCX/XLSX document work; use explicit extract/render/inspect/register_version actions instead."
+            "Presentation-only deferred operation mode. Never use descriptorMode for uploaded DOCX/PDF/XLSX workspace files; use explicit extract/render/inspect/register_version actions instead."
         },
         prompt: {
           type: "string",
@@ -1433,12 +1434,12 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         docId: {
           type: "string",
           description:
-            "Exact presentation document UUID for presentation revise/export flows. Do not use docId for PDF/DOCX/XLSX visible document workflow."
+            "Exact presentation document UUID for presentation revise/export flows only. Do not use docId for uploaded DOCX/PDF/XLSX workspace files or the visible document workflow."
         },
         storagePath: {
           type: "string",
           description:
-            "Retired for document/PDF visible workflow. Do not use storagePath with descriptorMode; use explicit workspace paths in action-based document calls."
+            "Presentation-revision locator only. Do not use storagePath with descriptorMode for uploaded DOCX/PDF/XLSX workspace files; use explicit workspace paths in action-based document calls instead."
         },
         requestedName: {
           type: "string",

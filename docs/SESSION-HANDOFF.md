@@ -1,5 +1,37 @@
 # SESSION-HANDOFF
 
+## 2026-06-30 — ADR-129 live DOCX revise path clarification on deployed `f6263cb6`
+
+Status: implemented locally after fresh live re-test on the newly rolled pods. The deployed backend no longer times out on DOCX inspect/extract; the remaining failure is a model mode-selection mistake after successful extract. Focused API/runtime regressions for the new steering are green. Commit/push/deploy and another live browser/K8S re-test remain pending for this follow-up.
+
+**Scope.** Investigate the user's "new pods are already standing" report and verify whether the fresh DOCX failure is still an extract timeout or a different post-rollout root cause.
+
+**Live findings.**
+
+- `api/runtime/sandbox` were all running image `f6263cb603ebee64e925a57223f2e06f624b1aee`.
+- Runtime request `e3d1504c-efa2-45f5-8c32-c47f52f75400` completed successfully; tool history showed `document`, `document`, `files`, then a worker `document`.
+- API logs recorded `/api/v1/internal/runtime/document-inspect` `200` in `9154.58 ms` and `/api/v1/internal/runtime/document-extract` `200` in `4279.61 ms`.
+- Sandbox logs also wrote `/workspace/Карнаух_Федор_Отчет (1).inspect.json`, confirming the uploaded file and sidecars were visible in the live session pod.
+
+**Root cause.** The new failure is not an extract timeout anymore. After successful inspect/extract, the model still falls into deferred `descriptorMode=revise_document` against `/workspace/Карнаух_Федор_Отчет (1).docx`. That path only resolves PersAI-managed Gamma presentation attachments with persisted `documentLink.docId` metadata. A normal uploaded DOCX/PDF/XLSX workspace file is not a valid `revise_document` target by `storagePath`, so the backend correctly rejects it as `revise_document_path_not_found`.
+
+**Fix.**
+
+- API rejection guidance for `revise_document_path_not_found` now says ordinary uploaded DOCX/PDF/XLSX workspace files are not deferred revision targets.
+- The rejection guidance explicitly tells the model not to ask the user to re-upload the same file and instead to continue through the visible workspace loop: `document.extract` when needed -> edit visible source files -> `document.render` -> `document.inspect` -> `files.attach`.
+- Runtime `document` projection text and schema descriptions now say `descriptorMode=revise_document`, `docId`, and `storagePath` are presentation-only and must never be used to revise uploaded DOCX/PDF/XLSX workspace files.
+- Added focused regressions for the API steering path and the stronger runtime projection wording.
+
+**Checks so far.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/enqueue-runtime-deferred-document-job.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts` — PASS.
+- IDE lints on touched files — clean.
+
+**Residual.** This follow-up is still only local. The fresh live diagnosis proves the previous "extract timeout" story is obsolete on `f6263cb6`, but the new steering fix must still be committed, deployed, and re-tested live to confirm the model stops wasting the final deferred `document` step and stays on the visible DOCX workflow.
+
+**Next recommended step.** Commit/push this steering fix, deploy, then re-run the same DOCX revise scenario in the browser and confirm the turn stays on `document.extract`/visible source edits/`document.render`/`document.inspect` without a fallback `revise_document` call.
+
 ## 2026-06-29 — ADR-129 live PDF render entrypoint cleanup
 
 Status: implemented locally after deployed re-test still produced a 29-step DOCX-to-PDF failure. Focused runtime/API document prompt tests and the full AGENTS verification gate pass; commit/push, deploy, and live browser/K8S re-test remain pending for this follow-up.

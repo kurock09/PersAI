@@ -920,6 +920,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /does not auto-run a DOCX\/XLSX Python builder as a PDF renderer/i,
     "document guidance must prevent using a DOCX/XLSX builder as the PDF renderer"
   );
+  assert.match(
+    document?.description ?? "",
+    /Never use descriptorMode=revise_document, docId, or storagePath to revise an uploaded DOCX\/PDF\/XLSX workspace file/i,
+    "document guidance must keep uploaded DOCX/PDF/XLSX files on the visible workspace workflow"
+  );
   assert.doesNotMatch(
     document?.description ?? "",
     /create_data_document/,
@@ -931,6 +936,18 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "tool description must not teach retired provider or namespace wording"
   );
   assert.match(document?.description ?? "", /descriptorMode only for presentations/i);
+  assert.match(
+    documentProperties?.descriptorMode?.description ?? "",
+    /Never use descriptorMode for uploaded DOCX\/PDF\/XLSX workspace files/i
+  );
+  assert.match(
+    documentProperties?.docId?.description ?? "",
+    /presentation document UUID.*only.*Do not use docId for uploaded DOCX\/PDF\/XLSX workspace files/i
+  );
+  assert.match(
+    documentProperties?.storagePath?.description ?? "",
+    /Presentation-revision locator only.*Do not use storagePath.*uploaded DOCX\/PDF\/XLSX workspace files/i
+  );
   assert.doesNotMatch(
     documentProperties?.descriptorMode?.description ?? "",
     /create_data_document/,

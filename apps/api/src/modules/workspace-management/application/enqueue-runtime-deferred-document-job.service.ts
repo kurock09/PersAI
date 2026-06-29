@@ -542,7 +542,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     storagePath: string
   ): Promise<
     | { ok: true; context: AssistantDocumentRevisionContext }
-    | { ok: false; code: string; message: string }
+    | { ok: false; code: string; message: string; guidance: string | null }
   > {
     const result = await this.assistantDocumentJobService.findRevisionContextByStoragePath({
       assistantId,
@@ -553,7 +553,9 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         ok: false,
         code: "revise_document_path_not_found",
         message:
-          "The path does not resolve to a Gamma presentation accessible to this assistant. Use docId for presentations, or revise PDF/DOCX/XLSX files through the visible workspace workflow."
+          "The path does not resolve to a Gamma presentation accessible to this assistant. Uploaded DOCX/PDF/XLSX workspace files are not revise_document targets.",
+        guidance:
+          "Do not ask the user to re-upload the same file. For an existing /workspace DOCX/PDF/XLSX file, use the visible workspace workflow instead: document.extract when needed, edit visible source files, document.render, document.inspect, then files.attach."
       };
     }
     return { ok: true, context: result.context };
@@ -594,7 +596,12 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       input.storagePath
     );
     if (!resolved.ok) {
-      return { accepted: false, code: resolved.code, message: resolved.message, guidance: null };
+      return {
+        accepted: false,
+        code: resolved.code,
+        message: resolved.message,
+        guidance: resolved.guidance
+      };
     }
     const revisionContext = resolved.context;
 

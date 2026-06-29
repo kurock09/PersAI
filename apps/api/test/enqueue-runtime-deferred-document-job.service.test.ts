@@ -251,6 +251,40 @@ async function runHistoricalRevisionRejected(): Promise<void> {
   assert.equal(enqueueRevisionCalls, 0);
 }
 
+async function runRevisionByStoragePathSteersBackToVisibleWorkflow(): Promise<void> {
+  const service = buildService({
+    docJobService: {
+      async findRevisionContextByStoragePath() {
+        return { ok: false, reason: "not_found" as const };
+      }
+    }
+  });
+
+  const result = await service.execute({
+    ...baseInput("revise_document"),
+    directToolExecution: {
+      ...baseInput("revise_document").directToolExecution,
+      path: "/workspace/Карнаух_Федор_Отчет (1).docx",
+      request: {
+        prompt: "Rebuild this DOCX in a premium style",
+        outputFormat: "pdf" as const,
+        docId: null
+      }
+    }
+  });
+
+  assert.equal(result.accepted, false);
+  assert.equal(result.accepted === false ? result.code : null, "revise_document_path_not_found");
+  assert.match(
+    result.accepted === false ? result.message : "",
+    /Uploaded DOCX\/PDF\/XLSX workspace files are not revise_document targets/i
+  );
+  assert.match(
+    result.accepted === false ? (result.guidance ?? "") : "",
+    /Do not ask the user to re-upload.*document\.extract.*document\.render.*document\.inspect.*files\.attach/is
+  );
+}
+
 async function runExplicitPptxExportQueuesGammaRender(): Promise<void> {
   let captured: Record<string, unknown> | null = null;
   const service = buildService({
@@ -342,6 +376,7 @@ async function run(): Promise<void> {
   runRetiredDescriptorRejectedInParse();
   await runPresentationRevisionAccepted();
   await runHistoricalRevisionRejected();
+  await runRevisionByStoragePathSteersBackToVisibleWorkflow();
   await runExplicitPptxExportQueuesGammaRender();
   await runHistoricalExportRejected();
 }
