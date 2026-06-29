@@ -912,8 +912,8 @@ describe("useChat", () => {
         activeDocumentJobs: [
           {
             id: "doc-job-1",
-            documentType: "pdf_document",
-            descriptorMode: "create_pdf_document",
+            documentType: "presentation",
+            descriptorMode: "create_presentation",
             status: "running",
             createdAt: "2026-05-16T19:12:52.000Z",
             startedAt: "2026-05-16T19:12:53.000Z",

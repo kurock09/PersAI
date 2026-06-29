@@ -495,10 +495,10 @@ describe("SendWebChatTurnService", () => {
         listOpenJobsForRuntimeContext: async () => [
           {
             jobId: "doc-job-1",
-            descriptorMode: "create_pdf_document",
-            documentType: "pdf_document",
+            descriptorMode: "create_presentation",
+            documentType: "presentation",
             status: "running",
-            sourceSummary: "документ по брифу",
+            sourceSummary: "презентация по брифу",
             createdAt: "2026-04-05T11:59:00.000Z",
             startedAt: "2026-04-05T11:59:10.000Z",
             updatedAt: "2026-04-05T11:59:30.000Z"
@@ -508,10 +508,10 @@ describe("SendWebChatTurnService", () => {
           {
             kind: "document",
             jobId: "doc-job-2",
-            descriptorMode: "create_pdf_document",
-            documentType: "pdf_document",
+            descriptorMode: "create_presentation",
+            documentType: "presentation",
             deliveryStatus: "delivered_recently",
-            sourceSummary: "документ по брифу",
+            sourceSummary: "презентация по брифу",
             createdAt: "2026-04-05T11:50:00.000Z",
             startedAt: "2026-04-05T11:50:10.000Z",
             completedAt: "2026-04-05T11:51:00.000Z",
@@ -533,10 +533,10 @@ describe("SendWebChatTurnService", () => {
     assert.deepEqual(capturedOpenDocumentJobs, [
       {
         jobId: "doc-job-1",
-        descriptorMode: "create_pdf_document",
-        documentType: "pdf_document",
+        descriptorMode: "create_presentation",
+        documentType: "presentation",
         status: "running",
-        sourceSummary: "документ по брифу",
+        sourceSummary: "презентация по брифу",
         createdAt: "2026-04-05T11:59:00.000Z",
         startedAt: "2026-04-05T11:59:10.000Z",
         updatedAt: "2026-04-05T11:59:30.000Z"
@@ -546,10 +546,10 @@ describe("SendWebChatTurnService", () => {
       {
         kind: "document",
         jobId: "doc-job-2",
-        descriptorMode: "create_pdf_document",
-        documentType: "pdf_document",
+        descriptorMode: "create_presentation",
+        documentType: "presentation",
         deliveryStatus: "delivered_recently",
-        sourceSummary: "документ по брифу",
+        sourceSummary: "презентация по брифу",
         createdAt: "2026-04-05T11:50:00.000Z",
         startedAt: "2026-04-05T11:50:10.000Z",
         completedAt: "2026-04-05T11:51:00.000Z",
