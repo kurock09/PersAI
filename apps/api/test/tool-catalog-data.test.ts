@@ -79,6 +79,11 @@ function testDocumentCatalogRowTeachesVisibleWorkflow(): void {
     "document guidance must prevent double-workspace build.py output paths"
   );
   assert.ok(
+    row.modelUsageGuidance.includes("PDF render uses an HTML entrypoint by default") &&
+      row.modelUsageGuidance.includes("DOCX/XLSX Python builder"),
+    "document guidance must prevent using a DOCX/XLSX builder as the PDF renderer"
+  );
+  assert.ok(
     !/async document providers|PDFMonkey|fileRef|AssistantFile|\/workspace\/input|\/workspace\/outbound/i.test(
       `${row.description}\n${row.modelDescription}\n${row.modelUsageGuidance}`
     ),

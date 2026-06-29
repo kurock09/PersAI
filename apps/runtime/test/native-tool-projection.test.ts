@@ -910,6 +910,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /PERSAI_OUTPUT_PATH.*\/workspace\/workspace/s,
     "document guidance must prevent build.py double-workspace path construction"
   );
+  assert.match(
+    document?.description ?? "",
+    /PDF render uses an HTML entrypoint by default.*does not auto-run.*DOCX\/XLSX Python builder/s,
+    "document guidance must prevent using a DOCX/XLSX builder as the PDF renderer"
+  );
   assert.doesNotMatch(
     document?.description ?? "",
     /create_data_document/,

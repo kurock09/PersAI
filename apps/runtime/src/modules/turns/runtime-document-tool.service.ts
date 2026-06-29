@@ -512,7 +512,7 @@ export class RuntimeDocumentToolService {
         return this.renderSkipped(
           params.request.format,
           "unsupported_render_source",
-          "Could not resolve a visible HTML or build.py entrypoint for document.render."
+          this.renderEntrypointMissingWarning(params.request.format)
         );
       }
       entrypointPath = resolvedEntrypoint;
@@ -1168,11 +1168,14 @@ export class RuntimeDocumentToolService {
     if (htmlCandidates.length === 1) {
       return htmlCandidates[0] ?? null;
     }
-    const buildScript = `${input.projectPath}/build.py`;
-    if (filePaths.includes(buildScript)) {
-      return buildScript;
-    }
     return null;
+  }
+
+  private renderEntrypointMissingWarning(format: "pdf" | "xlsx" | "docx"): string {
+    if (format === "pdf") {
+      return "document.render(format=pdf) requires a visible HTML entrypoint unless an explicit Python entrypoint is provided that writes the PDF to PERSAI_OUTPUT_PATH.";
+    }
+    return "Could not resolve a visible Python entrypoint for document.render.";
   }
 
   private async buildRenderProgramSource(input: {

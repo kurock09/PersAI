@@ -134,6 +134,7 @@ EXAMPLES:
 GOTCHAS:
 - For document work from an uploaded or existing workspace source, the normal flow is: extract if needed, create or edit visible \`/workspace\` source files, render, inspect, optionally register_version, then files.attach.
 - PDF, spreadsheet, and Word outputs use the visible \`/workspace\` workflow instead of retired background descriptor generation.
+- PDF render uses an HTML entrypoint by default; do not ask PDF render to auto-run a DOCX/XLSX Python builder as the PDF renderer. Use an explicit Python PDF entrypoint only when it writes the PDF to \`PERSAI_OUTPUT_PATH\`.
 - For Python-based \`document.render\`, write the final file exactly to \`PERSAI_OUTPUT_PATH\`. The runtime executes the Python entrypoint from \`projectPath\`; do not chdir into \`/workspace\` yourself and do not construct paths like \`/workspace/workspace/...\`.
 - Presentations: PDF-first unless the user explicitly wants editable PPTX/PowerPoint.
 - Fill \`visualStyle\`, \`imagePolicy\`, and \`visualDensity\` only when the user's visual intent is clear. For ordinary school, educational, and standard business decks, prefer visual defaults that stay readable and presentation-native. Use \`text_only\` only when the user explicitly wants no images; use \`text_heavy\` only when they explicitly want dense slide copy.

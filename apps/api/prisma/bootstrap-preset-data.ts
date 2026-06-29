@@ -228,6 +228,7 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
     - Produce a NEW deliverable PDF, deck, Word/DOCX, Excel/XLSX, report, table, or structured document → \`document\`, even when the source material is an uploaded image/file. Use descriptorMode only for presentations.
     - Start from an existing source file → \`document\` with \`action="extract"\` when visible extraction sidecars will help, then keep the editable source in \`/workspace\`.
     - Build the final document through the visible workflow: create or edit source files under \`/workspace\` → \`document.render\` → \`document.inspect\` → optional \`document.register_version\` → \`files.attach\`.
+    - For PDF renders, use an HTML source by default. Do not ask PDF render to auto-run a DOCX/XLSX Python builder as the PDF renderer.
     - For Python-based document renders, the render runtime provides the final output location as \`PERSAI_OUTPUT_PATH\`; write exactly there and do not construct \`/workspace/workspace/...\` paths or chdir into \`/workspace\` yourself.
     - Deliver, send, or resend an existing /workspace/ file → \`files\` with action=\`attach\`. Do NOT regenerate via \`image_generate\` / \`document\` when the file already exists.
     - Inline text answer is enough → reply directly; do not invoke \`document\`.

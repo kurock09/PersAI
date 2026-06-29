@@ -1,5 +1,41 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 live PDF render entrypoint cleanup
+
+Status: implemented locally after deployed re-test still produced a 29-step DOCX-to-PDF failure. Focused runtime/API document prompt tests and the full AGENTS verification gate pass; commit/push, deploy, and live browser/K8S re-test remain pending for this follow-up.
+
+**Scope.** Fix the remaining live `document.render(format=pdf)` failure after the exact-path patch deployed. This is not a missing-upload-path bug anymore; it is a render-entrypoint selection bug.
+
+**Root cause.** Deployed `01dfefca` was active for API/runtime/sandbox. For request `4f3943d1-e699-4763-9368-3fb04239de1a`, `sandbox_jobs` showed:
+
+- initial shell still hit a model-authored `/workspace/workspace/premium_word_project/build.py` path;
+- `document.render(format=pdf)` then ran `execute_document_code`;
+- the Python entrypoint printed `/workspace/premium_word_project/premium_word_demo.docx`;
+- sandbox failed with `Build script did not create the declared output path: /workspace/premium_word_project/premium_word_demo.pdf`.
+
+The runtime was auto-selecting `/workspace/<project>/build.py` as a PDF entrypoint when no HTML existed. That is wrong for projects where the Python builder produces DOCX/XLSX; it makes `document.render(format=pdf)` execute a DOCX builder and then complain that no PDF appeared.
+
+**Fix.**
+
+- `document.render(format=pdf)` now auto-resolves only HTML/HTM entrypoints.
+- Python PDF rendering remains supported only when the model passes an explicit Python `entrypoint` that writes the PDF to `PERSAI_OUTPUT_PATH`.
+- The unsupported-source warning now tells the model that PDF render needs visible HTML unless an explicit Python PDF entrypoint is provided.
+- Runtime/API model guidance now says PDF render must not auto-run a DOCX/XLSX Python builder as the PDF renderer.
+- Added regression coverage: a project containing only `build.py` with `format=pdf` returns `unsupported_render_source` and does not execute sandbox code.
+
+**Checks so far.**
+
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-document-tool.service.test.ts test/native-tool-projection.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx --test test/tool-catalog-data.test.ts test/bootstrap-preset-data.test.ts` — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+- `corepack pnpm run format:check` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+
+**Residual.** Need commit/push, deploy, then repeat the DOCX-to-PDF browser test and inspect `sandbox_jobs`/K8S logs. Expected behavior after this fix: the wrong PDF render should skip immediately instead of running the DOCX builder; a good model path should produce an HTML/PDF-specific source or explicit PDF entrypoint.
+
+**Next recommended step.** Commit, push, deploy, then live-validate the same DOCX-to-PDF prompt.
+
 ## 2026-06-29 — ADR-129 live document path contract cleanup
 
 Status: implemented locally after investigating the 38-step DOCX-to-PDF live turn. Focused runtime/API prompt and catalog tests pass; full AGENTS verification gate and live browser/K8S re-test remain pending for this exact patch.

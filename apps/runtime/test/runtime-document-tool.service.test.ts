@@ -484,6 +484,55 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.reason, "unsupported_render_source");
   });
 
+  test("document.render does not auto-run build.py for pdf output", async () => {
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return {
+            items: [{ type: "file", path: "/workspace/report/build.py" }]
+          };
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion() {
+          throw new Error(
+            "PDF render without an explicit Python entrypoint must not execute sandbox code."
+          );
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-render-pdf-build-script",
+        name: "document",
+        arguments: {
+          action: "render",
+          projectPath: "/workspace/report",
+          outputPath: "/workspace/report/report.pdf",
+          format: "pdf"
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-1",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-render-pdf-build-script",
+        sourceUserMessageText: "Render the report PDF",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "unsupported_render_source");
+    assert.match(result.payload.warning ?? "", /format=pdf.*HTML entrypoint/i);
+  });
+
   test("document.render rejects output paths that do not match the requested format", async () => {
     const service = new RuntimeDocumentToolService({} as never, {} as never);
 
