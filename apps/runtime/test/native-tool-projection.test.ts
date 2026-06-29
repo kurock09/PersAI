@@ -849,7 +849,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         format?: { enum?: unknown[]; description?: string };
         entrypoint?: { description?: string };
         outputPath?: { description?: string };
-        descriptorMode?: { enum?: unknown[] };
+        descriptorMode?: { enum?: unknown[]; description?: string };
+        outputFormat?: { enum?: unknown[]; description?: string };
         docId?: { description?: string };
         storagePath?: { description?: string };
         visualStyle?: { enum?: unknown[]; description?: string };
@@ -883,10 +884,29 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "create_pdf_document",
     "create_presentation",
     "revise_document",
-    "export_or_redeliver",
-    "create_data_document"
+    "export_or_redeliver"
   ]);
+  assert.match(
+    document?.description ?? "",
+    /document\.render.*xlsx|document\.inspect.*files\.attach|visible workspace workflow/i
+  );
+  assert.doesNotMatch(
+    document?.description ?? "",
+    /create_data_document/,
+    "tool description must not advertise retired create_data_document"
+  );
   assert.match(document?.description ?? "", /existing PersAI document ids/);
+  assert.doesNotMatch(
+    documentProperties?.descriptorMode?.description ?? "",
+    /create_data_document/,
+    "descriptorMode description must not advertise retired create_data_document"
+  );
+  assert.deepEqual(documentProperties?.outputFormat?.enum, ["pdf", "pptx"]);
+  assert.doesNotMatch(
+    documentProperties?.outputFormat?.description ?? "",
+    /create_data_document/,
+    "outputFormat description must not teach retired create_data_document"
+  );
   assert.match(documentProperties?.docId?.description ?? "", /UUID/);
   assert.match(documentProperties?.docId?.description ?? "", /not a Working Files alias/);
   assert.match(

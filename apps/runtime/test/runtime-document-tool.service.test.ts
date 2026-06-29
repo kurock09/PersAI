@@ -1056,76 +1056,61 @@ describe("RuntimeDocumentToolService", () => {
     );
   });
 
-  // ADR-123 Slice 6 — create_data_document routing (mode B).
-  test("create_data_document with xlsx routes to data_document + sandbox", async () => {
-    const capturedInputs: Array<{
-      directToolExecution: { descriptorMode: string; request: { outputFormat?: string | null } };
-    }> = [];
+  test("create_data_document is retired for normal model-facing calls", async () => {
+    let enqueueCalls = 0;
     const service = new RuntimeDocumentToolService({
-      async enqueueDeferredDocumentJob(input: {
-        directToolExecution: {
-          descriptorMode: string;
-          request: { outputFormat?: string | null };
-        };
-      }) {
-        capturedInputs.push(input);
+      async enqueueDeferredDocumentJob() {
+        enqueueCalls += 1;
         return {
           accepted: true as const,
-          jobId: "doc-data-1",
-          docId: "doc-1",
-          versionId: "version-1",
-          documentType: "data_document" as const
+          jobId: "doc-data-legacy"
         };
       }
     } as never);
     const result = await service.executeToolCall({
       bundle: createBundle(),
       toolCall: {
-        id: "tool-data-1",
+        id: "tool-data-retired-1",
         name: "document",
         arguments: {
           descriptorMode: "create_data_document",
           prompt: "Build a spreadsheet of monthly revenue",
-          outputFormat: "xlsx"
+          outputFormat: "docx"
         }
       },
       deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-data-1",
-        sourceUserMessageText: "Сделай таблицу",
+        sourceUserMessageId: "msg-data-retired-1",
+        sourceUserMessageText: "Сделай Word",
         currentAttachments: [],
         availableAttachments: []
       }
     });
     assert.equal(result.isError, false);
-    assert.equal(result.payload.action, "pending_delivery");
+    assert.equal(enqueueCalls, 0);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "descriptor_mode_retired");
     assert.equal(result.payload.descriptorMode, "create_data_document");
     assert.equal(result.payload.documentType, "data_document");
-    assert.equal(result.payload.provider, "sandbox");
-    assert.equal(result.payload.outputFormat, "xlsx");
-    assert.equal(capturedInputs[0]!.directToolExecution.descriptorMode, "create_data_document");
-    assert.equal(capturedInputs[0]!.directToolExecution.request.outputFormat, "xlsx");
+    assert.equal(result.payload.provider, null);
+    assert.equal(result.payload.outputFormat, "docx");
+    assert.equal(result.payload.canSendFileNow, false);
+    assert.match(result.payload.warning ?? "", /retired/i);
+    assert.match(
+      result.payload.guidance ?? "",
+      /document\.render|document\.inspect|document\.register_version|files\.attach/i
+    );
   });
 
-  test("create_data_document defaults outputFormat to xlsx when omitted", async () => {
-    const capturedInputs: Array<{
-      directToolExecution: { request: { outputFormat?: string | null } };
-    }> = [];
+  test("retired create_data_document defaults skipped result outputFormat to xlsx", async () => {
     const service = new RuntimeDocumentToolService({
-      async enqueueDeferredDocumentJob(input: {
-        directToolExecution: { request: { outputFormat?: string | null } };
-      }) {
-        capturedInputs.push(input);
-        return {
-          accepted: true as const,
-          jobId: "doc-data-2",
-          documentType: "data_document" as const
-        };
+      async enqueueDeferredDocumentJob() {
+        throw new Error("enqueueDeferredDocumentJob must not run for retired create_data_document");
       }
     } as never);
     const result = await service.executeToolCall({
       bundle: createBundle(),
       toolCall: {
-        id: "tool-data-2",
+        id: "tool-data-retired-2",
         name: "document",
         arguments: {
           descriptorMode: "create_data_document",
@@ -1133,47 +1118,45 @@ describe("RuntimeDocumentToolService", () => {
         }
       },
       deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-data-2",
+        sourceUserMessageId: "msg-data-retired-2",
         sourceUserMessageText: "Сделай таблицу без формата",
         currentAttachments: [],
         availableAttachments: []
       }
     });
+    assert.equal(result.payload.action, "skipped");
     assert.equal(result.payload.outputFormat, "xlsx");
-    assert.equal(capturedInputs[0]!.directToolExecution.request.outputFormat, "xlsx");
   });
 
-  test("create_data_document with docx keeps docx format and sandbox provider", async () => {
+  test("legacy descriptor xlsx outputFormat is retired in favor of visible workflow", async () => {
     const service = new RuntimeDocumentToolService({
       async enqueueDeferredDocumentJob() {
-        return {
-          accepted: true as const,
-          jobId: "doc-data-3",
-          documentType: "data_document" as const
-        };
+        throw new Error("enqueueDeferredDocumentJob must not run for retired xlsx outputFormat");
       }
     } as never);
     const result = await service.executeToolCall({
       bundle: createBundle(),
       toolCall: {
-        id: "tool-data-3",
+        id: "tool-data-retired-3",
         name: "document",
         arguments: {
-          descriptorMode: "create_data_document",
-          prompt: "Convert the attached PDF to a Word document",
-          outputFormat: "docx"
+          descriptorMode: "create_pdf_document",
+          prompt: "Build a spreadsheet",
+          outputFormat: "xlsx"
         }
       },
       deferToAsyncDocumentJob: {
-        sourceUserMessageId: "msg-data-3",
-        sourceUserMessageText: "Сделай Word",
+        sourceUserMessageId: "msg-data-retired-3",
+        sourceUserMessageText: "Сделай spreadsheet",
         currentAttachments: [],
         availableAttachments: []
       }
     });
-    assert.equal(result.payload.documentType, "data_document");
-    assert.equal(result.payload.provider, "sandbox");
-    assert.equal(result.payload.outputFormat, "docx");
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "output_format_retired");
+    assert.equal(result.payload.outputFormat, "xlsx");
+    assert.match(result.payload.guidance ?? "", /document\.render|files\.attach/i);
   });
 });
 

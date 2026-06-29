@@ -121,15 +121,17 @@ GOTCHAS:
       "Create and revise user-ready PDF documents and presentations through async document providers.",
     modelDescription:
       "Create or revise user-ready business documents, reports, proposals, and slide decks through the unified document tool.",
-    modelUsageGuidance: `WHEN TO USE: User explicitly asks for a generated PDF, presentation, deck, proposal, report, a structured data document (spreadsheet/Excel, Word/DOCX, multi-page data tables), or a revision to an existing PersAI document. Use this even when source material is an uploaded image/file.
+    modelUsageGuidance: `WHEN TO USE: User explicitly asks for a generated PDF, presentation, deck, proposal, report, a visible workspace-built spreadsheet/Excel file, a visible workspace-built Word/DOCX file, or a revision to an existing PersAI document. Use this even when source material is an uploaded image/file.
 WHEN NOT TO USE: User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (chat delivery is a separate explicit action — do not regenerate a document just to resend it).
 EXAMPLES:
 - document({descriptorMode:"create_pdf_document", prompt:"…"}) — produce a prose/editorial PDF (HTML→PDF).
-- document({descriptorMode:"create_data_document", outputFormat:"xlsx", prompt:"…"}) — produce a native spreadsheet, Word doc (outputFormat:"docx"), or data-driven PDF (outputFormat:"pdf") for tables/spreadsheets/structured data. Defaults to xlsx.
+- document({action:"render", projectPath:"/workspace/report", outputPath:"/workspace/report/output.xlsx", format:"xlsx"}) — build a visible spreadsheet from workspace source files.
+- document({action:"inspect", path:"/workspace/report/output.xlsx"}) — inspect the rendered XLSX/DOCX/PDF before delivery.
+- document({action:"register_version", outputPath:"/workspace/report/output.xlsx", workspaceProjectPath:"/workspace/report", inspectionPath:"/workspace/report/output.inspect.json"}) — optionally persist PersAI version metadata before files.attach.
 - document({descriptorMode:"revise_document", docId:"…", prompt:"…"}) — apply revisions to an existing PDF document in the current chat.
 - document({descriptorMode:"revise_document", storagePath:"/workspace/report.pdf", prompt:"…"}) — revise a file from Working Files or a prior chat via workspace path.
 GOTCHAS:
-- Data documents (create_data_document): use for spreadsheets, structured tables, and large data exports where exact tabular/native-Office output matters; size is not limited by the reply length.
+- Native spreadsheets/Word outputs now use the visible /workspace workflow (render -> inspect -> optional register_version -> files.attach) instead of the retired opaque create_data_document path.
 - Presentations: PDF-first unless the user explicitly wants editable PPTX/PowerPoint.
 - Fill \`visualStyle\`, \`imagePolicy\`, and \`visualDensity\` only when the user's visual intent is clear. For ordinary school, educational, and standard business decks, prefer visual defaults that stay readable and presentation-native. Use \`text_only\` only when the user explicitly wants no images; use \`text_heavy\` only when they explicitly want dense slide copy.
 - Runs may go async. Never claim delivery until the delivered file actually arrives; until then, say it is in progress.`,

@@ -118,6 +118,16 @@ export class RuntimeDocumentToolService {
       });
     }
 
+    if (parsed.descriptorMode === "create_data_document") {
+      return this.buildRetiredCreateDataDocumentResult(parsed.request);
+    }
+    if (parsed.request.outputFormat === "xlsx" || parsed.request.outputFormat === "docx") {
+      return this.buildRetiredDataOutputFormatResult({
+        descriptorMode: parsed.descriptorMode,
+        request: parsed.request
+      });
+    }
+
     const currentAttachments = params.deferToAsyncDocumentJob.currentAttachments ?? [];
     const availableAttachments = params.deferToAsyncDocumentJob.availableAttachments ?? [];
     const sourceAttachments = this.selectSourceAttachmentsForRequest({
@@ -830,6 +840,92 @@ export class RuntimeDocumentToolService {
       default:
         return "Request accepted. I am preparing the document and will send it separately when it is ready.";
     }
+  }
+
+  private buildRetiredCreateDataDocumentResult(input: {
+    prompt: string;
+    outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
+    requestedName?: string | null;
+  }): RuntimeDocumentToolExecutionResult {
+    const outputFormat =
+      input.outputFormat === "pdf" || input.outputFormat === "xlsx" || input.outputFormat === "docx"
+        ? input.outputFormat
+        : "xlsx";
+    return {
+      payload: {
+        toolCode: "document",
+        executionMode: "inline",
+        requestedAction: null,
+        descriptorMode: "create_data_document",
+        documentType: "data_document",
+        provider: null,
+        prompt: input.prompt,
+        outputFormat,
+        docId: null,
+        requestedName: input.requestedName ?? null,
+        artifacts: [],
+        usage: null,
+        action: "skipped",
+        reason: "descriptor_mode_retired",
+        warning:
+          'descriptorMode="create_data_document" is retired for normal model-facing document generation.',
+        guidance: [
+          "Use the visible workspace workflow instead:",
+          "create or edit source files under `/workspace`,",
+          "call `document.render`, optionally `document.inspect`,",
+          "then `document.register_version` and `files.attach` for delivery."
+        ].join(" "),
+        jobId: null,
+        canSendFileNow: false
+      },
+      artifacts: [],
+      isError: false
+    };
+  }
+
+  private buildRetiredDataOutputFormatResult(input: {
+    descriptorMode:
+      | "create_pdf_document"
+      | "create_presentation"
+      | "revise_document"
+      | "export_or_redeliver";
+    request: {
+      prompt: string;
+      outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
+      requestedName?: string | null;
+    };
+  }): RuntimeDocumentToolExecutionResult {
+    return {
+      payload: {
+        toolCode: "document",
+        executionMode: "inline",
+        requestedAction: null,
+        descriptorMode: input.descriptorMode,
+        documentType: "data_document",
+        provider: null,
+        prompt: input.request.prompt,
+        outputFormat: input.request.outputFormat ?? null,
+        docId: null,
+        requestedName: input.request.requestedName ?? null,
+        artifacts: [],
+        usage: null,
+        action: "skipped",
+        reason: "output_format_retired",
+        warning:
+          "Legacy document descriptor calls no longer produce XLSX/DOCX through hidden generation.",
+        guidance: [
+          "Use the visible workspace workflow for native spreadsheet or Word outputs:",
+          "create or edit source files under `/workspace`,",
+          "call `document.render` with the requested format,",
+          "inspect with `document.inspect`,",
+          "then `document.register_version` and `files.attach` for delivery."
+        ].join(" "),
+        jobId: null,
+        canSendFileNow: false
+      },
+      artifacts: [],
+      isError: false
+    };
   }
 
   private readDocumentArguments(value: unknown):

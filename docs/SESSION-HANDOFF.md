@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 Wave 4 retire normal `create_data_document`
+
+Status: code implemented locally; focused API/runtime tests PASS; API/runtime/web typechecks PASS; full format/lint PASS. Pending commit, then ADR-129 Wave 5.
+
+**Scope.** Implemented the bounded ADR-129 Wave 4 slice: removed `create_data_document` from the normal model-facing XLSX/DOCX generation path while preserving persisted metadata/version compatibility for already-created data-document rows and delivered attachments.
+
+**Fix.** Runtime `document` projection no longer advertises `create_data_document` in the normal descriptor enum or guidance, and instead teaches the visible `/workspace` workflow for XLSX/DOCX (`render` -> `inspect` -> optional `register_version` -> `files.attach`). Ordinary model-facing calls that still send `descriptorMode: "create_data_document"` now return an honest structured skipped result (`reason: "descriptor_mode_retired"`) with guidance toward the visible workspace workflow, rather than enqueueing the opaque sandbox worker path. The legacy descriptor schema also no longer advertises `outputFormat: "xlsx" | "docx"`, and stray legacy calls with those output formats now skip with `reason: "output_format_retired"` instead of reaching hidden data generation. Historical compatibility remains intact for persisted `create_data_document` versions and attachment metadata reads/registration, so older rows still resolve as `data_document` with `xlsx`/`docx` facts.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-version-registration.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job-delivery.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/register-chat-attachment.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm run format:check` — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+
+**Residual.** The historical async `create_data_document` worker path still exists behind internal persistence/runtime compatibility for previously created jobs/versions. This wave only removes it from the normal model-facing route, per ADR-129 Wave 4.
+
+**Next recommended step.** Commit Wave 4, then start ADR-129 Wave 5: PDF revise from visible workspace source.
+
 ## 2026-06-29 — ADR-129 Wave 3 `document.register_version` and metadata drift
 
 Status: code implemented locally; focused API/runtime/web tests PASS; API/runtime/web typechecks PASS; full format/lint PASS. Pending commit, then ADR-129 Wave 4.
