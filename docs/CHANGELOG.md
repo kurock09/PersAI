@@ -5,6 +5,7 @@
 
 ## 2026-06-29
 
+- **ADR (prompt architecture cleanup — compact prefix, single-owner layering, lazy lookup).** Opened ADR-130 as the active prompt-cleanup program for reducing cached-prefix bloat, restoring single-owner prompt/tool layering, moving heavy dynamic descriptor context to lazy action-based lookups, narrowing scenario/chat-plan volatile duplication, and locking explicit `character_notes` precedence. No runtime behavior changed in this slice; the ADR defines the orchestrator-owned slice plan for future implementation.
 
 - **Fix (ADR-129 live document loop — stop treating DOCX builders as PDF renderers).** Re-tested the DOCX-to-PDF workflow on deployed `01dfefca` and inspected `sandbox_jobs` for request `4f3943d1-e699-4763-9368-3fb04239de1a`. The remaining `document` failures were no longer missing upload paths or sidecar sync; `document.render(format=pdf)` auto-selected `/workspace/premium_word_project/build.py`, but that script produced `premium_word_demo.docx`, not `premium_word_demo.pdf`, so the sandbox failed with `Build script did not create the declared output path`. PDF render now only auto-selects HTML/HTM entrypoints; Python PDF rendering remains possible only through an explicit entrypoint that writes the PDF to `PERSAI_OUTPUT_PATH`. Runtime/API guidance and prompt/catalog tests now state that PDF render must not auto-run a DOCX/XLSX Python builder as the PDF renderer.
 

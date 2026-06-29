@@ -336,7 +336,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           displayName: "Document",
           description: "Create and revise assistant documents through the visible workspace loop.",
           usageGuidance:
-            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. For a simple new PDF request, First write /workspace/<project>/index.html, then document.render, document.inspect, files.attach. For a simple new DOCX/XLSX request, First write a visible Python entrypoint under /workspace/<project> (default build.py unless you pass entrypoint), then document.render, document.inspect, files.attach. Python render entrypoints must write exactly to PERSAI_OUTPUT_PATH and must not construct /workspace/workspace paths. Use descriptorMode only for presentations.",
+            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. PDF render uses an HTML entrypoint by default and does not auto-run a DOCX/XLSX Python builder as a PDF renderer. For a simple new PDF request, First write /workspace/<project>/index.html, then document.render, document.inspect, files.attach. For a simple new DOCX/XLSX request, First write a visible Python entrypoint under /workspace/<project> (default build.py unless you pass entrypoint), then document.render, document.inspect, files.attach. Python render entrypoints must write exactly to PERSAI_OUTPUT_PATH and must not construct /workspace/workspace paths. Use descriptorMode only for presentations.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -912,7 +912,12 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     document?.description ?? "",
-    /PDF render uses an HTML entrypoint by default.*does not auto-run.*DOCX\/XLSX Python builder/s,
+    /PDF render uses an HTML entrypoint by default/i,
+    "document guidance must say PDF defaults to HTML entrypoints"
+  );
+  assert.match(
+    document?.description ?? "",
+    /does not auto-run a DOCX\/XLSX Python builder as a PDF renderer/i,
     "document guidance must prevent using a DOCX/XLSX builder as the PDF renderer"
   );
   assert.doesNotMatch(

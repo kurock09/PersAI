@@ -36,6 +36,33 @@ The runtime was auto-selecting `/workspace/<project>/build.py` as a PDF entrypoi
 
 **Next recommended step.** Commit, push, deploy, then live-validate the same DOCX-to-PDF prompt.
 
+## 2026-06-29 — ADR-130 prompt layering and lazy context lookup opened
+
+Status: ADR authored only; no implementation code changed in this slice. Repo started clean on baseline `01dfefca`; this session adds the new program ADR plus startup-doc pointers so the next implementation session starts from the right architecture source of truth.
+
+**Scope.** Open a new orchestration ADR for prompt-architecture cleanup without changing runtime behavior yet. The ADR covers: compacting the cached `<enabled_skills>` catalog, restoring single-owner prompt/tool layering, moving heavy dynamic tool context to lazy action-based lookups, reducing scenario/chat-plan volatile duplication, and making `character_notes` precedence explicit. It does **not** implement the slices yet.
+
+**Why now.** The current prompt stack is serviceable but too heavy and too mixed in responsibility for stable long-term operation. The biggest near-term pressure is BP3 growth from many enabled skills/scenarios, followed by duplicated/stale stable-prefix ownership and overloaded descriptors (`video_generate`, `document`, `files`).
+
+**What changed.**
+
+- Added `docs/ADR/130-prompt-layering-cache-discipline-and-lazy-context-lookup.md`.
+- Updated `AGENTS.md` to list ADR-130 alongside ADR-129 as an active orchestration program for startup reading.
+- Added a concise changelog entry so the opened prompt-cleanup program is visible in repo history.
+
+**Key decisions captured in ADR-130.**
+
+- Stable prompt/tool concerns are split into four owners: selection guide, per-tool descriptor, provider-facing conditioning, and lazy action lookup.
+- `<enabled_skills>` should shrink to compact routing metadata; scenario detail moves to `skill.describe` / `skill.engage` payloads.
+- Stable-prefix cleanup must remove duplicate identity/user ownership, stale pushed-memory wording, and multi-owner `files` guidance.
+- Heavy dynamic descriptor payloads (`video_generate`, `document`) should move to lazy lookup inside the same tool families.
+- When chat-plan todos exist, `<persai_active_scenario>` should narrow to the current step plus exit condition instead of repeating the full scenario plan each turn.
+- `character_notes` remains verbatim/user-owned, but precedence is explicit: hard invariants -> `<voice>` mechanics -> `<character_notes>` personality -> defaults.
+
+**Residual.** No code or tests changed yet. The ADR intentionally leaves the implementation ledger and code diffs for later slices.
+
+**Next recommended step.** Start ADR-130 Slice 0: produce the prompt-layering inventory/budget ledger (`docs/ADR/130-prompt-layering-inventory.md`), then implement Slice 1 (`enabled_skills` compression + lazy skill detail lookup) with a GPT-5.4 subagent under orchestrator review.
+
 ## 2026-06-29 — ADR-129 live document path contract cleanup
 
 Status: implemented locally after investigating the 38-step DOCX-to-PDF live turn. Focused runtime/API prompt and catalog tests pass; full AGENTS verification gate and live browser/K8S re-test remain pending for this exact patch.
