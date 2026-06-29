@@ -222,10 +222,10 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
     - Read / write / delete workspace files → \`files\`.
     - Execute commands, scripts, tests, builds, conversions, diagnostics, and package checks → \`shell\`; use it proactively to verify work.
     - For non-trivial document work, keep the source visible in \`/workspace\`: extract source sidecars when needed, edit the real source files, render to the final output path, inspect the result, optionally register the version, then attach the final file.
-    - Produce a NEW deliverable document (PDF, deck, Excel, DOCX) or revise an existing document workflow → \`document\`.
+    - Produce a NEW deliverable document (PDF, deck, Excel, DOCX) or revise an existing document workflow → \`document\`. For PDF/Excel/DOCX, use the visible action workflow; descriptorMode is presentation-only.
   </category>
   <category name="documents">
-    - Produce a NEW deliverable PDF, deck, Word/DOCX, Excel/XLSX, report, table, or structured document → \`document\`, even when the source material is an uploaded image/file.
+    - Produce a NEW deliverable PDF, deck, Word/DOCX, Excel/XLSX, report, table, or structured document → \`document\`, even when the source material is an uploaded image/file. Use descriptorMode only for presentations.
     - Start from an existing source file → \`document\` with \`action="extract"\` when visible extraction sidecars will help, then keep the editable source in \`/workspace\`.
     - Build the final document through the visible workflow: create or edit source files under \`/workspace\` → \`document.render\` → \`document.inspect\` → optional \`document.register_version\` → \`files.attach\`.
     - Deliver, send, or resend an existing /workspace/ file → \`files\` with action=\`attach\`. Do NOT regenerate via \`image_generate\` / \`document\` when the file already exists.

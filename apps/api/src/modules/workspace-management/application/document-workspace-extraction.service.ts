@@ -149,6 +149,18 @@ export class DocumentWorkspaceExtractionService {
         message: `document.extract outputDir points at an existing workspace file: ${outputDir}`
       };
     }
+    const existingOutputChildren = await this.workspaceFileMetadataService.list({
+      workspaceId: input.workspaceId,
+      pathPrefix: `${outputDir}/`,
+      limit: 1
+    });
+    if (existingOutputChildren.length > 0) {
+      return {
+        accepted: false,
+        code: "output_dir_not_empty",
+        message: `document.extract outputDir already contains workspace files: ${outputDir}`
+      };
+    }
     const sourceMetadata = await this.workspaceFileMetadataService.get({
       workspaceId: input.workspaceId,
       path: sourcePath
@@ -226,7 +238,6 @@ export class DocumentWorkspaceExtractionService {
       shortDescription: `Document extract manifest for ${sourcePath}`
     };
 
-    await this.cleanupOutputPrefix(input.workspaceId, outputDir);
     const allFiles = [...build.files, manifestFile];
     const pushWarnings: string[] = [];
     for (const file of allFiles) {
@@ -449,22 +460,6 @@ export class DocumentWorkspaceExtractionService {
       ],
       suggestedReadPaths: [extractedPath, sheetPath]
     };
-  }
-
-  private async cleanupOutputPrefix(workspaceId: string, outputDir: string): Promise<void> {
-    const rows = await this.workspaceFileMetadataService.list({
-      workspaceId,
-      pathPrefix: `${outputDir}/`,
-      limit: 1_000
-    });
-    await Promise.all(
-      rows.map((row) => this.workspaceFileMetadataService.delete({ workspaceId, path: row.path }))
-    );
-    const prefix = this.mediaObjectStorage.buildWorkspaceObjectKey({
-      workspaceId,
-      workspaceRelPath: `${outputDir}/`
-    });
-    await this.mediaObjectStorage.deletePrefix(prefix);
   }
 
   private async persistSidecar(input: {

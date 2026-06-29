@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 hard cutover cleanup; presentations preserved
+
+Status: implemented locally after founder cleanup feedback; AGENTS gate and focused document checks pass.
+
+**Scope.** Tightened ADR-129 from "retire normal data-document path" to a harder active-route cutover for non-presentation document work. PDF/DOCX/XLSX document generation is now visible-workspace only: `document.extract` / `document.render` / `document.inspect` / optional `document.register_version` / `files.attach`. Presentation generation was explicitly kept out of this cleanup and remains on its existing presentation worker path.
+
+**Fix.** Runtime/model-facing projection no longer advertises PDF/DOCX/XLSX descriptor generation. Stray runtime descriptor calls that are not presentation-specific return `descriptor_mode_retired` with visible-workflow guidance. API enqueue now rejects `create_pdf_document` and `create_data_document` before quota/job creation. `document.extract` now rejects non-empty output sidecar directories instead of silently deleting/replacing prior sidecars.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+- `corepack pnpm run format:check` — PASS after formatting touched runtime files.
+- `corepack pnpm --filter @persai/runtime test -- native-tool-projection.test.ts runtime-document-tool.service.test.ts turn-execution.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api test -- adr119-golden-prompt-snapshot.test.ts` — PASS; regenerated and committed the intentional ADR-119 golden prompt fixture drift.
+- `corepack pnpm --filter @persai/api test -- enqueue-runtime-deferred-document-job.service.test.ts document-workspace-extraction.service.test.ts` — PASS as part of the full API suite run triggered by the test runner.
+- `ReadLints` on touched API/runtime files — PASS.
+
+**Residual.** Shared job service code remains because presentations still use the existing worker/delivery infrastructure. The active document cleanup boundary is non-presentation PDF/DOCX/XLSX generation; historical metadata read paths remain.
+
+**Next recommended step.** Commit this hard-cutover checkpoint. Push/deploy remains blocked until explicit approval.
+
 ## 2026-06-29 — ADR-129 local implementation complete; deploy/live pending
 
 Status: all ADR-129 implementation waves are committed locally through Wave 6; final local AGENTS/ADR gate PASS. Pending explicit push/deploy, then Wave 7 live validation on real PDF/XLSX/DOCX examples before closing ADR-129.

@@ -177,6 +177,16 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     }
 
     const descriptorMode = input.directToolExecution.descriptorMode;
+    if (descriptorMode === "create_pdf_document" || descriptorMode === "create_data_document") {
+      return {
+        accepted: false,
+        code: "descriptor_mode_retired",
+        message:
+          "Background PDF/DOCX/XLSX document generation is retired. Use document.extract/render/inspect/register_version with visible /workspace files, then files.attach.",
+        guidance:
+          "Create or edit visible source files under /workspace, render the checked output with document.render, inspect it with document.inspect, optionally register metadata with document.register_version, then deliver with files.attach."
+      };
+    }
     const skipQuotaPrecheckForPersistedRedelivery =
       descriptorMode === "export_or_redeliver" &&
       (await this.shouldBypassQuotaPrecheckForPersistedRedelivery({
@@ -533,8 +543,9 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           accepted: false,
           code: "revise_document_requires_existing_pdf",
           message:
-            "revise_document requires an existing PDF document in this chat — there is no previous document to patch. Use create_pdf_document to create a new one.",
-          guidance: null
+            "revise_document requires an existing PDF document in this chat — there is no previous document to patch.",
+          guidance:
+            "Create or edit visible source files under /workspace, render the PDF with document.render, inspect it with document.inspect, optionally register metadata with document.register_version, then deliver with files.attach."
         };
       }
       return {

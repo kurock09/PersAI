@@ -125,15 +125,15 @@ GOTCHAS:
 WHEN NOT TO USE: User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (chat delivery is a separate explicit action — do not regenerate a document just to resend it).
 EXAMPLES:
 - document({action:"extract", path:"/workspace/source.pdf"}) — turn an existing workspace source into visible extraction sidecars before reading or reusing it.
-- document({descriptorMode:"create_pdf_document", prompt:"…"}) — produce a prose/editorial PDF (HTML→PDF).
+- document({action:"render", projectPath:"/workspace/report", outputPath:"/workspace/report/output.pdf", format:"pdf"}) — build a visible PDF from workspace source files.
 - document({action:"render", projectPath:"/workspace/report", outputPath:"/workspace/report/output.xlsx", format:"xlsx"}) — build a visible spreadsheet from workspace source files.
 - document({action:"inspect", path:"/workspace/report/output.xlsx"}) — inspect the rendered XLSX/DOCX/PDF before delivery.
 - document({action:"register_version", outputPath:"/workspace/report/output.xlsx", workspaceProjectPath:"/workspace/report", inspectionPath:"/workspace/report/output.inspect.json"}) — optionally persist PersAI version metadata before files.attach.
-- document({descriptorMode:"revise_document", docId:"…", prompt:"…"}) — apply revisions to an existing PDF document in the current chat.
-- document({descriptorMode:"revise_document", storagePath:"/workspace/report.pdf", prompt:"…"}) — revise a file from Working Files or a prior chat via workspace path.
+- document({descriptorMode:"create_presentation", prompt:"…"}) — create a presentation deck through the existing presentation path.
+- document({descriptorMode:"export_or_redeliver", docId:"…", outputFormat:"pptx", prompt:"…"}) — prepare/redeliver editable PPTX only when the user explicitly asked for PowerPoint.
 GOTCHAS:
 - For document work from an uploaded or existing workspace source, the normal flow is: extract if needed, create or edit visible \`/workspace\` source files, render, inspect, optionally register_version, then files.attach.
-- Native spreadsheets/Word outputs now use the visible \`/workspace\` workflow instead of the retired opaque create_data_document path.
+- PDF, spreadsheet, and Word outputs use the visible \`/workspace\` workflow instead of retired background descriptor generation.
 - Presentations: PDF-first unless the user explicitly wants editable PPTX/PowerPoint.
 - Fill \`visualStyle\`, \`imagePolicy\`, and \`visualDensity\` only when the user's visual intent is clear. For ordinary school, educational, and standard business decks, prefer visual defaults that stay readable and presentation-native. Use \`text_only\` only when the user explicitly wants no images; use \`text_heavy\` only when they explicitly want dense slide copy.
 - Runs may go async. Never claim delivery until the delivered file actually arrives; until then, say it is in progress.`,

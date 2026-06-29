@@ -345,4 +345,69 @@ describe("DocumentWorkspaceExtractionService", () => {
     }
     assert.equal(outcome.code, "invalid_output_dir");
   });
+
+  test("rejects outputDir that already contains sidecar files", async () => {
+    let downloaded = false;
+    const service = new DocumentWorkspaceExtractionService(
+      {
+        async get(input: { path: string }) {
+          if (input.path !== "/workspace/source.pdf") {
+            return null;
+          }
+          return {
+            workspaceId: "workspace-1",
+            path: "/workspace/source.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: BigInt(32),
+            contentHash: null,
+            shortDescription: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        },
+        async list(input: { pathPrefix: string }) {
+          return input.pathPrefix === "/workspace/source.extract/"
+            ? [
+                {
+                  workspaceId: "workspace-1",
+                  path: "/workspace/source.extract/manifest.json",
+                  mimeType: "application/json",
+                  sizeBytes: BigInt(2),
+                  contentHash: null,
+                  shortDescription: null,
+                  createdAt: new Date(),
+                  updatedAt: new Date()
+                }
+              ]
+            : [];
+        },
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        async downloadObject() {
+          downloaded = true;
+          return null;
+        }
+      } as never,
+      {} as never,
+      {} as never
+    );
+
+    const outcome = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      path: "/workspace/source.pdf",
+      mode: "auto",
+      outputDir: "/workspace/source.extract"
+    });
+
+    assert.equal(outcome.accepted, false);
+    assert.equal(downloaded, false);
+    if (outcome.accepted) {
+      return;
+    }
+    assert.equal(outcome.code, "output_dir_not_empty");
+  });
 });

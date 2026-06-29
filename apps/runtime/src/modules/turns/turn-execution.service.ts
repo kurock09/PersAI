@@ -2239,9 +2239,9 @@ export class TurnExecutionService {
       "## Open Document Jobs",
       "Server truth: background document rendering is already in progress in this chat.",
       "Use this status block for any progress reply in the current turn.",
-      "Do not start a new document job unless the current user turn is clearly asking for a separate new document task.",
-      "These are older or already-open jobs. They are NOT proof that the current user turn started a new document job.",
-      "Only say a new document request was accepted, queued, or in progress when this same turn actually returned a structural pending_delivery result with a real jobId.",
+      "Do not start a PDF/DOCX/XLSX background document job; visible document work must use document.extract/render/inspect/register_version plus files.attach.",
+      "These are older or already-open jobs. They are NOT proof that the current user turn started a new delivery job.",
+      "Only say a new presentation request was accepted, queued, or in progress when this same turn actually returned a structural pending_delivery result with a real jobId.",
       ...openDocumentJobs.slice(0, MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS).map((job, index) => {
         const ageLine =
           job.startedAt === null

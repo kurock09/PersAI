@@ -334,9 +334,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         {
           toolCode: "document",
           displayName: "Document",
-          description: "Create and revise assistant documents.",
+          description: "Create and revise assistant documents through the visible workspace loop.",
           usageGuidance:
-            "Use revise_document and export_or_redeliver only for existing PersAI document ids.",
+            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. Use descriptorMode only for presentations.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -881,7 +881,6 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /inspect|render|register_version/i
   );
   assert.deepEqual(documentProperties?.descriptorMode?.enum, [
-    "create_pdf_document",
     "create_presentation",
     "revise_document",
     "export_or_redeliver"
@@ -900,7 +899,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /async document providers|PDFMonkey|\/workspace\/input|\/workspace\/outbound/i,
     "tool description must not teach retired provider or namespace wording"
   );
-  assert.match(document?.description ?? "", /current chat's existing document/);
+  assert.match(document?.description ?? "", /descriptorMode only for presentations/i);
   assert.doesNotMatch(
     documentProperties?.descriptorMode?.description ?? "",
     /create_data_document/,
@@ -912,42 +911,30 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /create_data_document/,
     "outputFormat description must not teach retired create_data_document"
   );
-  assert.match(documentProperties?.docId?.description ?? "", /UUID/);
-  assert.match(documentProperties?.docId?.description ?? "", /not a Working Files alias/);
+  assert.match(documentProperties?.docId?.description ?? "", /presentation document UUID/);
   assert.match(
     documentProperties?.docId?.description ?? "",
-    /revise_document \(current chat\) and export_or_redeliver/
+    /Do not use docId for PDF\/DOCX\/XLSX visible document workflow/
   );
   assert.doesNotMatch(
     documentProperties?.docId?.description ?? "",
     /doc_id/,
     "docId description must not mention snake_case doc_id"
   );
-  // ADR-126 v3 — cross-chat revise uses storagePath (path identity)
   assert.match(
     documentProperties?.storagePath?.description ?? "",
-    /Workspace storage path for cross-chat revise_document/,
-    "storagePath description must teach cross-chat path identity"
+    /Retired for document\/PDF visible workflow/,
+    "storagePath description must not teach retired cross-chat PDF descriptor flow"
   );
   assert.match(
     documentProperties?.storagePath?.description ?? "",
-    /\/workspace\//,
-    "storagePath description must contain a /workspace/ path example"
+    /explicit workspace paths in action-based document calls/,
+    "storagePath description must point back to action-based workspace document calls"
   );
   assert.doesNotMatch(
     document?.description ?? "",
     /file_ref/,
     "tool description must not use snake_case file_ref"
-  );
-  assert.match(
-    documentProperties?.docId?.description ?? "",
-    /MUST be the exact document UUID/,
-    "docId description must require an exact UUID"
-  );
-  assert.match(
-    documentProperties?.docId?.description ?? "",
-    /storagePath/,
-    "docId description must reference storagePath (the cross-chat alternative)"
   );
   assert.deepEqual(documentProperties?.visualStyle?.enum, [
     "professional_modern",

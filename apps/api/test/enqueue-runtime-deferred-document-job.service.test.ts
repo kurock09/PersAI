@@ -252,23 +252,13 @@ async function runCreateDataDocumentCase(): Promise<void> {
     }
   });
 
-  assert.deepEqual(result, {
-    accepted: true,
-    docId: "doc-data-1",
-    versionId: "version-data-1",
-    renderJobId: "render-data-1",
-    documentType: "data_document"
-  });
-  const captured = capturedEnqueueInput as {
-    documentType: string;
-    provider: string;
-    outputFormat: string;
-    request: { sourceJson: { outputFormat: string } };
-  } | null;
-  assert.equal(captured?.documentType, "data_document");
-  assert.equal(captured?.provider, "sandbox", "data documents must execute in the sandbox");
-  assert.equal(captured?.outputFormat, "xlsx");
-  assert.equal(captured?.request.sourceJson.outputFormat, "xlsx");
+  assert.equal(result.accepted, false);
+  if (result.accepted) {
+    return;
+  }
+  assert.equal(result.code, "descriptor_mode_retired");
+  assert.match(result.guidance ?? "", /document\.render|files\.attach/i);
+  assert.equal(capturedEnqueueInput, null);
 }
 
 async function runCreateDataDocumentDefaultsToXlsxCase(): Promise<void> {
@@ -376,19 +366,12 @@ async function runCreateDataDocumentDefaultsToXlsxCase(): Promise<void> {
     }
   });
 
-  assert.equal(result.accepted, true);
-  const captured = capturedEnqueueInput as {
-    documentType: string;
-    provider: string;
-    outputFormat: string;
-  } | null;
-  assert.equal(captured?.documentType, "data_document");
-  assert.equal(captured?.provider, "sandbox");
-  assert.equal(
-    captured?.outputFormat,
-    "xlsx",
-    "create_data_document must default to xlsx when outputFormat is omitted"
-  );
+  assert.equal(result.accepted, false);
+  if (result.accepted) {
+    return;
+  }
+  assert.equal(result.code, "descriptor_mode_retired");
+  assert.equal(capturedEnqueueInput, null);
 }
 
 async function runCreateDataDocumentDocxCase(): Promise<void> {
@@ -497,15 +480,12 @@ async function runCreateDataDocumentDocxCase(): Promise<void> {
     }
   });
 
-  assert.equal(result.accepted, true);
-  const captured = capturedEnqueueInput as {
-    documentType: string;
-    provider: string;
-    outputFormat: string;
-  } | null;
-  assert.equal(captured?.documentType, "data_document");
-  assert.equal(captured?.provider, "sandbox");
-  assert.equal(captured?.outputFormat, "docx");
+  assert.equal(result.accepted, false);
+  if (result.accepted) {
+    return;
+  }
+  assert.equal(result.code, "descriptor_mode_retired");
+  assert.equal(capturedEnqueueInput, null);
 }
 
 async function runPresentationDefaultsToPdfCase(): Promise<void> {
@@ -741,13 +721,10 @@ async function runLimitReachedCase(): Promise<void> {
     }
   });
 
-  assert.deepEqual(result, {
-    accepted: false,
-    code: "monthly_tool_quota_exceeded",
-    message:
-      "Document is exhausted for the current monthly period. It resets at 6/1/2026, 12:00:00 AM.",
-    guidance: "Use a request that does not need document generation. You can also upgrade to Pro."
-  });
+  assert.equal(result.accepted, false);
+  if (!result.accepted) {
+    assert.equal(result.code, "descriptor_mode_retired");
+  }
   assert.equal(enqueueCalls, 0);
 }
 
@@ -1184,7 +1161,10 @@ async function runPdfCreateSkipsThemePickerCase(): Promise<void> {
     }
   });
 
-  assert.equal(result.accepted, true);
+  assert.equal(result.accepted, false);
+  if (!result.accepted) {
+    assert.equal(result.code, "descriptor_mode_retired");
+  }
   assert.equal(pickThemeCalls, 0);
 }
 

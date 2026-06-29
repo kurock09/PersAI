@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented locally through Wave 6; final deploy/live validation pending.
+Implemented locally through Wave 6 plus hard-cutover cleanup; final deploy/live validation pending.
 
 ## Date
 
@@ -41,14 +41,13 @@ Active file/workspace truth after ADR-126/127/128:
 - pod FS is a cache/workspace execution surface;
 - final file delivery is structural and should go through `files.attach`.
 
-Active document truth:
+Active document truth after local implementation:
 
-- `document` model-facing tool accepts descriptor modes including `create_pdf_document`, `create_presentation`, `revise_document`, `export_or_redeliver`, and `create_data_document`.
-- `create_pdf_document` and PDF revisions use the sandbox provider and render PDF from generated/persisted HTML via `render_html_to_pdf`.
-- `create_data_document` uses an opaque async worker path: a worker model writes a Python program, sandbox runs `execute_document_code`, and the produced `xlsx`/`docx`/data-PDF is validated mostly by container/file magic plus limited checks.
-- source extraction exists, but it is hidden inside API-side `DocumentExtractionService` / `DocumentSourceAttachmentExtractionService` and returns transient payloads to the worker instead of visible `/workspace` sidecars.
-- `AssistantDocumentVersion` already has useful fields for PDF source truth (`renderedHtml`, `structureJson`, `styleProfileJson`), but the source is hidden in DB rather than first-class workspace files.
-- document delivery metadata still has residual type drift: some delivery payload parsing only preserves older descriptor modes and `pdf|pptx` output formats even though `create_data_document` and `xlsx|docx` exist elsewhere.
+- PDF/DOCX/XLSX document work is action-based and visible: `document.extract`, `document.render`, `document.inspect`, optional `document.register_version`, then `files.attach`.
+- The model-facing `document` descriptor no longer advertises PDF/DOCX/XLSX descriptor generation. Stray `create_pdf_document` and `create_data_document` enqueue attempts are rejected with visible-workflow guidance.
+- `document.extract` writes sidecars only into a clean output directory; it rejects an existing file path or non-empty sidecar directory instead of deleting/replacing prior work.
+- Presentation generation is intentionally unchanged by this ADR hard cleanup: `create_presentation` and presentation export/revise delivery remain on the existing presentation worker path.
+- Historical `AssistantDocumentVersion` / `documentLink` metadata remains readable for already persisted rows.
 
 ## Problem
 
