@@ -1316,6 +1316,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         "For high-quality document work, prefer the visible workspace loop: extract sidecars when helpful, create or edit real source files under `/workspace`, render the output, inspect it, optionally register the version, then attach the checked file.",
         "For a simple new PDF request, do not call document before a source entrypoint exists. First write `/workspace/<project>/index.html` with files.write, then call document.render with format=pdf, then document.inspect, then files.attach the rendered PDF.",
         "For a simple new DOCX/XLSX request, do not call document before a source build script exists. First write `/workspace/<project>/build.py` with files.write, then call document.render with format=docx or xlsx, then document.inspect, then files.attach the rendered file.",
+        "For Python-based document.render, write the final file exactly to the provided PERSAI_OUTPUT_PATH environment variable. The runtime executes the Python entrypoint from projectPath; do not chdir into /workspace yourself and do not construct paths like /workspace/workspace/....",
         "Do not use descriptorMode for PDF/DOCX/XLSX document work. Those legacy background document paths are retired; use the visible workspace loop above and attach the checked output with files.attach.",
         "Presentation generation remains supported through descriptorMode=create_presentation. Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
         "When the user has attached source material for a presentation (txt, md, csv, json, html, xml, pdf, docx), describe the requested deck transformation in prompt and let the presentation worker inline supported source content; do not paste the file content into the prompt yourself.",
@@ -1695,7 +1696,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "files",
     description: resolveToolDefinitionDescription(
       policy,
-      "Files in this workspace live under `/workspace/`. Read any file with `files.read /workspace/<path>`. Write to any path under `/workspace/` (creates or overwrites). When the user uploads a file, it appears at `/workspace/<filename>`. To edit it, write to the same path. To create a new file, pick a new name. Use `/tmp/` for ephemeral scratch that the user should not see."
+      "Files in this workspace live under `/workspace/`. Read any file with `files.read` using the exact path from the Working Files block, `files.list`, or a prior tool result. Write to any path under `/workspace/` (creates or overwrites). Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new `/workspace/...` path. Use `/tmp/` for ephemeral scratch that the user should not see."
     ),
     inputSchema: {
       type: "object",

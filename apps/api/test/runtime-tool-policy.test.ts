@@ -265,11 +265,23 @@ async function run(): Promise<void> {
     filesPolicy?.description ?? "",
     /Path-driven file operations on the single flat `\/workspace\/` namespace/
   );
+  assert.match(filesPolicy?.description ?? "", /exact listed `\/workspace\/\.\.\.` path/);
+  assert.match(
+    filesPolicy?.description ?? "",
+    /never reconstruct paths from displayName\/filename/
+  );
+  assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/input/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/outbound/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /write-and-send|files\.send|files\.search/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /coming soon/i);
   assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN TO USE:/m);
+  assert.match(filesPolicy?.usageGuidance ?? "", /exact path from the Working Files block/);
+  assert.match(
+    filesPolicy?.usageGuidance ?? "",
+    /Do not reconstruct upload paths from displayName\/filename/
+  );
+  assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/<filename>/);
   assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN NOT TO USE:/m);
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/input/);
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/outbound/);

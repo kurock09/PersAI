@@ -214,7 +214,7 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
 
 <category_rules>
   <category name="files">
-    - Address files by pod-absolute path under \`/workspace/\`. Every file lives directly under \`/workspace/<path>\` — user uploads, files you write, and everything else share the same flat namespace. Use \`/tmp/\` for ephemeral scratch the user should never see. Six actions: list, read, preview, write, delete, attach.
+    - Address files by exact listed pod-absolute path under \`/workspace/\`. Every file lives directly under \`/workspace/<path>\`, but user uploads may be sanitized, renamed, or collision-suffixed; never reconstruct a path from displayName/filename. Use Working Files, \`files.list\`, or prior tool results as path authority. Use \`/tmp/\` for ephemeral scratch the user should never see. Six actions: list, read, preview, write, delete, attach.
     - Delivering an existing workspace file to the user is its own action: \`files({action:"attach", path})\`. Do NOT regenerate with \`image_generate\` / \`document\` when the file already exists.
   </category>
   <category name="workspace">
@@ -228,6 +228,7 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
     - Produce a NEW deliverable PDF, deck, Word/DOCX, Excel/XLSX, report, table, or structured document → \`document\`, even when the source material is an uploaded image/file. Use descriptorMode only for presentations.
     - Start from an existing source file → \`document\` with \`action="extract"\` when visible extraction sidecars will help, then keep the editable source in \`/workspace\`.
     - Build the final document through the visible workflow: create or edit source files under \`/workspace\` → \`document.render\` → \`document.inspect\` → optional \`document.register_version\` → \`files.attach\`.
+    - For Python-based document renders, the render runtime provides the final output location as \`PERSAI_OUTPUT_PATH\`; write exactly there and do not construct \`/workspace/workspace/...\` paths or chdir into \`/workspace\` yourself.
     - Deliver, send, or resend an existing /workspace/ file → \`files\` with action=\`attach\`. Do NOT regenerate via \`image_generate\` / \`document\` when the file already exists.
     - Inline text answer is enough → reply directly; do not invoke \`document\`.
   </category>

@@ -336,7 +336,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           displayName: "Document",
           description: "Create and revise assistant documents through the visible workspace loop.",
           usageGuidance:
-            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. For a simple new PDF request, First write /workspace/<project>/index.html, then document.render, document.inspect, files.attach. For a simple new DOCX/XLSX request, First write /workspace/<project>/build.py, then document.render, document.inspect, files.attach. Use descriptorMode only for presentations.",
+            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. For a simple new PDF request, First write /workspace/<project>/index.html, then document.render, document.inspect, files.attach. For a simple new DOCX/XLSX request, First write a visible Python entrypoint under /workspace/<project> (default build.py unless you pass entrypoint), then document.render, document.inspect, files.attach. Python render entrypoints must write exactly to PERSAI_OUTPUT_PATH and must not construct /workspace/workspace paths. Use descriptorMode only for presentations.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -363,9 +363,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           toolCode: "files",
           displayName: "Files",
           description:
-            "Path-driven file operations on the single flat `/workspace/` namespace. Read and write any file directly under `/workspace/<path>`; user uploads land at `/workspace/<filename>` and stay there. Use `/tmp/` for ephemeral scratch that the user should never see.",
+            "Path-driven file operations on the single flat `/workspace/` namespace. Read and write files by their exact listed `/workspace/...` path; user uploads may be sanitized, renamed, or collision-suffixed, so never reconstruct paths from displayName/filename. Use `/tmp/` for ephemeral scratch that the user should never see.",
           usageGuidance:
-            "Files in this workspace live under `/workspace/`. Read any file with `files.read /workspace/<path>`. Write to any path under `/workspace/` (creates or overwrites). When the user uploads a file, it appears at `/workspace/<filename>`. To edit it, write to the same path. To create a new file, pick a new name. Use `/tmp/` for ephemeral scratch that the user should not see.",
+            "Files in this workspace live under `/workspace/`. Read any file with `files.read` using the exact path from the Working Files block, `files.list`, or a prior tool result. Write to any path under `/workspace/` (creates or overwrites). Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new `/workspace/...` path. Use `/tmp/` for ephemeral scratch that the user should not see.",
           kind: "plan",
           executionMode: "inline",
           usageRule: "allowed",
@@ -574,6 +574,12 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "Search the public web for current external facts.\nUse this when the answer depends on recent external information or links. May be called in parallel with other independent searches."
   );
   assert.match(files?.description ?? "", /single flat `\/workspace\/` namespace/);
+  assert.match(files?.description ?? "", /exact path from the Working Files block/);
+  assert.match(
+    files?.description ?? "",
+    /Do not reconstruct upload paths from displayName\/filename/
+  );
+  assert.doesNotMatch(files?.description ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(files?.description ?? "", /\/workspace\/input/);
   assert.doesNotMatch(files?.description ?? "", /\/workspace\/outbound/);
   // ADR-126 v3 D6 — files surface is six actions: list, read, preview, write, delete, attach.
@@ -896,8 +902,13 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     document?.description ?? "",
-    /simple new DOCX\/XLSX request.*First write.*build\.py.*document\.render/s,
+    /simple new DOCX\/XLSX request.*First write a visible Python entrypoint.*document\.render/s,
     "document guidance must teach the efficient first-call DOCX/XLSX workflow"
+  );
+  assert.match(
+    document?.description ?? "",
+    /PERSAI_OUTPUT_PATH.*\/workspace\/workspace/s,
+    "document guidance must prevent build.py double-workspace path construction"
   );
   assert.doesNotMatch(
     document?.description ?? "",

@@ -1,5 +1,36 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 live document path contract cleanup
+
+Status: implemented locally after investigating the 38-step DOCX-to-PDF live turn. Focused runtime/API prompt and catalog tests pass; full AGENTS verification gate and live browser/K8S re-test remain pending for this exact patch.
+
+**Scope.** This is a second targeted cleanup on top of the ADR-129 live document loop work. It fixes the path contract that pushed the model into guessing `/workspace/<filename>`, repeated `shell`/`exec`, and `/workspace/workspace` retries when rebuilding an uploaded DOCX into a PDF.
+
+**Root cause.** Runtime/sandbox logs for the reported turn showed:
+
+- `files.read` against `/workspace/Карнаух_Федор_Отчет.docx` returned `path_not_found`.
+- extract sidecars for `/workspace/Карнаух_Федор_Отчет.extract/*` hit the earlier `write_failed` hot-pod sync bug.
+- the model then repeatedly read and rewrote `premium_word_project/build.py`, ran shell/exec attempts, and tried to repair bad output paths manually.
+
+The deeper path bug was in model-facing truth: the Working Files block showed aliases and display names but not the authoritative `storagePath`, while files/tool/prompt guidance still said uploads appear at `/workspace/<filename>`. With unicode names, sanitization, and collision suffixes, displayName is not a path authority.
+
+**Fix.**
+
+- Working Files history rows and priority anchors now include `path=/workspace/...`.
+- The Working Files recovery instruction now says to address files by the exact shown `path` and never reconstruct from displayName/filename.
+- Runtime files tool projection, API runtime tool policy, and Prisma tool catalog seed now say to use exact paths from Working Files, `files.list`, or prior tool results; they no longer teach `/workspace/<filename>`.
+- The active prompt preset files category now says uploads may be sanitized/renamed/collision-suffixed and that Working Files / `files.list` / prior tool results are the path authority.
+- Runtime/API document guidance now says Python render entrypoints must write exactly to `PERSAI_OUTPUT_PATH`; do not `chdir` into `/workspace` or construct `/workspace/workspace/...`.
+
+**Checks so far.**
+
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/working-files-developer-section.test.ts test/native-tool-projection.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx --test test/runtime-tool-policy.test.ts test/tool-catalog-data.test.ts test/bootstrap-preset-data.test.ts` — PASS.
+
+**Residual.** Full AGENTS gate and deploy/live validation are still pending. The next live check should repeat the user's DOCX-to-premium-PDF scenario and verify the first source read uses the listed path, sidecars are visible, no `/workspace/workspace` retry appears, and the turn does not waste shell/exec loops.
+
+**Next recommended step.** Run full verification, commit, push/deploy, then re-run browser + K8S validation.
+
 ## 2026-06-29 — ADR-129 live document loop cleanup: sidecar sync + first-call guidance
 
 Status: implemented locally after live browser/K8S validation exposed hidden failed `document` steps and DOCX revision fallback behavior. Focused sandbox/runtime/API document tests and the AGENTS gate pass; live re-test remains pending after deploy.

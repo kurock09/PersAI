@@ -134,6 +134,7 @@ EXAMPLES:
 GOTCHAS:
 - For document work from an uploaded or existing workspace source, the normal flow is: extract if needed, create or edit visible \`/workspace\` source files, render, inspect, optionally register_version, then files.attach.
 - PDF, spreadsheet, and Word outputs use the visible \`/workspace\` workflow instead of retired background descriptor generation.
+- For Python-based \`document.render\`, write the final file exactly to \`PERSAI_OUTPUT_PATH\`. The runtime executes the Python entrypoint from \`projectPath\`; do not chdir into \`/workspace\` yourself and do not construct paths like \`/workspace/workspace/...\`.
 - Presentations: PDF-first unless the user explicitly wants editable PPTX/PowerPoint.
 - Fill \`visualStyle\`, \`imagePolicy\`, and \`visualDensity\` only when the user's visual intent is clear. For ordinary school, educational, and standard business decks, prefer visual defaults that stay readable and presentation-native. Use \`text_only\` only when the user explicitly wants no images; use \`text_heavy\` only when they explicitly want dense slide copy.
 - Runs may go async. Never claim delivery until the delivered file actually arrives; until then, say it is in progress.`,
@@ -309,11 +310,11 @@ GOTCHAS:
     description:
       "Path-driven workspace file operations: list, read, preview, write, delete, attach.",
     modelDescription:
-      "Path-driven file operations on the single flat `/workspace/` namespace. Read and write any file directly under `/workspace/<path>`; user uploads land at `/workspace/<filename>` and stay there. Use `/tmp/` for ephemeral scratch that the user should never see.",
+      "Path-driven file operations on the single flat `/workspace/` namespace. Read and write files by their exact listed `/workspace/...` path; user uploads may be sanitized, renamed, or collision-suffixed, so never reconstruct paths from displayName/filename. Use `/tmp/` for ephemeral scratch that the user should never see.",
     // policy-overridden: the real model-facing text is supplied by
     // runtime-tool-policy.ts resolveRuntimeToolUsageGuidance and always
     // supersedes this catalog value. Edit the hardcoded override there, not here.
-    modelUsageGuidance: `Files in this workspace live under \`/workspace/\`. Read any file with \`files.read /workspace/<path>\`. Write to any path under \`/workspace/\` (creates or overwrites). When the user uploads a file, it appears at \`/workspace/<filename>\`. To edit it, write to the same path. To create a new file, pick a new name. Use \`/tmp/\` for ephemeral scratch that the user should not see.
+    modelUsageGuidance: `Files in this workspace live under \`/workspace/\`. Read any file with \`files.read\` using the exact path from the Working Files block, \`files.list\`, or a prior tool result. Write to any path under \`/workspace/\` (creates or overwrites). Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new \`/workspace/...\` path. Use \`/tmp/\` for ephemeral scratch that the user should not see.
 WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace file to chat.
 WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a NEW structured document (use document).
 EXAMPLES:

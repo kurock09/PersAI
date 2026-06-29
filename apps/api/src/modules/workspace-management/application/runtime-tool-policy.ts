@@ -121,7 +121,7 @@ function resolveRuntimeToolDescription(
     return "Migration-only inventory entry. Step 15 does not expose raw path-based workspace attachment to the model.";
   }
   if (runtimeToolCode === "files") {
-    return "Path-driven file operations on the single flat `/workspace/` namespace. Read and write any file directly under `/workspace/<path>`; user uploads land at `/workspace/<filename>` and stay there. Use `/tmp/` for ephemeral scratch that the user should never see.";
+    return "Path-driven file operations on the single flat `/workspace/` namespace. Read and write files by their exact listed `/workspace/...` path; user uploads may be sanitized, renamed, or collision-suffixed, so never reconstruct paths from displayName/filename. Use `/tmp/` for ephemeral scratch that the user should never see.";
   }
   return tool.modelDescription ?? tool.description;
 }
@@ -134,7 +134,7 @@ function resolveRuntimeToolUsageGuidance(
     return "Keep this helper off the normal model-visible path.";
   }
   if (runtimeToolCode === "files") {
-    return `Files in this workspace live under \`/workspace/\`. Read any file with \`files.read /workspace/<path>\`. Write to any path under \`/workspace/\` (creates or overwrites). When the user uploads a file, it appears at \`/workspace/<filename>\`. To edit it, write to the same path. To create a new file, pick a new name. Use \`/tmp/\` for ephemeral scratch that the user should not see.
+    return `Files in this workspace live under \`/workspace/\`. Read any file with \`files.read\` using the exact path from the Working Files block, \`files.list\`, or a prior tool result. Write to any path under \`/workspace/\` (creates or overwrites). Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new \`/workspace/...\` path. Use \`/tmp/\` for ephemeral scratch that the user should not see.
 WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview a file's content, write a new or updated file, delete a path, or attach an existing file to the current chat for the user.
 WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a structured document (use document).
 SIX ACTIONS: list (directory listing), read (full content), preview (bounded content, text-extraction for binary), write (create/overwrite), delete (remove path), attach (publish a /workspace/ file to the current chat so the user sees it as a chat attachment).

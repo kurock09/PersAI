@@ -74,10 +74,34 @@ function testDocumentCatalogRowTeachesVisibleWorkflow(): void {
     "document guidance must teach the render -> inspect -> optional register_version -> files.attach flow"
   );
   assert.ok(
+    row.modelUsageGuidance.includes("PERSAI_OUTPUT_PATH") &&
+      row.modelUsageGuidance.includes("/workspace/workspace"),
+    "document guidance must prevent double-workspace build.py output paths"
+  );
+  assert.ok(
     !/async document providers|PDFMonkey|fileRef|AssistantFile|\/workspace\/input|\/workspace\/outbound/i.test(
       `${row.description}\n${row.modelDescription}\n${row.modelUsageGuidance}`
     ),
     "document catalog wording must not contain retired provider, file-identity, or namespace language"
+  );
+}
+
+function testFilesCatalogRowUsesExactListedPaths(): void {
+  const rows = TOOL_CATALOG.filter((t) => t.code === "files");
+  assert.strictEqual(rows.length, 1, "TOOL_CATALOG must contain exactly one files row");
+  const row = rows[0];
+  const text = `${row.modelDescription}\n${row.modelUsageGuidance}`;
+  assert.ok(
+    text.includes("exact path from the Working Files block"),
+    "files guidance must point the model at exact listed paths"
+  );
+  assert.ok(
+    text.includes("Do not reconstruct upload paths from displayName/filename"),
+    "files guidance must forbid reconstructing upload paths from display names"
+  );
+  assert.ok(
+    !text.includes("/workspace/<filename>"),
+    "files guidance must not teach the model to guess upload paths from filenames"
   );
 }
 
@@ -93,6 +117,7 @@ export async function runToolCatalogDataTest(): Promise<void> {
   testTodoWriteCatalogRow();
   testSkillCatalogRowMentionsPlanIntake();
   testDocumentCatalogRowTeachesVisibleWorkflow();
+  testFilesCatalogRowUsesExactListedPaths();
   testStarterTrialPolicyTodoWrite();
   console.log("[tool-catalog-data] all tests passed");
 }

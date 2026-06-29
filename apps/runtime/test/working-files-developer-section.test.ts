@@ -182,23 +182,24 @@ describe("TurnExecutionService working files developer section", () => {
     );
     assert.equal(
       historyLines[0]?.startsWith(
-        `- ${formatUtcTimestamp("2026-05-26T14:32:00.000Z")} | model | image #1 (file #2) | portrait.png | - | Makeup strengthened`
+        `- ${formatUtcTimestamp("2026-05-26T14:32:00.000Z")} | model | image #1 (file #2) | portrait.png | path=/workspace/portrait.png | - | Makeup strengthened`
       ),
       true
     );
     assert.match(
       historyLines[1] ?? "",
-      /\| sandbox \| file #3 \| report\.md \| - \| Sandbox-generated/
+      /\| sandbox \| file #3 \| report\.md \| path=\/workspace\/assistant-1\/workspace-1\/outputs\/report\.md \| - \| Sandbox-generated/
     );
     assert.match(
       historyLines[2] ?? "",
-      /\| user \| file #1 \| old\.txt \| current source \| Older user draft/
+      /\| user \| file #1 \| old\.txt \| path=\/workspace\/old\.txt \| current source \| Older user draft/
     );
     assert.doesNotMatch(
       section ?? "",
       /### HISTORY|### OTHER_FILES|current attachment #|last generated image/
     );
-    assert.match(section ?? "", /Address files by their pod-absolute path/);
+    assert.match(section ?? "", /Address files by the exact `path` shown above/);
+    assert.match(section ?? "", /Do not reconstruct a path from displayName\/filename/);
     assert.match(section ?? "", /Do not answer from this block alone/);
   });
 
@@ -227,8 +228,14 @@ describe("TurnExecutionService working files developer section", () => {
     ]);
 
     assert.ok(section);
-    assert.match(section ?? "", /foo\.png \[#1\] \| - \| Makeup strengthened\./);
-    assert.match(section ?? "", /foo\.png \[#2\] \| - \| Hair color corrected\./);
+    assert.match(
+      section ?? "",
+      /foo\.png \[#1\] \| path=\/workspace\/foo-1\.png \| - \| Makeup strengthened\./
+    );
+    assert.match(
+      section ?? "",
+      /foo\.png \[#2\] \| path=\/workspace\/foo-2\.png \| - \| Hair color corrected\./
+    );
   });
 
   test("document priority note remains without rendering legacy role sections", () => {
@@ -258,13 +265,22 @@ describe("TurnExecutionService working files developer section", () => {
 
     assert.ok(section);
     assert.match(section ?? "", /Document-tool PDF anchors \(not general file recency\):/);
-    assert.match(section ?? "", /DOC_CURRENT_SOURCE = file #1 \| proposal\.docx/);
-    assert.match(section ?? "", /DOC_LAST_DELIVERED_PDF = file #2 \| proposal\.pdf/);
+    assert.match(
+      section ?? "",
+      /DOC_CURRENT_SOURCE = file #1 \| proposal\.docx \| path=\/workspace\/proposal\.docx/
+    );
+    assert.match(
+      section ?? "",
+      /DOC_LAST_DELIVERED_PDF = file #2 \| proposal\.pdf \| path=\/workspace\/proposal\.pdf/
+    );
     assert.match(
       section ?? "",
       /Chat files visible to tools \(documents, media, and attachments\):/
     );
-    assert.match(section ?? "", /LAST_DELIVERED_FILE = file #1 \| proposal\.docx/);
+    assert.match(
+      section ?? "",
+      /LAST_DELIVERED_FILE = file #1 \| proposal\.docx \| path=\/workspace\/proposal\.docx/
+    );
     assert.match(
       section ?? "",
       /Use DOC_CURRENT_SOURCE for new document creation; use DOC_LAST_DELIVERED_PDF only for an explicit PDF revise\/redeliver request\./
@@ -273,6 +289,26 @@ describe("TurnExecutionService working files developer section", () => {
       section ?? "",
       /### CURRENT_SOURCE|### HISTORY|### OTHER_FILES|RECENT PDFS YOU CAN REVISE/
     );
+  });
+
+  test("shows exact path when displayName is not the workspace path", () => {
+    const section = buildSection([
+      workingFile({
+        storagePath: "/workspace/report (1).docx",
+        displayName: "report.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        sizeBytes: 512,
+        aliases: ["file #1"],
+        createdAt: "2026-05-26T14:45:00.000Z",
+        authorLabel: "user",
+        semanticSummaryHint: "Uploaded source document with a collision-suffixed path."
+      })
+    ]);
+
+    assert.ok(section);
+    assert.match(section ?? "", /\| report\.docx \| path=\/workspace\/report \(1\)\.docx \|/);
+    assert.match(section ?? "", /Do not reconstruct a path from displayName\/filename/);
+    assert.doesNotMatch(section ?? "", /path=\/workspace\/report\.docx/);
   });
 
   test("keeps current source and last delivered anchors visible when older files exceed the cap", () => {
@@ -318,12 +354,21 @@ describe("TurnExecutionService working files developer section", () => {
     assert.ok(section);
     const historyLines = (section ?? "").split("\n").filter((line) => line.startsWith("- 2026-"));
     assert.equal(historyLines.length, 20);
-    assert.match(section ?? "", /DOC_CURRENT_SOURCE = file #1 \| proposal\.docx/);
-    assert.match(section ?? "", /DOC_LAST_DELIVERED_PDF = file #2 \| proposal\.pdf/);
-    assert.match(section ?? "", /LAST_DELIVERED_FILE = file #1 \| proposal\.docx/);
     assert.match(
       section ?? "",
-      /- 2026-04-01 10:00 \| model \| file #2 \| proposal\.pdf \| last delivered result \| Latest delivered PDF result\./
+      /DOC_CURRENT_SOURCE = file #1 \| proposal\.docx \| path=\/workspace\/proposal\.docx/
+    );
+    assert.match(
+      section ?? "",
+      /DOC_LAST_DELIVERED_PDF = file #2 \| proposal\.pdf \| path=\/workspace\/proposal\.pdf/
+    );
+    assert.match(
+      section ?? "",
+      /LAST_DELIVERED_FILE = file #1 \| proposal\.docx \| path=\/workspace\/proposal\.docx/
+    );
+    assert.match(
+      section ?? "",
+      /- 2026-04-01 10:00 \| model \| file #2 \| proposal\.pdf \| path=\/workspace\/proposal\.pdf \| last delivered result \| Latest delivered PDF result\./
     );
   });
 
@@ -344,7 +389,7 @@ describe("TurnExecutionService working files developer section", () => {
     assert.ok(section);
     assert.match(
       section ?? "",
-      /\| final-client-brief\.docx \| current source \| Current source document for the new branded PDF\./
+      /\| final-client-brief\.docx \| path=\/workspace\/final-client-brief\.docx \| current source \| Current source document for the new branded PDF\./
     );
     assert.match(section ?? "", /Recover a forgotten path with `files\.list` or `files\.read`/i);
     assert.match(section ?? "", /Do not send files or claim delivery\/preparation/i);
@@ -420,10 +465,25 @@ describe("TurnExecutionService working files developer section", () => {
       })
     ]);
 
-    assert.match(originalSection ?? "", /\| image #1 \(file #1\) \| older\.png \|/);
-    assert.match(originalSection ?? "", /\| file #2 \| brief\.docx \|/);
-    assert.match(expandedSection ?? "", /\| image #1 \(file #1\) \| older\.png \|/);
-    assert.match(expandedSection ?? "", /\| file #2 \| brief\.docx \|/);
-    assert.match(expandedSection ?? "", /\| image #2 \(file #3\) \| newer\.png \|/);
+    assert.match(
+      originalSection ?? "",
+      /\| image #1 \(file #1\) \| older\.png \| path=\/workspace\/older\.png \|/
+    );
+    assert.match(
+      originalSection ?? "",
+      /\| file #2 \| brief\.docx \| path=\/workspace\/brief\.docx \|/
+    );
+    assert.match(
+      expandedSection ?? "",
+      /\| image #1 \(file #1\) \| older\.png \| path=\/workspace\/older\.png \|/
+    );
+    assert.match(
+      expandedSection ?? "",
+      /\| file #2 \| brief\.docx \| path=\/workspace\/brief\.docx \|/
+    );
+    assert.match(
+      expandedSection ?? "",
+      /\| image #2 \(file #3\) \| newer\.png \| path=\/workspace\/newer\.png \|/
+    );
   });
 });

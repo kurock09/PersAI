@@ -2101,7 +2101,7 @@ export class TurnExecutionService {
 
     lines.push(
       "",
-      "Address files by their pod-absolute path under `/workspace/` or `/workspace/`."
+      "Address files by the exact `path` shown above. Do not reconstruct a path from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed."
     );
     lines.push(
       "Recover a forgotten path with `files.list` or `files.read`; use `files.preview` for sampled content. Do not answer from this block alone."
@@ -4062,7 +4062,7 @@ export class TurnExecutionService {
     const filename = this.formatWorkingFileDisplayName(file, duplicateDisplayNames, collisionIndex);
     const markers = this.formatWorkingFileMarkers(file);
     const microDescription = this.formatWorkingFileMicroDescription(file.semanticSummaryHint);
-    return `- ${createdAt} | ${author} | ${alias} | ${filename} | ${markers} | ${microDescription}`;
+    return `- ${createdAt} | ${author} | ${alias} | ${filename} | path=${file.storagePath} | ${markers} | ${microDescription}`;
   }
 
   private buildWorkingFileDocumentPriorityNote(files: RuntimeFileHandle[]): string[] | null {
@@ -4102,7 +4102,7 @@ export class TurnExecutionService {
     return `${this.resolvePrimaryWorkingFileAlias(file)} | ${this.formatWorkingFileDisplayName(
       file,
       new Set<string>()
-    )}`;
+    )} | path=${file.storagePath}`;
   }
 
   private collectDuplicateWorkingFileNames(files: RuntimeFileHandle[]): Set<string> {
