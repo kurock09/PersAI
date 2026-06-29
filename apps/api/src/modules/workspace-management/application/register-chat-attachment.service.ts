@@ -11,6 +11,7 @@ import {
 } from "../domain/assistant-chat-message-attachment.repository";
 import type { AssistantChatSurface } from "../domain/assistant-chat.entity";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { AssistantDocumentJobService } from "./assistant-document-job.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 
 export type RegisterChatAttachmentKind =
@@ -73,7 +74,8 @@ export class RegisterChatAttachmentService {
     private readonly prisma: WorkspaceManagementPrismaService,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
-    private readonly workspaceFileMetadataService: WorkspaceFileMetadataService
+    private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
+    private readonly assistantDocumentJobService: AssistantDocumentJobService
   ) {}
 
   parseRuntimeInput(value: unknown): RegisterChatAttachmentFromRuntimeInput {
@@ -183,6 +185,14 @@ export class RegisterChatAttachmentService {
     }
     this.assertStoragePathAllowed(storagePath);
 
+    const registeredDocumentLink =
+      input.kind === "files.attach"
+        ? await this.assistantDocumentJobService.findCurrentDocumentLinkByOutputPath({
+            assistantId: input.assistantId,
+            workspaceId: input.workspaceId,
+            outputPath: storagePath
+          })
+        : null;
     const attachment = await this.attachmentRepository.create({
       messageId: input.messageId,
       chatId: input.chatId,
@@ -203,6 +213,7 @@ export class RegisterChatAttachmentService {
       billingFacts: input.billingFacts ?? null,
       metadata: {
         ...(input.metadata ?? {}),
+        ...(registeredDocumentLink === null ? {} : { documentLink: registeredDocumentLink }),
         kind: input.kind
       },
       clientTurnId: input.clientTurnId ?? null,

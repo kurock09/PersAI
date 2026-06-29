@@ -46,6 +46,7 @@ import { InternalRuntimeCompactionEnqueueController } from "./interface/http/int
 import { InternalRuntimeDocumentJobsEnqueueController } from "./interface/http/internal-runtime-document-jobs-enqueue.controller";
 import { InternalRuntimeDocumentExtractController } from "./interface/http/internal-runtime-document-extract.controller";
 import { InternalRuntimeDocumentInspectController } from "./interface/http/internal-runtime-document-inspect.controller";
+import { InternalRuntimeDocumentRegisterVersionController } from "./interface/http/internal-runtime-document-register-version.controller";
 import { InternalRuntimeFilesController } from "./interface/http/internal-runtime-files-controller";
 import { InternalWorkspaceFilesController } from "./interface/http/internal-workspace-files.controller";
 import { InternalRuntimeMediaJobsEnqueueController } from "./interface/http/internal-runtime-media-jobs-enqueue.controller";
@@ -138,6 +139,7 @@ import { ListKnowledgeIndexingJobsService } from "./application/list-knowledge-i
 import { DocumentExtractionService } from "./application/document-extraction.service";
 import { DocumentWorkspaceExtractionService } from "./application/document-workspace-extraction.service";
 import { DocumentWorkspaceInspectionService } from "./application/document-workspace-inspection.service";
+import { DocumentWorkspaceVersionRegistrationService } from "./application/document-workspace-version-registration.service";
 import { DocumentSourceAttachmentExtractionService } from "./application/document-source-attachment-extraction.service";
 import { ListWorkspaceFileShortDescriptionsService } from "./application/list-workspace-file-short-descriptions.service";
 import { ListWorkspaceFilesFromManifestService } from "./application/list-workspace-files-from-manifest.service";
@@ -459,6 +461,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeDocumentJobsEnqueueController,
     InternalRuntimeDocumentExtractController,
     InternalRuntimeDocumentInspectController,
+    InternalRuntimeDocumentRegisterVersionController,
     InternalRuntimeFilesController,
     InternalWorkspaceFilesController,
     InternalRuntimeMediaJobsEnqueueController,
@@ -559,6 +562,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     DocumentExtractionService,
     DocumentWorkspaceExtractionService,
     DocumentWorkspaceInspectionService,
+    DocumentWorkspaceVersionRegistrationService,
     DocumentSourceAttachmentExtractionService,
     ListWorkspaceFileShortDescriptionsService,
     ListWorkspaceFilesFromManifestService,

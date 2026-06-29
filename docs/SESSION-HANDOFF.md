@@ -1,5 +1,33 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 Wave 3 `document.register_version` and metadata drift
+
+Status: code implemented locally; focused API/runtime/web tests PASS; API/runtime/web typechecks PASS; full format/lint PASS. Pending commit, then ADR-129 Wave 4.
+
+**Scope.** Implemented the bounded ADR-129 versioning slice: visible workspace render outputs can now be registered as document versions without delivering a file, and document attachment metadata now preserves PDF/XLSX/DOCX workspace facts through refresh/replay.
+
+**Fix.** Runtime now parses `action: "register_version"` and calls a new internal API endpoint. API validates strict `/workspace/...` paths, rejects old `/workspace/input` and `/workspace/outbound` namespaces, verifies the rendered output exists in `workspace_file_metadata`, reads optional manifest/inspection sidecars from canonical GCS, and records workspace source/output/inspection facts inside `AssistantDocumentVersion.sourceJson.metadata.documentWorkspace`. Attachment `documentLink` metadata is centralized and widened so delivered files and `files.attach` outputs can carry descriptor/output format plus `outputPath`, `workspaceProjectPath`, `sourceManifestPath`, `inspectionPath`, and inspection counts/warnings.
+
+**Orchestrator audit fixes.** Removed generated contract churn from the wave, hardened JSON inspection-summary parsing for API typecheck, and confirmed the new document bootstrap path is compatible with the nullable `currentVersionId` schema.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-version-registration.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job-delivery.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/register-chat-attachment.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx --config vitest.config.ts` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm run format:check` — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+
+**Residual.** No schema migration was added in this wave by design; workspace facts live in existing JSON metadata. Contracts/OpenAPI generated artifacts were intentionally not carried after audit to keep the functional diff clean.
+
+**Next recommended step.** Commit Wave 3, then start ADR-129 Wave 4: remove the normal model-facing opaque `create_data_document` path and replace it with the explicit workspace render/inspect/register/attach workflow.
+
 ## 2026-06-29 — ADR-129 Wave 2 `document.render` / `document.inspect`
 
 Status: code implemented locally; focused API/runtime tests PASS; API/runtime typechecks PASS; full format/lint PASS. Pending commit, then ADR-129 Wave 3.

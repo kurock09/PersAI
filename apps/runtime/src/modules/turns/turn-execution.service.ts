@@ -3204,9 +3204,21 @@ export class TurnExecutionService {
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
+          conversation:
+            (acceptedTurn.session.conversation.channel === "web" ||
+              acceptedTurn.session.conversation.channel === "telegram") &&
+            typeof this.resolveSurfaceThreadKey(acceptedTurn.session.conversation) === "string"
+              ? {
+                  channel: acceptedTurn.session.conversation.channel,
+                  externalThreadKey: this.resolveSurfaceThreadKey(
+                    acceptedTurn.session.conversation
+                  )!
+                }
+              : undefined,
           deferToAsyncDocumentJob: {
             sourceUserMessageId: input.idempotencyKey,
             sourceUserMessageText: input.message.text,
+            sourceUserMessageCreatedAt: new Date().toISOString(),
             currentAttachments: execution.currentMessageAttachments,
             availableAttachments: documentSourceAttachments
           }

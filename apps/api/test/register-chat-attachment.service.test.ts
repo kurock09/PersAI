@@ -12,7 +12,8 @@ describe("register-chat-attachment.service", () => {
           throw new Error("should not create");
         }
       } as never,
-      { upsert: async () => {} } as never
+      { upsert: async () => {} } as never,
+      { findCurrentDocumentLinkByOutputPath: async () => null } as never
     );
 
     await assert.rejects(
@@ -59,7 +60,8 @@ describe("register-chat-attachment.service", () => {
         upsert: async (input: Record<string, unknown>) => {
           upsertInput = input;
         }
-      } as never
+      } as never,
+      { findCurrentDocumentLinkByOutputPath: async () => null } as never
     );
 
     const result = await service.execute({
@@ -85,6 +87,91 @@ describe("register-chat-attachment.service", () => {
     assert.equal(upsertInput?.shortDescription, "Quarterly report");
   });
 
+  test("attaches registered documentLink metadata for files.attach outputs", async () => {
+    let createdInput: Record<string, unknown> | null = null;
+
+    const service = new RegisterChatAttachmentService(
+      { assistantChat: { findFirst: async () => null } } as never,
+      {
+        create: async (input: Record<string, unknown>) => {
+          createdInput = input;
+          return {
+            id: "attachment-link-1",
+            storagePath: input.storagePath,
+            attachmentType: input.attachmentType,
+            originalFilename: input.originalFilename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            processingStatus: input.processingStatus,
+            metadata: input.metadata,
+            createdAt: new Date("2026-06-29T00:00:00.000Z")
+          };
+        }
+      } as never,
+      { upsert: async () => {} } as never,
+      {
+        async findCurrentDocumentLinkByOutputPath() {
+          return {
+            docId: "doc-registered-1",
+            versionId: "version-registered-1",
+            versionNumber: 4,
+            descriptorMode: "create_data_document",
+            documentType: "data_document",
+            outputFormat: "xlsx",
+            documentStatus: "ready",
+            versionStatus: "ready",
+            outputPath: "/workspace/report.xlsx",
+            workspaceProjectPath: "/workspace/report-project",
+            sourceManifestPath: "/workspace/report-project/manifest.json",
+            inspectionPath: "/workspace/report.inspect.json",
+            inspectionSummary: {
+              format: "xlsx",
+              counts: {
+                pageCount: null,
+                sheetCount: 3,
+                formulaCount: 2,
+                blankSheetCount: 0,
+                paragraphCount: null,
+                headingCount: null,
+                tableCount: null,
+                textCharCount: null
+              },
+              warnings: []
+            },
+            isCurrentOutput: true
+          };
+        }
+      } as never
+    );
+
+    await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      messageId: "message-1",
+      storagePath: "/workspace/report.xlsx",
+      attachmentType: "document",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      sizeBytes: 24,
+      originalFilename: "report.xlsx",
+      kind: "files.attach"
+    });
+
+    assert.equal(
+      (createdInput?.metadata as { documentLink?: { outputFormat?: string } })?.documentLink
+        ?.outputFormat,
+      "xlsx"
+    );
+    assert.equal(
+      (
+        createdInput?.metadata as {
+          documentLink?: { inspectionSummary?: { counts?: { sheetCount?: number } } };
+        }
+      )?.documentLink?.inspectionSummary?.counts?.sheetCount,
+      3
+    );
+  });
+
   test("passes thumbnail and poster storage paths to attachment create", async () => {
     let createdInput: Record<string, unknown> | null = null;
 
@@ -108,7 +195,8 @@ describe("register-chat-attachment.service", () => {
           };
         }
       } as never,
-      { upsert: async () => {} } as never
+      { upsert: async () => {} } as never,
+      { findCurrentDocumentLinkByOutputPath: async () => null } as never
     );
 
     await service.execute({
@@ -144,7 +232,8 @@ describe("register-chat-attachment.service", () => {
           throw new Error("should not create");
         }
       } as never,
-      { upsert: async () => {} } as never
+      { upsert: async () => {} } as never,
+      { findCurrentDocumentLinkByOutputPath: async () => null } as never
     );
 
     await assert.rejects(

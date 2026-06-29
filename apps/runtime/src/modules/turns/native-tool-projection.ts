@@ -1312,6 +1312,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         'Use action="extract" to turn an existing `/workspace/...` source file into visible sidecar files under `/workspace/<name>.extract` (or your chosen outputDir). The result is compact and points to the manifest/text/sheet paths to read next with `files.read` or `grep`.',
         'Use action="inspect" to validate an existing `/workspace/...` PDF/XLSX/DOCX, write a visible `*.inspect.json` sidecar, and return a compact summary of counts/warnings/suggested reads.',
         'Use action="render" to build a visible `/workspace/...` project into a concrete PDF/XLSX/DOCX output path. PDF render uses an HTML entrypoint when available; XLSX/DOCX render uses a visible Python build script (default `build.py`).',
+        'Use action="register_version" after a visible render/inspect workflow to register the current `/workspace/...` output as PersAI document/version metadata. This records version facts only; the final user-visible delivery still happens separately through `files.attach` on the same output path.',
         "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
         "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to modify an existing PDF (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. Follow the Working Files document-role guidance: prefer DOC_CURRENT_SOURCE for a newly attached source file the user wants turned into a PDF, and use DOC_LAST_DELIVERED_PDF only when the user explicitly wants to modify an already generated PDF. revise_document with no docId or storagePath auto-resolves to the latest matching PDF in the current chat. Reference an existing chat document from another chat by its workspace storagePath (visible in the Working Files block). Use docId only when you already have the exact UUID for the current chat's existing document. Do not pass both storagePath and docId.",
         "Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
@@ -1348,15 +1349,21 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           }
         },
         {
+          required: ["action", "outputPath"],
+          properties: {
+            action: { enum: ["register_version"] }
+          }
+        },
+        {
           required: ["descriptorMode", "prompt"]
         }
       ],
       properties: {
         action: {
           type: "string",
-          enum: ["extract", "inspect", "render"],
+          enum: ["extract", "inspect", "render", "register_version"],
           description:
-            'Explicit workspace-visible document action. Use `action="extract"` for visible extraction sidecars, `action="inspect"` for visible inspect sidecars, and `action="render"` for deterministic render from visible `/workspace/...` project files.'
+            'Explicit workspace-visible document action. Use `action="extract"` for visible extraction sidecars, `action="inspect"` for visible inspect sidecars, `action="render"` for deterministic render from visible `/workspace/...` project files, and `action="register_version"` to persist document/version metadata for an already rendered visible output before `files.attach` delivers it.'
         },
         path: {
           type: "string",
@@ -1426,7 +1433,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         outputPath: {
           type: "string",
           description:
-            'Optional sidecar/output path depending on action. For `action="inspect"`, writes the JSON sidecar there (default: sibling `<basename>.inspect.json`). For `action="render"`, this is the required final `/workspace/...` output file path.'
+            'Optional sidecar/output path depending on action. For `action="inspect"`, writes the JSON sidecar there (default: sibling `<basename>.inspect.json`). For `action="render"`, this is the required final `/workspace/...` output file path. For `action="register_version"`, this is the already rendered `/workspace/...` output file that should become the registered current document version.'
         },
         docId: {
           type: "string",
@@ -1441,6 +1448,21 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         requestedName: {
           type: "string",
           description: "Optional filename/title hint for the generated document."
+        },
+        workspaceProjectPath: {
+          type: "string",
+          description:
+            'Optional project directory for `action="register_version"`. Use the same visible `/workspace/...` folder you rendered from so the registered version keeps a stable workspace project pointer.'
+        },
+        sourceManifestPath: {
+          type: "string",
+          description:
+            'Optional workspace manifest path for `action="register_version"`, for example a visible `/workspace/.../manifest.json` created by your workflow.'
+        },
+        inspectionPath: {
+          type: "string",
+          description:
+            'Optional visible `*.inspect.json` sidecar path for `action="register_version"`. When provided, PersAI snapshots the compact inspection summary onto the registered version/documentLink metadata.'
         },
         visualStyle: {
           type: "string",

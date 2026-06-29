@@ -1,4 +1,9 @@
+import type { AssistantDocumentStatus, AssistantDocumentVersionStatus } from "@prisma/client";
 import type { AssistantWebChatMessageAttachmentDocumentLink } from "./web-chat.types";
+import {
+  buildAssistantDocumentLinkMetadata,
+  normalizeDocumentWorkspaceFacts
+} from "./assistant-document-link-metadata";
 
 /**
  * Read the persisted `documentLink` metadata block off a chat attachment row's
@@ -34,14 +39,56 @@ export function readPersistedDocumentLinkMetadata(
   if (typeof link.docId !== "string" || typeof link.versionId !== "string") {
     return null;
   }
-  return {
+  return buildAssistantDocumentLinkMetadata({
     docId: link.docId,
     versionId: link.versionId,
     versionNumber: typeof link.versionNumber === "number" ? link.versionNumber : null,
-    descriptorMode: typeof link.descriptorMode === "string" ? link.descriptorMode : null,
-    documentType: typeof link.documentType === "string" ? link.documentType : null,
-    documentStatus: typeof link.documentStatus === "string" ? link.documentStatus : null,
-    versionStatus: typeof link.versionStatus === "string" ? link.versionStatus : null,
-    isCurrentOutput: link.isCurrentOutput === true
-  };
+    descriptorMode:
+      link.descriptorMode === "create_pdf_document" ||
+      link.descriptorMode === "create_presentation" ||
+      link.descriptorMode === "revise_document" ||
+      link.descriptorMode === "export_or_redeliver" ||
+      link.descriptorMode === "create_data_document"
+        ? link.descriptorMode
+        : null,
+    documentType:
+      link.documentType === "pdf_document" ||
+      link.documentType === "presentation" ||
+      link.documentType === "data_document"
+        ? link.documentType
+        : null,
+    outputFormat:
+      link.outputFormat === "pdf" ||
+      link.outputFormat === "pptx" ||
+      link.outputFormat === "xlsx" ||
+      link.outputFormat === "docx"
+        ? link.outputFormat
+        : null,
+    documentStatus: readDocumentStatus(link.documentStatus),
+    versionStatus: readVersionStatus(link.versionStatus),
+    renderJobId: typeof link.renderJobId === "string" ? link.renderJobId : null,
+    isCurrentOutput: link.isCurrentOutput === true,
+    workspaceFacts: normalizeDocumentWorkspaceFacts(link)
+  });
+}
+
+function readDocumentStatus(value: unknown): AssistantDocumentStatus | null {
+  return value === "drafting" ||
+    value === "rendering" ||
+    value === "ready" ||
+    value === "failed" ||
+    value === "archived"
+    ? value
+    : null;
+}
+
+function readVersionStatus(value: unknown): AssistantDocumentVersionStatus | null {
+  return value === "draft" ||
+    value === "render_requested" ||
+    value === "rendering" ||
+    value === "ready" ||
+    value === "failed" ||
+    value === "superseded"
+    ? value
+    : null;
 }

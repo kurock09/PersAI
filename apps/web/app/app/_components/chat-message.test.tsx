@@ -652,6 +652,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
                 versionNumber: 3,
                 descriptorMode: "create_presentation",
                 documentType: "presentation",
+                outputFormat: "pdf",
                 documentStatus: "ready",
                 versionStatus: "ready",
                 isCurrentOutput: true
@@ -695,6 +696,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
                 versionNumber: 1,
                 descriptorMode: "create_presentation",
                 documentType: null,
+                outputFormat: "pdf",
                 documentStatus: "ready",
                 versionStatus: "ready",
                 isCurrentOutput: true

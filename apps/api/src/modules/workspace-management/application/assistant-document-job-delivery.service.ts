@@ -26,6 +26,10 @@ import {
   buildAssistantDocumentJobSuccessFallbackMessage,
   inferAssistantDocumentJobLocale
 } from "./assistant-document-job-failure-copy.service";
+import {
+  buildAssistantDocumentLinkMetadata,
+  normalizeDocumentWorkspaceFacts
+} from "./assistant-document-link-metadata";
 
 const DOCUMENT_DELIVERY_LAST_ERROR_MAX_CHARS = 1_000;
 const DOCUMENT_JOB_CLAIM_TTL_MS = 10 * 60 * 1000;
@@ -48,8 +52,9 @@ type PersistedDeliveryPayload = {
     | "create_pdf_document"
     | "create_presentation"
     | "revise_document"
-    | "export_or_redeliver";
-  outputFormat?: "pdf" | "pptx";
+    | "export_or_redeliver"
+    | "create_data_document";
+  outputFormat?: "pdf" | "pptx" | "xlsx" | "docx";
   sourceUserMessageId?: string;
   sourceUserMessageText?: string;
   sourceUserMessageCreatedAt?: string;
@@ -478,11 +483,17 @@ export class AssistantDocumentJobDeliveryService {
       row.descriptorMode === "create_pdf_document" ||
       row.descriptorMode === "create_presentation" ||
       row.descriptorMode === "revise_document" ||
-      row.descriptorMode === "export_or_redeliver"
+      row.descriptorMode === "export_or_redeliver" ||
+      row.descriptorMode === "create_data_document"
     ) {
       payload.descriptorMode = row.descriptorMode;
     }
-    if (row.outputFormat === "pdf" || row.outputFormat === "pptx") {
+    if (
+      row.outputFormat === "pdf" ||
+      row.outputFormat === "pptx" ||
+      row.outputFormat === "xlsx" ||
+      row.outputFormat === "docx"
+    ) {
       payload.outputFormat = row.outputFormat;
     }
     if (typeof row.sourceUserMessageId === "string") {
@@ -709,22 +720,32 @@ export class AssistantDocumentJobDeliveryService {
 
   private readDescriptorMode(
     payload: PersistedDeliveryPayload
-  ): "create_pdf_document" | "create_presentation" | "revise_document" | "export_or_redeliver" {
+  ):
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver"
+    | "create_data_document" {
     const row = payload as unknown as Record<string, unknown>;
     const descriptorMode = row.descriptorMode;
     if (
       descriptorMode === "create_pdf_document" ||
       descriptorMode === "create_presentation" ||
       descriptorMode === "revise_document" ||
-      descriptorMode === "export_or_redeliver"
+      descriptorMode === "export_or_redeliver" ||
+      descriptorMode === "create_data_document"
     ) {
       return descriptorMode;
     }
     return "create_pdf_document";
   }
 
-  private readOutputFormat(payload: PersistedDeliveryPayload): "pdf" | "pptx" {
-    return payload.outputFormat === "pptx" ? "pptx" : "pdf";
+  private readOutputFormat(payload: PersistedDeliveryPayload): "pdf" | "pptx" | "xlsx" | "docx" {
+    return payload.outputFormat === "pptx" ||
+      payload.outputFormat === "xlsx" ||
+      payload.outputFormat === "docx"
+      ? payload.outputFormat
+      : "pdf";
   }
 
   private readSourceUserMessageId(payload: PersistedDeliveryPayload): string {
@@ -782,6 +803,17 @@ export class AssistantDocumentJobDeliveryService {
 
       const resolvedDescriptorMode = this.readDescriptorMode(input.payload);
       const resolvedDocumentType = this.inferDocumentType(input.payload);
+      const version =
+        typeof tx.assistantDocumentVersion.findUnique === "function"
+          ? await tx.assistantDocumentVersion.findUnique({
+              where: { id: input.job.versionId },
+              select: {
+                versionNumber: true,
+                sourceJson: true
+              }
+            })
+          : null;
+      const workspaceFacts = this.readWorkspaceFacts(version?.sourceJson);
       const companionOriginalStatus = this.readCompanionOriginalStatus(input.payload);
       this.logger.log(
         `[document-delivery] persisting documentLink docId=${input.job.docId} versionId=${
@@ -805,15 +837,23 @@ export class AssistantDocumentJobDeliveryService {
             metadata: {
               source: "tool_output",
               kind: "document",
-              documentLink: {
+              documentLink: buildAssistantDocumentLinkMetadata({
                 docId: input.job.docId,
                 versionId: input.job.versionId,
+                versionNumber: version?.versionNumber ?? null,
                 descriptorMode: resolvedDescriptorMode,
                 documentType: resolvedDocumentType,
+                outputFormat: this.readOutputFormat(input.payload),
+                documentStatus: "ready",
+                versionStatus: "ready",
                 renderJobId: input.job.id,
-                isCurrentOutput: true
-              }
-            }
+                isCurrentOutput: true,
+                workspaceFacts: {
+                  ...workspaceFacts,
+                  outputPath: attachment.storagePath
+                }
+              })
+            } as unknown as Prisma.InputJsonValue
           }
         });
       }
@@ -1152,7 +1192,12 @@ export class AssistantDocumentJobDeliveryService {
     return `${message.slice(0, DOCUMENT_DELIVERY_LAST_ERROR_MAX_CHARS - 3)}...`;
   }
 
-  private inferDocumentType(payload: PersistedDeliveryPayload): "document" | "presentation" | null {
+  private inferDocumentType(
+    payload: PersistedDeliveryPayload
+  ): "pdf_document" | "presentation" | "data_document" | null {
+    if (payload.descriptorMode === "create_data_document") {
+      return "data_document";
+    }
     if (payload.descriptorMode === "create_presentation") {
       return "presentation";
     }
@@ -1161,7 +1206,19 @@ export class AssistantDocumentJobDeliveryService {
       typeof payload.providerStatus?.provider === "string"
         ? payload.providerStatus.provider
         : row.provider;
-    return provider === "gamma" ? "presentation" : "document";
+    return provider === "gamma" ? "presentation" : "pdf_document";
+  }
+
+  private readWorkspaceFacts(value: unknown) {
+    const row =
+      value !== null && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : {};
+    const metadata =
+      row.metadata !== null && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+        ? (row.metadata as Record<string, unknown>)
+        : null;
+    return normalizeDocumentWorkspaceFacts(metadata?.documentWorkspace);
   }
 
   private readCompanionOriginalStatus(payload: PersistedDeliveryPayload): string {

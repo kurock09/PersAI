@@ -2019,7 +2019,7 @@ export interface RuntimeVideoGenerateToolResult {
 export interface RuntimeDocumentToolResult {
   toolCode: "document";
   executionMode: "worker" | "inline";
-  requestedAction?: "extract" | "inspect" | "render" | null;
+  requestedAction?: "extract" | "inspect" | "render" | "register_version" | null;
   descriptorMode:
     | "create_pdf_document"
     | "create_presentation"
@@ -2035,7 +2035,14 @@ export interface RuntimeDocumentToolResult {
   requestedName: string | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
-  action: "generated" | "skipped" | "pending_delivery" | "extracted" | "inspected" | "rendered";
+  action:
+    | "generated"
+    | "skipped"
+    | "pending_delivery"
+    | "extracted"
+    | "inspected"
+    | "rendered"
+    | "registered";
   reason: string | null;
   warning: string | null;
   guidance?: string | null;
@@ -2046,6 +2053,7 @@ export interface RuntimeDocumentToolResult {
   extraction?: RuntimeDocumentExtractionSummary | null;
   inspection?: RuntimeDocumentInspectionSummary | null;
   render?: RuntimeDocumentRenderSummary | null;
+  registration?: RuntimeDocumentVersionRegistrationSummary | null;
 }
 
 export interface RuntimeDocumentExtractionSummary {
@@ -2093,6 +2101,19 @@ export interface RuntimeDocumentRenderSummary {
   entrypointPath: string;
   sizeBytes: number;
   mimeType: string;
+}
+
+export interface RuntimeDocumentVersionRegistrationSummary {
+  docId: string;
+  versionId: string;
+  versionNumber: number;
+  descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document";
+  documentType: "pdf_document" | "data_document";
+  outputFormat: "pdf" | "xlsx" | "docx";
+  outputPath: string;
+  workspaceProjectPath: string | null;
+  sourceManifestPath: string | null;
+  inspectionPath: string | null;
 }
 
 export const PERSAI_RUNTIME_TTS_PROVIDER_IDS = ["elevenlabs", "yandex", "openai"] as const;

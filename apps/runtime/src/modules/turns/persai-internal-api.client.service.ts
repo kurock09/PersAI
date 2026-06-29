@@ -414,6 +414,22 @@ export type InternalDocumentExtractInput = {
   outputDir?: string | null;
 };
 
+export type InternalDocumentRegisterVersionInput = {
+  assistantId: string;
+  workspaceId: string;
+  channel: "web" | "telegram";
+  externalThreadKey: string;
+  sourceUserMessageText: string;
+  sourceUserMessageCreatedAt: string;
+  descriptorMode?: "create_pdf_document" | "revise_document" | "create_data_document" | null;
+  docId?: string | null;
+  requestedName?: string | null;
+  workspaceProjectPath?: string | null;
+  outputPath: string;
+  sourceManifestPath?: string | null;
+  inspectionPath?: string | null;
+};
+
 export type RegisterChatAttachmentKind =
   | "user_upload"
   | "image_generate"
@@ -1075,6 +1091,97 @@ export class PersaiInternalApiClientService {
     }
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected the document inspect request."
+    );
+  }
+
+  async registerDocumentVersion(input: InternalDocumentRegisterVersionInput): Promise<
+    | {
+        accepted: true;
+        docId: string;
+        versionId: string;
+        versionNumber: number;
+        descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document";
+        documentType: "pdf_document" | "data_document";
+        outputFormat: "pdf" | "xlsx" | "docx";
+        outputPath: string;
+        workspaceProjectPath: string | null;
+        sourceManifestPath: string | null;
+        inspectionPath: string | null;
+      }
+    | {
+        accepted: false;
+        code: string;
+        message: string;
+      }
+  > {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/document-register-version", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    const payload = this.asObject(response.body);
+    if (response.ok) {
+      if (
+        payload?.ok === true &&
+        payload.accepted === true &&
+        typeof payload.docId === "string" &&
+        typeof payload.versionId === "string" &&
+        typeof payload.versionNumber === "number" &&
+        (payload.descriptorMode === "create_pdf_document" ||
+          payload.descriptorMode === "revise_document" ||
+          payload.descriptorMode === "create_data_document") &&
+        (payload.documentType === "pdf_document" || payload.documentType === "data_document") &&
+        (payload.outputFormat === "pdf" ||
+          payload.outputFormat === "xlsx" ||
+          payload.outputFormat === "docx") &&
+        typeof payload.outputPath === "string"
+      ) {
+        return {
+          accepted: true,
+          docId: payload.docId,
+          versionId: payload.versionId,
+          versionNumber: payload.versionNumber,
+          descriptorMode: payload.descriptorMode,
+          documentType: payload.documentType,
+          outputFormat: payload.outputFormat,
+          outputPath: payload.outputPath,
+          workspaceProjectPath:
+            typeof payload.workspaceProjectPath === "string" ? payload.workspaceProjectPath : null,
+          sourceManifestPath:
+            typeof payload.sourceManifestPath === "string" ? payload.sourceManifestPath : null,
+          inspectionPath: typeof payload.inspectionPath === "string" ? payload.inspectionPath : null
+        };
+      }
+      if (
+        payload?.ok === true &&
+        payload.accepted === false &&
+        typeof payload.code === "string" &&
+        typeof payload.message === "string"
+      ) {
+        return {
+          accepted: false,
+          code: payload.code,
+          message: payload.message
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid document register-version response."
+      );
+    }
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API document register-version request failed."
+      );
+    }
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the document register-version request."
     );
   }
 

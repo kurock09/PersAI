@@ -858,10 +858,15 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       };
     }
   )?.properties;
-  assert.deepEqual(documentProperties?.action?.enum, ["extract", "inspect", "render"]);
+  assert.deepEqual(documentProperties?.action?.enum, [
+    "extract",
+    "inspect",
+    "render",
+    "register_version"
+  ]);
   assert.match(
     documentProperties?.action?.description ?? "",
-    /visible extraction sidecars|visible inspect sidecars|deterministic render/i
+    /visible extraction sidecars|visible inspect sidecars|deterministic render|register_version/i
   );
   assert.match(documentProperties?.path?.description ?? "", /extract|inspect/i);
   assert.deepEqual(documentProperties?.mode?.enum, ["auto", "text", "ocr", "layout"]);
@@ -870,7 +875,10 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.match(documentProperties?.projectPath?.description ?? "", /project directory/i);
   assert.deepEqual(documentProperties?.format?.enum, ["pdf", "xlsx", "docx"]);
   assert.match(documentProperties?.entrypoint?.description ?? "", /report\.html|build\.py/i);
-  assert.match(documentProperties?.outputPath?.description ?? "", /inspect|render/i);
+  assert.match(
+    documentProperties?.outputPath?.description ?? "",
+    /inspect|render|register_version/i
+  );
   assert.deepEqual(documentProperties?.descriptorMode?.enum, [
     "create_pdf_document",
     "create_presentation",

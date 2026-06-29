@@ -264,9 +264,18 @@ describe("AssistantDocumentJobDeliveryService", () => {
     assert.deepEqual(attachmentMetadataUpdates[0]?.data?.metadata?.documentLink, {
       docId: "doc-presentation-1",
       versionId: "version-presentation-1",
+      versionNumber: null,
       descriptorMode: "create_presentation",
       documentType: "presentation",
+      outputFormat: "pdf",
+      documentStatus: "ready",
+      versionStatus: "ready",
       renderJobId: "job-presentation-1",
+      outputPath: "/workspace/file-presentation-1.pdf",
+      workspaceProjectPath: null,
+      sourceManifestPath: null,
+      inspectionPath: null,
+      inspectionSummary: null,
       isCurrentOutput: true
     });
   });
@@ -395,9 +404,193 @@ describe("AssistantDocumentJobDeliveryService", () => {
     assert.deepEqual(attachmentMetadataUpdates[0]?.data?.metadata?.documentLink, {
       docId: "doc-presentation-2",
       versionId: "version-presentation-2",
+      versionNumber: null,
       descriptorMode: "create_pdf_document",
       documentType: "presentation",
+      outputFormat: "pdf",
+      documentStatus: "ready",
+      versionStatus: "ready",
       renderJobId: "job-presentation-2",
+      outputPath: "/workspace/file-presentation-2.pdf",
+      workspaceProjectPath: null,
+      sourceManifestPath: null,
+      inspectionPath: null,
+      inspectionSummary: null,
+      isCurrentOutput: true
+    });
+  });
+
+  test("preserves create_data_document xlsx metadata and workspace facts on delivered attachments", async () => {
+    const attachmentMetadataUpdates: Array<Record<string, unknown>> = [];
+
+    const service = new AssistantDocumentJobDeliveryService(
+      {
+        assistantDocumentRenderJob: {
+          updateMany: async () => ({ count: 1 })
+        },
+        $transaction: async <T>(callback: (tx: Record<string, unknown>) => Promise<T>) =>
+          callback({
+            assistantDocumentRenderJob: {
+              updateMany: async () => ({ count: 1 })
+            },
+            assistantChatMessageAttachment: {
+              updateMany: async (input: Record<string, unknown>) => {
+                attachmentMetadataUpdates.push(input);
+                return { count: 1 };
+              }
+            },
+            assistantDocumentVersion: {
+              findUnique: async () => ({
+                versionNumber: 7,
+                sourceJson: {
+                  metadata: {
+                    documentWorkspace: {
+                      workspaceProjectPath: "/workspace/report-project",
+                      outputPath: "/workspace/report-project/report.xlsx",
+                      sourceManifestPath: "/workspace/report-project/manifest.json",
+                      inspectionPath: "/workspace/report-project/report.inspect.json",
+                      inspectionSummary: {
+                        format: "xlsx",
+                        counts: {
+                          pageCount: null,
+                          sheetCount: 4,
+                          formulaCount: 6,
+                          blankSheetCount: 0,
+                          paragraphCount: null,
+                          headingCount: null,
+                          tableCount: null,
+                          textCharCount: null
+                        },
+                        warnings: ["volatile formulas detected"]
+                      }
+                    }
+                  }
+                }
+              }),
+              update: async () => undefined
+            },
+            assistantDocument: {
+              findUnique: async () => ({
+                currentVersionId: "version-data-1"
+              }),
+              update: async () => undefined
+            }
+          })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        createMessage: async () => ({
+          id: "assistant-message-data-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant" as const,
+          content: "Your workbook is ready.",
+          createdAt: new Date("2026-06-29T11:00:00.000Z")
+        }),
+        updateMessageContent: async () => null,
+        deleteMessage: async () => true
+      } as never,
+      {
+        async findById() {
+          return {
+            id: "assistant-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            draftDisplayName: null,
+            draftInstructions: null,
+            draftUpdatedAt: null,
+            applyStatus: "succeeded",
+            applyTargetVersionId: null,
+            applyAppliedVersionId: null,
+            applyRequestedAt: null,
+            applyStartedAt: null,
+            applyFinishedAt: null,
+            applyErrorCode: null,
+            applyErrorMessage: null,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+        }
+      } as never,
+      {
+        deliver: async () => ({
+          attachments: [
+            {
+              id: "attachment-data-1",
+              path: "/workspace/report-project/report.xlsx",
+              mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              originalFilename: "report.xlsx"
+            }
+          ]
+        })
+      } as never,
+      {
+        async resolveByAssistantId() {
+          throw new Error("telegram resolution should not run for web jobs");
+        }
+      } as never,
+      {
+        async consumeAssistantMonthlyToolQuotaSuccessOnly() {}
+      } as never,
+      {
+        async maybeFrame() {
+          return null;
+        }
+      } as never,
+      noopRecordModelCostLedgerService
+    );
+
+    await service.deliverReadyJob({
+      id: "job-data-1",
+      docId: "doc-data-1",
+      versionId: "version-data-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      surface: "web",
+      schedulerClaimToken: "claim-data-1",
+      providerStatusJson: {
+        artifacts: [
+          { source: "runtime_url", url: "https://example.com/report.xlsx", type: "document" }
+        ],
+        assistantText: "Your workbook is ready.",
+        descriptorMode: "create_data_document",
+        outputFormat: "xlsx",
+        provider: "sandbox"
+      }
+    });
+
+    assert.equal(attachmentMetadataUpdates.length, 1);
+    assert.deepEqual(attachmentMetadataUpdates[0]?.data?.metadata?.documentLink, {
+      docId: "doc-data-1",
+      versionId: "version-data-1",
+      versionNumber: 7,
+      descriptorMode: "create_data_document",
+      documentType: "data_document",
+      outputFormat: "xlsx",
+      documentStatus: "ready",
+      versionStatus: "ready",
+      renderJobId: "job-data-1",
+      outputPath: "/workspace/report-project/report.xlsx",
+      workspaceProjectPath: "/workspace/report-project",
+      sourceManifestPath: "/workspace/report-project/manifest.json",
+      inspectionPath: "/workspace/report-project/report.inspect.json",
+      inspectionSummary: {
+        format: "xlsx",
+        counts: {
+          pageCount: null,
+          sheetCount: 4,
+          formulaCount: 6,
+          blankSheetCount: 0,
+          paragraphCount: null,
+          headingCount: null,
+          tableCount: null,
+          textCharCount: null
+        },
+        warnings: ["volatile formulas detected"]
+      },
       isCurrentOutput: true
     });
   });

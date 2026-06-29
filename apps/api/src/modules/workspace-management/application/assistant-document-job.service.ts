@@ -16,6 +16,12 @@ import type {
   RuntimeOutputArtifact
 } from "@persai/runtime-contract";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import {
+  buildAssistantDocumentLinkMetadata,
+  type AssistantDocumentWorkspaceFacts,
+  normalizeDocumentWorkspaceFacts
+} from "./assistant-document-link-metadata";
+import type { AssistantWebChatMessageAttachmentDocumentLink } from "./web-chat.types";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_REVISION_VERSION_ALLOCATION_ATTEMPTS = 3;
@@ -87,6 +93,20 @@ export type AssistantDocumentExportOrRedeliverContext = AssistantDocumentRevisio
     sizeBytes: number;
     originalFilename: string | null;
   } | null;
+};
+
+export type RegisterVisibleWorkspaceDocumentVersionInput = {
+  assistantId: string;
+  userId: string;
+  workspaceId: string;
+  chatId: string;
+  sourceUserMessageText: string;
+  sourceUserMessageCreatedAt: string;
+  descriptorMode: AssistantDocumentDescriptorMode;
+  outputFormat: AssistantDocumentOutputFormat;
+  requestedName: string | null;
+  docId?: string | null;
+  workspaceFacts: AssistantDocumentWorkspaceFacts;
 };
 
 @Injectable()
@@ -791,6 +811,199 @@ export class AssistantDocumentJobService {
     };
   }
 
+  async registerVisibleWorkspaceVersion(
+    input: RegisterVisibleWorkspaceDocumentVersionInput
+  ): Promise<{
+    docId: string;
+    versionId: string;
+    versionNumber: number;
+    descriptorMode: AssistantDocumentDescriptorMode;
+    documentType: AssistantDocumentType;
+    outputFormat: AssistantDocumentOutputFormat;
+  }> {
+    const requestedName =
+      typeof input.requestedName === "string" && input.requestedName.trim().length > 0
+        ? input.requestedName.trim()
+        : this.basename(input.workspaceFacts.outputPath);
+    const sourceJson = this.buildVisibleWorkspaceSourcePayload({
+      sourceUserMessageText: input.sourceUserMessageText,
+      outputFormat: input.outputFormat,
+      requestedName,
+      docId: input.docId ?? null,
+      workspaceFacts: input.workspaceFacts
+    });
+    const documentType = this.resolveDocumentTypeFromOutputFormat(input.outputFormat);
+    if (input.docId !== null && input.docId !== undefined) {
+      const docId = input.docId;
+      if (!this.isUuid(docId)) {
+        throw new Error("registerVisibleWorkspaceVersion requires a valid docId when provided.");
+      }
+      return this.prisma.$transaction(async (tx) => {
+        const current = await tx.assistantDocument.findUnique({
+          where: { id: docId },
+          include: {
+            currentVersion: {
+              select: {
+                id: true,
+                versionNumber: true
+              }
+            }
+          }
+        });
+        if (
+          current === null ||
+          current.assistantId !== input.assistantId ||
+          current.workspaceId !== input.workspaceId ||
+          current.currentVersionId === null ||
+          current.currentVersion === null ||
+          current.currentVersion.id !== current.currentVersionId
+        ) {
+          throw new Error("Visible workspace document version registration target was not found.");
+        }
+        const version = await tx.assistantDocumentVersion.create({
+          data: {
+            docId: current.id,
+            assistantId: input.assistantId,
+            workspaceId: input.workspaceId,
+            versionNumber: current.currentVersion.versionNumber + 1,
+            parentVersionId: current.currentVersionId,
+            descriptorMode: input.descriptorMode,
+            sourceJson: sourceJson as never,
+            sourceSummaryText: input.sourceUserMessageText,
+            sourceOutlineJson: Prisma.JsonNull,
+            status: "ready"
+          },
+          select: {
+            id: true,
+            versionNumber: true
+          }
+        });
+        await tx.assistantDocumentVersion.updateMany({
+          where: {
+            id: current.currentVersionId,
+            status: "ready"
+          },
+          data: {
+            status: "superseded"
+          }
+        });
+        await tx.assistantDocument.update({
+          where: { id: current.id },
+          data: {
+            currentVersionId: version.id,
+            documentType,
+            status: "ready"
+          }
+        });
+        return {
+          docId: current.id,
+          versionId: version.id,
+          versionNumber: version.versionNumber,
+          descriptorMode: input.descriptorMode,
+          documentType,
+          outputFormat: input.outputFormat
+        };
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const document = await tx.assistantDocument.create({
+        data: {
+          assistantId: input.assistantId,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          chatId: input.chatId,
+          documentType,
+          status: "ready"
+        },
+        select: { id: true }
+      });
+      const version = await tx.assistantDocumentVersion.create({
+        data: {
+          docId: document.id,
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          versionNumber: 1,
+          descriptorMode: input.descriptorMode,
+          sourceJson: sourceJson as never,
+          sourceSummaryText: input.sourceUserMessageText,
+          sourceOutlineJson: Prisma.JsonNull,
+          status: "ready"
+        },
+        select: {
+          id: true,
+          versionNumber: true
+        }
+      });
+      await tx.assistantDocument.update({
+        where: { id: document.id },
+        data: {
+          currentVersionId: version.id
+        }
+      });
+      return {
+        docId: document.id,
+        versionId: version.id,
+        versionNumber: version.versionNumber,
+        descriptorMode: input.descriptorMode,
+        documentType,
+        outputFormat: input.outputFormat
+      };
+    });
+  }
+
+  async findCurrentDocumentLinkByOutputPath(input: {
+    assistantId: string;
+    workspaceId: string;
+    outputPath: string;
+  }): Promise<AssistantWebChatMessageAttachmentDocumentLink | null> {
+    const document = await this.prisma.assistantDocument.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        currentVersion: {
+          is: {
+            sourceJson: {
+              path: ["metadata", "documentWorkspace", "outputPath"],
+              equals: input.outputPath
+            }
+          }
+        }
+      },
+      select: {
+        id: true,
+        status: true,
+        documentType: true,
+        currentVersion: {
+          select: {
+            id: true,
+            versionNumber: true,
+            descriptorMode: true,
+            status: true,
+            sourceJson: true
+          }
+        }
+      }
+    });
+    if (document === null || document.currentVersion === null) {
+      return null;
+    }
+    const sourceJson = this.normalizeSourcePayload(document.currentVersion.sourceJson);
+    return buildAssistantDocumentLinkMetadata({
+      docId: document.id,
+      versionId: document.currentVersion.id,
+      versionNumber: document.currentVersion.versionNumber,
+      descriptorMode: document.currentVersion.descriptorMode,
+      documentType: document.documentType,
+      outputFormat:
+        sourceJson.outputFormat ?? this.resolveOutputFormatFromWorkspaceFacts(sourceJson.metadata),
+      documentStatus: document.status,
+      versionStatus: document.currentVersion.status,
+      isCurrentOutput: true,
+      workspaceFacts: this.readDocumentWorkspaceFacts(sourceJson.metadata)
+    });
+  }
+
   private normalizeSourcePayload(value: unknown): AssistantDocumentSourcePayload {
     const row =
       value !== null && typeof value === "object" && !Array.isArray(value)
@@ -800,7 +1013,12 @@ export class AssistantDocumentJobService {
       prompt: typeof row.prompt === "string" ? row.prompt : "",
       instructions: typeof row.instructions === "string" ? row.instructions : null,
       outputFormat:
-        row.outputFormat === "pdf" || row.outputFormat === "pptx" ? row.outputFormat : null,
+        row.outputFormat === "pdf" ||
+        row.outputFormat === "pptx" ||
+        row.outputFormat === "xlsx" ||
+        row.outputFormat === "docx"
+          ? row.outputFormat
+          : null,
       docId: typeof row.docId === "string" ? row.docId : null,
       requestedName: typeof row.requestedName === "string" ? row.requestedName : null,
       visualStyle: this.readPresentationVisualStyle(row.visualStyle),
@@ -959,7 +1177,12 @@ export class AssistantDocumentJobService {
     sourceJson: AssistantDocumentSourcePayload;
     deliveredMimeType: string | null;
   }): AssistantDocumentOutputFormat {
-    if (input.sourceJson.outputFormat === "pdf" || input.sourceJson.outputFormat === "pptx") {
+    if (
+      input.sourceJson.outputFormat === "pdf" ||
+      input.sourceJson.outputFormat === "pptx" ||
+      input.sourceJson.outputFormat === "xlsx" ||
+      input.sourceJson.outputFormat === "docx"
+    ) {
       return input.sourceJson.outputFormat;
     }
     if (input.deliveredMimeType === "application/pdf") {
@@ -971,7 +1194,97 @@ export class AssistantDocumentJobService {
     ) {
       return "pptx";
     }
+    if (
+      input.deliveredMimeType ===
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ) {
+      return "xlsx";
+    }
+    if (
+      input.deliveredMimeType ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ) {
+      return "docx";
+    }
+    if (input.documentType === "data_document") {
+      return "xlsx";
+    }
     return "pdf";
+  }
+
+  private buildVisibleWorkspaceSourcePayload(input: {
+    sourceUserMessageText: string;
+    outputFormat: AssistantDocumentOutputFormat;
+    requestedName: string | null;
+    docId: string | null;
+    workspaceFacts: AssistantDocumentWorkspaceFacts;
+  }): AssistantDocumentSourcePayload {
+    return {
+      prompt: input.sourceUserMessageText.trim(),
+      instructions: null,
+      outputFormat: input.outputFormat,
+      docId: input.docId,
+      requestedName: input.requestedName,
+      metadata: {
+        documentWorkspace: {
+          workspaceProjectPath: input.workspaceFacts.workspaceProjectPath,
+          outputPath: input.workspaceFacts.outputPath,
+          sourceManifestPath: input.workspaceFacts.sourceManifestPath,
+          sourceManifest: input.workspaceFacts.sourceManifest,
+          inspectionPath: input.workspaceFacts.inspectionPath,
+          inspectionSummary: input.workspaceFacts.inspectionSummary
+        }
+      }
+    };
+  }
+
+  private readDocumentWorkspaceFacts(
+    metadata: AssistantDocumentSourcePayload["metadata"]
+  ): AssistantDocumentWorkspaceFacts {
+    return normalizeDocumentWorkspaceFacts((metadata ?? {})["documentWorkspace"]);
+  }
+
+  private resolveOutputFormatFromWorkspaceFacts(
+    metadata: AssistantDocumentSourcePayload["metadata"]
+  ): AssistantDocumentOutputFormat | null {
+    const outputPath = this.readDocumentWorkspaceFacts(metadata).outputPath;
+    if (outputPath === null) {
+      return null;
+    }
+    const lowered = outputPath.toLowerCase();
+    if (lowered.endsWith(".pdf")) {
+      return "pdf";
+    }
+    if (lowered.endsWith(".pptx")) {
+      return "pptx";
+    }
+    if (lowered.endsWith(".xlsx")) {
+      return "xlsx";
+    }
+    if (lowered.endsWith(".docx")) {
+      return "docx";
+    }
+    return null;
+  }
+
+  private resolveDocumentTypeFromOutputFormat(
+    outputFormat: AssistantDocumentOutputFormat
+  ): AssistantDocumentType {
+    return outputFormat === "xlsx" || outputFormat === "docx"
+      ? "data_document"
+      : outputFormat === "pptx"
+        ? "presentation"
+        : "pdf_document";
+  }
+
+  private basename(path: string | null): string | null {
+    if (path === null) {
+      return null;
+    }
+    const normalized = path.trim().replace(/\/+$/g, "");
+    const segments = normalized.split("/");
+    const last = segments[segments.length - 1] ?? "";
+    return last.length > 0 ? last : null;
   }
 
   private readPresentationVisualStyle(value: unknown): PersaiRuntimePresentationVisualStyle | null {

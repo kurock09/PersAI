@@ -38,9 +38,16 @@ export class RuntimeDocumentToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId?: string;
     requestId?: string;
+    conversation?:
+      | {
+          channel: "web" | "telegram";
+          externalThreadKey: string;
+        }
+      | undefined;
     deferToAsyncDocumentJob: {
       sourceUserMessageId: string;
       sourceUserMessageText: string;
+      sourceUserMessageCreatedAt?: string | null;
       // Sticky-labeled current-turn attachments captured from the user turn
       // that triggered the tool call.
       currentAttachments: RuntimeAttachmentRef[];
@@ -97,6 +104,17 @@ export class RuntimeDocumentToolService {
         request: parsed.request,
         sessionId: params.sessionId ?? null,
         requestId: params.requestId ?? null
+      });
+    }
+
+    if (parsed.kind === "register_version") {
+      return this.executeRegisterVersionToolCall({
+        bundle: params.bundle,
+        conversation: params.conversation ?? null,
+        request: parsed.request,
+        sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText,
+        sourceUserMessageCreatedAt:
+          params.deferToAsyncDocumentJob.sourceUserMessageCreatedAt ?? new Date(0).toISOString()
       });
     }
 
@@ -642,6 +660,156 @@ export class RuntimeDocumentToolService {
     };
   }
 
+  private async executeRegisterVersionToolCall(params: {
+    bundle: AssistantRuntimeBundle;
+    conversation: {
+      channel: "web" | "telegram";
+      externalThreadKey: string;
+    } | null;
+    request: {
+      descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document" | null;
+      docId: string | null;
+      requestedName: string | null;
+      workspaceProjectPath: string | null;
+      outputPath: string;
+      sourceManifestPath: string | null;
+      inspectionPath: string | null;
+    };
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+  }): Promise<RuntimeDocumentToolExecutionResult> {
+    if (params.conversation === null) {
+      return this.registerSkipped(
+        "runtime_degraded",
+        "Document version registration requires an active chat conversation."
+      );
+    }
+    const outputPath = this.normalizeWorkspacePath(params.request.outputPath);
+    if (outputPath === null) {
+      return this.registerSkipped(
+        "invalid_arguments",
+        "document.outputPath must be a valid /workspace/... file path."
+      );
+    }
+    const workspaceProjectPath =
+      params.request.workspaceProjectPath === null
+        ? null
+        : this.normalizeWorkspacePath(params.request.workspaceProjectPath, {
+            allowDirectory: true
+          });
+    if (params.request.workspaceProjectPath !== null && workspaceProjectPath === null) {
+      return this.registerSkipped(
+        "invalid_arguments",
+        "document.workspaceProjectPath must be a valid /workspace/... directory."
+      );
+    }
+    const sourceManifestPath =
+      params.request.sourceManifestPath === null
+        ? null
+        : this.normalizeWorkspacePath(params.request.sourceManifestPath);
+    if (params.request.sourceManifestPath !== null && sourceManifestPath === null) {
+      return this.registerSkipped(
+        "invalid_arguments",
+        "document.sourceManifestPath must be a valid /workspace/... file path."
+      );
+    }
+    const inspectionPath =
+      params.request.inspectionPath === null
+        ? null
+        : this.normalizeWorkspacePath(params.request.inspectionPath);
+    if (params.request.inspectionPath !== null && inspectionPath === null) {
+      return this.registerSkipped(
+        "invalid_arguments",
+        "document.inspectionPath must be a valid /workspace/... file path."
+      );
+    }
+    try {
+      const outcome = await this.persaiInternalApiClientService.registerDocumentVersion({
+        assistantId: params.bundle.metadata.assistantId,
+        workspaceId: params.bundle.metadata.workspaceId,
+        channel: params.conversation.channel,
+        externalThreadKey: params.conversation.externalThreadKey,
+        sourceUserMessageText: params.sourceUserMessageText,
+        sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
+        descriptorMode: params.request.descriptorMode,
+        docId: params.request.docId,
+        requestedName: params.request.requestedName,
+        workspaceProjectPath,
+        outputPath,
+        sourceManifestPath,
+        inspectionPath
+      });
+      if (!outcome.accepted) {
+        return this.registerSkipped(outcome.code, outcome.message);
+      }
+      return {
+        payload: {
+          toolCode: "document",
+          executionMode: "inline",
+          requestedAction: "register_version",
+          descriptorMode: outcome.descriptorMode,
+          documentType: outcome.documentType,
+          provider: "sandbox",
+          prompt: null,
+          outputFormat: outcome.outputFormat,
+          docId: outcome.docId,
+          requestedName: params.request.requestedName ?? this.basename(outcome.outputPath),
+          artifacts: [],
+          usage: null,
+          action: "registered",
+          reason: null,
+          warning: null,
+          versionId: outcome.versionId,
+          registration: {
+            docId: outcome.docId,
+            versionId: outcome.versionId,
+            versionNumber: outcome.versionNumber,
+            descriptorMode: outcome.descriptorMode,
+            documentType: outcome.documentType,
+            outputFormat: outcome.outputFormat,
+            outputPath: outcome.outputPath,
+            workspaceProjectPath: outcome.workspaceProjectPath,
+            sourceManifestPath: outcome.sourceManifestPath,
+            inspectionPath: outcome.inspectionPath
+          }
+        },
+        artifacts: [],
+        isError: false
+      };
+    } catch (error) {
+      return this.registerSkipped(
+        "runtime_degraded",
+        error instanceof Error
+          ? error.message
+          : "Document version registration is temporarily unavailable."
+      );
+    }
+  }
+
+  private registerSkipped(reason: string, warning: string): RuntimeDocumentToolExecutionResult {
+    return {
+      payload: {
+        toolCode: "document",
+        executionMode: "inline",
+        requestedAction: "register_version",
+        descriptorMode: null,
+        documentType: null,
+        provider: null,
+        prompt: null,
+        outputFormat: null,
+        docId: null,
+        requestedName: null,
+        artifacts: [],
+        usage: null,
+        action: "skipped",
+        reason,
+        warning
+      },
+      artifacts: [],
+      isError: reason === "invalid_arguments"
+    };
+  }
+
   private buildPendingDeliveryMessage(
     descriptorMode:
       | "create_pdf_document"
@@ -688,6 +856,18 @@ export class RuntimeDocumentToolService {
           outputPath: string;
           format: "pdf" | "xlsx" | "docx";
           entrypoint: string | null;
+        };
+      }
+    | {
+        kind: "register_version";
+        request: {
+          descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document" | null;
+          docId: string | null;
+          requestedName: string | null;
+          workspaceProjectPath: string | null;
+          outputPath: string;
+          sourceManifestPath: string | null;
+          inspectionPath: string | null;
         };
       }
     | {
@@ -773,6 +953,29 @@ export class RuntimeDocumentToolService {
           outputPath,
           format,
           entrypoint: this.readNonEmptyString(row.entrypoint)
+        }
+      };
+    }
+    if (row.action === "register_version") {
+      const outputPath = this.readNonEmptyString(row.outputPath);
+      if (outputPath === null) {
+        return new Error("document.outputPath must be a non-empty string.");
+      }
+      return {
+        kind: "register_version",
+        request: {
+          descriptorMode:
+            row.descriptorMode === "create_pdf_document" ||
+            row.descriptorMode === "revise_document" ||
+            row.descriptorMode === "create_data_document"
+              ? row.descriptorMode
+              : null,
+          docId: this.readNonEmptyString(row.docId),
+          requestedName: this.readNonEmptyString(row.requestedName),
+          workspaceProjectPath: this.readNonEmptyString(row.workspaceProjectPath),
+          outputPath,
+          sourceManifestPath: this.readNonEmptyString(row.sourceManifestPath),
+          inspectionPath: this.readNonEmptyString(row.inspectionPath)
         }
       };
     }

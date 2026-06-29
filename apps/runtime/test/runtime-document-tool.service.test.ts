@@ -159,6 +159,63 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.inspection?.counts.sheetCount, 2);
   });
 
+  test("registers a visible workspace version without delivering it", async () => {
+    const service = new RuntimeDocumentToolService({
+      async registerDocumentVersion() {
+        return {
+          accepted: true as const,
+          docId: "doc-visible-1",
+          versionId: "version-visible-2",
+          versionNumber: 2,
+          descriptorMode: "revise_document" as const,
+          documentType: "pdf_document" as const,
+          outputFormat: "pdf" as const,
+          outputPath: "/workspace/report/report.pdf",
+          workspaceProjectPath: "/workspace/report",
+          sourceManifestPath: "/workspace/report/manifest.json",
+          inspectionPath: "/workspace/report/report.inspect.json"
+        };
+      }
+    } as never);
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-register-1",
+        name: "document",
+        arguments: {
+          action: "register_version",
+          descriptorMode: "revise_document",
+          docId: "doc-visible-1",
+          workspaceProjectPath: "/workspace/report",
+          outputPath: "/workspace/report/report.pdf",
+          sourceManifestPath: "/workspace/report/manifest.json",
+          inspectionPath: "/workspace/report/report.inspect.json"
+        }
+      },
+      conversation: {
+        channel: "web",
+        externalThreadKey: "chat:web:1"
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-register-1",
+        sourceUserMessageText: "Register this report version",
+        sourceUserMessageCreatedAt: "2026-06-29T15:00:00.000Z",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.requestedAction, "register_version");
+    assert.equal(result.payload.action, "registered");
+    assert.equal(result.payload.docId, "doc-visible-1");
+    assert.equal(result.payload.versionId, "version-visible-2");
+    assert.equal(result.payload.registration?.outputPath, "/workspace/report/report.pdf");
+    assert.equal(
+      result.payload.registration?.inspectionPath,
+      "/workspace/report/report.inspect.json"
+    );
+  });
+
   test("renders an HTML workspace project to PDF and returns a rendered summary", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
     const service = new RuntimeDocumentToolService(

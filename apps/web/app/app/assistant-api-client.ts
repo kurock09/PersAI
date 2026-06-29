@@ -2420,10 +2420,36 @@ export type AssistantWebChatMessageAttachmentDocumentLink = {
   docId: string;
   versionId: string;
   versionNumber: number | null;
-  descriptorMode: string | null;
-  documentType: string | null;
+  descriptorMode:
+    | "create_pdf_document"
+    | "create_presentation"
+    | "revise_document"
+    | "export_or_redeliver"
+    | "create_data_document"
+    | null;
+  documentType: "pdf_document" | "presentation" | "data_document" | null;
+  outputFormat: "pdf" | "pptx" | "xlsx" | "docx" | null;
   documentStatus: string | null;
   versionStatus: string | null;
+  renderJobId?: string | null;
+  outputPath?: string | null;
+  workspaceProjectPath?: string | null;
+  sourceManifestPath?: string | null;
+  inspectionPath?: string | null;
+  inspectionSummary?: {
+    format: "pdf" | "xlsx" | "docx" | null;
+    counts: {
+      pageCount: number | null;
+      sheetCount: number | null;
+      formulaCount: number | null;
+      blankSheetCount: number | null;
+      paragraphCount: number | null;
+      headingCount: number | null;
+      tableCount: number | null;
+      textCharCount: number | null;
+    };
+    warnings: string[];
+  } | null;
   isCurrentOutput: boolean;
 };
 
