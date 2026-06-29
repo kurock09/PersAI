@@ -5,6 +5,8 @@
 
 ## 2026-06-29
 
+- **Docs (file ADR closure).** Closed ADR-126 v3, ADR-126 v3 cutover program, ADR-127, and ADR-128 as active filesystem programs. `AGENTS.md` now treats all file/workspace ADRs as closed archive and states that there is no open orchestration program ADR; future filesystem scope requires a new explicit founder priority/ADR.
+
 - **Fix (chat/file delivery — broader text/source artifacts).** Expanded the media validation allowlist for ordinary text/source files so chat uploads and sandbox/tool-generated artifacts such as HTML, CSS, TypeScript/JSX, JSONL, TSV, INI, `.env.example`, Dockerfile, YAML, TOML, XML, SQL, and common language source files can be accepted instead of being rejected by missing MIME/extension coverage. Safe text/source extensions now bypass the old dangerous-extension block for `chat_upload` and `tool_output_persist`, while unknown generic binaries remain blocked. Focused policy tests cover raw `.js`/`.py` chat upload acceptance, HTML delivery, generic-octet TypeScript fallback, and the compound/no-extension formats.
 
 ## 2026-06-27

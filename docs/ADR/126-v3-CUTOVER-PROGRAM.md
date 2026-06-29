@@ -1,5 +1,7 @@
 # ADR-126 v3 — CUTOVER PROGRAM
 
+**Status: Closed 2026-06-29 — all v3 waves and follow-through closure are landed; do not treat this as an active backlog.**
+
 **Purpose.** Implement ADR-126 v3 (clean cutover to path identity end-to-end) as a sequence of bounded Composer subagent dispatches. Each wave has a closed file list, a closed anti-compromise checklist, and a per-wave acceptance check. The orchestrator (me) runs waves sequentially, integrates results, and runs the closure gate at the end of each wave before dispatching the next.
 
 **Source of truth:** ADR-126 v3 (`docs/ADR/126-unified-sandbox-workspace-files-shell-single-fs-bash-default-and-expanded-egress.md`). Anything in this program plan that conflicts with v3 ADR text is a bug in this plan.

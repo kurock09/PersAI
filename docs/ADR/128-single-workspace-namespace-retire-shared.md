@@ -1,6 +1,6 @@
 # ADR-128 — Single `/workspace/` namespace; retire `/shared/<workspaceId>/`
 
-Status: **Open 2026-06-26 — founder-acked. Continues ADR-126 v3 + ADR-127.**
+Status: **Closed 2026-06-29 — all slices, Slice 4 flattening, and follow-up file-delivery fixes landed.** Founder-acked 2026-06-26. Continues ADR-126 v3 + ADR-127 without reopening either. No open orchestration program remains; open a new ADR for future filesystem scope.
 
 Date: 2026-06-26
 Continues: ADR-126 v3 (closed 2026-06-24) and ADR-127 (closed 2026-06-25). Does not reopen either; closes the structural gap they left unaddressed.

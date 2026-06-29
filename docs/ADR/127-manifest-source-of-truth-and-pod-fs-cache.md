@@ -1,6 +1,6 @@
 # ADR-127 — Manifest as source of truth; pod FS as cache
 
-Status: **Accepted 2026-06-25 — founder-acked. Continues ADR-126 v3 (does NOT reopen).**
+Status: **Closed 2026-06-29 — implemented and no longer an open program.** Founder-acked 2026-06-25. Continued ADR-126 v3 without reopening it; the remaining namespace simplification was closed by ADR-128. Do not reopen ADR-127 for new scope.
 
 Date: 2026-06-25
 Continues: ADR-126 v3 (`docs/ADR/126-unified-sandbox-workspace-files-shell-single-fs-bash-default-and-expanded-egress.md`) — closed 2026-06-24; does not reopen it.

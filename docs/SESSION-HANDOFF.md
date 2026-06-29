@@ -1,5 +1,20 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — File ADR closure reconciliation
+
+Status: docs fixed locally; format/lint/typecheck verification PASS. Pending commit/push if requested.
+
+**Scope.** Founder asked whether the latest file ADRs were all closed, then directed to close them. This was a governance/docs reconciliation only; no production code changed.
+
+**Fix.** ADR-126 v3, ADR-126 v3 cutover program, ADR-127, and ADR-128 now explicitly read as closed. `AGENTS.md` no longer lists ADR-128 as an open orchestration program and states that no open orchestration program ADR remains. Future filesystem/product architecture work should start from a new explicit founder priority and usually a new ADR.
+
+**Checks.**
+
+- `corepack pnpm run format:check` — PASS.
+- `corepack pnpm -r --if-present run lint` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+
 ## 2026-06-29 — Broader text/source artifact delivery
 
 Status: code fixed locally; focused policy test PASS; full AGENTS gate PASS. Pending commit/push if requested, deploy, then live retry for source/text chat uploads and `/workspace` artifacts.
