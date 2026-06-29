@@ -1,5 +1,15 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 opened for agentic document workspace workflow
+
+Status: docs authored locally; verification pending.
+
+**Scope.** Founder identified the current `document` tool as too opaque for large PDF/XLSX/DOCX quality because the main model cannot run a visible create → inspect → fix loop. This was a governance/architecture slice only; no production code changed.
+
+**Fix.** Opened `docs/ADR/129-agentic-document-workspace-extraction-render-inspect-and-versioning.md` as the active orchestration program. It redesigns `document` into a workspace-visible workflow over `/workspace`, existing extraction/OCR services, sandbox render/inspect primitives, source snapshots, and final `files.attach` delivery. `AGENTS.md` now lists ADR-129 as the active orchestration program and keeps ADR-126/127/128 closed.
+
+**Next recommended step.** Execute ADR-129 Wave 0 inventory with a GPT-5.4 subagent, then have the parent orchestrator audit the ledger before any implementation wave.
+
 ## 2026-06-29 — File ADR closure reconciliation
 
 Status: docs fixed locally; format/lint/typecheck verification PASS. Pending commit/push if requested.
@@ -116,7 +126,7 @@ Status: code fixed locally; focused web tests PASS (129/129); focused API media 
 
 **Scope.** Founder asked for five related UX/debug items after screenshot review: cap the Assistant Files gallery to 3 rows with scroll; make gallery tile background match the quiet media-limit cards in "Limits and plan"; fix chat thumbnails so right-click/open-image no longer opens a full-size asset from the inline thumbnail; inspect browser state for the thumbnail/auth issue; investigate a recurring sign-in spinner that clears after F5.
 
-**Browser evidence.** Live browser on `https://persai.dev/sign-in` showed the page fully rendered, Clerk loaded, `clerk.browser.js` returning 200, no failed Clerk/_next resources, and Clerk API/token requests returning 200. The visible problem was the submit button stuck disabled with spinner. This is not the earlier cached 404 Clerk JS proxy failure; it is a client busy-state issue after/around Clerk actions.
+**Browser evidence.** Live browser on `https://persai.dev/sign-in` showed the page fully rendered, Clerk loaded, `clerk.browser.js` returning 200, no failed Clerk/\_next resources, and Clerk API/token requests returning 200. The visible problem was the submit button stuck disabled with spinner. This is not the earlier cached 404 Clerk JS proxy failure; it is a client busy-state issue after/around Clerk actions.
 
 **Fix.**
 
