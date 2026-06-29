@@ -730,6 +730,41 @@ test("writeWorkspaceFileControlPlane: pod Running → cat into /workspace/<basen
   assert.equal(audit.ops.at(-1)?.status, "ok");
 });
 
+test("writeWorkspaceFileControlPlane: explicit path uses required workspace writer", async () => {
+  const exec = makeExec([{ exitCode: 0, stdout: "", stderr: "" }], {
+    tryHotPodResponses: [{ exitCode: 1, stdout: "", stderr: "should not be used" }]
+  });
+  const audit = makeAudit();
+  const storage = makeStorage();
+  const bridge = makeBridge(exec.service, storage.service, makeObs().service, audit.service);
+  const contents = Buffer.from("# Extracted\n\nBody");
+
+  const result = await bridge.writeWorkspaceFileControlPlane(CTX, {
+    basename: "extracted.md",
+    path: "/workspace/source.extract/extracted.md",
+    contents
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.reason, null);
+  assert.equal(result.data.mode, "written");
+  assert.equal(result.data.workspaceRelPath, "/workspace/source.extract/extracted.md");
+  assert.equal(result.data.absolutePath, "/workspace/source.extract/extracted.md");
+  assert.equal(result.data.bytes, contents.length);
+  assert.equal(exec.tryCalls.length, 0);
+  assert.equal(exec.calls.length, 1);
+  assert.match(
+    exec.calls[0]?.shellCommand ?? "",
+    /cat > '\/workspace\/source\.extract\/extracted\.md'/
+  );
+  assert.equal(exec.calls[0]?.stdin?.toString(), contents.toString());
+  assert.equal(audit.ops.at(-1)?.status, "ok");
+  assert.equal(storage.savedObjects.length, 1);
+  assert.ok(
+    storage.savedObjects[0]?.objectKey.includes(`${WS_ID}/workspace/source.extract/extracted.md`)
+  );
+});
+
 test("writeWorkspaceFileControlPlane: no Running pod → success with mode=deferred and no exec call", async () => {
   const exec = makeExec([], { tryHotPodResponses: [null] });
   const audit = makeAudit();

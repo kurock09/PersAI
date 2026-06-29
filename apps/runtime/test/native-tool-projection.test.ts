@@ -336,7 +336,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           displayName: "Document",
           description: "Create and revise assistant documents through the visible workspace loop.",
           usageGuidance:
-            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. Use descriptorMode only for presentations.",
+            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. For a simple new PDF request, First write /workspace/<project>/index.html, then document.render, document.inspect, files.attach. For a simple new DOCX/XLSX request, First write /workspace/<project>/build.py, then document.render, document.inspect, files.attach. Use descriptorMode only for presentations.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -888,6 +888,16 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.match(
     document?.description ?? "",
     /document\.extract|document\.render.*xlsx|document\.inspect.*files\.attach|visible workspace loop/i
+  );
+  assert.match(
+    document?.description ?? "",
+    /simple new PDF request.*First write.*index\.html.*document\.render/s,
+    "document guidance must teach the efficient first-call PDF workflow"
+  );
+  assert.match(
+    document?.description ?? "",
+    /simple new DOCX\/XLSX request.*First write.*build\.py.*document\.render/s,
+    "document guidance must teach the efficient first-call DOCX/XLSX workflow"
   );
   assert.doesNotMatch(
     document?.description ?? "",

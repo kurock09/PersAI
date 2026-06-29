@@ -1,5 +1,31 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 live document loop cleanup: sidecar sync + first-call guidance
+
+Status: implemented locally after live browser/K8S validation exposed hidden failed `document` steps and DOCX revision fallback behavior. Focused sandbox/runtime/API document tests and the AGENTS gate pass; live re-test remains pending after deploy.
+
+**Scope.** This is a targeted cleanup on top of ADR-129: it fixes the live visible-workspace document loop so extraction/inspection sidecars and simple new PDF/DOCX/XLSX creation do not push the model into failed `document` calls, extra shell retries, or `path_not_found` reads inside the same turn.
+
+**Fix.** Sandbox control-plane writes now distinguish two cases. Upload-style `basename` writes remain best-effort hot-pod pushes and can defer when no pod is running. Explicit `path` writes, used for turn-critical internal sidecars such as `/workspace/<name>.extract/extracted.md`, `/workspace/<name>.extract/manifest.json`, and inspect JSON, now use the normal required `workspaceFileWrite` path. That makes sidecars immediately visible in the current session pod and removes the live `workspace_file_writeed ... reason=write_failed` followed by `workspace_file_readed ... reason=path_not_found` fallback seen during DOCX revision.
+
+The runtime model-facing `document` guidance now also says the efficient first call for a simple new PDF is `files.write` `/workspace/<project>/index.html` first, then `document.render`, `document.inspect`, and `files.attach`. Simple new DOCX/XLSX gets the same rule with `/workspace/<project>/build.py`. This closes the observed wasteful pattern where a simple PDF request began with a failed `document` call before any render source existed.
+
+**Checks.**
+
+- `corepack pnpm -r --if-present run lint` — PASS.
+- `corepack pnpm run format:check` — PASS after formatting touched sandbox files.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS.
+- `corepack pnpm --filter @persai/sandbox run typecheck` — PASS.
+- `corepack pnpm --filter @persai/sandbox test -- workspace-file-bridge.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/runtime test -- native-tool-projection.test.ts` — PASS after tightening the projection fixture/assertions.
+- `corepack pnpm --filter @persai/api test -- document-workspace-extraction.service.test.ts document-workspace-inspection.service.test.ts` — PASS.
+
+**Residual.** Live browser/K8S re-test is still pending for this exact fix. The next live check should repeat: simple one-page PDF create, DOCX create, DOCX revise, then inspect runtime/sandbox logs for absence of `document (failed)`, sidecar `write_failed`, and sidecar `path_not_found`.
+
+**Next recommended step.** Deploy, then re-run the browser/K8S document workflow validation.
+
 ## 2026-06-29 — ADR-129 deep cleanup: presentation-only deferred document pipeline
 
 Status: implemented locally on top of the ADR-129 hard-cutover checkpoint after founder feedback that the hard cutover had not gone far enough ("ЧИСТО"). AGENTS verification gate and focused document checks pass; push/deploy remains blocked until explicit approval.

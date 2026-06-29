@@ -188,10 +188,13 @@ export class WorkspaceFileBridgeService {
    *     passed through so the pod-side bridge does NOT double-count).
    *
    * Behaviour matrix:
-   *   * pod not Running → `success: true, mode: "deferred"` (next cold-start
-   *     `hydrateWorkspaceMountFromGcs` will pull the bytes from GCS).
-   *   * pod Running but exec fails → `success: false, reason: "write_failed"`.
-   *   * pod Running + exec ok → `success: true, mode: "written"`.
+   *   * explicit path writes are turn-critical internal sidecars and use the
+   *     normal workspace writer, so the file is visible immediately.
+   *   * basename-only uploads stay best-effort: pod not Running → `success:
+   *     true, mode: "deferred"` (next cold-start hydrate will pull the bytes
+   *     from GCS).
+   *   * pod Running but exec fails → `success: false, reason="write_failed"`.
+   *   * pod Running + exec ok → `success: true, mode="written"`.
    */
   async writeWorkspaceFileControlPlane(
     ctx: WorkspaceBridgeContext,
@@ -208,12 +211,32 @@ export class WorkspaceFileBridgeService {
       mode: "written" | "deferred";
     }>
   > {
+    const explicitPath =
+      typeof input.path === "string" && input.path.trim().length > 0 ? input.path.trim() : null;
+    if (explicitPath !== null) {
+      const writeResult = await this.workspaceFileWrite(ctx, {
+        path: explicitPath,
+        contents: input.contents,
+        mode: "overwrite"
+      });
+      const resolvedPath = writeResult.data.resolvedPath;
+      return {
+        success: writeResult.success,
+        reason: writeResult.reason,
+        latencyMs: writeResult.latencyMs,
+        data: {
+          workspaceRelPath: resolvedPath,
+          absolutePath: resolvedPath,
+          bytes: writeResult.success ? writeResult.data.bytes : 0,
+          mode: "written"
+        }
+      };
+    }
+
     const targetPath =
-      typeof input.path === "string" && input.path.trim().length > 0
-        ? this.resolveModelPath(ctx, input.path).absolutePath
-        : typeof input.basename === "string" && isValidWorkspaceBasename(input.basename)
-          ? `${WORKSPACE_MOUNT_ROOT}/${input.basename}`
-          : null;
+      typeof input.basename === "string" && isValidWorkspaceBasename(input.basename)
+        ? `${WORKSPACE_MOUNT_ROOT}/${input.basename}`
+        : null;
     if (targetPath === null) {
       const event: WorkspaceFileBridgeEvent = {
         workspaceId: ctx.workspaceId,
