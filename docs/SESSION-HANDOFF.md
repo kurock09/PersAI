@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 Wave 5 PDF revise from visible workspace source
+
+Status: code implemented locally; focused API/runtime tests PASS; API/runtime typechecks PASS; format:check PASS. Pending parent audit, then commit Wave 5 or move to Wave 6 wording/cleanup.
+
+**Scope.** Implemented the bounded ADR-129 Wave 5 slice: PDF revision should no longer ignore visible `/workspace` source/project facts when a current document version already records them in `sourceJson.metadata.documentWorkspace`.
+
+**Fix.** `EnqueueRuntimeDeferredDocumentJobService` now inspects the current PDF version's persisted `documentWorkspace` facts before it enqueues the hidden sandbox revise path. When a PDF already has a visible `workspaceProjectPath` plus `outputPath`, the API returns an honest structured rejection (`code: "revise_document_requires_visible_workspace_workflow"`) instead of queueing DB-only patch revision; the guidance points the model at the exact visible project/output paths and the intended flow (`document.render` -> `document.inspect` -> `document.register_version` -> `files.attach`). Older DB-only PDF revisions without visible workspace facts remain on the existing compatibility path and still use persisted archived HTML when available.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/enqueue-runtime-deferred-document-job.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS.
+- `corepack pnpm run format:check` — PASS.
+
+**Residual.** This wave intentionally stops at honest visible-workspace guidance. It does not yet materialize/edit prior PDF workspace source automatically or replace the backend-owned async delivery lane; that broader source-edit/render/attach loop remains later ADR-129 work.
+
+**Next recommended step.** Parent audit this Wave 5 diff, then either commit it as the bounded visible-workspace revise guard or continue into ADR-129 Wave 6 for model-facing wording/web cleanup.
+
 ## 2026-06-29 — ADR-129 Wave 4 retire normal `create_data_document`
 
 Status: code implemented locally; focused API/runtime tests PASS; API/runtime/web typechecks PASS; full format/lint PASS. Pending commit, then ADR-129 Wave 5.

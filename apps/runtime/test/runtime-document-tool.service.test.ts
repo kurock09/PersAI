@@ -788,6 +788,49 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.reason, "document_revise_unsupported_legacy_version");
   });
 
+  test("revise_document with visible workspace source returns workflow guidance instead of hidden revise acceptance", async () => {
+    const service = new RuntimeDocumentToolService({
+      async enqueueDeferredDocumentJob() {
+        return {
+          accepted: false as const,
+          code: "revise_document_requires_visible_workspace_workflow",
+          message:
+            "This PDF already has visible workspace source files. Revise the workspace project and rerender it instead of using the hidden PDF patch path.",
+          guidance:
+            "Edit the existing workspace source under /workspace/report. Rerender the PDF to /workspace/report/report.pdf with document.render. Inspect the result at /workspace/report/report.inspect.json with document.inspect or refresh that sidecar before delivery. Then persist the new version with document.register_version and deliver the final PDF with files.attach."
+        };
+      }
+    } as never);
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-visible-workspace-revise",
+        name: "document",
+        arguments: {
+          descriptorMode: "revise_document",
+          prompt: "Update the executive summary",
+          docId: "12345678-1234-4234-9234-1234567890ab",
+          outputFormat: "pdf"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-visible-workspace-revise",
+        sourceUserMessageText: "Обнови summary",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "revise_document_requires_visible_workspace_workflow");
+    assert.match(
+      result.payload.guidance ?? "",
+      /\/workspace\/report|document\.render|document\.inspect|document\.register_version|files\.attach/i
+    );
+  });
+
   test("maps rejected enqueue into skipped payload", async () => {
     const service = new RuntimeDocumentToolService({
       async enqueueDeferredDocumentJob() {

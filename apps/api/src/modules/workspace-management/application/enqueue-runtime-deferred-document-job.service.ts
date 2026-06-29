@@ -15,6 +15,7 @@ import {
   type AssistantDocumentRevisionContext,
   type AssistantDocumentSourcePayload
 } from "./assistant-document-job.service";
+import { normalizeDocumentWorkspaceFacts } from "./assistant-document-link-metadata";
 import { QuotaGroundedLimitCopyService } from "./quota-grounded-limit-copy.service";
 import { ReadInternalRuntimeQuotaStatusService } from "./read-internal-runtime-quota-status.service";
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
@@ -547,6 +548,17 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       };
     }
 
+    const visibleWorkspaceGuidance = this.buildVisibleWorkspacePdfRevisionGuidance(revisionContext);
+    if (revisionContext.documentType === "pdf_document" && visibleWorkspaceGuidance !== null) {
+      return {
+        accepted: false,
+        code: "revise_document_requires_visible_workspace_workflow",
+        message:
+          "This PDF already has visible workspace source files. Revise the workspace project and rerender it instead of using the hidden PDF patch path.",
+        guidance: visibleWorkspaceGuidance
+      };
+    }
+
     // For PDF documents, revise paths require renderedHtml from the previous
     // version. Legacy versions (created before renderedHtml persistence) have
     // renderedHtml === null and are rejected with an explicit error. No silent
@@ -699,6 +711,17 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         message:
           "The file identified by path is not a PDF document — revise_document only supports PDF documents via path.",
         guidance: null
+      };
+    }
+
+    const visibleWorkspaceGuidance = this.buildVisibleWorkspacePdfRevisionGuidance(revisionContext);
+    if (visibleWorkspaceGuidance !== null) {
+      return {
+        accepted: false,
+        code: "revise_document_requires_visible_workspace_workflow",
+        message:
+          "This PDF already has visible workspace source files. Revise the workspace project and rerender it instead of using the hidden PDF patch path.",
+        guidance: visibleWorkspaceGuidance
       };
     }
 
@@ -979,6 +1002,32 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       return null;
     }
     return Math.min(rounded, 30);
+  }
+
+  private buildVisibleWorkspacePdfRevisionGuidance(
+    revisionContext: AssistantDocumentRevisionContext
+  ): string | null {
+    const workspaceFacts = normalizeDocumentWorkspaceFacts(
+      revisionContext.currentSourceJson.metadata?.documentWorkspace
+    );
+    if (workspaceFacts.workspaceProjectPath === null || workspaceFacts.outputPath === null) {
+      return null;
+    }
+    const steps = [
+      `Edit the existing workspace source under ${workspaceFacts.workspaceProjectPath}.`,
+      `Rerender the PDF to ${workspaceFacts.outputPath} with document.render.`
+    ];
+    if (workspaceFacts.inspectionPath !== null) {
+      steps.push(
+        `Inspect the result at ${workspaceFacts.inspectionPath} with document.inspect or refresh that sidecar before delivery.`
+      );
+    } else {
+      steps.push("Inspect the rerendered PDF with document.inspect before delivery.");
+    }
+    steps.push(
+      "Then persist the new version with document.register_version and deliver the final PDF with files.attach."
+    );
+    return steps.join(" ");
   }
 
   private objectValue(value: unknown, fieldName: string): Record<string, unknown> {

@@ -1844,6 +1844,88 @@ async function runEnqueueRevisionRejectsLegacyVersionWithNullRenderedHtml(): Pro
   );
 }
 
+async function runEnqueueRevisionRejectsVisibleWorkspacePdfAndGuidesVisibleWorkflow(): Promise<void> {
+  let enqueueRevisionCalls = 0;
+  const mocks = buildStandardServiceMocks({
+    async findRevisionContext() {
+      return {
+        docId: "12345678-1234-4234-9234-1234567890ab",
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        chatId: "chat-1",
+        documentType: "pdf_document" as const,
+        currentVersionId: "version-visible-1",
+        currentVersionNumber: 2,
+        currentVersionRenderedHtml: "<html><body><h1>Workspace-backed PDF</h1></body></html>",
+        currentVersionStructureJson: null,
+        currentVersionStyleProfileJson: null,
+        currentVersionEditStrategy: null,
+        currentSourceJson: {
+          prompt: "Original PDF",
+          outputFormat: "pdf",
+          requestedName: "Report",
+          metadata: {
+            documentWorkspace: {
+              workspaceProjectPath: "/workspace/report",
+              outputPath: "/workspace/report/report.pdf",
+              inspectionPath: "/workspace/report/report.inspect.json"
+            }
+          }
+        }
+      };
+    },
+    async enqueueRevision() {
+      enqueueRevisionCalls += 1;
+      return {
+        docId: "12345678-1234-4234-9234-1234567890ab",
+        versionId: "version-should-not-happen",
+        renderJobId: "render-should-not-happen",
+        status: "queued" as const
+      };
+    }
+  });
+
+  const service = new EnqueueRuntimeDeferredDocumentJobService(
+    mocks.chatRepo,
+    mocks.docJobService,
+    mocks.quotaCopy,
+    mocks.quotaStatus,
+    mocks.dailyPolicy,
+    mocks.secretStore,
+    noopGammaThemePickerMock()
+  );
+
+  const result = await service.execute({
+    assistantId: "assistant-1",
+    sourceUserMessageId: "message-visible-workspace",
+    sourceUserMessageText: "Update the executive summary",
+    directToolExecution: {
+      toolCode: "document",
+      descriptorMode: "revise_document",
+      request: {
+        prompt: "Update the executive summary",
+        docId: "12345678-1234-4234-9234-1234567890ab",
+        outputFormat: "pdf"
+      }
+    }
+  });
+
+  assert.equal(result.accepted, false, "visible-workspace PDF revise must not queue hidden revise");
+  assert.equal(
+    result.accepted === false ? result.code : null,
+    "revise_document_requires_visible_workspace_workflow"
+  );
+  assert.match(
+    result.accepted === false ? (result.guidance ?? "") : "",
+    /\/workspace\/report|document\.render|document\.inspect|document\.register_version|files\.attach/i
+  );
+  assert.equal(
+    enqueueRevisionCalls,
+    0,
+    "hidden enqueueRevision must not run for workspace-backed PDF"
+  );
+}
+
 async function runEnqueueRevisionAttachesPreviousRenderedHtmlToRuntimeRequest(): Promise<void> {
   const previousHtml =
     "<!DOCTYPE html><html><head></head><body><h1>Report</h1><p>Full body content.</p></body></html>";
@@ -1926,6 +2008,7 @@ async function run(): Promise<void> {
   await runPresentationPdfToPptxExportQueuesPptxRender();
   await runFindLatestRevisionContextSurfacesRenderedHtmlPresence();
   await runEnqueueRevisionRejectsLegacyVersionWithNullRenderedHtml();
+  await runEnqueueRevisionRejectsVisibleWorkspacePdfAndGuidesVisibleWorkflow();
   await runEnqueueRevisionAttachesPreviousRenderedHtmlToRuntimeRequest();
 }
 
