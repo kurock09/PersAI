@@ -123,11 +123,9 @@ function fakeMediaObjectStorage(
 
 async function run(): Promise<void> {
   const originalFetch = globalThis.fetch;
-  const uploadCalls = 0;
-  const createCalls = 0;
-  const blockedMetrics = new PlatformHttpMetricsService();
+  const sourceUploadMetrics = new PlatformHttpMetricsService();
 
-  const blockedService = new MediaDeliveryService(
+  const sourceUploadService = new MediaDeliveryService(
     attachmentRepositoryWithRegisterLookup() as never,
     noopAssistantRepository as never,
     [],
@@ -135,7 +133,7 @@ async function run(): Promise<void> {
     fakeRegisterChatAttachmentService as never,
     fakeWorkspaceFileMetadataService as never,
     noopQuotaUsageService as never,
-    blockedMetrics,
+    sourceUploadMetrics,
     noopRecordModelCostLedgerService,
     {} as never,
     {} as never,
@@ -147,7 +145,7 @@ async function run(): Promise<void> {
       status: 200,
       headers: { "Content-Type": "application/octet-stream" }
     });
-  const blocked = await blockedService.deliver({
+  const sourceUpload = await sourceUploadService.deliver({
     artifacts: [
       {
         source: "runtime_url",
@@ -162,10 +160,21 @@ async function run(): Promise<void> {
     workspaceId: "workspace-1"
   });
 
-  assert.deepEqual(blocked.attachments, []);
-  assert.equal(uploadCalls, 0);
-  assert.equal(createCalls, 0);
-  const blockedSeries = blockedMetrics
+  assert.deepEqual(sourceUpload.attachments, [
+    {
+      id: "att-1",
+      path: "/workspace/payload.js",
+      thumbnailStoragePath: null,
+      posterStoragePath: null,
+      attachmentType: "document",
+      originalFilename: "payload.js",
+      mimeType: "text/plain",
+      sizeBytes: 17,
+      processingStatus: "ready",
+      createdAt: "2026-04-04T00:00:00.000Z"
+    }
+  ]);
+  const sourceUploadFailureSeries = sourceUploadMetrics
     .getSnapshot()
     .mediaStageSeries.find(
       (series) =>
@@ -173,7 +182,7 @@ async function run(): Promise<void> {
         series.key.channel === "web" &&
         series.key.outcome === "failure"
     );
-  assert.equal(blockedSeries?.count, 1);
+  assert.equal(sourceUploadFailureSeries, undefined);
 
   let uploadedMime: string | null = null;
   const safeMetrics = new PlatformHttpMetricsService();
