@@ -46,7 +46,8 @@ export class RuntimeDocumentToolService {
       return {
         payload: {
           toolCode: "document",
-          executionMode: "worker",
+          executionMode: "inline",
+          requestedAction: null,
           descriptorMode: null,
           documentType: null,
           provider: null,
@@ -64,6 +65,13 @@ export class RuntimeDocumentToolService {
         artifacts: [],
         isError: true
       };
+    }
+
+    if (parsed.kind === "extract") {
+      return this.executeExtractToolCall({
+        bundle: params.bundle,
+        request: parsed.request
+      });
     }
 
     const currentAttachments = params.deferToAsyncDocumentJob.currentAttachments ?? [];
@@ -215,6 +223,106 @@ export class RuntimeDocumentToolService {
     }
   }
 
+  private async executeExtractToolCall(params: {
+    bundle: AssistantRuntimeBundle;
+    request: {
+      path: string;
+      mode: "auto" | "text" | "ocr" | "layout";
+      outputDir: string | null;
+    };
+  }): Promise<RuntimeDocumentToolExecutionResult> {
+    const normalizedPath = this.normalizeWorkspacePath(params.request.path);
+    if (normalizedPath === null) {
+      return this.extractSkipped(
+        "invalid_arguments",
+        "document.path must be a valid /workspace/... path."
+      );
+    }
+    const normalizedOutputDir =
+      params.request.outputDir === null
+        ? null
+        : this.normalizeWorkspacePath(params.request.outputDir, { allowDirectory: true });
+    if (params.request.outputDir !== null && normalizedOutputDir === null) {
+      return this.extractSkipped(
+        "invalid_arguments",
+        "document.outputDir must be a valid /workspace/... path."
+      );
+    }
+    try {
+      const outcome = await this.persaiInternalApiClientService.extractDocumentToWorkspace({
+        assistantId: params.bundle.metadata.assistantId,
+        workspaceId: params.bundle.metadata.workspaceId,
+        path: normalizedPath,
+        mode: params.request.mode,
+        outputDir: normalizedOutputDir
+      });
+      if (!outcome.accepted) {
+        return this.extractSkipped(outcome.code, outcome.message);
+      }
+      return {
+        payload: {
+          toolCode: "document",
+          executionMode: "inline",
+          requestedAction: "extract",
+          descriptorMode: null,
+          documentType: null,
+          provider: null,
+          prompt: null,
+          outputFormat: null,
+          docId: null,
+          requestedName: null,
+          artifacts: [],
+          usage: null,
+          action: "extracted",
+          reason: null,
+          warning: null,
+          extraction: {
+            sourcePath: outcome.sourcePath,
+            outputDir: outcome.outputDir,
+            manifestPath: outcome.manifestPath,
+            outputPaths: outcome.outputPaths,
+            suggestedReadPaths: outcome.suggestedReadPaths,
+            counts: outcome.counts,
+            provider: outcome.provider,
+            quality: outcome.quality,
+            warnings: outcome.warnings
+          }
+        },
+        artifacts: [],
+        isError: false
+      };
+    } catch (error) {
+      return this.extractSkipped(
+        "runtime_degraded",
+        error instanceof Error ? error.message : "Document extraction is temporarily unavailable."
+      );
+    }
+  }
+
+  private extractSkipped(reason: string, warning: string): RuntimeDocumentToolExecutionResult {
+    return {
+      payload: {
+        toolCode: "document",
+        executionMode: "inline",
+        requestedAction: "extract",
+        descriptorMode: null,
+        documentType: null,
+        provider: null,
+        prompt: null,
+        outputFormat: null,
+        docId: null,
+        requestedName: null,
+        artifacts: [],
+        usage: null,
+        action: "skipped",
+        reason,
+        warning
+      },
+      artifacts: [],
+      isError: reason === "invalid_arguments"
+    };
+  }
+
   private buildPendingDeliveryMessage(
     descriptorMode:
       | "create_pdf_document"
@@ -239,6 +347,15 @@ export class RuntimeDocumentToolService {
 
   private readDocumentArguments(value: unknown):
     | {
+        kind: "extract";
+        request: {
+          path: string;
+          mode: "auto" | "text" | "ocr" | "layout";
+          outputDir: string | null;
+        };
+      }
+    | {
+        kind: "legacy";
         descriptorMode:
           | "create_pdf_document"
           | "create_presentation"
@@ -266,6 +383,21 @@ export class RuntimeDocumentToolService {
       return new Error("document arguments must be an object.");
     }
     const row = value as Record<string, unknown>;
+    if (row.action === "extract") {
+      const path = this.readNonEmptyString(row.path);
+      if (path === null) {
+        return new Error("document.path must be a non-empty string.");
+      }
+      return {
+        kind: "extract",
+        request: {
+          path,
+          mode:
+            row.mode === "text" || row.mode === "ocr" || row.mode === "layout" ? row.mode : "auto",
+          outputDir: this.readNonEmptyString(row.outputDir)
+        }
+      };
+    }
     const descriptorMode = row.descriptorMode;
     if (
       descriptorMode !== "create_pdf_document" &&
@@ -298,6 +430,7 @@ export class RuntimeDocumentToolService {
         ? row.outputFormat
         : null;
     return {
+      kind: "legacy",
       descriptorMode,
       request: {
         prompt: row.prompt.trim(),
@@ -342,6 +475,10 @@ export class RuntimeDocumentToolService {
       return null;
     }
     return Math.min(rounded, 30);
+  }
+
+  private readNonEmptyString(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
   private normalizeDocId(docId: string | null): string | null {
@@ -514,6 +651,32 @@ export class RuntimeDocumentToolService {
     }
     if (!trimmed.startsWith("/workspace/")) {
       return null;
+    }
+    return trimmed;
+  }
+
+  private normalizeWorkspacePath(
+    value: string,
+    options?: { allowDirectory?: boolean }
+  ): string | null {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith("/workspace/")) {
+      return null;
+    }
+    if (trimmed.includes("..")) {
+      return null;
+    }
+    if (
+      trimmed === "/workspace/input" ||
+      trimmed.startsWith("/workspace/input/") ||
+      trimmed === "/workspace/outbound" ||
+      trimmed.startsWith("/workspace/outbound/")
+    ) {
+      return null;
+    }
+    if (options?.allowDirectory === true) {
+      const normalized = trimmed.replace(/\/+$/g, "");
+      return normalized.length > 0 ? normalized : null;
     }
     return trimmed;
   }

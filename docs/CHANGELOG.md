@@ -5,6 +5,8 @@
 
 ## 2026-06-29
 
+- **Feature (document tools — visible extraction sidecars).** Landed ADR-129 Wave 1: the runtime `document` tool now supports explicit `action: "extract"` for `/workspace/...` sources, calling an API-owned extraction endpoint that reuses existing extraction/OCR policy and persists visible sidecars under `/workspace/<name>.extract/`. Outputs include compact model results plus `manifest.json`, `extracted.md`, and spreadsheet sheet CSVs in canonical GCS + `workspace_file_metadata`, with best-effort hot-pod sync for immediate sandbox visibility. Focused tests cover PDF extraction sidecars, XLSX sheet extraction, generic MIME fallback, outputDir/file collision rejection, runtime result shape, and descriptor exposure.
+
 - **ADR (document tools — agentic workspace workflow).** Opened ADR-129 as the active orchestration program for redesigning `document` from an opaque async generator into a workspace-visible extraction/render/inspect/version workflow. The program keeps `(workspaceId, path)`, `/workspace`, existing extraction/OCR services, sandbox render/build tools, source snapshots, and final `files.attach` delivery as the governing model, and explicitly retires the normal hidden `create_data_document` path before closure.
 
 - **Docs (file ADR closure).** Closed ADR-126 v3, ADR-126 v3 cutover program, ADR-127, and ADR-128 as active filesystem programs. `AGENTS.md` now treats all file/workspace ADRs as closed archive; that closure left no open orchestration program until the later ADR-129 founder priority for document tools.

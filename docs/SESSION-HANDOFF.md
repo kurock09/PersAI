@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 Wave 1 `document.extract` sidecars
+
+Status: code implemented locally; focused API/runtime tests PASS; API/runtime/sandbox typechecks PASS. Pending broader lint/format gate, commit, then ADR-129 Wave 2.
+
+**Scope.** Implemented the first bounded ADR-129 code wave: explicit `document({ action: "extract", path, mode?, outputDir? })` without removing the existing hidden `create_data_document` path or changing final delivery.
+
+**Fix.** Runtime now parses `action: "extract"` and calls a new internal API extraction endpoint. API-owned extraction writes visible `/workspace/...extract/` sidecars (`manifest.json`, `extracted.md`, and sheet CSVs for spreadsheets) through canonical GCS + `workspace_file_metadata`, with best-effort hot-pod sync for immediate sandbox visibility. The result returned to the model is compact and points to sidecar paths for `files.read`/`grep`.
+
+**Orchestrator audit fixes.** Added generic MIME fallback so `.xlsx`/`.csv` stored as `application/octet-stream` route to spreadsheet extraction, rejected `outputDir` values that collide with an existing file, capped inline `outputPaths` with the full list in `manifest.json`, and hardened tests to mimic real workspace object keys.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-extraction.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-document-tool.service.test.ts test/native-tool-projection.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS.
+- `corepack pnpm --filter @persai/sandbox run typecheck` — PASS.
+
+**Next recommended step.** Run broader format/lint for the checkpoint, commit Wave 1 if clean, then start ADR-129 Wave 2 render/inspect primitives.
+
 ## 2026-06-29 — ADR-129 opened for agentic document workspace workflow
 
 Status: docs authored locally; verification pending.

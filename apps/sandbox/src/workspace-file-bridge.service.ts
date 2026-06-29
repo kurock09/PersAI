@@ -196,7 +196,8 @@ export class WorkspaceFileBridgeService {
   async writeWorkspaceFileControlPlane(
     ctx: WorkspaceBridgeContext,
     input: {
-      basename: string;
+      basename?: string | null;
+      path?: string | null;
       contents: Buffer;
     }
   ): Promise<
@@ -207,12 +208,18 @@ export class WorkspaceFileBridgeService {
       mode: "written" | "deferred";
     }>
   > {
-    if (!isValidWorkspaceBasename(input.basename)) {
+    const targetPath =
+      typeof input.path === "string" && input.path.trim().length > 0
+        ? this.resolveModelPath(ctx, input.path).absolutePath
+        : typeof input.basename === "string" && isValidWorkspaceBasename(input.basename)
+          ? `${WORKSPACE_MOUNT_ROOT}/${input.basename}`
+          : null;
+    if (targetPath === null) {
       const event: WorkspaceFileBridgeEvent = {
         workspaceId: ctx.workspaceId,
         assistantId: ctx.assistantId,
-        absolutePath: `${WORKSPACE_MOUNT_ROOT}/${input.basename}`,
-        relativePath: input.basename,
+        absolutePath: `${WORKSPACE_MOUNT_ROOT}/${input.basename ?? ""}`,
+        relativePath: input.basename ?? "",
         status: "error",
         exitCode: null,
         bytes: null,
@@ -225,19 +232,19 @@ export class WorkspaceFileBridgeService {
         reason: "write_denied",
         latencyMs: 0,
         data: {
-          workspaceRelPath: `${WORKSPACE_MOUNT_ROOT}/${input.basename}`,
-          absolutePath: `${WORKSPACE_MOUNT_ROOT}/${input.basename}`,
+          workspaceRelPath: `${WORKSPACE_MOUNT_ROOT}/${input.basename ?? ""}`,
+          absolutePath: `${WORKSPACE_MOUNT_ROOT}/${input.basename ?? ""}`,
           bytes: 0,
           mode: "written"
         }
       };
     }
-    const targetPath = `${WORKSPACE_MOUNT_ROOT}/${input.basename}`;
     const quotedDir = posixSingleQuote(WORKSPACE_MOUNT_ROOT);
     const quotedTarget = posixSingleQuote(targetPath);
     const shellCommand = [
       "set -e",
       `mkdir -p ${quotedDir}`,
+      `mkdir -p ${posixSingleQuote(this.parentDir(targetPath))}`,
       `chmod 0755 ${quotedDir}`,
       `cat > ${quotedTarget}`
     ].join(" && ");
@@ -260,7 +267,7 @@ export class WorkspaceFileBridgeService {
         workspaceId: ctx.workspaceId,
         assistantId: ctx.assistantId,
         absolutePath: targetPath,
-        relativePath: input.basename,
+        relativePath: this.toWorkspaceRelPath(targetPath).replace(`${WORKSPACE_MOUNT_ROOT}/`, ""),
         status: "ok",
         exitCode: 0,
         bytes: input.contents.length,
@@ -287,7 +294,7 @@ export class WorkspaceFileBridgeService {
       workspaceId: ctx.workspaceId,
       assistantId: ctx.assistantId,
       absolutePath: targetPath,
-      relativePath: input.basename,
+      relativePath: this.toWorkspaceRelPath(targetPath).replace(`${WORKSPACE_MOUNT_ROOT}/`, ""),
       status: success ? "ok" : "error",
       exitCode: podResult.exitCode,
       bytes: success ? input.contents.length : null,

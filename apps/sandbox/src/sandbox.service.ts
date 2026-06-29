@@ -248,6 +248,7 @@ export class SandboxService {
     assistantHandle?: string | null;
     siblingHandles?: readonly string[] | null;
     basename: string;
+    path?: string | null;
     contents?: Buffer | null;
     storagePath?: string | null;
     mimeType: string;
@@ -292,6 +293,7 @@ export class SandboxService {
         bridgeCtx,
         {
           basename: input.basename,
+          path: input.path ?? null,
           contents
         }
       );

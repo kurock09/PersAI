@@ -1309,6 +1309,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
     description: resolveToolDefinitionDescription(
       policy,
       [
+        'Use action="extract" to turn an existing `/workspace/...` source file into visible sidecar files under `/workspace/<name>.extract` (or your chosen outputDir). The result is compact and points to the manifest/text/sheet paths to read next with `files.read` or `grep`.',
         "Create, revise, export, or redeliver assistant-generated documents through one typed document tool.",
         "Use create_pdf_document for PDF-first documents, create_presentation for presentation generation, revise_document to modify an existing PDF (small typo fixes, large rewrites, or full restructures — all go through revise), and export_or_redeliver to resend or re-render an existing document when supported. Follow the Working Files document-role guidance: prefer DOC_CURRENT_SOURCE for a newly attached source file the user wants turned into a PDF, and use DOC_LAST_DELIVERED_PDF only when the user explicitly wants to modify an already generated PDF. revise_document with no docId or storagePath auto-resolves to the latest matching PDF in the current chat. Reference an existing chat document from another chat by its workspace storagePath (visible in the Working Files block). Use docId only when you already have the exact UUID for the current chat's existing document. Do not pass both storagePath and docId.",
         "Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
@@ -1331,8 +1332,40 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["descriptorMode", "prompt"],
+      oneOf: [
+        {
+          required: ["action", "path"],
+          properties: {
+            action: { enum: ["extract"] }
+          }
+        },
+        {
+          required: ["descriptorMode", "prompt"]
+        }
+      ],
       properties: {
+        action: {
+          type: "string",
+          enum: ["extract"],
+          description:
+            'Explicit extraction action. Use `action="extract"` with a `/workspace/...` source path to write visible extraction sidecars instead of generating a delivered document.'
+        },
+        path: {
+          type: "string",
+          description:
+            'Source file path for `action="extract"`. Must be an existing `/workspace/...` file. Reject old namespaces such as `/shared/...`, `/workspace/input/...`, and `/workspace/outbound/...`.'
+        },
+        mode: {
+          type: "string",
+          enum: ["auto", "text", "ocr", "layout"],
+          description:
+            'Optional extraction mode for `action="extract"`. Use auto by default, text to prefer local text-layer extraction, ocr to force the default OCR/provider path, and layout to prefer the high-quality layout-preserving path.'
+        },
+        outputDir: {
+          type: "string",
+          description:
+            'Optional sidecar directory for `action="extract"`. Must stay under `/workspace/...`. Default: sibling `<basename>.extract` directory next to the source file.'
+        },
         descriptorMode: {
           type: "string",
           enum: [

@@ -138,7 +138,13 @@ export class SandboxController {
     const row = body as Record<string, unknown>;
     const assistantId = this.requireNonEmptyString(row.assistantId, "assistantId");
     const workspaceId = this.requireNonEmptyString(row.workspaceId, "workspaceId");
-    const basename = this.requireNonEmptyString(row.basename, "basename");
+    const basename =
+      typeof row.basename === "string" && row.basename.trim().length > 0 ? row.basename.trim() : "";
+    const path =
+      typeof row.path === "string" && row.path.trim().length > 0 ? row.path.trim() : null;
+    if (basename.length === 0 && path === null) {
+      throw new ServiceUnavailableException("Either basename or path is required.");
+    }
     const contentBase64 =
       typeof row.contentBase64 === "string" && row.contentBase64.trim().length > 0
         ? row.contentBase64.trim()
@@ -167,6 +173,7 @@ export class SandboxController {
       assistantHandle,
       siblingHandles,
       basename,
+      path,
       contents: contentBase64 === null ? null : Buffer.from(contentBase64, "base64"),
       storagePath,
       mimeType

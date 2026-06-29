@@ -6,12 +6,105 @@ import { RuntimeDocumentToolService } from "../src/modules/turns/runtime-documen
 function createBundle(): AssistantRuntimeBundle {
   return {
     metadata: {
-      assistantId: "assistant-1"
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1"
     }
   } as unknown as AssistantRuntimeBundle;
 }
 
 describe("RuntimeDocumentToolService", () => {
+  test("returns extracted payload when document.extract succeeds", async () => {
+    const service = new RuntimeDocumentToolService({
+      async extractDocumentToWorkspace() {
+        return {
+          accepted: true as const,
+          sourcePath: "/workspace/source.pdf",
+          outputDir: "/workspace/source.extract",
+          manifestPath: "/workspace/source.extract/manifest.json",
+          outputPaths: [
+            "/workspace/source.extract/extracted.md",
+            "/workspace/source.extract/manifest.json"
+          ],
+          suggestedReadPaths: [
+            "/workspace/source.extract/manifest.json",
+            "/workspace/source.extract/extracted.md"
+          ],
+          counts: {
+            documentCount: 1,
+            pageCount: 4,
+            sheetCount: null
+          },
+          provider: {
+            providerKey: "local" as const,
+            processorMode: "local" as const,
+            attemptedProviderKeys: ["local" as const]
+          },
+          quality: {
+            status: "ok" as const,
+            score: 0.8,
+            reasonCodes: [],
+            textChars: 1200
+          },
+          warnings: []
+        };
+      }
+    } as never);
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-extract-1",
+        name: "document",
+        arguments: {
+          action: "extract",
+          path: "/workspace/source.pdf"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-extract-1",
+        sourceUserMessageText: "Extract this PDF",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.executionMode, "inline");
+    assert.equal(result.payload.requestedAction, "extract");
+    assert.equal(result.payload.action, "extracted");
+    assert.equal(
+      result.payload.extraction?.manifestPath,
+      "/workspace/source.extract/manifest.json"
+    );
+    assert.deepEqual(result.payload.extraction?.counts, {
+      documentCount: 1,
+      pageCount: 4,
+      sheetCount: null
+    });
+  });
+
+  test("rejects document.extract paths outside canonical workspace", async () => {
+    const service = new RuntimeDocumentToolService({} as never);
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-extract-2",
+        name: "document",
+        arguments: {
+          action: "extract",
+          path: "/shared/source.pdf"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-extract-2",
+        sourceUserMessageText: "Extract this file",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+    assert.equal(result.isError, true);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+  });
+
   test("returns pending_delivery payload when document enqueue is accepted", async () => {
     const service = new RuntimeDocumentToolService({
       async enqueueDeferredDocumentJob() {

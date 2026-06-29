@@ -47,6 +47,7 @@ export class SandboxControlPlaneClientService {
     assistantId: string;
     workspaceId: string;
     basename: string;
+    path?: string | null;
     storagePath?: string | null;
     contents?: Buffer | null;
     mimeType: string;
@@ -69,6 +70,7 @@ export class SandboxControlPlaneClientService {
           assistantId: input.assistantId,
           workspaceId: input.workspaceId,
           basename: input.basename,
+          ...(input.path ? { path: input.path } : {}),
           ...(input.storagePath
             ? { storagePath: input.storagePath }
             : { contentBase64: input.contents?.toString("base64") ?? "" }),

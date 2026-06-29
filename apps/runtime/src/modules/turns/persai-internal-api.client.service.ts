@@ -406,6 +406,14 @@ export type InternalEnqueueDeferredDocumentJobInput = {
   };
 };
 
+export type InternalDocumentExtractInput = {
+  assistantId: string;
+  workspaceId: string;
+  path: string;
+  mode?: "auto" | "text" | "ocr" | "layout";
+  outputDir?: string | null;
+};
+
 export type RegisterChatAttachmentKind =
   | "user_upload"
   | "image_generate"
@@ -706,6 +714,151 @@ export class PersaiInternalApiClientService {
     }
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected deferred document enqueue."
+    );
+  }
+
+  async extractDocumentToWorkspace(input: InternalDocumentExtractInput): Promise<
+    | {
+        accepted: true;
+        sourcePath: string;
+        outputDir: string;
+        manifestPath: string;
+        outputPaths: string[];
+        suggestedReadPaths: string[];
+        counts: {
+          documentCount: number | null;
+          pageCount: number | null;
+          sheetCount: number | null;
+        };
+        provider: {
+          providerKey: "local" | "mistral" | "llamaparse";
+          processorMode: "auto" | "local" | "default_provider" | "high_quality_fallback";
+          attemptedProviderKeys: Array<"local" | "mistral" | "llamaparse">;
+        } | null;
+        quality: {
+          status: "ok" | "poor" | "needs_review";
+          score: number | null;
+          reasonCodes: string[];
+          textChars: number;
+        } | null;
+        warnings: string[];
+      }
+    | {
+        accepted: false;
+        code: string;
+        message: string;
+      }
+  > {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/document-extract", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    const payload = this.asObject(response.body);
+    if (response.ok) {
+      if (
+        payload?.ok === true &&
+        payload.accepted === true &&
+        typeof payload.sourcePath === "string" &&
+        typeof payload.outputDir === "string" &&
+        typeof payload.manifestPath === "string"
+      ) {
+        const counts = this.asObject(payload.counts);
+        const provider = this.asObject(payload.provider);
+        const quality = this.asObject(payload.quality);
+        return {
+          accepted: true,
+          sourcePath: payload.sourcePath,
+          outputDir: payload.outputDir,
+          manifestPath: payload.manifestPath,
+          outputPaths: Array.isArray(payload.outputPaths)
+            ? payload.outputPaths.filter((entry): entry is string => typeof entry === "string")
+            : [],
+          suggestedReadPaths: Array.isArray(payload.suggestedReadPaths)
+            ? payload.suggestedReadPaths.filter(
+                (entry): entry is string => typeof entry === "string"
+              )
+            : [],
+          counts: {
+            documentCount: typeof counts?.documentCount === "number" ? counts.documentCount : null,
+            pageCount: typeof counts?.pageCount === "number" ? counts.pageCount : null,
+            sheetCount: typeof counts?.sheetCount === "number" ? counts.sheetCount : null
+          },
+          provider:
+            provider !== null &&
+            (provider.providerKey === "local" ||
+              provider.providerKey === "mistral" ||
+              provider.providerKey === "llamaparse") &&
+            (provider.processorMode === "auto" ||
+              provider.processorMode === "local" ||
+              provider.processorMode === "default_provider" ||
+              provider.processorMode === "high_quality_fallback") &&
+            Array.isArray(provider.attemptedProviderKeys)
+              ? {
+                  providerKey: provider.providerKey,
+                  processorMode: provider.processorMode,
+                  attemptedProviderKeys: provider.attemptedProviderKeys.filter(
+                    (entry): entry is "local" | "mistral" | "llamaparse" =>
+                      entry === "local" || entry === "mistral" || entry === "llamaparse"
+                  )
+                }
+              : null,
+          quality:
+            quality !== null &&
+            (quality.status === "ok" ||
+              quality.status === "poor" ||
+              quality.status === "needs_review") &&
+            typeof quality.textChars === "number"
+              ? {
+                  status: quality.status,
+                  score:
+                    quality.score === null || typeof quality.score === "number"
+                      ? quality.score
+                      : null,
+                  reasonCodes: Array.isArray(quality.reasonCodes)
+                    ? quality.reasonCodes.filter(
+                        (entry): entry is string => typeof entry === "string"
+                      )
+                    : [],
+                  textChars: quality.textChars
+                }
+              : null,
+          warnings: Array.isArray(payload.warnings)
+            ? payload.warnings.filter((entry): entry is string => typeof entry === "string")
+            : []
+        };
+      }
+      if (
+        payload?.ok === true &&
+        payload.accepted === false &&
+        typeof payload.code === "string" &&
+        typeof payload.message === "string"
+      ) {
+        return {
+          accepted: false,
+          code: payload.code,
+          message: payload.message
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid document extract response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API document extract failed."
+      );
+    }
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected document extract."
     );
   }
 

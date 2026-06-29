@@ -840,6 +840,10 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   const documentProperties = (
     document?.inputSchema as {
       properties?: {
+        action?: { enum?: unknown[]; description?: string };
+        path?: { description?: string };
+        mode?: { enum?: unknown[]; description?: string };
+        outputDir?: { description?: string };
         descriptorMode?: { enum?: unknown[] };
         docId?: { description?: string };
         storagePath?: { description?: string };
@@ -849,6 +853,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       };
     }
   )?.properties;
+  assert.deepEqual(documentProperties?.action?.enum, ["extract"]);
+  assert.match(documentProperties?.action?.description ?? "", /visible sidecar files/i);
+  assert.match(documentProperties?.path?.description ?? "", /existing `?\/workspace\//i);
+  assert.deepEqual(documentProperties?.mode?.enum, ["auto", "text", "ocr", "layout"]);
+  assert.match(documentProperties?.outputDir?.description ?? "", /basename\.extract/i);
   assert.deepEqual(documentProperties?.descriptorMode?.enum, [
     "create_pdf_document",
     "create_presentation",

@@ -2018,7 +2018,8 @@ export interface RuntimeVideoGenerateToolResult {
 
 export interface RuntimeDocumentToolResult {
   toolCode: "document";
-  executionMode: "worker";
+  executionMode: "worker" | "inline";
+  requestedAction?: "extract" | null;
   descriptorMode:
     | "create_pdf_document"
     | "create_presentation"
@@ -2034,7 +2035,7 @@ export interface RuntimeDocumentToolResult {
   requestedName: string | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
-  action: "generated" | "skipped" | "pending_delivery";
+  action: "generated" | "skipped" | "pending_delivery" | "extracted";
   reason: string | null;
   warning: string | null;
   guidance?: string | null;
@@ -2042,6 +2043,27 @@ export interface RuntimeDocumentToolResult {
   versionId?: string | null;
   canSendFileNow?: boolean;
   messageToUser?: string | null;
+  extraction?: RuntimeDocumentExtractionSummary | null;
+}
+
+export interface RuntimeDocumentExtractionSummary {
+  sourcePath: string;
+  outputDir: string;
+  manifestPath: string;
+  outputPaths: string[];
+  suggestedReadPaths: string[];
+  counts: {
+    documentCount: number | null;
+    pageCount: number | null;
+    sheetCount: number | null;
+  };
+  provider?: {
+    providerKey: "local" | "mistral" | "llamaparse";
+    processorMode: "auto" | "local" | "default_provider" | "high_quality_fallback";
+    attemptedProviderKeys: Array<"local" | "mistral" | "llamaparse">;
+  } | null;
+  quality?: RuntimeFilesReadExtractionQuality | null;
+  warnings?: string[];
 }
 
 export const PERSAI_RUNTIME_TTS_PROVIDER_IDS = ["elevenlabs", "yandex", "openai"] as const;
