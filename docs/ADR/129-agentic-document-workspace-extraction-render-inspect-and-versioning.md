@@ -2,7 +2,7 @@
 
 ## Status
 
-Open orchestration program.
+Implemented locally through Wave 6; final deploy/live validation pending.
 
 ## Date
 

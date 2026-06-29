@@ -1,8 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-06-29 — ADR-129 local implementation complete; deploy/live pending
+
+Status: all ADR-129 implementation waves are committed locally through Wave 6; final local AGENTS/ADR gate PASS. Pending explicit push/deploy, then Wave 7 live validation on real PDF/XLSX/DOCX examples before closing ADR-129.
+
+**Scope.** Completed the local agentic document workflow program slices: visible extraction sidecars, visible render/inspect, visible version registration, retirement of the normal opaque `create_data_document` model-facing path, visible-workspace-aware PDF revise guard, and model-facing/docs wording cleanup.
+
+**Checks.**
+
+- `corepack pnpm -r --if-present run lint` — PASS.
+- `corepack pnpm run format:check` — PASS.
+- `corepack pnpm --filter @persai/api run typecheck` — PASS.
+- `corepack pnpm --filter @persai/web run typecheck` — PASS.
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS.
+- `corepack pnpm --filter @persai/sandbox run typecheck` — PASS.
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-extraction.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-inspection.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-version-registration.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job-delivery.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/register-chat-attachment.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/enqueue-runtime-deferred-document-job.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-data.test.ts` — PASS.
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts` — PASS.
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts` — PASS.
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-message.test.tsx --config vitest.config.ts` — PASS.
+
+**Residual.** ADR-129 is not live-closed until the branch is pushed/deployed and Wave 7 validates: large PDF extract/render/inspect/revise/attach, complex XLSX extract/create/inspect/revise/attach, DOCX create/inspect/revise/attach, and chat refresh metadata survival.
+
+**Next recommended step.** Push/deploy only after explicit approval, then run ADR-129 Wave 7 live validation and close the ADR if all live checks pass.
+
 ## 2026-06-29 — ADR-129 Wave 6 tool docs, active wording, and cleanup
 
-Status: code/docs implemented locally; focused API/runtime tests PASS; api/runtime/web typechecks PASS; repo lint PASS; format:check PASS. Pending parent audit; do not commit/push from this subagent.
+Status: code/docs committed locally; focused API/runtime tests PASS; API/runtime/web typechecks PASS; repo lint PASS; format:check PASS. Included in the final local ADR-129 verification gate.
 
 **Scope.** Implemented the bounded ADR-129 Wave 6 slice: clean up active model-facing document wording plus the active docs that still described retired file/provider truth for the document workflow.
 
@@ -20,7 +50,7 @@ Status: code/docs implemented locally; focused API/runtime tests PASS; api/runti
 
 **Residual.** This wave is intentionally wording/docs cleanup only. It does not remove the remaining internal compatibility code for historical `create_data_document` rows or deferred presentation/PDF worker paths. The repo also started this session with unrelated untracked files already present; they were left untouched.
 
-**Next recommended step.** Parent audit this Wave 6 diff, then either commit Waves 5-6 together if accepted or proceed to ADR-129 Wave 7 closure/live validation.
+**Next recommended step.** Proceed to ADR-129 Wave 7 deploy/live validation after explicit push/deploy approval.
 
 ## 2026-06-29 — ADR-129 Wave 5 PDF revise from visible workspace source
 
