@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { TOOL_CATALOG, STARTER_TRIAL_TOOL_POLICY } from "../prisma/tool-catalog-data";
+import {
+  PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER,
+  isPromptConstructorModelToolCode
+} from "../src/modules/workspace-management/application/prompt-constructor-tool-metadata";
 
 function testTodoWriteCatalogRow(): void {
   const rows = TOOL_CATALOG.filter((t) => t.code === "todo_write");
@@ -161,6 +165,18 @@ function testStarterTrialPolicyPresentationMirrorsDocument(): void {
   );
 }
 
+function testPresentationIsPromptConstructorEditable(): void {
+  assert.ok(
+    isPromptConstructorModelToolCode("presentation"),
+    "presentation must be editable in Admin > Presets Per-Tool Model Instructions"
+  );
+  const documentIndex = PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER.indexOf("document");
+  const presentationIndex = PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER.indexOf("presentation");
+  assert.ok(documentIndex >= 0 && presentationIndex === documentIndex + 1, {
+    message: "presentation must follow document in prompt-constructor tool order"
+  });
+}
+
 function testStarterTrialPolicyTodoWrite(): void {
   const policy = STARTER_TRIAL_TOOL_POLICY["todo_write"];
   assert.ok(policy !== undefined, "STARTER_TRIAL_TOOL_POLICY must have a todo_write entry");
@@ -177,6 +193,7 @@ export async function runToolCatalogDataTest(): Promise<void> {
   testDocumentCatalogRowSteersAwayFromPresentation();
   testFilesCatalogRowUsesExactListedPaths();
   testStarterTrialPolicyPresentationMirrorsDocument();
+  testPresentationIsPromptConstructorEditable();
   testStarterTrialPolicyTodoWrite();
   console.log("[tool-catalog-data] all tests passed");
 }
