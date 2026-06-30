@@ -918,7 +918,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     document?.description ?? "",
-    /simple new PDF document\/manual\/report.*First write.*index\.html.*document\.render/s,
+    /simple new PDF request.*First write.*index\.html.*document\.render/s,
     "document guidance must teach the efficient first-call PDF workflow"
   );
   assert.match(
@@ -943,7 +943,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     document?.description ?? "",
-    /Do not use the presentation tool for PDF manuals/i,
+    /Slide decks belong in presentation|Do not use the presentation tool/i,
     "document guidance must steer ordinary PDF work away from presentation"
   );
   assert.doesNotMatch(
@@ -978,13 +978,13 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   ]);
   assert.match(
     presentation?.description ?? "",
-    /slide decks and presentations/i,
+    /slide deck/i,
     "presentation description must be deck-specific"
   );
   assert.match(
     presentation?.description ?? "",
-    /not for ordinary PDF documents/i,
-    "presentation description must exclude ordinary PDF documents"
+    /create_presentation|slide decks only/i,
+    "presentation description must stay on deferred deck modes"
   );
   assert.deepEqual(presentationProperties?.outputFormat?.enum, ["pdf", "pptx"]);
   assert.match(presentationProperties?.docId?.description ?? "", /presentation document UUID/);
