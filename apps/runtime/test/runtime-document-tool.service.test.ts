@@ -575,11 +575,11 @@ describe("RuntimeDocumentToolService", () => {
         };
       }
     } as never);
-    const result = await service.executeToolCall({
+    const result = await service.executePresentationToolCall({
       bundle: createBundle(),
       toolCall: {
         id: "tool-1",
-        name: "document",
+        name: "presentation",
         arguments: {
           descriptorMode: "create_presentation",
           prompt: "Create a one-page deck"
@@ -614,11 +614,11 @@ describe("RuntimeDocumentToolService", () => {
       }
     } as never);
 
-    await service.executeToolCall({
+    await service.executePresentationToolCall({
       bundle: createBundle(),
       toolCall: {
         id: "tool-1",
-        name: "document",
+        name: "presentation",
         arguments: {
           descriptorMode: "create_presentation",
           prompt: "Создай презентацию на основе прикреплённого документа"
@@ -668,11 +668,11 @@ describe("RuntimeDocumentToolService", () => {
       }
     } as never);
 
-    await service.executeToolCall({
+    await service.executePresentationToolCall({
       bundle: createBundle(),
       toolCall: {
         id: "tool-1",
-        name: "document",
+        name: "presentation",
         arguments: {
           descriptorMode: "create_presentation",
           prompt: "Create a short deck about quarterly pricing"
@@ -742,13 +742,35 @@ describe("RuntimeDocumentToolService", () => {
       assert.equal(result.payload.reason, "invalid_arguments");
       assert.match(
         result.payload.warning ?? "",
-        /create_presentation, revise_document, or export_or_redeliver/
-      );
-      assert.match(
-        result.payload.warning ?? "",
-        /visible workspace actions|document\.extract|document\.render|document\.inspect|document\.register_version/
+        /document\.extract|document\.render|document\.inspect|document\.register_version|presentation tool/i
       );
     }
+  });
+
+  test("rejects create_presentation on the document tool", async () => {
+    const service = new RuntimeDocumentToolService({} as never);
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-presentation-on-document",
+        name: "document",
+        arguments: {
+          descriptorMode: "create_presentation",
+          prompt: "Create a deck"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-split",
+        sourceUserMessageText: "Сделай презентацию",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, true);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.match(result.payload.warning ?? "", /presentation tool/i);
   });
 
   test("maps rejected enqueue into skipped payload", async () => {
@@ -762,11 +784,11 @@ describe("RuntimeDocumentToolService", () => {
         };
       }
     } as never);
-    const result = await service.executeToolCall({
+    const result = await service.executePresentationToolCall({
       bundle: createBundle(),
       toolCall: {
         id: "tool-1",
-        name: "document",
+        name: "presentation",
         arguments: {
           descriptorMode: "export_or_redeliver",
           prompt: "Resend the latest file",
@@ -810,11 +832,11 @@ describe("RuntimeDocumentToolService", () => {
       }
     } as never);
 
-    const result = await service.executeToolCall({
+    const result = await service.executePresentationToolCall({
       bundle: createBundle(),
       toolCall: {
         id: "tool-default-pdf",
-        name: "document",
+        name: "presentation",
         arguments: {
           descriptorMode: "create_presentation",
           prompt: "Make a deck about flowering plants for grade 6 biology"
@@ -857,11 +879,11 @@ describe("RuntimeDocumentToolService", () => {
       }
     } as never);
 
-    const result = await service.executeToolCall({
+    const result = await service.executePresentationToolCall({
       bundle: createBundle(),
       toolCall: {
         id: "tool-pptx-1",
-        name: "document",
+        name: "presentation",
         arguments: {
           descriptorMode: "create_presentation",
           prompt: "Create a deck",
@@ -905,11 +927,11 @@ describe("RuntimeDocumentToolService", () => {
       }
     } as never);
 
-    await service.executeToolCall({
+    await service.executePresentationToolCall({
       bundle: createBundle(),
       toolCall: {
         id: "tool-target-1",
-        name: "document",
+        name: "presentation",
         arguments: {
           descriptorMode: "create_presentation",
           prompt: "Deck on photosynthesis",
@@ -924,11 +946,11 @@ describe("RuntimeDocumentToolService", () => {
       }
     });
 
-    await service.executeToolCall({
+    await service.executePresentationToolCall({
       bundle: createBundle(),
       toolCall: {
         id: "tool-target-2",
-        name: "document",
+        name: "presentation",
         arguments: {
           descriptorMode: "create_presentation",
           prompt: "Massive deck",
@@ -943,11 +965,11 @@ describe("RuntimeDocumentToolService", () => {
       }
     });
 
-    await service.executeToolCall({
+    await service.executePresentationToolCall({
       bundle: createBundle(),
       toolCall: {
         id: "tool-target-3",
-        name: "document",
+        name: "presentation",
         arguments: {
           descriptorMode: "create_presentation",
           prompt: "Bad slide count value",

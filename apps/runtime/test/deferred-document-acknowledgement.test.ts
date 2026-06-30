@@ -264,10 +264,14 @@ describe("deferred document acknowledgement", () => {
 
     const reordered = service.reorderToolCallsDocumentFirst([
       { id: "tc-files-1", name: "files", arguments: { action: "send" } },
-      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "create_presentation" } }
+      {
+        id: "tc-doc-1",
+        name: "presentation",
+        arguments: { descriptorMode: "create_presentation" }
+      }
     ]);
 
-    assert.equal(reordered[0]?.name, "document");
+    assert.equal(reordered[0]?.name, "presentation");
     assert.equal(reordered[1]?.name, "files");
   });
 
@@ -281,9 +285,13 @@ describe("deferred document acknowledgement", () => {
     const reordered = service.reorderToolCallsDocumentFirst([
       { id: "tc-files-1", name: "files", arguments: { action: "send" } },
       { id: "tc-other-1", name: "web_search", arguments: {} },
-      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "revise_document" } },
+      { id: "tc-doc-1", name: "presentation", arguments: { descriptorMode: "revise_document" } },
       { id: "tc-files-2", name: "files", arguments: { action: "write_and_send" } },
-      { id: "tc-doc-2", name: "document", arguments: { descriptorMode: "create_presentation" } }
+      {
+        id: "tc-doc-2",
+        name: "presentation",
+        arguments: { descriptorMode: "create_presentation" }
+      }
     ]);
 
     assert.equal(reordered[0]?.id, "tc-doc-1");
@@ -308,7 +316,11 @@ describe("deferred document acknowledgement", () => {
     assert.equal(reordered, input);
 
     const input2 = [
-      { id: "tc-doc-1", name: "document", arguments: { descriptorMode: "create_presentation" } },
+      {
+        id: "tc-doc-1",
+        name: "presentation",
+        arguments: { descriptorMode: "create_presentation" }
+      },
       { id: "tc-other-1", name: "web_search", arguments: {} }
     ];
     const reordered2 = service.reorderToolCallsDocumentFirst(input2);

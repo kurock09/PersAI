@@ -118,29 +118,48 @@ GOTCHAS:
     code: "document",
     displayName: "Document",
     description:
-      "Create, revise, inspect, and register user-ready documents through a visible workspace workflow.",
+      "Create, inspect, render, and register user-ready PDF/DOCX/XLSX files through a visible workspace workflow.",
     modelDescription:
-      "Create or revise user-ready PDFs, presentations, spreadsheets, and DOCX files through the unified document workflow.",
-    modelUsageGuidance: `WHEN TO USE: User explicitly asks for a generated PDF, presentation, deck, proposal, report, a visible workspace-built spreadsheet/Excel file, a visible workspace-built Word/DOCX file, or a revision to an existing PersAI document. Use this even when source material is an uploaded image/file.
-WHEN NOT TO USE: User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (chat delivery is a separate explicit action — do not regenerate a document just to resend it).
+      "Build or revise user-ready PDF, DOCX, and XLSX files through visible workspace source files, render, inspect, and files.attach.",
+    modelUsageGuidance: `WHEN TO USE: User asks for a PDF document, DOCX/Word file, XLSX/spreadsheet, report, manual, instruction, table, or other ordinary document output — including from uploaded source files. Use the visible workspace loop, not presentation.
+WHEN NOT TO USE: User asks for slides, a deck, or a presentation (use \`presentation\`). User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (use \`files.attach\`; do not regenerate just to resend).
 EXAMPLES:
 - document({action:"extract", path:"/workspace/source.pdf"}) — turn an existing workspace source into visible extraction sidecars before reading or reusing it.
 - document({action:"render", projectPath:"/workspace/report", outputPath:"/workspace/report/output.pdf", format:"pdf"}) — build a visible PDF from workspace source files.
 - document({action:"render", projectPath:"/workspace/report", outputPath:"/workspace/report/output.xlsx", format:"xlsx"}) — build a visible spreadsheet from workspace source files.
 - document({action:"inspect", path:"/workspace/report/output.xlsx"}) — inspect the rendered XLSX/DOCX/PDF before delivery.
 - document({action:"register_version", outputPath:"/workspace/report/output.xlsx", workspaceProjectPath:"/workspace/report", inspectionPath:"/workspace/report/output.inspect.json"}) — optionally persist PersAI version metadata before files.attach.
-- document({descriptorMode:"create_presentation", prompt:"…"}) — create a presentation deck through the existing presentation path.
-- document({descriptorMode:"export_or_redeliver", docId:"…", outputFormat:"pptx", prompt:"…"}) — prepare/redeliver editable PPTX only when the user explicitly asked for PowerPoint.
 GOTCHAS:
 - For document work from an uploaded or existing workspace source, the normal flow is: extract if needed, create or edit visible \`/workspace\` source files, render, inspect, optionally register_version, then files.attach.
-- PDF, spreadsheet, and Word outputs use the visible \`/workspace\` workflow instead of retired background descriptor generation.
-- PDF render uses an HTML entrypoint by default; do not ask PDF render to auto-run a DOCX/XLSX Python builder as the PDF renderer. Use an explicit Python PDF entrypoint only when it writes the PDF to \`PERSAI_OUTPUT_PATH\`.
-- For Python-based \`document.render\`, write the final file exactly to \`PERSAI_OUTPUT_PATH\`. The runtime executes the Python entrypoint from \`projectPath\`; do not chdir into \`/workspace\` yourself and do not construct paths like \`/workspace/workspace/...\`.
-- Presentations: PDF-first unless the user explicitly wants editable PPTX/PowerPoint.
-- Fill \`visualStyle\`, \`imagePolicy\`, and \`visualDensity\` only when the user's visual intent is clear. For ordinary school, educational, and standard business decks, prefer visual defaults that stay readable and presentation-native. Use \`text_only\` only when the user explicitly wants no images; use \`text_heavy\` only when they explicitly want dense slide copy.
-- Runs may go async. Never claim delivery until the delivered file actually arrives; until then, say it is in progress.`,
+- For a simple new PDF, first write \`/workspace/<project>/index.html\` with files.write, then document.render(format=pdf), document.inspect, files.attach. Do not call presentation for a PDF document/manual/report.
+- PDF render uses an HTML entrypoint by default; do not ask PDF render to auto-run a DOCX/XLSX Python builder as the PDF renderer.
+- For Python-based \`document.render\`, write the final file exactly to \`PERSAI_OUTPUT_PATH\`. Do not chdir into \`/workspace\` yourself and do not construct paths like \`/workspace/workspace/...\`.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
+    policyClass: "plan_managed"
+  },
+  {
+    id: "19191919-1919-1919-1919-191919191919",
+    code: "presentation",
+    displayName: "Presentation",
+    description:
+      "Create, revise, or export slide decks through the deferred Gamma presentation worker.",
+    modelDescription:
+      "Create or revise slide decks and export editable PPTX when explicitly requested. Chat delivery for new/revised decks is PDF.",
+    modelUsageGuidance: `WHEN TO USE: User explicitly asks for a presentation, slide deck, slides, pitch deck, or PPTX/PowerPoint export/redelivery of an existing PersAI presentation.
+WHEN NOT TO USE: User asks for an ordinary PDF document, manual, report, instruction, DOCX, or XLSX file (use \`document\` + visible workspace workflow). User just wants an inline text answer.
+EXAMPLES:
+- presentation({descriptorMode:"create_presentation", prompt:"…"}) — create a new slide deck.
+- presentation({descriptorMode:"revise_document", docId:"…", prompt:"…"}) — revise an existing PersAI presentation.
+- presentation({descriptorMode:"export_or_redeliver", docId:"…", outputFormat:"pptx", prompt:"…"}) — prepare editable PPTX only when the user explicitly asked for PowerPoint.
+GOTCHAS:
+- Chat delivery for create_presentation and presentation revise_document is always PDF. outputFormat=pptx is only for export_or_redeliver when the user explicitly asked for PPTX/PowerPoint.
+- Do not use presentation for PDF manuals, instructions, or document-style reports.
+- Fill visualStyle, imagePolicy, and visualDensity only when visual intent is clear.
+- Runs async. Never claim delivery until the file actually arrives.`,
+    capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
+    toolClass: "cost_driving" as ToolCatalogToolClass,
+    requiredCredentialId: "tool_document_gamma",
     policyClass: "plan_managed"
   },
   {
@@ -521,6 +540,7 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   image_edit: { active: false, dailyCallLimit: null, perTurnCap: null },
   video_generate: { active: false, dailyCallLimit: null, perTurnCap: null },
   document: { active: false, dailyCallLimit: null, perTurnCap: null },
+  presentation: { active: false, dailyCallLimit: null, perTurnCap: null },
   tts: { active: false, dailyCallLimit: null, perTurnCap: null },
   browser: { active: false, dailyCallLimit: null, perTurnCap: null },
   memory_search: { active: true, dailyCallLimit: null, perTurnCap: null },

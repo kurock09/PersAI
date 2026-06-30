@@ -1180,6 +1180,7 @@ export class MaterializeAssistantPublishedVersionService {
         documentRef.fallbacks = fallbacks.map((fallback) => this.cloneToolCredentialRef(fallback));
       }
       refs.document = documentRef;
+      refs.presentation = this.cloneToolCredentialRef(documentRef);
     }
     const imageCredentialRef = refs.image_generate;
     if (imageCredentialRef) {

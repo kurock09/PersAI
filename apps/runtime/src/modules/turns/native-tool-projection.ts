@@ -373,6 +373,16 @@ export function projectRuntimeNativeTools(
   ) {
     projectedTools.push(createDocumentToolDefinition(documentPolicy));
   }
+  const presentationPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "presentation", "worker");
+  const presentationCredential =
+    resolveConfiguredCredentialRef(bundle, "presentation") ?? documentCredential;
+  if (
+    presentationPolicy !== null &&
+    presentationCredential !== null &&
+    supportsCurrentNativePresentationProvider(presentationCredential)
+  ) {
+    projectedTools.push(createPresentationToolDefinition(presentationPolicy));
+  }
   const scheduledActionPolicy = resolveAllowedModelVisibleToolPolicy(
     bundle,
     "scheduled_action",
@@ -1313,25 +1323,12 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         'Use action="inspect" to validate an existing `/workspace/...` PDF/XLSX/DOCX, write a visible `*.inspect.json` sidecar, and return a compact summary of counts/warnings/suggested reads.',
         'Use action="render" to build a visible `/workspace/...` project into a concrete PDF/XLSX/DOCX output path. PDF render uses an HTML entrypoint by default; it does not auto-run a DOCX/XLSX Python builder as a PDF renderer. XLSX/DOCX render uses a visible Python build script (default `build.py`).',
         'Use action="register_version" after a visible render/inspect workflow to register the current `/workspace/...` output as PersAI document/version metadata. This records version facts only; the final user-visible delivery still happens separately through `files.attach` on the same output path.',
-        "For high-quality document work, prefer the visible workspace loop: extract sidecars when helpful, create or edit real source files under `/workspace`, render the output, inspect it, optionally register the version, then attach the checked file.",
-        "Never use descriptorMode=revise_document, docId, or storagePath to revise an uploaded DOCX/PDF/XLSX workspace file. Those fields are only for PersAI-managed presentation revision/export flows, not for ordinary `/workspace/...` document edits.",
-        "For a simple new PDF request, do not call document before a source entrypoint exists. First write `/workspace/<project>/index.html` with files.write, then call document.render with format=pdf, then document.inspect, then files.attach the rendered PDF.",
+        "For ordinary PDF/DOCX/XLSX work, use the visible workspace loop: extract sidecars when helpful, create or edit real source files under `/workspace`, render the output, inspect it, optionally register the version, then attach the checked file.",
+        "For a simple new PDF document/manual/report, do not call document before a source entrypoint exists. First write `/workspace/<project>/index.html` with files.write, then call document.render with format=pdf, then document.inspect, then files.attach the rendered PDF.",
         "For a simple new DOCX/XLSX request, do not call document before a source build script exists. First write `/workspace/<project>/build.py` with files.write, then call document.render with format=docx or xlsx, then document.inspect, then files.attach the rendered file.",
         "For Python-based document.render, write the final file exactly to the provided PERSAI_OUTPUT_PATH environment variable. The runtime executes the Python entrypoint from projectPath; do not chdir into /workspace yourself and do not construct paths like /workspace/workspace/....",
-        "Do not use descriptorMode for PDF/DOCX/XLSX document work. Those legacy background document paths are retired; use the visible workspace loop above and attach the checked output with files.attach.",
-        "Presentation generation remains supported through descriptorMode=create_presentation. Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
-        "When the user has attached source material for a presentation (txt, md, csv, json, html, xml, pdf, docx), describe the requested deck transformation in prompt and let the presentation worker inline supported source content; do not paste the file content into the prompt yourself.",
-        'For native spreadsheets, DOCX files, or other data-heavy visible outputs, use the explicit workspace workflow instead of a hidden generator: create or edit source files under `/workspace`, call `document.render` with `format="xlsx"` or `format="docx"`, inspect the result with `document.inspect`, optionally persist version metadata with `document.register_version`, then deliver the final file with `files.attach`.',
-        "Never invent placeholder, generic-template, or test/demo content when the user has attached a source file.",
-        "For school, educational, explainer, and ordinary client decks, do not choose imagePolicy=text_only or visualDensity=text_heavy unless the user explicitly asks for text-only slides or unusually dense slide copy. Prefer balanced density and ordinary visual policies; do not force pictographic/business icon decks unless the user asked for that exact style.",
-        "For Gamma presentations, keep outline simple when you provide it: a short flat list of slide titles or title plus brief bullets. Do not send deeply nested JSON outlines, speaker notes, layout directives, or provider-specific theme guesses.",
-        'For create_presentation and for presentation revise_document, you SHOULD set targetSlideCount to a concrete integer between 1 and 30 — even when the user did not specify one. If the user did mention a number ("7 slides", "deck of 10", "до 5 слайдов", "увеличь до 8"), you MUST set targetSlideCount to that exact integer. If the user did not specify a number, pick a reasonable count from the topic (typical school/explainer deck is 7-10, ordinary client deck is 8-12, deep report is 12-16) and pass that integer.',
-        buildPendingDeliveryHint({
-          subject: "the presentation is being prepared",
-          quotaToolCode: "document",
-          extra:
-            "Do not duplicate the delivery this turn; the presentation is already routed to the user once it finishes."
-        })
+        "Do not use the presentation tool for PDF manuals, instructions, reports, or other ordinary document output. Slides and decks belong in `presentation`, not here.",
+        "Never invent placeholder, generic-template, or test/demo content when the user has attached a source file."
       ].join(" ")
     ),
     inputSchema: {
@@ -1355,9 +1352,6 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           properties: {
             action: { enum: ["register_version"] }
           }
-        },
-        {
-          required: ["descriptorMode", "prompt"]
         }
       ],
       properties: {
@@ -1405,41 +1399,10 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           description:
             'Optional render entrypoint for `action="render"`. Use a project-relative path like `report.html` or `build.py`, or an absolute `/workspace/...` path. If omitted, runtime prefers `index.html` / `report.html` for PDF and defaults to `build.py` for XLSX/DOCX.'
         },
-        descriptorMode: {
-          type: "string",
-          enum: ["create_presentation", "revise_document", "export_or_redeliver"],
-          description:
-            "Presentation-only deferred operation mode. Never use descriptorMode for uploaded DOCX/PDF/XLSX workspace files; use explicit extract/render/inspect/register_version actions instead."
-        },
-        prompt: {
-          type: "string",
-          description:
-            "Main presentation intent or revision/export request for presentation descriptor modes. For document PDF/DOCX/XLSX work, use explicit visible workflow actions instead."
-        },
-        instructions: {
-          type: "string",
-          description: "Optional additional document instructions."
-        },
-        outputFormat: {
-          type: "string",
-          enum: ["pdf", "pptx"],
-          description:
-            "Optional requested output format for presentation descriptor modes. Chat delivery for create_presentation and presentation revise_document is always PDF; outputFormat=pptx is only meaningful for export_or_redeliver when the user explicitly asked for PPTX/PowerPoint."
-        },
         outputPath: {
           type: "string",
           description:
             'Optional sidecar/output path depending on action. For `action="inspect"`, writes the JSON sidecar there (default: sibling `<basename>.inspect.json`). For `action="render"`, this is the required final `/workspace/...` output file path. For `action="register_version"`, this is the already rendered `/workspace/...` output file that should become the registered current document version.'
-        },
-        docId: {
-          type: "string",
-          description:
-            "Exact presentation document UUID for presentation revise/export flows only. Do not use docId for uploaded DOCX/PDF/XLSX workspace files or the visible document workflow."
-        },
-        storagePath: {
-          type: "string",
-          description:
-            "Presentation-revision locator only. Do not use storagePath with descriptorMode for uploaded DOCX/PDF/XLSX workspace files; use explicit workspace paths in action-based document calls instead."
         },
         requestedName: {
           type: "string",
@@ -1459,6 +1422,82 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           type: "string",
           description:
             'Optional visible `*.inspect.json` sidecar path for `action="register_version"`. When provided, PersAI snapshots the compact inspection summary onto the registered version/documentLink metadata.'
+        },
+        descriptorMode: {
+          type: "string",
+          enum: ["create_pdf_document", "revise_document", "create_data_document"],
+          description:
+            "Optional register_version metadata only. Do not use descriptorMode on document for presentation work; use the presentation tool instead."
+        },
+        docId: {
+          type: "string",
+          description:
+            "Optional existing document UUID for register_version when revising registered workspace document metadata."
+        }
+      }
+    }
+  };
+}
+
+function createPresentationToolDefinition(
+  policy: RuntimeToolPolicy
+): ProviderGatewayToolDefinition {
+  return {
+    name: "presentation",
+    description: resolveToolDefinitionDescription(
+      policy,
+      [
+        "Use this tool only for slide decks and presentations — not for ordinary PDF documents, manuals, reports, DOCX, or XLSX files.",
+        "Presentation generation remains supported through descriptorMode=create_presentation. Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
+        "When the user has attached source material for a presentation (txt, md, csv, json, html, xml, pdf, docx), describe the requested deck transformation in prompt and let the presentation worker inline supported source content; do not paste the file content into the prompt yourself.",
+        "For school, educational, explainer, and ordinary client decks, do not choose imagePolicy=text_only or visualDensity=text_heavy unless the user explicitly asks for text-only slides or unusually dense slide copy. Prefer balanced density and ordinary visual policies; do not force pictographic/business icon decks unless the user asked for that exact style.",
+        "For Gamma presentations, keep outline simple when you provide it: a short flat list of slide titles or title plus brief bullets. Do not send deeply nested JSON outlines, speaker notes, layout directives, or provider-specific theme guesses.",
+        'For create_presentation and for presentation revise_document, you SHOULD set targetSlideCount to a concrete integer between 1 and 30 — even when the user did not specify one. If the user did mention a number ("7 slides", "deck of 10", "до 5 слайдов", "увеличь до 8"), you MUST set targetSlideCount to that exact integer. If the user did not specify a number, pick a reasonable count from the topic (typical school/explainer deck is 7-10, ordinary client deck is 8-12, deep report is 12-16) and pass that integer.',
+        buildPendingDeliveryHint({
+          subject: "the presentation is being prepared",
+          quotaToolCode: "document",
+          extra:
+            "Do not duplicate the delivery this turn; the presentation is already routed to the user once it finishes."
+        })
+      ].join(" ")
+    ),
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["descriptorMode", "prompt"],
+      properties: {
+        descriptorMode: {
+          type: "string",
+          enum: ["create_presentation", "revise_document", "export_or_redeliver"],
+          description:
+            "Presentation deferred operation mode. Use create_presentation for new decks, revise_document for existing PersAI presentations, and export_or_redeliver only when the user explicitly asked for PPTX/PowerPoint export."
+        },
+        prompt: {
+          type: "string",
+          description: "Main presentation intent or revision/export request."
+        },
+        instructions: {
+          type: "string",
+          description: "Optional additional presentation instructions."
+        },
+        outputFormat: {
+          type: "string",
+          enum: ["pdf", "pptx"],
+          description:
+            "Optional requested output format for presentation descriptor modes. Chat delivery for create_presentation and presentation revise_document is always PDF; outputFormat=pptx is only meaningful for export_or_redeliver when the user explicitly asked for PPTX/PowerPoint."
+        },
+        docId: {
+          type: "string",
+          description: "Exact presentation document UUID for presentation revise/export flows only."
+        },
+        storagePath: {
+          type: "string",
+          description:
+            "Presentation-revision locator only for PersAI-managed Gamma presentation attachments."
+        },
+        requestedName: {
+          type: "string",
+          description: "Optional filename/title hint for the generated presentation."
         },
         visualStyle: {
           type: "string",
@@ -1492,7 +1531,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         },
         outline: {
           description:
-            "Optional document outline or structured content seed. For create_presentation, keep this as a simple flat list of slide titles or concise slide bullets; avoid deeply nested objects, speaker notes, layout directives, or provider-specific schema details."
+            "Optional presentation outline or structured content seed. For create_presentation, keep this as a simple flat list of slide titles or concise slide bullets; avoid deeply nested objects, speaker notes, layout directives, or provider-specific schema details."
         },
         transferMode: {
           type: "string",
@@ -1510,18 +1549,18 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           type: "string",
           enum: ["style_only", "content_patch", "section_rewrite"],
           description:
-            "Revise-only explicit edit mode. You MUST set style_only when the user asks to restyle, reformat, or beautify the document without changing the wording (including requests in any language). Use content_patch for targeted section edits; use section_rewrite when one or more sections need a fuller rewrite. Omitting this on a large structured PDF defaults to style_only unless contentIntent explicitly allows rewrite."
+            "Revise-only explicit edit mode. You MUST set style_only when the user asks to restyle, reformat, or beautify the presentation without changing the wording. Use content_patch for targeted section edits; use section_rewrite when one or more sections need a fuller rewrite."
         },
         targetSectionIds: {
           type: "array",
           items: { type: "string" },
           description:
-            "Optional stable section ids from a prior structured document version. Use with content_patch or section_rewrite to limit edits to specific sections."
+            "Optional stable section ids from a prior structured presentation version. Use with content_patch or section_rewrite to limit edits to specific sections."
         },
         metadata: {
           type: "object",
           additionalProperties: true,
-          description: "Optional structured metadata for document generation."
+          description: "Optional structured metadata for presentation generation."
         }
       }
     }
@@ -2042,4 +2081,11 @@ function supportsCurrentNativeDocumentProvider(
       entry.providerId !== null &&
       (PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS as readonly string[]).includes(entry.providerId)
   );
+}
+
+function supportsCurrentNativePresentationProvider(
+  credential: AssistantRuntimeBundleToolCredentialRef
+): boolean {
+  const candidates = [credential, ...(credential.fallbacks ?? [])];
+  return candidates.some((entry) => entry.configured === true && entry.providerId === "gamma");
 }

@@ -423,6 +423,23 @@ Out of scope (explicit founder directive "не зацеп презентации
 - visible-workspace document registration still writes PDF/XLSX/DOCX rows into `AssistantDocument`, so the broader Prisma enums (`AssistantDocumentType`, `AssistantDocumentDescriptorMode`) and the chat-attachment `documentLink` metadata stay wide. They are not legacy in the new architecture.
 - presentation generation, delivery, and the `gamma` worker remain operational on the existing presentation worker path.
 
+### Wave 8 — Split model-facing `document` and `presentation` tools (2026-06-30)
+
+Problem: a single `document` tool still exposed both visible workspace PDF/DOCX/XLSX actions and deferred Gamma presentation modes. Models kept choosing `create_presentation` for ordinary PDF document requests because one-call presentation delivery also returns PDF.
+
+Decision:
+
+- `document` tool surface: only `extract`, `inspect`, `render`, `register_version`.
+- `presentation` tool surface: only `create_presentation`, `revise_document`, `export_or_redeliver`.
+- Billing/quota/plan enablement stay on `document`; `presentation` mirrors `document` activation and reuses the same Gamma enqueue path internally.
+
+Acceptance:
+
+- ordinary PDF/manual/report requests route through `document` visible workflow guidance;
+- slide-deck requests route through `presentation`;
+- catalog/presets expose separate descriptors for both tools;
+- no second plan quota knob or admin billing surface.
+
 ## Verification gate
 
 Every implementation wave must run focused tests for touched paths and then:

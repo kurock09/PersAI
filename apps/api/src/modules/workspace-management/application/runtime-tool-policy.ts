@@ -52,6 +52,7 @@ const TOOL_EXECUTION_MODE_BY_CODE: Record<string, RuntimeToolPolicy["executionMo
   image_edit: "worker",
   video_generate: "worker",
   document: "worker",
+  presentation: "worker",
   tts: "worker",
   memory_search: "inline",
   memory_get: "inline",
@@ -225,6 +226,16 @@ function supportsCurrentNativeDocumentProvider(
   );
 }
 
+function supportsCurrentNativePresentationProvider(
+  credential: AssistantRuntimeBundleToolCredentialRef | null
+): boolean {
+  if (!credential) {
+    return false;
+  }
+  const candidates = [credential, ...(credential.fallbacks ?? [])];
+  return candidates.some((entry) => entry.configured === true && entry.providerId === "gamma");
+}
+
 function hasNativeModelExecution(
   runtimeToolCode: string,
   params: {
@@ -290,6 +301,11 @@ function hasNativeModelExecution(
   }
   if (runtimeToolCode === "document") {
     return supportsCurrentNativeDocumentProvider(
+      hasConfiguredCredential(params.toolCredentialRefs, "document")
+    );
+  }
+  if (runtimeToolCode === "presentation") {
+    return supportsCurrentNativePresentationProvider(
       hasConfiguredCredential(params.toolCredentialRefs, "document")
     );
   }

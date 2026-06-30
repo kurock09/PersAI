@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-06-30 — ADR-129 Wave 8: split model-facing `document` and `presentation` tools
+
+Status: implemented locally on dirty tree from baseline `e204a693`. Focused regressions plus lint/format/typecheck pass. Commit/push/deploy, `seed:catalog`, and live browser/K8S re-test remain pending.
+
+**Scope.** Continue ADR-129 (not ADR-130). Split the model-visible tool boundary so ordinary PDF/DOCX/XLSX work stays on the visible workspace `document` loop while slide decks use a separate `presentation` tool. Billing/quota/plan enablement remain on `document`; `presentation` mirrors `document` activation and still enqueues with `toolCode: "document"`.
+
+**Root cause.** One `document` descriptor still advertised deferred Gamma `create_presentation` alongside workspace actions. Models kept picking the one-call presentation path for “PDF instruction/manual/report” requests because chat delivery is also PDF.
+
+**Fix.**
+
+- Added catalog row `presentation` and cleaned `document` catalog/projection text so PDF manuals/reports steer to workspace render, not Gamma.
+- Runtime projection now emits separate `document` (actions only) and `presentation` (descriptor modes only) tools when credentials allow.
+- `RuntimeDocumentToolService.executePresentationToolCall()` owns deferred deck enqueue; `document` rejects presentation descriptor modes with “use presentation tool”.
+- `TurnExecutionService` routes `presentation` tool calls; batch reorder runs document-family tools (`document` + `presentation`) before `files`.
+- Plan availability mirrors `presentation` active when `document` is active; presentation is hidden from plan editor.
+- Materialized assistant bundles clone document Gamma credentials onto `refs.presentation`.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts` — PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/deferred-document-acknowledgement.test.ts` — PASS
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-data.test.ts` — PASS
+- `corepack pnpm -r --if-present run lint` — PASS
+- `corepack pnpm run format:check` — PASS
+- `corepack pnpm --filter @persai/api run typecheck` — PASS
+- `corepack pnpm --filter @persai/web run typecheck` — PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+
+**Residual.** Uncommitted local diff only. New `presentation` catalog row needs deploy-time `seed:catalog` upsert. Live validation still needed: “PDF-инструкция” should call `document.render` path with no `create_presentation`; “презентация” should call `presentation` only.
+
+**Next recommended step.** Commit/push Wave 8, deploy, run `seed:catalog` on dev, then live-re-test the user's PDF-instruction vs presentation scenarios on rolled pods.
+
 ## 2026-06-30 — ADR-129 live DOCX revise path clarification on deployed `f6263cb6`
 
 Status: implemented locally after fresh live re-test on the newly rolled pods. The deployed backend no longer times out on DOCX inspect/extract; the remaining failure is a model mode-selection mistake after successful extract. Focused API/runtime regressions for the new steering are green. Commit/push/deploy and another live browser/K8S re-test remain pending for this follow-up.

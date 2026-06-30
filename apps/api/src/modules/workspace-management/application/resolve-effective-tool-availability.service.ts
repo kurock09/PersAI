@@ -44,33 +44,48 @@ export class ResolveEffectiveToolAvailabilityService {
           activation: costDrivingAllowed ? "active" : "inactive"
         }
       },
-      tools: tools.map((tool) => {
-        const policyClass = tool.policyClass;
-        const classAllowed = tool.toolClass === "utility" ? utilityAllowed : costDrivingAllowed;
-        const planManaged = policyClass === "plan_managed";
-        const hiddenInternal = policyClass === "hidden_internal";
-        const effectivePlanActivation = planManaged
-          ? tool.planActivationStatus
-          : hiddenInternal
-            ? "inactive"
-            : "active";
-        const isActive =
-          tool.catalogStatus === "active" && effectivePlanActivation === "active" && classAllowed;
-        return {
-          code: tool.toolCode,
-          displayName: tool.displayName,
-          description: tool.description,
-          modelDescription: tool.modelDescription,
-          modelUsageGuidance: tool.modelUsageGuidance,
-          capabilityGroup: tool.capabilityGroup,
-          toolClass: tool.toolClass,
-          policyClass,
-          catalogStatus: tool.catalogStatus,
-          planActivationStatus: effectivePlanActivation,
-          effectiveActivation: isActive ? "active" : "inactive",
-          visibleInPlanEditor: planManaged
-        };
-      }),
+      tools: (() => {
+        const mapped = tools.map((tool) => {
+          const policyClass = tool.policyClass;
+          const classAllowed = tool.toolClass === "utility" ? utilityAllowed : costDrivingAllowed;
+          const planManaged = policyClass === "plan_managed";
+          const hiddenInternal = policyClass === "hidden_internal";
+          const effectivePlanActivation = planManaged
+            ? tool.planActivationStatus
+            : hiddenInternal
+              ? "inactive"
+              : "active";
+          const isActive =
+            tool.catalogStatus === "active" && effectivePlanActivation === "active" && classAllowed;
+          return {
+            code: tool.toolCode,
+            displayName: tool.displayName,
+            description: tool.description,
+            modelDescription: tool.modelDescription,
+            modelUsageGuidance: tool.modelUsageGuidance,
+            capabilityGroup: tool.capabilityGroup,
+            toolClass: tool.toolClass,
+            policyClass,
+            catalogStatus: tool.catalogStatus,
+            planActivationStatus: effectivePlanActivation,
+            effectiveActivation: (isActive ? "active" : "inactive") as "active" | "inactive",
+            visibleInPlanEditor: planManaged && tool.toolCode !== "presentation"
+          };
+        });
+        const documentActive =
+          mapped.find((tool) => tool.code === "document")?.effectiveActivation === "active";
+        return mapped.map((tool) => {
+          if (tool.code !== "presentation" || !documentActive) {
+            return tool;
+          }
+          return {
+            ...tool,
+            planActivationStatus: "active" as const,
+            effectiveActivation: "active" as const,
+            visibleInPlanEditor: false
+          };
+        });
+      })(),
       notes: [
         "E1 adds governed tool catalog and plan activation projection.",
         "Plan-managed, platform-managed, and hidden-internal tools are resolved explicitly in control-plane policy.",

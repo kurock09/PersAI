@@ -52,28 +52,7 @@ export class RuntimeDocumentToolService {
   }): Promise<RuntimeDocumentToolExecutionResult> {
     const parsed = this.readDocumentArguments(params.toolCall.arguments);
     if (parsed instanceof Error) {
-      return {
-        payload: {
-          toolCode: "document",
-          executionMode: "inline",
-          requestedAction: null,
-          descriptorMode: null,
-          documentType: null,
-          provider: null,
-          prompt: null,
-          outputFormat: null,
-          docId: null,
-          requestedName: null,
-          artifacts: [],
-          usage: null,
-          action: "skipped",
-          reason: "invalid_arguments",
-          warning: parsed.message,
-          jobId: null
-        },
-        artifacts: [],
-        isError: true
-      };
+      return this.buildInvalidDocumentArgumentsResult(parsed.message);
     }
 
     if (parsed.kind === "extract") {
@@ -110,6 +89,48 @@ export class RuntimeDocumentToolService {
       });
     }
 
+    return this.buildInvalidDocumentArgumentsResult(
+      'document.action must be "extract", "inspect", "render", or "register_version".'
+    );
+  }
+
+  async executePresentationToolCall(params: {
+    bundle: AssistantRuntimeBundle;
+    toolCall: ProviderGatewayToolCall;
+    deferToAsyncDocumentJob: {
+      sourceUserMessageId: string;
+      sourceUserMessageText: string;
+      sourceUserMessageCreatedAt?: string | null;
+      currentAttachments: RuntimeAttachmentRef[];
+      availableAttachments: RuntimeAttachmentRef[];
+    };
+  }): Promise<RuntimeDocumentToolExecutionResult> {
+    const parsed = this.readPresentationArguments(params.toolCall.arguments);
+    if (parsed instanceof Error) {
+      return {
+        payload: {
+          toolCode: "document",
+          executionMode: "worker",
+          requestedAction: null,
+          descriptorMode: null,
+          documentType: null,
+          provider: null,
+          prompt: null,
+          outputFormat: null,
+          docId: null,
+          requestedName: null,
+          artifacts: [],
+          usage: null,
+          action: "skipped",
+          reason: "invalid_arguments",
+          warning: parsed.message,
+          jobId: null
+        },
+        artifacts: [],
+        isError: true
+      };
+    }
+
     return this.enqueuePresentationDescriptorToolCall({
       bundle: params.bundle,
       descriptorMode: parsed.descriptorMode,
@@ -119,6 +140,31 @@ export class RuntimeDocumentToolService {
       currentAttachments: params.deferToAsyncDocumentJob.currentAttachments,
       availableAttachments: params.deferToAsyncDocumentJob.availableAttachments
     });
+  }
+
+  private buildInvalidDocumentArgumentsResult(message: string): RuntimeDocumentToolExecutionResult {
+    return {
+      payload: {
+        toolCode: "document",
+        executionMode: "inline",
+        requestedAction: null,
+        descriptorMode: null,
+        documentType: null,
+        provider: null,
+        prompt: null,
+        outputFormat: null,
+        docId: null,
+        requestedName: null,
+        artifacts: [],
+        usage: null,
+        action: "skipped",
+        reason: "invalid_arguments",
+        warning: message,
+        jobId: null
+      },
+      artifacts: [],
+      isError: true
+    };
   }
 
   private async enqueuePresentationDescriptorToolCall(params: {
@@ -828,25 +874,6 @@ export class RuntimeDocumentToolService {
           inspectionPath: string | null;
         };
       }
-    | {
-        kind: "presentation_enqueue";
-        descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
-        request: {
-          prompt: string;
-          instructions?: string | null;
-          outputFormat?: "pdf" | "pptx" | null;
-          docId?: string | null;
-          /** ADR-126 v3 — workspace storage path for cross-chat revise. */
-          storagePath?: string | null;
-          requestedName?: string | null;
-          visualStyle?: PersaiRuntimePresentationVisualStyle | null;
-          imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
-          visualDensity?: PersaiRuntimePresentationVisualDensity | null;
-          targetSlideCount?: number | null;
-          outline?: unknown;
-          metadata?: Record<string, unknown> | null;
-        };
-      }
     | Error {
     if (value === null || typeof value !== "object" || Array.isArray(value)) {
       return new Error("document arguments must be an object.");
@@ -932,6 +959,48 @@ export class RuntimeDocumentToolService {
         }
       };
     }
+    if (
+      row.descriptorMode === "create_presentation" ||
+      row.descriptorMode === "revise_document" ||
+      row.descriptorMode === "export_or_redeliver"
+    ) {
+      return new Error(
+        "Presentation work belongs in the presentation tool, not document. Use presentation({descriptorMode, prompt}) for slide decks."
+      );
+    }
+    if (typeof row.prompt === "string" && row.prompt.trim().length > 0) {
+      return new Error(
+        'document requires an explicit action such as "extract", "inspect", "render", or "register_version". Slide decks belong in the presentation tool.'
+      );
+    }
+    return new Error(
+      'document.action must be "extract", "inspect", "render", or "register_version".'
+    );
+  }
+
+  private readPresentationArguments(value: unknown):
+    | {
+        descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
+        request: {
+          prompt: string;
+          instructions?: string | null;
+          outputFormat?: "pdf" | "pptx" | null;
+          docId?: string | null;
+          storagePath?: string | null;
+          requestedName?: string | null;
+          visualStyle?: PersaiRuntimePresentationVisualStyle | null;
+          imagePolicy?: PersaiRuntimePresentationImagePolicy | null;
+          visualDensity?: PersaiRuntimePresentationVisualDensity | null;
+          targetSlideCount?: number | null;
+          outline?: unknown;
+          metadata?: Record<string, unknown> | null;
+        };
+      }
+    | Error {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return new Error("presentation arguments must be an object.");
+    }
+    const row = value as Record<string, unknown>;
     const descriptorMode = row.descriptorMode;
     if (
       descriptorMode !== "create_presentation" &&
@@ -939,11 +1008,11 @@ export class RuntimeDocumentToolService {
       descriptorMode !== "export_or_redeliver"
     ) {
       return new Error(
-        "document.descriptorMode must be create_presentation, revise_document, or export_or_redeliver. PDF/DOCX/XLSX work uses the visible workspace actions (document.extract / document.render / document.inspect / document.register_version)."
+        "presentation.descriptorMode must be create_presentation, revise_document, or export_or_redeliver."
       );
     }
     if (typeof row.prompt !== "string" || row.prompt.trim().length === 0) {
-      return new Error("document.prompt must be a non-empty string.");
+      return new Error("presentation.prompt must be a non-empty string.");
     }
     const metadata =
       row.metadata === undefined || row.metadata === null
@@ -952,12 +1021,11 @@ export class RuntimeDocumentToolService {
           ? (row.metadata as Record<string, unknown>)
           : null;
     if (row.metadata !== undefined && row.metadata !== null && metadata === null) {
-      return new Error("document.metadata must be an object when provided.");
+      return new Error("presentation.metadata must be an object when provided.");
     }
     const outputFormat =
       row.outputFormat === "pdf" || row.outputFormat === "pptx" ? row.outputFormat : null;
     return {
-      kind: "presentation_enqueue",
       descriptorMode,
       request: {
         prompt: row.prompt.trim(),

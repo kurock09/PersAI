@@ -249,7 +249,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
             id: "tool/document/api-key"
           },
           configured: true,
-          providerId: "gamma",
+          providerId: "sandbox",
           fallbacks: [
             {
               refKey: "persai:persai-runtime:tool/document/gamma-api-key",
@@ -262,6 +262,16 @@ export async function runNativeToolProjectionTest(): Promise<void> {
               providerId: "gamma"
             }
           ]
+        },
+        presentation: {
+          refKey: "persai:persai-runtime:tool/document/gamma-api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/document/gamma-api-key"
+          },
+          configured: true,
+          providerId: "gamma"
         },
         tts: {
           refKey: "persai:persai-runtime:tool/tts/openai-api-key",
@@ -336,13 +346,27 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           displayName: "Document",
           description: "Create and revise assistant documents through the visible workspace loop.",
           usageGuidance:
-            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. PDF render uses an HTML entrypoint by default and does not auto-run a DOCX/XLSX Python builder as a PDF renderer. For a simple new PDF request, First write /workspace/<project>/index.html, then document.render, document.inspect, files.attach. For a simple new DOCX/XLSX request, First write a visible Python entrypoint under /workspace/<project> (default build.py unless you pass entrypoint), then document.render, document.inspect, files.attach. Python render entrypoints must write exactly to PERSAI_OUTPUT_PATH and must not construct /workspace/workspace paths. Use descriptorMode only for presentations.",
+            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. PDF render uses an HTML entrypoint by default and does not auto-run a DOCX/XLSX Python builder as a PDF renderer. For a simple new PDF request, First write /workspace/<project>/index.html, then document.render, document.inspect, files.attach. For a simple new DOCX/XLSX request, First write a visible Python entrypoint under /workspace/<project> (default build.py unless you pass entrypoint), then document.render, document.inspect, files.attach. Python render entrypoints must write exactly to PERSAI_OUTPUT_PATH and must not construct /workspace/workspace paths. Slide decks belong in presentation.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
           enabled: true,
           visibleToModel: true,
           visibleInPlanEditor: true,
+          dailyCallLimit: 10
+        },
+        {
+          toolCode: "presentation",
+          displayName: "Presentation",
+          description: "Create and revise slide decks through the deferred Gamma worker.",
+          usageGuidance:
+            "Use presentation for slide decks only. Chat delivery for create_presentation is always PDF.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: false,
           dailyCallLimit: 10
         },
         {
@@ -518,6 +542,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   const imageGenerate = projected.tools.find((tool) => tool.name === "image_generate");
   const imageEdit = projected.tools.find((tool) => tool.name === "image_edit");
   const document = projected.tools.find((tool) => tool.name === "document");
+  const presentation = projected.tools.find((tool) => tool.name === "presentation");
   const scheduledAction = projected.tools.find((tool) => tool.name === "scheduled_action");
   const backgroundTask = projected.tools.find((tool) => tool.name === "background_task");
   const tts = projected.tools.find((tool) => tool.name === "tts");
@@ -841,6 +866,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     );
   }
   assert.ok(document, "document should be projected when enabled and configured");
+  assert.ok(presentation, "presentation should be projected when enabled and configured");
   assert.ok(backgroundTask, "background_task should be projected when enabled");
   assert.ok(tts, "tts should be projected when configured");
   const documentProperties = (
@@ -856,12 +882,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         entrypoint?: { description?: string };
         outputPath?: { description?: string };
         descriptorMode?: { enum?: unknown[]; description?: string };
-        outputFormat?: { enum?: unknown[]; description?: string };
         docId?: { description?: string };
-        storagePath?: { description?: string };
-        visualStyle?: { enum?: unknown[]; description?: string };
-        imagePolicy?: { enum?: unknown[]; description?: string };
-        visualDensity?: { enum?: unknown[]; description?: string };
       };
     }
   )?.properties;
@@ -887,9 +908,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /inspect|render|register_version/i
   );
   assert.deepEqual(documentProperties?.descriptorMode?.enum, [
-    "create_presentation",
+    "create_pdf_document",
     "revise_document",
-    "export_or_redeliver"
+    "create_data_document"
   ]);
   assert.match(
     document?.description ?? "",
@@ -897,12 +918,12 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     document?.description ?? "",
-    /simple new PDF request.*First write.*index\.html.*document\.render/s,
+    /simple new PDF document\/manual\/report.*First write.*index\.html.*document\.render/s,
     "document guidance must teach the efficient first-call PDF workflow"
   );
   assert.match(
     document?.description ?? "",
-    /simple new DOCX\/XLSX request.*First write a visible Python entrypoint.*document\.render/s,
+    /simple new DOCX\/XLSX request.*First write.*build\.py.*document\.render/s,
     "document guidance must teach the efficient first-call DOCX/XLSX workflow"
   );
   assert.match(
@@ -922,92 +943,79 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     document?.description ?? "",
-    /Never use descriptorMode=revise_document, docId, or storagePath to revise an uploaded DOCX\/PDF\/XLSX workspace file/i,
-    "document guidance must keep uploaded DOCX/PDF/XLSX files on the visible workspace workflow"
+    /Do not use the presentation tool for PDF manuals/i,
+    "document guidance must steer ordinary PDF work away from presentation"
   );
   assert.doesNotMatch(
     document?.description ?? "",
-    /create_data_document/,
-    "tool description must not advertise retired create_data_document"
+    /create_data_document|create_presentation|descriptorMode=create_presentation/i,
+    "document description must not advertise presentation modes"
   );
   assert.doesNotMatch(
     document?.description ?? "",
     /async document providers|PDFMonkey|\/workspace\/input|\/workspace\/outbound/i,
     "tool description must not teach retired provider or namespace wording"
   );
-  assert.match(document?.description ?? "", /descriptorMode only for presentations/i);
+  const presentationProperties = (
+    presentation?.inputSchema as {
+      required?: string[];
+      properties?: {
+        descriptorMode?: { enum?: unknown[]; description?: string };
+        outputFormat?: { enum?: unknown[]; description?: string };
+        docId?: { description?: string };
+        storagePath?: { description?: string };
+        visualStyle?: { enum?: unknown[]; description?: string };
+        imagePolicy?: { enum?: unknown[]; description?: string };
+        visualDensity?: { enum?: unknown[]; description?: string };
+      };
+    }
+  )?.properties;
+  assert.deepEqual(presentation?.inputSchema?.required ?? [], ["descriptorMode", "prompt"]);
+  assert.deepEqual(presentationProperties?.descriptorMode?.enum, [
+    "create_presentation",
+    "revise_document",
+    "export_or_redeliver"
+  ]);
   assert.match(
-    documentProperties?.descriptorMode?.description ?? "",
-    /Never use descriptorMode for uploaded DOCX\/PDF\/XLSX workspace files/i
-  );
-  assert.match(
-    documentProperties?.docId?.description ?? "",
-    /presentation document UUID.*only.*Do not use docId for uploaded DOCX\/PDF\/XLSX workspace files/i
-  );
-  assert.match(
-    documentProperties?.storagePath?.description ?? "",
-    /Presentation-revision locator only.*Do not use storagePath.*uploaded DOCX\/PDF\/XLSX workspace files/i
-  );
-  assert.doesNotMatch(
-    documentProperties?.descriptorMode?.description ?? "",
-    /create_data_document/,
-    "descriptorMode description must not advertise retired create_data_document"
-  );
-  assert.deepEqual(documentProperties?.outputFormat?.enum, ["pdf", "pptx"]);
-  assert.doesNotMatch(
-    documentProperties?.outputFormat?.description ?? "",
-    /create_data_document/,
-    "outputFormat description must not teach retired create_data_document"
-  );
-  assert.match(documentProperties?.docId?.description ?? "", /presentation document UUID/);
-  assert.match(
-    documentProperties?.docId?.description ?? "",
-    /Do not use docId for PDF\/DOCX\/XLSX visible document workflow/
-  );
-  assert.doesNotMatch(
-    documentProperties?.docId?.description ?? "",
-    /doc_id/,
-    "docId description must not mention snake_case doc_id"
+    presentation?.description ?? "",
+    /slide decks and presentations/i,
+    "presentation description must be deck-specific"
   );
   assert.match(
-    documentProperties?.storagePath?.description ?? "",
-    /Retired for document\/PDF visible workflow/,
-    "storagePath description must not teach retired cross-chat PDF descriptor flow"
+    presentation?.description ?? "",
+    /not for ordinary PDF documents/i,
+    "presentation description must exclude ordinary PDF documents"
   );
+  assert.deepEqual(presentationProperties?.outputFormat?.enum, ["pdf", "pptx"]);
+  assert.match(presentationProperties?.docId?.description ?? "", /presentation document UUID/);
   assert.match(
-    documentProperties?.storagePath?.description ?? "",
-    /explicit workspace paths in action-based document calls/,
-    "storagePath description must point back to action-based workspace document calls"
+    presentationProperties?.storagePath?.description ?? "",
+    /Presentation-revision locator/i
   );
-  assert.doesNotMatch(
-    document?.description ?? "",
-    /file_ref/,
-    "tool description must not use snake_case file_ref"
-  );
-  assert.deepEqual(documentProperties?.visualStyle?.enum, [
+  assert.deepEqual(presentationProperties?.visualStyle?.enum, [
     "professional_modern",
     "bold_editorial",
     "minimal_clean",
     "illustrated_storytelling"
   ]);
-  assert.deepEqual(documentProperties?.imagePolicy?.enum, [
+  assert.deepEqual(presentationProperties?.imagePolicy?.enum, [
     "ai_generated",
     "web_free_to_use",
     "pictographic",
     "text_only"
   ]);
-  assert.deepEqual(documentProperties?.visualDensity?.enum, [
+  assert.deepEqual(presentationProperties?.visualDensity?.enum, [
     "balanced",
     "visual_heavy",
     "text_heavy"
   ]);
-  assert.match(documentProperties?.visualStyle?.description ?? "", /presentation-only/);
-  assert.match(documentProperties?.imagePolicy?.description ?? "", /visual deck/);
-  assert.match(documentProperties?.visualDensity?.description ?? "", /denser slide copy/);
+  assert.match(presentationProperties?.visualStyle?.description ?? "", /presentation-only/);
+  assert.match(presentationProperties?.imagePolicy?.description ?? "", /visual deck/);
+  assert.match(presentationProperties?.visualDensity?.description ?? "", /denser slide copy/);
   assert.doesNotMatch(
-    documentProperties?.storagePath?.description ?? "",
-    /current attachment|previous attachment|found attachment|listed attachment|read attachment/i,
-    "storagePath description must not teach legacy attachment aliases"
+    presentation?.description ?? "",
+    /file_ref/,
+    "presentation description must not use snake_case file_ref"
   );
   const scheduledActionKindDescription = (
     scheduledAction?.inputSchema as {

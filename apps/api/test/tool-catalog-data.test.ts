@@ -110,6 +110,57 @@ function testFilesCatalogRowUsesExactListedPaths(): void {
   );
 }
 
+function testPresentationCatalogRowIsDeckSpecific(): void {
+  const rows = TOOL_CATALOG.filter((t) => t.code === "presentation");
+  assert.strictEqual(rows.length, 1, "TOOL_CATALOG must contain exactly one presentation row");
+  const row = rows[0];
+  assert.ok(
+    row.description.includes("slide deck") || row.description.includes("presentation"),
+    "presentation description must be deck-specific"
+  );
+  assert.ok(
+    row.modelUsageGuidance.includes("create_presentation") &&
+      !row.modelUsageGuidance.includes('document({action:"render"'),
+    "presentation guidance must stay on deferred deck modes, not workspace render"
+  );
+  assert.ok(
+    `${row.modelDescription}\n${row.modelUsageGuidance}`.includes("PDF manual") ||
+      `${row.modelDescription}\n${row.modelUsageGuidance}`.includes("ordinary PDF"),
+    "presentation catalog must exclude ordinary PDF documents"
+  );
+}
+
+function testDocumentCatalogRowSteersAwayFromPresentation(): void {
+  const row = TOOL_CATALOG.find((t) => t.code === "document");
+  assert.ok(row, "document catalog row must exist");
+  const text = `${row.description}\n${row.modelDescription}\n${row.modelUsageGuidance}`;
+  assert.ok(
+    /Do not call presentation|use `presentation`|not use presentation/i.test(text),
+    "document catalog must steer ordinary PDF/DOCX/XLSX work away from presentation"
+  );
+  assert.ok(
+    !/descriptorMode=create_presentation|create_presentation/i.test(text),
+    "document catalog must not advertise create_presentation"
+  );
+}
+
+function testStarterTrialPolicyPresentationMirrorsDocument(): void {
+  const documentPolicy = STARTER_TRIAL_TOOL_POLICY["document"];
+  const presentationPolicy = STARTER_TRIAL_TOOL_POLICY["presentation"];
+  assert.ok(documentPolicy, "STARTER_TRIAL_TOOL_POLICY must have a document entry");
+  assert.ok(presentationPolicy, "STARTER_TRIAL_TOOL_POLICY must have a presentation entry");
+  assert.strictEqual(
+    presentationPolicy.active,
+    documentPolicy.active,
+    "presentation starter policy must mirror document activation"
+  );
+  assert.strictEqual(
+    presentationPolicy.dailyCallLimit,
+    documentPolicy.dailyCallLimit,
+    "presentation starter policy must mirror document dailyCallLimit"
+  );
+}
+
 function testStarterTrialPolicyTodoWrite(): void {
   const policy = STARTER_TRIAL_TOOL_POLICY["todo_write"];
   assert.ok(policy !== undefined, "STARTER_TRIAL_TOOL_POLICY must have a todo_write entry");
@@ -122,7 +173,10 @@ export async function runToolCatalogDataTest(): Promise<void> {
   testTodoWriteCatalogRow();
   testSkillCatalogRowMentionsPlanIntake();
   testDocumentCatalogRowTeachesVisibleWorkflow();
+  testPresentationCatalogRowIsDeckSpecific();
+  testDocumentCatalogRowSteersAwayFromPresentation();
   testFilesCatalogRowUsesExactListedPaths();
+  testStarterTrialPolicyPresentationMirrorsDocument();
   testStarterTrialPolicyTodoWrite();
   console.log("[tool-catalog-data] all tests passed");
 }

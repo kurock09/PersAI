@@ -366,6 +366,7 @@ const QUOTA_STATUS_TOOL_CODE = "quota_status";
 const SCHEDULED_ACTION_TOOL_CODE = "scheduled_action";
 const BACKGROUND_TASK_TOOL_CODE = "background_task";
 const DOCUMENT_TOOL_CODE = "document";
+const PRESENTATION_TOOL_CODE = "presentation";
 const IMAGE_EDIT_TOOL_CODE = "image_edit";
 const IMAGE_GENERATE_TOOL_CODE = "image_generate";
 const VIDEO_GENERATE_TOOL_CODE = "video_generate";
@@ -2925,14 +2926,21 @@ export class TurnExecutionService {
   private reorderToolCallsDocumentFirst(
     toolCalls: readonly ProviderGatewayToolCall[]
   ): readonly ProviderGatewayToolCall[] {
-    const hasDocument = toolCalls.some((tc) => tc.name === DOCUMENT_TOOL_CODE);
+    const hasDocumentFamily = toolCalls.some(
+      (tc) => tc.name === DOCUMENT_TOOL_CODE || tc.name === PRESENTATION_TOOL_CODE
+    );
     const hasFiles = toolCalls.some((tc) => tc.name === FILES_TOOL_CODE);
-    if (!hasDocument || !hasFiles) {
+    if (!hasDocumentFamily || !hasFiles) {
       return toolCalls;
     }
-    const docCalls = toolCalls.filter((tc) => tc.name === DOCUMENT_TOOL_CODE);
+    const docCalls = toolCalls.filter(
+      (tc) => tc.name === DOCUMENT_TOOL_CODE || tc.name === PRESENTATION_TOOL_CODE
+    );
     const otherCalls = toolCalls.filter(
-      (tc) => tc.name !== DOCUMENT_TOOL_CODE && tc.name !== FILES_TOOL_CODE
+      (tc) =>
+        tc.name !== DOCUMENT_TOOL_CODE &&
+        tc.name !== PRESENTATION_TOOL_CODE &&
+        tc.name !== FILES_TOOL_CODE
     );
     const filesCalls = toolCalls.filter((tc) => tc.name === FILES_TOOL_CODE);
     return [...docCalls, ...otherCalls, ...filesCalls];
@@ -3215,6 +3223,32 @@ export class TurnExecutionService {
                   )!
                 }
               : undefined,
+          deferToAsyncDocumentJob: {
+            sourceUserMessageId: input.idempotencyKey,
+            sourceUserMessageText: input.message.text,
+            sourceUserMessageCreatedAt: new Date().toISOString(),
+            currentAttachments: execution.currentMessageAttachments,
+            availableAttachments: documentSourceAttachments
+          }
+        });
+        return this.createToolExecutionOutcome(
+          toolCall,
+          result.payload,
+          result.isError,
+          undefined,
+          result.artifacts
+        );
+      }
+      case PRESENTATION_TOOL_CODE: {
+        const documentSourceAttachments = this.mergeWorkingFileDocumentSourceAttachments(
+          execution.currentMessageAttachments
+            .filter((attachment) => this.isDocumentSourceWorkingFileMime(attachment.mimeType))
+            .map((attachment) => ({ ...attachment, aliases: attachment.aliases ?? null })),
+          availableWorkingFileHandles
+        );
+        const result = await this.runtimeDocumentToolService.executePresentationToolCall({
+          bundle: execution.bundle,
+          toolCall,
           deferToAsyncDocumentJob: {
             sourceUserMessageId: input.idempotencyKey,
             sourceUserMessageText: input.message.text,
