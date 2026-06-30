@@ -48,7 +48,7 @@ api:
     gcpServiceAccountEmail: api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: api
-    tag: ffae4e9211996c4d316eda7de308530a5743aae1
+    tag: ef117fa70ccc41e7dba02e620f0d55b9f30f4f3e
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -207,7 +207,7 @@ web:
       maxSurge: 1
   image:
     name: web
-    tag: 18c146d1322936f58301a9429b71b3538f34c372
+    tag: ef117fa70ccc41e7dba02e620f0d55b9f30f4f3e
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
@@ -280,7 +280,7 @@ providerGateway:
       maxSurge: 1
   image:
     name: provider-gateway
-    tag: 18c146d1322936f58301a9429b71b3538f34c372
+    tag: ef117fa70ccc41e7dba02e620f0d55b9f30f4f3e
     pullPolicy: IfNotPresent
   env:
     APP_ENV: dev
@@ -358,7 +358,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: ffae4e9211996c4d316eda7de308530a5743aae1
+    tag: ef117fa70ccc41e7dba02e620f0d55b9f30f4f3e
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -436,7 +436,7 @@ sandbox:
     gcpServiceAccountEmail: sandbox-cp@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: sandbox
-    tag: ffae4e9211996c4d316eda7de308530a5743aae1
+    tag: ef117fa70ccc41e7dba02e620f0d55b9f30f4f3e
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -551,7 +551,7 @@ sandboxExec:
     # Exec image name in GAR (matches the service name in detect-affected + pin script).
     name: sandbox-exec
     # Initial tag; CI pins this to the SHA of the most recent successful build.
-    tag: 5e27f5b8ecd99bb1a9c56558f02c63459e938e4f
+    tag: ef117fa70ccc41e7dba02e620f0d55b9f30f4f3e
   # ADR-123 Slice 3 warm-pool follow-up: a DaemonSet that keeps the exec image pulled on
   # every sandbox node so cold-start exec pods skip the multi-GB image pull. Pairs with a
   # >=1 minimum node on the sandbox pool (set via node-pool autoscaling — see RUNBOOK).
@@ -572,6 +572,7 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
 
 
 
