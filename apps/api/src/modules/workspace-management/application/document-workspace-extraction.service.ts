@@ -132,6 +132,14 @@ export class DocumentWorkspaceExtractionService {
   async execute(
     input: WorkspaceDocumentExtractInput
   ): Promise<WorkspaceDocumentExtractAccepted | WorkspaceDocumentExtractRejected> {
+    if (input.outputDir !== null) {
+      return {
+        accepted: false,
+        code: "legacy_output_dir_rejected",
+        message:
+          "document.extract no longer accepts outputDir; extraction creates a document project under /workspace/projects/<slug>/."
+      };
+    }
     const sourcePath = normalizeWorkspacePath(input.path);
     if (sourcePath === null) {
       return {
@@ -140,45 +148,31 @@ export class DocumentWorkspaceExtractionService {
         message: "document.extract path must be a valid /workspace/... file path."
       };
     }
-    const explicitOutputDir = input.outputDir !== null;
-    let projectPath: string | null = null;
-    let projectLayout = null as ReturnType<typeof buildDocumentWorkspaceProjectLayout> | null;
-    const outputDir = explicitOutputDir ? normalizeWorkspaceDirectory(input.outputDir!) : null;
-    if (outputDir === null && !explicitOutputDir) {
-      projectPath = await this.resolveUniqueDocumentProjectPath({
-        workspaceId: input.workspaceId,
-        sourcePath
-      });
-      if (projectPath === null) {
-        return {
-          accepted: false,
-          code: "invalid_project_path",
-          message: "Could not derive a valid document project path for document.extract."
-        };
-      }
-      projectLayout = buildDocumentWorkspaceProjectLayout(projectPath);
-      const existingProjectChildren = await this.workspaceFileMetadataService.list({
-        workspaceId: input.workspaceId,
-        pathPrefix: `${projectPath}/`,
-        limit: 1
-      });
-      if (existingProjectChildren.length > 0) {
-        return {
-          accepted: false,
-          code: "project_path_not_empty",
-          message: `document.extract project path already contains workspace files: ${projectPath}`
-        };
-      }
-    }
-    const resolvedOutputDir =
-      outputDir ?? (projectLayout === null ? null : projectLayout.extractDir);
-    if (resolvedOutputDir === null) {
+    const projectPath = await this.resolveUniqueDocumentProjectPath({
+      workspaceId: input.workspaceId,
+      sourcePath
+    });
+    if (projectPath === null) {
       return {
         accepted: false,
-        code: "invalid_output_dir",
-        message: "document.extract outputDir must be a valid /workspace/... directory."
+        code: "invalid_project_path",
+        message: "Could not derive a valid document project path for document.extract."
       };
     }
+    const projectLayout = buildDocumentWorkspaceProjectLayout(projectPath);
+    const existingProjectChildren = await this.workspaceFileMetadataService.list({
+      workspaceId: input.workspaceId,
+      pathPrefix: `${projectPath}/`,
+      limit: 1
+    });
+    if (existingProjectChildren.length > 0) {
+      return {
+        accepted: false,
+        code: "project_path_not_empty",
+        message: `document.extract project path already contains workspace files: ${projectPath}`
+      };
+    }
+    const resolvedOutputDir = projectLayout.extractDir;
     const existingOutputFile = await this.workspaceFileMetadataService.get({
       workspaceId: input.workspaceId,
       path: resolvedOutputDir

@@ -4217,7 +4217,8 @@ export class TurnExecutionService {
       `- projectPath=${layout.projectPath}`,
       `- render HTML under ${layout.renderDir}/ (default entrypoint ${layout.defaultRenderEntrypoint})`,
       `- write PDF/DOCX/XLSX outputs under ${layout.outputDir}/ (default PDF ${layout.defaultPdfOutputPath})`,
-      "- document.render must stay inside this project; do not render from other workspace projects in the same turn."
+      "- document.render must stay inside this project; do not render from other workspace projects in the same turn.",
+      "- PDF render rebuilds HTML from full extract/extracted.md server-side; do not reassemble PDF HTML from partial files.read chunks."
     ];
   }
 

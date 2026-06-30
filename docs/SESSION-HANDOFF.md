@@ -1,5 +1,13 @@
 # SESSION-HANDOFF
 
+## 2026-06-30 — ADR-129 Wave 10b: kill legacy extract path + full-text PDF render
+
+Status: implemented locally (uncommitted). Baseline was `9d86953f` (clean tree).
+
+**Scope.** Wave 10 never activated in prod because model-facing prompt still taught `*.extract` / `outputDir`; model bypassed project layout, read truncated `extracted.md`, and burned 37 steps on hand-built HTML. This slice removes `outputDir` from the model tool, rejects legacy `outputDir` at API/runtime, and rebuilds PDF HTML from full `extract/extracted.md` server-side before WeasyPrint on document projects.
+
+**Next.** Verification gate → commit/push if requested → deploy → live re-test Карнаух DOCX→PDF in clean chat (target: ≤8 steps, full page count, no gray-block formatting).
+
 ## 2026-06-30 — ADR-129 Wave 10: document project binding on extract + render scope
 
 Status: committed and pushed (`7a4d129b`). Baseline was `1ab6f588`. Focused tests + lint/format/typecheck + api/runtime full test suites + prisma migrate check **passed**.

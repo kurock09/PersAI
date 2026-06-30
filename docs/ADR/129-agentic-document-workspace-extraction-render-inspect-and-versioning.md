@@ -537,7 +537,24 @@ Decisions:
 3. **`document.render` is bound** to the active project: `projectPath`, render entrypoint, and `outputPath` must stay inside that project tree.
 4. Working Files adds a short **Active document project** note (not a full Working Files refactor).
 
-Explicit `outputDir` on extract keeps the legacy flat sidecar layout for compatibility/tests.
+Wave 10b supersedes the Wave 10 legacy `outputDir` escape hatch — see below.
+
+### Wave 10b — Kill legacy extract from model path + full-text PDF render (opened 2026-06-30)
+
+Problem (live-validated after Wave 10 deploy `9d86953f`, chat `39b57bc2`):
+
+1. **Model-facing prompt still taught `*.extract`.** The model passed explicit `outputDir`, bypassing project layout; `activeDocumentProjectPath` never engaged.
+2. **Truncated HTML.** Model read `extracted.md` via `files.read` (50 KB cap), hand-built HTML, then `document.render` used that partial HTML — ~78 pages of content with awful formatting after 37 tool steps.
+3. **Legacy path in prod is useless.** Flat `*.extract` sidecars without project binding recreate the pre-Wave-10 failure mode.
+
+Decisions:
+
+1. **Remove `outputDir` from model-facing `document.extract`.** Tool schema and runtime reject legacy `outputDir`; API returns `legacy_output_dir_rejected` if supplied.
+2. **Always project layout on extract.** Every `document.extract` creates `/workspace/projects/<slug>/` with extract sidecars, scaffold HTML, and output dir.
+3. **Full-text PDF render embed.** `document.render(format=pdf)` on a document project rebuilds HTML from full `extract/extracted.md` server-side before WeasyPrint — no dependence on model-assembled HTML or partial `files.read` chunks.
+4. **Prompt alignment.** Native tool description and Working Files active-project note steer extract → render on default project paths; no `.extract` guidance.
+
+Out of scope this wave: inspect gate on page count, blocking ad-hoc `build.py` marathons (optional follow-up).
 
 ## Verification gate
 

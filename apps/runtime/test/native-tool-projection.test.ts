@@ -898,7 +898,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(documentProperties?.path?.description ?? "", /extract|inspect/i);
   assert.deepEqual(documentProperties?.mode?.enum, ["auto", "text", "ocr", "layout"]);
-  assert.match(documentProperties?.outputDir?.description ?? "", /basename\.extract/i);
+  assert.equal(documentProperties?.outputDir, undefined);
+  assert.match(document?.description ?? "", /\/workspace\/projects\//);
   assert.deepEqual(documentProperties?.depth?.enum, ["quick", "standard", "deep"]);
   assert.match(documentProperties?.projectPath?.description ?? "", /project directory/i);
   assert.deepEqual(documentProperties?.format?.enum, ["pdf", "xlsx", "docx"]);

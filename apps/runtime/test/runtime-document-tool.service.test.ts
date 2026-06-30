@@ -24,15 +24,23 @@ describe("RuntimeDocumentToolService", () => {
         return {
           accepted: true as const,
           sourcePath: "/workspace/source.pdf",
-          outputDir: "/workspace/source.extract",
-          manifestPath: "/workspace/source.extract/manifest.json",
+          outputDir: "/workspace/projects/source/extract",
+          manifestPath: "/workspace/projects/source/extract/manifest.json",
+          projectPath: "/workspace/projects/source",
+          projectManifestPath: "/workspace/projects/source/project.json",
+          defaultRenderEntrypoint: "/workspace/projects/source/render/report.html",
+          defaultPdfOutputPath: "/workspace/projects/source/output/report.pdf",
           outputPaths: [
-            "/workspace/source.extract/extracted.md",
-            "/workspace/source.extract/manifest.json"
+            "/workspace/projects/source/extract/extracted.md",
+            "/workspace/projects/source/extract/manifest.json",
+            "/workspace/projects/source/project.json",
+            "/workspace/projects/source/render/report.html"
           ],
           suggestedReadPaths: [
-            "/workspace/source.extract/manifest.json",
-            "/workspace/source.extract/extracted.md"
+            "/workspace/projects/source/project.json",
+            "/workspace/projects/source/render/report.html",
+            "/workspace/projects/source/extract/manifest.json",
+            "/workspace/projects/source/extract/extracted.md"
           ],
           counts: {
             documentCount: 1,
@@ -77,13 +85,200 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.action, "extracted");
     assert.equal(
       result.payload.extraction?.manifestPath,
-      "/workspace/source.extract/manifest.json"
+      "/workspace/projects/source/extract/manifest.json"
     );
+    assert.equal(result.payload.extraction?.projectPath, "/workspace/projects/source");
     assert.deepEqual(result.payload.extraction?.counts, {
       documentCount: 1,
       pageCount: 4,
       sheetCount: null
     });
+  });
+
+  test("rejects document.extract outputDir arguments", async () => {
+    const service = new RuntimeDocumentToolService({} as never);
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-extract-outputdir",
+        name: "document",
+        arguments: {
+          action: "extract",
+          path: "/workspace/source.pdf",
+          outputDir: "/workspace/source.extract"
+        }
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-extract-outputdir",
+        sourceUserMessageText: "Extract this file",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+    assert.equal(result.isError, true);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.match(result.payload.warning ?? "", /no longer accepts outputDir/i);
+  });
+
+  test("renders PDF from full extracted.md in a document project", async () => {
+    const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
+    const fullExtractedText = "Paragraph one.\n\nParagraph two with more content.";
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return {
+            items: [
+              { type: "file", path: "/workspace/projects/report/render/report.html" },
+              { type: "file", path: "/workspace/projects/report/extract/extracted.md" },
+              { type: "file", path: "/workspace/projects/report/project.json" }
+            ]
+          };
+        },
+        async upsertWorkspaceFileMetadata() {
+          return;
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          sandboxCalls.push(input);
+          if (input.toolCode === "execute_document_code") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: null,
+              files: [
+                {
+                  relativePath: "output/report.pdf",
+                  displayName: "report.pdf",
+                  mimeType: "application/pdf",
+                  sizeBytes: 1234,
+                  logicalSizeBytes: 1234,
+                  storagePath: "sandbox/job/report.pdf"
+                }
+              ]
+            };
+          }
+          if (input.toolCode === "files" && input.args.action === "read") {
+            const path = String(input.args.path ?? "");
+            if (path.endsWith("/extract/extracted.md")) {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: JSON.stringify({
+                  content: fullExtractedText,
+                  sizeBytes: fullExtractedText.length,
+                  sha256: null,
+                  truncated: false
+                }),
+                files: []
+              };
+            }
+            if (path.endsWith("/project.json")) {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: JSON.stringify({
+                  content: JSON.stringify({
+                    schema: "persai.document.project.v1",
+                    sourcePath: "/workspace/source.docx"
+                  }),
+                  sizeBytes: 64,
+                  sha256: null,
+                  truncated: false
+                }),
+                files: []
+              };
+            }
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                content: "<html><body><h1>Truncated</h1></body></html>",
+                sizeBytes: 41,
+                sha256: null,
+                truncated: false
+              }),
+              files: []
+            };
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                action: "attached",
+                attachment: {
+                  workspaceRelPath: "/workspace/projects/report/output/report.pdf",
+                  sourcePath: "/workspace/projects/report/output/report.pdf",
+                  sizeBytes: 1234,
+                  mimeType: "application/pdf",
+                  displayName: "report.pdf"
+                }
+              }),
+              files: []
+            };
+          }
+          throw new Error(`Unexpected sandbox call: ${input.toolCode}`);
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-render-project-full-text",
+        name: "document",
+        arguments: {
+          action: "render",
+          projectPath: "/workspace/projects/report",
+          outputPath: "/workspace/projects/report/output/report.pdf",
+          format: "pdf"
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-1",
+      activeDocumentProjectPath: "/workspace/projects/report",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-render-project-full-text",
+        sourceUserMessageText: "Render the report",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "rendered");
+    const programSource = String(
+      sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args.programSource ??
+        ""
+    );
+    assert.match(programSource, /Paragraph one\./);
+    assert.match(programSource, /Paragraph two with more content\./);
+    assert.doesNotMatch(programSource, /Truncated/);
   });
 
   test("rejects document.extract paths outside canonical workspace", async () => {

@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   DEFAULT_RUNTIME_SANDBOX_POLICY,
+  buildDocumentProjectRenderScaffoldHtml,
   buildDocumentWorkspaceProjectLayout,
   validateDocumentProjectRenderPaths,
   type PersaiRuntimePresentationImagePolicy,
@@ -304,7 +305,6 @@ export class RuntimeDocumentToolService {
     request: {
       path: string;
       mode: "auto" | "text" | "ocr" | "layout";
-      outputDir: string | null;
     };
   }): Promise<RuntimeDocumentToolExecutionResult> {
     const normalizedPath = this.normalizeWorkspacePath(params.request.path);
@@ -314,23 +314,13 @@ export class RuntimeDocumentToolService {
         "document.path must be a valid /workspace/... path."
       );
     }
-    const normalizedOutputDir =
-      params.request.outputDir === null
-        ? null
-        : this.normalizeWorkspacePath(params.request.outputDir, { allowDirectory: true });
-    if (params.request.outputDir !== null && normalizedOutputDir === null) {
-      return this.extractSkipped(
-        "invalid_arguments",
-        "document.outputDir must be a valid /workspace/... path."
-      );
-    }
     try {
       const outcome = await this.persaiInternalApiClientService.extractDocumentToWorkspace({
         assistantId: params.bundle.metadata.assistantId,
         workspaceId: params.bundle.metadata.workspaceId,
         path: normalizedPath,
         mode: params.request.mode,
-        outputDir: normalizedOutputDir
+        outputDir: null
       });
       if (!outcome.accepted) {
         return this.extractSkipped(outcome.code, outcome.message);
@@ -610,7 +600,8 @@ export class RuntimeDocumentToolService {
         projectPath,
         outputPath,
         entrypointPath,
-        format: params.request.format
+        format: params.request.format,
+        activeDocumentProjectPath: params.activeDocumentProjectPath
       });
       job = await this.runDocumentCodeSandboxJob({
         bundle: params.bundle,
@@ -867,7 +858,6 @@ export class RuntimeDocumentToolService {
         request: {
           path: string;
           mode: "auto" | "text" | "ocr" | "layout";
-          outputDir: string | null;
         };
       }
     | {
@@ -909,13 +899,17 @@ export class RuntimeDocumentToolService {
       if (path === null) {
         return new Error("document.path must be a non-empty string.");
       }
+      if (this.readNonEmptyString(row.outputDir) !== null) {
+        return new Error(
+          "document.extract no longer accepts outputDir; extraction creates a document project under /workspace/projects/<slug>/."
+        );
+      }
       return {
         kind: "extract",
         request: {
           path,
           mode:
-            row.mode === "text" || row.mode === "ocr" || row.mode === "layout" ? row.mode : "auto",
-          outputDir: this.readNonEmptyString(row.outputDir)
+            row.mode === "text" || row.mode === "ocr" || row.mode === "layout" ? row.mode : "auto"
         }
       };
     }
@@ -1273,6 +1267,83 @@ export class RuntimeDocumentToolService {
     return "Could not resolve a visible Python entrypoint for document.render.";
   }
 
+  private async resolvePdfHtmlSourceForRender(input: {
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+    requestId: string;
+    projectPath: string;
+    entrypointPath: string;
+    activeDocumentProjectPath: string | null;
+  }): Promise<string> {
+    const projectRoot =
+      input.activeDocumentProjectPath !== null &&
+      input.projectPath.replace(/\/+$/g, "") ===
+        input.activeDocumentProjectPath.replace(/\/+$/g, "")
+        ? input.activeDocumentProjectPath
+        : input.projectPath.startsWith("/workspace/projects/")
+          ? input.projectPath
+          : null;
+    if (projectRoot !== null) {
+      const layout = buildDocumentWorkspaceProjectLayout(projectRoot);
+      const extractedPath = `${layout.extractDir}/extracted.md`;
+      try {
+        const extractedText = await this.readWorkspaceTextFile({
+          bundle: input.bundle,
+          sessionId: input.sessionId,
+          requestId: input.requestId,
+          path: extractedPath
+        });
+        if (extractedText.trim().length > 0) {
+          const sourcePath = await this.readDocumentProjectSourcePath({
+            bundle: input.bundle,
+            sessionId: input.sessionId,
+            requestId: input.requestId,
+            projectPath: projectRoot
+          });
+          return buildDocumentProjectRenderScaffoldHtml({
+            sourcePath,
+            extractedText
+          });
+        }
+      } catch {
+        // Fall back to the visible HTML entrypoint when extract sidecars are unavailable.
+      }
+    }
+    return this.readWorkspaceTextFile({
+      bundle: input.bundle,
+      sessionId: input.sessionId,
+      requestId: input.requestId,
+      path: input.entrypointPath
+    });
+  }
+
+  private async readDocumentProjectSourcePath(input: {
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+    requestId: string;
+    projectPath: string;
+  }): Promise<string> {
+    const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
+    try {
+      const manifestText = await this.readWorkspaceTextFile({
+        bundle: input.bundle,
+        sessionId: input.sessionId,
+        requestId: input.requestId,
+        path: layout.projectManifestPath
+      });
+      const manifest = JSON.parse(manifestText) as { sourcePath?: unknown };
+      if (
+        typeof manifest.sourcePath === "string" &&
+        manifest.sourcePath.startsWith("/workspace/")
+      ) {
+        return manifest.sourcePath;
+      }
+    } catch {
+      // Fall back below.
+    }
+    return input.projectPath;
+  }
+
   private async buildRenderProgramSource(input: {
     bundle: AssistantRuntimeBundle;
     sessionId: string;
@@ -1281,14 +1352,17 @@ export class RuntimeDocumentToolService {
     outputPath: string;
     entrypointPath: string;
     format: "pdf" | "xlsx" | "docx";
+    activeDocumentProjectPath: string | null;
   }): Promise<string> {
     const loweredEntrypoint = input.entrypointPath.toLowerCase();
     if (loweredEntrypoint.endsWith(".html") || loweredEntrypoint.endsWith(".htm")) {
-      const htmlSource = await this.readWorkspaceTextFile({
+      const htmlSource = await this.resolvePdfHtmlSourceForRender({
         bundle: input.bundle,
         sessionId: input.sessionId,
         requestId: input.requestId,
-        path: input.entrypointPath
+        projectPath: input.projectPath,
+        entrypointPath: input.entrypointPath,
+        activeDocumentProjectPath: input.activeDocumentProjectPath
       });
       return [
         "import os",

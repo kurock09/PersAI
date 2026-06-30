@@ -212,17 +212,20 @@ describe("DocumentWorkspaceExtractionService", () => {
       workspaceId: "workspace-1",
       path: "/workspace/revenue.xlsx",
       mode: "auto",
-      outputDir: "/workspace/revenue.extract"
+      outputDir: null
     });
 
     assert.equal(outcome.accepted, true);
     if (!outcome.accepted) {
       return;
     }
+    assert.equal(outcome.projectPath, "/workspace/projects/revenue");
     assert.equal(outcome.counts.sheetCount, 1);
-    assert.ok(outcome.outputPaths.includes("/workspace/revenue.extract/extracted.md"));
-    assert.ok(outcome.outputPaths.includes("/workspace/revenue.extract/sheets/01-Revenue.csv"));
-    assert.ok(savedKeys.includes("gcs:revenue.extract/manifest.json"));
+    assert.ok(outcome.outputPaths.includes("/workspace/projects/revenue/extract/extracted.md"));
+    assert.ok(
+      outcome.outputPaths.includes("/workspace/projects/revenue/extract/sheets/01-Revenue.csv")
+    );
+    assert.ok(savedKeys.includes("gcs:projects/revenue/extract/manifest.json"));
   });
 
   test("infers spreadsheet extraction when stored mime type is generic", async () => {
@@ -313,7 +316,7 @@ describe("DocumentWorkspaceExtractionService", () => {
     );
   });
 
-  test("rejects outputDir that points at an existing file", async () => {
+  test("rejects legacy outputDir on extract", async () => {
     const service = new DocumentWorkspaceExtractionService(
       {
         async get(input: { path: string }) {
@@ -358,10 +361,10 @@ describe("DocumentWorkspaceExtractionService", () => {
     if (outcome.accepted) {
       return;
     }
-    assert.equal(outcome.code, "invalid_output_dir");
+    assert.equal(outcome.code, "legacy_output_dir_rejected");
   });
 
-  test("rejects outputDir that already contains sidecar files", async () => {
+  test("rejects legacy outputDir even when the directory is empty", async () => {
     let downloaded = false;
     const service = new DocumentWorkspaceExtractionService(
       {
@@ -380,21 +383,8 @@ describe("DocumentWorkspaceExtractionService", () => {
             updatedAt: new Date()
           };
         },
-        async list(input: { pathPrefix: string }) {
-          return input.pathPrefix === "/workspace/source.extract/"
-            ? [
-                {
-                  workspaceId: "workspace-1",
-                  path: "/workspace/source.extract/manifest.json",
-                  mimeType: "application/json",
-                  sizeBytes: BigInt(2),
-                  contentHash: null,
-                  shortDescription: null,
-                  createdAt: new Date(),
-                  updatedAt: new Date()
-                }
-              ]
-            : [];
+        async list() {
+          return [];
         },
         async upsert() {
           return;
@@ -423,6 +413,6 @@ describe("DocumentWorkspaceExtractionService", () => {
     if (outcome.accepted) {
       return;
     }
-    assert.equal(outcome.code, "output_dir_not_empty");
+    assert.equal(outcome.code, "legacy_output_dir_rejected");
   });
 });
