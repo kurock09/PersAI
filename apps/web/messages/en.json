@@ -1013,6 +1013,8 @@
     "filesDeleted": "File deleted.",
     "filesDeleteFailed": "Failed to delete file.",
     "workspaceFilesFilterAll": "All",
+    "workspaceFilesScopeChat": "This chat",
+    "workspaceFilesScopeAll": "All files",
     "workspaceFilesFilterImages": "Images",
     "workspaceFilesFilterVideos": "Videos",
     "workspaceFilesFilterDocuments": "Documents",

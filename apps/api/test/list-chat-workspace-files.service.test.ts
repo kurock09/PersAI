@@ -107,7 +107,8 @@ async function run(): Promise<void> {
       mimeType: "application/pdf",
       sizeBytes: BigInt(2048),
       createdAt: new Date("2026-06-23T10:00:00.000Z"),
-      updatedAt: new Date("2026-06-23T10:00:00.000Z")
+      updatedAt: new Date("2026-06-23T10:00:00.000Z"),
+      originChatId: "chat-1"
     },
     {
       // External-download bytes are tracked in the manifest but excluded
@@ -151,32 +152,44 @@ async function run(): Promise<void> {
     } as never
   );
 
-  const all = await service.execute({ userId: "user-1", chatId: "chat-1" });
-  // image + video + orphan document (voice is filtered, external-download skipped).
-  assert.equal(all.files.length, 3);
-  const orphan = all.files.find((file) => file.storagePath.endsWith("report.pdf"));
+  const chatScoped = await service.execute({ userId: "user-1", chatId: "chat-1" });
+  // chat scope: image + session-origin orphan document (voice filtered, other-chat video excluded).
+  assert.equal(chatScoped.files.length, 2);
+  const orphan = chatScoped.files.find((file) => file.storagePath.endsWith("report.pdf"));
   assert.ok(orphan, "expected orphan PDF tile from manifest with no attachment");
-  assert.equal(orphan?.chatId, null);
+  assert.equal(orphan?.chatId, "chat-1");
   assert.equal(orphan?.messageId, null);
   assert.equal(orphan?.attachmentType, "document");
   assert.equal(orphan?.originalFilename, "report.pdf");
 
-  const attached = all.files.find((file) => file.storagePath === "/workspace/photo.jpg");
+  const attached = chatScoped.files.find((file) => file.storagePath === "/workspace/photo.jpg");
   assert.ok(attached);
   assert.equal(attached?.chatId, "chat-1");
   assert.equal(attached?.messageId, "msg-1");
   assert.equal(attached?.thumbnailStoragePath, "/workspace/photo.jpg.thumb.webp");
 
   assert.equal(
-    all.files.some((file) => file.storagePath.includes("note.webm")),
+    chatScoped.files.some((file) => file.storagePath.includes("note.webm")),
     false,
     "voice-note attachments must be filtered out"
   );
   assert.equal(
-    all.files.some((file) => file.storagePath.startsWith("external-download/")),
+    chatScoped.files.some((file) => file.storagePath.startsWith("external-download/")),
     false,
     "external-download manifest entries must be filtered out"
   );
+  assert.equal(
+    chatScoped.files.some((file) => file.storagePath === "/workspace/clip.mp4"),
+    false,
+    "other-chat attachments must be excluded from chat scope"
+  );
+
+  const workspaceScoped = await service.execute({
+    userId: "user-1",
+    chatId: "chat-1",
+    scope: "workspace"
+  });
+  assert.equal(workspaceScoped.files.length, 3);
 
   const images = await service.execute({
     userId: "user-1",
@@ -192,7 +205,7 @@ async function run(): Promise<void> {
     type: "document"
   });
   assert.equal(documents.files.length, 1);
-  assert.equal(documents.files[0]?.chatId, null);
+  assert.equal(documents.files[0]?.chatId, "chat-1");
   assert.equal(documents.files[0]?.storagePath, "/workspace/report.pdf");
 
   const paged = await service.execute({
@@ -210,16 +223,7 @@ async function run(): Promise<void> {
     cursor: paged.nextCursor
   });
   assert.equal(pageTwo.files.length, 1);
-  assert.notEqual(pageTwo.nextCursor, null);
-
-  const pageThree = await service.execute({
-    userId: "user-1",
-    chatId: "chat-1",
-    limit: 1,
-    cursor: pageTwo.nextCursor
-  });
-  assert.equal(pageThree.files.length, 1);
-  assert.equal(pageThree.nextCursor, null);
+  assert.equal(pageTwo.nextCursor, null);
 }
 
 void run();

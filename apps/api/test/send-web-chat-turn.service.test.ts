@@ -820,7 +820,7 @@ describe("SendWebChatTurnService", () => {
     assert.deepEqual(result.assistantMessage.attachments, deliveredAttachments);
   });
 
-  test("corrects assistant text when runtime queued a file but final web delivery produced no attachments", async () => {
+  test("keeps assistant text unchanged when runtime queued a file but final web delivery produced no attachments", async () => {
     const updatedContents: string[] = [];
     const quotaWrites: Array<Record<string, unknown>> = [];
     const ledgerWrites: Array<Record<string, unknown>> = [];
@@ -963,17 +963,10 @@ describe("SendWebChatTurnService", () => {
       welcomeLocale: "ru"
     });
 
-    assert.equal(updatedContents.length, 1);
-    assert.match(updatedContents[0] ?? "", /Поправка: файл не был реально доставлен в этот чат/);
+    assert.equal(updatedContents.length, 0);
     assert.equal(result.assistantMessage.attachments.length, 0);
-    assert.match(
-      result.assistantMessage.content,
-      /Поправка: файл не был реально доставлен в этот чат/
-    );
-    assert.match(
-      String(quotaWrites[0]?.assistantContent ?? ""),
-      /Поправка: файл не был реально доставлен в этот чат/
-    );
+    assert.equal(result.assistantMessage.content, "Готово, отправляю hello.txt");
+    assert.equal(quotaWrites[0]?.assistantContent, "Готово, отправляю hello.txt");
     assert.equal(ledgerWrites.length, 1);
     assert.equal(ledgerWrites[0]?.sourceEventId, "assistant-msg-1");
     assert.equal(ledgerWrites[0]?.purpose, "chat_main_reply");

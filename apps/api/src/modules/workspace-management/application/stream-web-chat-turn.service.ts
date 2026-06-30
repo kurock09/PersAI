@@ -463,7 +463,8 @@ export class StreamWebChatTurnService {
             providerOverride: prepared.quotaDegradeModelOverride.provider,
             modelOverride: prepared.quotaDegradeModelOverride.model
           }
-        : {})
+        : {}),
+      chatId: prepared.chat.id
     });
     trace.stage("native_turn_input_built");
     this.logWebRuntimeRoute({
@@ -971,6 +972,7 @@ export class StreamWebChatTurnService {
     modelRoleOverride?: WebRuntimeStreamClientInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic" | "deepseek";
     modelOverride?: string;
+    chatId: string;
   }): WebRuntimeStreamClientInput {
     return {
       ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
@@ -999,7 +1001,8 @@ export class StreamWebChatTurnService {
         ? {}
         : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
-      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
+      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
+      chatId: input.chatId
     };
   }
 

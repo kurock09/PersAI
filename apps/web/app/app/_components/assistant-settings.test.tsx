@@ -698,6 +698,7 @@ describe("AssistantSettings Files", () => {
     await waitFor(() => {
       expect(assistantApiMocks.listChatWorkspaceFiles).toHaveBeenCalledWith("token-1", {
         chatId: "chat-1",
+        scope: "chat",
         type: "all",
         cursor: null,
         limit: 24

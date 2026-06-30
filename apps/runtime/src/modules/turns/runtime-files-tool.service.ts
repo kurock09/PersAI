@@ -431,6 +431,7 @@ export class RuntimeFilesToolService {
       bundle: AssistantRuntimeBundle;
       sessionId: string;
       requestId: string;
+      chatId: string | null;
     },
     request: FilesWriteRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
@@ -479,7 +480,13 @@ export class RuntimeFilesToolService {
           workspaceId: params.bundle.metadata.workspaceId,
           path: request.path,
           mimeType: this.inferMimeForWrite(request.path, request.content),
-          sizeBytes
+          sizeBytes,
+          ...(params.chatId === null
+            ? {}
+            : {
+                originChatId: params.chatId,
+                originAssistantId: params.bundle.metadata.assistantId
+              })
         });
       } catch (error) {
         this.logger.warn(
@@ -592,6 +599,7 @@ export class RuntimeFilesToolService {
       sessionId: string;
       requestId: string;
       channel: "web" | "telegram" | "max_ru";
+      chatId: string | null;
       externalThreadKey: string | null;
       messageId: string | null;
     },
@@ -653,6 +661,26 @@ export class RuntimeFilesToolService {
       sizeBytes: attachOutcome.sizeBytes,
       voiceNote: false
     };
+    if (this.isPersistedWorkspaceWritePath(attachOutcome.workspaceRelPath)) {
+      try {
+        await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
+          workspaceId: params.bundle.metadata.workspaceId,
+          path: attachOutcome.workspaceRelPath,
+          mimeType: attachOutcome.mimeType,
+          sizeBytes: attachOutcome.sizeBytes,
+          ...(params.chatId === null
+            ? {}
+            : {
+                originChatId: params.chatId,
+                originAssistantId: params.bundle.metadata.assistantId
+              })
+        });
+      } catch (error) {
+        this.logger.warn(
+          `files_attach_manifest_upsert_failed path=${attachOutcome.workspaceRelPath} reason=${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
     return {
       payload: {
         toolCode: "files",

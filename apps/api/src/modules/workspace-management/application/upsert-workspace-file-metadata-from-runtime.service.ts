@@ -7,6 +7,8 @@ export type UpsertWorkspaceFileMetadataFromRuntimeInput = {
   mimeType: string;
   sizeBytes: number;
   shortDescription: string | null;
+  originChatId: string | null;
+  originAssistantId: string | null;
 };
 
 // ADR-128 Slice 4 — runtime-driven manifest writes after a successful sandbox
@@ -41,12 +43,16 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
       typeof shortDescriptionRaw === "string" && shortDescriptionRaw.length > 0
         ? shortDescriptionRaw
         : null;
+    const originChatId = this.optionalUuid(row.originChatId, "originChatId");
+    const originAssistantId = this.optionalUuid(row.originAssistantId, "originAssistantId");
     return {
       workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
       path,
       mimeType,
       sizeBytes: Math.floor(sizeBytes),
-      shortDescription
+      shortDescription,
+      originChatId,
+      originAssistantId
     };
   }
 
@@ -56,8 +62,20 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
       path: input.path,
       mimeType: input.mimeType,
       sizeBytes: input.sizeBytes,
-      ...(input.shortDescription !== null ? { shortDescription: input.shortDescription } : {})
+      ...(input.shortDescription !== null ? { shortDescription: input.shortDescription } : {}),
+      ...(input.originChatId !== null ? { originChatId: input.originChatId } : {}),
+      ...(input.originAssistantId !== null ? { originAssistantId: input.originAssistantId } : {})
     });
+  }
+
+  private optionalUuid(value: unknown, field: string): string | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new BadRequestException(`Field "${field}" must be a UUID string when provided.`);
+    }
+    return value.trim();
   }
 
   private requiredString(value: unknown, field: string): string {

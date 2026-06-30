@@ -28,33 +28,24 @@ export function resolveUndeliveredArtifactKind(
 }
 
 /**
- * System-authored structural truth for a fully-undelivered attempt: the runtime
- * produced/attempted at least one artifact but zero reached the user. Driven only
- * by the counts (attempted > 0 && delivered === 0) and the structural artifact
- * kind, never by parsing the model's prose — so it stays honest without
- * re-introducing claim-detection heuristics.
- */
-function buildUndeliveredAttachmentNotice(
-  locale: string | null | undefined,
-  kind: UndeliveredArtifactKind
-): string {
-  const ru = locale?.toLowerCase().startsWith("ru") ?? false;
-  if (kind === "media") {
-    return ru
-      ? "Поправка: изображение или другой медиафайл не был реально доставлен в этот чат."
-      : "Correction: no image or other media was actually delivered in this reply.";
-  }
-  return ru
-    ? "Поправка: файл не был реально доставлен в этот чат."
-    : "Correction: no file was actually delivered in this reply.";
-}
-
-/**
  * ADR-105 FIX B — system-authored structural truth for partial under-delivery.
  * Returns a locale-aware shortfall line when the provider produced fewer
  * artifacts than requested (1 ≤ produced < requested). Returns null otherwise
  * (full delivery, or zero produced — full-failure paths handle the latter).
  */
+export function buildPartialDeliveryShortfallLine(
+  produced: number,
+  requested: number,
+  locale?: string | null
+): string | null {
+  if (produced <= 0 || produced >= requested) {
+    return null;
+  }
+  return locale?.toLowerCase().startsWith("ru")
+    ? `Запросили ${String(requested)}, готово ${String(produced)} — остальные не удалось создать.`
+    : `Requested ${String(requested)}, delivered ${String(produced)} — the rest could not be generated.`;
+}
+
 export function buildExternalMediaDownloadLines(input: {
   items: ReadonlyArray<{ url: string; filename: string | null }>;
   locale?: string | null;
@@ -71,19 +62,6 @@ export function buildExternalMediaDownloadLines(input: {
       ? `Файл слишком большой для отправки прямо в чат. Скачать: [${label}](${item.url})`
       : `The file is too large to send directly in chat. Download: [${label}](${item.url})`;
   });
-}
-
-export function buildPartialDeliveryShortfallLine(
-  produced: number,
-  requested: number,
-  locale?: string | null
-): string | null {
-  if (produced <= 0 || produced >= requested) {
-    return null;
-  }
-  return locale?.toLowerCase().startsWith("ru")
-    ? `Запросили ${String(requested)}, готово ${String(produced)} — остальные не удалось создать.`
-    : `Requested ${String(requested)}, delivered ${String(produced)} — the rest could not be generated.`;
 }
 
 function normalizeFilename(value: string): string {
@@ -260,13 +238,6 @@ export function applyFinalDeliveryHonestyCorrection(input: {
   const { assistantText: normalizedText } = stripUndeliveredLocalFileMarkdownLinks({
     assistantText: deliveredNormalizedText
   });
-  if (input.attemptedArtifactCount > 0 && input.deliveredAttachmentCount === 0) {
-    const notice = buildUndeliveredAttachmentNotice(
-      input.locale,
-      input.attemptedArtifactKind ?? "file"
-    );
-    return normalizedText.length === 0 ? notice : `${normalizedText}\n\n${notice}`;
-  }
   if (normalizedText.length === 0) {
     return input.deliveredAttachmentCount > 0
       ? buildDeliveredAttachmentFallback(input.locale, input.attemptedArtifactKind ?? "file")

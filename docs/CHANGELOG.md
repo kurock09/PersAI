@@ -5,6 +5,10 @@
 
 ## 2026-06-30
 
+- **Change (ADR-129 Wave 9b — auto-deliver produced workspace files; remove user-facing honesty notices).** After `document.render` / binary `files.write`, runtime now auto-invokes `files.attach` for any `producedPaths` not yet attached before turn completion — user gets the file instead of a «Поправка» about `files.attach`. Removed user-visible structural correction notices and `expectsMediaArtifact` regex heuristics from API honesty. Working Files developer prompt is chat-scoped only (cap 10); gallery `scope=chat` default and manifest `originChatId` remain.
+
+- **Change (ADR-129 Wave 9 — delivery truth, session-scoped files; superseded by 9b for honesty UX).** Runtime `deliveryFacts`, gallery scope, manifest origin fields.
+
 - **Change (ADR-129 Wave 8 — split model-facing `document` and `presentation` tools).** Models kept choosing deferred `create_presentation` for ordinary PDF document/manual/report requests because one `document` tool still exposed both visible workspace actions and Gamma presentation modes. Runtime projection now emits separate tools: `document` (`extract` / `inspect` / `render` / `register_version` only) and `presentation` (`create_presentation` / `revise_document` / `export_or_redeliver` only). Billing, quota, and plan enablement stay on `document`; `presentation` mirrors `document` activation, reuses the same Gamma enqueue path with `toolCode: "document"`, and is hidden from the plan editor. Catalog/preset guidance, runtime routing, batch reorder (document-family before `files`), and focused API/runtime tests cover the split.
 
 ## 2026-06-29

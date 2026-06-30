@@ -2111,12 +2111,15 @@ model WorkspaceFileMetadata {
   sizeBytes        BigInt    @map("size_bytes")
   contentHash      String?   @map("content_hash") @db.VarChar(128)
   shortDescription String?   @map("short_description") @db.Text
+  originChatId     String?   @map("origin_chat_id") @db.Uuid
+  originAssistantId String? @map("origin_assistant_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@id([workspaceId, path])
   @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([workspaceId, originChatId])
   @@map("workspace_file_metadata")
 }
 

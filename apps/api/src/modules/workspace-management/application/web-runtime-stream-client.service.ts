@@ -56,6 +56,7 @@ export interface WebRuntimeStreamClientInput {
   providerOverride?: "openai" | "anthropic" | "deepseek";
   modelOverride?: string;
   skillStateContext?: RuntimeSkillStateContext;
+  chatId: string;
 }
 
 interface JsonResponse {
@@ -147,7 +148,12 @@ export class WebRuntimeStreamClientService {
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
       ...(input.skillStateContext === undefined
         ? {}
-        : { skillStateContext: input.skillStateContext })
+        : { skillStateContext: input.skillStateContext }),
+      channelContext: {
+        web: {
+          chatId: input.chatId
+        }
+      }
     };
     const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
       materializedSpec.runtimeBundle,

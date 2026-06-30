@@ -195,8 +195,7 @@ async function run(): Promise<void> {
     ""
   );
 
-  // Structural undelivered notice: a file was attempted but zero delivered → honest
-  // notice appended (count-driven, not prose-detected); RU locale
+  // Undelivered artifacts no longer append user-visible notices — runtime auto-attaches produced paths.
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText: "Готово, отправляю hello.txt",
@@ -205,10 +204,9 @@ async function run(): Promise<void> {
       deliveredAttachmentFilenames: [],
       locale: "ru"
     }),
-    "Готово, отправляю hello.txt\n\nПоправка: файл не был реально доставлен в этот чат."
+    "Готово, отправляю hello.txt"
   );
 
-  // Same structural rule, EN locale, file kind (default)
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText: "Here is your file.",
@@ -217,10 +215,9 @@ async function run(): Promise<void> {
       deliveredAttachmentFilenames: [],
       locale: "en"
     }),
-    "Here is your file.\n\nCorrection: no file was actually delivered in this reply."
+    "Here is your file."
   );
 
-  // Structural rule with media kind → media-specific wording (EN)
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText: "Your image is ready.",
@@ -230,7 +227,7 @@ async function run(): Promise<void> {
       attemptedArtifactKind: "media",
       locale: "en"
     }),
-    "Your image is ready.\n\nCorrection: no image or other media was actually delivered in this reply."
+    "Your image is ready."
   );
 
   // Attempted > 0 but all delivered → no undelivered notice (full success)

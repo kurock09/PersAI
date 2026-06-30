@@ -90,6 +90,10 @@ export interface RuntimeTelegramChannelContext {
 
 export interface RuntimeChannelContext {
   telegram?: RuntimeTelegramChannelContext;
+  /** Web chat UUID for session-scoped file visibility and manifest origin tagging. */
+  web?: {
+    chatId: string;
+  };
 }
 
 export interface RuntimeBundleRef extends AssistantScope {
@@ -145,6 +149,8 @@ export interface RuntimeDocumentSourceFile {
   } | null;
 }
 
+export type RuntimeFileScopeTier = "chat" | "assistant" | "workspace";
+
 export interface RuntimeFileHandle {
   storagePath: string;
   mimeType: string;
@@ -156,6 +162,10 @@ export interface RuntimeFileHandle {
   authorLabel?: "user" | "model" | "sandbox";
   semanticSummaryHint?: string | null;
   sourceToolCode?: string | null;
+  /** ADR-129 W9 — visibility tier for Working Files ordering. */
+  scopeTier?: RuntimeFileScopeTier;
+  /** Persisted manifest origin when known (hydration from API). */
+  originChatId?: string | null;
 }
 
 export interface RuntimeSandboxPolicy {
@@ -3081,6 +3091,17 @@ export interface RuntimeDeferredDocumentJobSummary {
   documentType: "presentation";
 }
 
+export type RuntimeTurnMediaToolCode = "image_generate" | "image_edit" | "video_generate";
+
+/** ADR-129 W9 — structural delivery truth emitted by runtime at turn completion. */
+export interface RuntimeTurnDeliveryFacts {
+  producedPaths: string[];
+  attachedPaths: string[];
+  pendingMediaJobIds: string[];
+  pendingDocumentJobIds: string[];
+  mediaToolCalls: RuntimeTurnMediaToolCode[];
+}
+
 export interface RuntimeTurnResult {
   requestId: string;
   sessionId: string;
@@ -3123,6 +3144,11 @@ export interface RuntimeTurnResult {
    * in that chat.
    */
   discoveredFilePaths?: string[];
+  /**
+   * ADR-129 W9 — structural delivery facts for API-owned honesty correction.
+   * Independent of model prose and stream artifact counts.
+   */
+  deliveryFacts?: RuntimeTurnDeliveryFacts;
   /**
    * ADR-122 Slice 3: true when the final provider call ended due to the
    * output-token ceiling. Propagated from ProviderGatewayTextGenerateResult.

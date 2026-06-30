@@ -15,6 +15,7 @@ function workingFile(input: {
   authorLabel?: "user" | "model" | "sandbox";
   semanticSummaryHint?: string | null;
   sourceToolCode?: string | null;
+  scopeTier?: RuntimeFileHandle["scopeTier"];
 }): TestWorkingFile {
   return {
     storagePath: input.storagePath,
@@ -23,6 +24,7 @@ function workingFile(input: {
     sizeBytes: input.sizeBytes ?? 10,
     workspaceId: "workspace-1",
     aliases: input.aliases,
+    scopeTier: input.scopeTier ?? "chat",
     ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
     ...(input.authorLabel === undefined ? {} : { authorLabel: input.authorLabel }),
     ...(input.semanticSummaryHint === undefined
@@ -353,7 +355,7 @@ describe("TurnExecutionService working files developer section", () => {
 
     assert.ok(section);
     const historyLines = (section ?? "").split("\n").filter((line) => line.startsWith("- 2026-"));
-    assert.equal(historyLines.length, 20);
+    assert.equal(historyLines.length, 10);
     assert.match(
       section ?? "",
       /DOC_CURRENT_SOURCE = file #1 \| proposal\.docx \| path=\/workspace\/proposal\.docx/

@@ -7,6 +7,8 @@ export type WorkspaceFileMetadataRow = {
   sizeBytes: bigint;
   contentHash: string | null;
   shortDescription: string | null;
+  originChatId: string | null;
+  originAssistantId: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -18,6 +20,8 @@ export type UpsertWorkspaceFileMetadataInput = {
   sizeBytes: bigint;
   contentHash?: string | null;
   shortDescription?: string | null;
+  originChatId?: string | null;
+  originAssistantId?: string | null;
 };
 
 export interface WorkspaceFileMetadataRepository {

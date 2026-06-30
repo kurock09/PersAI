@@ -180,14 +180,9 @@ async function run(): Promise<void> {
   assert.equal(
     (sendReplyPayloads[0]?.turnResult as { assistantMessage?: string } | undefined)
       ?.assistantMessage,
-    "native reply\n\nCorrection: no file was actually delivered in this reply."
+    "native reply"
   );
-  assert.deepEqual(persistedCorrections, [
-    {
-      messageId: "assistant-msg-1",
-      content: "native reply\n\nCorrection: no file was actually delivered in this reply."
-    }
-  ]);
+  assert.deepEqual(persistedCorrections, []);
 
   const unauthorized = await service.handleWebhook({
     assistantId: "assistant-1",

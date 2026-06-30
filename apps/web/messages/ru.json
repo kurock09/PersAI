@@ -1013,6 +1013,8 @@
     "filesDeleted": "Файл удалён.",
     "filesDeleteFailed": "Не удалось удалить файл.",
     "workspaceFilesFilterAll": "Все",
+    "workspaceFilesScopeChat": "Этот чат",
+    "workspaceFilesScopeAll": "Все файлы",
     "workspaceFilesFilterImages": "Изображения",
     "workspaceFilesFilterVideos": "Видео",
     "workspaceFilesFilterDocuments": "Документы",

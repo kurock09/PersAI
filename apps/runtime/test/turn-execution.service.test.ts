@@ -8374,6 +8374,8 @@ export async function runRecentPdfsHintTests(): Promise<void> {
           mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
           sizeBytes: 512,
           aliases: ["file #1"],
+          authorLabel: "user",
+          scopeTier: "chat",
           semanticSummaryHint: "Current source document for the new PDF."
         },
         {
@@ -8384,6 +8386,8 @@ export async function runRecentPdfsHintTests(): Promise<void> {
           mimeType: "application/pdf",
           sizeBytes: 1024,
           aliases: ["file #2"],
+          authorLabel: "model",
+          scopeTier: "chat",
           semanticSummaryHint: "Most recent delivered PDF result."
         }
       ],

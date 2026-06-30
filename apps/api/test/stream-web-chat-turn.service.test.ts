@@ -1087,7 +1087,7 @@ describe("StreamWebChatTurnService", () => {
     );
   });
 
-  test("corrects streamed assistant text when runtime queued media but final web delivery produced no attachments", async () => {
+  test("keeps streamed assistant text unchanged when runtime queued media but final web delivery produced no attachments", async () => {
     const createdMessages: Array<Record<string, unknown>> = [];
     const updatedContents: string[] = [];
     const quotaWrites: Array<Record<string, unknown>> = [];
@@ -1268,17 +1268,13 @@ describe("StreamWebChatTurnService", () => {
 
     assert.equal(outcome.status, "completed");
     assert.equal(createdMessages[0]?.content, "Отправляю hello.txt");
-    assert.equal(updatedContents.length, 1);
-    assert.match(updatedContents[0] ?? "", /Поправка: файл не был реально доставлен в этот чат/);
+    assert.equal(updatedContents.length, 0);
     const transport = (
       outcome as { transport: { assistantMessage: { content: string; attachments: unknown[] } } }
     ).transport.assistantMessage;
     assert.equal(transport.attachments.length, 0);
-    assert.match(transport.content, /Поправка: файл не был реально доставлен в этот чат/);
-    assert.match(
-      String(quotaWrites[0]?.assistantContent ?? ""),
-      /Поправка: файл не был реально доставлен в этот чат/
-    );
+    assert.equal(transport.content, "Отправляю hello.txt");
+    assert.equal(quotaWrites[0]?.assistantContent, "Отправляю hello.txt");
     assert.equal(ledgerWrites.length, 1);
     assert.equal(ledgerWrites[0]?.sourceEventId, "assistant-msg-1");
     assert.equal(ledgerWrites[0]?.purpose, "chat_main_reply");

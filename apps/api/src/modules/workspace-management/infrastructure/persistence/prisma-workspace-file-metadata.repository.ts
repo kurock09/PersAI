@@ -25,7 +25,9 @@ export class PrismaWorkspaceFileMetadataRepository implements WorkspaceFileMetad
         mimeType: input.mimeType,
         sizeBytes: input.sizeBytes,
         contentHash: input.contentHash ?? null,
-        shortDescription: input.shortDescription ?? null
+        shortDescription: input.shortDescription ?? null,
+        originChatId: input.originChatId ?? null,
+        originAssistantId: input.originAssistantId ?? null
       },
       update: {
         mimeType: input.mimeType,
@@ -33,6 +35,10 @@ export class PrismaWorkspaceFileMetadataRepository implements WorkspaceFileMetad
         ...(input.contentHash !== undefined ? { contentHash: input.contentHash } : {}),
         ...(input.shortDescription !== undefined
           ? { shortDescription: input.shortDescription }
+          : {}),
+        ...(input.originChatId !== undefined ? { originChatId: input.originChatId } : {}),
+        ...(input.originAssistantId !== undefined
+          ? { originAssistantId: input.originAssistantId }
           : {})
       }
     });
@@ -88,6 +94,8 @@ export class PrismaWorkspaceFileMetadataRepository implements WorkspaceFileMetad
       sizeBytes: row.sizeBytes,
       contentHash: row.contentHash,
       shortDescription: row.shortDescription,
+      originChatId: row.originChatId,
+      originAssistantId: row.originAssistantId,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt
     };

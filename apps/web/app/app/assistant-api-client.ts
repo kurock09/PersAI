@@ -4465,6 +4465,7 @@ export async function listChatWorkspaceFiles(
   token: string,
   input: {
     chatId: string;
+    scope?: "chat" | "workspace";
     type?: "all" | "image" | "video" | "document";
     cursor?: string | null;
     limit?: number;
@@ -4472,6 +4473,9 @@ export async function listChatWorkspaceFiles(
 ): Promise<{ files: ChatWorkspaceFileTile[]; nextCursor: string | null }> {
   const base = getApiBaseUrl();
   const params = new URLSearchParams();
+  if (input.scope === "workspace") {
+    params.set("scope", "workspace");
+  }
   if (input.type && input.type !== "all") {
     params.set("type", input.type);
   }

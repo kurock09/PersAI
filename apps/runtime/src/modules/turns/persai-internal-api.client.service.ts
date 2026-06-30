@@ -1190,6 +1190,8 @@ export class PersaiInternalApiClientService {
     path: string;
     mimeType: string;
     sizeBytes: number;
+    originChatId?: string | null;
+    originAssistantId?: string | null;
   }): Promise<void> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
@@ -1204,7 +1206,13 @@ export class PersaiInternalApiClientService {
       body: JSON.stringify({
         path: input.path,
         mimeType: input.mimeType,
-        sizeBytes: input.sizeBytes
+        sizeBytes: input.sizeBytes,
+        ...(input.originChatId === undefined || input.originChatId === null
+          ? {}
+          : { originChatId: input.originChatId }),
+        ...(input.originAssistantId === undefined || input.originAssistantId === null
+          ? {}
+          : { originAssistantId: input.originAssistantId })
       })
     });
     if (response.status === 204 || response.ok) {

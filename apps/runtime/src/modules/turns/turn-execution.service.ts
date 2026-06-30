@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -47,6 +47,7 @@ import {
   type RuntimeImageEditToolResult,
   type RuntimeImageGenerateToolResult,
   type RuntimeFileHandle,
+  type RuntimeFileScopeTier,
   type RuntimeOutputArtifact,
   type RuntimeSandboxToolResult,
   type RuntimeScheduledActionToolResult,
@@ -140,6 +141,15 @@ import {
 } from "./runtime-text-only-multimodal-sanitizer";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
+import {
+  buildRuntimeFileHandleFromDocumentRender,
+  createEmptyTurnDeliveryFacts,
+  finalizeTurnDeliveryFacts,
+  recordTurnDeliveryFactsFromToolOutcome,
+  resolveRuntimeFileScopeTier,
+  resolveUndeliveredProducedPaths,
+  type RuntimeTurnDeliveryFactsTracker
+} from "./turn-delivery-facts";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
 import { resolveExecutionProfile } from "./execution-profile-resolver";
 import { TurnRoutingService, type TurnRouteDecision } from "./turn-routing.service";
@@ -180,6 +190,7 @@ const MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS = 4;
 const MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS = 4;
 const MAX_JOB_DELIVERY_UPDATE_ITEMS = 6;
 const MAX_MODEL_VISIBLE_WORKING_FILES = 20;
+const MAX_WORKING_FILES_CHAT_TIER = 10;
 const MAX_WORKING_FILE_MICRO_DESCRIPTION_CHARS = 120;
 const POST_FINAL_SELF_CHECK_MAX_HOPS = 2;
 const POST_FINAL_SELF_CHECK_MAX_OPEN_ROWS_RENDERED = 6;
@@ -257,6 +268,10 @@ type TurnExecutionState = {
    * next-turn hydration.
    */
   discoveredFilePathSet: string[];
+  /** ADR-129 W9 — structural delivery facts accumulated during the tool loop. */
+  deliveryFacts: RuntimeTurnDeliveryFactsTracker;
+  currentChatId: string | null;
+  workspaceId: string;
   /**
    * ADR-116 — ephemeral multimodal blocks from `files.preview` for the next
    * tool-loop provider call only.
@@ -521,6 +536,7 @@ export class TurnExecutionService {
         const executionClass = this.classifyInteractiveExecutionClass(input, execution);
         return this.runtimeExecutionAdmissionService.runWithAdmission(executionClass, async () => {
           const turnState = this.createTurnExecutionState();
+          this.initializeTurnDeliveryContext(turnState, input);
           this.applyPreparedTurnExecutionState(turnState, execution);
           const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
           return this.finalizeAcceptedTurnWithPostTurnEffects({
@@ -560,6 +576,7 @@ export class TurnExecutionService {
             promptMode: "background_worker"
           });
           const turnState = this.createTurnExecutionState();
+          this.initializeTurnDeliveryContext(turnState, input);
           this.applyPreparedTurnExecutionState(turnState, execution);
           const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
           return this.finalizeAcceptedTurnWithPostTurnEffects({
@@ -604,6 +621,7 @@ export class TurnExecutionService {
         const executionClass = this.classifyInteractiveExecutionClass(input, execution);
         return this.runtimeExecutionAdmissionService.runStreamWithAdmission(executionClass, () => {
           const turnState = this.createTurnExecutionState();
+          this.initializeTurnDeliveryContext(turnState, input);
           this.applyPreparedTurnExecutionState(turnState, execution);
           return this.streamAcceptedTurn(
             acceptedTurn,
@@ -632,6 +650,12 @@ export class TurnExecutionService {
         input,
         turnState
       );
+      await this.autoAttachUndeliveredProducedPaths({
+        acceptedTurn,
+        execution,
+        input,
+        turnState
+      });
       return this.buildTurnResult(acceptedTurn, providerResult, turnState, execution.routeDecision);
     } catch (error) {
       await this.failAcceptedTurnQuietly(acceptedTurn, error, undefined, turnState);
@@ -1022,7 +1046,8 @@ export class TurnExecutionService {
               acceptedTurn,
               classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
               toolLoopIteration: iteration
-            })
+            }),
+            workingFilesContext: this.createWorkingFilesContext(turnState)
           });
           let advancedToNextIteration = false;
           let providerOutputSeen = false;
@@ -1426,6 +1451,12 @@ export class TurnExecutionService {
                   finalAnswerText,
                   fullAssistantText: selfCheckedAssistantText
                 });
+                await this.autoAttachUndeliveredProducedPaths({
+                  acceptedTurn,
+                  execution,
+                  input,
+                  turnState
+                });
                 const result = this.buildTurnResult(
                   acceptedTurn,
                   correctedProviderResult,
@@ -1776,6 +1807,7 @@ export class TurnExecutionService {
       ...(turnState.discoveredFilePathSet.length === 0
         ? {}
         : { discoveredFilePaths: [...turnState.discoveredFilePathSet] }),
+      deliveryFacts: finalizeTurnDeliveryFacts(turnState.deliveryFacts),
       ...(providerResult.truncated === true ? { truncated: true } : {})
     };
     if (trace !== undefined) {
@@ -1988,7 +2020,11 @@ export class TurnExecutionService {
       input.deepModeEnabled
     );
     const workingFilesSection = this.buildWorkingFilesDeveloperSection(
-      input.availableWorkingFileHandles
+      input.availableWorkingFileHandles,
+      {
+        currentChatId: input.request?.channelContext?.web?.chatId ?? null,
+        producedPaths: new Set<string>()
+      }
     );
     const openLoopRefsSection = this.normalizeOptionalText(input.openLoopRefsBlock);
     const openMediaJobsSection = this.buildOpenMediaJobsDeveloperSection(input.openMediaJobs);
@@ -2069,36 +2105,42 @@ export class TurnExecutionService {
   }
 
   private buildWorkingFilesDeveloperSection(
-    availableWorkingFileHandles: RuntimeFileHandle[]
+    availableWorkingFileHandles: RuntimeFileHandle[],
+    context?: {
+      currentChatId: string | null;
+      producedPaths: ReadonlySet<string>;
+    }
   ): string | null {
-    const modelVisibleWorkingFiles = this.limitModelVisibleWorkingFiles(
-      availableWorkingFileHandles
+    const producedPaths = context?.producedPaths ?? new Set<string>();
+    const currentChatId = context?.currentChatId ?? null;
+    const tieredFiles: RuntimeFileHandle[] = availableWorkingFileHandles.map((file) => {
+      const scopeTier: RuntimeFileScopeTier =
+        file.scopeTier ??
+        resolveRuntimeFileScopeTier({
+          storagePath: file.storagePath,
+          currentChatId,
+          producedPathsThisTurn: producedPaths,
+          ...(file.authorLabel === undefined ? {} : { authorLabel: file.authorLabel }),
+          ...(file.originChatId === undefined ? {} : { originChatId: file.originChatId })
+        });
+      return { ...file, scopeTier };
+    });
+    const chatScopedFiles = this.limitWorkingFilesForTier(
+      tieredFiles.filter((file) => file.scopeTier === "chat"),
+      MAX_WORKING_FILES_CHAT_TIER
     );
-    if (modelVisibleWorkingFiles.length === 0) {
+    if (chatScopedFiles.length === 0) {
       return null;
     }
 
     const lines = ["## Working Files"];
-    const documentPriorityNote = this.buildWorkingFileDocumentPriorityNote(
-      availableWorkingFileHandles
-    );
+    const documentPriorityNote = this.buildWorkingFileDocumentPriorityNote(chatScopedFiles);
     if (documentPriorityNote !== null) {
       lines.push("", ...documentPriorityNote);
     }
 
-    const duplicateDisplayNames = this.collectDuplicateWorkingFileNames(modelVisibleWorkingFiles);
-    const collisionCounters = new Map<string, number>();
-    lines.push("", ...this.buildWorkingFileGeneralFileNote(availableWorkingFileHandles), "");
-    for (const file of modelVisibleWorkingFiles) {
-      const displayNameKey = this.resolveWorkingFileDisplayName(file).toLowerCase();
-      let collisionIndex: number | null = null;
-      if (duplicateDisplayNames.has(displayNameKey)) {
-        const next = (collisionCounters.get(displayNameKey) ?? 0) + 1;
-        collisionCounters.set(displayNameKey, next);
-        collisionIndex = next;
-      }
-      lines.push(this.formatWorkingFileHistoryLine(file, duplicateDisplayNames, collisionIndex));
-    }
+    lines.push("", ...this.buildWorkingFileGeneralFileNote(chatScopedFiles), "");
+    this.appendWorkingFilesTierSection(lines, "Current chat / this session", chatScopedFiles);
 
     lines.push(
       "",
@@ -2111,6 +2153,41 @@ export class TurnExecutionService {
       "Do not send files or claim delivery/preparation unless the user explicitly asks and the current turn returns the matching tool result."
     );
     return lines.join("\n");
+  }
+
+  private limitWorkingFilesForTier(
+    files: RuntimeFileHandle[],
+    maxCount: number
+  ): RuntimeFileHandle[] {
+    const sorted = this.sortWorkingFilesByCreatedAt(files);
+    if (sorted.length <= maxCount) {
+      return sorted;
+    }
+    return sorted.slice(0, maxCount);
+  }
+
+  private appendWorkingFilesTierSection(
+    lines: string[],
+    title: string,
+    files: RuntimeFileHandle[]
+  ): void {
+    if (files.length === 0) {
+      return;
+    }
+    lines.push(`### ${title}`);
+    const duplicateDisplayNames = this.collectDuplicateWorkingFileNames(files);
+    const collisionCounters = new Map<string, number>();
+    for (const file of files) {
+      const displayNameKey = this.resolveWorkingFileDisplayName(file).toLowerCase();
+      let collisionIndex: number | null = null;
+      if (duplicateDisplayNames.has(displayNameKey)) {
+        const next = (collisionCounters.get(displayNameKey) ?? 0) + 1;
+        collisionCounters.set(displayNameKey, next);
+        collisionIndex = next;
+      }
+      lines.push(this.formatWorkingFileHistoryLine(file, duplicateDisplayNames, collisionIndex));
+    }
+    lines.push("");
   }
 
   private isCurrentSourceWorkingFile(file: RuntimeFileHandle): boolean {
@@ -2169,6 +2246,7 @@ export class TurnExecutionService {
       "Do not let older open jobs block a genuine new media request in the current user turn. If the current turn is asking for another image, image edit, or video task, you may start the matching new media tool call.",
       "These are older or already-open jobs. They are NOT proof that the current user turn started a new media job.",
       "Only say a new media request was accepted, queued, or in progress when this same turn actually returned a structural pending_delivery result with a real jobId.",
+      "Absence of a new pending_delivery result in the current turn means you have NOT started a new image/video job yet.",
       ...openMediaJobs.slice(0, MAX_OPEN_MEDIA_JOB_CONTEXT_ITEMS).map((job, index) => {
         const ageLine =
           job.startedAt === null
@@ -2678,7 +2756,8 @@ export class TurnExecutionService {
             acceptedTurn,
             classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
             toolLoopIteration: iteration
-          })
+          }),
+          workingFilesContext: this.createWorkingFilesContext(turnState)
         });
         providerResult = await this.generateTextWithRuntimeFallback({
           bundle: execution.bundle,
@@ -3148,7 +3227,7 @@ export class TurnExecutionService {
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
           channel: acceptedTurn.session.conversation.channel,
-          chatId: null,
+          chatId: input.channelContext?.web?.chatId ?? null,
           externalThreadKey: this.resolveSurfaceThreadKey(acceptedTurn.session.conversation),
           messageId: null
         });
@@ -3229,7 +3308,8 @@ export class TurnExecutionService {
             sourceUserMessageCreatedAt: new Date().toISOString(),
             currentAttachments: execution.currentMessageAttachments,
             availableAttachments: documentSourceAttachments
-          }
+          },
+          originChatId: input.channelContext?.web?.chatId ?? null
         });
         return this.createToolExecutionOutcome(
           toolCall,
@@ -3870,6 +3950,10 @@ export class TurnExecutionService {
       deferredDocumentJobs?: TurnExecutionState["deferredDocumentJobs"];
       pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
       requestMetadata: ProviderGatewayRequestMetadata;
+      workingFilesContext?: {
+        currentChatId: string | null;
+        producedPaths: ReadonlySet<string>;
+      };
     }
   ): ProviderGatewayTextGenerateRequest {
     const assistantText = this.normalizeOptionalText(input.assistantText);
@@ -3882,7 +3966,8 @@ export class TurnExecutionService {
       input.availableToolNames,
       input.forceFinalTextOnly === true,
       input.deferredMediaJobs ?? [],
-      input.deferredDocumentJobs ?? []
+      input.deferredDocumentJobs ?? [],
+      input.workingFilesContext
     );
     const pendingFilePreviewBlocks = input.pendingFilePreviewBlocks ?? [];
     return {
@@ -3934,12 +4019,16 @@ export class TurnExecutionService {
     availableToolNames: string[],
     forceFinalTextOnly: boolean,
     deferredMediaJobs: RuntimeDeferredMediaJobSummary[],
-    deferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"]
+    deferredDocumentJobs: TurnExecutionState["deferredDocumentJobs"],
+    workingFilesContext?: {
+      currentChatId: string | null;
+      producedPaths: ReadonlySet<string>;
+    }
   ): string | null {
     let sections = this.replaceDeveloperInstructionSection(
       baseSections,
       "working_files",
-      this.buildWorkingFilesDeveloperSection(availableWorkingFileHandles)
+      this.buildWorkingFilesDeveloperSection(availableWorkingFileHandles, workingFilesContext)
     );
     sections = this.replaceDeveloperInstructionSection(
       sections,
@@ -4750,7 +4839,97 @@ export class TurnExecutionService {
       deferredMediaJobs: [],
       deferredDocumentJobs: [],
       closedOpenLoopRefs: [],
-      discoveredFilePathSet: []
+      discoveredFilePathSet: [],
+      deliveryFacts: createEmptyTurnDeliveryFacts(),
+      currentChatId: null,
+      workspaceId: ""
+    };
+  }
+
+  private initializeTurnDeliveryContext(
+    turnState: TurnExecutionState,
+    input: RuntimeTurnRequest
+  ): void {
+    turnState.workspaceId = input.bundle.workspaceId;
+    turnState.currentChatId = input.channelContext?.web?.chatId ?? null;
+    turnState.deliveryFacts = createEmptyTurnDeliveryFacts();
+  }
+
+  private async autoAttachUndeliveredProducedPaths(input: {
+    acceptedTurn: AcceptedRuntimeTurn;
+    execution: PreparedTurnExecution;
+    input: RuntimeTurnRequest;
+    turnState: TurnExecutionState;
+  }): Promise<void> {
+    const undelivered = resolveUndeliveredProducedPaths(input.turnState.deliveryFacts);
+    if (undelivered.length === 0) {
+      return;
+    }
+    const channel = input.acceptedTurn.session.conversation.channel;
+    if (channel !== "web" && channel !== "telegram" && channel !== "max_ru") {
+      return;
+    }
+    const externalThreadKey = this.resolveSurfaceThreadKey(input.acceptedTurn.session.conversation);
+    for (const path of undelivered) {
+      const toolCall: ProviderGatewayToolCall = {
+        id: randomUUID(),
+        name: "files",
+        arguments: { action: "attach", path }
+      };
+      try {
+        const result = await this.runtimeFilesToolService.executeToolCall({
+          bundle: input.execution.bundle,
+          toolCall,
+          sessionId: input.acceptedTurn.session.sessionId,
+          requestId: input.acceptedTurn.receipt.requestId,
+          channel,
+          chatId: input.turnState.currentChatId,
+          externalThreadKey,
+          messageId: null
+        });
+        recordTurnDeliveryFactsFromToolOutcome({
+          tracker: input.turnState.deliveryFacts,
+          toolName: "files",
+          payload: result.payload,
+          isError: result.isError
+        });
+        if (result.isError || result.artifacts === undefined || result.artifacts.length === 0) {
+          const reason =
+            result.payload !== null &&
+            typeof result.payload === "object" &&
+            !Array.isArray(result.payload) &&
+            "warning" in result.payload &&
+            typeof (result.payload as { warning?: unknown }).warning === "string"
+              ? (result.payload as { warning: string }).warning
+              : "attach_failed";
+          this.logger.warn(`auto_attach_produced_path_failed path=${path} reason=${reason}`);
+          continue;
+        }
+        for (const artifact of result.artifacts) {
+          const existingIndex = input.turnState.artifacts.findIndex(
+            (existing) => existing.artifactId === artifact.artifactId
+          );
+          if (existingIndex >= 0) {
+            input.turnState.artifacts[existingIndex] = artifact;
+          } else {
+            input.turnState.artifacts.push(artifact);
+          }
+        }
+      } catch (error) {
+        this.logger.warn(
+          `auto_attach_produced_path_failed path=${path} reason=${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+  }
+
+  private createWorkingFilesContext(turnState: TurnExecutionState): {
+    currentChatId: string | null;
+    producedPaths: ReadonlySet<string>;
+  } {
+    return {
+      currentChatId: turnState.currentChatId,
+      producedPaths: new Set(turnState.deliveryFacts.producedPaths)
     };
   }
 
@@ -4836,6 +5015,35 @@ export class TurnExecutionService {
         : { executionMode: this.resolveToolInvocationExecutionMode(outcome.payload)! }),
       ...(billingFacts === null ? {} : { billingFacts })
     });
+    recordTurnDeliveryFactsFromToolOutcome({
+      tracker: turnState.deliveryFacts,
+      toolName: outcome.exchange.toolCall.name,
+      payload: outcome.payload,
+      isError: outcome.exchange.toolResult.isError === true
+    });
+    if (
+      outcome.exchange.toolCall.name === "document" &&
+      outcome.exchange.toolResult.isError !== true &&
+      outcome.payload !== null &&
+      typeof outcome.payload === "object" &&
+      !Array.isArray(outcome.payload)
+    ) {
+      const documentPayload = outcome.payload as RuntimeDocumentToolResult;
+      if (documentPayload.action === "rendered" && documentPayload.render != null) {
+        const renderedHandle = buildRuntimeFileHandleFromDocumentRender({
+          render: documentPayload.render,
+          workspaceId: turnState.workspaceId
+        });
+        const existingIndex = turnState.fileHandles.findIndex(
+          (existing) => existing.storagePath === renderedHandle.storagePath
+        );
+        if (existingIndex >= 0) {
+          turnState.fileHandles[existingIndex] = renderedHandle;
+        } else {
+          turnState.fileHandles.push(renderedHandle);
+        }
+      }
+    }
     const closedOpenLoopRef = this.extractClosedOpenLoopRef(outcome.payload);
     if (closedOpenLoopRef !== null && !turnState.closedOpenLoopRefs.includes(closedOpenLoopRef)) {
       turnState.closedOpenLoopRefs.push(closedOpenLoopRef);

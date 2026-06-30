@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-06-30 — ADR-129 Wave 9b: auto-deliver produced files, no user-facing «Поправка»
+
+Status: implemented locally (uncommitted). Supersedes Wave 9 symptom patches.
+
+**Scope.** Prod fix for PDF/render-without-attach: runtime **auto-`files.attach`** on undelivered `producedPaths` before turn end. Removed all user-visible structural «Поправка» notices and `expectsMediaArtifact` regex heuristics. Working Files prompt is **chat-scoped only** (other paths via `files.list` on demand). Gallery `scope=chat` default retained.
+
+**Next.** Verification gate + deploy + live validate incident chat.
+
+## 2026-06-30 — ADR-129 Wave 9: delivery truth, session file scope, media-claim guards
+
+Status: superseded by Wave 9b above (symptom notices removed; auto-deliver added).
+
+## 2026-06-30 — ADR-129 Wave 9 opened: delivery truth, session file scope, media-claim guards
+
+Status: superseded by implementation entry above. ADR Wave 9 design lives in `docs/ADR/129-agentic-document-workspace-extraction-render-inspect-and-versioning.md` §Wave 9.
+
+**Scope.** Prod fixes for four live gaps: (1) false delivery claims when `document.render` succeeds but `files.attach` never runs — current honesty only triggers on `RuntimeOutputArtifact` count; (2) model cannot see session-scoped files first in Working Files; (3) Settings → Files gallery defaults to full workspace manifest instead of current chat; (4) model claims image generation started without same-turn `image_generate` / `pending_delivery`.
+
+**Next recommended step.** Implement Wave 9 Slice 1 (structural `turnDeliveryFacts` + API honesty extension) — highest impact, closes the PDF false-delivery class without auto-attach.
+
 ## 2026-06-30 — ADR-129 Wave 8: split model-facing `document` and `presentation` tools
 
 Status: implemented locally on dirty tree from baseline `e204a693`. Focused regressions plus lint/format/typecheck pass. Commit/push/deploy, `seed:catalog`, and live browser/K8S re-test remain pending.

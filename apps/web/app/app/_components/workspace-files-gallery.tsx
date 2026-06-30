@@ -31,6 +31,7 @@ import { AuthenticatedAttachmentImage } from "./authenticated-attachment-image";
 import { ImageLightbox } from "./image-lightbox";
 
 type GalleryFilter = "all" | "image" | "video" | "document";
+type GalleryScope = "chat" | "workspace";
 
 const FILTER_OPTIONS: GalleryFilter[] = ["all", "image", "video", "document"];
 
@@ -176,6 +177,7 @@ export function WorkspaceFilesGallery({
 }) {
   const t = useTranslations("settings");
   const { getToken } = useAuth();
+  const [scope, setScope] = useState<GalleryScope>("chat");
   const [filter, setFilter] = useState<GalleryFilter>("all");
   const [files, setFiles] = useState<ChatWorkspaceFileTile[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -214,6 +216,7 @@ export function WorkspaceFilesGallery({
       try {
         const payload = await listChatWorkspaceFiles(token, {
           chatId,
+          scope,
           type: filter,
           cursor: null,
           limit: 24
@@ -235,7 +238,7 @@ export function WorkspaceFilesGallery({
     return () => {
       cancelled = true;
     };
-  }, [chatId, filter, getToken, t]);
+  }, [chatId, filter, getToken, scope, t]);
 
   const loadMore = useCallback(async () => {
     if (!chatId || !nextCursor) return;
@@ -246,6 +249,7 @@ export function WorkspaceFilesGallery({
     try {
       const payload = await listChatWorkspaceFiles(token, {
         chatId,
+        scope,
         type: filter,
         cursor: nextCursor,
         limit: 24
@@ -257,7 +261,7 @@ export function WorkspaceFilesGallery({
     } finally {
       setLoadingMore(false);
     }
-  }, [chatId, filter, getToken, nextCursor, t]);
+  }, [chatId, filter, getToken, nextCursor, scope, t]);
 
   const openPreview = useCallback(
     (file: ChatWorkspaceFileTile) => {
@@ -351,6 +355,33 @@ export function WorkspaceFilesGallery({
       <div>
         <p className="text-sm font-medium text-text">{t("filesTitle")}</p>
         <p className="mt-1 text-xs text-text-muted">{t("filesDescription")}</p>
+      </div>
+
+      <div className="flex flex-wrap gap-2" data-testid="workspace-files-scope">
+        <button
+          type="button"
+          onClick={() => setScope("chat")}
+          className={cn(
+            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+            scope === "chat"
+              ? "border-accent/40 bg-accent/10 text-text"
+              : "border-border/70 bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text"
+          )}
+        >
+          {t("workspaceFilesScopeChat")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setScope("workspace")}
+          className={cn(
+            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+            scope === "workspace"
+              ? "border-accent/40 bg-accent/10 text-text"
+              : "border-border/70 bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text"
+          )}
+        >
+          {t("workspaceFilesScopeAll")}
+        </button>
       </div>
 
       <div className="flex flex-wrap gap-2" data-testid="workspace-files-filters">

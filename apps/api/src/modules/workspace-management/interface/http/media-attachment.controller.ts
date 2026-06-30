@@ -178,6 +178,7 @@ export class MediaAttachmentController {
   async listWorkspaceFiles(
     @Req() req: RequestWithPlatformContext,
     @Param("chatId") chatId: string,
+    @Query("scope") scope?: string,
     @Query("type") type?: string,
     @Query("cursor") cursor?: string,
     @Query("limit") limit?: string
@@ -187,6 +188,7 @@ export class MediaAttachmentController {
     const result = await this.listChatWorkspaceFilesService.execute({
       userId,
       chatId,
+      scope: scope ?? null,
       type: type ?? null,
       cursor: cursor ?? null,
       ...(parsedLimit !== null && Number.isFinite(parsedLimit) ? { limit: parsedLimit } : {})

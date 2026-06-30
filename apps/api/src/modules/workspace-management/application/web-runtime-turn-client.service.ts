@@ -48,6 +48,7 @@ export interface WebRuntimeTurnClientInput {
   providerOverride?: "openai" | "anthropic" | "deepseek";
   modelOverride?: string;
   skillStateContext?: RuntimeSkillStateContext;
+  chatId: string;
 }
 
 interface JsonResponse {
@@ -136,7 +137,12 @@ export class WebRuntimeTurnClientService {
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
       ...(input.skillStateContext === undefined
         ? {}
-        : { skillStateContext: input.skillStateContext })
+        : { skillStateContext: input.skillStateContext }),
+      channelContext: {
+        web: {
+          chatId: input.chatId
+        }
+      }
     };
     const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
       materializedSpec.runtimeBundle,
@@ -248,7 +254,12 @@ export class WebRuntimeTurnClientService {
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
       ...(input.skillStateContext === undefined
         ? {}
-        : { skillStateContext: input.skillStateContext })
+        : { skillStateContext: input.skillStateContext }),
+      channelContext: {
+        web: {
+          chatId: input.chatId
+        }
+      }
     };
   }
 

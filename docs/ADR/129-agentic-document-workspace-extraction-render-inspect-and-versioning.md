@@ -440,6 +440,84 @@ Acceptance:
 - catalog/presets expose separate descriptors for both tools;
 - no second plan quota knob or admin billing surface.
 
+### Wave 9 — Delivery truth, session-scoped file visibility, and media-claim guards (opened 2026-06-30)
+
+Problem (live-validated on PDF-instruction turn `e6fb2fa3`, chat `web-1782814156432`):
+
+1. **False delivery claims.** `document.render` succeeded in sandbox but `files.attach` never ran. `applyFinalDeliveryHonestyCorrection` only fires when `attemptedArtifactCount > 0` (stream `RuntimeOutputArtifact`s). Render produces `artifacts: []`, so the model's "готово / пришлю" prose is never corrected — same blind spot for any workspace-only produce path.
+2. **No session-scoped file truth for the model.** `RuntimeFileHandle` has no `chatId` / session tier. `## Working Files` mixes current chat, other chats, and orphan manifest paths with no ordering contract. Models stat wrong files (e.g. old Gamma PDFs) after a new render.
+3. **Settings → Files gallery defaults to workspace-wide truth.** `listChatWorkspaceFiles` merges the full workspace manifest; the UI type pill `all` is the default. Users and operators expect **this chat/session first**.
+4. **False media-start claims (~50%).** Model prose says image generation started without a same-turn structural `image_generate` / `image_edit` / `pending_delivery` result. `## Open Media Jobs` blocks stale jobs but does not guard new-turn false starts.
+
+Prod decisions (no second delivery path; keep `files.attach` as sole chat delivery):
+
+#### D9 — Structural turn delivery facts (API-owned honesty)
+
+Runtime turn completion MUST emit structural delivery facts independent of model prose:
+
+```ts
+turnDeliveryFacts: {
+  producedPaths: string[];      // document.render outputPath, files.write binary paths, etc.
+  attachedPaths: string[];      // successful files.attach paths this turn
+  pendingMediaJobIds: string[]; // same-turn pending_delivery media jobs
+  pendingDocumentJobIds: string[];
+  mediaToolCalls: Array<"image_generate" | "image_edit" | "video_generate">; // successful or pending this turn
+}
+```
+
+API post-runtime (`complete-web-post-runtime-turn`, telegram adapter, async job completion) applies honesty from **facts**, not artifact count alone:
+
+| Condition | System action |
+| --- | --- |
+| `producedPaths.length > 0 && attachedPaths.length === 0 && pending* empty` | Append structural correction: file exists in workspace but was **not** delivered to this message; strip delivery-claiming prose. |
+| User asked for artifact && `mediaToolCalls.length === 0 && pendingMedia empty` | Append correction: no media job was actually started this turn. |
+| `attachedPaths.length > 0` | Keep current delivered-filename link stripping only. |
+
+Optional product mode (founder toggle, default **off** for Wave 9): `autoAttachAfterDocumentRender` — when `document.render` returns `action: "rendered"`, runtime enqueues a batched `files.attach` on the same output path before turn end. **Default remains manual attach** to preserve inspect gate; auto-attach is an explicit escape hatch, not the primary path.
+
+#### D10 — Three-tier file visibility for the model
+
+Working Files and `files.list` default scope for chat turns:
+
+1. **Current chat/session** — attachments with `chatId`, paths under `/workspace/chats/<chatId>/`, files produced this turn (`producedPaths`).
+2. **This assistant** — same `assistantId`, other chats, outbound artefacts.
+3. **Workspace / siblings** — orphan manifest rows, `/shared/` (read-only enumeration per ADR-126).
+
+Implementation:
+
+- Add optional `originChatId` + `originAssistantId` on `workspace_file_metadata` (migration); set on `files.write`, render persist, and `files.attach`.
+- Extend `RuntimeFileHandle` with `scopeTier: "chat" | "assistant" | "workspace"`.
+- `buildWorkingFilesDeveloperSection` emits three subsections in that order; cap each tier separately so session files are never pushed out by history noise.
+- `document.render` MUST register output in `producedPaths` and merge into turn `fileHandles` even when `artifacts: []`.
+
+#### D11 — Settings Files UI: session-first scope
+
+- API: `GET .../workspace-files?scope=chat|workspace` — default **`chat`**.
+  - `chat`: tiles where `attachment.chatId === chatId` OR path prefix `/workspace/chats/<chatId>/`.
+  - `workspace`: current ADR-127 manifest join (all assistant workspace files).
+- Web `WorkspaceFilesGallery`: default scope = chat; add pill/toggle **«Все файлы»** (maps to `scope=workspace`). Type filters (`image` / `video` / `document`) apply **within** the active scope.
+
+#### D12 — Media-start structural guard
+
+- Runtime: if the user turn requests image/video creation (lightweight classifier on user message **or** scenario seed), set `turnDeliveryFacts.expectsMediaArtifact = true`.
+- Post-runtime: when `expectsMediaArtifact && mediaToolCalls.length === 0 && pendingMedia empty`, append honest notice (RU/EN) — same machinery as D9, no prose regex.
+- Strengthen `## Open Media Jobs` copy: *"Absence of a new pending_delivery result this turn means you have NOT started a new image/video job yet."*
+
+Wave 9 slices (implementation order):
+
+1. **Slice 1 — D9 delivery facts + honesty extension** (runtime emit + API correct; closes PDF false-delivery).
+2. **Slice 2 — D10 Working Files tiers + render → fileHandles** (model stops grabbing old Gamma paths).
+3. **Slice 3 — D11 session-first gallery API + UI** (settings files default).
+4. **Slice 4 — D12 media-start guard** (50% false image claims).
+5. **Slice 5 — optional `originChatId` manifest migration** (persistent scope across pod restarts).
+
+Acceptance:
+
+- PDF-instruction live turn: either `files.attach` chip appears OR assistant text honestly says file is in workspace but not attached — never silent "готово".
+- Working Files lists current-chat outputs above `2026-06-30T07:43:26Z-pdf-pdf.pdf`.
+- Settings → Files opens on session files; «Все файлы» reveals workspace-wide manifest.
+- Image request with no tool call gets structural correction, not "генерация запущена".
+
 ## Verification gate
 
 Every implementation wave must run focused tests for touched paths and then:

@@ -19,6 +19,8 @@ export class WorkspaceFileMetadataService {
     sizeBytes: number | bigint;
     contentHash?: string;
     shortDescription?: string;
+    originChatId?: string | null;
+    originAssistantId?: string | null;
   }): Promise<void> {
     await this.repository.upsert({
       workspaceId: input.workspaceId,
@@ -26,7 +28,11 @@ export class WorkspaceFileMetadataService {
       mimeType: input.mimeType,
       sizeBytes: typeof input.sizeBytes === "bigint" ? input.sizeBytes : BigInt(input.sizeBytes),
       contentHash: input.contentHash ?? null,
-      shortDescription: input.shortDescription ?? null
+      shortDescription: input.shortDescription ?? null,
+      ...(input.originChatId === undefined ? {} : { originChatId: input.originChatId }),
+      ...(input.originAssistantId === undefined
+        ? {}
+        : { originAssistantId: input.originAssistantId })
     });
   }
 

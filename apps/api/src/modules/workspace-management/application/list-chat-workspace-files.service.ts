@@ -13,6 +13,8 @@ import { ResolveActiveAssistantService } from "./resolve-active-assistant.servic
 
 export type WorkspaceFilesGalleryTypeFilter = "image" | "video" | "document";
 
+export type WorkspaceFilesGalleryScope = "chat" | "workspace";
+
 export type ChatWorkspaceFileTile = {
   storagePath: string;
   thumbnailStoragePath: string | null;
@@ -40,6 +42,7 @@ type ManifestRow = {
   sizeBytes: bigint;
   createdAt: Date;
   updatedAt: Date;
+  originChatId: string | null;
 };
 
 type AttachmentRow = {
@@ -110,6 +113,7 @@ export class ListChatWorkspaceFilesService {
   async execute(input: {
     userId: string;
     chatId: string;
+    scope?: string | null;
     type?: string | null;
     cursor?: string | null;
     limit?: number | null;
@@ -122,7 +126,9 @@ export class ListChatWorkspaceFilesService {
     }
 
     const typeFilter = this.parseTypeFilter(input.type);
+    const scope = this.parseScopeFilter(input.scope);
     const limit = this.parseLimit(input.limit);
+    const chatScratchPrefix = `/workspace/chats/${input.chatId}/`;
 
     const [manifestRowsRaw, attachmentRowsRaw] = await Promise.all([
       this.prisma.workspaceFileMetadata.findMany({
@@ -200,8 +206,11 @@ export class ListChatWorkspaceFilesService {
         continue;
       }
       // Orphan manifest entry: model `files.write` produced this file with no
-      // chat origin. Synthesise a tile from path + mime; chatId/messageId
-      // remain null so the UI can fall back to workspace-scoped download URLs.
+      // chat attachment row. Use manifest origin when present.
+      const orphanChatId =
+        manifest.originChatId !== null && manifest.originChatId.length > 0
+          ? manifest.originChatId
+          : null;
       const inferredType = inferAttachmentTypeFromMime(manifest.mimeType);
       if (!GALLERY_ATTACHMENT_TYPES.has(inferredType)) {
         continue;
@@ -218,12 +227,25 @@ export class ListChatWorkspaceFilesService {
         sizeBytes: Number(manifest.sizeBytes),
         attachmentType: inferredType,
         createdAt: manifest.createdAt.toISOString(),
-        chatId: null,
+        chatId: orphanChatId,
         messageId: null
       });
     }
 
-    tiles.sort((left, right) => {
+    const scopedTiles =
+      scope === "workspace"
+        ? tiles
+        : tiles.filter(
+            (tile) =>
+              tile.chatId === input.chatId ||
+              tile.storagePath.startsWith(chatScratchPrefix) ||
+              manifestRows.some(
+                (manifest) =>
+                  manifest.path === tile.storagePath && manifest.originChatId === input.chatId
+              )
+          );
+
+    scopedTiles.sort((left, right) => {
       const leftMs = Date.parse(left.createdAt);
       const rightMs = Date.parse(right.createdAt);
       if (rightMs !== leftMs) {
@@ -235,15 +257,15 @@ export class ListChatWorkspaceFilesService {
     let startIndex = 0;
     if (typeof input.cursor === "string" && input.cursor.trim().length > 0) {
       const cursorPath = input.cursor.trim();
-      const cursorIndex = tiles.findIndex((row) => row.storagePath === cursorPath);
+      const cursorIndex = scopedTiles.findIndex((row) => row.storagePath === cursorPath);
       if (cursorIndex >= 0) {
         startIndex = cursorIndex + 1;
       }
     }
 
-    const page = tiles.slice(startIndex, startIndex + limit);
+    const page = scopedTiles.slice(startIndex, startIndex + limit);
     const nextCursor =
-      startIndex + limit < tiles.length && page.length > 0
+      startIndex + limit < scopedTiles.length && page.length > 0
         ? (page[page.length - 1]?.storagePath ?? null)
         : null;
 
@@ -251,6 +273,16 @@ export class ListChatWorkspaceFilesService {
       files: page,
       nextCursor
     };
+  }
+
+  private parseScopeFilter(value: string | null | undefined): WorkspaceFilesGalleryScope {
+    if (value === undefined || value === null || value.trim().length === 0 || value === "chat") {
+      return "chat";
+    }
+    if (value === "workspace") {
+      return "workspace";
+    }
+    throw new BadRequestException('Query param "scope" must be one of: chat, workspace.');
   }
 
   private parseTypeFilter(
@@ -296,7 +328,8 @@ export class ListChatWorkspaceFilesService {
       mimeType: row.mimeType,
       sizeBytes: row.sizeBytes,
       createdAt: row.createdAt,
-      updatedAt: row.updatedAt
+      updatedAt: row.updatedAt,
+      originChatId: typeof row.originChatId === "string" ? row.originChatId : null
     };
   }
 

@@ -383,7 +383,8 @@ export class SendWebChatTurnService {
               providerOverride: prepared.quotaDegradeModelOverride.provider,
               modelOverride: prepared.quotaDegradeModelOverride.model
             }
-          : {})
+          : {}),
+        chatId: prepared.chat.id
       });
       this.logWebRuntimeRoute({
         route: "sync",
@@ -821,6 +822,7 @@ export class SendWebChatTurnService {
     modelRoleOverride?: WebRuntimeTurnClientInput["modelRoleOverride"];
     providerOverride?: "openai" | "anthropic" | "deepseek";
     modelOverride?: string;
+    chatId: string;
   }): WebRuntimeTurnClientInput {
     return {
       assistantId: input.assistantId,
@@ -848,7 +850,8 @@ export class SendWebChatTurnService {
         ? {}
         : { modelRoleOverride: input.modelRoleOverride }),
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
-      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
+      ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride }),
+      chatId: input.chatId
     };
   }
 

@@ -49,6 +49,7 @@ export class RuntimeDocumentToolService {
       currentAttachments: RuntimeAttachmentRef[];
       availableAttachments: RuntimeAttachmentRef[];
     };
+    originChatId?: string | null;
   }): Promise<RuntimeDocumentToolExecutionResult> {
     const parsed = this.readDocumentArguments(params.toolCall.arguments);
     if (parsed instanceof Error) {
@@ -74,7 +75,8 @@ export class RuntimeDocumentToolService {
         bundle: params.bundle,
         request: parsed.request,
         sessionId: params.sessionId ?? null,
-        requestId: params.requestId ?? null
+        requestId: params.requestId ?? null,
+        originChatId: params.originChatId ?? null
       });
     }
 
@@ -505,6 +507,7 @@ export class RuntimeDocumentToolService {
     };
     sessionId: string | null;
     requestId: string | null;
+    originChatId: string | null;
   }): Promise<RuntimeDocumentToolExecutionResult> {
     const projectPath = this.normalizeWorkspacePath(params.request.projectPath, {
       allowDirectory: true
@@ -616,7 +619,8 @@ export class RuntimeDocumentToolService {
         bundle: params.bundle,
         sessionId: params.sessionId,
         requestId: params.requestId,
-        outputPath
+        outputPath,
+        originChatId: params.originChatId
       });
       return {
         payload: {
@@ -1364,6 +1368,7 @@ export class RuntimeDocumentToolService {
     sessionId: string;
     requestId: string;
     outputPath: string;
+    originChatId: string | null;
   }): Promise<{ mimeType: string; sizeBytes: number }> {
     const job = await this.sandboxClientService!.waitForCompletion({
       assistantId: input.bundle.metadata.assistantId,
@@ -1395,7 +1400,13 @@ export class RuntimeDocumentToolService {
       workspaceId: input.bundle.metadata.workspaceId,
       path: input.outputPath,
       mimeType: attach.mimeType,
-      sizeBytes: attach.sizeBytes
+      sizeBytes: attach.sizeBytes,
+      ...(input.originChatId === null
+        ? {}
+        : {
+            originChatId: input.originChatId,
+            originAssistantId: input.bundle.metadata.assistantId
+          })
     });
     return {
       mimeType: attach.mimeType,
