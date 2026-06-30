@@ -5,7 +5,7 @@ import {
   buildDocumentWorkspaceProjectLayout,
   deriveDefaultDocumentProjectPath,
   validateDocumentProjectRenderPaths
-} from "../src/document-workspace-project";
+} from "../src/index";
 
 describe("document-workspace-project", () => {
   test("derives a stable default project path from the source filename", () => {
