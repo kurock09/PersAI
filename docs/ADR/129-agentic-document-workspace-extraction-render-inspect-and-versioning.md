@@ -518,6 +518,27 @@ Acceptance:
 - Settings → Files opens on session files; «Все файлы» reveals workspace-wide manifest.
 - Image request with no tool call gets structural correction, not "генерация запущена".
 
+### Wave 10 — Document project binding (opened 2026-06-30)
+
+Problem (live-validated on DOCX→premium PDF turn, chat `e39204e9`):
+
+1. **Extract and render were disconnected.** `document.extract` wrote sidecars, but `document.render` accepted any `projectPath` the model guessed — including unrelated projects such as `test_pdf_project`.
+2. **No bounded project object.** Workspace stayed a flat file pile; the model manually bridged `*.extract/extracted.md` → HTML → PDF and often truncated or picked the wrong HTML.
+3. **Symptom-only guards were insufficient.** PDF magic / page-count checks catch bad output after the fact; the cause is missing project ownership at extract time.
+
+Decisions:
+
+1. Default `document.extract` (when `outputDir` is omitted) creates a **document project** under `/workspace/projects/<slug>/`:
+   - `project.json`
+   - `extract/` sidecars
+   - `render/report.html` scaffold seeded from full extracted text (PDF/DOCX/text sources)
+   - `output/` reserved for render products
+2. Runtime tracks **`activeDocumentProjectPath`** for the turn after a successful extract.
+3. **`document.render` is bound** to the active project: `projectPath`, render entrypoint, and `outputPath` must stay inside that project tree.
+4. Working Files adds a short **Active document project** note (not a full Working Files refactor).
+
+Explicit `outputDir` on extract keeps the legacy flat sidecar layout for compatibility/tests.
+
 ## Verification gate
 
 Every implementation wave must run focused tests for touched paths and then:

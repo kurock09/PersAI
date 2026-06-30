@@ -1,5 +1,11 @@
 # SESSION-HANDOFF
 
+## 2026-06-30 — ADR-129 Wave 10: document project binding on extract + render scope
+
+Status: committed and pushed (`7a4d129b`). Baseline was `1ab6f588`. Focused tests + lint/format/typecheck + api/runtime full test suites + prisma migrate check **passed**.
+
+**Next.** Deploy to dev; live validate Karnaukh DOCX→premium PDF in a clean chat.
+
 ## 2026-06-30 — ADR-129 Wave 9b: auto-deliver produced files, no user-facing «Поправка»
 
 Status: implemented locally (uncommitted). Supersedes Wave 9 symptom patches.

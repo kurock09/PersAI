@@ -5,6 +5,8 @@
 
 ## 2026-06-30
 
+- **Change (ADR-129 Wave 10 — document project binding on extract + render scope).** Default `document.extract` now creates a bounded project under `/workspace/projects/<slug>/` with `project.json`, `extract/` sidecars, a full-text `render/report.html` scaffold, and reserved `output/`. Runtime tracks `activeDocumentProjectPath` per turn and rejects `document.render` when `projectPath`, entrypoint, or output path fall outside that project. Working Files adds a short active-project note. Explicit `outputDir` keeps the legacy flat `*.extract/` layout.
+
 - **Change (ADR-129 Wave 9b — auto-deliver produced workspace files; remove user-facing honesty notices).** After `document.render` / binary `files.write`, runtime now auto-invokes `files.attach` for any `producedPaths` not yet attached before turn completion — user gets the file instead of a «Поправка» about `files.attach`. Removed user-visible structural correction notices and `expectsMediaArtifact` regex heuristics from API honesty. Working Files developer prompt is chat-scoped only (cap 10); gallery `scope=chat` default and manifest `originChatId` remain.
 
 - **Change (ADR-129 Wave 9 — delivery truth, session-scoped files; superseded by 9b for honesty UX).** Runtime `deliveryFacts`, gallery scope, manifest origin fields.

@@ -2070,6 +2070,10 @@ export interface RuntimeDocumentExtractionSummary {
   sourcePath: string;
   outputDir: string;
   manifestPath: string;
+  projectPath: string | null;
+  projectManifestPath: string | null;
+  defaultRenderEntrypoint: string | null;
+  defaultPdfOutputPath: string | null;
   outputPaths: string[];
   suggestedReadPaths: string[];
   counts: {
@@ -4189,3 +4193,5 @@ export function referenceGuidanceRule(opts: { multiple: boolean }): string {
 export function seriesItemHeaderLine(index: number, total: number): string {
   return `Series item ${String(index + 1)} of ${String(total)}.`;
 }
+
+export * from "./document-workspace-project";

@@ -753,6 +753,10 @@ export class PersaiInternalApiClientService {
           textChars: number;
         } | null;
         warnings: string[];
+        projectPath: string | null;
+        projectManifestPath: string | null;
+        defaultRenderEntrypoint: string | null;
+        defaultPdfOutputPath: string | null;
       }
     | {
         accepted: false;
@@ -788,6 +792,15 @@ export class PersaiInternalApiClientService {
           sourcePath: payload.sourcePath,
           outputDir: payload.outputDir,
           manifestPath: payload.manifestPath,
+          projectPath: typeof payload.projectPath === "string" ? payload.projectPath : null,
+          projectManifestPath:
+            typeof payload.projectManifestPath === "string" ? payload.projectManifestPath : null,
+          defaultRenderEntrypoint:
+            typeof payload.defaultRenderEntrypoint === "string"
+              ? payload.defaultRenderEntrypoint
+              : null,
+          defaultPdfOutputPath:
+            typeof payload.defaultPdfOutputPath === "string" ? payload.defaultPdfOutputPath : null,
           outputPaths: Array.isArray(payload.outputPaths)
             ? payload.outputPaths.filter((entry): entry is string => typeof entry === "string")
             : [],

@@ -548,6 +548,51 @@ describe("RuntimeDocumentToolService", () => {
     assert.match(result.payload.warning ?? "", /format=pdf.*HTML entrypoint/i);
   });
 
+  test("document.render rejects paths outside the active document project", async () => {
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return {
+            items: [{ type: "file", path: "/workspace/test_pdf_project/report.html" }]
+          };
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-render-outside-project",
+        name: "document",
+        arguments: {
+          action: "render",
+          projectPath: "/workspace/test_pdf_project",
+          outputPath: "/workspace/test_pdf_project/test.pdf",
+          format: "pdf"
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-1",
+      activeDocumentProjectPath: "/workspace/projects/karnaukh-report",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-render-outside-project",
+        sourceUserMessageText: "Render the report",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, true);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.match(result.payload.warning ?? "", /active document project from document.extract/i);
+  });
+
   test("document.render rejects output paths that do not match the requested format", async () => {
     const service = new RuntimeDocumentToolService({} as never, {} as never);
 

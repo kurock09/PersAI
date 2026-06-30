@@ -96,25 +96,38 @@ describe("DocumentWorkspaceExtractionService", () => {
     if (!outcome.accepted) {
       return;
     }
-    assert.equal(outcome.outputDir, "/workspace/source.extract");
-    assert.deepEqual(outcome.outputPaths, [
-      "/workspace/source.extract/extracted.md",
-      "/workspace/source.extract/manifest.json"
-    ]);
-    assert.equal(metadataUpserts.length, 2);
+    assert.equal(outcome.projectPath, "/workspace/projects/source");
+    assert.equal(outcome.outputDir, "/workspace/projects/source/extract");
+    assert.equal(outcome.projectManifestPath, "/workspace/projects/source/project.json");
+    assert.equal(outcome.defaultRenderEntrypoint, "/workspace/projects/source/render/report.html");
+    assert.equal(outcome.defaultPdfOutputPath, "/workspace/projects/source/output/report.pdf");
+    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/extract/extracted.md"));
+    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/extract/manifest.json"));
+    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/project.json"));
+    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/render/report.html"));
+    assert.equal(metadataUpserts.length, 4);
     assert.deepEqual(
       metadataUpserts.map((entry) => entry.path),
-      ["/workspace/source.extract/extracted.md", "/workspace/source.extract/manifest.json"]
+      [
+        "/workspace/projects/source/extract/extracted.md",
+        "/workspace/projects/source/extract/manifest.json",
+        "/workspace/projects/source/project.json",
+        "/workspace/projects/source/render/report.html"
+      ]
     );
-    assert.deepEqual(
-      pushCalls.map((entry) => entry.path),
-      ["/workspace/source.extract/extracted.md", "/workspace/source.extract/manifest.json"]
-    );
-    const manifestBuffer = savedObjects.get("gcs:source.extract/manifest.json");
+    const projectManifestBuffer = savedObjects.get("gcs:projects/source/project.json");
+    assert.ok(projectManifestBuffer);
+    const projectManifest = JSON.parse(projectManifestBuffer!.toString("utf8")) as Record<
+      string,
+      unknown
+    >;
+    assert.equal(projectManifest.schema, "persai.document.project.v1");
+    assert.equal(projectManifest.projectPath, "/workspace/projects/source");
+    const manifestBuffer = savedObjects.get("gcs:projects/source/extract/manifest.json");
     assert.ok(manifestBuffer);
     const manifest = JSON.parse(manifestBuffer!.toString("utf8")) as Record<string, unknown>;
     assert.equal(manifest.sourcePath, "/workspace/source.pdf");
-    assert.equal(manifest.outputDir, "/workspace/source.extract");
+    assert.equal(manifest.outputDir, "/workspace/projects/source/extract");
   });
 
   test("extracts an xlsx workbook into summary plus per-sheet csv sidecars", async () => {
@@ -295,7 +308,9 @@ describe("DocumentWorkspaceExtractionService", () => {
       return;
     }
     assert.equal(outcome.counts.sheetCount, 1);
-    assert.ok(outcome.outputPaths.includes("/workspace/generic.extract/sheets/01-Sheet1.csv"));
+    assert.ok(
+      outcome.outputPaths.includes("/workspace/projects/generic/extract/sheets/01-Sheet1.csv")
+    );
   });
 
   test("rejects outputDir that points at an existing file", async () => {

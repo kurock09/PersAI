@@ -1,4 +1,12 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import {
+  applyDocumentProjectPathSuffix,
+  buildDocumentProjectManifest,
+  buildDocumentProjectRenderScaffoldHtml,
+  buildDocumentWorkspaceProjectLayout,
+  deriveDefaultDocumentProjectPath,
+  shouldScaffoldDocumentProjectRenderHtml
+} from "@persai/runtime-contract";
 import { DocumentExtractionService } from "./document-extraction.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
@@ -28,6 +36,10 @@ type WorkspaceDocumentExtractAccepted = {
   sourcePath: string;
   outputDir: string;
   manifestPath: string;
+  projectPath: string | null;
+  projectManifestPath: string | null;
+  defaultRenderEntrypoint: string | null;
+  defaultPdfOutputPath: string | null;
   outputPaths: string[];
   suggestedReadPaths: string[];
   counts: {
@@ -128,10 +140,39 @@ export class DocumentWorkspaceExtractionService {
         message: "document.extract path must be a valid /workspace/... file path."
       };
     }
-    const outputDir = normalizeWorkspaceDirectory(
-      input.outputDir ?? deriveDefaultOutputDir(sourcePath)
-    );
-    if (outputDir === null) {
+    const explicitOutputDir = input.outputDir !== null;
+    let projectPath: string | null = null;
+    let projectLayout = null as ReturnType<typeof buildDocumentWorkspaceProjectLayout> | null;
+    const outputDir = explicitOutputDir ? normalizeWorkspaceDirectory(input.outputDir!) : null;
+    if (outputDir === null && !explicitOutputDir) {
+      projectPath = await this.resolveUniqueDocumentProjectPath({
+        workspaceId: input.workspaceId,
+        sourcePath
+      });
+      if (projectPath === null) {
+        return {
+          accepted: false,
+          code: "invalid_project_path",
+          message: "Could not derive a valid document project path for document.extract."
+        };
+      }
+      projectLayout = buildDocumentWorkspaceProjectLayout(projectPath);
+      const existingProjectChildren = await this.workspaceFileMetadataService.list({
+        workspaceId: input.workspaceId,
+        pathPrefix: `${projectPath}/`,
+        limit: 1
+      });
+      if (existingProjectChildren.length > 0) {
+        return {
+          accepted: false,
+          code: "project_path_not_empty",
+          message: `document.extract project path already contains workspace files: ${projectPath}`
+        };
+      }
+    }
+    const resolvedOutputDir =
+      outputDir ?? (projectLayout === null ? null : projectLayout.extractDir);
+    if (resolvedOutputDir === null) {
       return {
         accepted: false,
         code: "invalid_output_dir",
@@ -140,25 +181,25 @@ export class DocumentWorkspaceExtractionService {
     }
     const existingOutputFile = await this.workspaceFileMetadataService.get({
       workspaceId: input.workspaceId,
-      path: outputDir
+      path: resolvedOutputDir
     });
     if (existingOutputFile !== null) {
       return {
         accepted: false,
         code: "invalid_output_dir",
-        message: `document.extract outputDir points at an existing workspace file: ${outputDir}`
+        message: `document.extract outputDir points at an existing workspace file: ${resolvedOutputDir}`
       };
     }
     const existingOutputChildren = await this.workspaceFileMetadataService.list({
       workspaceId: input.workspaceId,
-      pathPrefix: `${outputDir}/`,
+      pathPrefix: `${resolvedOutputDir}/`,
       limit: 1
     });
     if (existingOutputChildren.length > 0) {
       return {
         accepted: false,
         code: "output_dir_not_empty",
-        message: `document.extract outputDir already contains workspace files: ${outputDir}`
+        message: `document.extract outputDir already contains workspace files: ${resolvedOutputDir}`
       };
     }
     const sourceMetadata = await this.workspaceFileMetadataService.get({
@@ -201,7 +242,7 @@ export class DocumentWorkspaceExtractionService {
       ? await this.buildSpreadsheetExtraction({
           workspaceId: input.workspaceId,
           sourcePath,
-          outputDir,
+          outputDir: resolvedOutputDir,
           mimeType,
           buffer: downloaded.buffer
         })
@@ -209,16 +250,16 @@ export class DocumentWorkspaceExtractionService {
           assistantId: input.assistantId,
           workspaceId: input.workspaceId,
           sourcePath,
-          outputDir,
+          outputDir: resolvedOutputDir,
           mimeType,
           buffer: downloaded.buffer,
           mode: input.mode
         });
 
-    const manifestPath = `${outputDir}/manifest.json`;
+    const manifestPath = `${resolvedOutputDir}/manifest.json`;
     const manifest = this.buildManifest({
       sourcePath,
-      outputDir,
+      outputDir: resolvedOutputDir,
       mode: input.mode,
       mimeType,
       counts: build.counts,
@@ -238,7 +279,39 @@ export class DocumentWorkspaceExtractionService {
       shortDescription: `Document extract manifest for ${sourcePath}`
     };
 
-    const allFiles = [...build.files, manifestFile];
+    const projectFiles: SidecarFile[] = [];
+    if (projectLayout !== null) {
+      const extractedTextFile = build.files.find((file) => file.path.endsWith("/extracted.md"));
+      const extractedText = extractedTextFile?.buffer.toString("utf8") ?? "";
+      const projectManifest = buildDocumentProjectManifest({
+        layout: projectLayout,
+        sourcePath,
+        extractManifestPath: manifestPath,
+        mimeType
+      });
+      projectFiles.push({
+        path: projectLayout.projectManifestPath,
+        mimeType: "application/json",
+        buffer: Buffer.from(JSON.stringify(projectManifest, null, 2), "utf8"),
+        shortDescription: `Document project manifest for ${sourcePath}`
+      });
+      if (shouldScaffoldDocumentProjectRenderHtml(mimeType) && extractedText.trim().length > 0) {
+        projectFiles.push({
+          path: projectLayout.defaultRenderEntrypoint,
+          mimeType: "text/html",
+          buffer: Buffer.from(
+            buildDocumentProjectRenderScaffoldHtml({
+              sourcePath,
+              extractedText
+            }),
+            "utf8"
+          ),
+          shortDescription: `Render scaffold HTML for ${sourcePath}`
+        });
+      }
+    }
+
+    const allFiles = [...build.files, manifestFile, ...projectFiles];
     const pushWarnings: string[] = [];
     for (const file of allFiles) {
       const pushWarning = await this.persistSidecar({
@@ -262,10 +335,19 @@ export class DocumentWorkspaceExtractionService {
     return {
       accepted: true,
       sourcePath,
-      outputDir,
+      outputDir: resolvedOutputDir,
       manifestPath,
+      projectPath,
+      projectManifestPath: projectLayout?.projectManifestPath ?? null,
+      defaultRenderEntrypoint: projectLayout?.defaultRenderEntrypoint ?? null,
+      defaultPdfOutputPath: projectLayout?.defaultPdfOutputPath ?? null,
       outputPaths: allOutputPaths.slice(0, MAX_RETURNED_OUTPUT_PATHS),
-      suggestedReadPaths: uniquePaths([manifestPath, ...build.suggestedReadPaths]),
+      suggestedReadPaths: uniquePaths([
+        ...(projectLayout?.projectManifestPath ? [projectLayout.projectManifestPath] : []),
+        ...(projectLayout?.defaultRenderEntrypoint ? [projectLayout.defaultRenderEntrypoint] : []),
+        manifestPath,
+        ...build.suggestedReadPaths
+      ]),
       counts: build.counts,
       provider: build.provider,
       quality: build.quality,
@@ -462,6 +544,35 @@ export class DocumentWorkspaceExtractionService {
     };
   }
 
+  private async resolveUniqueDocumentProjectPath(input: {
+    workspaceId: string;
+    sourcePath: string;
+  }): Promise<string | null> {
+    const preferred = deriveDefaultDocumentProjectPath(input.sourcePath);
+    const normalizedPreferred = normalizeWorkspaceDirectory(preferred);
+    if (normalizedPreferred === null) {
+      return null;
+    }
+    let suffix = 1;
+    while (suffix <= 100) {
+      const candidate = applyDocumentProjectPathSuffix(normalizedPreferred, suffix);
+      const existingProjectManifest = await this.workspaceFileMetadataService.get({
+        workspaceId: input.workspaceId,
+        path: `${candidate}/project.json`
+      });
+      const existingChildren = await this.workspaceFileMetadataService.list({
+        workspaceId: input.workspaceId,
+        pathPrefix: `${candidate}/`,
+        limit: 1
+      });
+      if (existingProjectManifest === null && existingChildren.length === 0) {
+        return candidate;
+      }
+      suffix += 1;
+    }
+    return null;
+  }
+
   private async persistSidecar(input: {
     assistantId: string;
     workspaceId: string;
@@ -612,15 +723,6 @@ function normalizeWorkspaceDirectory(value: string): string | null {
     return null;
   }
   return normalized.replace(/\/+$/g, "");
-}
-
-function deriveDefaultOutputDir(sourcePath: string): string {
-  const lastSlash = sourcePath.lastIndexOf("/");
-  const parent = lastSlash > 0 ? sourcePath.slice(0, lastSlash) : "/workspace";
-  const basename = lastSlash >= 0 ? sourcePath.slice(lastSlash + 1) : sourcePath;
-  const dot = basename.lastIndexOf(".");
-  const stem = dot > 0 ? basename.slice(0, dot) : basename;
-  return `${parent}/${stem}.extract`;
 }
 
 function normalizeMime(mimeType: string | null | undefined): string {

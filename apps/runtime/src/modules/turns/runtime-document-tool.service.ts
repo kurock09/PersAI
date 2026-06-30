@@ -2,6 +2,8 @@ import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   DEFAULT_RUNTIME_SANDBOX_POLICY,
+  buildDocumentWorkspaceProjectLayout,
+  validateDocumentProjectRenderPaths,
   type PersaiRuntimePresentationImagePolicy,
   type PersaiRuntimePresentationVisualDensity,
   type PersaiRuntimePresentationVisualStyle,
@@ -50,6 +52,7 @@ export class RuntimeDocumentToolService {
       availableAttachments: RuntimeAttachmentRef[];
     };
     originChatId?: string | null;
+    activeDocumentProjectPath?: string | null;
   }): Promise<RuntimeDocumentToolExecutionResult> {
     const parsed = this.readDocumentArguments(params.toolCall.arguments);
     if (parsed instanceof Error) {
@@ -76,7 +79,8 @@ export class RuntimeDocumentToolService {
         request: parsed.request,
         sessionId: params.sessionId ?? null,
         requestId: params.requestId ?? null,
-        originChatId: params.originChatId ?? null
+        originChatId: params.originChatId ?? null,
+        activeDocumentProjectPath: params.activeDocumentProjectPath ?? null
       });
     }
 
@@ -352,6 +356,10 @@ export class RuntimeDocumentToolService {
             sourcePath: outcome.sourcePath,
             outputDir: outcome.outputDir,
             manifestPath: outcome.manifestPath,
+            projectPath: outcome.projectPath,
+            projectManifestPath: outcome.projectManifestPath,
+            defaultRenderEntrypoint: outcome.defaultRenderEntrypoint,
+            defaultPdfOutputPath: outcome.defaultPdfOutputPath,
             outputPaths: outcome.outputPaths,
             suggestedReadPaths: outcome.suggestedReadPaths,
             counts: outcome.counts,
@@ -508,6 +516,7 @@ export class RuntimeDocumentToolService {
     sessionId: string | null;
     requestId: string | null;
     originChatId: string | null;
+    activeDocumentProjectPath: string | null;
   }): Promise<RuntimeDocumentToolExecutionResult> {
     const projectPath = this.normalizeWorkspacePath(params.request.projectPath, {
       allowDirectory: true
@@ -571,6 +580,18 @@ export class RuntimeDocumentToolService {
           "invalid_arguments",
           "document.outputPath must not overwrite the render entrypoint."
         );
+      }
+      if (params.activeDocumentProjectPath !== null) {
+        const layout = buildDocumentWorkspaceProjectLayout(params.activeDocumentProjectPath);
+        const validationError = validateDocumentProjectRenderPaths({
+          layout,
+          projectPath,
+          outputPath,
+          entrypointPath
+        });
+        if (validationError !== null) {
+          return this.renderSkipped(params.request.format, "invalid_arguments", validationError);
+        }
       }
     } catch (error) {
       return this.renderSkipped(
@@ -1227,6 +1248,8 @@ export class RuntimeDocumentToolService {
     });
     const filePaths = files.items.filter((item) => item.type === "file").map((item) => item.path);
     for (const preferred of [
+      `${input.projectPath}/render/report.html`,
+      `${input.projectPath}/render/index.html`,
       `${input.projectPath}/index.html`,
       `${input.projectPath}/report.html`
     ]) {
