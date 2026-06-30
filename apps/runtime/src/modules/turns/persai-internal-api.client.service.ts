@@ -416,7 +416,12 @@ export type InternalDocumentRegisterVersionInput = {
   externalThreadKey: string;
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
-  descriptorMode?: "create_pdf_document" | "revise_document" | "create_data_document" | null;
+  descriptorMode?:
+    | "create_document"
+    | "create_pdf_document"
+    | "revise_document"
+    | "create_data_document"
+    | null;
   docId?: string | null;
   requestedName?: string | null;
   workspaceProjectPath?: string | null;
@@ -659,7 +664,7 @@ export class PersaiInternalApiClientService {
         jobId: string;
         docId: string;
         versionId: string;
-        documentType: "pdf_document" | "presentation" | "data_document";
+        documentType: "presentation";
       }
     | {
         accepted: false;
@@ -687,9 +692,7 @@ export class PersaiInternalApiClientService {
         typeof payload.renderJobId === "string" &&
         typeof payload.docId === "string" &&
         typeof payload.versionId === "string" &&
-        (payload.documentType === "pdf_document" ||
-          payload.documentType === "presentation" ||
-          payload.documentType === "data_document")
+        payload.documentType === "presentation"
       ) {
         return {
           accepted: true,
@@ -755,6 +758,7 @@ export class PersaiInternalApiClientService {
         warnings: string[];
         projectPath: string | null;
         projectManifestPath: string | null;
+        projectSourcePath: string | null;
         defaultRenderEntrypoint: string | null;
         defaultPdfOutputPath: string | null;
       }
@@ -795,6 +799,8 @@ export class PersaiInternalApiClientService {
           projectPath: typeof payload.projectPath === "string" ? payload.projectPath : null,
           projectManifestPath:
             typeof payload.projectManifestPath === "string" ? payload.projectManifestPath : null,
+          projectSourcePath:
+            typeof payload.projectSourcePath === "string" ? payload.projectSourcePath : null,
           defaultRenderEntrypoint:
             typeof payload.defaultRenderEntrypoint === "string"
               ? payload.defaultRenderEntrypoint
@@ -1020,6 +1026,14 @@ export class PersaiInternalApiClientService {
         };
         warnings: string[];
         suggestedReadPaths: string[];
+        comparison: {
+          comparisonKind: "imported_same_format_project_output";
+          sourcePath: string;
+          sourceFormat: "xlsx" | "docx";
+          summary: string;
+          warningCount: number;
+          warnings: string[];
+        } | null;
       }
     | {
         accepted: false;
@@ -1072,7 +1086,8 @@ export class PersaiInternalApiClientService {
             ? payload.suggestedReadPaths.filter(
                 (entry): entry is string => typeof entry === "string"
               )
-            : []
+            : [],
+          comparison: this.readDocumentInspectionComparison(payload.comparison)
         };
       }
       if (
@@ -1108,8 +1123,8 @@ export class PersaiInternalApiClientService {
         docId: string;
         versionId: string;
         versionNumber: number;
-        descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document";
-        documentType: "pdf_document" | "data_document";
+        descriptorMode: "create_document" | "revise_document";
+        documentType: "workspace_document";
         outputFormat: "pdf" | "xlsx" | "docx";
         outputPath: string;
         workspaceProjectPath: string | null;
@@ -1141,10 +1156,13 @@ export class PersaiInternalApiClientService {
         typeof payload.docId === "string" &&
         typeof payload.versionId === "string" &&
         typeof payload.versionNumber === "number" &&
-        (payload.descriptorMode === "create_pdf_document" ||
+        (payload.descriptorMode === "create_document" ||
+          payload.descriptorMode === "create_pdf_document" ||
           payload.descriptorMode === "revise_document" ||
           payload.descriptorMode === "create_data_document") &&
-        (payload.documentType === "pdf_document" || payload.documentType === "data_document") &&
+        (payload.documentType === "workspace_document" ||
+          payload.documentType === "pdf_document" ||
+          payload.documentType === "data_document") &&
         (payload.outputFormat === "pdf" ||
           payload.outputFormat === "xlsx" ||
           payload.outputFormat === "docx") &&
@@ -1155,8 +1173,9 @@ export class PersaiInternalApiClientService {
           docId: payload.docId,
           versionId: payload.versionId,
           versionNumber: payload.versionNumber,
-          descriptorMode: payload.descriptorMode,
-          documentType: payload.documentType,
+          descriptorMode:
+            payload.descriptorMode === "revise_document" ? "revise_document" : "create_document",
+          documentType: "workspace_document",
           outputFormat: payload.outputFormat,
           outputPath: payload.outputPath,
           workspaceProjectPath:
@@ -2370,6 +2389,36 @@ export class PersaiInternalApiClientService {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private readDocumentInspectionComparison(value: unknown): {
+    comparisonKind: "imported_same_format_project_output";
+    sourcePath: string;
+    sourceFormat: "xlsx" | "docx";
+    summary: string;
+    warningCount: number;
+    warnings: string[];
+  } | null {
+    const row = this.asObject(value);
+    if (
+      row?.comparisonKind !== "imported_same_format_project_output" ||
+      typeof row.sourcePath !== "string" ||
+      (row.sourceFormat !== "xlsx" && row.sourceFormat !== "docx") ||
+      typeof row.summary !== "string" ||
+      typeof row.warningCount !== "number"
+    ) {
+      return null;
+    }
+    return {
+      comparisonKind: row.comparisonKind,
+      sourcePath: row.sourcePath,
+      sourceFormat: row.sourceFormat,
+      summary: row.summary,
+      warningCount: row.warningCount,
+      warnings: Array.isArray(row.warnings)
+        ? row.warnings.filter((entry): entry is string => typeof entry === "string")
+        : []
+    };
   }
 
   private isInternalScheduledActionItem(value: unknown): value is InternalScheduledActionItem {

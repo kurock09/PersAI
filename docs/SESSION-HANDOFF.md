@@ -1,5 +1,243 @@
 # SESSION-HANDOFF
 
+## 2026-07-01 — ADR-129 production document path: full verification gate passed, commit/push for deploy
+
+Status: full local verification gate passed from baseline `39cda024`; commit + push requested for auto-deploy.
+
+**Checks run.**
+- `corepack pnpm run lint` — PASS
+- `corepack pnpm run typecheck` — PASS
+- `corepack pnpm --filter @persai/api run test` — PASS
+- `corepack pnpm --filter @persai/runtime run test` — PASS
+- `corepack pnpm run test:step2` — PASS
+- `corepack pnpm run build` — PASS
+- `corepack pnpm run prisma:migrate:check` — FAIL locally only (`P3009` pre-existing failed migration `20260501120000_adr079_knowledge_skills_foundation` in local Postgres); new migration `20260630234500_adr129_visible_workspace_document_enum_cleanup` should apply cleanly on CI/dev DB.
+
+**Next.** After push/deploy, live-validate imported DOCX/XLSX → PDF and same-format revision on real incident files before ADR-129 closure.
+
+## 2026-06-30 — ADR-129 cleanup audit: neutral visible-workspace naming + active-job contract drift
+
+Status: implemented locally on top of the intentional ADR-129 working tree from baseline `39cda024`. Focused ADR-129 tests plus repo lint/format and `api`/`web`/`runtime`/`sandbox` typechecks passed.
+
+**Scope.** Land only the independent ADR-129 cleanup blockers: stop fresh visible `/workspace` version registration from stamping retired worker-era names, stop the model-facing `document` tool from advertising retired `create_*_document` concepts for active PDF/DOCX/XLSX work, and tighten published active document-job contract truth back to presentation-only where server truth is already presentation-only. Do not reopen presentation/Gamma behavior, do not weaken inspect/provenance/delivery gates, and do not restore hidden Office/PDF worker generation.
+
+**Fix.**
+
+- Added neutral active-path enum values to Prisma for fresh visible-workspace document versions: `AssistantDocumentDescriptorMode.create_document` and `AssistantDocumentType.workspace_document`.
+- `document.register_version` now writes `create_document` for new visible PDF/DOCX/XLSX outputs and `workspace_document` for the visible document type. Existing revise flow keeps `revise_document`.
+- Runtime/API/web document-link shaping now normalizes both historical worker-era values (`create_pdf_document`, `create_data_document`, `pdf_document`, `data_document`) and the new stored values back to the neutral visible-workspace surface (`create_document`, `workspace_document`), so refresh/replay no longer teaches the retired path as current truth.
+- The model-facing `document` schema now exposes only `descriptorMode: create_document | revise_document` for `action="register_version"`.
+- Published active-job contract truth is aligned with the already-landed presentation-only server behavior: runtime/openapi `activeDocumentJobs` now advertise only `documentType=presentation` and `descriptorMode=create_presentation | revise_document | export_or_redeliver`.
+- Generated artifacts were refreshed (`contracts:generate`, Prisma client).
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-version-registration.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/api exec tsx test/register-chat-attachment.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-document-tool.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/native-tool-projection.test.ts` — PASS
+- `corepack pnpm -r --if-present run lint` — PASS
+- `corepack pnpm run format:check` — PASS
+- `corepack pnpm --filter @persai/api run typecheck` — PASS
+- `corepack pnpm --filter @persai/web run typecheck` — PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+- `corepack pnpm --filter @persai/sandbox run typecheck` — PASS
+
+**Residual / deferred.**
+
+- Historical DB rows and persisted attachment metadata may still contain worker-era enum values; compatibility readers intentionally keep accepting them so older visible documents and archived history remain readable.
+- This slice does not delete every historical compatibility mention in closed ADR/archive text or old tests around retired worker paths; it only removes active-path naming drift and active-job contract drift.
+- Independent final audit, deploy, and live validation on real incident-style files still remain before ADR-129 can close as PROD.
+
+**Next.** Parent audit this cleanup diff, then do one more targeted pass for any remaining pre-push/deploy ADR-129 seams: compatibility-only code that could now be deleted safely, plus any stale public/client naming outside the active document-link / tool / active-job surfaces.
+
+## 2026-06-30 — ADR-129 Wave 13B: inspect/provenance gating for register_version and files.attach
+
+Status: implemented locally on top of the intentional ADR-129 working tree. Focused document tests passed; broader lint/format/typecheck gate still needs to be re-run after this slice.
+
+**Scope.** Land the next bounded ADR-129 closure slice only: add strict structural gating so project-owned PDF/DOCX/XLSX outputs cannot be registered or finally attached unless the relevant project/source/inspect truth exists. Do not widen PDF diffing, do not reopen export-path work, and do not block ordinary non-document files.
+
+**Fix.**
+
+- Added one shared visible-document deliverable validator for the active PDF/DOCX/XLSX path. The gate now checks structural project/output ownership, canonical `project.json` location, required source provenance, and relevant inspect truth instead of relying on prose or filename heuristics.
+- API `document.register_version` now rejects project-owned deliverable outputs unless all of the following hold together: the output path belongs to the declared project, project/source provenance is present, imported native projects keep `projectSourcePath`, and the inspect sidecar both exists and matches the output path/format.
+- `files.attach` now refuses to silently deliver project-owned document outputs as ordinary files when no structurally valid current document version points to that output. If a current registered version exists but its stored project/inspect metadata is incomplete or inconsistent, attach is blocked with the same structural gate. If no current version exists but the output clearly belongs to a document project, attach now tells the caller to run `document.register_version` (and `document.inspect` first when the default sidecar is missing).
+- Ordinary non-document files still attach normally. The new attach block only activates when the path is a visible PDF/DOCX/XLSX project output with a real `project.json` seam.
+- Runtime document guidance now explicitly warns that project-owned PDF/DOCX/XLSX outputs may be rejected at `register_version` / `files.attach` time until inspect/provenance truth exists.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-version-registration.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/api exec tsx test/register-chat-attachment.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-document-tool.service.test.ts` — PASS
+
+**Residual / deferred.**
+
+- The attach gate is structurally enforced on the API persistence path. Parent should still audit whether any remaining runtime-only `files.attach` success path needs a dedicated preflight to surface blocked delivery even earlier in the same tool call.
+- Imported PDF editing/export remains blocked.
+- Independent dead-path cleanup audit, deploy, and live validation on real incident-style files still remain before ADR-129 can close as PROD.
+
+**Next.** Parent audit this Wave 13B diff, then move to the remaining ADR-129 closure slice: independent cleanup audit that removes stale/parallel document-path code before `push/deploy`, followed by deploy + live validation.
+
+## 2026-06-30 — ADR-129 Wave 12C: real imported Office -> PDF export path
+
+Status: implemented locally on top of the intentional ADR-129 working tree. Focused document tests plus lint/format/typecheck gate passed (`api`, `runtime`, `sandbox`, `web` typecheck, root lint, root format check).
+
+**Scope.** Land the next bounded ADR-129 production slice only: add a real sandbox Office->PDF engine for imported `DOCX`/`XLSX` projects, keep the visible project-owned workflow, preserve same-format imported Office revision, preserve authored HTML->PDF, and fail honestly when the exporter does not create the declared PDF.
+
+**Fix.**
+
+- Sandbox exec-image baseline now installs LibreOffice (`soffice`) as the real system Office conversion engine and the image self-check now fails the build if `soffice --version` is missing.
+- Imported `DOCX`/`XLSX` extraction scaffolding now seeds a second visible project-owned entrypoint at `render/export_pdf.py` alongside the existing same-format `render/build.py`.
+- The seeded `render/export_pdf.py` uses LibreOffice headless conversion against the visible `projectSourcePath`, keeps its user profile in writable `/tmp`, and moves the produced PDF exactly to `PERSAI_OUTPUT_PATH`.
+- Runtime `document.render(format=pdf)` now allows imported `DOCX`/`XLSX` projects only through that visible Office exporter entrypoint. It no longer skips these paths as `native_render_not_implemented`.
+- Imported Office `-> PDF` no longer falls back to `extract/extracted.md` -> HTML -> WeasyPrint, even if a visible `report.html` exists in the same project.
+- Imported PDF remains honestly unsupported, authored HTML->PDF remains unchanged, and imported same-format `DOCX`/`XLSX` revision continues to use the visible native `render/build.py` path.
+- If the Office exporter entrypoint is missing or if the exporter script does not create the declared PDF, runtime returns an honest skipped render instead of fabricating success.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-extraction.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-document-tool.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/sandbox exec tsx test/exec-image-dockerfile.test.ts` — PASS
+- `corepack pnpm -r --if-present run lint` — PASS
+- `corepack pnpm run format:check` — PASS
+- `corepack pnpm --filter @persai/api run typecheck` — PASS
+- `corepack pnpm --filter @persai/web run typecheck` — PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+- `corepack pnpm --filter @persai/sandbox run typecheck` — PASS
+
+**Residual / deferred.**
+
+- This slice does not yet gate `files.attach` or `document.register_version` on inspect/provenance truth; that remains a later ADR-129 closure item.
+- Imported PDF editing/export remains blocked.
+- The new LibreOffice exporter path is locally verified only; deploy and live validation on real incident-style Office files are still required before ADR-129 can close as PROD.
+
+**Next.** Parent audit this Wave 12C diff, then move to the next bounded ADR-129 closure slice: attach/version gating from inspect/provenance truth, followed by the independent dead-path cleanup audit before any `push/deploy`.
+
+## 2026-06-30 — ADR-129 rewrite: clean final PROD target state
+
+Status: implemented locally on top of the intentional ADR-129 working tree. This slice changes documentation truth only: `docs/ADR/129-agentic-document-workspace-extraction-render-inspect-and-versioning.md` was rewritten from wave-heavy implementation notes into a short final-state production ADR with an explicit remaining-gap list and definition of done.
+
+**Scope.** Clean up the ADR itself. Do not add more code or more implementation slices in this step. The goal is to make the top of ADR-129 readable and unambiguous: what the final document system is, what counts as production closure, what is still missing, and which old paths are forbidden.
+
+**Fix.**
+
+- Replaced the old top-heavy wave narrative with a concise final production design for active `PDF` / `DOCX` / `XLSX` document work.
+- Stated clearly that current local code is still an intermediate state, not a closed production system.
+- Reduced the remaining closure work to a short explicit list: Office -> PDF export paths, inspect/provenance delivery gating, independent dead-code/parallel-path cleanup, deploy, and live validation.
+- Kept historical implementation context only as a small bottom section instead of letting it dominate the ADR.
+
+**Next.** Do not open more slices blindly. Use the rewritten ADR as the source of truth for the remaining closure work, starting with the real production Office -> PDF export path, then run an independent cleanup audit before any `push/deploy`.
+
+## 2026-06-30 — ADR-129 Wave 13A: imported Office inspect comparison against projectSourcePath
+
+Status: implemented locally on the intentional dirty Wave 11 + 12A + 12B working tree from baseline `39cda024`. Focused document tests plus relevant format/lint/typecheck gate passed (`api`, `runtime`, root format check).
+
+**Scope.** Keep this slice bounded to inspect truth only. Do not add a new render engine, do not touch PDF diffing, and do not gate `files.attach` or `document.register_version`. The goal is only to make `document.inspect` structurally compare imported same-format DOCX/XLSX outputs against the visible native project source when that project output belongs to an imported Office document project with a readable `projectSourcePath`.
+
+**Fix.**
+
+- API `document.inspect` now detects imported Office same-format project outputs by inferring `<project>/output/...`, reading `<project>/project.json`, and checking `sourceKind=imported_workspace_file`, `sourceFormat`, and `projectSourcePath`.
+- When inspecting an imported rendered XLSX output, the inspector now reads `projectSourcePath`, compares output-vs-source workbook structure, and records additive comparison facts in the inspect sidecar `details.comparison`: source/output counts, sheet-name lists, missing/added sheets, and a compact summary. Immediate inspect results also carry a compact comparison summary through runtime.
+- XLSX comparison currently warns on explicit structural degradation only: fewer sheets than source, missing source sheet names, fewer formulas than source, or more blank sheets than source.
+- When inspecting an imported rendered DOCX output, the inspector now reads `projectSourcePath`, compares output-vs-source document structure, and records additive comparison facts in `details.comparison`: source/output paragraph, heading, table, and readable-text counts plus a compact summary. Immediate inspect results also carry the same compact comparison summary through runtime.
+- DOCX comparison currently warns on explicit structural degradation only: fewer paragraphs, fewer headings, fewer tables, or less readable text than the visible source copy.
+- Authored projects, non-project files, and PDF inspection behavior remain unchanged. If the imported Office source copy is missing or unreadable, inspect still succeeds and returns an honest comparison-skipped warning instead of failing the whole inspect call.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-inspection.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts` — PASS
+- `corepack pnpm run format:check` — PASS
+- `corepack pnpm --filter @persai/api run lint` — PASS
+- `corepack pnpm --filter @persai/api run typecheck` — PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+
+**Residual / deferred.**
+
+- This slice adds inspect comparison truth only; it does not block delivery or version registration when warnings exist.
+- Imported DOCX/XLSX -> PDF export is still intentionally unsupported because there is still no native Office->PDF engine in the active path.
+- Comparison is structural/count-based only. It does not yet prove stronger invariants like exact text preservation, style/image retention, cell-by-cell equality, or formula-by-formula equivalence.
+- Version readback / attachment `documentLink.inspectionSummary` still preserves counts and warnings only; the full comparison facts live in the inspect sidecar `details`, not in document-link metadata.
+
+**Next.** Parent audit this Wave 13A diff, then decide whether the next bounded slice should: (a) use these inspect warnings as attach/register_version gating input, or (b) widen the structural diff truth for imported Office projects (for example stronger sheet/table/text-preservation facts) without yet changing delivery policy.
+
+## 2026-06-30 — ADR-129 Wave 12B: imported Office same-format native visible render path
+
+Status: implemented locally on dirty tree from baseline `39cda024` as a bounded follow-up to the local Wave 11 + Wave 12A diff. Focused document tests plus relevant format/lint/typecheck gate passed (`api`, `runtime`, root format check).
+
+**Scope.** Do not invent Office->PDF export or a hidden conversion worker. This slice only makes imported DOCX/XLSX document projects real visible native revision projects by seeding a project-local Python scaffold and allowing `document.render` only for the matching imported source format through that scaffold.
+
+**Fix.**
+
+- `document.extract` now seeds `render/build.py` for imported DOCX/XLSX projects, writes the imported native source to `projectSourcePath`, and points `defaultRenderEntrypoint` at the visible native scaffold instead of the old HTML path.
+- The seeded DOCX scaffold loads `projectSourcePath` with `python-docx` and saves the revised DOCX to `PERSAI_OUTPUT_PATH`; the seeded XLSX scaffold does the same with `openpyxl`.
+- Runtime `document.render` no longer blanket-skips all imported native projects. Imported DOCX/XLSX projects may now render only when `format` exactly matches the imported source format and a visible Python entrypoint exists under `<project>/render/`.
+- Unsupported imported-native combinations still skip honestly: imported PDF remains unsupported, and imported DOCX/XLSX -> PDF export still returns `native_render_not_implemented` instead of degrading through extracted text or scaffold HTML.
+- Authored HTML/Python projects, version registration, and attachment/documentLink provenance remain unchanged apart from the corrected default entrypoint fact in `project.json`.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-extraction.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-version-registration.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-document-job.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/runtime-document-tool.service.test.ts runRuntimeDocumentToolServiceTest` — PASS
+- `corepack pnpm run format:check` — PASS
+- `corepack pnpm --filter @persai/api run lint` — PASS
+- `corepack pnpm --filter @persai/runtime run lint` — PASS
+- `corepack pnpm --filter @persai/api run typecheck` — PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+
+**Residual / deferred.**
+
+- Imported DOCX/XLSX -> PDF export is still intentionally unsupported; there is no real Office->PDF engine in this repo yet.
+- Imported PDF editing/render remains blocked.
+- The native Office scaffold currently proves a deterministic visible revision path, but it does not yet add stronger inspect/diff invariants such as “text unchanged” or “formula/image preservation”.
+
+**Next.** Parent audit this Wave 12B diff, then decide the next bounded Wave 12/13 slice: either add stronger inspect/diff gates for imported Office revisions, or open a separate explicit Office->PDF export wave only after a real supported engine path is chosen.
+
+## 2026-06-30 — ADR-129 Wave 12A: imported native source materialization + honest render routing
+
+Status: implemented locally on dirty tree from baseline `39cda024` as a bounded follow-up to the local Wave 11 diff. Focused document tests plus lint/format/typecheck gate passed (`api`, `web`, `runtime`).
+
+**Scope.** Do not ship a full Office engine. This slice only makes imported project truth self-contained and stops the known wrong-prod degradation where imported DOCX/XLSX/PDF projects can still render PDF by rebuilding HTML from `extract/extracted.md`.
+
+**Fix.**
+
+- `document.extract` now copies the imported native source into the project itself (`<project>/source/<filename>`) and records that visible path as `projectSourcePath` in `project.json` plus the extraction result.
+- Visible-workspace version registration and attachment `documentLink` metadata now preserve `projectSourcePath`, so project/source truth survives refresh/replay and readback.
+- Runtime `document.render` now reads `project.json` before choosing a render path. If the project is an imported native `pdf` / `docx` / `xlsx` project, runtime returns a structured `native_render_not_implemented` skip instead of silently degrading through extracted-text/HTML fallback.
+- Authored HTML/Python projects still render through the existing HTML/WeasyPrint and Python build-script paths.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-document-tool.service.test.ts` — PASS
+- `corepack pnpm --filter @persai/api exec tsx --test test/document-workspace-extraction.service.test.ts test/document-workspace-version-registration.service.test.ts test/assistant-document-job.service.test.ts test/register-chat-attachment.service.test.ts` — PASS
+- `corepack pnpm -r --if-present run lint` — PASS
+- `corepack pnpm run format:check` — PASS
+- `corepack pnpm --filter @persai/api run typecheck` — PASS
+- `corepack pnpm --filter @persai/web run typecheck` — PASS
+- `corepack pnpm --filter @persai/runtime run typecheck` — PASS
+
+**Residual / deferred.**
+
+- This slice does **not** implement native render/edit engines for imported DOCX/XLSX/PDF projects yet.
+- Imported native projects are now self-contained and visible, but render/export for those projects still stops honestly until a later Wave 12 slice adds a deterministic native engine.
+- Authored projects remain the only supported `document.render` path for successful PDF/XLSX/DOCX production in the visible workspace workflow.
+
+**Next.** Parent audit this Wave 12A diff, then decide the next bounded Wave 12 slice: either implement a real native DOCX/XLSX/PDF engine path, or add stronger inspect/diff invariants around the now-explicit `projectSourcePath` provenance seam.
+
+## 2026-06-30 — ADR-129 Wave 11: project truth for PDF/DOCX/XLSX
+
+Status: implemented locally on dirty tree from baseline `39cda024`; the only pre-existing diff was the orchestrator's Wave 11 update in `docs/ADR/129-agentic-document-workspace-extraction-render-inspect-and-versioning.md`. Focused document tests plus lint/format/typecheck gate passed.
+
+**Scope.** Strengthened document-project provenance so imported PDF/DOCX/XLSX files keep native project/source identity, extract manifests are explicit sidecar views, `document.register_version` resolves or requires a real project and canonicalizes authored `project.json`, and visible-workspace version / attachment readback preserves project/source/output facts consistently (including `xlsx` / `docx` output-format readback).
+
+**Next.** Orchestrator review this bounded Wave 11 slice, then decide whether to open Wave 12 native render/edit engine work for source-preserving Office/PDF revision.
+
 ## 2026-06-30 — ADR-129 Wave 10b: kill legacy extract path + full-text PDF render
 
 Status: committed and pushed (`d34f9396`). Baseline was `9d86953f`.

@@ -1,16 +1,22 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import {
+  buildDocumentProjectSourceCopyPath,
+  buildDocumentProjectManifest,
+  buildDocumentWorkspaceProjectLayout,
+  type DocumentWorkspaceProjectSourceFormat,
+  type DocumentWorkspaceProjectSourceKind
+} from "@persai/runtime-contract";
 import { AssistantDocumentJobService } from "./assistant-document-job.service";
-
-// Visible-workspace document outputs are PDF/XLSX/DOCX (presentations are
-// excluded because they never use document.register_version — they go through
-// the deferred Gamma render pipeline). This is intentionally a local string
-// union and not the Prisma `AssistantDocumentOutputFormat` enum, which only
-// covers the deferred render-job table (pdf/pptx after the ADR-129 hard cutover).
-type VisibleWorkspaceDocumentOutputFormat = "pdf" | "xlsx" | "docx";
-import type {
-  AssistantDocumentInspectionSummary,
-  AssistantDocumentWorkspaceFacts
-} from "./assistant-document-link-metadata";
+import type { AssistantDocumentWorkspaceFacts } from "./assistant-document-link-metadata";
+import {
+  inferProjectPathFromOutputPath,
+  normalizeWorkspaceDirectory,
+  normalizeWorkspacePath,
+  resolveVisibleWorkspaceOutputFormatFromPath,
+  validateVisibleWorkspaceDocumentDeliverable,
+  type DocumentWorkspaceInspectionFacts,
+  type VisibleWorkspaceDocumentOutputFormat
+} from "./document-workspace-deliverable-gating";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
@@ -22,7 +28,12 @@ type WorkspaceDocumentRegisterVersionInput = {
   externalThreadKey: string;
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
-  descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document" | null;
+  descriptorMode:
+    | "create_document"
+    | "create_pdf_document"
+    | "revise_document"
+    | "create_data_document"
+    | null;
   docId: string | null;
   requestedName: string | null;
   workspaceProjectPath: string | null;
@@ -42,8 +53,8 @@ type WorkspaceDocumentRegisterVersionAccepted = {
   docId: string;
   versionId: string;
   versionNumber: number;
-  descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document";
-  documentType: "pdf_document" | "data_document";
+  descriptorMode: "create_document" | "revise_document";
+  documentType: "workspace_document";
   outputFormat: "pdf" | "xlsx" | "docx";
   outputPath: string;
   workspaceProjectPath: string | null;
@@ -79,6 +90,7 @@ export class DocumentWorkspaceVersionRegistrationService {
         "sourceUserMessageCreatedAt"
       ),
       descriptorMode:
+        row.descriptorMode === "create_document" ||
         row.descriptorMode === "create_pdf_document" ||
         row.descriptorMode === "revise_document" ||
         row.descriptorMode === "create_data_document"
@@ -104,11 +116,11 @@ export class DocumentWorkspaceVersionRegistrationService {
         message: "document.register_version outputPath must be a valid /workspace/... file path."
       };
     }
-    const workspaceProjectPath =
+    const requestedWorkspaceProjectPath =
       input.workspaceProjectPath === null
         ? null
         : normalizeWorkspaceDirectory(input.workspaceProjectPath);
-    if (input.workspaceProjectPath !== null && workspaceProjectPath === null) {
+    if (input.workspaceProjectPath !== null && requestedWorkspaceProjectPath === null) {
       return {
         accepted: false,
         code: "invalid_project_path",
@@ -116,9 +128,9 @@ export class DocumentWorkspaceVersionRegistrationService {
           "document.register_version workspaceProjectPath must be a valid /workspace/... directory."
       };
     }
-    const sourceManifestPath =
+    const requestedSourceManifestPath =
       input.sourceManifestPath === null ? null : normalizeWorkspacePath(input.sourceManifestPath);
-    if (input.sourceManifestPath !== null && sourceManifestPath === null) {
+    if (input.sourceManifestPath !== null && requestedSourceManifestPath === null) {
       return {
         accepted: false,
         code: "invalid_source_manifest_path",
@@ -137,7 +149,7 @@ export class DocumentWorkspaceVersionRegistrationService {
       };
     }
 
-    const outputFormat = resolveOutputFormatFromPath(outputPath);
+    const outputFormat = resolveVisibleWorkspaceOutputFormatFromPath(outputPath);
     if (outputFormat === null || outputFormat === "pptx") {
       return {
         accepted: false,
@@ -156,6 +168,21 @@ export class DocumentWorkspaceVersionRegistrationService {
         accepted: false,
         code: "output_not_found",
         message: `Workspace output not found: ${outputPath}`
+      };
+    }
+
+    const projectContext = await this.resolveProjectContext({
+      workspaceId: input.workspaceId,
+      requestedWorkspaceProjectPath,
+      requestedSourceManifestPath,
+      outputPath,
+      outputFormat
+    });
+    if (!projectContext.ok) {
+      return {
+        accepted: false,
+        code: projectContext.code,
+        message: projectContext.message
       };
     }
 
@@ -196,22 +223,22 @@ export class DocumentWorkspaceVersionRegistrationService {
     }
 
     const sourceManifest =
-      sourceManifestPath === null
+      projectContext.sourceManifestPath === null
         ? null
-        : await this.readJsonWorkspaceObject(input.workspaceId, sourceManifestPath);
-    if (sourceManifestPath !== null && sourceManifest === null) {
+        : await this.readJsonWorkspaceObject(input.workspaceId, projectContext.sourceManifestPath);
+    if (requestedSourceManifestPath !== null && sourceManifest === null) {
       return {
         accepted: false,
         code: "source_manifest_not_found",
-        message: `Workspace source manifest not found or invalid JSON: ${sourceManifestPath}`
+        message: `Workspace source manifest not found or invalid JSON: ${projectContext.sourceManifestPath}`
       };
     }
 
-    const inspectionSummary =
+    const inspection =
       inspectionPath === null
         ? null
-        : await this.readInspectionSummary(input.workspaceId, inspectionPath);
-    if (inspectionPath !== null && inspectionSummary === null) {
+        : await this.readInspectionFacts(input.workspaceId, inspectionPath);
+    if (inspectionPath !== null && inspection === null) {
       return {
         accepted: false,
         code: "inspection_not_found",
@@ -229,18 +256,37 @@ export class DocumentWorkspaceVersionRegistrationService {
         accepted: false,
         code: "invalid_descriptor_mode",
         message:
-          "document.register_version must use revise_document for an existing docId. For a new visible workspace output, omit descriptorMode or use create_pdf_document for PDF outputs."
+          "document.register_version must use revise_document for an existing docId. For a new visible workspace output, omit descriptorMode or use create_document."
       };
     }
 
     const workspaceFacts: AssistantDocumentWorkspaceFacts = {
-      workspaceProjectPath,
+      workspaceProjectPath: projectContext.workspaceProjectPath,
+      projectManifestPath: projectContext.projectManifestPath,
+      projectSourcePath: projectContext.projectSourcePath,
+      sourceKind: projectContext.sourceKind,
       outputPath,
-      sourceManifestPath,
+      sourcePath: projectContext.sourcePath,
+      sourceFormat: projectContext.sourceFormat,
+      sourceMimeType: projectContext.sourceMimeType,
+      sourceManifestPath: projectContext.sourceManifestPath,
       sourceManifest,
       inspectionPath,
-      inspectionSummary
+      inspectionSummary: inspection?.summary ?? null
     };
+
+    const deliverableValidation = validateVisibleWorkspaceDocumentDeliverable({
+      workspaceFacts,
+      outputPath,
+      inspection
+    });
+    if (!deliverableValidation.ok) {
+      return {
+        accepted: false,
+        code: deliverableValidation.code,
+        message: deliverableValidation.message
+      };
+    }
 
     const registered = await this.assistantDocumentJobService.registerVisibleWorkspaceVersion({
       assistantId: input.assistantId,
@@ -268,8 +314,8 @@ export class DocumentWorkspaceVersionRegistrationService {
       outputFormat:
         registered.outputFormat as WorkspaceDocumentRegisterVersionAccepted["outputFormat"],
       outputPath,
-      workspaceProjectPath,
-      sourceManifestPath,
+      workspaceProjectPath: projectContext.workspaceProjectPath,
+      sourceManifestPath: projectContext.sourceManifestPath,
       inspectionPath
     };
   }
@@ -284,43 +330,305 @@ export class DocumentWorkspaceVersionRegistrationService {
         ? "revise_document"
         : null;
     }
-    if (input.outputFormat === "xlsx" || input.outputFormat === "docx") {
-      return input.descriptorMode === null || input.descriptorMode === "create_data_document"
-        ? "create_data_document"
-        : null;
-    }
-    return input.descriptorMode === null || input.descriptorMode === "create_pdf_document"
-      ? "create_pdf_document"
+    return input.descriptorMode === null ||
+      input.descriptorMode === "create_document" ||
+      input.descriptorMode === "create_pdf_document" ||
+      input.descriptorMode === "create_data_document"
+      ? "create_document"
       : null;
   }
 
-  private async readInspectionSummary(
+  private async resolveProjectContext(input: {
+    workspaceId: string;
+    requestedWorkspaceProjectPath: string | null;
+    requestedSourceManifestPath: string | null;
+    outputPath: string;
+    outputFormat: VisibleWorkspaceDocumentOutputFormat;
+  }): Promise<
+    | {
+        ok: true;
+        workspaceProjectPath: string;
+        projectManifestPath: string;
+        projectSourcePath: string | null;
+        sourceKind: DocumentWorkspaceProjectSourceKind;
+        sourcePath: string | null;
+        sourceFormat: DocumentWorkspaceProjectSourceFormat;
+        sourceMimeType: string | null;
+        sourceManifestPath: string | null;
+      }
+    | {
+        ok: false;
+        code: string;
+        message: string;
+      }
+  > {
+    const workspaceProjectPath =
+      input.requestedWorkspaceProjectPath ?? inferProjectPathFromOutputPath(input.outputPath);
+    if (workspaceProjectPath === null) {
+      return {
+        ok: false,
+        code: "project_path_required",
+        message:
+          "document.register_version requires a document project. Pass workspaceProjectPath or register an output under <project>/output/."
+      };
+    }
+
+    const projectManifestPath = `${workspaceProjectPath}/project.json`;
+    const existingProjectManifestMetadata = await this.workspaceFileMetadataService.get({
+      workspaceId: input.workspaceId,
+      path: projectManifestPath
+    });
+    const existingProjectManifest =
+      existingProjectManifestMetadata === null
+        ? null
+        : await this.readJsonWorkspaceObject(input.workspaceId, projectManifestPath);
+    if (existingProjectManifestMetadata !== null && existingProjectManifest === null) {
+      return {
+        ok: false,
+        code: "project_manifest_invalid",
+        message: `Workspace project manifest is invalid JSON: ${projectManifestPath}`
+      };
+    }
+
+    const sourceKind = this.resolveProjectSourceKind(existingProjectManifest);
+    const sourcePath =
+      this.resolveProjectSourcePath(existingProjectManifest) ??
+      (await this.resolveDefaultAuthoredSourcePath({
+        workspaceId: input.workspaceId,
+        workspaceProjectPath,
+        outputFormat: input.outputFormat,
+        sourceKind
+      }));
+    const projectSourcePath =
+      this.resolveProjectSourceCopyPath(existingProjectManifest) ??
+      (await this.resolveDefaultProjectSourcePath({
+        workspaceId: input.workspaceId,
+        workspaceProjectPath,
+        sourceKind,
+        sourcePath
+      }));
+    const sourceFormat =
+      this.resolveProjectSourceFormat(existingProjectManifest) ??
+      inferProjectSourceFormatFromFacts({
+        sourceKind,
+        sourcePath,
+        outputFormat: input.outputFormat
+      });
+    const sourceMimeType =
+      this.resolveProjectSourceMimeType(existingProjectManifest) ??
+      inferProjectSourceMimeType({
+        sourceFormat
+      });
+    const sourceManifestPath =
+      input.requestedSourceManifestPath ??
+      this.resolveProjectExtractManifestPath(existingProjectManifest) ??
+      (await this.resolveDefaultExtractManifestPath({
+        workspaceId: input.workspaceId,
+        workspaceProjectPath
+      }));
+
+    const layout = buildDocumentWorkspaceProjectLayout(workspaceProjectPath);
+    const projectManifest = buildDocumentProjectManifest({
+      layout,
+      sourceKind,
+      sourcePath,
+      projectSourcePath,
+      sourceFormat,
+      sourceMimeType,
+      sourceDisplayName: basenameOrNull(sourcePath),
+      extractManifestPath: sourceManifestPath,
+      mimeType: sourceMimeType
+    });
+    await this.persistProjectManifest({
+      workspaceId: input.workspaceId,
+      path: projectManifestPath,
+      manifest: projectManifest
+    });
+
+    return {
+      ok: true,
+      workspaceProjectPath,
+      projectManifestPath,
+      projectSourcePath,
+      sourceKind,
+      sourcePath,
+      sourceFormat,
+      sourceMimeType,
+      sourceManifestPath
+    };
+  }
+
+  private resolveProjectSourceKind(
+    manifest: Record<string, unknown> | null
+  ): DocumentWorkspaceProjectSourceKind {
+    const sourceKind = manifest?.["sourceKind"];
+    if (sourceKind === "imported_workspace_file" || sourceKind === "authored_workspace_project") {
+      return sourceKind;
+    }
+    return manifest === null ? "authored_workspace_project" : "imported_workspace_file";
+  }
+
+  private resolveProjectSourcePath(manifest: Record<string, unknown> | null): string | null {
+    const sourcePath = manifest?.["sourcePath"];
+    return typeof sourcePath === "string" && sourcePath.trim().length > 0
+      ? sourcePath.trim()
+      : null;
+  }
+
+  private resolveProjectSourceCopyPath(manifest: Record<string, unknown> | null): string | null {
+    const projectSourcePath = manifest?.["projectSourcePath"];
+    return typeof projectSourcePath === "string" && projectSourcePath.trim().length > 0
+      ? projectSourcePath.trim()
+      : null;
+  }
+
+  private resolveProjectSourceFormat(
+    manifest: Record<string, unknown> | null
+  ): DocumentWorkspaceProjectSourceFormat | null {
+    const sourceFormat = manifest?.["sourceFormat"];
+    return isProjectSourceFormat(sourceFormat) ? sourceFormat : null;
+  }
+
+  private resolveProjectSourceMimeType(manifest: Record<string, unknown> | null): string | null {
+    const sourceMimeType = manifest?.["sourceMimeType"] ?? manifest?.["mimeType"];
+    return typeof sourceMimeType === "string" && sourceMimeType.trim().length > 0
+      ? sourceMimeType.trim()
+      : null;
+  }
+
+  private resolveProjectExtractManifestPath(
+    manifest: Record<string, unknown> | null
+  ): string | null {
+    const extractManifestPath = manifest?.["extractManifestPath"];
+    return typeof extractManifestPath === "string" && extractManifestPath.trim().length > 0
+      ? extractManifestPath.trim()
+      : null;
+  }
+
+  private async resolveDefaultAuthoredSourcePath(input: {
+    workspaceId: string;
+    workspaceProjectPath: string;
+    outputFormat: VisibleWorkspaceDocumentOutputFormat;
+    sourceKind: DocumentWorkspaceProjectSourceKind;
+  }): Promise<string | null> {
+    if (input.sourceKind !== "authored_workspace_project") {
+      return null;
+    }
+    const layout = buildDocumentWorkspaceProjectLayout(input.workspaceProjectPath);
+    const candidates =
+      input.outputFormat === "pdf"
+        ? [
+            layout.defaultRenderEntrypoint,
+            `${input.workspaceProjectPath}/render/index.html`,
+            `${input.workspaceProjectPath}/index.html`,
+            `${input.workspaceProjectPath}/report.html`
+          ]
+        : [`${input.workspaceProjectPath}/build.py`];
+    for (const candidate of candidates) {
+      const metadata = await this.workspaceFileMetadataService.get({
+        workspaceId: input.workspaceId,
+        path: candidate
+      });
+      if (metadata !== null) {
+        return candidate;
+      }
+    }
+    return candidates[0] ?? null;
+  }
+
+  private async resolveDefaultExtractManifestPath(input: {
+    workspaceId: string;
+    workspaceProjectPath: string;
+  }): Promise<string | null> {
+    const candidate = `${buildDocumentWorkspaceProjectLayout(input.workspaceProjectPath).extractDir}/manifest.json`;
+    const metadata = await this.workspaceFileMetadataService.get({
+      workspaceId: input.workspaceId,
+      path: candidate
+    });
+    return metadata === null ? null : candidate;
+  }
+
+  private async resolveDefaultProjectSourcePath(input: {
+    workspaceId: string;
+    workspaceProjectPath: string;
+    sourceKind: DocumentWorkspaceProjectSourceKind;
+    sourcePath: string | null;
+  }): Promise<string | null> {
+    if (input.sourceKind === "authored_workspace_project") {
+      return input.sourcePath;
+    }
+    const candidate = buildDocumentProjectSourceCopyPath(
+      buildDocumentWorkspaceProjectLayout(input.workspaceProjectPath),
+      input.sourcePath
+    );
+    if (candidate === null) {
+      return null;
+    }
+    const metadata = await this.workspaceFileMetadataService.get({
+      workspaceId: input.workspaceId,
+      path: candidate
+    });
+    return metadata === null ? null : candidate;
+  }
+
+  private async persistProjectManifest(input: {
+    workspaceId: string;
+    path: string;
+    manifest: Record<string, unknown>;
+  }): Promise<void> {
+    const buffer = Buffer.from(JSON.stringify(input.manifest, null, 2), "utf8");
+    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
+      workspaceId: input.workspaceId,
+      workspaceRelPath: input.path
+    });
+    await this.mediaObjectStorage.saveObject({
+      objectKey,
+      buffer,
+      mimeType: "application/json"
+    });
+    await this.workspaceFileMetadataService.upsert({
+      workspaceId: input.workspaceId,
+      path: input.path,
+      mimeType: "application/json",
+      sizeBytes: buffer.length,
+      shortDescription: "Document project manifest"
+    });
+  }
+
+  private async readInspectionFacts(
     workspaceId: string,
     path: string
-  ): Promise<AssistantDocumentInspectionSummary | null> {
+  ): Promise<DocumentWorkspaceInspectionFacts | null> {
     const json = await this.readJsonWorkspaceObject(workspaceId, path);
     if (json === null) {
       return null;
     }
     const counts = json["counts"];
     return {
+      sourcePath: typeof json["sourcePath"] === "string" ? json["sourcePath"] : null,
       format:
         json["format"] === "pdf" || json["format"] === "xlsx" || json["format"] === "docx"
           ? json["format"]
           : null,
-      counts: {
-        pageCount: readOptionalJsonNumber(counts, "pageCount"),
-        sheetCount: readOptionalJsonNumber(counts, "sheetCount"),
-        formulaCount: readOptionalJsonNumber(counts, "formulaCount"),
-        blankSheetCount: readOptionalJsonNumber(counts, "blankSheetCount"),
-        paragraphCount: readOptionalJsonNumber(counts, "paragraphCount"),
-        headingCount: readOptionalJsonNumber(counts, "headingCount"),
-        tableCount: readOptionalJsonNumber(counts, "tableCount"),
-        textCharCount: readOptionalJsonNumber(counts, "textCharCount")
-      },
-      warnings: Array.isArray(json["warnings"])
-        ? json["warnings"].filter((entry): entry is string => typeof entry === "string")
-        : []
+      summary: {
+        format:
+          json["format"] === "pdf" || json["format"] === "xlsx" || json["format"] === "docx"
+            ? json["format"]
+            : null,
+        counts: {
+          pageCount: readOptionalJsonNumber(counts, "pageCount"),
+          sheetCount: readOptionalJsonNumber(counts, "sheetCount"),
+          formulaCount: readOptionalJsonNumber(counts, "formulaCount"),
+          blankSheetCount: readOptionalJsonNumber(counts, "blankSheetCount"),
+          paragraphCount: readOptionalJsonNumber(counts, "paragraphCount"),
+          headingCount: readOptionalJsonNumber(counts, "headingCount"),
+          tableCount: readOptionalJsonNumber(counts, "tableCount"),
+          textCharCount: readOptionalJsonNumber(counts, "textCharCount")
+        },
+        warnings: Array.isArray(json["warnings"])
+          ? json["warnings"].filter((entry): entry is string => typeof entry === "string")
+          : []
+      }
     };
   }
 
@@ -365,54 +673,99 @@ export class DocumentWorkspaceVersionRegistrationService {
   }
 }
 
-function normalizeWorkspacePath(value: string): string | null {
-  const trimmed = value.trim().replace(/\\/g, "/");
-  if (!trimmed.startsWith("/workspace/") || trimmed.includes("..")) {
-    return null;
-  }
-  if (
-    trimmed === "/workspace/input" ||
-    trimmed.startsWith("/workspace/input/") ||
-    trimmed === "/workspace/outbound" ||
-    trimmed.startsWith("/workspace/outbound/")
-  ) {
-    return null;
-  }
-  return trimmed;
-}
-
-function normalizeWorkspaceDirectory(value: string): string | null {
-  const path = normalizeWorkspacePath(value);
-  if (path === null) {
-    return null;
-  }
-  const normalized = path.replace(/\/+$/g, "");
-  return normalized.length > 0 ? normalized : null;
-}
-
-function resolveOutputFormatFromPath(
-  path: string
-): VisibleWorkspaceDocumentOutputFormat | "pptx" | null {
-  const lowered = path.toLowerCase();
-  if (lowered.endsWith(".pdf")) {
-    return "pdf";
-  }
-  if (lowered.endsWith(".pptx")) {
-    return "pptx";
-  }
-  if (lowered.endsWith(".xlsx")) {
-    return "xlsx";
-  }
-  if (lowered.endsWith(".docx")) {
-    return "docx";
-  }
-  return null;
-}
-
 function readOptionalJsonNumber(value: unknown, key: string): number | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
   const entry = (value as Record<string, unknown>)[key];
   return typeof entry === "number" && Number.isFinite(entry) ? entry : null;
+}
+
+function inferProjectSourceFormatFromFacts(input: {
+  sourceKind: DocumentWorkspaceProjectSourceKind;
+  sourcePath: string | null;
+  outputFormat: VisibleWorkspaceDocumentOutputFormat;
+}): DocumentWorkspaceProjectSourceFormat {
+  const lowerSourcePath = input.sourcePath?.toLowerCase() ?? "";
+  if (lowerSourcePath.endsWith(".pdf")) {
+    return "pdf";
+  }
+  if (lowerSourcePath.endsWith(".docx")) {
+    return "docx";
+  }
+  if (lowerSourcePath.endsWith(".xlsx")) {
+    return "xlsx";
+  }
+  if (lowerSourcePath.endsWith(".csv")) {
+    return "csv";
+  }
+  if (lowerSourcePath.endsWith(".html") || lowerSourcePath.endsWith(".htm")) {
+    return "html";
+  }
+  if (lowerSourcePath.endsWith(".py")) {
+    return "python";
+  }
+  if (lowerSourcePath.endsWith(".txt") || lowerSourcePath.endsWith(".md")) {
+    return "text";
+  }
+  if (
+    lowerSourcePath.endsWith(".png") ||
+    lowerSourcePath.endsWith(".jpg") ||
+    lowerSourcePath.endsWith(".jpeg") ||
+    lowerSourcePath.endsWith(".webp")
+  ) {
+    return "image";
+  }
+  if (input.sourceKind === "authored_workspace_project") {
+    return input.outputFormat === "pdf" ? "html" : "python";
+  }
+  return "other";
+}
+
+function inferProjectSourceMimeType(input: {
+  sourceFormat: DocumentWorkspaceProjectSourceFormat;
+}): string | null {
+  switch (input.sourceFormat) {
+    case "pdf":
+      return "application/pdf";
+    case "docx":
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    case "csv":
+      return "text/csv";
+    case "text":
+      return "text/plain";
+    case "html":
+      return "text/html";
+    case "python":
+      return "text/x-python";
+    case "image":
+      return "image/*";
+    case "other":
+    default:
+      return null;
+  }
+}
+
+function isProjectSourceFormat(value: unknown): value is DocumentWorkspaceProjectSourceFormat {
+  return (
+    typeof value === "string" &&
+    (["pdf", "docx", "xlsx", "csv", "text", "html", "python", "image", "other"] as const).includes(
+      value as DocumentWorkspaceProjectSourceFormat
+    )
+  );
+}
+
+function basenameOrNull(path: string | null): string | null {
+  if (path === null) {
+    return null;
+  }
+  const normalized = path.trim().replace(/\/+$/g, "");
+  if (normalized.length === 0) {
+    return null;
+  }
+  const segments = normalized.split("/");
+  const basename = segments[segments.length - 1] ?? "";
+  return basename.length > 0 ? basename : null;
 }

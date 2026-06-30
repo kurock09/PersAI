@@ -2,9 +2,14 @@ import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   DEFAULT_RUNTIME_SANDBOX_POLICY,
+  buildDocumentProjectPdfExportEntrypoint,
+  buildDocumentProjectPythonRenderEntrypoint,
   buildDocumentProjectRenderScaffoldHtml,
   buildDocumentWorkspaceProjectLayout,
+  isWorkspacePathUnderPrefix,
   validateDocumentProjectRenderPaths,
+  type DocumentWorkspaceProjectSourceFormat,
+  type DocumentWorkspaceProjectSourceKind,
   type PersaiRuntimePresentationImagePolicy,
   type PersaiRuntimePresentationVisualDensity,
   type PersaiRuntimePresentationVisualStyle,
@@ -20,6 +25,15 @@ import { PersaiInternalApiClientService } from "./persai-internal-api.client.ser
 import { SandboxClientService } from "./sandbox-client.service";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type DocumentProjectManifestFacts = {
+  sourceKind: DocumentWorkspaceProjectSourceKind | null;
+  sourcePath: string | null;
+  projectSourcePath: string | null;
+  sourceFormat: DocumentWorkspaceProjectSourceFormat | null;
+  defaultRenderEntrypoint: string | null;
+  defaultPdfExportEntrypoint: string | null;
+};
 
 export interface RuntimeDocumentToolExecutionResult {
   payload: RuntimeDocumentToolResult;
@@ -348,6 +362,7 @@ export class RuntimeDocumentToolService {
             manifestPath: outcome.manifestPath,
             projectPath: outcome.projectPath,
             projectManifestPath: outcome.projectManifestPath,
+            projectSourcePath: outcome.projectSourcePath,
             defaultRenderEntrypoint: outcome.defaultRenderEntrypoint,
             defaultPdfOutputPath: outcome.defaultPdfOutputPath,
             outputPaths: outcome.outputPaths,
@@ -436,11 +451,9 @@ export class RuntimeDocumentToolService {
           requestedAction: "inspect",
           descriptorMode: null,
           documentType:
-            outcome.format === "pdf"
-              ? "pdf_document"
-              : outcome.format === "docx" || outcome.format === "xlsx"
-                ? "data_document"
-                : null,
+            outcome.format === "pdf" || outcome.format === "docx" || outcome.format === "xlsx"
+              ? "workspace_document"
+              : null,
           provider: null,
           prompt: null,
           outputFormat: outcome.format,
@@ -457,7 +470,8 @@ export class RuntimeDocumentToolService {
             format: outcome.format,
             counts: outcome.counts,
             warnings: outcome.warnings,
-            suggestedReadPaths: outcome.suggestedReadPaths
+            suggestedReadPaths: outcome.suggestedReadPaths,
+            comparison: outcome.comparison
           }
         },
         artifacts: [],
@@ -548,19 +562,38 @@ export class RuntimeDocumentToolService {
       );
     }
 
+    const projectManifest = await this.readDocumentProjectManifestFactsOptional({
+      bundle: params.bundle,
+      sessionId: params.sessionId,
+      requestId: params.requestId,
+      projectPath
+    });
+    const importedNativeRenderWarning = this.resolveImportedNativeRenderWarning({
+      format: params.request.format,
+      projectManifest
+    });
+    if (importedNativeRenderWarning !== null) {
+      return this.renderSkipped(
+        params.request.format,
+        "native_render_not_implemented",
+        importedNativeRenderWarning
+      );
+    }
+
     let entrypointPath: string;
     try {
       const resolvedEntrypoint = await this.resolveRenderEntrypoint({
         bundle: params.bundle,
         projectPath,
         format: params.request.format,
-        entrypoint: params.request.entrypoint
+        entrypoint: params.request.entrypoint,
+        projectManifest
       });
       if (resolvedEntrypoint === null) {
         return this.renderSkipped(
           params.request.format,
           "unsupported_render_source",
-          this.renderEntrypointMissingWarning(params.request.format)
+          this.renderEntrypointMissingWarning(params.request.format, projectPath, projectManifest)
         );
       }
       entrypointPath = resolvedEntrypoint;
@@ -569,6 +602,33 @@ export class RuntimeDocumentToolService {
           params.request.format,
           "invalid_arguments",
           "document.outputPath must not overwrite the render entrypoint."
+        );
+      }
+      if (
+        projectManifest?.sourceKind === "imported_workspace_file" &&
+        (projectManifest.sourceFormat === "docx" || projectManifest.sourceFormat === "xlsx") &&
+        projectManifest.sourceFormat === params.request.format
+      ) {
+        const layout = buildDocumentWorkspaceProjectLayout(projectPath);
+        if (!isWorkspacePathUnderPrefix(entrypointPath, layout.renderDir)) {
+          return this.renderSkipped(
+            params.request.format,
+            "invalid_arguments",
+            `Imported ${params.request.format.toUpperCase()} projects must use a native Python entrypoint under ${layout.renderDir}/.`
+          );
+        }
+      }
+      const importedOfficePdfEntrypointError = this.validateImportedOfficePdfEntrypoint({
+        projectPath,
+        format: params.request.format,
+        projectManifest,
+        entrypointPath
+      });
+      if (importedOfficePdfEntrypointError !== null) {
+        return this.renderSkipped(
+          params.request.format,
+          "invalid_arguments",
+          importedOfficePdfEntrypointError
         );
       }
       if (params.activeDocumentProjectPath !== null) {
@@ -601,7 +661,8 @@ export class RuntimeDocumentToolService {
         outputPath,
         entrypointPath,
         format: params.request.format,
-        activeDocumentProjectPath: params.activeDocumentProjectPath
+        activeDocumentProjectPath: params.activeDocumentProjectPath,
+        projectManifest
       });
       job = await this.runDocumentCodeSandboxJob({
         bundle: params.bundle,
@@ -640,7 +701,7 @@ export class RuntimeDocumentToolService {
           executionMode: "inline",
           requestedAction: "render",
           descriptorMode: null,
-          documentType: params.request.format === "pdf" ? "pdf_document" : "data_document",
+          documentType: "workspace_document",
           provider: "sandbox",
           prompt: null,
           outputFormat: params.request.format,
@@ -685,7 +746,7 @@ export class RuntimeDocumentToolService {
         executionMode: "inline",
         requestedAction: "render",
         descriptorMode: null,
-        documentType: format === "pdf" ? "pdf_document" : "data_document",
+        documentType: "workspace_document",
         provider: "sandbox",
         prompt: null,
         outputFormat: format,
@@ -709,7 +770,12 @@ export class RuntimeDocumentToolService {
       externalThreadKey: string;
     } | null;
     request: {
-      descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document" | null;
+      descriptorMode:
+        | "create_document"
+        | "create_pdf_document"
+        | "revise_document"
+        | "create_data_document"
+        | null;
       docId: string | null;
       requestedName: string | null;
       workspaceProjectPath: string | null;
@@ -880,7 +946,12 @@ export class RuntimeDocumentToolService {
     | {
         kind: "register_version";
         request: {
-          descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document" | null;
+          descriptorMode:
+            | "create_document"
+            | "create_pdf_document"
+            | "revise_document"
+            | "create_data_document"
+            | null;
           docId: string | null;
           requestedName: string | null;
           workspaceProjectPath: string | null;
@@ -964,10 +1035,13 @@ export class RuntimeDocumentToolService {
         kind: "register_version",
         request: {
           descriptorMode:
+            row.descriptorMode === "create_document" ||
             row.descriptorMode === "create_pdf_document" ||
             row.descriptorMode === "revise_document" ||
             row.descriptorMode === "create_data_document"
-              ? row.descriptorMode
+              ? row.descriptorMode === "revise_document"
+                ? "revise_document"
+                : "create_document"
               : null,
           docId: this.readNonEmptyString(row.docId),
           requestedName: this.readNonEmptyString(row.requestedName),
@@ -1223,6 +1297,7 @@ export class RuntimeDocumentToolService {
     projectPath: string;
     format: "pdf" | "xlsx" | "docx";
     entrypoint: string | null;
+    projectManifest: DocumentProjectManifestFacts | null;
   }): Promise<string | null> {
     if (input.entrypoint !== null) {
       if (input.entrypoint.startsWith("/workspace/")) {
@@ -1232,7 +1307,59 @@ export class RuntimeDocumentToolService {
         `${input.projectPath}/${input.entrypoint.replace(/^\.?\//, "")}`
       );
     }
+    if (
+      input.format === "pdf" &&
+      input.projectManifest?.sourceKind === "imported_workspace_file" &&
+      (input.projectManifest.sourceFormat === "docx" ||
+        input.projectManifest.sourceFormat === "xlsx")
+    ) {
+      const files = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
+        workspaceId: input.bundle.metadata.workspaceId,
+        pathPrefix: `${input.projectPath}/`,
+        assistantHandle: input.bundle.metadata.assistantHandle
+      });
+      const filePaths = files.items.filter((item) => item.type === "file").map((item) => item.path);
+      const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
+      const preferredEntrypoints = [
+        input.projectManifest.defaultPdfExportEntrypoint,
+        buildDocumentProjectPdfExportEntrypoint(layout)
+      ].filter((value, index, array): value is string => {
+        return typeof value === "string" && value.length > 0 && array.indexOf(value) === index;
+      });
+      for (const preferred of preferredEntrypoints) {
+        if (filePaths.includes(preferred)) {
+          return preferred;
+        }
+      }
+      return null;
+    }
     if (input.format !== "pdf") {
+      if (
+        input.projectManifest?.sourceKind === "imported_workspace_file" &&
+        (input.projectManifest.sourceFormat === "docx" ||
+          input.projectManifest.sourceFormat === "xlsx") &&
+        input.projectManifest.sourceFormat === input.format
+      ) {
+        const files = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
+          workspaceId: input.bundle.metadata.workspaceId,
+          pathPrefix: `${input.projectPath}/`,
+          assistantHandle: input.bundle.metadata.assistantHandle
+        });
+        const filePaths = files.items
+          .filter((item) => item.type === "file")
+          .map((item) => item.path);
+        const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
+        const preferredEntrypoints = [
+          input.projectManifest.defaultRenderEntrypoint,
+          buildDocumentProjectPythonRenderEntrypoint(layout)
+        ].filter((value): value is string => typeof value === "string" && value.length > 0);
+        for (const preferred of preferredEntrypoints) {
+          if (filePaths.includes(preferred)) {
+            return preferred;
+          }
+        }
+        return null;
+      }
       return `${input.projectPath}/build.py`;
     }
     const files = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
@@ -1260,9 +1387,31 @@ export class RuntimeDocumentToolService {
     return null;
   }
 
-  private renderEntrypointMissingWarning(format: "pdf" | "xlsx" | "docx"): string {
+  private renderEntrypointMissingWarning(
+    format: "pdf" | "xlsx" | "docx",
+    projectPath: string,
+    projectManifest: DocumentProjectManifestFacts | null
+  ): string {
+    if (
+      format === "pdf" &&
+      projectManifest?.sourceKind === "imported_workspace_file" &&
+      (projectManifest.sourceFormat === "docx" || projectManifest.sourceFormat === "xlsx")
+    ) {
+      return `Imported ${projectManifest.sourceFormat.toUpperCase()} -> PDF export requires the visible Office PDF entrypoint ${buildDocumentProjectPdfExportEntrypoint(
+        buildDocumentWorkspaceProjectLayout(projectPath)
+      )}.`;
+    }
     if (format === "pdf") {
       return "document.render(format=pdf) requires a visible HTML entrypoint unless an explicit Python entrypoint is provided that writes the PDF to PERSAI_OUTPUT_PATH.";
+    }
+    if (
+      projectManifest?.sourceKind === "imported_workspace_file" &&
+      (projectManifest.sourceFormat === "docx" || projectManifest.sourceFormat === "xlsx") &&
+      projectManifest.sourceFormat === format
+    ) {
+      return `Imported ${format.toUpperCase()} projects require a visible native Python entrypoint at ${buildDocumentProjectPythonRenderEntrypoint(
+        buildDocumentWorkspaceProjectLayout(projectPath)
+      )} or an explicit document.entrypoint under the project's render/ directory.`;
     }
     return "Could not resolve a visible Python entrypoint for document.render.";
   }
@@ -1274,6 +1423,7 @@ export class RuntimeDocumentToolService {
     projectPath: string;
     entrypointPath: string;
     activeDocumentProjectPath: string | null;
+    projectManifest: DocumentProjectManifestFacts | null;
   }): Promise<string> {
     const projectRoot =
       input.activeDocumentProjectPath !== null &&
@@ -1283,7 +1433,13 @@ export class RuntimeDocumentToolService {
         : input.projectPath.startsWith("/workspace/projects/")
           ? input.projectPath
           : null;
-    if (projectRoot !== null) {
+    if (
+      projectRoot !== null &&
+      input.projectManifest?.sourceKind === "imported_workspace_file" &&
+      input.projectManifest.sourceFormat !== "pdf" &&
+      input.projectManifest.sourceFormat !== "docx" &&
+      input.projectManifest.sourceFormat !== "xlsx"
+    ) {
       const layout = buildDocumentWorkspaceProjectLayout(projectRoot);
       const extractedPath = `${layout.extractDir}/extracted.md`;
       try {
@@ -1323,20 +1479,13 @@ export class RuntimeDocumentToolService {
     requestId: string;
     projectPath: string;
   }): Promise<string> {
-    const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
     try {
-      const manifestText = await this.readWorkspaceTextFile({
-        bundle: input.bundle,
-        sessionId: input.sessionId,
-        requestId: input.requestId,
-        path: layout.projectManifestPath
-      });
-      const manifest = JSON.parse(manifestText) as { sourcePath?: unknown };
-      if (
-        typeof manifest.sourcePath === "string" &&
-        manifest.sourcePath.startsWith("/workspace/")
-      ) {
+      const manifest = await this.readDocumentProjectManifestFactsOptional(input);
+      if (manifest?.sourcePath != null) {
         return manifest.sourcePath;
+      }
+      if (manifest?.projectSourcePath != null) {
+        return manifest.projectSourcePath;
       }
     } catch {
       // Fall back below.
@@ -1353,6 +1502,7 @@ export class RuntimeDocumentToolService {
     entrypointPath: string;
     format: "pdf" | "xlsx" | "docx";
     activeDocumentProjectPath: string | null;
+    projectManifest: DocumentProjectManifestFacts | null;
   }): Promise<string> {
     const loweredEntrypoint = input.entrypointPath.toLowerCase();
     if (loweredEntrypoint.endsWith(".html") || loweredEntrypoint.endsWith(".htm")) {
@@ -1362,7 +1512,8 @@ export class RuntimeDocumentToolService {
         requestId: input.requestId,
         projectPath: input.projectPath,
         entrypointPath: input.entrypointPath,
-        activeDocumentProjectPath: input.activeDocumentProjectPath
+        activeDocumentProjectPath: input.activeDocumentProjectPath,
+        projectManifest: input.projectManifest
       });
       return [
         "import os",
@@ -1378,7 +1529,7 @@ export class RuntimeDocumentToolService {
     }
     if (!loweredEntrypoint.endsWith(".py")) {
       throw new Error(
-        "document.render currently supports HTML entrypoints for PDF and Python build.py entrypoints for workspace renders."
+        "document.render currently supports HTML entrypoints for PDF and Python build/export entrypoints for workspace renders."
       );
     }
     const scriptSource = await this.readWorkspaceTextFile({
@@ -1438,6 +1589,126 @@ export class RuntimeDocumentToolService {
       throw new Error(`Workspace file ${input.path} did not return readable text content.`);
     }
     return parsed.content;
+  }
+
+  private async readDocumentProjectManifestFactsOptional(input: {
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+    requestId: string;
+    projectPath: string;
+  }): Promise<DocumentProjectManifestFacts | null> {
+    const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
+    try {
+      const manifestText = await this.readWorkspaceTextFile({
+        bundle: input.bundle,
+        sessionId: input.sessionId,
+        requestId: input.requestId,
+        path: layout.projectManifestPath
+      });
+      const manifest = JSON.parse(manifestText) as Record<string, unknown>;
+      const sourceKind =
+        manifest.sourceKind === "imported_workspace_file" ||
+        manifest.sourceKind === "authored_workspace_project"
+          ? manifest.sourceKind
+          : null;
+      const sourceFormat =
+        manifest.sourceFormat === "pdf" ||
+        manifest.sourceFormat === "docx" ||
+        manifest.sourceFormat === "xlsx" ||
+        manifest.sourceFormat === "csv" ||
+        manifest.sourceFormat === "text" ||
+        manifest.sourceFormat === "html" ||
+        manifest.sourceFormat === "python" ||
+        manifest.sourceFormat === "image" ||
+        manifest.sourceFormat === "other"
+          ? manifest.sourceFormat
+          : null;
+      return {
+        sourceKind,
+        sourcePath:
+          typeof manifest.sourcePath === "string" && manifest.sourcePath.startsWith("/workspace/")
+            ? manifest.sourcePath
+            : null,
+        projectSourcePath:
+          typeof manifest.projectSourcePath === "string" &&
+          manifest.projectSourcePath.startsWith("/workspace/")
+            ? manifest.projectSourcePath
+            : null,
+        sourceFormat,
+        defaultRenderEntrypoint:
+          typeof manifest.defaultRenderEntrypoint === "string" &&
+          manifest.defaultRenderEntrypoint.startsWith("/workspace/")
+            ? manifest.defaultRenderEntrypoint
+            : null,
+        defaultPdfExportEntrypoint:
+          typeof manifest.defaultPdfExportEntrypoint === "string" &&
+          manifest.defaultPdfExportEntrypoint.startsWith("/workspace/")
+            ? manifest.defaultPdfExportEntrypoint
+            : null
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveImportedNativeRenderWarning(input: {
+    format: "pdf" | "xlsx" | "docx";
+    projectManifest: DocumentProjectManifestFacts | null;
+  }): string | null {
+    if (
+      input.projectManifest?.sourceKind !== "imported_workspace_file" ||
+      (input.projectManifest.sourceFormat !== "pdf" &&
+        input.projectManifest.sourceFormat !== "docx" &&
+        input.projectManifest.sourceFormat !== "xlsx")
+    ) {
+      return null;
+    }
+    const visibleSourcePath =
+      input.projectManifest.projectSourcePath ?? input.projectManifest.sourcePath ?? "unknown";
+    if (input.projectManifest.sourceFormat === "pdf") {
+      return (
+        `document.render(format=${input.format}) cannot yet use a native source-preserving render ` +
+        `engine for imported PDF projects. The visible native project source is ${visibleSourcePath}.`
+      );
+    }
+    if (
+      input.format === input.projectManifest.sourceFormat ||
+      (input.format === "pdf" &&
+        (input.projectManifest.sourceFormat === "docx" ||
+          input.projectManifest.sourceFormat === "xlsx"))
+    ) {
+      return null;
+    }
+    return (
+      `document.render(format=${input.format}) cannot yet export imported ${input.projectManifest.sourceFormat.toUpperCase()} ` +
+      `projects through a native source-preserving engine. The visible native project source is ` +
+      `${visibleSourcePath}. Only same-format ${input.projectManifest.sourceFormat.toUpperCase()} ` +
+      "revision and the visible Office PDF export entrypoint are currently supported for this imported project."
+    );
+  }
+
+  private validateImportedOfficePdfEntrypoint(input: {
+    projectPath: string;
+    format: "pdf" | "xlsx" | "docx";
+    projectManifest: DocumentProjectManifestFacts | null;
+    entrypointPath: string;
+  }): string | null {
+    if (
+      input.format !== "pdf" ||
+      input.projectManifest?.sourceKind !== "imported_workspace_file" ||
+      (input.projectManifest.sourceFormat !== "docx" &&
+        input.projectManifest.sourceFormat !== "xlsx")
+    ) {
+      return null;
+    }
+    const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
+    const expectedEntrypoint =
+      input.projectManifest.defaultPdfExportEntrypoint ??
+      buildDocumentProjectPdfExportEntrypoint(layout);
+    if (input.entrypointPath === expectedEntrypoint) {
+      return null;
+    }
+    return `Imported ${input.projectManifest.sourceFormat.toUpperCase()} -> PDF render must use the visible Office PDF export entrypoint ${expectedEntrypoint}.`;
   }
 
   private async runDocumentCodeSandboxJob(input: {

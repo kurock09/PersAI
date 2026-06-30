@@ -10,7 +10,6 @@ export type AssistantWebChatActiveDocumentJobStateDescriptorMode =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatActiveDocumentJobStateDescriptorMode = {
-  create_pdf_document: "create_pdf_document",
   create_presentation: "create_presentation",
   revise_document: "revise_document",
   export_or_redeliver: "export_or_redeliver"

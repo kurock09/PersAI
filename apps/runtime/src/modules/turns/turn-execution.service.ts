@@ -76,6 +76,7 @@ import {
   type PersaiRuntimeKnowledgeSource,
   type PersaiRuntimeModelRole,
   type RuntimeTrace,
+  buildDocumentProjectPdfExportEntrypoint,
   buildDocumentWorkspaceProjectLayout
 } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
@@ -4216,6 +4217,7 @@ export class TurnExecutionService {
       "Active document project (from document.extract this turn):",
       `- projectPath=${layout.projectPath}`,
       `- render HTML under ${layout.renderDir}/ (default entrypoint ${layout.defaultRenderEntrypoint})`,
+      `- imported DOCX/XLSX -> PDF export uses ${buildDocumentProjectPdfExportEntrypoint(layout)}`,
       `- write PDF/DOCX/XLSX outputs under ${layout.outputDir}/ (default PDF ${layout.defaultPdfOutputPath})`,
       "- document.render must stay inside this project; do not render from other workspace projects in the same turn.",
       "- PDF render rebuilds HTML from full extract/extracted.md server-side; do not reassemble PDF HTML from partial files.read chunks."

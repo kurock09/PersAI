@@ -12,6 +12,11 @@ import {
 import type { AssistantChatSurface } from "../domain/assistant-chat.entity";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { AssistantDocumentJobService } from "./assistant-document-job.service";
+import {
+  buildDefaultInspectionPath,
+  inferProjectPathFromOutputPath,
+  resolveVisibleWorkspaceOutputFormatFromPath
+} from "./document-workspace-deliverable-gating";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 
 export type RegisterChatAttachmentKind =
@@ -187,10 +192,10 @@ export class RegisterChatAttachmentService {
 
     const registeredDocumentLink =
       input.kind === "files.attach"
-        ? await this.assistantDocumentJobService.findCurrentDocumentLinkByOutputPath({
+        ? await this.resolveFilesAttachDocumentLink({
             assistantId: input.assistantId,
             workspaceId: input.workspaceId,
-            outputPath: storagePath
+            storagePath
           })
         : null;
     const attachment = await this.attachmentRepository.create({
@@ -267,5 +272,77 @@ export class RegisterChatAttachmentService {
       throw new BadRequestException(`Field "${field}" must be a non-empty string.`);
     }
     return value.trim();
+  }
+
+  private async resolveProjectPathForUnregisteredDocumentOutput(input: {
+    workspaceId: string;
+    storagePath: string;
+  }): Promise<string | null> {
+    const candidates = new Set<string>();
+    const inferredProjectPath = inferProjectPathFromOutputPath(input.storagePath);
+    if (inferredProjectPath !== null) {
+      candidates.add(inferredProjectPath);
+    }
+    const lastSlash = input.storagePath.lastIndexOf("/");
+    if (lastSlash > "/workspace".length) {
+      candidates.add(input.storagePath.slice(0, lastSlash));
+    }
+    for (const candidate of candidates) {
+      const projectManifestMetadata = await this.workspaceFileMetadataService.get({
+        workspaceId: input.workspaceId,
+        path: `${candidate}/project.json`
+      });
+      if (projectManifestMetadata !== null) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  private async resolveFilesAttachDocumentLink(input: {
+    assistantId: string;
+    workspaceId: string;
+    storagePath: string;
+  }) {
+    const currentDocumentLink =
+      await this.assistantDocumentJobService.findCurrentDocumentLinkByOutputPath({
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        outputPath: input.storagePath
+      });
+    if (currentDocumentLink.status === "blocked") {
+      throw new BadRequestException(currentDocumentLink.message);
+    }
+    if (currentDocumentLink.status === "ready") {
+      return currentDocumentLink.link;
+    }
+
+    const outputFormat = resolveVisibleWorkspaceOutputFormatFromPath(input.storagePath);
+    if (outputFormat !== "pdf" && outputFormat !== "xlsx" && outputFormat !== "docx") {
+      return null;
+    }
+    const workspaceProjectPath = await this.resolveProjectPathForUnregisteredDocumentOutput({
+      workspaceId: input.workspaceId,
+      storagePath: input.storagePath
+    });
+    if (workspaceProjectPath === null) {
+      return null;
+    }
+
+    const defaultInspectionPath = buildDefaultInspectionPath(input.storagePath);
+    const defaultInspectionExists =
+      defaultInspectionPath === null
+        ? false
+        : (await this.workspaceFileMetadataService.get({
+            workspaceId: input.workspaceId,
+            path: defaultInspectionPath
+          })) !== null;
+    const inspectHint =
+      defaultInspectionExists || defaultInspectionPath === null
+        ? "Run document.register_version on this output before files.attach so final delivery keeps project/source/version provenance."
+        : `Missing inspect sidecar ${defaultInspectionPath}. Run document.inspect, then document.register_version, then files.attach.`;
+    throw new BadRequestException(
+      `Document output ${input.storagePath} belongs to project ${workspaceProjectPath} but no current registered version points to it. ${inspectHint}`
+    );
   }
 }

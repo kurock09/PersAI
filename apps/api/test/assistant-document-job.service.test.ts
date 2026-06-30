@@ -170,9 +170,79 @@ async function runEnqueueRevisionRetriesUniqueVersionConflict(): Promise<void> {
   );
 }
 
+async function runFindCurrentDocumentLinkPreservesVisibleProjectProvenance(): Promise<void> {
+  const service = new AssistantDocumentJobService({
+    assistantDocument: {
+      findFirst: async () => ({
+        id: "doc-visible-1",
+        status: "ready",
+        documentType: "workspace_document",
+        currentVersion: {
+          id: "version-visible-1",
+          versionNumber: 2,
+          descriptorMode: "create_document",
+          status: "ready",
+          sourceJson: {
+            prompt: "Build the workbook",
+            outputFormat: "xlsx",
+            metadata: {
+              documentWorkspace: {
+                workspaceProjectPath: "/workspace/projects/revenue",
+                projectManifestPath: "/workspace/projects/revenue/project.json",
+                projectSourcePath: "/workspace/projects/revenue/source/source.xlsx",
+                sourceKind: "imported_workspace_file",
+                sourcePath: "/workspace/source.xlsx",
+                sourceFormat: "xlsx",
+                sourceMimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                outputPath: "/workspace/projects/revenue/output/report.xlsx",
+                sourceManifestPath: "/workspace/projects/revenue/extract/manifest.json",
+                inspectionPath: "/workspace/projects/revenue/output/report.inspect.json",
+                inspectionSummary: {
+                  format: "xlsx",
+                  counts: {
+                    pageCount: null,
+                    sheetCount: 2,
+                    formulaCount: 5,
+                    blankSheetCount: 0,
+                    paragraphCount: null,
+                    headingCount: null,
+                    tableCount: null,
+                    textCharCount: null
+                  },
+                  warnings: []
+                }
+              }
+            }
+          }
+        }
+      })
+    }
+  } as never);
+
+  const outcome = await service.findCurrentDocumentLinkByOutputPath({
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    outputPath: "/workspace/projects/revenue/output/report.xlsx"
+  });
+
+  assert.equal(outcome.status, "ready");
+  if (outcome.status !== "ready") {
+    throw new Error("expected ready document link outcome");
+  }
+  const link = outcome.link;
+  assert.equal(link.outputFormat, "xlsx");
+  assert.equal(link.workspaceProjectPath, "/workspace/projects/revenue");
+  assert.equal(link.projectManifestPath, "/workspace/projects/revenue/project.json");
+  assert.equal(link.projectSourcePath, "/workspace/projects/revenue/source/source.xlsx");
+  assert.equal(link.sourceKind, "imported_workspace_file");
+  assert.equal(link.sourcePath, "/workspace/source.xlsx");
+  assert.equal(link.sourceFormat, "xlsx");
+}
+
 async function run(): Promise<void> {
   await runEnqueueRevisionUsesLatestPersistedVersionNumber();
   await runEnqueueRevisionRetriesUniqueVersionConflict();
+  await runFindCurrentDocumentLinkPreservesVisibleProjectProvenance();
 }
 
 void run();

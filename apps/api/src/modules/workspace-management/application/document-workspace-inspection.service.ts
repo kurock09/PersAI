@@ -34,6 +34,7 @@ type WorkspaceDocumentInspectAccepted = {
   };
   warnings: string[];
   suggestedReadPaths: string[];
+  comparison: WorkspaceDocumentInspectionComparisonSummary | null;
 };
 
 type WorkspaceDocumentInspectionSidecar = {
@@ -44,6 +45,42 @@ type WorkspaceDocumentInspectionSidecar = {
   counts: WorkspaceDocumentInspectAccepted["counts"];
   warnings: string[];
   details: Record<string, unknown>;
+};
+
+type WorkspaceDocumentInspectionComparisonSummary = {
+  comparisonKind: "imported_same_format_project_output";
+  sourcePath: string;
+  sourceFormat: "xlsx" | "docx";
+  summary: string;
+  warningCount: number;
+  warnings: string[];
+};
+
+type WorkbookSheetFacts = {
+  name: string;
+  range: string | null;
+  rowCount: number;
+  columnCount: number;
+  formulaCount: number;
+  blank: boolean;
+  sampleRows: string[][];
+};
+
+type WorkbookInspectionFacts = {
+  counts: WorkspaceDocumentInspectAccepted["counts"];
+  warnings: string[];
+  details: {
+    workbookSheets: WorkbookSheetFacts[];
+  };
+};
+
+type DocxInspectionFacts = {
+  counts: WorkspaceDocumentInspectAccepted["counts"];
+  warnings: string[];
+  details: {
+    sampleHeadings: string[];
+    sampleParagraphs: string[];
+  };
 };
 
 const SUPPORTED_INSPECT_MIME_TYPES = new Set([
@@ -171,6 +208,25 @@ export class DocumentWorkspaceInspectionService {
               buffer: downloaded.buffer
             });
 
+    const comparison = await this.buildImportedProjectComparisonIfApplicable({
+      workspaceId: input.workspaceId,
+      outputPath: sourcePath,
+      format: sidecar.format,
+      depth: input.depth,
+      outputCounts: sidecar.counts,
+      outputDetails: sidecar.details
+    });
+    if (comparison !== null) {
+      const comparisonWarnings = comparison.warnings.filter(
+        (warning) => !sidecar.warnings.includes(warning)
+      );
+      sidecar.warnings = [...sidecar.warnings, ...comparisonWarnings];
+      sidecar.details = {
+        ...sidecar.details,
+        comparison: comparison.details
+      };
+    }
+
     const pushWarning = await this.persistInspectSidecar({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
@@ -185,7 +241,8 @@ export class DocumentWorkspaceInspectionService {
       format: sidecar.format,
       counts: sidecar.counts,
       warnings: pushWarning === null ? sidecar.warnings : [...sidecar.warnings, pushWarning],
-      suggestedReadPaths: [inspectPath]
+      suggestedReadPaths: [inspectPath],
+      comparison: comparison?.summary ?? null
     };
   }
 
@@ -252,11 +309,46 @@ export class DocumentWorkspaceInspectionService {
     depth: WorkspaceDocumentInspectInput["depth"];
     buffer: Buffer;
   }): Promise<WorkspaceDocumentInspectionSidecar> {
+    const facts = this.analyzeWorkbook(input.buffer, input.depth);
+
+    return {
+      sourcePath: input.sourcePath,
+      inspectPath: input.inspectPath,
+      format: "xlsx",
+      depth: input.depth,
+      counts: facts.counts,
+      warnings: facts.warnings,
+      details: facts.details
+    };
+  }
+
+  private async inspectDocx(input: {
+    sourcePath: string;
+    inspectPath: string;
+    depth: WorkspaceDocumentInspectInput["depth"];
+    buffer: Buffer;
+  }): Promise<WorkspaceDocumentInspectionSidecar> {
+    const facts = await this.analyzeDocx(input.buffer, input.depth);
+    return {
+      sourcePath: input.sourcePath,
+      inspectPath: input.inspectPath,
+      format: "docx",
+      depth: input.depth,
+      counts: facts.counts,
+      warnings: facts.warnings,
+      details: facts.details
+    };
+  }
+
+  private analyzeWorkbook(
+    buffer: Buffer,
+    depth: WorkspaceDocumentInspectInput["depth"]
+  ): WorkbookInspectionFacts {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const XLSX = require("xlsx") as typeof import("xlsx");
-    const workbook = XLSX.read(input.buffer, { type: "buffer" });
+    const workbook = XLSX.read(buffer, { type: "buffer" });
     const warnings: string[] = [];
-    const sheets = workbook.SheetNames.map((sheetName) => {
+    const sheets: WorkbookSheetFacts[] = workbook.SheetNames.map((sheetName) => {
       const sheet = workbook.Sheets[sheetName];
       const range = typeof sheet?.["!ref"] === "string" ? sheet["!ref"] : null;
       const decodedRange = range ? XLSX.utils.decode_range(range) : null;
@@ -290,7 +382,7 @@ export class DocumentWorkspaceInspectionService {
         .filter(
           (row) => Array.isArray(row) && row.some((cell) => String(cell ?? "").trim().length > 0)
         )
-        .slice(0, resolveWorkbookSampleRowCount(input.depth))
+        .slice(0, resolveWorkbookSampleRowCount(depth))
         .map((row) => row.map((cell) => String(cell ?? "")));
       const blank = nonEmptyCellCount === 0;
       if (blank) {
@@ -312,10 +404,6 @@ export class DocumentWorkspaceInspectionService {
     }
 
     return {
-      sourcePath: input.sourcePath,
-      inspectPath: input.inspectPath,
-      format: "xlsx",
-      depth: input.depth,
       counts: {
         pageCount: null,
         sheetCount: sheets.length,
@@ -333,20 +421,18 @@ export class DocumentWorkspaceInspectionService {
     };
   }
 
-  private async inspectDocx(input: {
-    sourcePath: string;
-    inspectPath: string;
-    depth: WorkspaceDocumentInspectInput["depth"];
-    buffer: Buffer;
-  }): Promise<WorkspaceDocumentInspectionSidecar> {
+  private async analyzeDocx(
+    buffer: Buffer,
+    depth: WorkspaceDocumentInspectInput["depth"]
+  ): Promise<DocxInspectionFacts> {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mammoth = require("mammoth") as {
       convertToHtml(source: { buffer: Buffer }): Promise<{ value?: string }>;
       extractRawText(source: { buffer: Buffer }): Promise<{ value?: string }>;
     };
 
-    const htmlResult = await mammoth.convertToHtml({ buffer: input.buffer });
-    const rawTextResult = await mammoth.extractRawText({ buffer: input.buffer });
+    const htmlResult = await mammoth.convertToHtml({ buffer });
+    const rawTextResult = await mammoth.extractRawText({ buffer });
     const html = htmlResult.value ?? "";
     const rawText = (rawTextResult.value ?? "").replace(/\s+/g, " ").trim();
     const headingMatches = Array.from(html.matchAll(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi));
@@ -355,20 +441,16 @@ export class DocumentWorkspaceInspectionService {
     const headings = headingMatches
       .map((match) => stripHtml(match[1] ?? ""))
       .filter((value) => value.length > 0)
-      .slice(0, resolveDocxSampleCount(input.depth));
+      .slice(0, resolveDocxSampleCount(depth));
     const paragraphs = paragraphMatches
       .map((match) => stripHtml(match[1] ?? ""))
       .filter((value) => value.length > 0)
-      .slice(0, resolveDocxSampleCount(input.depth));
+      .slice(0, resolveDocxSampleCount(depth));
     const warnings: string[] = [];
     if (rawText.length === 0 && headingMatches.length === 0 && paragraphMatches.length === 0) {
       warnings.push("DOCX appears empty or contains no readable paragraph text.");
     }
     return {
-      sourcePath: input.sourcePath,
-      inspectPath: input.inspectPath,
-      format: "docx",
-      depth: input.depth,
       counts: {
         pageCount: null,
         sheetCount: null,
@@ -385,6 +467,332 @@ export class DocumentWorkspaceInspectionService {
         sampleParagraphs: paragraphs
       }
     };
+  }
+
+  private async buildImportedProjectComparisonIfApplicable(input: {
+    workspaceId: string;
+    outputPath: string;
+    format: "pdf" | "xlsx" | "docx";
+    depth: WorkspaceDocumentInspectInput["depth"];
+    outputCounts: WorkspaceDocumentInspectAccepted["counts"];
+    outputDetails: Record<string, unknown>;
+  }): Promise<{
+    summary: WorkspaceDocumentInspectionComparisonSummary;
+    warnings: string[];
+    details: Record<string, unknown>;
+  } | null> {
+    if (input.format !== "xlsx" && input.format !== "docx") {
+      return null;
+    }
+    const projectPath = inferProjectPathFromOutputPath(input.outputPath);
+    if (projectPath === null) {
+      return null;
+    }
+    const projectManifest = await this.readJsonWorkspaceObject(
+      input.workspaceId,
+      `${projectPath}/project.json`
+    );
+    if (projectManifest === null) {
+      return null;
+    }
+    const sourceKind = readOptionalString(projectManifest["sourceKind"]);
+    const sourceFormat = readOptionalString(projectManifest["sourceFormat"]);
+    const projectSourcePath = readOptionalString(projectManifest["projectSourcePath"]);
+    if (
+      sourceKind !== "imported_workspace_file" ||
+      projectSourcePath === null ||
+      sourceFormat !== input.format
+    ) {
+      return null;
+    }
+
+    const sourceMetadata = await this.workspaceFileMetadataService.get({
+      workspaceId: input.workspaceId,
+      path: projectSourcePath
+    });
+    if (sourceMetadata === null) {
+      const warnings = [
+        `Imported ${input.format.toUpperCase()} project source ${projectSourcePath} is missing, so same-format structural comparison was skipped.`
+      ];
+      return {
+        summary: {
+          comparisonKind: "imported_same_format_project_output",
+          sourcePath: projectSourcePath,
+          sourceFormat: input.format,
+          summary: `Same-format ${input.format.toUpperCase()} source comparison was skipped because ${projectSourcePath} could not be resolved.`,
+          warningCount: warnings.length,
+          warnings
+        },
+        warnings,
+        details: {
+          comparisonKind: "imported_same_format_project_output",
+          projectPath,
+          sourcePath: projectSourcePath,
+          sourceFormat: input.format,
+          compared: false,
+          skipReason: "project_source_missing",
+          warnings
+        }
+      };
+    }
+    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
+      workspaceId: input.workspaceId,
+      workspaceRelPath: projectSourcePath
+    });
+    const downloaded = await this.mediaObjectStorage.downloadObject(objectKey);
+    if (downloaded === null) {
+      const warnings = [
+        `Imported ${input.format.toUpperCase()} project source bytes for ${projectSourcePath} are unavailable, so same-format structural comparison was skipped.`
+      ];
+      return {
+        summary: {
+          comparisonKind: "imported_same_format_project_output",
+          sourcePath: projectSourcePath,
+          sourceFormat: input.format,
+          summary: `Same-format ${input.format.toUpperCase()} source comparison was skipped because ${projectSourcePath} bytes could not be read.`,
+          warningCount: warnings.length,
+          warnings
+        },
+        warnings,
+        details: {
+          comparisonKind: "imported_same_format_project_output",
+          projectPath,
+          sourcePath: projectSourcePath,
+          sourceFormat: input.format,
+          compared: false,
+          skipReason: "project_source_bytes_missing",
+          warnings
+        }
+      };
+    }
+
+    try {
+      return input.format === "xlsx"
+        ? this.compareWorkbookAgainstSource({
+            projectPath,
+            sourcePath: projectSourcePath,
+            sourceBuffer: downloaded.buffer,
+            depth: input.depth,
+            outputDetails: input.outputDetails
+          })
+        : await this.compareDocxAgainstSource({
+            projectPath,
+            sourcePath: projectSourcePath,
+            sourceBuffer: downloaded.buffer,
+            depth: input.depth,
+            outputCounts: input.outputCounts,
+            outputDetails: input.outputDetails
+          });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown error";
+      const warnings = [
+        `Imported ${input.format.toUpperCase()} project source ${projectSourcePath} could not be structurally compared: ${message}.`
+      ];
+      return {
+        summary: {
+          comparisonKind: "imported_same_format_project_output",
+          sourcePath: projectSourcePath,
+          sourceFormat: input.format,
+          summary: `Same-format ${input.format.toUpperCase()} source comparison was skipped because ${projectSourcePath} could not be parsed.`,
+          warningCount: warnings.length,
+          warnings
+        },
+        warnings,
+        details: {
+          comparisonKind: "imported_same_format_project_output",
+          projectPath,
+          sourcePath: projectSourcePath,
+          sourceFormat: input.format,
+          compared: false,
+          skipReason: "project_source_parse_failed",
+          warnings
+        }
+      };
+    }
+  }
+
+  private compareWorkbookAgainstSource(input: {
+    projectPath: string;
+    sourcePath: string;
+    sourceBuffer: Buffer;
+    depth: WorkspaceDocumentInspectInput["depth"];
+    outputDetails: Record<string, unknown>;
+  }): {
+    summary: WorkspaceDocumentInspectionComparisonSummary;
+    warnings: string[];
+    details: Record<string, unknown>;
+  } {
+    const sourceFacts = this.analyzeWorkbook(input.sourceBuffer, input.depth);
+    const outputSheets = readWorkbookSheetsFromDetails(input.outputDetails);
+    const sourceSheets = sourceFacts.details.workbookSheets;
+    const outputSheetNames = outputSheets.map((sheet) => sheet.name);
+    const sourceSheetNames = sourceSheets.map((sheet) => sheet.name);
+    const missingSheetNames = sourceSheetNames.filter((name) => !outputSheetNames.includes(name));
+    const addedSheetNames = outputSheetNames.filter((name) => !sourceSheetNames.includes(name));
+    const warnings: string[] = [];
+    if (
+      (sourceFacts.counts.sheetCount ?? 0) > 0 &&
+      outputSheets.length < (sourceFacts.counts.sheetCount ?? 0)
+    ) {
+      warnings.push(
+        `Rendered XLSX has fewer sheets than projectSourcePath (${outputSheets.length} < ${sourceFacts.counts.sheetCount}).`
+      );
+    }
+    if (missingSheetNames.length > 0) {
+      warnings.push(`Rendered XLSX is missing source sheets: ${missingSheetNames.join(", ")}.`);
+    }
+    if (
+      (sourceFacts.counts.formulaCount ?? 0) > 0 &&
+      countWorkbookFormulas(outputSheets) < (sourceFacts.counts.formulaCount ?? 0)
+    ) {
+      warnings.push(
+        `Rendered XLSX has fewer formulas than projectSourcePath (${countWorkbookFormulas(outputSheets)} < ${sourceFacts.counts.formulaCount}).`
+      );
+    }
+    if (countBlankWorkbookSheets(outputSheets) > (sourceFacts.counts.blankSheetCount ?? 0)) {
+      warnings.push(
+        `Rendered XLSX has more blank sheets than projectSourcePath (${countBlankWorkbookSheets(outputSheets)} > ${sourceFacts.counts.blankSheetCount}).`
+      );
+    }
+    const summary =
+      warnings.length === 0
+        ? `Rendered XLSX matches key workbook structure from projectSourcePath (${sourceFacts.counts.sheetCount ?? 0} sheets, ${sourceFacts.counts.formulaCount ?? 0} formulas).`
+        : `Rendered XLSX appears structurally degraded relative to projectSourcePath (${warnings.length} warning${warnings.length === 1 ? "" : "s"}).`;
+    return {
+      summary: {
+        comparisonKind: "imported_same_format_project_output",
+        sourcePath: input.sourcePath,
+        sourceFormat: "xlsx",
+        summary,
+        warningCount: warnings.length,
+        warnings
+      },
+      warnings,
+      details: {
+        comparisonKind: "imported_same_format_project_output",
+        projectPath: input.projectPath,
+        sourcePath: input.sourcePath,
+        sourceFormat: "xlsx",
+        compared: true,
+        summary,
+        warnings,
+        sourceCounts: sourceFacts.counts,
+        outputCounts: {
+          sheetCount: outputSheets.length,
+          formulaCount: countWorkbookFormulas(outputSheets),
+          blankSheetCount: countBlankWorkbookSheets(outputSheets)
+        },
+        sourceSheetNames,
+        outputSheetNames,
+        missingSheetNames,
+        addedSheetNames
+      }
+    };
+  }
+
+  private async compareDocxAgainstSource(input: {
+    projectPath: string;
+    sourcePath: string;
+    sourceBuffer: Buffer;
+    depth: WorkspaceDocumentInspectInput["depth"];
+    outputCounts: WorkspaceDocumentInspectAccepted["counts"];
+    outputDetails: Record<string, unknown>;
+  }): Promise<{
+    summary: WorkspaceDocumentInspectionComparisonSummary;
+    warnings: string[];
+    details: Record<string, unknown>;
+  }> {
+    const sourceFacts = await this.analyzeDocx(input.sourceBuffer, input.depth);
+    const warnings: string[] = [];
+    if ((input.outputCounts.paragraphCount ?? 0) < (sourceFacts.counts.paragraphCount ?? 0)) {
+      warnings.push(
+        `Rendered DOCX has fewer paragraphs than projectSourcePath (${input.outputCounts.paragraphCount ?? 0} < ${sourceFacts.counts.paragraphCount ?? 0}).`
+      );
+    }
+    if ((input.outputCounts.headingCount ?? 0) < (sourceFacts.counts.headingCount ?? 0)) {
+      warnings.push(
+        `Rendered DOCX has fewer headings than projectSourcePath (${input.outputCounts.headingCount ?? 0} < ${sourceFacts.counts.headingCount ?? 0}).`
+      );
+    }
+    if ((input.outputCounts.tableCount ?? 0) < (sourceFacts.counts.tableCount ?? 0)) {
+      warnings.push(
+        `Rendered DOCX has fewer tables than projectSourcePath (${input.outputCounts.tableCount ?? 0} < ${sourceFacts.counts.tableCount ?? 0}).`
+      );
+    }
+    if ((input.outputCounts.textCharCount ?? 0) < (sourceFacts.counts.textCharCount ?? 0)) {
+      warnings.push(
+        `Rendered DOCX has less readable text than projectSourcePath (${input.outputCounts.textCharCount ?? 0} < ${sourceFacts.counts.textCharCount ?? 0}).`
+      );
+    }
+    const summary =
+      warnings.length === 0
+        ? `Rendered DOCX matches key document structure from projectSourcePath (${sourceFacts.counts.paragraphCount ?? 0} paragraphs, ${sourceFacts.counts.headingCount ?? 0} headings, ${sourceFacts.counts.tableCount ?? 0} tables).`
+        : `Rendered DOCX appears structurally degraded relative to projectSourcePath (${warnings.length} warning${warnings.length === 1 ? "" : "s"}).`;
+    return {
+      summary: {
+        comparisonKind: "imported_same_format_project_output",
+        sourcePath: input.sourcePath,
+        sourceFormat: "docx",
+        summary,
+        warningCount: warnings.length,
+        warnings
+      },
+      warnings,
+      details: {
+        comparisonKind: "imported_same_format_project_output",
+        projectPath: input.projectPath,
+        sourcePath: input.sourcePath,
+        sourceFormat: "docx",
+        compared: true,
+        summary,
+        warnings,
+        sourceCounts: sourceFacts.counts,
+        outputCounts: {
+          paragraphCount: input.outputCounts.paragraphCount,
+          headingCount: input.outputCounts.headingCount,
+          tableCount: input.outputCounts.tableCount,
+          textCharCount: input.outputCounts.textCharCount
+        },
+        outputSamples: {
+          sampleHeadings: Array.isArray(input.outputDetails["sampleHeadings"])
+            ? input.outputDetails["sampleHeadings"]
+            : [],
+          sampleParagraphs: Array.isArray(input.outputDetails["sampleParagraphs"])
+            ? input.outputDetails["sampleParagraphs"]
+            : []
+        },
+        sourceSamples: sourceFacts.details
+      }
+    };
+  }
+
+  private async readJsonWorkspaceObject(
+    workspaceId: string,
+    path: string
+  ): Promise<Record<string, unknown> | null> {
+    const metadata = await this.workspaceFileMetadataService.get({
+      workspaceId,
+      path
+    });
+    if (metadata === null) {
+      return null;
+    }
+    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
+      workspaceId,
+      workspaceRelPath: path
+    });
+    const downloaded = await this.mediaObjectStorage.downloadObject(objectKey);
+    if (downloaded === null) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(downloaded.buffer.toString("utf8"));
+      return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
   }
 
   private async persistInspectSidecar(input: {
@@ -468,6 +876,15 @@ function deriveDefaultInspectPath(sourcePath: string): string {
   return `${stem}.inspect.json`;
 }
 
+function inferProjectPathFromOutputPath(path: string): string | null {
+  const marker = "/output/";
+  const markerIndex = path.lastIndexOf(marker);
+  if (markerIndex <= 0) {
+    return null;
+  }
+  return path.slice(0, markerIndex).replace(/\/+$/g, "");
+}
+
 function normalizeMime(mimeType: string | null | undefined): string {
   return (mimeType ?? "").toLowerCase().split(";")[0]?.trim() ?? "";
 }
@@ -542,6 +959,46 @@ function lastPathSegment(path: string): string | null {
   const parts = normalized.split("/");
   const last = parts[parts.length - 1] ?? "";
   return last.length > 0 ? last : null;
+}
+
+function readOptionalString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readWorkbookSheetsFromDetails(value: Record<string, unknown>): WorkbookSheetFacts[] {
+  const workbookSheets = value["workbookSheets"];
+  if (!Array.isArray(workbookSheets)) {
+    return [];
+  }
+  return workbookSheets
+    .map((entry) => {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        return null;
+      }
+      const row = entry as Record<string, unknown>;
+      return {
+        name: typeof row.name === "string" ? row.name : "",
+        range: typeof row.range === "string" ? row.range : null,
+        rowCount: typeof row.rowCount === "number" ? row.rowCount : 0,
+        columnCount: typeof row.columnCount === "number" ? row.columnCount : 0,
+        formulaCount: typeof row.formulaCount === "number" ? row.formulaCount : 0,
+        blank: row.blank === true,
+        sampleRows: Array.isArray(row.sampleRows)
+          ? row.sampleRows.map((sample) =>
+              Array.isArray(sample) ? sample.map((cell) => String(cell ?? "")) : []
+            )
+          : []
+      } satisfies WorkbookSheetFacts;
+    })
+    .filter((entry): entry is WorkbookSheetFacts => entry !== null && entry.name.length > 0);
+}
+
+function countWorkbookFormulas(sheets: WorkbookSheetFacts[]): number {
+  return sheets.reduce((sum, sheet) => sum + sheet.formulaCount, 0);
+}
+
+function countBlankWorkbookSheets(sheets: WorkbookSheetFacts[]): number {
+  return sheets.filter((sheet) => sheet.blank).length;
 }
 
 async function parsePdf(buffer: Buffer): Promise<{ pageCount: number | null; text: string }> {

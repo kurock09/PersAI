@@ -3,8 +3,9 @@ import { describe, test } from "node:test";
 import { DocumentWorkspaceVersionRegistrationService } from "../src/modules/workspace-management/application/document-workspace-version-registration.service";
 
 describe("DocumentWorkspaceVersionRegistrationService", () => {
-  test("registers a visible xlsx workspace version with inspection facts", async () => {
+  test("registers an authored xlsx project with explicit project/source provenance", async () => {
     const registeredInputs: unknown[] = [];
+    const savedObjects = new Map<string, Buffer>();
     const inspection = {
       schema: "persai.document.inspect.v1",
       format: "xlsx",
@@ -40,8 +41,8 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
             docId: "doc-1",
             versionId: "version-1",
             versionNumber: 1,
-            descriptorMode: "create_data_document",
-            documentType: "data_document",
+            descriptorMode: "create_document",
+            documentType: "workspace_document",
             outputFormat: "xlsx"
           };
         }
@@ -50,7 +51,8 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
         async get(input: { path: string }) {
           if (
             input.path === "/workspace/model/output.xlsx" ||
-            input.path === "/workspace/model/output.inspect.json"
+            input.path === "/workspace/model/output.inspect.json" ||
+            input.path === "/workspace/model/build.py"
           ) {
             return {
               workspaceId: "workspace-1",
@@ -66,6 +68,9 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
             };
           }
           return null;
+        },
+        async upsert() {
+          return;
         }
       } as never,
       {
@@ -79,7 +84,22 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
               contentType: "application/json"
             };
           }
+          const saved = savedObjects.get(objectKey);
+          if (saved) {
+            return {
+              buffer: saved,
+              contentType: "application/json"
+            };
+          }
           return null;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer }) {
+          savedObjects.set(input.objectKey, input.buffer);
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: "application/json"
+          };
         }
       } as never
     );
@@ -104,14 +124,204 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
     if (!outcome.accepted) {
       return;
     }
-    assert.equal(outcome.descriptorMode, "create_data_document");
-    assert.equal(outcome.documentType, "data_document");
+    assert.equal(outcome.descriptorMode, "create_document");
+    assert.equal(outcome.documentType, "workspace_document");
     assert.equal(outcome.outputFormat, "xlsx");
     assert.equal(registeredInputs.length, 1);
     const registered = registeredInputs[0] as {
-      workspaceFacts: { inspectionSummary: { counts: { sheetCount: number | null } } | null };
+      workspaceFacts: {
+        workspaceProjectPath: string | null;
+        projectManifestPath: string | null;
+        projectSourcePath: string | null;
+        sourceKind: string | null;
+        sourcePath: string | null;
+        sourceFormat: string | null;
+        sourceMimeType: string | null;
+        inspectionSummary: { counts: { sheetCount: number | null } } | null;
+      };
     };
+    assert.equal(registered.workspaceFacts.workspaceProjectPath, "/workspace/model");
+    assert.equal(registered.workspaceFacts.projectManifestPath, "/workspace/model/project.json");
+    assert.equal(registered.workspaceFacts.projectSourcePath, "/workspace/model/build.py");
+    assert.equal(registered.workspaceFacts.sourceKind, "authored_workspace_project");
+    assert.equal(registered.workspaceFacts.sourcePath, "/workspace/model/build.py");
+    assert.equal(registered.workspaceFacts.sourceFormat, "python");
+    assert.equal(registered.workspaceFacts.sourceMimeType, "text/x-python");
     assert.equal(registered.workspaceFacts.inspectionSummary?.counts.sheetCount, 2);
+  });
+
+  test("infers imported project/source facts from project output path and manifest", async () => {
+    const registeredInputs: unknown[] = [];
+    const inspection = {
+      schema: "persai.document.inspect.v1",
+      format: "pdf",
+      counts: {
+        pageCount: 3,
+        sheetCount: null,
+        formulaCount: null,
+        blankSheetCount: null,
+        paragraphCount: null,
+        headingCount: null,
+        tableCount: null,
+        textCharCount: 1200
+      },
+      warnings: []
+    };
+    const projectManifest = {
+      schema: "persai.document.project.v1",
+      projectPath: "/workspace/projects/source",
+      sourceKind: "imported_workspace_file",
+      sourcePath: "/workspace/source.docx",
+      projectSourcePath: "/workspace/projects/source/source/source.docx",
+      sourceFormat: "docx",
+      sourceMimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      extractManifestPath: "/workspace/projects/source/extract/manifest.json"
+    };
+    const extractManifest = {
+      schema: "persai.document.extract.v1",
+      kind: "extraction_view",
+      sourcePath: "/workspace/source.docx"
+    };
+    const service = new DocumentWorkspaceVersionRegistrationService(
+      {
+        assistantChat: {
+          async findFirst() {
+            return { id: "chat-1" };
+          }
+        },
+        assistant: {
+          async findFirst() {
+            return { userId: "user-1" };
+          }
+        }
+      } as never,
+      {
+        async registerVisibleWorkspaceVersion(input: unknown) {
+          registeredInputs.push(input);
+          return {
+            docId: "doc-imported-1",
+            versionId: "version-imported-1",
+            versionNumber: 1,
+            descriptorMode: "create_document",
+            documentType: "workspace_document",
+            outputFormat: "pdf"
+          };
+        }
+      } as never,
+      {
+        async get(input: { path: string }) {
+          if (
+            input.path === "/workspace/projects/source/output/report.pdf" ||
+            input.path === "/workspace/projects/source/output/report.inspect.json" ||
+            input.path === "/workspace/projects/source/project.json" ||
+            input.path === "/workspace/projects/source/extract/manifest.json"
+          ) {
+            return {
+              workspaceId: "workspace-1",
+              path: input.path,
+              mimeType: input.path.endsWith(".pdf") ? "application/pdf" : "application/json",
+              sizeBytes: BigInt(128),
+              contentHash: null,
+              shortDescription: null,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+          }
+          return null;
+        },
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        buildWorkspaceObjectKey(input: { workspaceRelPath: string }) {
+          return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+        },
+        async downloadObject(objectKey: string) {
+          if (objectKey === "gcs:projects/source/project.json") {
+            return {
+              buffer: Buffer.from(JSON.stringify(projectManifest), "utf8"),
+              contentType: "application/json"
+            };
+          }
+          if (objectKey === "gcs:projects/source/extract/manifest.json") {
+            return {
+              buffer: Buffer.from(JSON.stringify(extractManifest), "utf8"),
+              contentType: "application/json"
+            };
+          }
+          if (objectKey === "gcs:projects/source/output/report.inspect.json") {
+            return {
+              buffer: Buffer.from(JSON.stringify(inspection), "utf8"),
+              contentType: "application/json"
+            };
+          }
+          return null;
+        },
+        async saveObject() {
+          return {
+            objectKey: "gcs:any",
+            sizeBytes: 1,
+            mimeType: "application/json"
+          };
+        }
+      } as never
+    );
+
+    const outcome = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "thread-1",
+      sourceUserMessageText: "register imported docx as pdf",
+      sourceUserMessageCreatedAt: "2026-06-30T10:00:00.000Z",
+      descriptorMode: null,
+      docId: null,
+      requestedName: "report.pdf",
+      workspaceProjectPath: null,
+      outputPath: "/workspace/projects/source/output/report.pdf",
+      sourceManifestPath: null,
+      inspectionPath: "/workspace/projects/source/output/report.inspect.json"
+    });
+
+    assert.equal(outcome.accepted, true);
+    if (!outcome.accepted) {
+      return;
+    }
+    assert.equal(outcome.workspaceProjectPath, "/workspace/projects/source");
+    assert.equal(outcome.sourceManifestPath, "/workspace/projects/source/extract/manifest.json");
+    const registered = registeredInputs[0] as {
+      workspaceFacts: {
+        workspaceProjectPath: string | null;
+        projectManifestPath: string | null;
+        projectSourcePath: string | null;
+        sourceKind: string | null;
+        sourcePath: string | null;
+        sourceFormat: string | null;
+        sourceMimeType: string | null;
+        sourceManifestPath: string | null;
+      };
+    };
+    assert.equal(registered.workspaceFacts.workspaceProjectPath, "/workspace/projects/source");
+    assert.equal(
+      registered.workspaceFacts.projectManifestPath,
+      "/workspace/projects/source/project.json"
+    );
+    assert.equal(
+      registered.workspaceFacts.projectSourcePath,
+      "/workspace/projects/source/source/source.docx"
+    );
+    assert.equal(registered.workspaceFacts.sourceKind, "imported_workspace_file");
+    assert.equal(registered.workspaceFacts.sourcePath, "/workspace/source.docx");
+    assert.equal(registered.workspaceFacts.sourceFormat, "docx");
+    assert.equal(
+      registered.workspaceFacts.sourceMimeType,
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+    assert.equal(
+      registered.workspaceFacts.sourceManifestPath,
+      "/workspace/projects/source/extract/manifest.json"
+    );
   });
 
   test("rejects old workspace subdirectories", async () => {
@@ -143,5 +353,229 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       return;
     }
     assert.equal(outcome.code, "invalid_output_path");
+  });
+
+  test("rejects project-owned outputs when inspect truth is missing", async () => {
+    const service = new DocumentWorkspaceVersionRegistrationService(
+      {
+        assistantChat: {
+          async findFirst() {
+            return { id: "chat-1" };
+          }
+        },
+        assistant: {
+          async findFirst() {
+            return { userId: "user-1" };
+          }
+        }
+      } as never,
+      {
+        async registerVisibleWorkspaceVersion() {
+          throw new Error("should not register");
+        }
+      } as never,
+      {
+        async get(input: { path: string }) {
+          if (
+            input.path === "/workspace/projects/report/output/report.pdf" ||
+            input.path === "/workspace/projects/report/project.json"
+          ) {
+            return {
+              workspaceId: "workspace-1",
+              path: input.path,
+              mimeType: input.path.endsWith(".pdf") ? "application/pdf" : "application/json",
+              sizeBytes: BigInt(128),
+              contentHash: null,
+              shortDescription: null,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+          }
+          return null;
+        },
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        buildWorkspaceObjectKey(input: { workspaceRelPath: string }) {
+          return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+        },
+        async downloadObject(objectKey: string) {
+          if (objectKey === "gcs:projects/report/project.json") {
+            return {
+              buffer: Buffer.from(
+                JSON.stringify({
+                  schema: "persai.document.project.v1",
+                  projectPath: "/workspace/projects/report",
+                  sourceKind: "imported_workspace_file",
+                  sourcePath: "/workspace/source.docx",
+                  projectSourcePath: "/workspace/projects/report/source/source.docx",
+                  sourceFormat: "docx",
+                  sourceMimeType:
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                }),
+                "utf8"
+              ),
+              contentType: "application/json"
+            };
+          }
+          return null;
+        },
+        async saveObject() {
+          return {
+            objectKey: "gcs:any",
+            sizeBytes: 1,
+            mimeType: "application/json"
+          };
+        }
+      } as never
+    );
+
+    const outcome = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "thread-1",
+      sourceUserMessageText: "register imported output",
+      sourceUserMessageCreatedAt: "2026-06-30T10:00:00.000Z",
+      descriptorMode: null,
+      docId: null,
+      requestedName: "report.pdf",
+      workspaceProjectPath: null,
+      outputPath: "/workspace/projects/report/output/report.pdf",
+      sourceManifestPath: null,
+      inspectionPath: null
+    });
+
+    assert.equal(outcome.accepted, false);
+    if (outcome.accepted) {
+      return;
+    }
+    assert.equal(outcome.code, "inspect_missing");
+  });
+
+  test("rejects register_version when outputPath and workspaceProjectPath disagree", async () => {
+    const service = new DocumentWorkspaceVersionRegistrationService(
+      {
+        assistantChat: {
+          async findFirst() {
+            return { id: "chat-1" };
+          }
+        },
+        assistant: {
+          async findFirst() {
+            return { userId: "user-1" };
+          }
+        }
+      } as never,
+      {
+        async registerVisibleWorkspaceVersion() {
+          throw new Error("should not register");
+        }
+      } as never,
+      {
+        async get(input: { path: string }) {
+          if (
+            input.path === "/workspace/projects/one/output/report.pdf" ||
+            input.path === "/workspace/projects/two/project.json" ||
+            input.path === "/workspace/projects/one/output/report.inspect.json"
+          ) {
+            return {
+              workspaceId: "workspace-1",
+              path: input.path,
+              mimeType: input.path.endsWith(".pdf") ? "application/pdf" : "application/json",
+              sizeBytes: BigInt(128),
+              contentHash: null,
+              shortDescription: null,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+          }
+          return null;
+        },
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        buildWorkspaceObjectKey(input: { workspaceRelPath: string }) {
+          return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+        },
+        async downloadObject(objectKey: string) {
+          if (objectKey === "gcs:projects/two/project.json") {
+            return {
+              buffer: Buffer.from(
+                JSON.stringify({
+                  schema: "persai.document.project.v1",
+                  projectPath: "/workspace/projects/two",
+                  sourceKind: "authored_workspace_project",
+                  sourcePath: "/workspace/projects/two/index.html",
+                  projectSourcePath: "/workspace/projects/two/index.html",
+                  sourceFormat: "html",
+                  sourceMimeType: "text/html"
+                }),
+                "utf8"
+              ),
+              contentType: "application/json"
+            };
+          }
+          if (objectKey === "gcs:projects/one/output/report.inspect.json") {
+            return {
+              buffer: Buffer.from(
+                JSON.stringify({
+                  schema: "persai.document.inspect.v1",
+                  sourcePath: "/workspace/projects/one/output/report.pdf",
+                  format: "pdf",
+                  counts: {
+                    pageCount: 1,
+                    sheetCount: null,
+                    formulaCount: null,
+                    blankSheetCount: null,
+                    paragraphCount: null,
+                    headingCount: null,
+                    tableCount: null,
+                    textCharCount: 100
+                  },
+                  warnings: []
+                }),
+                "utf8"
+              ),
+              contentType: "application/json"
+            };
+          }
+          return null;
+        },
+        async saveObject() {
+          return {
+            objectKey: "gcs:any",
+            sizeBytes: 1,
+            mimeType: "application/json"
+          };
+        }
+      } as never
+    );
+
+    const outcome = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "thread-1",
+      sourceUserMessageText: "register report",
+      sourceUserMessageCreatedAt: "2026-06-30T10:00:00.000Z",
+      descriptorMode: null,
+      docId: null,
+      requestedName: "report.pdf",
+      workspaceProjectPath: "/workspace/projects/two",
+      outputPath: "/workspace/projects/one/output/report.pdf",
+      sourceManifestPath: null,
+      inspectionPath: "/workspace/projects/one/output/report.inspect.json"
+    });
+
+    assert.equal(outcome.accepted, false);
+    if (outcome.accepted) {
+      return;
+    }
+    assert.equal(outcome.code, "project_output_mismatch");
   });
 });

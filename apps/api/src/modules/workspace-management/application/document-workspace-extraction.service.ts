@@ -1,10 +1,15 @@
 import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import {
+  buildDocumentProjectPdfExportEntrypoint,
+  buildDocumentProjectPythonRenderEntrypoint,
   applyDocumentProjectPathSuffix,
+  buildDocumentProjectSourceCopyPath,
   buildDocumentProjectManifest,
   buildDocumentProjectRenderScaffoldHtml,
   buildDocumentWorkspaceProjectLayout,
   deriveDefaultDocumentProjectPath,
+  resolveDocumentProjectDefaultRenderEntrypoint,
+  type DocumentWorkspaceProjectSourceFormat,
   shouldScaffoldDocumentProjectRenderHtml
 } from "@persai/runtime-contract";
 import { DocumentExtractionService } from "./document-extraction.service";
@@ -38,6 +43,7 @@ type WorkspaceDocumentExtractAccepted = {
   manifestPath: string;
   projectPath: string | null;
   projectManifestPath: string | null;
+  projectSourcePath: string | null;
   defaultRenderEntrypoint: string | null;
   defaultPdfOutputPath: string | null;
   outputPaths: string[];
@@ -224,6 +230,10 @@ export class DocumentWorkspaceExtractionService {
       sourceMetadata.mimeType || downloaded.contentType,
       sourcePath
     );
+    const sourceFormat = inferDocumentProjectSourceFormat({
+      sourcePath,
+      mimeType
+    });
     if (!isSupportedExtractionMime(mimeType, sourcePath)) {
       return {
         accepted: false,
@@ -254,6 +264,9 @@ export class DocumentWorkspaceExtractionService {
     const manifest = this.buildManifest({
       sourcePath,
       outputDir: resolvedOutputDir,
+      projectPath,
+      sourceFormat,
+      sourceMimeType: mimeType,
       mode: input.mode,
       mimeType,
       counts: build.counts,
@@ -277,9 +290,20 @@ export class DocumentWorkspaceExtractionService {
     if (projectLayout !== null) {
       const extractedTextFile = build.files.find((file) => file.path.endsWith("/extracted.md"));
       const extractedText = extractedTextFile?.buffer.toString("utf8") ?? "";
+      const projectSourcePath = buildDocumentProjectSourceCopyPath(projectLayout, sourcePath);
+      const defaultRenderEntrypoint = resolveDocumentProjectDefaultRenderEntrypoint({
+        layout: projectLayout,
+        sourceKind: "imported_workspace_file",
+        sourceFormat
+      });
       const projectManifest = buildDocumentProjectManifest({
         layout: projectLayout,
+        sourceKind: "imported_workspace_file",
         sourcePath,
+        projectSourcePath,
+        sourceFormat,
+        sourceMimeType: mimeType,
+        sourceDisplayName: lastPathSegment(sourcePath),
         extractManifestPath: manifestPath,
         mimeType
       });
@@ -289,9 +313,47 @@ export class DocumentWorkspaceExtractionService {
         buffer: Buffer.from(JSON.stringify(projectManifest, null, 2), "utf8"),
         shortDescription: `Document project manifest for ${sourcePath}`
       });
-      if (shouldScaffoldDocumentProjectRenderHtml(mimeType) && extractedText.trim().length > 0) {
+      if (projectSourcePath !== null) {
         projectFiles.push({
-          path: projectLayout.defaultRenderEntrypoint,
+          path: projectSourcePath,
+          mimeType,
+          buffer: downloaded.buffer,
+          shortDescription: `Project-native source copy for ${sourcePath}`
+        });
+      }
+      if (projectSourcePath !== null && (sourceFormat === "docx" || sourceFormat === "xlsx")) {
+        projectFiles.push({
+          path: buildDocumentProjectPythonRenderEntrypoint(projectLayout),
+          mimeType: "text/x-python",
+          buffer: Buffer.from(
+            buildImportedOfficeRenderScaffold({
+              sourceFormat,
+              projectSourcePath
+            }),
+            "utf8"
+          ),
+          shortDescription: `Native render scaffold for ${sourcePath}`
+        });
+        projectFiles.push({
+          path: buildDocumentProjectPdfExportEntrypoint(projectLayout),
+          mimeType: "text/x-python",
+          buffer: Buffer.from(
+            buildImportedOfficePdfExportScaffold({
+              sourceFormat,
+              projectSourcePath
+            }),
+            "utf8"
+          ),
+          shortDescription: `Office PDF export scaffold for ${sourcePath}`
+        });
+      }
+      if (
+        sourceFormat !== "docx" &&
+        shouldScaffoldDocumentProjectRenderHtml(mimeType) &&
+        extractedText.trim().length > 0
+      ) {
+        projectFiles.push({
+          path: defaultRenderEntrypoint,
           mimeType: "text/html",
           buffer: Buffer.from(
             buildDocumentProjectRenderScaffoldHtml({
@@ -333,12 +395,39 @@ export class DocumentWorkspaceExtractionService {
       manifestPath,
       projectPath,
       projectManifestPath: projectLayout?.projectManifestPath ?? null,
-      defaultRenderEntrypoint: projectLayout?.defaultRenderEntrypoint ?? null,
+      projectSourcePath:
+        projectLayout === null
+          ? null
+          : buildDocumentProjectSourceCopyPath(projectLayout, sourcePath),
+      defaultRenderEntrypoint:
+        projectLayout === null
+          ? null
+          : resolveDocumentProjectDefaultRenderEntrypoint({
+              layout: projectLayout,
+              sourceKind: "imported_workspace_file",
+              sourceFormat
+            }),
       defaultPdfOutputPath: projectLayout?.defaultPdfOutputPath ?? null,
       outputPaths: allOutputPaths.slice(0, MAX_RETURNED_OUTPUT_PATHS),
       suggestedReadPaths: uniquePaths([
         ...(projectLayout?.projectManifestPath ? [projectLayout.projectManifestPath] : []),
-        ...(projectLayout?.defaultRenderEntrypoint ? [projectLayout.defaultRenderEntrypoint] : []),
+        ...(projectLayout === null
+          ? []
+          : [buildDocumentProjectSourceCopyPath(projectLayout, sourcePath)].filter(
+              (value): value is string => typeof value === "string"
+            )),
+        ...(projectLayout === null
+          ? []
+          : [
+              resolveDocumentProjectDefaultRenderEntrypoint({
+                layout: projectLayout,
+                sourceKind: "imported_workspace_file",
+                sourceFormat
+              }),
+              ...(sourceFormat === "docx" || sourceFormat === "xlsx"
+                ? [buildDocumentProjectPdfExportEntrypoint(projectLayout)]
+                : [])
+            ]),
         manifestPath,
         ...build.suggestedReadPaths
       ]),
@@ -609,6 +698,9 @@ export class DocumentWorkspaceExtractionService {
   private buildManifest(input: {
     sourcePath: string;
     outputDir: string;
+    projectPath: string;
+    sourceFormat: DocumentWorkspaceProjectSourceFormat;
+    sourceMimeType: string;
     mode: WorkspaceDocumentExtractInput["mode"];
     mimeType: string;
     counts: WorkspaceDocumentExtractAccepted["counts"];
@@ -619,7 +711,11 @@ export class DocumentWorkspaceExtractionService {
   }): Record<string, unknown> {
     return {
       schema: "persai.document.extract.v1",
+      kind: "extraction_view",
       sourcePath: input.sourcePath,
+      projectPath: input.projectPath,
+      sourceFormat: input.sourceFormat,
+      sourceMimeType: input.sourceMimeType,
       outputDir: input.outputDir,
       mode: input.mode,
       mimeType: input.mimeType,
@@ -756,6 +852,39 @@ function inferMimeFromPath(path: string): string {
   return "application/octet-stream";
 }
 
+function inferDocumentProjectSourceFormat(input: {
+  sourcePath: string;
+  mimeType: string;
+}): DocumentWorkspaceProjectSourceFormat {
+  const lowerPath = input.sourcePath.toLowerCase();
+  const normalizedMime = normalizeMime(input.mimeType);
+  if (lowerPath.endsWith(".pdf") || normalizedMime === "application/pdf") {
+    return "pdf";
+  }
+  if (
+    lowerPath.endsWith(".docx") ||
+    normalizedMime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    return "docx";
+  }
+  if (
+    lowerPath.endsWith(".xlsx") ||
+    normalizedMime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  ) {
+    return "xlsx";
+  }
+  if (lowerPath.endsWith(".csv") || normalizedMime === "text/csv") {
+    return "csv";
+  }
+  if (normalizedMime.startsWith("text/")) {
+    return "text";
+  }
+  if (normalizedMime.startsWith("image/")) {
+    return "image";
+  }
+  return "other";
+}
+
 function isSupportedExtractionMime(mimeType: string, sourcePath: string): boolean {
   if (mimeType.startsWith("image/")) {
     return true;
@@ -797,6 +926,102 @@ function lastPathSegment(path: string): string | null {
 
 function uniquePaths(paths: string[]): string[] {
   return Array.from(new Set(paths.filter((path) => path.trim().length > 0)));
+}
+
+function buildImportedOfficeRenderScaffold(input: {
+  sourceFormat: "docx" | "xlsx";
+  projectSourcePath: string;
+}): string {
+  if (input.sourceFormat === "docx") {
+    return [
+      "from pathlib import Path",
+      "from docx import Document",
+      "",
+      `SOURCE_PATH = Path(${JSON.stringify(input.projectSourcePath)})`,
+      "OUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)",
+      "",
+      "def build() -> None:",
+      "    document = Document(str(SOURCE_PATH))",
+      "    # Edit the loaded DOCX deterministically before saving if needed.",
+      "    document.save(str(OUTPUT_PATH))",
+      "",
+      'if __name__ == "__main__":',
+      "    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)",
+      "    build()"
+    ].join("\n");
+  }
+  return [
+    "from pathlib import Path",
+    "from openpyxl import load_workbook",
+    "",
+    `SOURCE_PATH = Path(${JSON.stringify(input.projectSourcePath)})`,
+    "OUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)",
+    "",
+    "def build() -> None:",
+    "    workbook = load_workbook(filename=str(SOURCE_PATH))",
+    "    # Edit the loaded workbook deterministically before saving if needed.",
+    "    workbook.save(str(OUTPUT_PATH))",
+    "",
+    'if __name__ == "__main__":',
+    "    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)",
+    "    build()"
+  ].join("\n");
+}
+
+function buildImportedOfficePdfExportScaffold(input: {
+  sourceFormat: "docx" | "xlsx";
+  projectSourcePath: string;
+}): string {
+  return [
+    "from pathlib import Path",
+    "import shutil",
+    "import subprocess",
+    "import tempfile",
+    "",
+    `SOURCE_PATH = Path(${JSON.stringify(input.projectSourcePath)})`,
+    "OUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)",
+    "",
+    "def export_pdf() -> None:",
+    '    with tempfile.TemporaryDirectory(prefix="persai-office-pdf-", dir="/tmp") as tmp_dir:',
+    "        temp_root = Path(tmp_dir)",
+    "        out_dir = temp_root / 'out'",
+    "        out_dir.mkdir(parents=True, exist_ok=True)",
+    "        # Keep LibreOffice first-run state in writable /tmp, not the read-only image layer.",
+    "        profile_uri = (temp_root / 'libreoffice-profile').resolve().as_uri()",
+    "        command = [",
+    "            'soffice',",
+    "            '--headless',",
+    "            '--nologo',",
+    "            '--nodefault',",
+    "            '--norestore',",
+    "            '--nolockcheck',",
+    "            '--nofirststartwizard',",
+    "            f'-env:UserInstallation={profile_uri}',",
+    "            '--convert-to',",
+    "            'pdf',",
+    "            '--outdir',",
+    "            str(out_dir),",
+    "            str(SOURCE_PATH),",
+    "        ]",
+    "        completed = subprocess.run(command, capture_output=True, text=True)",
+    "        if completed.returncode != 0:",
+    `            raise RuntimeError(${JSON.stringify(
+      `LibreOffice failed to export imported ${input.sourceFormat.toUpperCase()} to PDF`
+    )} + f": {completed.stderr.strip() or completed.stdout.strip() or 'unknown error'}")`,
+    "        exported = out_dir / f'{SOURCE_PATH.stem}.pdf'",
+    "        if not exported.is_file():",
+    "            pdf_candidates = sorted(out_dir.glob('*.pdf'))",
+    "            if len(pdf_candidates) != 1:",
+    `                raise FileNotFoundError(${JSON.stringify(
+      `LibreOffice did not create the declared PDF for imported ${input.sourceFormat.toUpperCase()} export.`
+    )})`,
+    "            exported = pdf_candidates[0]",
+    "        OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)",
+    "        shutil.move(str(exported), str(OUTPUT_PATH))",
+    "",
+    "if __name__ == '__main__':",
+    "    export_pdf()"
+  ].join("\n");
 }
 
 async function readPdfPageCount(buffer: Buffer): Promise<number | null> {

@@ -4,6 +4,12 @@ import type {
   AssistantDocumentType,
   AssistantDocumentVersionStatus
 } from "@prisma/client";
+import {
+  DOCUMENT_WORKSPACE_PROJECT_SOURCE_FORMATS,
+  DOCUMENT_WORKSPACE_PROJECT_SOURCE_KINDS,
+  type DocumentWorkspaceProjectSourceFormat,
+  type DocumentWorkspaceProjectSourceKind
+} from "@persai/runtime-contract";
 import type { AssistantWebChatMessageAttachmentDocumentLink } from "./web-chat.types";
 
 // document_link.outputFormat spans both deferred presentation jobs (pdf/pptx)
@@ -27,7 +33,13 @@ export type AssistantDocumentInspectionSummary = NonNullable<
 
 export type AssistantDocumentWorkspaceFacts = {
   workspaceProjectPath: string | null;
+  projectManifestPath: string | null;
+  projectSourcePath: string | null;
+  sourceKind: DocumentWorkspaceProjectSourceKind | null;
   outputPath: string | null;
+  sourcePath: string | null;
+  sourceFormat: DocumentWorkspaceProjectSourceFormat | null;
+  sourceMimeType: string | null;
   sourceManifestPath: string | null;
   sourceManifest: Record<string, unknown> | null;
   inspectionPath: string | null;
@@ -38,7 +50,13 @@ export function normalizeDocumentWorkspaceFacts(value: unknown): AssistantDocume
   const row = asRecord(value);
   return {
     workspaceProjectPath: readOptionalString(row?.workspaceProjectPath),
+    projectManifestPath: readOptionalString(row?.projectManifestPath),
+    projectSourcePath: readOptionalString(row?.projectSourcePath),
+    sourceKind: readOptionalSourceKind(row?.sourceKind),
     outputPath: readOptionalString(row?.outputPath),
+    sourcePath: readOptionalString(row?.sourcePath),
+    sourceFormat: readOptionalSourceFormat(row?.sourceFormat),
+    sourceMimeType: readOptionalString(row?.sourceMimeType),
     sourceManifestPath: readOptionalString(row?.sourceManifestPath),
     sourceManifest: asRecord(row?.sourceManifest),
     inspectionPath: readOptionalString(row?.inspectionPath),
@@ -64,8 +82,8 @@ export function buildAssistantDocumentLinkMetadata(input: {
     docId: input.docId,
     versionId: input.versionId,
     versionNumber: input.versionNumber,
-    descriptorMode: input.descriptorMode,
-    documentType: input.documentType,
+    descriptorMode: normalizeDocumentLinkDescriptorMode(input.descriptorMode),
+    documentType: normalizeDocumentLinkType(input.documentType),
     outputFormat: input.outputFormat,
     documentStatus: input.documentStatus,
     versionStatus: input.versionStatus,
@@ -77,11 +95,46 @@ export function buildAssistantDocumentLinkMetadata(input: {
   if (workspaceFacts !== null) {
     link.outputPath = workspaceFacts.outputPath;
     link.workspaceProjectPath = workspaceFacts.workspaceProjectPath;
+    link.projectManifestPath = workspaceFacts.projectManifestPath;
+    link.projectSourcePath = workspaceFacts.projectSourcePath;
+    link.sourceKind = workspaceFacts.sourceKind;
+    link.sourcePath = workspaceFacts.sourcePath;
+    link.sourceFormat = workspaceFacts.sourceFormat;
+    link.sourceMimeType = workspaceFacts.sourceMimeType;
     link.sourceManifestPath = workspaceFacts.sourceManifestPath;
     link.inspectionPath = workspaceFacts.inspectionPath;
     link.inspectionSummary = workspaceFacts.inspectionSummary;
   }
   return link;
+}
+
+function normalizeDocumentLinkDescriptorMode(
+  value: AssistantDocumentDescriptorMode | null
+): AssistantWebChatMessageAttachmentDocumentLink["descriptorMode"] {
+  if (
+    value === "create_pdf_document" ||
+    value === "create_data_document" ||
+    value === "create_document"
+  ) {
+    return "create_document";
+  }
+  if (
+    value === "create_presentation" ||
+    value === "revise_document" ||
+    value === "export_or_redeliver"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function normalizeDocumentLinkType(
+  value: AssistantDocumentType | null
+): AssistantWebChatMessageAttachmentDocumentLink["documentType"] {
+  if (value === "pdf_document" || value === "data_document" || value === "workspace_document") {
+    return "workspace_document";
+  }
+  return value === "presentation" ? value : null;
 }
 
 function normalizeInspectionSummary(value: unknown): AssistantDocumentInspectionSummary | null {
@@ -115,6 +168,20 @@ function readOptionalNumber(value: unknown, key: string): number | null {
 
 function readOptionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readOptionalSourceKind(value: unknown): DocumentWorkspaceProjectSourceKind | null {
+  return typeof value === "string" &&
+    (DOCUMENT_WORKSPACE_PROJECT_SOURCE_KINDS as readonly string[]).includes(value)
+    ? (value as DocumentWorkspaceProjectSourceKind)
+    : null;
+}
+
+function readOptionalSourceFormat(value: unknown): DocumentWorkspaceProjectSourceFormat | null {
+  return typeof value === "string" &&
+    (DOCUMENT_WORKSPACE_PROJECT_SOURCE_FORMATS as readonly string[]).includes(value)
+    ? (value as DocumentWorkspaceProjectSourceFormat)
+    : null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

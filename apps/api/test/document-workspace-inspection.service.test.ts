@@ -102,6 +102,270 @@ describe("DocumentWorkspaceInspectionService", () => {
     assert.equal(inspectJson.format, "xlsx");
   });
 
+  test("compares imported xlsx output against projectSourcePath and records structural degradation", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const XLSX = require("xlsx") as typeof import("xlsx");
+    const sourceWorkbook = XLSX.utils.book_new();
+    const sourceRevenue = XLSX.utils.aoa_to_sheet([
+      ["Month", "Revenue"],
+      ["Jan", 100],
+      ["Feb", 150],
+      ["Total", 250]
+    ]);
+    sourceRevenue.B4 = { t: "n", v: 250, f: "SUM(B2:B3)" };
+    XLSX.utils.book_append_sheet(sourceWorkbook, sourceRevenue, "Revenue");
+    const sourceSummary = XLSX.utils.aoa_to_sheet([
+      ["Metric", "Value"],
+      ["Growth", 0.2]
+    ]);
+    sourceSummary.B2 = { t: "n", v: 0.2, f: "B2" };
+    XLSX.utils.book_append_sheet(sourceWorkbook, sourceSummary, "Summary");
+    const sourceBuffer = XLSX.write(sourceWorkbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+    const outputWorkbook = XLSX.utils.book_new();
+    const outputRevenue = XLSX.utils.aoa_to_sheet([
+      ["Month", "Revenue"],
+      ["Jan", 100],
+      ["Feb", 150],
+      ["Total", 250]
+    ]);
+    outputRevenue.B4 = { t: "n", v: 250, f: "SUM(B2:B3)" };
+    XLSX.utils.book_append_sheet(outputWorkbook, outputRevenue, "Revenue");
+    const outputBuffer = XLSX.write(outputWorkbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+    const projectManifest = {
+      schema: "persai.document.project.v1",
+      sourceKind: "imported_workspace_file",
+      sourceFormat: "xlsx",
+      projectSourcePath: "/workspace/projects/revenue/source/revenue.xlsx"
+    };
+
+    const savedObjects = new Map<string, Buffer>();
+    const service = new DocumentWorkspaceInspectionService(
+      {
+        async get(input: { path: string }) {
+          if (
+            input.path === "/workspace/projects/revenue/output/revenue.xlsx" ||
+            input.path === "/workspace/projects/revenue/project.json" ||
+            input.path === "/workspace/projects/revenue/source/revenue.xlsx"
+          ) {
+            return {
+              workspaceId: "workspace-1",
+              path: input.path,
+              mimeType: input.path.endsWith(".json")
+                ? "application/json"
+                : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              sizeBytes: BigInt(128),
+              contentHash: null,
+              shortDescription: null,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+          }
+          return null;
+        },
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        buildWorkspaceObjectKey(input: { workspaceRelPath: string }) {
+          return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+        },
+        async downloadObject(objectKey: string) {
+          if (objectKey === "gcs:projects/revenue/output/revenue.xlsx") {
+            return {
+              buffer: outputBuffer,
+              contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            };
+          }
+          if (objectKey === "gcs:projects/revenue/project.json") {
+            return {
+              buffer: Buffer.from(JSON.stringify(projectManifest), "utf8"),
+              contentType: "application/json"
+            };
+          }
+          if (objectKey === "gcs:projects/revenue/source/revenue.xlsx") {
+            return {
+              buffer: sourceBuffer,
+              contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            };
+          }
+          return null;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer }) {
+          savedObjects.set(input.objectKey, input.buffer);
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: "application/json"
+          };
+        }
+      } as never,
+      {
+        async pushWorkspaceFileBytes() {
+          return { mode: "written" as const, reason: null };
+        }
+      } as never
+    );
+
+    const outcome = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      path: "/workspace/projects/revenue/output/revenue.xlsx",
+      depth: "standard",
+      outputPath: null
+    });
+
+    assert.equal(outcome.accepted, true);
+    if (!outcome.accepted) {
+      return;
+    }
+    assert.equal(outcome.comparison?.sourceFormat, "xlsx");
+    assert.match(outcome.comparison?.summary ?? "", /structurally degraded/i);
+    assert.ok(
+      outcome.warnings.some((warning) => warning.includes("missing source sheets")),
+      "inspect should surface comparison-derived XLSX warnings"
+    );
+    const inspectBuffer = savedObjects.get("gcs:projects/revenue/output/revenue.inspect.json");
+    assert.ok(inspectBuffer);
+    const inspectJson = JSON.parse(inspectBuffer!.toString("utf8")) as {
+      details?: {
+        comparison?: {
+          missingSheetNames?: string[];
+          sourceCounts?: { sheetCount?: number; formulaCount?: number };
+          outputCounts?: { sheetCount?: number; formulaCount?: number };
+        };
+      };
+    };
+    assert.deepEqual(inspectJson.details?.comparison?.missingSheetNames, ["Summary"]);
+    assert.equal(inspectJson.details?.comparison?.sourceCounts?.sheetCount, 2);
+    assert.equal(inspectJson.details?.comparison?.outputCounts?.sheetCount, 1);
+  });
+
+  test("compares imported docx output against projectSourcePath and records structural degradation", async () => {
+    const sourceBuffer = await createDocxBuffer({
+      headings: ["Quarterly Brief"],
+      paragraphs: ["Opening summary", "Detailed paragraph"],
+      tableRows: [
+        ["Metric", "Value"],
+        ["Revenue", "100"]
+      ]
+    });
+    const outputBuffer = await createDocxBuffer({
+      headings: [],
+      paragraphs: ["Opening summary"],
+      tableRows: []
+    });
+    const projectManifest = {
+      schema: "persai.document.project.v1",
+      sourceKind: "imported_workspace_file",
+      sourceFormat: "docx",
+      projectSourcePath: "/workspace/projects/brief/source/brief.docx"
+    };
+    const savedObjects = new Map<string, Buffer>();
+    const service = new DocumentWorkspaceInspectionService(
+      {
+        async get(input: { path: string }) {
+          if (
+            input.path === "/workspace/projects/brief/output/brief.docx" ||
+            input.path === "/workspace/projects/brief/project.json" ||
+            input.path === "/workspace/projects/brief/source/brief.docx"
+          ) {
+            return {
+              workspaceId: "workspace-1",
+              path: input.path,
+              mimeType: input.path.endsWith(".json")
+                ? "application/json"
+                : "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              sizeBytes: BigInt(128),
+              contentHash: null,
+              shortDescription: null,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+          }
+          return null;
+        },
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        buildWorkspaceObjectKey(input: { workspaceRelPath: string }) {
+          return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+        },
+        async downloadObject(objectKey: string) {
+          if (objectKey === "gcs:projects/brief/output/brief.docx") {
+            return {
+              buffer: outputBuffer,
+              contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            };
+          }
+          if (objectKey === "gcs:projects/brief/project.json") {
+            return {
+              buffer: Buffer.from(JSON.stringify(projectManifest), "utf8"),
+              contentType: "application/json"
+            };
+          }
+          if (objectKey === "gcs:projects/brief/source/brief.docx") {
+            return {
+              buffer: sourceBuffer,
+              contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            };
+          }
+          return null;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer }) {
+          savedObjects.set(input.objectKey, input.buffer);
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: "application/json"
+          };
+        }
+      } as never,
+      {
+        async pushWorkspaceFileBytes() {
+          return { mode: "written" as const, reason: null };
+        }
+      } as never
+    );
+
+    const outcome = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      path: "/workspace/projects/brief/output/brief.docx",
+      depth: "standard",
+      outputPath: null
+    });
+
+    assert.equal(outcome.accepted, true);
+    if (!outcome.accepted) {
+      return;
+    }
+    assert.equal(outcome.comparison?.sourceFormat, "docx");
+    assert.match(outcome.comparison?.summary ?? "", /structurally degraded/i);
+    assert.ok(
+      outcome.warnings.some((warning) => warning.includes("fewer headings")),
+      "inspect should surface comparison-derived DOCX warnings"
+    );
+    const inspectBuffer = savedObjects.get("gcs:projects/brief/output/brief.inspect.json");
+    assert.ok(inspectBuffer);
+    const inspectJson = JSON.parse(inspectBuffer!.toString("utf8")) as {
+      details?: {
+        comparison?: {
+          sourceCounts?: { headingCount?: number; paragraphCount?: number; tableCount?: number };
+          outputCounts?: { headingCount?: number; paragraphCount?: number; tableCount?: number };
+        };
+      };
+    };
+    assert.equal(inspectJson.details?.comparison?.sourceCounts?.headingCount, 1);
+    assert.equal(inspectJson.details?.comparison?.outputCounts?.headingCount, 0);
+    assert.equal(inspectJson.details?.comparison?.sourceCounts?.tableCount, 1);
+    assert.equal(inspectJson.details?.comparison?.outputCounts?.tableCount, 0);
+  });
+
   test("accepts a minimally valid-looking PDF, persists the sidecar, and warns when parsing fails", async () => {
     const pdfBuffer = Buffer.from("%PDF-1.4\nfake pdf bytes", "utf8");
     const service = new DocumentWorkspaceInspectionService(
@@ -206,3 +470,88 @@ describe("DocumentWorkspaceInspectionService", () => {
     assert.equal(outcome.code, "invalid_output_path");
   });
 });
+
+async function createDocxBuffer(input: {
+  headings: string[];
+  paragraphs: string[];
+  tableRows: string[][];
+}): Promise<Buffer> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const JSZip = require("jszip") as typeof import("jszip");
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+</Types>`
+  );
+  zip.folder("_rels")!.file(
+    ".rels",
+    `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`
+  );
+  zip.folder("word")!.file(
+    "styles.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
+    <w:name w:val="Normal"/>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading1">
+    <w:name w:val="heading 1"/>
+    <w:basedOn w:val="Normal"/>
+    <w:qFormat/>
+  </w:style>
+</w:styles>`
+  );
+  zip
+    .folder("word")!
+    .folder("_rels")!
+    .file(
+      "document.xml.rels",
+      `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`
+    );
+  const headingXml = input.headings
+    .map(
+      (heading) =>
+        `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>${escapeXml(heading)}</w:t></w:r></w:p>`
+    )
+    .join("");
+  const paragraphXml = input.paragraphs
+    .map((paragraph) => `<w:p><w:r><w:t>${escapeXml(paragraph)}</w:t></w:r></w:p>`)
+    .join("");
+  const tableXml =
+    input.tableRows.length === 0
+      ? ""
+      : `<w:tbl>${input.tableRows
+          .map(
+            (row) =>
+              `<w:tr>${row
+                .map((cell) => `<w:tc><w:p><w:r><w:t>${escapeXml(cell)}</w:t></w:r></w:p></w:tc>`)
+                .join("")}</w:tr>`
+          )
+          .join("")}</w:tbl>`;
+  zip.folder("word")!.file(
+    "document.xml",
+    `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>${headingXml}${paragraphXml}${tableXml}<w:sectPr/></w:body>
+</w:document>`
+  );
+  return zip.generateAsync({ type: "nodebuffer" }) as Promise<Buffer>;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}

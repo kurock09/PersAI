@@ -32,19 +32,34 @@ export interface AssistantWebChatMessageAttachmentDocumentLink {
   versionId: string;
   versionNumber: number | null;
   descriptorMode:
-    | "create_pdf_document"
+    | "create_document"
     | "create_presentation"
     | "revise_document"
     | "export_or_redeliver"
-    | "create_data_document"
     | null;
-  documentType: "pdf_document" | "presentation" | "data_document" | null;
+  documentType: "workspace_document" | "presentation" | null;
   outputFormat: "pdf" | "pptx" | "xlsx" | "docx" | null;
   documentStatus: string | null;
   versionStatus: string | null;
   renderJobId?: string | null;
   outputPath?: string | null;
   workspaceProjectPath?: string | null;
+  projectManifestPath?: string | null;
+  projectSourcePath?: string | null;
+  sourceKind?: "imported_workspace_file" | "authored_workspace_project" | null;
+  sourcePath?: string | null;
+  sourceFormat?:
+    | "pdf"
+    | "docx"
+    | "xlsx"
+    | "csv"
+    | "text"
+    | "html"
+    | "python"
+    | "image"
+    | "other"
+    | null;
+  sourceMimeType?: string | null;
   sourceManifestPath?: string | null;
   inspectionPath?: string | null;
   inspectionSummary?: {

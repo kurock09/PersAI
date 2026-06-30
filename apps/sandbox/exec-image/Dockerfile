@@ -67,6 +67,11 @@ RUN apt-get update \
     # Office/XML parsing helpers
     libxml2 \
     libxslt1.1 \
+    # real Office import/export engine for visible DOCX/XLSX -> PDF workflow
+    libreoffice-core \
+    libreoffice-common \
+    libreoffice-writer \
+    libreoffice-calc \
     # QR / barcode (pyzbar)
     libzbar0 \
     # PDF tooling
@@ -172,6 +177,7 @@ RUN rg --version \
   && python3 -c "import site; assert site.ENABLE_USER_SITE; assert site.getuserbase() == '/workspace/.local'; print('python user-site writable target ok')" \
   && /bin/sh -lc 'python3 -c "import weasyprint, pandas, pyzbar, pytesseract; print(\"login-shell python stack ok\")"' \
   && /bin/sh -lc 'python3 -c "import site; assert site.ENABLE_USER_SITE and site.getuserbase() == \"/workspace/.local\"; print(\"login-shell python user-site ok\")"' \
+  && soffice --version \
   && node --version \
   && npm --version \
   && bash --version \

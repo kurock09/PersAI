@@ -45,6 +45,7 @@ export function readPersistedDocumentLinkMetadata(
     versionNumber: typeof link.versionNumber === "number" ? link.versionNumber : null,
     descriptorMode:
       link.descriptorMode === "create_pdf_document" ||
+      link.descriptorMode === "create_document" ||
       link.descriptorMode === "create_presentation" ||
       link.descriptorMode === "revise_document" ||
       link.descriptorMode === "export_or_redeliver" ||
@@ -53,6 +54,7 @@ export function readPersistedDocumentLinkMetadata(
         : null,
     documentType:
       link.documentType === "pdf_document" ||
+      link.documentType === "workspace_document" ||
       link.documentType === "presentation" ||
       link.documentType === "data_document"
         ? link.documentType

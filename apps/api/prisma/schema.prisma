@@ -70,6 +70,7 @@ enum AssistantDocumentType {
   pdf_document
   presentation
   data_document
+  workspace_document
 }
 
 enum AssistantDocumentStatus {
@@ -86,6 +87,7 @@ enum AssistantDocumentDescriptorMode {
   revise_document
   export_or_redeliver
   create_data_document
+  create_document
 }
 
 enum AssistantDocumentVersionStatus {

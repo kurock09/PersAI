@@ -13,7 +13,7 @@ describe("register-chat-attachment.service", () => {
         }
       } as never,
       { upsert: async () => {} } as never,
-      { findCurrentDocumentLinkByOutputPath: async () => null } as never
+      { findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const }) } as never
     );
 
     await assert.rejects(
@@ -61,7 +61,7 @@ describe("register-chat-attachment.service", () => {
           upsertInput = input;
         }
       } as never,
-      { findCurrentDocumentLinkByOutputPath: async () => null } as never
+      { findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const }) } as never
     );
 
     const result = await service.execute({
@@ -112,33 +112,42 @@ describe("register-chat-attachment.service", () => {
       {
         async findCurrentDocumentLinkByOutputPath() {
           return {
-            docId: "doc-registered-1",
-            versionId: "version-registered-1",
-            versionNumber: 4,
-            descriptorMode: "create_data_document",
-            documentType: "data_document",
-            outputFormat: "xlsx",
-            documentStatus: "ready",
-            versionStatus: "ready",
-            outputPath: "/workspace/report.xlsx",
-            workspaceProjectPath: "/workspace/report-project",
-            sourceManifestPath: "/workspace/report-project/manifest.json",
-            inspectionPath: "/workspace/report.inspect.json",
-            inspectionSummary: {
-              format: "xlsx",
-              counts: {
-                pageCount: null,
-                sheetCount: 3,
-                formulaCount: 2,
-                blankSheetCount: 0,
-                paragraphCount: null,
-                headingCount: null,
-                tableCount: null,
-                textCharCount: null
+            status: "ready" as const,
+            link: {
+              docId: "doc-registered-1",
+              versionId: "version-registered-1",
+              versionNumber: 4,
+              descriptorMode: "create_document",
+              documentType: "workspace_document",
+              outputFormat: "xlsx",
+              documentStatus: "ready",
+              versionStatus: "ready",
+              outputPath: "/workspace/report.xlsx",
+              workspaceProjectPath: "/workspace/report-project",
+              projectManifestPath: "/workspace/report-project/project.json",
+              projectSourcePath: "/workspace/report-project/source/source.xlsx",
+              sourceKind: "imported_workspace_file",
+              sourcePath: "/workspace/source.xlsx",
+              sourceFormat: "xlsx",
+              sourceMimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              sourceManifestPath: "/workspace/report-project/manifest.json",
+              inspectionPath: "/workspace/report.inspect.json",
+              inspectionSummary: {
+                format: "xlsx",
+                counts: {
+                  pageCount: null,
+                  sheetCount: 3,
+                  formulaCount: 2,
+                  blankSheetCount: 0,
+                  paragraphCount: null,
+                  headingCount: null,
+                  tableCount: null,
+                  textCharCount: null
+                },
+                warnings: []
               },
-              warnings: []
-            },
-            isCurrentOutput: true
+              isCurrentOutput: true
+            }
           };
         }
       } as never
@@ -165,10 +174,42 @@ describe("register-chat-attachment.service", () => {
     assert.equal(
       (
         createdInput?.metadata as {
-          documentLink?: { inspectionSummary?: { counts?: { sheetCount?: number } } };
+          documentLink?: {
+            sourceKind?: string;
+            sourceFormat?: string;
+            projectManifestPath?: string;
+            projectSourcePath?: string;
+            inspectionSummary?: { counts?: { sheetCount?: number } };
+          };
         }
       )?.documentLink?.inspectionSummary?.counts?.sheetCount,
       3
+    );
+    assert.equal(
+      (
+        createdInput?.metadata as {
+          documentLink?: { projectManifestPath?: string; sourceKind?: string };
+        }
+      )?.documentLink?.projectManifestPath,
+      "/workspace/report-project/project.json"
+    );
+    assert.equal(
+      (
+        createdInput?.metadata as {
+          documentLink?: { projectSourcePath?: string };
+        }
+      )?.documentLink?.projectSourcePath,
+      "/workspace/report-project/source/source.xlsx"
+    );
+    assert.equal(
+      (createdInput?.metadata as { documentLink?: { sourceKind?: string; sourceFormat?: string } })
+        ?.documentLink?.sourceKind,
+      "imported_workspace_file"
+    );
+    assert.equal(
+      (createdInput?.metadata as { documentLink?: { sourceKind?: string; sourceFormat?: string } })
+        ?.documentLink?.sourceFormat,
+      "xlsx"
     );
   });
 
@@ -196,7 +237,7 @@ describe("register-chat-attachment.service", () => {
         }
       } as never,
       { upsert: async () => {} } as never,
-      { findCurrentDocumentLinkByOutputPath: async () => null } as never
+      { findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const }) } as never
     );
 
     await service.execute({
@@ -233,7 +274,7 @@ describe("register-chat-attachment.service", () => {
         }
       } as never,
       { upsert: async () => {} } as never,
-      { findCurrentDocumentLinkByOutputPath: async () => null } as never
+      { findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const }) } as never
     );
 
     await assert.rejects(
@@ -253,6 +294,59 @@ describe("register-chat-attachment.service", () => {
         }),
       (error: unknown) =>
         error instanceof NotFoundException && error.message === "chat_message_not_found"
+    );
+  });
+
+  test("rejects files.attach for project-owned document outputs without a registered current version", async () => {
+    const service = new RegisterChatAttachmentService(
+      { assistantChat: { findFirst: async () => null } } as never,
+      {
+        create: async () => {
+          throw new Error("should not create");
+        }
+      } as never,
+      {
+        async get(input: { path: string }) {
+          if (
+            input.path === "/workspace/projects/report/project.json" ||
+            input.path === "/workspace/projects/report/output/report.inspect.json"
+          ) {
+            return {
+              workspaceId: "workspace-1",
+              path: input.path,
+              mimeType: "application/json",
+              sizeBytes: BigInt(64),
+              contentHash: null,
+              shortDescription: null,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+          }
+          return null;
+        },
+        upsert: async () => {}
+      } as never,
+      { findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const }) } as never
+    );
+
+    await assert.rejects(
+      () =>
+        service.execute({
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          chatId: "chat-1",
+          messageId: "message-1",
+          storagePath: "/workspace/projects/report/output/report.pdf",
+          attachmentType: "document",
+          mimeType: "application/pdf",
+          sizeBytes: 128,
+          originalFilename: "report.pdf",
+          kind: "files.attach"
+        }),
+      (error: unknown) =>
+        error instanceof BadRequestException &&
+        /no current registered version points to it/i.test(error.message) &&
+        /document\.register_version/i.test(error.message)
     );
   });
 });

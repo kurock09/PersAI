@@ -10,6 +10,5 @@ export type AssistantWebChatActiveDocumentJobStateDocumentType =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 export const AssistantWebChatActiveDocumentJobStateDocumentType = {
-  pdf_document: "pdf_document",
   presentation: "presentation"
 } as const;

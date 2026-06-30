@@ -12241,12 +12241,10 @@ components:
         documentType:
           type: string
           enum:
-            - pdf_document
             - presentation
         descriptorMode:
           type: string
           enum:
-            - create_pdf_document
             - create_presentation
             - revise_document
             - export_or_redeliver

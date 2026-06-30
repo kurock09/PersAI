@@ -28,6 +28,7 @@ describe("RuntimeDocumentToolService", () => {
           manifestPath: "/workspace/projects/source/extract/manifest.json",
           projectPath: "/workspace/projects/source",
           projectManifestPath: "/workspace/projects/source/project.json",
+          projectSourcePath: "/workspace/projects/source/source/source.pdf",
           defaultRenderEntrypoint: "/workspace/projects/source/render/report.html",
           defaultPdfOutputPath: "/workspace/projects/source/output/report.pdf",
           outputPaths: [
@@ -88,6 +89,10 @@ describe("RuntimeDocumentToolService", () => {
       "/workspace/projects/source/extract/manifest.json"
     );
     assert.equal(result.payload.extraction?.projectPath, "/workspace/projects/source");
+    assert.equal(
+      result.payload.extraction?.projectSourcePath,
+      "/workspace/projects/source/source/source.pdf"
+    );
     assert.deepEqual(result.payload.extraction?.counts, {
       documentCount: 1,
       pageCount: 4,
@@ -196,7 +201,9 @@ describe("RuntimeDocumentToolService", () => {
                 content: JSON.stringify({
                   content: JSON.stringify({
                     schema: "persai.document.project.v1",
-                    sourcePath: "/workspace/source.docx"
+                    sourceKind: "imported_workspace_file",
+                    sourceFormat: "text",
+                    sourcePath: "/workspace/source.txt"
                   }),
                   sizeBytes: 64,
                   sha256: null,
@@ -281,6 +288,528 @@ describe("RuntimeDocumentToolService", () => {
     assert.doesNotMatch(programSource, /Truncated/);
   });
 
+  test("renders imported office projects through the seeded native build scaffold", async () => {
+    for (const scenario of [
+      {
+        format: "docx" as const,
+        outputPath: "/workspace/projects/report/output/report.docx",
+        sourcePath: "/workspace/source.docx",
+        projectSourcePath: "/workspace/projects/report/source/source.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        buildScript:
+          "from docx import Document\ndocument = Document(str(SOURCE_PATH))\ndocument.save(PERSAI_OUTPUT_PATH)\n"
+      },
+      {
+        format: "xlsx" as const,
+        outputPath: "/workspace/projects/report/output/report.xlsx",
+        sourcePath: "/workspace/source.xlsx",
+        projectSourcePath: "/workspace/projects/report/source/source.xlsx",
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        buildScript:
+          "from openpyxl import load_workbook\nworkbook = load_workbook(filename=str(SOURCE_PATH))\nworkbook.save(PERSAI_OUTPUT_PATH)\n"
+      }
+    ]) {
+      const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
+      const service = new RuntimeDocumentToolService(
+        {
+          async listWorkspaceFilesFromManifest() {
+            return {
+              items: [
+                { type: "file", path: "/workspace/projects/report/project.json" },
+                { type: "file", path: "/workspace/projects/report/render/build.py" }
+              ]
+            };
+          },
+          async upsertWorkspaceFileMetadata() {
+            return;
+          }
+        } as never,
+        {
+          isConfigured() {
+            return true;
+          },
+          async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+            sandboxCalls.push(input);
+            if (input.toolCode === "files" && input.args.action === "read") {
+              if (input.args.path === "/workspace/projects/report/project.json") {
+                return {
+                  status: "completed",
+                  exitCode: 0,
+                  reason: null,
+                  warning: null,
+                  violationMessage: null,
+                  stderr: null,
+                  content: JSON.stringify({
+                    content: JSON.stringify({
+                      schema: "persai.document.project.v1",
+                      sourceKind: "imported_workspace_file",
+                      sourceFormat: scenario.format,
+                      sourcePath: scenario.sourcePath,
+                      projectSourcePath: scenario.projectSourcePath,
+                      defaultRenderEntrypoint: "/workspace/projects/report/render/build.py"
+                    }),
+                    sizeBytes: 128,
+                    sha256: null,
+                    truncated: false
+                  }),
+                  files: []
+                };
+              }
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: JSON.stringify({
+                  content: scenario.buildScript,
+                  sizeBytes: scenario.buildScript.length,
+                  sha256: null,
+                  truncated: false
+                }),
+                files: []
+              };
+            }
+            if (input.toolCode === "execute_document_code") {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: null,
+                files: []
+              };
+            }
+            if (input.toolCode === "files" && input.args.action === "attach") {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: JSON.stringify({
+                  action: "attached",
+                  attachment: {
+                    workspaceRelPath: scenario.outputPath,
+                    sourcePath: scenario.outputPath,
+                    sizeBytes: 2048,
+                    mimeType: scenario.mimeType,
+                    displayName: scenario.outputPath.split("/").pop()
+                  }
+                }),
+                files: []
+              };
+            }
+            throw new Error(`Unexpected sandbox call: ${input.toolCode}`);
+          }
+        } as never
+      );
+
+      const result = await service.executeToolCall({
+        bundle: createBundle(),
+        toolCall: {
+          id: `tool-render-imported-${scenario.format}`,
+          name: "document",
+          arguments: {
+            action: "render",
+            projectPath: "/workspace/projects/report",
+            outputPath: scenario.outputPath,
+            format: scenario.format
+          }
+        },
+        sessionId: "session-1",
+        requestId: `request-imported-${scenario.format}`,
+        activeDocumentProjectPath: "/workspace/projects/report",
+        deferToAsyncDocumentJob: {
+          sourceUserMessageId: `msg-render-imported-${scenario.format}`,
+          sourceUserMessageText: `Render the imported ${scenario.format}`,
+          currentAttachments: [],
+          availableAttachments: []
+        }
+      });
+
+      assert.equal(result.isError, false);
+      assert.equal(result.payload.action, "rendered");
+      assert.equal(
+        result.payload.render?.entrypointPath,
+        "/workspace/projects/report/render/build.py"
+      );
+      assert.equal(result.payload.render?.format, scenario.format);
+      const programSource = String(
+        sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args
+          .programSource ?? ""
+      );
+      assert.match(programSource, /PERSAI_OUTPUT_PATH/);
+      assert.match(
+        programSource,
+        scenario.format === "docx"
+          ? /from docx import Document/
+          : /from openpyxl import load_workbook/
+      );
+    }
+  });
+
+  test("renders imported office pdf export through the visible Office exporter entrypoint", async () => {
+    for (const scenario of [
+      {
+        sourceFormat: "docx" as const,
+        sourcePath: "/workspace/source.docx",
+        projectSourcePath: "/workspace/projects/report/source/source.docx"
+      },
+      {
+        sourceFormat: "xlsx" as const,
+        sourcePath: "/workspace/source.xlsx",
+        projectSourcePath: "/workspace/projects/report/source/source.xlsx"
+      }
+    ]) {
+      const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
+      const service = new RuntimeDocumentToolService(
+        {
+          async listWorkspaceFilesFromManifest() {
+            return {
+              items: [
+                { type: "file", path: "/workspace/projects/report/project.json" },
+                { type: "file", path: "/workspace/projects/report/render/export_pdf.py" },
+                { type: "file", path: "/workspace/projects/report/render/report.html" }
+              ]
+            };
+          },
+          async upsertWorkspaceFileMetadata() {
+            return;
+          }
+        } as never,
+        {
+          isConfigured() {
+            return true;
+          },
+          async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+            sandboxCalls.push(input);
+            if (input.toolCode === "files" && input.args.action === "read") {
+              if (input.args.path === "/workspace/projects/report/project.json") {
+                return {
+                  status: "completed",
+                  exitCode: 0,
+                  reason: null,
+                  warning: null,
+                  violationMessage: null,
+                  stderr: null,
+                  content: JSON.stringify({
+                    content: JSON.stringify({
+                      schema: "persai.document.project.v1",
+                      sourceKind: "imported_workspace_file",
+                      sourceFormat: scenario.sourceFormat,
+                      sourcePath: scenario.sourcePath,
+                      projectSourcePath: scenario.projectSourcePath,
+                      defaultRenderEntrypoint: "/workspace/projects/report/render/build.py",
+                      defaultPdfExportEntrypoint: "/workspace/projects/report/render/export_pdf.py"
+                    }),
+                    sizeBytes: 128,
+                    sha256: null,
+                    truncated: false
+                  }),
+                  files: []
+                };
+              }
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: JSON.stringify({
+                  content:
+                    "from pathlib import Path\nimport subprocess\nOUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)\nsubprocess.run(['soffice', '--headless'], check=False)\nOUTPUT_PATH.write_bytes(b'%PDF-1.4 fake')\n",
+                  sizeBytes: 128,
+                  sha256: null,
+                  truncated: false
+                }),
+                files: []
+              };
+            }
+            if (input.toolCode === "execute_document_code") {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: null,
+                files: []
+              };
+            }
+            if (input.toolCode === "files" && input.args.action === "attach") {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: JSON.stringify({
+                  action: "attached",
+                  attachment: {
+                    workspaceRelPath: "/workspace/projects/report/output/report.pdf",
+                    sourcePath: "/workspace/projects/report/output/report.pdf",
+                    sizeBytes: 4096,
+                    mimeType: "application/pdf",
+                    displayName: "report.pdf"
+                  }
+                }),
+                files: []
+              };
+            }
+            throw new Error(`Unexpected sandbox call: ${input.toolCode}`);
+          }
+        } as never
+      );
+
+      const result = await service.executeToolCall({
+        bundle: createBundle(),
+        toolCall: {
+          id: `tool-render-imported-${scenario.sourceFormat}-pdf`,
+          name: "document",
+          arguments: {
+            action: "render",
+            projectPath: "/workspace/projects/report",
+            outputPath: "/workspace/projects/report/output/report.pdf",
+            format: "pdf"
+          }
+        },
+        sessionId: "session-1",
+        requestId: `request-imported-${scenario.sourceFormat}-pdf`,
+        activeDocumentProjectPath: "/workspace/projects/report",
+        deferToAsyncDocumentJob: {
+          sourceUserMessageId: `msg-render-imported-${scenario.sourceFormat}-pdf`,
+          sourceUserMessageText: `Render the imported ${scenario.sourceFormat} as pdf`,
+          currentAttachments: [],
+          availableAttachments: []
+        }
+      });
+
+      assert.equal(result.isError, false);
+      assert.equal(result.payload.action, "rendered");
+      assert.equal(
+        result.payload.render?.entrypointPath,
+        "/workspace/projects/report/render/export_pdf.py"
+      );
+      const programSource = String(
+        sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args
+          .programSource ?? ""
+      );
+      assert.match(programSource, /soffice/);
+      assert.match(programSource, /PERSAI_OUTPUT_PATH/);
+      assert.doesNotMatch(programSource, /weasyprint/i);
+    }
+  });
+
+  test("does not fall back to extracted-text HTML for imported office pdf export", async () => {
+    const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return {
+            items: [
+              { type: "file", path: "/workspace/projects/report/project.json" },
+              { type: "file", path: "/workspace/projects/report/render/build.py" },
+              { type: "file", path: "/workspace/projects/report/render/report.html" }
+            ]
+          };
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          sandboxCalls.push(input);
+          return {
+            status: "completed",
+            exitCode: 0,
+            reason: null,
+            warning: null,
+            violationMessage: null,
+            stderr: null,
+            content: JSON.stringify({
+              content: JSON.stringify({
+                schema: "persai.document.project.v1",
+                sourceKind: "imported_workspace_file",
+                sourceFormat: "docx",
+                sourcePath: "/workspace/source.docx",
+                projectSourcePath: "/workspace/projects/report/source/source.docx",
+                defaultRenderEntrypoint: "/workspace/projects/report/render/build.py",
+                defaultPdfExportEntrypoint: "/workspace/projects/report/render/export_pdf.py"
+              }),
+              sizeBytes: 128,
+              sha256: null,
+              truncated: false
+            }),
+            files: []
+          };
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-render-imported-docx-pdf-missing-exporter",
+        name: "document",
+        arguments: {
+          action: "render",
+          projectPath: "/workspace/projects/report",
+          outputPath: "/workspace/projects/report/output/report.pdf",
+          format: "pdf"
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-imported-docx-pdf-missing-exporter",
+      activeDocumentProjectPath: "/workspace/projects/report",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-render-imported-docx-pdf-missing-exporter",
+        sourceUserMessageText: "Render the imported DOCX as pdf",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "unsupported_render_source");
+    assert.match(result.payload.warning ?? "", /render\/export_pdf\.py/);
+    assert.ok(
+      sandboxCalls.every(
+        (call) =>
+          call.toolCode !== "execute_document_code" &&
+          !(
+            call.toolCode === "files" &&
+            call.args.path === "/workspace/projects/report/render/report.html"
+          )
+      ),
+      "imported office pdf export must not fall back to report.html or execute a synthetic HTML render"
+    );
+  });
+
+  test("fails honestly when the imported office pdf exporter does not create the output", async () => {
+    const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return {
+            items: [
+              { type: "file", path: "/workspace/projects/report/project.json" },
+              { type: "file", path: "/workspace/projects/report/render/export_pdf.py" }
+            ]
+          };
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          sandboxCalls.push(input);
+          if (input.toolCode === "files" && input.args.action === "read") {
+            if (input.args.path === "/workspace/projects/report/project.json") {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: JSON.stringify({
+                  content: JSON.stringify({
+                    schema: "persai.document.project.v1",
+                    sourceKind: "imported_workspace_file",
+                    sourceFormat: "xlsx",
+                    sourcePath: "/workspace/source.xlsx",
+                    projectSourcePath: "/workspace/projects/report/source/source.xlsx",
+                    defaultRenderEntrypoint: "/workspace/projects/report/render/build.py",
+                    defaultPdfExportEntrypoint: "/workspace/projects/report/render/export_pdf.py"
+                  }),
+                  sizeBytes: 128,
+                  sha256: null,
+                  truncated: false
+                }),
+                files: []
+              };
+            }
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                content:
+                  "import subprocess\nfrom pathlib import Path\nOUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)\nsubprocess.run(['soffice', '--headless'], check=False)\nprint(OUTPUT_PATH)\n",
+                sizeBytes: 96,
+                sha256: null,
+                truncated: false
+              }),
+              files: []
+            };
+          }
+          if (input.toolCode === "execute_document_code") {
+            return {
+              status: "completed",
+              exitCode: 1,
+              reason: "sandbox_render_failed",
+              warning: null,
+              violationMessage: null,
+              stderr:
+                "Build script did not create the declared output path: /workspace/projects/report/output/report.pdf",
+              content: null,
+              files: []
+            };
+          }
+          throw new Error(`Unexpected sandbox call: ${input.toolCode}`);
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-render-imported-xlsx-pdf-failure",
+        name: "document",
+        arguments: {
+          action: "render",
+          projectPath: "/workspace/projects/report",
+          outputPath: "/workspace/projects/report/output/report.pdf",
+          format: "pdf"
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-imported-xlsx-pdf-failure",
+      activeDocumentProjectPath: "/workspace/projects/report",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-render-imported-xlsx-pdf-failure",
+        sourceUserMessageText: "Render the imported XLSX as pdf",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "sandbox_render_failed");
+    assert.match(result.payload.warning ?? "", /did not create the declared output path/i);
+    const programSource = String(
+      sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args.programSource ??
+        ""
+    );
+    assert.match(programSource, /soffice/);
+    assert.doesNotMatch(programSource, /weasyprint/i);
+  });
+
   test("rejects document.extract paths outside canonical workspace", async () => {
     const service = new RuntimeDocumentToolService({} as never);
     const result = await service.executeToolCall({
@@ -324,7 +853,16 @@ describe("RuntimeDocumentToolService", () => {
             textCharCount: null
           },
           warnings: ['Sheet "Summary" is blank.'],
-          suggestedReadPaths: ["/workspace/output.inspect.json"]
+          suggestedReadPaths: ["/workspace/output.inspect.json"],
+          comparison: {
+            comparisonKind: "imported_same_format_project_output" as const,
+            sourcePath: "/workspace/projects/output/source/source.xlsx",
+            sourceFormat: "xlsx" as const,
+            summary:
+              "Rendered XLSX appears structurally degraded relative to projectSourcePath (1 warning).",
+            warningCount: 1,
+            warnings: ["Rendered XLSX has fewer formulas than projectSourcePath (5 < 8)."]
+          }
         };
       }
     } as never);
@@ -352,6 +890,11 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.inspection?.inspectPath, "/workspace/output.inspect.json");
     assert.equal(result.payload.inspection?.format, "xlsx");
     assert.equal(result.payload.inspection?.counts.sheetCount, 2);
+    assert.equal(
+      result.payload.inspection?.comparison?.comparisonKind,
+      "imported_same_format_project_output"
+    );
+    assert.match(result.payload.inspection?.comparison?.summary ?? "", /structurally degraded/i);
   });
 
   test("registers a visible workspace version without delivering it", async () => {
@@ -363,7 +906,7 @@ describe("RuntimeDocumentToolService", () => {
           versionId: "version-visible-2",
           versionNumber: 2,
           descriptorMode: "revise_document" as const,
-          documentType: "pdf_document" as const,
+          documentType: "workspace_document" as const,
           outputFormat: "pdf" as const,
           outputPath: "/workspace/report/report.pdf",
           workspaceProjectPath: "/workspace/report",
@@ -409,6 +952,46 @@ describe("RuntimeDocumentToolService", () => {
       result.payload.registration?.inspectionPath,
       "/workspace/report/report.inspect.json"
     );
+  });
+
+  test("surfaces register_version inspect gating failures clearly", async () => {
+    const service = new RuntimeDocumentToolService({
+      async registerDocumentVersion() {
+        return {
+          accepted: false as const,
+          code: "inspect_missing",
+          message:
+            "Document deliverable output requires a relevant document.inspect result before document.register_version or files.attach."
+        };
+      }
+    } as never);
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-register-missing-inspect",
+        name: "document",
+        arguments: {
+          action: "register_version",
+          workspaceProjectPath: "/workspace/report",
+          outputPath: "/workspace/report/report.pdf"
+        }
+      },
+      conversation: {
+        channel: "web",
+        externalThreadKey: "chat:web:1"
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-register-missing-inspect",
+        sourceUserMessageText: "Register this report version",
+        sourceUserMessageCreatedAt: "2026-06-29T15:00:00.000Z",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "inspect_missing");
+    assert.match(result.payload.warning ?? "", /document\.inspect/i);
   });
 
   test("renders an HTML workspace project to PDF and returns a rendered summary", async () => {
@@ -531,21 +1114,23 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.render?.mimeType, "application/pdf");
     assert.equal(sandboxCalls[0]?.toolCode, "files");
     assert.equal(sandboxCalls[0]?.args.action, "read");
-    assert.equal(sandboxCalls[0]?.args.path, "/workspace/report/report.html");
-    assert.equal(sandboxCalls[1]?.toolCode, "execute_document_code");
+    assert.equal(sandboxCalls[0]?.args.path, "/workspace/report/project.json");
+    assert.equal(sandboxCalls[1]?.toolCode, "files");
+    assert.equal(sandboxCalls[1]?.args.path, "/workspace/report/report.html");
+    assert.equal(sandboxCalls[2]?.toolCode, "execute_document_code");
     assert.match(
-      String(sandboxCalls[1]?.args.programSource ?? ""),
+      String(sandboxCalls[2]?.args.programSource ?? ""),
       /HTML\(string=html_source, base_url=project_dir\)/
     );
     assert.match(
-      String(sandboxCalls[1]?.args.programSource ?? ""),
+      String(sandboxCalls[2]?.args.programSource ?? ""),
       /<html><body><h1>Report<\/h1><\/body><\/html>/
     );
     assert.doesNotMatch(
-      String(sandboxCalls[1]?.args.programSource ?? ""),
+      String(sandboxCalls[2]?.args.programSource ?? ""),
       /HTML\(filename=entrypoint_path/
     );
-    assert.equal(sandboxCalls[2]?.toolCode, "files");
+    assert.equal(sandboxCalls[3]?.toolCode, "files");
   });
 
   test("renders a visible Python build script for xlsx output", async () => {
@@ -563,6 +1148,29 @@ describe("RuntimeDocumentToolService", () => {
         async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
           sandboxCalls.push(input);
           if (input.toolCode === "files" && input.args.action === "read") {
+            if (input.args.path === "/workspace/model/project.json") {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: JSON.stringify({
+                  content: JSON.stringify({
+                    schema: "persai.document.project.v1",
+                    sourceKind: "authored_workspace_project",
+                    sourceFormat: "python",
+                    sourcePath: "/workspace/model/build.py",
+                    projectSourcePath: "/workspace/model/build.py"
+                  }),
+                  sizeBytes: 128,
+                  sha256: null,
+                  truncated: false
+                }),
+                files: []
+              };
+            }
             return {
               status: "completed",
               exitCode: 0,
@@ -646,11 +1254,14 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.render?.format, "xlsx");
     assert.equal(sandboxCalls[0]?.toolCode, "files");
     assert.equal(sandboxCalls[0]?.args.action, "read");
-    assert.equal(sandboxCalls[1]?.toolCode, "execute_document_code");
-    assert.equal(sandboxCalls[1]?.args.outputFileName, "model/output.xlsx");
-    assert.match(String(sandboxCalls[1]?.args.programSource ?? ""), /PERSAI_OUTPUT_PATH/);
-    assert.equal(sandboxCalls[2]?.toolCode, "files");
-    assert.equal(sandboxCalls[2]?.args.action, "attach");
+    assert.equal(sandboxCalls[0]?.args.path, "/workspace/model/project.json");
+    assert.equal(sandboxCalls[1]?.toolCode, "files");
+    assert.equal(sandboxCalls[1]?.args.path, "/workspace/model/build.py");
+    assert.equal(sandboxCalls[2]?.toolCode, "execute_document_code");
+    assert.equal(sandboxCalls[2]?.args.outputFileName, "model/output.xlsx");
+    assert.match(String(sandboxCalls[2]?.args.programSource ?? ""), /PERSAI_OUTPUT_PATH/);
+    assert.equal(sandboxCalls[3]?.toolCode, "files");
+    assert.equal(sandboxCalls[3]?.args.action, "attach");
   });
 
   test("document.render reports an honest skipped result when no entrypoint exists", async () => {
@@ -954,51 +1565,69 @@ describe("RuntimeDocumentToolService", () => {
     assert.deepEqual(capturedAttachments[0], []);
   });
 
-  test("retired PDF/data descriptor modes are rejected at parse time", async () => {
+  test("legacy worker-era descriptor modes normalize through register_version", async () => {
     const service = new RuntimeDocumentToolService({
-      async enqueueDeferredDocumentJob() {
-        throw new Error("retired descriptor modes must not enqueue a background document job");
+      async registerDocumentVersion(input: { descriptorMode?: string | null; outputPath: string }) {
+        return {
+          accepted: true as const,
+          docId: "doc-visible-legacy",
+          versionId: "version-visible-legacy",
+          versionNumber: 1,
+          descriptorMode:
+            input.descriptorMode === "revise_document" ? "revise_document" : "create_document",
+          documentType: "workspace_document" as const,
+          outputFormat: input.outputPath.endsWith(".pdf")
+            ? ("pdf" as const)
+            : input.outputPath.endsWith(".docx")
+              ? ("docx" as const)
+              : ("xlsx" as const),
+          outputPath: input.outputPath,
+          workspaceProjectPath: "/workspace/report",
+          sourceManifestPath: null,
+          inspectionPath: null
+        };
       }
     } as never);
 
     const retiredCases: ReadonlyArray<{
       descriptorMode: "create_pdf_document" | "create_data_document";
-      outputFormat: "pdf" | "xlsx" | "docx" | null;
+      outputPath: string;
     }> = [
-      { descriptorMode: "create_pdf_document", outputFormat: "pdf" },
-      { descriptorMode: "create_pdf_document", outputFormat: "xlsx" },
-      { descriptorMode: "create_data_document", outputFormat: "xlsx" },
-      { descriptorMode: "create_data_document", outputFormat: "docx" },
-      { descriptorMode: "create_data_document", outputFormat: null }
+      { descriptorMode: "create_pdf_document", outputPath: "/workspace/report/report.pdf" },
+      { descriptorMode: "create_pdf_document", outputPath: "/workspace/report/report.xlsx" },
+      { descriptorMode: "create_data_document", outputPath: "/workspace/report/report.xlsx" },
+      { descriptorMode: "create_data_document", outputPath: "/workspace/report/report.docx" }
     ];
 
     for (const args of retiredCases) {
       const result = await service.executeToolCall({
         bundle: createBundle(),
         toolCall: {
-          id: `tool-retired-${args.descriptorMode}-${args.outputFormat ?? "none"}`,
+          id: `tool-retired-${args.descriptorMode}`,
           name: "document",
           arguments: {
+            action: "register_version",
             descriptorMode: args.descriptorMode,
-            prompt: "irrelevant retired descriptor",
-            ...(args.outputFormat === null ? {} : { outputFormat: args.outputFormat })
+            outputPath: args.outputPath
           }
+        },
+        conversation: {
+          channel: "web",
+          externalThreadKey: "chat:web:legacy"
         },
         deferToAsyncDocumentJob: {
           sourceUserMessageId: "msg-retired",
-          sourceUserMessageText: "noop",
+          sourceUserMessageText: "register legacy visible output",
+          sourceUserMessageCreatedAt: "2026-06-30T20:00:00.000Z",
           currentAttachments: [],
           availableAttachments: []
         }
       });
 
-      assert.equal(result.isError, true);
-      assert.equal(result.payload.action, "skipped");
-      assert.equal(result.payload.reason, "invalid_arguments");
-      assert.match(
-        result.payload.warning ?? "",
-        /document\.extract|document\.render|document\.inspect|document\.register_version|presentation tool/i
-      );
+      assert.equal(result.isError, false);
+      assert.equal(result.payload.action, "registered");
+      assert.equal(result.payload.descriptorMode, "create_document");
+      assert.equal(result.payload.documentType, "workspace_document");
     }
   });
 

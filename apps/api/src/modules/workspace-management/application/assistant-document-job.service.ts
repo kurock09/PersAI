@@ -4,7 +4,6 @@ import { Prisma } from "@prisma/client";
 import type {
   AssistantChatSurface,
   AssistantDocumentDescriptorMode,
-  AssistantDocumentOutputFormat,
   AssistantDocumentType
 } from "@prisma/client";
 import type {
@@ -20,6 +19,7 @@ import {
   type AssistantDocumentWorkspaceFacts,
   normalizeDocumentWorkspaceFacts
 } from "./assistant-document-link-metadata";
+import { validateVisibleWorkspaceDocumentDeliverable } from "./document-workspace-deliverable-gating";
 import type { AssistantWebChatMessageAttachmentDocumentLink } from "./web-chat.types";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -28,7 +28,7 @@ const MAX_REVISION_VERSION_ALLOCATION_ATTEMPTS = 3;
 export type AssistantDocumentSourcePayload = {
   prompt: string;
   instructions?: string | null;
-  outputFormat?: "pdf" | "pptx" | null;
+  outputFormat?: "pdf" | "pptx" | "xlsx" | "docx" | null;
   docId?: string | null;
   requestedName?: string | null;
   visualStyle?: PersaiRuntimePresentationVisualStyle | null;
@@ -100,12 +100,26 @@ export type RegisterVisibleWorkspaceDocumentVersionInput = {
   chatId: string;
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
-  descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document";
+  descriptorMode: "create_document" | "revise_document";
   outputFormat: VisibleWorkspaceDocumentOutputFormat;
   requestedName: string | null;
   docId?: string | null;
   workspaceFacts: AssistantDocumentWorkspaceFacts;
 };
+
+export type CurrentDocumentLinkLookupOutcome =
+  | {
+      status: "none";
+    }
+  | {
+      status: "blocked";
+      code: string;
+      message: string;
+    }
+  | {
+      status: "ready";
+      link: AssistantWebChatMessageAttachmentDocumentLink;
+    };
 
 @Injectable()
 export class AssistantDocumentJobService {
@@ -913,7 +927,7 @@ export class AssistantDocumentJobService {
     assistantId: string;
     workspaceId: string;
     outputPath: string;
-  }): Promise<AssistantWebChatMessageAttachmentDocumentLink | null> {
+  }): Promise<CurrentDocumentLinkLookupOutcome> {
     const document = await this.prisma.assistantDocument.findFirst({
       where: {
         assistantId: input.assistantId,
@@ -943,22 +957,48 @@ export class AssistantDocumentJobService {
       }
     });
     if (document === null || document.currentVersion === null) {
-      return null;
+      return { status: "none" };
     }
     const sourceJson = this.normalizeSourcePayload(document.currentVersion.sourceJson);
-    return buildAssistantDocumentLinkMetadata({
-      docId: document.id,
-      versionId: document.currentVersion.id,
-      versionNumber: document.currentVersion.versionNumber,
-      descriptorMode: document.currentVersion.descriptorMode,
-      documentType: document.documentType,
-      outputFormat:
-        sourceJson.outputFormat ?? this.resolveOutputFormatFromWorkspaceFacts(sourceJson.metadata),
-      documentStatus: document.status,
-      versionStatus: document.currentVersion.status,
-      isCurrentOutput: true,
-      workspaceFacts: this.readDocumentWorkspaceFacts(sourceJson.metadata)
+    const workspaceFacts = this.readDocumentWorkspaceFacts(sourceJson.metadata);
+    const deliverableValidation = validateVisibleWorkspaceDocumentDeliverable({
+      workspaceFacts,
+      outputPath: input.outputPath,
+      inspection: {
+        sourcePath: workspaceFacts.outputPath,
+        format:
+          sourceJson.outputFormat === "pdf" ||
+          sourceJson.outputFormat === "xlsx" ||
+          sourceJson.outputFormat === "docx"
+            ? sourceJson.outputFormat
+            : null,
+        summary: workspaceFacts.inspectionSummary
+      }
     });
+    if (!deliverableValidation.ok) {
+      return {
+        status: "blocked",
+        code: deliverableValidation.code,
+        message: deliverableValidation.message
+      };
+    }
+    return {
+      status: "ready",
+      link: buildAssistantDocumentLinkMetadata({
+        docId: document.id,
+        versionId: document.currentVersion.id,
+        versionNumber: document.currentVersion.versionNumber,
+        descriptorMode: document.currentVersion.descriptorMode,
+        documentType: document.documentType,
+        outputFormat:
+          sourceJson.outputFormat ??
+          this.resolveOutputFormatFromWorkspaceFacts(sourceJson.metadata),
+        documentStatus: document.status,
+        versionStatus: document.currentVersion.status,
+        isCurrentOutput: true,
+        workspaceFacts
+      })
+    };
   }
 
   private normalizeSourcePayload(value: unknown): AssistantDocumentSourcePayload {
@@ -970,7 +1010,12 @@ export class AssistantDocumentJobService {
       prompt: typeof row.prompt === "string" ? row.prompt : "",
       instructions: typeof row.instructions === "string" ? row.instructions : null,
       outputFormat:
-        row.outputFormat === "pdf" || row.outputFormat === "pptx" ? row.outputFormat : null,
+        row.outputFormat === "pdf" ||
+        row.outputFormat === "pptx" ||
+        row.outputFormat === "xlsx" ||
+        row.outputFormat === "docx"
+          ? row.outputFormat
+          : null,
       docId: typeof row.docId === "string" ? row.docId : null,
       requestedName: typeof row.requestedName === "string" ? row.requestedName : null,
       visualStyle: this.readPresentationVisualStyle(row.visualStyle),
@@ -1127,7 +1172,13 @@ export class AssistantDocumentJobService {
       metadata: {
         documentWorkspace: {
           workspaceProjectPath: input.workspaceFacts.workspaceProjectPath,
+          projectManifestPath: input.workspaceFacts.projectManifestPath,
+          projectSourcePath: input.workspaceFacts.projectSourcePath,
+          sourceKind: input.workspaceFacts.sourceKind,
           outputPath: input.workspaceFacts.outputPath,
+          sourcePath: input.workspaceFacts.sourcePath,
+          sourceFormat: input.workspaceFacts.sourceFormat,
+          sourceMimeType: input.workspaceFacts.sourceMimeType,
           sourceManifestPath: input.workspaceFacts.sourceManifestPath,
           sourceManifest: input.workspaceFacts.sourceManifest,
           inspectionPath: input.workspaceFacts.inspectionPath,
@@ -1145,7 +1196,7 @@ export class AssistantDocumentJobService {
 
   private resolveOutputFormatFromWorkspaceFacts(
     metadata: AssistantDocumentSourcePayload["metadata"]
-  ): AssistantDocumentOutputFormat | null {
+  ): "pdf" | "pptx" | "xlsx" | "docx" | null {
     const outputPath = this.readDocumentWorkspaceFacts(metadata).outputPath;
     if (outputPath === null) {
       return null;
@@ -1157,13 +1208,19 @@ export class AssistantDocumentJobService {
     if (lowered.endsWith(".pptx")) {
       return "pptx";
     }
+    if (lowered.endsWith(".xlsx")) {
+      return "xlsx";
+    }
+    if (lowered.endsWith(".docx")) {
+      return "docx";
+    }
     return null;
   }
 
   private resolveDocumentTypeFromOutputFormat(
-    outputFormat: VisibleWorkspaceDocumentOutputFormat
-  ): "pdf_document" | "data_document" {
-    return outputFormat === "xlsx" || outputFormat === "docx" ? "data_document" : "pdf_document";
+    _outputFormat: VisibleWorkspaceDocumentOutputFormat
+  ): "workspace_document" {
+    return "workspace_document";
   }
 
   private basename(path: string | null): string | null {

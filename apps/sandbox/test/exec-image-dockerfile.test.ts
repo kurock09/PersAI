@@ -68,6 +68,11 @@ test("exec image self-check verifies bash brace expansion + pipefail + npm", asy
 
   assert.match(
     dockerfile,
+    /soffice --version/,
+    "self-check must verify the real Office-to-PDF engine is present"
+  );
+  assert.match(
+    dockerfile,
     /bash\s*-c\s*'\[\[ "\$\(echo \{a,b,c\}\)" = "a b c" \]\] && echo bash_brace_ok'/,
     "self-check must verify bash brace expansion and [[ ]] (the exact 2026-06-22 failure case)"
   );
@@ -91,6 +96,9 @@ test("exec image preinstalls curated document/data/image system and python basel
     "tesseract-ocr",
     "poppler-utils",
     "ghostscript",
+    "libreoffice-core",
+    "libreoffice-writer",
+    "libreoffice-calc",
     "git",
     "libpangocairo-1.0-0",
     "shared-mime-info"

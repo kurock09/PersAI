@@ -2031,13 +2031,12 @@ export interface RuntimeDocumentToolResult {
   executionMode: "worker" | "inline";
   requestedAction?: "extract" | "inspect" | "render" | "register_version" | null;
   descriptorMode:
-    | "create_pdf_document"
+    | "create_document"
     | "create_presentation"
     | "revise_document"
     | "export_or_redeliver"
-    | "create_data_document"
     | null;
-  documentType: "pdf_document" | "presentation" | "data_document" | null;
+  documentType: "workspace_document" | "presentation" | null;
   provider: PersaiRuntimeDocumentProviderId | null;
   prompt: string | null;
   outputFormat: "pdf" | "pptx" | "xlsx" | "docx" | null;
@@ -2072,6 +2071,7 @@ export interface RuntimeDocumentExtractionSummary {
   manifestPath: string;
   projectPath: string | null;
   projectManifestPath: string | null;
+  projectSourcePath: string | null;
   defaultRenderEntrypoint: string | null;
   defaultPdfOutputPath: string | null;
   outputPaths: string[];
@@ -2106,6 +2106,16 @@ export interface RuntimeDocumentInspectionSummary {
   };
   warnings: string[];
   suggestedReadPaths: string[];
+  comparison?: RuntimeDocumentInspectionComparisonSummary | null;
+}
+
+export interface RuntimeDocumentInspectionComparisonSummary {
+  comparisonKind: "imported_same_format_project_output";
+  sourcePath: string;
+  sourceFormat: "xlsx" | "docx";
+  summary: string;
+  warningCount: number;
+  warnings: string[];
 }
 
 export interface RuntimeDocumentRenderSummary {
@@ -2121,8 +2131,8 @@ export interface RuntimeDocumentVersionRegistrationSummary {
   docId: string;
   versionId: string;
   versionNumber: number;
-  descriptorMode: "create_pdf_document" | "revise_document" | "create_data_document";
-  documentType: "pdf_document" | "data_document";
+  descriptorMode: "create_document" | "revise_document";
+  documentType: "workspace_document";
   outputFormat: "pdf" | "xlsx" | "docx";
   outputPath: string;
   workspaceProjectPath: string | null;
@@ -2884,12 +2894,7 @@ export interface RuntimeDocumentJobCompletionRequest {
     surface: "web" | "telegram";
     chatId: string;
     outputFormat: "pdf" | "pptx" | "xlsx" | "docx";
-    descriptorMode:
-      | "create_pdf_document"
-      | "create_presentation"
-      | "revise_document"
-      | "export_or_redeliver"
-      | "create_data_document";
+    descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
     sourceUserMessageId: string;
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
@@ -3003,13 +3008,8 @@ export interface RuntimeOpenMediaJobContext {
 
 export interface RuntimeOpenDocumentJobContext {
   jobId: string;
-  descriptorMode:
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver"
-    | "create_data_document";
-  documentType: "pdf_document" | "presentation" | "data_document";
+  descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
+  documentType: "presentation";
   status: "queued" | "running";
   sourceSummary: string | null;
   createdAt: IsoTimestamp;
@@ -3040,13 +3040,8 @@ export interface RuntimeMediaJobDeliveryUpdate {
 export interface RuntimeDocumentJobDeliveryUpdate {
   kind: "document";
   jobId: string;
-  descriptorMode:
-    | "create_pdf_document"
-    | "create_presentation"
-    | "revise_document"
-    | "export_or_redeliver"
-    | "create_data_document";
-  documentType: "pdf_document" | "presentation" | "data_document";
+  descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
+  documentType: "presentation";
   deliveryStatus: "finalizing_delivery" | "delivered_recently";
   sourceSummary: string | null;
   createdAt: IsoTimestamp;
@@ -4198,6 +4193,29 @@ export const DOCUMENT_WORKSPACE_PROJECT_SCHEMA = "persai.document.project.v1" as
 
 export const DOCUMENT_WORKSPACE_PROJECTS_ROOT = "/workspace/projects";
 
+export const DOCUMENT_WORKSPACE_PROJECT_SOURCE_KINDS = [
+  "imported_workspace_file",
+  "authored_workspace_project"
+] as const;
+
+export type DocumentWorkspaceProjectSourceKind =
+  (typeof DOCUMENT_WORKSPACE_PROJECT_SOURCE_KINDS)[number];
+
+export const DOCUMENT_WORKSPACE_PROJECT_SOURCE_FORMATS = [
+  "pdf",
+  "docx",
+  "xlsx",
+  "csv",
+  "text",
+  "html",
+  "python",
+  "image",
+  "other"
+] as const;
+
+export type DocumentWorkspaceProjectSourceFormat =
+  (typeof DOCUMENT_WORKSPACE_PROJECT_SOURCE_FORMATS)[number];
+
 export type DocumentWorkspaceProjectLayout = {
   projectPath: string;
   extractDir: string;
@@ -4205,6 +4223,7 @@ export type DocumentWorkspaceProjectLayout = {
   outputDir: string;
   projectManifestPath: string;
   defaultRenderEntrypoint: string;
+  defaultPdfExportEntrypoint: string;
   defaultPdfOutputPath: string;
 };
 
@@ -4240,6 +4259,7 @@ export function buildDocumentWorkspaceProjectLayout(
     outputDir: `${normalized}/output`,
     projectManifestPath: `${normalized}/project.json`,
     defaultRenderEntrypoint: `${normalized}/render/report.html`,
+    defaultPdfExportEntrypoint: `${normalized}/render/export_pdf.py`,
     defaultPdfOutputPath: `${normalized}/output/report.pdf`
   };
 }
@@ -4257,6 +4277,50 @@ export function applyDocumentProjectPathSuffix(projectPath: string, suffix: numb
   const parent = lastSlash >= 0 ? normalized.slice(0, lastSlash) : DOCUMENT_WORKSPACE_PROJECTS_ROOT;
   const basename = lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
   return `${parent}/${basename}-${String(suffix)}`;
+}
+
+export function buildDocumentProjectSourceCopyPath(
+  layout: DocumentWorkspaceProjectLayout,
+  sourcePath: string | null
+): string | null {
+  if (typeof sourcePath !== "string" || sourcePath.trim().length === 0) {
+    return null;
+  }
+  const normalized = sourcePath.replace(/\\/g, "/");
+  const basename = normalized.split("/").pop()?.trim() ?? "";
+  if (basename.length === 0) {
+    return null;
+  }
+  return `${layout.projectPath}/source/${basename}`;
+}
+
+export function buildDocumentProjectPythonRenderEntrypoint(
+  layout: DocumentWorkspaceProjectLayout
+): string {
+  return `${layout.renderDir}/build.py`;
+}
+
+export function buildDocumentProjectPdfExportEntrypoint(
+  layout: DocumentWorkspaceProjectLayout
+): string {
+  return layout.defaultPdfExportEntrypoint;
+}
+
+export function resolveDocumentProjectDefaultRenderEntrypoint(input: {
+  layout: DocumentWorkspaceProjectLayout;
+  sourceKind: DocumentWorkspaceProjectSourceKind;
+  sourceFormat: DocumentWorkspaceProjectSourceFormat;
+}): string {
+  if (
+    input.sourceKind === "imported_workspace_file" &&
+    (input.sourceFormat === "docx" || input.sourceFormat === "xlsx")
+  ) {
+    return buildDocumentProjectPythonRenderEntrypoint(input.layout);
+  }
+  if (input.sourceFormat === "python") {
+    return `${input.layout.projectPath}/build.py`;
+  }
+  return input.layout.defaultRenderEntrypoint;
 }
 
 export function isWorkspacePathUnderPrefix(path: string, prefix: string): boolean {
@@ -4289,7 +4353,6 @@ export function shouldScaffoldDocumentProjectRenderHtml(mimeType: string): boole
   return (
     normalized === "application/pdf" ||
     normalized === "application/x-pdf" ||
-    normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     normalized.startsWith("text/") ||
     normalized === "application/json" ||
     normalized === "application/xml" ||
@@ -4300,19 +4363,34 @@ export function shouldScaffoldDocumentProjectRenderHtml(mimeType: string): boole
 
 export function buildDocumentProjectManifest(input: {
   layout: DocumentWorkspaceProjectLayout;
-  sourcePath: string;
-  extractManifestPath: string;
-  mimeType: string;
+  sourceKind: DocumentWorkspaceProjectSourceKind;
+  sourcePath: string | null;
+  projectSourcePath: string | null;
+  sourceFormat: DocumentWorkspaceProjectSourceFormat;
+  sourceMimeType: string | null;
+  sourceDisplayName?: string | null;
+  extractManifestPath: string | null;
+  mimeType: string | null;
 }): Record<string, unknown> {
   return {
     schema: DOCUMENT_WORKSPACE_PROJECT_SCHEMA,
     projectPath: input.layout.projectPath,
     sourcePath: input.sourcePath,
+    projectSourcePath: input.projectSourcePath,
+    sourceKind: input.sourceKind,
+    sourceFormat: input.sourceFormat,
+    sourceMimeType: input.sourceMimeType,
+    sourceDisplayName: input.sourceDisplayName ?? null,
     extractDir: input.layout.extractDir,
     renderDir: input.layout.renderDir,
     outputDir: input.layout.outputDir,
     extractManifestPath: input.extractManifestPath,
-    defaultRenderEntrypoint: input.layout.defaultRenderEntrypoint,
+    defaultRenderEntrypoint: resolveDocumentProjectDefaultRenderEntrypoint({
+      layout: input.layout,
+      sourceKind: input.sourceKind,
+      sourceFormat: input.sourceFormat
+    }),
+    defaultPdfExportEntrypoint: buildDocumentProjectPdfExportEntrypoint(input.layout),
     defaultPdfOutputPath: input.layout.defaultPdfOutputPath,
     mimeType: input.mimeType
   };

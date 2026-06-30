@@ -909,9 +909,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /inspect|render|register_version/i
   );
   assert.deepEqual(documentProperties?.descriptorMode?.enum, [
-    "create_pdf_document",
-    "revise_document",
-    "create_data_document"
+    "create_document",
+    "revise_document"
   ]);
   assert.match(
     document?.description ?? "",
@@ -949,7 +948,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.doesNotMatch(
     document?.description ?? "",
-    /create_data_document|create_presentation|descriptorMode=create_presentation/i,
+    /create_pdf_document|create_data_document|create_presentation|descriptorMode=create_presentation/i,
     "document description must not advertise presentation modes"
   );
   assert.doesNotMatch(
