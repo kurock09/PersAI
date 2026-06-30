@@ -1261,14 +1261,20 @@ export class RuntimeDocumentToolService {
   }): Promise<string> {
     const loweredEntrypoint = input.entrypointPath.toLowerCase();
     if (loweredEntrypoint.endsWith(".html") || loweredEntrypoint.endsWith(".htm")) {
+      const htmlSource = await this.readWorkspaceTextFile({
+        bundle: input.bundle,
+        sessionId: input.sessionId,
+        requestId: input.requestId,
+        path: input.entrypointPath
+      });
       return [
         "import os",
         "from weasyprint import HTML",
         `project_dir = ${JSON.stringify(input.projectPath)}`,
-        `entrypoint_path = ${JSON.stringify(input.entrypointPath)}`,
         `output_path = ${JSON.stringify(input.outputPath)}`,
+        `html_source = ${JSON.stringify(htmlSource)}`,
         "os.makedirs(os.path.dirname(output_path), exist_ok=True)",
-        "HTML(filename=entrypoint_path, base_url=project_dir).write_pdf(output_path)",
+        "HTML(string=html_source, base_url=project_dir).write_pdf(output_path)",
         "if not os.path.isfile(output_path):",
         '    raise FileNotFoundError(f"Rendered output was not created: {output_path}")'
       ].join("\n");

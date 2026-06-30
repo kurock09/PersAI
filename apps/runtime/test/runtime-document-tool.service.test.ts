@@ -334,8 +334,23 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.render?.outputPath, "/workspace/report/report.pdf");
     assert.equal(result.payload.render?.entrypointPath, "/workspace/report/report.html");
     assert.equal(result.payload.render?.mimeType, "application/pdf");
-    assert.equal(sandboxCalls[0]?.toolCode, "execute_document_code");
-    assert.equal(sandboxCalls[1]?.toolCode, "files");
+    assert.equal(sandboxCalls[0]?.toolCode, "files");
+    assert.equal(sandboxCalls[0]?.args.action, "read");
+    assert.equal(sandboxCalls[0]?.args.path, "/workspace/report/report.html");
+    assert.equal(sandboxCalls[1]?.toolCode, "execute_document_code");
+    assert.match(
+      String(sandboxCalls[1]?.args.programSource ?? ""),
+      /HTML\(string=html_source, base_url=project_dir\)/
+    );
+    assert.match(
+      String(sandboxCalls[1]?.args.programSource ?? ""),
+      /<html><body><h1>Report<\/h1><\/body><\/html>/
+    );
+    assert.doesNotMatch(
+      String(sandboxCalls[1]?.args.programSource ?? ""),
+      /HTML\(filename=entrypoint_path/
+    );
+    assert.equal(sandboxCalls[2]?.toolCode, "files");
   });
 
   test("renders a visible Python build script for xlsx output", async () => {
