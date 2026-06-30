@@ -2,7 +2,7 @@
 
 ## 2026-06-30 — ADR-129 Wave 10b: kill legacy extract path + full-text PDF render
 
-Status: implemented locally (uncommitted). Baseline was `9d86953f` (clean tree).
+Status: committed and pushed (`d34f9396`). Baseline was `9d86953f`.
 
 **Scope.** Wave 10 never activated in prod because model-facing prompt still taught `*.extract` / `outputDir`; model bypassed project layout, read truncated `extracted.md`, and burned 37 steps on hand-built HTML. This slice removes `outputDir` from the model tool, rejects legacy `outputDir` at API/runtime, and rebuilds PDF HTML from full `extract/extracted.md` server-side before WeasyPrint on document projects.
 
