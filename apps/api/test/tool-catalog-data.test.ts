@@ -72,6 +72,14 @@ function testDocumentCatalogRowTeachesVisibleWorkflow(): void {
     "document guidance must include document.extract"
   );
   assert.ok(
+    row.modelUsageGuidance.includes("/workspace/projects/"),
+    "document guidance must teach bounded document projects under /workspace/projects/"
+  );
+  assert.ok(
+    row.modelUsageGuidance.includes("no longer accepts outputDir"),
+    "document guidance must reject legacy outputDir extract paths"
+  );
+  assert.ok(
     row.modelUsageGuidance.includes(
       "render, inspect, optionally register_version, then files.attach"
     ),

@@ -124,13 +124,14 @@ GOTCHAS:
     modelUsageGuidance: `WHEN TO USE: User asks for a PDF document, DOCX/Word file, XLSX/spreadsheet, report, manual, instruction, table, or other ordinary document output — including from uploaded source files. Use the visible workspace loop, not presentation.
 WHEN NOT TO USE: User asks for slides, a deck, or a presentation (use \`presentation\`). User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (use \`files.attach\`; do not regenerate just to resend).
 EXAMPLES:
-- document({action:"extract", path:"/workspace/source.pdf"}) — turn an existing workspace source into visible extraction sidecars before reading or reusing it.
-- document({action:"render", projectPath:"/workspace/report", outputPath:"/workspace/report/output.pdf", format:"pdf"}) — build a visible PDF from workspace source files.
-- document({action:"render", projectPath:"/workspace/report", outputPath:"/workspace/report/output.xlsx", format:"xlsx"}) — build a visible spreadsheet from workspace source files.
-- document({action:"inspect", path:"/workspace/report/output.xlsx"}) — inspect the rendered XLSX/DOCX/PDF before delivery.
-- document({action:"register_version", outputPath:"/workspace/report/output.xlsx", workspaceProjectPath:"/workspace/report", inspectionPath:"/workspace/report/output.inspect.json"}) — optionally persist PersAI version metadata before files.attach.
+- document({action:"extract", path:"/workspace/source.pdf"}) — create a bounded document project under \`/workspace/projects/<slug>/\` with extract sidecars and a seeded render scaffold.
+- document({action:"render", projectPath:"/workspace/projects/report", outputPath:"/workspace/projects/report/output/report.pdf", format:"pdf"}) — build a visible PDF from the active document project.
+- document({action:"render", projectPath:"/workspace/projects/report", outputPath:"/workspace/projects/report/output/report.xlsx", format:"xlsx"}) — build a visible spreadsheet from workspace source files.
+- document({action:"inspect", path:"/workspace/projects/report/output/report.xlsx"}) — inspect the rendered XLSX/DOCX/PDF before delivery.
+- document({action:"register_version", outputPath:"/workspace/projects/report/output/report.xlsx", workspaceProjectPath:"/workspace/projects/report", inspectionPath:"/workspace/projects/report/output/report.inspect.json"}) — optionally persist PersAI version metadata before files.attach.
 GOTCHAS:
-- For document work from an uploaded or existing workspace source, the normal flow is: extract if needed, create or edit visible \`/workspace\` source files, render, inspect, optionally register_version, then files.attach.
+- document.extract no longer accepts outputDir; do not write flat \`*.extract\` sidecars manually.
+- For document work from an uploaded or existing workspace source, the normal flow is: extract into a document project when needed, render, inspect, optionally register_version, then files.attach.
 - For a simple new PDF, first write \`/workspace/<project>/index.html\` with files.write, then document.render(format=pdf), document.inspect, files.attach. Do not call presentation for a PDF document/manual/report.
 - PDF render uses an HTML entrypoint by default; do not ask PDF render to auto-run a DOCX/XLSX Python builder as the PDF renderer.
 - For Python-based \`document.render\`, write the final file exactly to \`PERSAI_OUTPUT_PATH\`. Do not chdir into \`/workspace\` yourself and do not construct paths like \`/workspace/workspace/...\`.`,
