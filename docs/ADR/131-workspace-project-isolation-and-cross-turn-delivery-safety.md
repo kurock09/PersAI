@@ -2,11 +2,11 @@
 
 ## Status
 
-Open — problem statement plus candidate directions. No implementation is proposed here. Original scope was cross-turn delivery safety for the document tool only; broadened on 2026-07-01 after founder review because the underlying causes (mutable-path identity, absent visibility scope) affect every file the model touches, not only documents.
+Accepted — all founder-decision points closed on 2026-07-01. Implementation now proceeds in three ordered slices (Block 1 → Block 2 → Block 3). Original scope was cross-turn delivery safety for the document tool only; broadened on 2026-07-01 after founder review because the underlying causes (mutable-path identity, absent visibility scope) affect every file the model touches, not only documents.
 
 ## Date
 
-2026-07-01 (opened, doc-only). 2026-07-01 (broadened to full workspace file identity, isolation, and safe delivery).
+2026-07-01 (opened, doc-only). 2026-07-01 (broadened to full workspace file identity, isolation, and safe delivery). 2026-07-01 (founder-closed all four remaining decision points; implementation-ordered).
 
 ## Purpose
 
@@ -18,7 +18,7 @@ Open — problem statement plus candidate directions. No implementation is propo
 
 Any one of these being present is a P0 correctness risk in PROD — from silent data loss (Block 1) to wrong-file share on mobile (Block 1) to model confusing another chat's file for the current one (Block 2) to `files.attach` delivering placeholder bytes from a stale directory (Block 3).
 
-The auto-register-on-render addendum to `ADR-129` (2026-07-01) closed the "PDF vs Office" `v1` badge asymmetry and removed the model-owned `document.register_version` step from the standard render → attach flow. The same addendum also added `suggestedNextActions` to `document.extract`, which partially mitigates Problem F in Block 3 by handing the model the exact next call to run. It does not close Problem F (the hint is still overridable), and it does not address Blocks 1 or 2 or the rest of Block 3.
+Two prior landings close most of Block 3 Problem F already: (a) the 2026-06-30 `document.render(format=pdf)` change that architecturally restricts imported DOCX/XLSX renders to the seeded LibreOffice `export_pdf.py` entrypoint (no model-supplied non-canonical entrypoint accepted inside `document.render`), and (b) the 2026-07-01 auto-register-on-render addendum that also added `suggestedNextActions` to `document.extract` handing the model the exact next call to run. What remains of Problem F is only the pathological path where the model skips `document.render` entirely and hand-assembles a PDF via `shell` + `weasyprint`; that residual is closed by prompt reinforcement ("must follow `suggestedNextActions` when present"), not by runtime heuristics on `shell`. Blocks 1 and 2 and Problems E and G are still open work.
 
 ## What "safe workspace" must mean
 
@@ -48,7 +48,7 @@ Live evidence:
 - **Wrong-file mobile share.** User taps share on a chat attachment. Preview renders through `GET /api/v1/assistant/workspaces/:wsId/files/preview?path=...` with `Cache-Control: private, max-age=3600` (`apps/api/src/modules/workspace-management/interface/http/media-attachment.controller.ts:455`); download goes through the same-shaped URL freshly to GCS. If any actor overwrote the underlying object between the preview cache and the share fetch (or between share fetch and preview refresh), the preview and the shared bytes disagree. The user sees one file and sends another; support cannot tell them why.
 - **Historic attachment mutation.** A user upload of `report.pdf` sits at `/workspace/report.pdf`. Later, the model or a `shell` script writes to the same path. The user's original chat message attachment row still declares `storagePath = /workspace/report.pdf`, but opening it returns the new bytes. History has silently mutated.
 
-### Candidate direction (chosen: Variant A — vendor-standard collision behavior)
+### Direction (founder-confirmed: Variant A — vendor-standard collision behavior with `replace: true` boolean opt-in)
 
 - Every model-visible and control-plane write defaults to macOS-Finder / Google-Drive style behavior: **if the target path already exists, resolve to a new sibling name (` (1)`, ` (2)`, …)**. `apps/sandbox/src/workspace-file-bridge.service.ts::writeWorkspaceFileWithCollision` and `apps/runtime/src/modules/turns/write-runtime-outbound-artifact.ts` already do this for user uploads and generated media; the same policy extends to `files.write`, to `document.render` `outputPath`, and to any control-plane explicit-path write. This is one rule, applied uniformly — no path refuses a write purely because a file already exists at that name; it just resolves the name.
 - Overwrite becomes an explicit action: the model must pass an explicit `replace: true` (or equivalent named flag) together with the exact existing path. Prompt teaches that replace is a deliberate destructive action, not a shortcut for "save my new file". `document.render` and control-plane writes accept the same `replace: true` opt-in for the same reason.
@@ -75,14 +75,12 @@ The manifest already carries the columns needed for scope: `workspace_file_metad
 
 The model repeatedly confuses files across chats, especially when names repeat: a `report.pdf` from a prior test in another chat becomes indistinguishable from the current chat's `report.pdf` in the `files.list` output, and the model may `files.read` / `files.attach` the wrong one. This is the "модель путает файлы" symptom that motivated broadening this ADR.
 
-### Candidate direction (proposed: three explicit scope tiers, manifest-backed)
-
-**Status of this candidate.** Anti-clobber (Block 1) has a founder-confirmed base (Variant A). Scope tiering here does not yet — it is the parent-orchestrator's proposal, drafted directly from the founder's problem framing ("модель путает файлы: сначала файлы чата, потом ассистента on-demand, потом workspace shared on-demand"). Confirmation that chat is the correct default (versus, e.g., assistant-scope default) is one of the decisions still pending below.
+### Direction (founder-confirmed: three explicit scope tiers, manifest-backed, chat as default)
 
 No physical migration required — `/workspace/` stays flat per `ADR-128`. Scope is a thin logical layer on top of the existing manifest columns:
 
-1. **Chat scope (proposed default).** `files.list` / `files.read` / `files.preview` / `files.attach` operate on files where `originChatId === currentChatId`, plus files written by the current turn itself. This is what the Working Files block already reflects; the proposal is to extend it to the whole `files.*` action set.
-2. **Assistant scope (on-demand widen).** Model calls `files.list({ scope: "assistant" })` (or equivalent shape TBD in the implementation ADR). Widens the visible set to any file where `originAssistantId === currentAssistantId`. Prompt teaches this is the correct move when the user asks for "что-то из моих прошлых чатов" and the current chat does not contain it.
+1. **Chat scope (default).** `files.list` / `files.read` / `files.preview` / `files.attach` operate on files where `originChatId === currentChatId`, plus files written by the current turn itself. This is what the Working Files block already reflects; the change extends it to the whole `files.*` action set.
+2. **Assistant scope (on-demand widen).** Model calls `files.list({ scope: "assistant" })` (or equivalent shape TBD in the implementation slice). Widens the visible set to any file where `originAssistantId === currentAssistantId`. Prompt teaches this is the correct move when the user asks for "что-то из моих прошлых чатов" and the current chat does not contain it.
 3. **Workspace-shared scope (further widen).** `files.list({ scope: "workspace_shared" })` widens further to files owned by other assistants of the same workspace (assistant-A wrote it, assistant-B needs it). Prompt teaches this is the last-resort widen.
 
 Cross-scope reads / previews / attaches (touching a file outside the current scope) require the model to either widen `files.list` first (surface it explicitly) or pass a `crossScope: true` marker together with the concrete path. The prompt teaches the model that cross-scope operations are the exceptional path and should be explained to the user.
@@ -107,9 +105,11 @@ This block is the original narrow ADR-131 scope. It is preserved because the evi
 
 **What was observed.** In the same 25-step DOCX → PDF test, `document.extract` correctly created `/workspace/projects/<slug>/render/export_pdf.py` seeded with the LibreOffice conversion. The model ignored that entrypoint and instead spent multiple turns reading the DOCX text via `files.read`, assembling HTML from what it managed to read, and calling `weasyprint`. The result was a low-quality, structurally degraded PDF unrelated to the original DOCX layout.
 
-**Why (partially addressed by ADR-129 addendum 2026-07-01).** Before the addendum, extract returned only file paths and no explicit "do this next" instruction. The addendum now returns `suggestedNextActions` with the exact `document.render(format=pdf, projectPath, outputPath)` call, and the guidance now says to follow it verbatim. This is a strong hint, but it is still a hint — the model can override it. In particular, if the model is following a scenario-driven persona and the persona's steps say "read the source and reformat it", the model can still pick that path over the suggested action.
+**Why.** Two independent affordances let the model skip the seeded exporter: (a) before 2026-06-30, `document.render(format=pdf)` accepted model-supplied entrypoints for imported Office projects, so the model could re-route the render internally; (b) at any time, the model can skip `document.render` entirely and call `shell` with a python one-liner that writes a PDF via `weasyprint` and then `files.attach` it directly.
 
-**Impact.** Quality of imported-Office → PDF output degrades to "hand-assembled from partial reads" when the model is coaxed off the canonical path.
+**Status (closed on 2026-07-01).** Path (a) is closed architecturally: the 2026-06-30 `document.render(format=pdf)` change restricts imported DOCX/XLSX to the seeded LibreOffice `export_pdf.py` entrypoint, and the extracted-text → HTML fallback is blocked for imported Office → PDF. Path (b) is closed by the 2026-07-01 `suggestedNextActions` addendum on `document.extract` plus prompt reinforcement teaching the model that `suggestedNextActions` must be followed when present. No runtime heuristic over `shell` is introduced (deliberate — that would be a costly guess).
+
+**Impact (if reopened).** Quality of imported-Office → PDF output would again degrade to "hand-assembled from partial reads" when the model is coaxed off the canonical path.
 
 ### Problem G — `shell` `stdout_limit_exceeded` on large document dumps
 
@@ -127,11 +127,12 @@ For **Problem E**:
 - Attach freshness guard: `files.attach` on a document project output requires either that the file's last write happened in the current turn or that the model passes an explicit "re-attach existing" flag.
 - Turn-scoped clean slate: any `/workspace/projects/<slug>/` that was not touched by the current turn's own `document.extract` / `files.write` cannot be a `document.render` `projectPath`.
 
-For **Problem F**:
+For **Problem F** (closed on 2026-07-01):
 
-- Runtime-enforced routing for `document.render(format=pdf)` on an imported DOCX/XLSX project: the runtime picks the seeded `export_pdf.py` entrypoint automatically and rejects model-supplied entrypoints that read the source through a non-LibreOffice path.
-- Prompt-level enforcement: strengthen the `suggestedNextActions` guidance to "must follow when present".
-- Both, with runtime enforcement as the hard guarantee.
+- Runtime already restricts `document.render(format=pdf)` on imported DOCX/XLSX to the seeded `export_pdf.py` entrypoint (2026-06-30). No further runtime work needed inside `document.render`.
+- `document.extract` returns `suggestedNextActions` with the exact next call for imported Office → PDF (2026-07-01 addendum).
+- Prompt reinforcement (part of the next prompt update slice, not a fresh runtime slice): "when `suggestedNextActions` is present in the previous tool result, follow it verbatim; do not hand-assemble outputs via `shell` + `weasyprint`."
+- No runtime heuristic guarding `shell` for "looks like a PDF write" — explicitly rejected as a costly guess. The `shell` bypass is closed at the prompt boundary or not at all.
 
 For **Problem G**:
 
@@ -158,17 +159,23 @@ Fixing only Block 1 leaves the model confused about which file to touch. Fixing 
 
 ## Decisions confirmed by the founder
 
-- **Anti-clobber base:** Variant A (macOS-style ` (N)` collision + explicit `replace: true` for overwrite). Content-addressed Variant B is not the baseline.
+All five decisions below are founder-confirmed as of 2026-07-01. This ADR is now the implementation contract; no further founder decisions are needed before slice work begins.
+
 - **This ADR is the umbrella.** Original E / F / G stay inside; anti-clobber and scope-tier work do not spin off into separate ADRs.
+- **Anti-clobber base:** Variant A (macOS-Finder / Google-Drive style ` (N)` collision by default, plus explicit `replace: true` boolean opt-in for deliberate overwrite). Applied uniformly on `files.write`, `document.render` `outputPath`, and control-plane explicit-path writes. Content-addressed Variant B is deferred to a later ADR only if Variant A proves insufficient in live tests.
+- **Anti-clobber overwrite-contract shape:** boolean `replace: true` on `files.write`, `document.render`, and control-plane writes. No enum modes, no `existingPath` double-confirmation, no removal of `replace` (bare `(N)`-collision alone is not enough because the model does legitimately need to publish a new version of a delivered file — that path uses `replace: true`).
+- **Block 2 default scope tier:** `chat`. Widening to `assistant` and `workspace_shared` is on-demand only, requested by the model per action. The shape of the widen argument (`scope: "chat" | "assistant" | "workspace_shared"` on `files.list` plus a `crossScope: true` marker on cross-scope reads / previews / attaches) is the parent-orchestrator design and enters the implementation slice as-is unless a slice-time obstacle appears.
+- **Implementation slice order:** Block 1 → Block 2 → Block 3. Data integrity first (anti-clobber + mobile-share correctness), then visibility (model confusion across chats), then Block 3 specialisations. Problem F in Block 3 is already closed on 2026-07-01 by the existing seeded-exporter enforcement in `document.render` plus `suggestedNextActions` from `document.extract` plus prompt reinforcement; only Problem E and Problem G remain live inside Block 3.
 
-## Decisions still required from the founder before implementation
+## Implementation plan (no further decisions required)
 
-1. **Default scope tier for Block 2.** Parent-orchestrator proposal: chat. Founder framed the problem as "chat first, assistant on-demand, workspace-shared on-demand" but has not literally confirmed chat as the default versus, e.g., assistant-scope default with an explicit `scope: "chat"` narrow. Needs founder sign-off before implementation.
-2. Priority order across blocks. Recommendation: Block 1 first (data integrity — clobber and share mismatch), Block 2 second (visibility — model confusion across chats), Block 3 as specialisations that partially fall out of Block 1 and Block 2.
-3. Exact shape of the widening `files.list({ scope })` contract, plus the shape of the anti-clobber `replace` flag on `files.write`, `document.render`, and control-plane writes.
-4. Whether Problem F fix is prompt-only or runtime-enforced.
+Slice 1 — Block 1 anti-clobber Variant A. Introduce `(N)`-collision as default on `files.write`, `document.render`, and control-plane explicit-path writes. Add `replace: true` boolean opt-in on the same three surfaces. Update model-facing tool description in `native-tool-projection.ts` to teach: default is auto-suffix collision, `replace: true` is a deliberate destructive action. Update `document.render` `outputPath` handling in `runtime-document-tool.service.ts` and control-plane writes in `workspace-file-bridge.service.ts`. Deliver in one focused slice.
 
-Once decided, this ADR is converted into an implementation ADR or superseded by a new numbered ADR that implements the chosen design.
+Slice 2 — Block 2 chat-scoped `files.*`. Extend `runtime-files-tool.service.ts::executeListFromManifest` and the read/preview/attach paths to consult `workspace_file_metadata.originChatId` under the chat-scope default; add the `scope` argument on `files.list` and the `crossScope: true` marker on the other actions. Update model-facing tool description accordingly. Deliver in one focused slice.
+
+Slice 3 — Block 3 residuals (Problem E + Problem G). Problem E: per-turn project slug allocation in `document.extract` plus attach-freshness guard in `files.attach` for document project outputs. Problem G: prompt guidance for large-document reads via chunked `files.read`, and — if evidence recurs — a small dedicated `document.read_text` bounded-excerpt action. Deliver together as one focused slice, since both are prompt-heavy plus a single small runtime surface.
+
+The prompt reinforcement of `suggestedNextActions` for Problem F is folded into Slice 3 (or the next prompt-owner slice, whichever lands first), not a separate slice.
 
 ## Consequences
 

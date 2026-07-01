@@ -1,5 +1,35 @@
 # SESSION-HANDOFF
 
+## 2026-07-01 — ADR-131 founder-closed: all four decision points confirmed; implementation-ordered
+
+Status: docs-only change on top of push `7dea8b37` (which broadened ADR-131 to umbrella and shipped the ADR-129 addendum). No code changed. `docs/ADR/131-workspace-project-isolation-and-cross-turn-delivery-safety.md` is now `Accepted`. All four decision points documented as pending in the broadened ADR are founder-confirmed and folded into a concrete implementation plan.
+
+**Founder-confirmed decisions (in addition to Variant A + single-umbrella already confirmed on the broadening push).**
+
+- **Block 2 default scope tier: `chat`.** Widening to `assistant` and `workspace_shared` is on-demand only, requested by the model per action.
+- **Anti-clobber overwrite-contract shape: boolean `replace: true`** on `files.write`, `document.render`, and control-plane writes. No enum mode, no `existingPath` double-confirmation, no removal of `replace`.
+- **Implementation slice order: Block 1 → Block 2 → Block 3.** Data integrity first, then visibility, then Block 3 residuals.
+- **Problem F closure: prompt reinforcement only, no runtime heuristics.** Path (a) "model picks a non-canonical entrypoint inside `document.render`" is already closed architecturally by the 2026-06-30 seeded-exporter enforcement in `document.render(format=pdf)` on imported DOCX/XLSX. Path (b) "model skips `document.render` and hand-assembles a PDF via `shell` + `weasyprint`" is closed by `suggestedNextActions` (2026-07-01 addendum, already in prod) plus a prompt reinforcement in the next prompt-owner slice: "when `suggestedNextActions` is present in the previous tool result, follow it verbatim". Explicitly rejected: runtime heuristic guarding `shell` for "looks like a PDF write" — cost/benefit is wrong.
+
+**ADR-131 sections rewritten.**
+
+- `Status`: `Accepted` (was `Open — problem statement plus candidate directions`).
+- `Date`: added closure date `2026-07-01 (founder-closed all four remaining decision points; implementation-ordered)`.
+- Block 1 heading: `Direction (founder-confirmed: Variant A ...)` (was `Candidate direction (chosen: ...)`).
+- Block 2 heading: `Direction (founder-confirmed: three explicit scope tiers, manifest-backed, chat as default)` (was `Candidate direction (proposed: ...)`). Removed the "Status of this candidate — pending founder confirmation" paragraph.
+- Block 3 Problem F "Why" and "Impact" rewritten to reflect closure (paths (a) and (b) explained explicitly, prompt reinforcement scoped).
+- Block 3 Candidate directions section for Problem F rewritten to "closed on 2026-07-01" with rationale.
+- `Decisions confirmed by the founder`: now the full five-decision list.
+- `Decisions still required from the founder before implementation`: replaced by `Implementation plan (no further decisions required)` — three-slice ordering with per-slice scope.
+
+**AGENTS.md active-orchestration-programs blurb for ADR-131 updated to reflect closure and implementation ordering; ADR-131 is no longer marked as awaiting founder decisions.**
+
+**Files touched.** `docs/ADR/131-workspace-project-isolation-and-cross-turn-delivery-safety.md`, `AGENTS.md`, `docs/SESSION-HANDOFF.md` (this entry), `docs/CHANGELOG.md`.
+
+**Tests run.** None — docs-only change, no runtime, contract, or schema code touched.
+
+**Residual / next.** Founder command opens Implementation Slice 1 = Block 1 anti-clobber Variant A. That slice touches `apps/sandbox/src/workspace-file-bridge.service.ts` (control-plane collision + `replace: true`), `apps/runtime/src/modules/turns/runtime-document-tool.service.ts` (`document.render` `outputPath` collision + `replace: true`), `apps/runtime/src/modules/turns/native-tool-projection.ts` (model-facing tool description update), and `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` (`files.write` collision + `replace: true`). Runs as one focused slice through the GPT-5.4 implementation subagent path with parent as orchestrator/auditor.
+
 ## 2026-07-01 — ADR-131 broadened: workspace file identity, isolation, and safe delivery (doc-only → full workspace)
 
 Status: docs-only change. `docs/ADR/131-workspace-project-isolation-and-cross-turn-delivery-safety.md` was rewritten from the narrow "cross-turn delivery safety for the document tool" problem statement into a full problem statement plus candidate directions for workspace file identity, isolation, and safe delivery across the whole model-facing `files.*` surface. No code changed. No implementation slice was opened. `AGENTS.md` already listed ADR-131 as an active orchestration program.
