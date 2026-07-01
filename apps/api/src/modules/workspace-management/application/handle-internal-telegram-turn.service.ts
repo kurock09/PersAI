@@ -339,7 +339,7 @@ export class HandleInternalTelegramTurnService {
         threadId: input.threadId,
         externalUserKey: input.externalUserKey,
         mode: input.conversationMode,
-        ...(input.channelContext === undefined ? {} : { channelContext: input.channelContext }),
+        channelContext: this.withCanonicalTelegramChatId(input.channelContext, chat.id),
         userMessageId: userMessage.id,
         userMessage: enrichedMessage,
         attachments: runtimeAttachments,
@@ -525,6 +525,24 @@ export class HandleInternalTelegramTurnService {
       trace.finish({ status: "failed" });
       throw error;
     }
+  }
+
+  private withCanonicalTelegramChatId(
+    context: RuntimeChannelContext | undefined,
+    chatId: string
+  ): RuntimeChannelContext {
+    return {
+      ...(context ?? {}),
+      chatId,
+      ...(context?.telegram === undefined
+        ? {}
+        : {
+            telegram: {
+              ...context.telegram,
+              chatId
+            }
+          })
+    };
   }
 
   private async claimTelegramUpdateIfNeeded(

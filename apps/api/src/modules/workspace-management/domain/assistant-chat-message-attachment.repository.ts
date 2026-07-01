@@ -47,6 +47,12 @@ export interface AssistantChatMessageAttachmentRepository {
     chatId: string;
     storagePath: string;
   }): Promise<AssistantChatMessageAttachment | null>;
+  refreshWorkspacePathProjection(input: {
+    workspaceId: string;
+    storagePath: string;
+    mimeType: string;
+    sizeBytes: bigint;
+  }): Promise<number>;
   sumSizeBytesByAssistantId(assistantId: string): Promise<bigint>;
   deleteByAssistantId(assistantId: string): Promise<number>;
   deleteByChatId(chatId: string): Promise<number>;

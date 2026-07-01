@@ -73,6 +73,8 @@ export interface RuntimeConversationAddress extends AssistantScope {
 
 export interface RuntimeTelegramChannelContext {
   schema: "persai.runtime.telegramContext.v1";
+  /** Canonical PersAI assistant_chat.id for scope-aware files.* behavior. */
+  chatId?: string;
   chat: {
     id: string;
     type: "private" | "group" | "supergroup" | "channel";
@@ -89,6 +91,8 @@ export interface RuntimeTelegramChannelContext {
 }
 
 export interface RuntimeChannelContext {
+  /** Canonical PersAI assistant_chat.id for scope-aware files.* behavior. */
+  chatId?: string;
   telegram?: RuntimeTelegramChannelContext;
   /** Web chat UUID for session-scoped file visibility and manifest origin tagging. */
   web?: {
@@ -149,7 +153,7 @@ export interface RuntimeDocumentSourceFile {
   } | null;
 }
 
-export type RuntimeFileScopeTier = "chat" | "assistant" | "workspace";
+export type RuntimeFileScopeTier = "chat" | "assistant" | "workspace_shared";
 
 export interface RuntimeFileHandle {
   storagePath: string;

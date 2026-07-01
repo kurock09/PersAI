@@ -27,8 +27,8 @@ export class WorkspaceFileMetadataService {
       path: input.path,
       mimeType: input.mimeType,
       sizeBytes: typeof input.sizeBytes === "bigint" ? input.sizeBytes : BigInt(input.sizeBytes),
-      contentHash: input.contentHash ?? null,
-      shortDescription: input.shortDescription ?? null,
+      ...(input.contentHash === undefined ? {} : { contentHash: input.contentHash }),
+      ...(input.shortDescription === undefined ? {} : { shortDescription: input.shortDescription }),
       ...(input.originChatId === undefined ? {} : { originChatId: input.originChatId }),
       ...(input.originAssistantId === undefined
         ? {}
@@ -46,6 +46,8 @@ export class WorkspaceFileMetadataService {
   async list(input: {
     workspaceId: string;
     pathPrefix?: string;
+    originChatId?: string | null;
+    originAssistantId?: string | null;
     limit?: number;
   }): Promise<WorkspaceFileMetadataRow[]> {
     return this.repository.list(input);

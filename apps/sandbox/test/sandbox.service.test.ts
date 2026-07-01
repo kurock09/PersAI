@@ -796,7 +796,7 @@ test("SandboxService: control-plane workspace write forwards replace for explici
           basename: input.basename,
           path: input.path ?? null,
           contents: input.contents,
-          replace: input.replace
+          ...(input.replace === undefined ? {} : { replace: input.replace })
         };
         return {
           success: true,

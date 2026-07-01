@@ -38,15 +38,52 @@ export class InternalWorkspaceFilesController {
     @Req() req: InternalRequestLike,
     @Param("workspaceId") workspaceId: string,
     @Query("pathPrefix") pathPrefix: string | undefined,
-    @Query("assistantHandle") assistantHandle: string | undefined
+    @Query("assistantHandle") assistantHandle: string | undefined,
+    @Query("scope") scope: string | undefined,
+    @Query("currentChatId") currentChatId: string | undefined,
+    @Query("currentAssistantId") currentAssistantId: string | undefined
   ) {
     this.assertAuthorized(req);
     const input = this.listWorkspaceFilesFromManifestService.parseInput({
       workspaceId,
       pathPrefix,
-      assistantHandle
+      assistantHandle,
+      scope,
+      currentChatId,
+      currentAssistantId
     });
     return this.listWorkspaceFilesFromManifestService.execute(input);
+  }
+
+  @HttpCode(200)
+  @Get(":workspaceId/files/metadata")
+  async getMetadata(
+    @Req() req: InternalRequestLike,
+    @Param("workspaceId") workspaceId: string,
+    @Query("path") path: string | undefined
+  ) {
+    this.assertAuthorized(req);
+    const trimmedPath = typeof path === "string" ? path.trim() : "";
+    if (!trimmedPath.startsWith("/workspace/")) {
+      throw new BadRequestException('path must start with "/workspace/".');
+    }
+    const row = await this.workspaceFileMetadataService.get({
+      workspaceId,
+      path: trimmedPath
+    });
+    return {
+      file:
+        row === null
+          ? null
+          : {
+              path: row.path,
+              mimeType: row.mimeType,
+              sizeBytes: Number(row.sizeBytes),
+              originChatId: row.originChatId,
+              originAssistantId: row.originAssistantId,
+              updatedAt: row.updatedAt.toISOString()
+            }
+    };
   }
 
   @HttpCode(204)

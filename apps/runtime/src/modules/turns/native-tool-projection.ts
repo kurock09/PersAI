@@ -1319,11 +1319,11 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
     description: resolveToolDefinitionDescription(
       policy,
       [
-        'Use action="extract" to turn an existing `/workspace/...` source file into a bounded document project under `/workspace/projects/<slug>/` with `project.json`, `extract/` sidecars, a seeded `render/report.html`, and an `output/` directory. The result is compact and points to the project manifest plus sidecar paths to read next with `files.read` or `grep`. When the extracted source is DOCX or XLSX, the result also contains `suggestedNextActions` with the exact `document.render(format=pdf, projectPath, outputPath)` call to use — follow it directly to convert the source to PDF via the seeded LibreOffice entrypoint. Do not read the source content chunk by chunk when the suggested action already covers the request.',
+        'Use action="extract" to turn an existing `/workspace/...` source file into a fresh bounded document project under `/workspace/projects/<slug>/` with `project.json`, `extract/` sidecars, a seeded `render/report.html`, and an `output/` directory. The result is compact and points to the project manifest plus sidecar paths to read next with bounded `files.read` or `grep`; never dump large DOCX/XLSX/PDF content through shell stdout. When the extracted source is DOCX or XLSX, the result also contains `suggestedNextActions` with the exact `document.render(format=pdf, projectPath, outputPath)` call to use — follow it directly to convert the source to PDF via the seeded LibreOffice entrypoint. Do not read the source content chunk by chunk when the suggested action already covers the request.',
         'Use action="inspect" to validate an existing `/workspace/...` PDF/XLSX/DOCX, write a visible `*.inspect.json` sidecar, and return a compact summary of counts/warnings/suggested reads.',
         'Use action="render" to build a visible `/workspace/...` project into a PDF/XLSX/DOCX output path. PDF render defaults to an HTML entrypoint; it does not auto-run a DOCX/XLSX Python builder as a PDF renderer. XLSX/DOCX render uses a visible Python build script (default `build.py`). If outputPath already exists, render keeps the earlier file and allocates a sibling name like `report (1).pdf` unless you pass `replace: true`. Render auto-registers the output as the current assistant document/version (`registration.versionId`). Standard delivery does not need `document.register_version`; if auto-register is skipped, the render still succeeds and can still be attached.',
         'Use action="register_version" ONLY for advanced cases: revising an existing document by `docId` (`descriptorMode="revise_document"`), or attaching non-default `sourceManifestPath`/`inspectionPath`. Standard render → attach flow does not need this action because render auto-registers.',
-        "For DOCX/PDF conversion from an attached source, call document.extract first — it seeds the project and returns `suggestedNextActions` with the exact next document.render call for DOCX→PDF (LibreOffice) or XLSX→PDF (LibreOffice). Call that action verbatim. Do not hand-build HTML from partial files.read chunks and do not render from unrelated workspace projects.",
+        "For DOCX/PDF conversion from an attached source, call document.extract first — it creates a fresh project and returns `suggestedNextActions` with the exact next document.render call for DOCX→PDF (LibreOffice) or XLSX→PDF (LibreOffice). Call that action verbatim. Do not hand-build HTML from partial files.read chunks, do not dump large documents through shell stdout, and do not render or attach outputs from unrelated workspace projects.",
         "For ordinary PDF/DOCX/XLSX work, stay in the visible workspace loop: extract into a document project when helpful, edit real source files under `/workspace`, render the output, optionally inspect the result, then attach the checked file. Project-owned PDF/DOCX/XLSX outputs may be rejected at files.attach time until the relevant inspect/provenance truth exists.",
         "For a simple new PDF document/manual/report, do not call document before a source entrypoint exists. First write `/workspace/<project>/index.html` with files.write, then call document.render with format=pdf (auto-registers), then files.attach the rendered PDF.",
         "For a simple new DOCX/XLSX request, do not call document before a source build script exists. First write `/workspace/<project>/build.py` with files.write, then call document.render with format=docx or xlsx (auto-registers), then files.attach the rendered file.",
@@ -1737,7 +1737,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "files",
     description: resolveToolDefinitionDescription(
       policy,
-      "Files in this workspace live under `/workspace/`. Read any file with `files.read` using the exact path from the Working Files block, `files.list`, or a prior tool result. By default writing to an existing path allocates a new sibling name like `report (1).pdf`, so previous deliveries stay intact. Pass `replace: true` on `files.write` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new `/workspace/...` path. Use `/tmp/` for ephemeral scratch that the user should not see."
+      'Files in this workspace live under `/workspace/`. By default `files.list` shows only the current chat scope. Widen only when the user asks: `scope:"assistant"` for this assistant\'s other chats, then `scope:"workspace_shared"` for the whole workspace. Read/preview/attach/delete by exact path from the Working Files block, a scoped `files.list`, or a prior tool result; if touching a file outside the current chat scope, first surface it via widened list and then pass `crossScope:true`. By default writing to an existing path allocates a new sibling name like `report (1).pdf`, so previous deliveries stay intact. Pass `replace: true` on `files.write` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. Use `/tmp/` for ephemeral scratch that the user should not see.'
     ),
     inputSchema: {
       type: "object",
@@ -1772,6 +1772,17 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "boolean",
           description:
             'Optional exact-overwrite flag for action="write". By default an occupied path resolves to a sibling ` (N)` filename so earlier deliveries stay intact. Pass `replace: true` only when the user explicitly asked to overwrite that same file.'
+        },
+        scope: {
+          type: "string",
+          enum: ["chat", "assistant", "workspace_shared"],
+          description:
+            'Optional action="list" visibility scope. Default "chat" shows only files from this chat. Use "assistant" only when the user asks for files from this assistant across past chats. Use "workspace_shared" only as a last-resort widen across the whole workspace.'
+        },
+        crossScope: {
+          type: "boolean",
+          description:
+            "Optional flag for read/preview/attach/delete when intentionally touching a manifest file outside the current chat scope after surfacing it with a widened files.list. Do not use for ordinary current-chat files."
         },
         maxBytes: {
           type: "integer",

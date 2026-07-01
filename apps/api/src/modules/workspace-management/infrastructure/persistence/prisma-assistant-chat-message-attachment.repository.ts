@@ -68,6 +68,27 @@ export class PrismaAssistantChatMessageAttachmentRepository implements Assistant
     return record ? this.mapToDomain(record) : null;
   }
 
+  async refreshWorkspacePathProjection(input: {
+    workspaceId: string;
+    storagePath: string;
+    mimeType: string;
+    sizeBytes: bigint;
+  }): Promise<number> {
+    const result = await this.prisma.assistantChatMessageAttachment.updateMany({
+      where: {
+        workspaceId: input.workspaceId,
+        storagePath: input.storagePath
+      },
+      data: {
+        mimeType: input.mimeType,
+        sizeBytes: input.sizeBytes,
+        thumbnailStoragePath: null,
+        posterStoragePath: null
+      }
+    });
+    return result.count;
+  }
+
   async findStagedByClientAttachment(input: {
     assistantId: string;
     chatId: string;

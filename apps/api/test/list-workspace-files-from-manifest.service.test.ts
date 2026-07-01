@@ -58,12 +58,36 @@ describe("ListWorkspaceFilesFromManifestService", () => {
   ];
 
   function buildService(rows = baseRows) {
-    const calls: Array<{ workspaceId: string; pathPrefix: string }> = [];
+    const calls: Array<{
+      workspaceId: string;
+      pathPrefix: string;
+      originChatId?: string | null;
+      originAssistantId?: string | null;
+    }> = [];
     const metadata = {
-      async list(input: { workspaceId: string; pathPrefix: string; limit: number }) {
-        calls.push({ workspaceId: input.workspaceId, pathPrefix: input.pathPrefix });
+      async list(input: {
+        workspaceId: string;
+        pathPrefix: string;
+        originChatId?: string | null;
+        originAssistantId?: string | null;
+        limit: number;
+      }) {
+        calls.push({
+          workspaceId: input.workspaceId,
+          pathPrefix: input.pathPrefix,
+          ...(input.originChatId === undefined ? {} : { originChatId: input.originChatId }),
+          ...(input.originAssistantId === undefined
+            ? {}
+            : { originAssistantId: input.originAssistantId })
+        });
         return rows.filter(
-          (row) => row.workspaceId === input.workspaceId && row.path.startsWith(input.pathPrefix)
+          (row) =>
+            row.workspaceId === input.workspaceId &&
+            row.path.startsWith(input.pathPrefix) &&
+            (input.originChatId === undefined ||
+              ("originChatId" in row && row.originChatId === input.originChatId)) &&
+            (input.originAssistantId === undefined ||
+              ("originAssistantId" in row && row.originAssistantId === input.originAssistantId))
         );
       }
     };
@@ -77,7 +101,8 @@ describe("ListWorkspaceFilesFromManifestService", () => {
       service.execute({
         workspaceId: "workspace-1",
         pathPrefix: "/tmp/scratch",
-        assistantHandle: "alice"
+        assistantHandle: "alice",
+        currentAssistantId: "assistant-1"
       }),
       BadRequestException
     );
@@ -89,7 +114,8 @@ describe("ListWorkspaceFilesFromManifestService", () => {
       service.execute({
         workspaceId: "workspace-1",
         pathPrefix: "/workspace/../etc",
-        assistantHandle: "alice"
+        assistantHandle: "alice",
+        currentAssistantId: "assistant-1"
       }),
       BadRequestException
     );
@@ -100,7 +126,10 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const out = await service.execute({
       workspaceId: "workspace-1",
       pathPrefix: "/workspace",
-      assistantHandle: "alice"
+      assistantHandle: "alice",
+      scope: "workspace_shared",
+      currentChatId: "chat-1",
+      currentAssistantId: "assistant-1"
     });
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.pathPrefix, "/workspace/");
@@ -121,7 +150,10 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const out = await service.execute({
       workspaceId: "workspace-1",
       pathPrefix: "/workspace/notes",
-      assistantHandle: "alice"
+      assistantHandle: "alice",
+      scope: "workspace_shared",
+      currentChatId: "chat-1",
+      currentAssistantId: "assistant-1"
     });
     assert.equal(out.items.length, 2);
     assert.deepEqual(out.items.map((item) => item.path).sort(), [
@@ -138,9 +170,78 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const out = await service.execute({
       workspaceId: "workspace-1",
       pathPrefix: "/workspace/does-not-exist",
-      assistantHandle: "alice"
+      assistantHandle: "alice",
+      scope: "workspace_shared",
+      currentChatId: "chat-1",
+      currentAssistantId: "assistant-1"
     });
     assert.equal(out.items.length, 0);
+  });
+
+  test("chat scope lists only rows from the current chat", async () => {
+    const { service, calls } = buildService([
+      {
+        ...baseRows[0]!,
+        path: "/workspace/current.md",
+        originChatId: "chat-current",
+        originAssistantId: "assistant-1"
+      },
+      {
+        ...baseRows[1]!,
+        path: "/workspace/other.md",
+        originChatId: "chat-other",
+        originAssistantId: "assistant-1"
+      }
+    ]);
+    const out = await service.execute({
+      workspaceId: "workspace-1",
+      pathPrefix: "/workspace",
+      assistantHandle: "alice",
+      scope: "chat",
+      currentChatId: "chat-current",
+      currentAssistantId: "assistant-1"
+    });
+    assert.equal(calls[0]?.originChatId, "chat-current");
+    assert.deepEqual(
+      out.items.map((item) => item.path),
+      ["/workspace/current.md"]
+    );
+  });
+
+  test("assistant scope lists rows from the current assistant across chats", async () => {
+    const { service, calls } = buildService([
+      {
+        ...baseRows[0]!,
+        path: "/workspace/current.md",
+        originChatId: "chat-current",
+        originAssistantId: "assistant-1"
+      },
+      {
+        ...baseRows[1]!,
+        path: "/workspace/assistant-past.md",
+        originChatId: "chat-past",
+        originAssistantId: "assistant-1"
+      },
+      {
+        ...baseRows[2]!,
+        path: "/workspace/other-assistant.md",
+        originChatId: "chat-other",
+        originAssistantId: "assistant-2"
+      }
+    ]);
+    const out = await service.execute({
+      workspaceId: "workspace-1",
+      pathPrefix: "/workspace",
+      assistantHandle: "alice",
+      scope: "assistant",
+      currentChatId: "chat-current",
+      currentAssistantId: "assistant-1"
+    });
+    assert.equal(calls[0]?.originAssistantId, "assistant-1");
+    assert.deepEqual(out.items.map((item) => item.path).sort(), [
+      "/workspace/assistant-past.md",
+      "/workspace/current.md"
+    ]);
   });
 
   test("parses raw input and trims required fields", () => {
@@ -148,7 +249,8 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const parsed = service.parseInput({
       workspaceId: "  workspace-1 ",
       pathPrefix: "/workspace",
-      assistantHandle: " alice "
+      assistantHandle: " alice ",
+      currentAssistantId: " assistant-1 "
     });
     assert.equal(parsed.workspaceId, "workspace-1");
     assert.equal(parsed.pathPrefix, "/workspace");
@@ -158,7 +260,8 @@ describe("ListWorkspaceFilesFromManifestService", () => {
         service.parseInput({
           workspaceId: "workspace-1",
           pathPrefix: "",
-          assistantHandle: "alice"
+          assistantHandle: "alice",
+          currentAssistantId: "assistant-1"
         }),
       BadRequestException
     );

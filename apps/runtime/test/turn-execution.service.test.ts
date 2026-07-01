@@ -1823,6 +1823,7 @@ class FakeRuntimeFilesToolService {
     sessionId: string;
     requestId: string;
     channel: "web" | "telegram" | "max_ru";
+    chatId: string | null;
   }> = [];
 
   async executeToolCall(input: {
@@ -1831,6 +1832,7 @@ class FakeRuntimeFilesToolService {
     sessionId: string;
     requestId: string;
     channel: "web" | "telegram" | "max_ru";
+    chatId: string | null;
   }) {
     this.calls.push({ ...input });
     return {
@@ -3854,6 +3856,11 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   enableSandboxAndSendMediaTools(bundleRegistry.entry);
   const sandboxWriteRequest = createRuntimeTurnRequest();
   sandboxWriteRequest.bundle.bundleHash = request.bundle.bundleHash;
+  sandboxWriteRequest.channelContext = {
+    web: {
+      chatId: "chat-1"
+    }
+  };
   turnAcceptanceService.result = createAcceptedTurn();
   (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
     request.bundle.bundleHash;
@@ -3892,6 +3899,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.name, "files");
   assert.equal(runtimeFilesToolService.calls.at(-1)?.toolCall.arguments.action, "write");
   assert.equal(runtimeFilesToolService.calls.at(-1)?.channel, "web");
+  assert.equal(runtimeFilesToolService.calls.at(-1)?.chatId, "chat-1");
   assert.equal(sandboxWriteCompleted.artifacts.length, 0);
   const sandboxToolHistory = JSON.parse(
     providerGatewayClient.calls.at(-1)?.toolHistory?.[0]?.toolResult.content ?? "{}"
@@ -3904,6 +3912,77 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   assert.equal(sandboxToolHistory.action, "written");
   assert.equal(sandboxToolHistory.requestedAction, "write");
   assert.equal(sandboxToolHistory.job, null);
+  await flushTaskQueue();
+  assert.equal(sessionCompactionService.calls.length, 0);
+
+  const telegramFilesRequest = createRuntimeTurnRequest();
+  telegramFilesRequest.bundle.bundleHash = request.bundle.bundleHash;
+  telegramFilesRequest.conversation = {
+    ...telegramFilesRequest.conversation,
+    channel: "telegram",
+    externalThreadKey: "telegram-thread-files",
+    externalUserKey: "telegram-user-1",
+    mode: "direct"
+  };
+  telegramFilesRequest.channelContext = {
+    chatId: "chat-telegram-db-1",
+    telegram: {
+      schema: "persai.runtime.telegramContext.v1",
+      chatId: "chat-telegram-db-1",
+      chat: {
+        id: "telegram-thread-files",
+        type: "private",
+        title: null
+      },
+      sender: {
+        telegramUserId: "telegram-user-1",
+        username: "user1",
+        firstName: "User",
+        lastName: "One",
+        displayName: "User One"
+      },
+      accessMode: "owner_only"
+    }
+  };
+  turnAcceptanceService.result = createAcceptedTurn();
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+    request.bundle.bundleHash;
+  (turnAcceptanceService.result as AcceptedRuntimeTurn).session.conversation = {
+    ...telegramFilesRequest.conversation
+  };
+  providerGatewayClient.resultQueue = [
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "",
+      respondedAt: "2026-04-11T12:00:03.950Z",
+      usage: null,
+      stopReason: "tool_calls",
+      toolCalls: [
+        {
+          id: "tool-call-telegram-file-1",
+          name: "files",
+          arguments: {
+            action: "list",
+            path: "/workspace"
+          }
+        }
+      ]
+    },
+    {
+      provider: "openai",
+      model: "gpt-5.4",
+      text: "reply after telegram files",
+      respondedAt: "2026-04-11T12:00:03.980Z",
+      usage: null,
+      stopReason: "completed",
+      toolCalls: []
+    }
+  ];
+  const telegramFilesCompleted = await service.createTurn(telegramFilesRequest);
+  assert.equal(telegramFilesCompleted.assistantText, "reply after telegram files");
+  assert.equal(runtimeFilesToolService.calls.at(-1)?.channel, "telegram");
+  assert.equal(runtimeFilesToolService.calls.at(-1)?.chatId, "chat-telegram-db-1");
   await flushTaskQueue();
   assert.equal(sessionCompactionService.calls.length, 0);
 

@@ -62,6 +62,8 @@ export class PrismaWorkspaceFileMetadataRepository implements WorkspaceFileMetad
   async list(input: {
     workspaceId: string;
     pathPrefix?: string;
+    originChatId?: string | null;
+    originAssistantId?: string | null;
     limit?: number;
   }): Promise<WorkspaceFileMetadataRow[]> {
     const rows = await this.prisma.workspaceFileMetadata.findMany({
@@ -69,6 +71,10 @@ export class PrismaWorkspaceFileMetadataRepository implements WorkspaceFileMetad
         workspaceId: input.workspaceId,
         ...(input.pathPrefix !== undefined && input.pathPrefix.length > 0
           ? { path: { startsWith: input.pathPrefix } }
+          : {}),
+        ...(input.originChatId !== undefined ? { originChatId: input.originChatId } : {}),
+        ...(input.originAssistantId !== undefined
+          ? { originAssistantId: input.originAssistantId }
           : {})
       },
       orderBy: { createdAt: "desc" },

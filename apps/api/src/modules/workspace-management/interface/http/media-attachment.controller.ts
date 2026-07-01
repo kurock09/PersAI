@@ -277,7 +277,7 @@ export class MediaAttachmentController {
     });
 
     res.setHeader("Content-Type", payload.contentType);
-    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.setHeader("Cache-Control", "private, no-store, no-cache, must-revalidate");
     res.setHeader("Accept-Ranges", "bytes");
     const resolvedDownloadFilename = this.resolveDownloadFilename(
       result.originalFilename,
@@ -344,7 +344,7 @@ export class MediaAttachmentController {
       contentType: this.resolveDownloadContentType(result.contentType, result.mimeType)
     });
     res.setHeader("Content-Type", payload.contentType);
-    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.setHeader("Cache-Control", "private, no-store, no-cache, must-revalidate");
     res.statusCode = 200;
     res.setHeader("Content-Length", String(payload.buffer.length));
     res.end(payload.buffer);
@@ -385,7 +385,7 @@ export class MediaAttachmentController {
     });
 
     res.setHeader("Content-Type", payload.contentType);
-    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.setHeader("Cache-Control", "private, no-store, no-cache, must-revalidate");
     res.setHeader("Accept-Ranges", "bytes");
     const resolvedDownloadFilename = this.resolveDownloadFilename(
       result.originalFilename,
@@ -452,7 +452,7 @@ export class MediaAttachmentController {
       contentType: this.resolveDownloadContentType(result.contentType, result.mimeType)
     });
     res.setHeader("Content-Type", payload.contentType);
-    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.setHeader("Cache-Control", "private, no-store, no-cache, must-revalidate");
     res.statusCode = 200;
     res.setHeader("Content-Length", String(payload.buffer.length));
     res.end(payload.buffer);

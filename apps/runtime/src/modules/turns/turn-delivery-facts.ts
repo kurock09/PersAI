@@ -188,7 +188,7 @@ export function resolveRuntimeFileScopeTier(input: {
     return "chat";
   }
   if (input.storagePath.startsWith("/shared/")) {
-    return "workspace";
+    return "workspace_shared";
   }
   return "assistant";
 }

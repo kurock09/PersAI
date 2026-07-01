@@ -65,7 +65,7 @@ describe("turn-delivery-facts", () => {
         currentChatId: "chat-1",
         producedPathsThisTurn: produced
       }),
-      "workspace"
+      "workspace_shared"
     );
   });
 });

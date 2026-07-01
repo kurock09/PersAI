@@ -724,6 +724,7 @@ export class RuntimeDocumentToolService {
         sessionId: params.sessionId,
         requestId: params.requestId,
         outputPath: resolvedOutputPath,
+        replace: params.request.replace === true,
         originChatId: params.originChatId
       });
     } catch (error) {
@@ -1140,7 +1141,7 @@ export class RuntimeDocumentToolService {
           outputPath,
           format,
           entrypoint: this.readNonEmptyString(row.entrypoint),
-          replace: row.replace === true ? true : undefined
+          ...(row.replace === true ? { replace: true } : {})
         }
       };
     }
@@ -1434,7 +1435,10 @@ export class RuntimeDocumentToolService {
       const files = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
         workspaceId: input.bundle.metadata.workspaceId,
         pathPrefix: `${input.projectPath}/`,
-        assistantHandle: input.bundle.metadata.assistantHandle
+        assistantHandle: input.bundle.metadata.assistantHandle,
+        scope: "workspace_shared",
+        currentChatId: null,
+        currentAssistantId: input.bundle.metadata.assistantId
       });
       const filePaths = files.items.filter((item) => item.type === "file").map((item) => item.path);
       const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
@@ -1461,7 +1465,10 @@ export class RuntimeDocumentToolService {
         const files = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
           workspaceId: input.bundle.metadata.workspaceId,
           pathPrefix: `${input.projectPath}/`,
-          assistantHandle: input.bundle.metadata.assistantHandle
+          assistantHandle: input.bundle.metadata.assistantHandle,
+          scope: "workspace_shared",
+          currentChatId: null,
+          currentAssistantId: input.bundle.metadata.assistantId
         });
         const filePaths = files.items
           .filter((item) => item.type === "file")
@@ -1483,7 +1490,10 @@ export class RuntimeDocumentToolService {
     const files = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
       workspaceId: input.bundle.metadata.workspaceId,
       pathPrefix: `${input.projectPath}/`,
-      assistantHandle: input.bundle.metadata.assistantHandle
+      assistantHandle: input.bundle.metadata.assistantHandle,
+      scope: "workspace_shared",
+      currentChatId: null,
+      currentAssistantId: input.bundle.metadata.assistantId
     });
     const filePaths = files.items.filter((item) => item.type === "file").map((item) => item.path);
     for (const preferred of [
@@ -1860,6 +1870,7 @@ export class RuntimeDocumentToolService {
     sessionId: string;
     requestId: string;
     outputPath: string;
+    replace: boolean;
     originChatId: string | null;
   }): Promise<{ mimeType: string; sizeBytes: number; resolvedPath: string }> {
     const job = await this.sandboxClientService!.waitForCompletion({
@@ -1893,6 +1904,7 @@ export class RuntimeDocumentToolService {
       path: attach.workspaceRelPath,
       mimeType: attach.mimeType,
       sizeBytes: attach.sizeBytes,
+      replace: input.replace,
       ...(input.originChatId === null
         ? {}
         : {

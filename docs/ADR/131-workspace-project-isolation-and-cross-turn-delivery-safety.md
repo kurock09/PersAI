@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted — all founder-decision points closed on 2026-07-01. Implementation proceeds in three ordered slices (Block 1 → Block 2 → Block 3). Slice 1 (Block 1 anti-clobber Variant A) landed locally on 2026-07-01 and awaits push/deploy. Original scope was cross-turn delivery safety for the document tool only; broadened on 2026-07-01 after founder review because the underlying causes (mutable-path identity, absent visibility scope) affect every file the model touches, not only documents.
+Accepted — all founder-decision points closed on 2026-07-01. Implementation proceeds in three ordered slices (Block 1 → Block 2 → Block 3). Slices 1, 2, and 3 landed locally on 2026-07-01 and await final verification/push. Original scope was cross-turn delivery safety for the document tool only; broadened on 2026-07-01 after founder review because the underlying causes (mutable-path identity, absent visibility scope) affect every file the model touches, not only documents.
 
 ## Date
 
-2026-07-01 (opened, doc-only). 2026-07-01 (broadened to full workspace file identity, isolation, and safe delivery). 2026-07-01 (founder-closed all four remaining decision points; implementation-ordered). 2026-07-01 (Slice 1 landed locally: Block 1 anti-clobber Variant A).
+2026-07-01 (opened, doc-only). 2026-07-01 (broadened to full workspace file identity, isolation, and safe delivery). 2026-07-01 (founder-closed all four remaining decision points; implementation-ordered). 2026-07-01 (Slice 1 landed locally: Block 1 anti-clobber Variant A). 2026-07-01 (Slice 2 landed locally: chat-scoped `files.*` plus replace-projection cache/attachment refresh). 2026-07-01 (Slice 3 residual closeout landed locally: existing document-project freshness guards documented and prompt guidance tightened for stale projects / large-document shell dumps).
 
 ## Purpose
 
@@ -52,6 +52,7 @@ Live evidence:
 
 - Every model-visible and control-plane write defaults to macOS-Finder / Google-Drive style behavior: **if the target path already exists, resolve to a new sibling name (` (1)`, ` (2)`, …)**. `apps/sandbox/src/workspace-file-bridge.service.ts::writeWorkspaceFileWithCollision` and `apps/runtime/src/modules/turns/write-runtime-outbound-artifact.ts` already do this for user uploads and generated media; the same policy extends to `files.write`, to `document.render` `outputPath`, and to any control-plane explicit-path write. This is one rule, applied uniformly — no path refuses a write purely because a file already exists at that name; it just resolves the name.
 - Overwrite becomes an explicit action: the model must pass an explicit `replace: true` (or equivalent named flag) together with the exact existing path. Prompt teaches that replace is a deliberate destructive action, not a shortcut for "save my new file". `document.render` and control-plane writes accept the same `replace: true` opt-in for the same reason.
+- Exact overwrite must refresh user-facing projections for that path: manifest metadata updates, attachment rows with the same `(workspaceId, storagePath)` refresh MIME/size and drop stale thumbnail/poster derivative references, and file delivery endpoints must not serve path bytes from a one-hour client cache. This keeps mobile preview/open/share from disagreeing after a deliberate replace.
 - `shell` / `exec` cannot be guarded at the shell level. The prompt stops teaching "just write to the existing name" and the doc-render seeded entrypoints are updated to allocate fresh output filenames per invocation.
 
 ### Variant B (deferred, not the base)
@@ -151,7 +152,7 @@ Fixing only Block 1 leaves the model confused about which file to touch. Fixing 
 ## Non-goals
 
 - Not reversing `ADR-128`'s flat single-namespace decision. `/workspace/` stays flat physically; scope is a manifest-layer overlay.
-- Not introducing versioned blobs or content-hash identity in this ADR (Variant B is a separate later ADR if needed).
+- Not introducing versioned blobs or content-addressed immutable identity in this ADR (Variant B is a separate later ADR if needed). `workspace_file_metadata.contentHash` may still be populated as cache/projection metadata for the mutable path.
 - Not changing GCS layout (`fs/workspaces/<wsid>/workspace/...`).
 - Not merging Files with the Knowledge plane.
 - Not raising sandbox `shell` stdout limits (Problem G is closed with prompt / new action, not by loosening the cap).
@@ -179,7 +180,7 @@ The prompt reinforcement of `suggestedNextActions` for Problem F is folded into 
 
 ## Implementation progress
 
-### 2026-07-01 — Slice 1: Block 1 anti-clobber Variant A (landed locally)
+### 2026-07-01 — Slice 1: Block 1 anti-clobber Variant A (landed locally; replace-projection hotfix added locally)
 
 Status: implemented locally after the ADR-131 founder-closure push and awaiting push/deploy. Scope stayed inside Block 1.
 
@@ -187,10 +188,34 @@ Status: implemented locally after the ADR-131 founder-closure push and awaiting 
 - `document.render` resolves occupied `outputPath` values to sibling ` (N)` names before rendering, persists the rendered file at the resolved path, and auto-registers the resolved path rather than the originally requested path.
 - Control-plane explicit-path writes route through the same collision-aware writer and return the resolved path.
 - Boolean `replace: true` is the explicit exact-overwrite opt-in on `files.write`, `document.render`, and control-plane writes. Legacy `mode: "overwrite"` is accepted as compatibility and maps to exact overwrite; `mode: "create_only"` still fails on exact collision.
+- `replace: true` now propagates to manifest upsert for `files.write` / `document.render`. `files.write` also sends a SHA-256 content hash for text writes. The API refreshes matching chat attachment rows on exact replace by updating MIME/size and clearing stale thumbnail/poster derivative paths, and media file endpoints no longer emit one-hour cache headers for mutable path bytes.
 - Model-facing guidance, tool catalog guidance, runtime contract, and tests were updated so production policy and runtime fallback teach the same rule: default preserves earlier deliveries, `replace: true` is destructive and must be user-requested.
-- No Block 2 chat-scope implementation and no Block 3 residual implementation landed in this slice.
+- No Block 3 residual implementation landed in this slice.
 
-Verification: GPT-5.4 read-only audit found one blocker (stale API catalog `document` guidance); fixed and re-audited as resolved. Focused tests passed for `@persai/runtime`, `@persai/sandbox`, and `@persai/api`; full AGENTS gate passed after the blocker fix.
+Verification: GPT-5.4 read-only audit found one blocker (stale API catalog `document` guidance); fixed and re-audited as resolved. Later GitHub Actions exposed two `exactOptionalPropertyTypes` issues; fixed locally and verified with `@persai/sandbox` typecheck and `@persai/runtime` build/typecheck. Focused tests passed for `@persai/runtime`, `@persai/sandbox`, and `@persai/api`; full AGENTS gate must be rerun before the final push.
+
+### 2026-07-01 — Slice 2: Block 2 chat-scoped `files.*` (landed locally)
+
+Status: implemented locally after the founder requested no further push until all ADR-131 work is batched and rechecked.
+
+- `files.list` defaults to `scope: "chat"` and the API manifest filters by `workspace_file_metadata.originChatId === currentChatId`. `scope: "assistant"` widens to `originAssistantId === currentAssistantId`; `scope: "workspace_shared"` lists the workspace manifest without origin filtering.
+- `files.read`, `files.preview`, `files.attach`, and `files.delete` preflight known `/workspace/...` manifest rows before sandbox access. A file outside the current chat scope returns `cross_scope_required` unless the model explicitly passes `crossScope: true` after surfacing it via a widened list. Missing manifest rows remain allowed so current-turn shell-created files can still be touched before Block 3 freshness guards land.
+- Runtime/API internal file-list and metadata endpoints now carry `scope`, `currentChatId`, and `currentAssistantId`; the API owns manifest filtering, while runtime enforces before byte access.
+- Attachment registration now upserts `originChatId` and `originAssistantId`, so user uploads and delivered attachments remain visible in chat-scoped `files.list`.
+- Telegram runtime requests now carry the canonical PersAI `assistant_chat.id` in `RuntimeChannelContext.chatId` / `telegram.chatId`, and runtime uses one current-chat resolver for web and Telegram across Working Files, `files.*`, document origin tagging, and auto-attach. The top-level context field is channel-agnostic for future MAX runtime adapters.
+- Model-facing files guidance across runtime projection, API runtime policy, tool catalog seed, and bootstrap preset now teaches chat default, assistant/workspace_shared widens, and `crossScope: true` for deliberate cross-scope operations.
+
+Verification: focused API/runtime typechecks passed; focused API tests for manifest scope, attachment origin, and replace upsert passed; focused runtime files tests passed. Full AGENTS gate still pending before commit/push.
+
+### 2026-07-01 — Slice 3: Block 3 residuals (landed locally)
+
+Status: closed locally as a residual closeout rather than a new runtime subsystem.
+
+- Problem E's runtime hardening is already present in the active code path: `document.extract` allocates a fresh unused `/workspace/projects/<slug>/` by checking both `project.json` and existing child rows before selecting a project path, and API `files.attach` refuses project-owned PDF/DOCX/XLSX outputs unless a structurally valid current document version points at the output. This blocks stale project outputs from being silently attached as ordinary files.
+- Problem F remains closed by the 2026-06-30 seeded-exporter enforcement plus 2026-07-01 `suggestedNextActions`. No shell heuristic was introduced.
+- Problem G is handled in the prompt/model-facing layer: document guidance now explicitly says to follow `suggestedNextActions`, never dump large DOCX/XLSX/PDF content through shell stdout, never hand-build imported Office→PDF from partial reads, and never attach outputs from unrelated/stale document projects. No sandbox stdout limit increase and no `document.read_text` action were added; a dedicated bounded excerpt action remains optional only if live evidence recurs.
+
+Verification: focused API/runtime typechecks passed after the prompt/guidance update; final full AGENTS gate remains pending before the batched commit/push.
 
 ## Consequences
 

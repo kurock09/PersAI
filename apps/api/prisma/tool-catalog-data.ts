@@ -133,6 +133,7 @@ EXAMPLES:
 GOTCHAS:
 - document.extract no longer accepts outputDir; do not write flat \`*.extract\` sidecars manually.
 - For document work from an uploaded or existing workspace source, the normal flow is: extract into a document project when needed, render (auto-registers the output), optionally inspect, then files.attach. Do not call register_version in the standard render → attach flow.
+- When document.extract returns suggestedNextActions, follow them verbatim. Do not dump large DOCX/XLSX/PDF content through shell stdout, do not hand-build HTML from partial reads for imported Office→PDF, and do not attach outputs from unrelated/stale document projects.
 - For a simple new PDF, first write \`/workspace/<project>/index.html\` with files.write, then document.render(format=pdf), optional document.inspect, files.attach. Do not call presentation for a PDF document/manual/report.
 - If outputPath is already occupied, document.render preserves earlier deliveries by default and allocates a sibling name like \`report (1).pdf\`; pass \`replace: true\` only when the user explicitly asked to overwrite that exact file.
 - PDF render uses an HTML entrypoint by default; do not ask PDF render to auto-run a DOCX/XLSX Python builder as the PDF renderer.
@@ -333,16 +334,18 @@ GOTCHAS:
     description:
       "Path-driven workspace file operations: list, read, preview, write, delete, attach.",
     modelDescription:
-      "Path-driven file operations on the single flat `/workspace/` namespace. Read and write files by their exact listed `/workspace/...` path; user uploads may be sanitized, renamed, or collision-suffixed, so never reconstruct paths from displayName/filename. Use `/tmp/` for ephemeral scratch that the user should never see.",
+      "Path-driven file operations on the single flat `/workspace/` namespace. Read/write/delete/attach by exact listed `/workspace/...` path; never reconstruct paths from displayName/filename. Default visibility is current-chat scoped; widen to assistant or workspace_shared only on explicit user need. Writes are collision-safe by default, with `replace: true` as the exact-overwrite opt-in.",
     // policy-overridden: the real model-facing text is supplied by
     // runtime-tool-policy.ts resolveRuntimeToolUsageGuidance and always
     // supersedes this catalog value. Edit the hardcoded override there, not here.
-    modelUsageGuidance: `Files in this workspace live under \`/workspace/\`. Read any file with \`files.read\` using the exact path from the Working Files block, \`files.list\`, or a prior tool result. By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` on \`files.write\` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new \`/workspace/...\` path. Use \`/tmp/\` for ephemeral scratch that the user should not see.
+    modelUsageGuidance: `Files in this workspace live under \`/workspace/\`. By default \`files.list\` shows only the current chat scope. Widen only when the user asks: \`scope:"assistant"\` for this assistant's other chats, then \`scope:"workspace_shared"\` for the whole workspace. Read/preview/attach/delete by exact path from the Working Files block, a scoped \`files.list\`, or a prior tool result; if touching a file outside the current chat scope, first surface it via widened list and then pass \`crossScope:true\`. By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` on \`files.write\` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To create a new file, pick a new \`/workspace/...\` path. Use \`/tmp/\` for ephemeral scratch that the user should not see.
 WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace file to chat.
 WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a NEW structured document (use document).
 EXAMPLES:
-- files({action:"list", path:"/workspace/"}) — see every file in the workspace.
-- files({action:"read", path:"/workspace/report.csv"}) — read any file under /workspace/.
+- files({action:"list", path:"/workspace/"}) — see files from the current chat only.
+- files({action:"list", path:"/workspace/", scope:"assistant"}) — widen to this assistant's files from prior chats when the user asks.
+- files({action:"read", path:"/workspace/report.csv"}) — read a current-chat file under /workspace/.
+- files({action:"read", path:"/workspace/old-report.pdf", crossScope:true}) — read a cross-scope file only after surfacing it through a widened list.
 - files({action:"preview", path:"/workspace/notes.md", maxBytes:4096}) — peek at the head of a large file.
 - files({action:"write", path:"/workspace/draft.txt", content:"hello"}) — create a new file or allocate a sibling \` (N)\` filename when that exact path is already occupied.
 - files({action:"delete", path:"/workspace/tmp.bin"}) — remove an unneeded file.
@@ -351,6 +354,7 @@ GOTCHAS:
 - Six actions only: list, read, preview, write, delete, attach. There is no legacy file-id selector and no search/send/edit action here.
 - Paths must be pod-absolute and under /workspace/. Use /tmp/ for ephemeral scratch.
 - For list supply the directory path; for read/preview/write/delete/attach supply the file path.
+- Default scope is the current chat. Cross-chat or cross-assistant files require an explicit widened \`files.list({scope})\` followed by \`crossScope:true\` on the concrete operation.
 - By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` only when the user explicitly asked to overwrite that exact file.
 - attach delivers an EXISTING file; it does not regenerate. If the file is not yet written, write it first.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,

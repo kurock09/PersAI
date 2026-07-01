@@ -119,8 +119,16 @@ function testFilesCatalogRowUsesExactListedPaths(): void {
   const row = rows[0];
   const text = `${row.modelDescription}\n${row.modelUsageGuidance}`;
   assert.ok(
-    text.includes("exact path from the Working Files block"),
-    "files guidance must point the model at exact listed paths"
+    text.includes("By default `files.list` shows only the current chat scope"),
+    "files guidance must teach current-chat default scope"
+  );
+  assert.ok(
+    text.includes('scope:"assistant"') && text.includes('scope:"workspace_shared"'),
+    "files guidance must teach explicit assistant/workspace widens"
+  );
+  assert.ok(
+    text.includes("crossScope:true"),
+    "files guidance must teach explicit cross-scope operations"
   );
   assert.ok(
     text.includes("Do not reconstruct upload paths from displayName/filename"),

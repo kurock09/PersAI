@@ -152,6 +152,25 @@ describe("SendNativeTelegramTurnService", () => {
           threadId: "telegram-chat-1",
           externalUserKey: "telegram-user-1",
           mode: "direct",
+          channelContext: {
+            telegram: {
+              schema: "persai.runtime.telegramContext.v1",
+              chatId: "chat-db-telegram-1",
+              chat: {
+                id: "telegram-chat-1",
+                type: "private",
+                title: null
+              },
+              sender: {
+                telegramUserId: "telegram-user-1",
+                username: "user1",
+                firstName: "User",
+                lastName: "One",
+                displayName: "User One"
+              },
+              accessMode: "owner_only"
+            }
+          },
           userMessageId: "message-1",
           userMessage: "hello native telegram",
           attachments: [],
@@ -192,6 +211,23 @@ describe("SendNativeTelegramTurnService", () => {
         externalThreadKey: "telegram-chat-1",
         externalUserKey: "telegram-user-1",
         mode: "direct"
+      });
+      assert.deepEqual((capturedBody?.channelContext as Record<string, unknown>)?.telegram, {
+        schema: "persai.runtime.telegramContext.v1",
+        chatId: "chat-db-telegram-1",
+        chat: {
+          id: "telegram-chat-1",
+          type: "private",
+          title: null
+        },
+        sender: {
+          telegramUserId: "telegram-user-1",
+          username: "user1",
+          firstName: "User",
+          lastName: "One",
+          displayName: "User One"
+        },
+        accessMode: "owner_only"
       });
       assert.deepEqual(capturedBody?.openMediaJobs, [
         {

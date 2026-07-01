@@ -30,6 +30,8 @@ export interface WorkspaceFileMetadataRepository {
   list(input: {
     workspaceId: string;
     pathPrefix?: string;
+    originChatId?: string | null;
+    originAssistantId?: string | null;
     limit?: number;
   }): Promise<WorkspaceFileMetadataRow[]>;
   delete(input: { workspaceId: string; path: string }): Promise<void>;

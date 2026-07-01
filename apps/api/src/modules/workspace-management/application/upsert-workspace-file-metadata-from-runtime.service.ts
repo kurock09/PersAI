@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import {
+  ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
+  type AssistantChatMessageAttachmentRepository
+} from "../domain/assistant-chat-message-attachment.repository";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 
 export type UpsertWorkspaceFileMetadataFromRuntimeInput = {
@@ -6,6 +10,8 @@ export type UpsertWorkspaceFileMetadataFromRuntimeInput = {
   path: string;
   mimeType: string;
   sizeBytes: number;
+  contentHash: string | null;
+  replace: boolean;
   shortDescription: string | null;
   originChatId: string | null;
   originAssistantId: string | null;
@@ -17,7 +23,11 @@ export type UpsertWorkspaceFileMetadataFromRuntimeInput = {
 // upsert so the sandbox does not need DB access.
 @Injectable()
 export class UpsertWorkspaceFileMetadataFromRuntimeService {
-  constructor(private readonly workspaceFileMetadataService: WorkspaceFileMetadataService) {}
+  constructor(
+    private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
+    @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
+    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository
+  ) {}
 
   parseInput(body: unknown): UpsertWorkspaceFileMetadataFromRuntimeInput {
     if (body === null || typeof body !== "object" || Array.isArray(body)) {
@@ -45,11 +55,14 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
         : null;
     const originChatId = this.optionalUuid(row.originChatId, "originChatId");
     const originAssistantId = this.optionalUuid(row.originAssistantId, "originAssistantId");
+    const contentHash = this.optionalContentHash(row.contentHash);
     return {
       workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
       path,
       mimeType,
       sizeBytes: Math.floor(sizeBytes),
+      contentHash,
+      replace: row.replace === true,
       shortDescription,
       originChatId,
       originAssistantId
@@ -62,10 +75,29 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
       path: input.path,
       mimeType: input.mimeType,
       sizeBytes: input.sizeBytes,
+      ...(input.contentHash === null ? {} : { contentHash: input.contentHash }),
       ...(input.shortDescription !== null ? { shortDescription: input.shortDescription } : {}),
       ...(input.originChatId !== null ? { originChatId: input.originChatId } : {}),
       ...(input.originAssistantId !== null ? { originAssistantId: input.originAssistantId } : {})
     });
+    if (input.replace) {
+      await this.attachmentRepository.refreshWorkspacePathProjection({
+        workspaceId: input.workspaceId,
+        storagePath: input.path,
+        mimeType: input.mimeType,
+        sizeBytes: BigInt(input.sizeBytes)
+      });
+    }
+  }
+
+  private optionalContentHash(value: unknown): string | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new BadRequestException("contentHash must be a non-empty string when provided.");
+    }
+    return value.trim();
   }
 
   private optionalUuid(value: unknown, field: string): string | null {

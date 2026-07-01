@@ -6,6 +6,9 @@ export type ListWorkspaceFilesFromManifestInput = {
   workspaceId: string;
   pathPrefix: string;
   assistantHandle: string;
+  scope: "chat" | "assistant" | "workspace_shared";
+  currentChatId: string | null;
+  currentAssistantId: string;
 };
 
 export type ListWorkspaceFilesFromManifestOutcome = {
@@ -36,7 +39,10 @@ export class ListWorkspaceFilesFromManifestService {
     return {
       workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
       pathPrefix: this.requiredString(row.pathPrefix, "pathPrefix"),
-      assistantHandle: this.requiredString(row.assistantHandle, "assistantHandle")
+      assistantHandle: this.requiredString(row.assistantHandle, "assistantHandle"),
+      scope: this.readScope(row.scope),
+      currentChatId: this.readNullableString(row.currentChatId),
+      currentAssistantId: this.requiredString(row.currentAssistantId, "currentAssistantId")
     };
   }
 
@@ -50,6 +56,7 @@ export class ListWorkspaceFilesFromManifestService {
     const rows = await this.workspaceFileMetadataService.list({
       workspaceId: input.workspaceId,
       pathPrefix: searchPrefix,
+      ...this.resolveScopeFilters(input),
       limit: ListWorkspaceFilesFromManifestService.MAX_MANIFEST_ROWS_PER_LIST
     });
 
@@ -136,6 +143,36 @@ export class ListWorkspaceFilesFromManifestService {
 
   private isPersistedWorkspacePrefix(pathPrefix: string): boolean {
     return pathPrefix === "/workspace" || pathPrefix.startsWith("/workspace/");
+  }
+
+  private resolveScopeFilters(input: ListWorkspaceFilesFromManifestInput): {
+    originChatId?: string;
+    originAssistantId?: string;
+  } {
+    if (input.scope === "chat") {
+      return input.currentChatId === null
+        ? { originChatId: "__persai_no_chat_scope__" }
+        : { originChatId: input.currentChatId };
+    }
+    if (input.scope === "assistant") {
+      return { originAssistantId: input.currentAssistantId };
+    }
+    return {};
+  }
+
+  private readScope(value: unknown): ListWorkspaceFilesFromManifestInput["scope"] {
+    if (value === "assistant" || value === "workspace_shared") {
+      return value;
+    }
+    return "chat";
+  }
+
+  private readNullableString(value: unknown): string | null {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
   }
 
   private requiredString(value: unknown, field: string): string {

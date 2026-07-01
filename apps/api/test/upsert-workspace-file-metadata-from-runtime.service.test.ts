@@ -10,7 +10,14 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
       path: string;
       mimeType: string;
       sizeBytes: number | bigint;
+      contentHash?: string;
       shortDescription?: string;
+    }> = [];
+    const refreshCalls: Array<{
+      workspaceId: string;
+      storagePath: string;
+      mimeType: string;
+      sizeBytes: bigint;
     }> = [];
     const metadata = {
       async upsert(input: {
@@ -18,13 +25,28 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
         path: string;
         mimeType: string;
         sizeBytes: number | bigint;
+        contentHash?: string;
         shortDescription?: string;
       }) {
         calls.push(input);
       }
     };
-    const service = new UpsertWorkspaceFileMetadataFromRuntimeService(metadata as never);
-    return { service, calls };
+    const attachments = {
+      async refreshWorkspacePathProjection(input: {
+        workspaceId: string;
+        storagePath: string;
+        mimeType: string;
+        sizeBytes: bigint;
+      }) {
+        refreshCalls.push(input);
+        return 1;
+      }
+    };
+    const service = new UpsertWorkspaceFileMetadataFromRuntimeService(
+      metadata as never,
+      attachments as never
+    );
+    return { service, calls, refreshCalls };
   }
 
   test("upserts a /workspace/ row and omits empty shortDescription", async () => {
@@ -55,6 +77,25 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     });
     await service.execute(input);
     assert.equal(calls[0]?.shortDescription, "Mom's pie crust");
+  });
+
+  test("replace upsert propagates contentHash and refreshes matching attachment projections", async () => {
+    const { service, calls, refreshCalls } = buildService();
+    const input = service.parseInput({
+      workspaceId: "workspace-1",
+      path: "/workspace/report.csv",
+      mimeType: "text/csv",
+      sizeBytes: 42,
+      contentHash: "abc123",
+      replace: true
+    });
+    await service.execute(input);
+    assert.equal(calls[0]?.contentHash, "abc123");
+    assert.equal(refreshCalls.length, 1);
+    assert.equal(refreshCalls[0]?.workspaceId, "workspace-1");
+    assert.equal(refreshCalls[0]?.storagePath, "/workspace/report.csv");
+    assert.equal(refreshCalls[0]?.mimeType, "text/csv");
+    assert.equal(refreshCalls[0]?.sizeBytes, BigInt(42));
   });
 
   test("rejects paths outside /workspace/ (e.g. /tmp/)", () => {

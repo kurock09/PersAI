@@ -84,6 +84,8 @@ describe("register-chat-attachment.service", () => {
     assert.equal(createdInput?.processingStatus, "ready");
     assert.deepEqual((createdInput?.metadata as Record<string, unknown>)?.kind, "user_upload");
     assert.equal(upsertInput?.path, "/workspace/report.csv");
+    assert.equal(upsertInput?.originChatId, "chat-1");
+    assert.equal(upsertInput?.originAssistantId, "assistant-1");
     assert.equal(upsertInput?.shortDescription, "Quarterly report");
   });
 

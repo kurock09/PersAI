@@ -952,6 +952,9 @@ export class PersaiInternalApiClientService {
     workspaceId: string;
     pathPrefix: string;
     assistantHandle: string;
+    scope: "chat" | "assistant" | "workspace_shared";
+    currentChatId: string | null;
+    currentAssistantId: string;
   }): Promise<{ items: RuntimeFilesToolItem[] }> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
@@ -959,7 +962,12 @@ export class PersaiInternalApiClientService {
     const url =
       `/api/v1/internal/workspaces/${encodeURIComponent(input.workspaceId)}/files/list` +
       `?pathPrefix=${encodeURIComponent(input.pathPrefix)}` +
-      `&assistantHandle=${encodeURIComponent(input.assistantHandle)}`;
+      `&assistantHandle=${encodeURIComponent(input.assistantHandle)}` +
+      `&scope=${encodeURIComponent(input.scope)}` +
+      `&currentAssistantId=${encodeURIComponent(input.currentAssistantId)}` +
+      (input.currentChatId === null
+        ? ""
+        : `&currentChatId=${encodeURIComponent(input.currentChatId)}`);
     const response = await this.fetchJson(url, {
       method: "GET",
       headers: {
@@ -1012,6 +1020,64 @@ export class PersaiInternalApiClientService {
       validated.push(item);
     }
     return { items: validated };
+  }
+
+  async getWorkspaceFileMetadata(input: { workspaceId: string; path: string }): Promise<{
+    path: string;
+    mimeType: string;
+    sizeBytes: number;
+    originChatId: string | null;
+    originAssistantId: string | null;
+    updatedAt: string;
+  } | null> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const url =
+      `/api/v1/internal/workspaces/${encodeURIComponent(input.workspaceId)}/files/metadata` +
+      `?path=${encodeURIComponent(input.path)}`;
+    const response = await this.fetchJson(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`
+      }
+    });
+    if (!response.ok) {
+      const error = this.extractError(response.body);
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException(
+          error.message ?? "PersAI internal API workspace file metadata request failed."
+        );
+      }
+      throw new BadRequestException(
+        error.message ?? "PersAI internal API rejected the workspace file metadata request."
+      );
+    }
+    const payload = this.asObject(response.body);
+    const file = this.asObject(payload?.file);
+    if (file === null) {
+      return null;
+    }
+    if (
+      typeof file.path !== "string" ||
+      typeof file.mimeType !== "string" ||
+      typeof file.sizeBytes !== "number" ||
+      (file.originChatId !== null && typeof file.originChatId !== "string") ||
+      (file.originAssistantId !== null && typeof file.originAssistantId !== "string") ||
+      typeof file.updatedAt !== "string"
+    ) {
+      throw new BadGatewayException(
+        "PersAI internal API returned invalid workspace file metadata."
+      );
+    }
+    return {
+      path: file.path,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+      originChatId: file.originChatId,
+      originAssistantId: file.originAssistantId,
+      updatedAt: file.updatedAt
+    };
   }
 
   async inspectDocumentInWorkspace(input: {
@@ -1234,6 +1300,8 @@ export class PersaiInternalApiClientService {
     path: string;
     mimeType: string;
     sizeBytes: number;
+    contentHash?: string | null;
+    replace?: boolean;
     originChatId?: string | null;
     originAssistantId?: string | null;
   }): Promise<void> {
@@ -1251,6 +1319,10 @@ export class PersaiInternalApiClientService {
         path: input.path,
         mimeType: input.mimeType,
         sizeBytes: input.sizeBytes,
+        ...(input.contentHash === undefined || input.contentHash === null
+          ? {}
+          : { contentHash: input.contentHash }),
+        ...(input.replace === undefined ? {} : { replace: input.replace }),
         ...(input.originChatId === undefined || input.originChatId === null
           ? {}
           : { originChatId: input.originChatId }),

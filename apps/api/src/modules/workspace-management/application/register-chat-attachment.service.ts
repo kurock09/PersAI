@@ -230,6 +230,8 @@ export class RegisterChatAttachmentService {
       path: storagePath,
       mimeType: input.mimeType,
       sizeBytes: input.sizeBytes,
+      originChatId: input.chatId,
+      originAssistantId: input.assistantId,
       ...(input.shortDescription !== undefined && input.shortDescription !== null
         ? { shortDescription: input.shortDescription }
         : {})

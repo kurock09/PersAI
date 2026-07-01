@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-07-01 — ADR-131 local continuation: GH failures fixed, Slice 2 implemented locally, replace projections hardened
+
+Status: local-only continuation after founder instruction to **not push** until the remaining ADR-131 work is batched and verified together. This entry supersedes the earlier "commit/push this slice" residual for ADR-131 Slice 1.
+
+**What changed.**
+
+- Fixed the two GitHub Actions failures from the prior push: `exactOptionalPropertyTypes` issues in `apps/sandbox/test/sandbox.service.test.ts` and `apps/runtime/src/modules/turns/runtime-document-tool.service.ts`.
+- Implemented ADR-131 Slice 2 locally: `files.list` defaults to chat scope, supports `scope: "assistant"` and `scope: "workspace_shared"`, and read/preview/attach/delete preflight known `/workspace/...` manifest rows before sandbox byte access. Cross-scope operations now require explicit `crossScope: true`.
+- Removed the non-web scope tail: Telegram now threads the canonical PersAI `assistant_chat.id` through `RuntimeChannelContext.chatId` / `telegram.chatId`, and runtime uses one resolver for web and Telegram when populating Working Files, `files.*`, document origin metadata, and auto-attach. The contract also exposes top-level `channelContext.chatId` so any future MAX runtime adapter can use the same path.
+- Extended the internal API manifest list and metadata lookup surfaces with `scope`, `currentChatId`, and `currentAssistantId`; manifest filtering is API-owned and runtime enforces before byte access.
+- Fixed the Slice 2 origin blocker: `RegisterChatAttachmentService` now upserts `originChatId` and `originAssistantId`, so uploads/attachments remain visible in chat-scoped `files.list`.
+- Hardened `replace:true` projection coherence: runtime passes `replace` and text `contentHash` to manifest upsert; API refreshes matching attachment rows by path, updates MIME/size, clears stale thumbnail/poster refs, and file delivery endpoints no longer emit one-hour client cache headers for mutable path bytes.
+- Updated model-facing `files` guidance in runtime projection, API runtime policy, catalog seed, and bootstrap preset to teach chat default, assistant/workspace_shared widen, `crossScope:true`, collision-safe writes, and explicit `replace:true`.
+- Closed ADR-131 Slice 3 locally as a residual guidance/verification slice: `document.extract` already allocates fresh unused project paths and `files.attach` already blocks project-owned document outputs without a structurally valid current version; document guidance now explicitly warns to follow `suggestedNextActions`, avoid shell stdout dumps for large documents, avoid hand-built imported Office→PDF, and never attach unrelated/stale project outputs.
+
+**Files touched.** Runtime files/document/internal API client/projection tests; API manifest/list/metadata controller, metadata repository/service, runtime upsert service, attachment registration/repository, media attachment controller, runtime policy/catalog/bootstrap seed and tests; `packages/runtime-contract/src/index.ts`; ADR-131 docs, handoff, changelog, AGENTS.
+
+**Verification run so far.**
+
+- `corepack pnpm --filter @persai/sandbox run typecheck` — pass.
+- `corepack pnpm --filter @persai/runtime run build` — pass.
+- `corepack pnpm --filter @persai/api run typecheck` — pass.
+- `corepack pnpm --filter @persai/runtime run typecheck` — pass.
+- `corepack pnpm --filter @persai/api exec tsx test/list-workspace-files-from-manifest.service.test.ts` — pass.
+- `corepack pnpm --filter @persai/api exec tsx test/upsert-workspace-file-metadata-from-runtime.service.test.ts` — pass.
+- `corepack pnpm --filter @persai/api exec tsx test/register-chat-attachment.service.test.ts` — pass.
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-files-tool.service.test.ts` — pass.
+- `corepack pnpm --filter @persai/api exec tsx test/handle-internal-telegram-turn.service.test.ts` — pass.
+- `corepack pnpm --filter @persai/api exec tsx test/send-native-telegram-turn.service.test.ts` — pass.
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/turn-execution.service.test.ts` — pass.
+- Final full gate:
+  - `corepack pnpm -r --if-present run lint` — pass.
+  - `corepack pnpm run format:check` — pass.
+  - `corepack pnpm --filter @persai/api run typecheck` — pass.
+  - `corepack pnpm --filter @persai/web run typecheck` — pass.
+  - `corepack pnpm --filter @persai/runtime run typecheck` — pass.
+  - `corepack pnpm --filter @persai/sandbox run typecheck` — pass.
+  - `corepack pnpm --filter @persai/runtime run build` — pass.
+  - `corepack pnpm --filter @persai/api run test` — pass.
+  - `corepack pnpm --filter @persai/runtime run test` — pass.
+  - `corepack pnpm --filter @persai/sandbox run test` — pass.
+
+**Residual / next.** ADR-131 implementation is locally complete and final verification passed; commit/push is the remaining session action.
+
 ## 2026-07-01 — ADR-131 Slice 1 landed locally: anti-clobber Variant A across files.write, document.render, and control-plane writes
 
 Status: implementation slice completed locally after ADR-131 founder closure `e8ae4b91`; pending commit/push at the time of this handoff entry. Scope stayed inside ADR-131 Block 1. No Block 2 chat-scoping work and no Block 3 residual work landed in this slice.
@@ -129,6 +173,7 @@ Status: implemented locally on top of ADR-129 baseline `43a51f8a`. Focused runti
 Status: full local verification gate passed from baseline `39cda024`; commit + push requested for auto-deploy.
 
 **Checks run.**
+
 - `corepack pnpm run lint` — PASS
 - `corepack pnpm run typecheck` — PASS
 - `corepack pnpm --filter @persai/api run test` — PASS
@@ -590,6 +635,7 @@ Status: implemented locally on top of the ADR-129 hard-cutover checkpoint after 
 Visible-workspace PDF/XLSX/DOCX work is unchanged: it still goes through `document.extract → document.render → document.inspect → optional document.register_version → files.attach`. The `AssistantDocumentType`, `AssistantDocumentDescriptorMode`, and the chat-attachment `documentLink` metadata stay wide because `document.register_version` continues to register PDF/XLSX/DOCX visible documents into `AssistantDocument` rows.
 
 **Fix.** Removed dead code paths:
+
 - runtime `buildRetiredDescriptorModeResult` and its dispatch; retired descriptor modes now fail at parse with `invalid_arguments` and a guidance that points at the visible workspace actions.
 - `resolvePresentationDescriptorMode`, the `kind: "legacy"` variant union, and the `outputFormat ∈ {xlsx, docx}` branches in the presentation enqueue / normalize path.
 - the `create_pdf_document` default branch in the deferred document acknowledgement copy and the `pdf_document` branch in `extractDeferredDocumentJob`.

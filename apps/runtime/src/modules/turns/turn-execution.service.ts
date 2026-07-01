@@ -2027,7 +2027,7 @@ export class TurnExecutionService {
     const workingFilesSection = this.buildWorkingFilesDeveloperSection(
       input.availableWorkingFileHandles,
       {
-        currentChatId: input.request?.channelContext?.web?.chatId ?? null,
+        currentChatId: this.resolveCurrentChatId(input.request),
         producedPaths: new Set<string>()
       }
     );
@@ -3242,7 +3242,7 @@ export class TurnExecutionService {
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
           channel: acceptedTurn.session.conversation.channel,
-          chatId: input.channelContext?.web?.chatId ?? null,
+          chatId: this.resolveCurrentChatId(input),
           externalThreadKey: this.resolveSurfaceThreadKey(acceptedTurn.session.conversation),
           messageId: null
         });
@@ -3324,7 +3324,7 @@ export class TurnExecutionService {
             currentAttachments: execution.currentMessageAttachments,
             availableAttachments: documentSourceAttachments
           },
-          originChatId: input.channelContext?.web?.chatId ?? null,
+          originChatId: this.resolveCurrentChatId(input),
           activeDocumentProjectPath: turnState.activeDocumentProjectPath
         });
         return this.createToolExecutionOutcome(
@@ -4888,7 +4888,7 @@ export class TurnExecutionService {
     input: RuntimeTurnRequest
   ): void {
     turnState.workspaceId = input.bundle.workspaceId;
-    turnState.currentChatId = input.channelContext?.web?.chatId ?? null;
+    turnState.currentChatId = this.resolveCurrentChatId(input);
     turnState.deliveryFacts = createEmptyTurnDeliveryFacts();
   }
 
@@ -5610,6 +5610,22 @@ export class TurnExecutionService {
     }
     const trimmed = key.trim();
     return trimmed.length === 0 ? null : trimmed;
+  }
+
+  private resolveCurrentChatId(request: RuntimeTurnRequest | null | undefined): string | null {
+    const canonicalChatId = request?.channelContext?.chatId;
+    if (typeof canonicalChatId === "string" && canonicalChatId.trim().length > 0) {
+      return canonicalChatId.trim();
+    }
+    const webChatId = request?.channelContext?.web?.chatId;
+    if (typeof webChatId === "string" && webChatId.trim().length > 0) {
+      return webChatId.trim();
+    }
+    const telegramChatId = request?.channelContext?.telegram?.chatId;
+    if (typeof telegramChatId === "string" && telegramChatId.trim().length > 0) {
+      return telegramChatId.trim();
+    }
+    return null;
   }
 
   private extractProducedFileHandles(

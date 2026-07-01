@@ -515,6 +515,7 @@ async function run(): Promise<void> {
   assert.deepEqual(rewrittenMedia.media, runtimeMedia);
 
   let runtimeUserMessage = "";
+  let runtimeChannelContext: Record<string, unknown> | undefined;
   const enrichedMessageService = new HandleInternalTelegramTurnService(
     createChatRepositoryMock() as never,
     createBindingRepository() as never,
@@ -566,8 +567,9 @@ async function run(): Promise<void> {
     } as never,
     traceService as never,
     {
-      async execute(input: { userMessage: string }) {
+      async execute(input: { userMessage: string; channelContext?: Record<string, unknown> }) {
         runtimeUserMessage = input.userMessage;
+        runtimeChannelContext = input.channelContext;
         return {
           assistantMessage: "I saw the attachment failure.",
           respondedAt: "2026-04-06T00:00:03.000Z",
@@ -600,6 +602,24 @@ async function run(): Promise<void> {
     conversationMode: "direct",
     externalUserKey: "telegram-user-1",
     message: "look at this",
+    channelContext: {
+      telegram: {
+        schema: "persai.runtime.telegramContext.v1",
+        chat: {
+          id: "chat-1",
+          type: "private",
+          title: null
+        },
+        sender: {
+          telegramUserId: "telegram-user-1",
+          username: null,
+          firstName: null,
+          lastName: null,
+          displayName: null
+        },
+        accessMode: "owner_only"
+      }
+    },
     updateId: 100,
     hasAttachments: true,
     loadRawAttachments: async () => [
@@ -612,6 +632,13 @@ async function run(): Promise<void> {
     ]
   });
   assert.match(runtimeUserMessage, /Attachment processing notes/);
+  assert.equal((runtimeChannelContext?.chatId as string | undefined) ?? null, "chat-1");
+  assert.equal(
+    ((runtimeChannelContext?.telegram as Record<string, unknown> | undefined)?.chatId as
+      | string
+      | undefined) ?? null,
+    "chat-1"
+  );
 
   let telegramUploadRuntimeAttachmentCount = 0;
   const telegramUploadSummaryService = new HandleInternalTelegramTurnService(
