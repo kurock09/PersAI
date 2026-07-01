@@ -299,19 +299,77 @@ describe("register-chat-attachment.service", () => {
     );
   });
 
-  test("rejects files.attach for project-owned document outputs without a registered current version", async () => {
+  test("auto-registers files.attach for project-owned document outputs without a registered current version", async () => {
+    let createdInput: Record<string, unknown> | null = null;
+    const documentLink = {
+      docId: "doc-auto-1",
+      versionId: "version-auto-1",
+      versionNumber: 1,
+      descriptorMode: "create_document",
+      documentType: "workspace_document",
+      outputFormat: "pdf",
+      documentStatus: "ready",
+      versionStatus: "ready",
+      outputPath: "/workspace/projects/report/output/report.pdf",
+      workspaceProjectPath: "/workspace/projects/report",
+      projectManifestPath: "/workspace/projects/report/project.json",
+      projectSourcePath: "/workspace/projects/report/source/report.docx",
+      sourceKind: "imported_workspace_file",
+      sourcePath: "/workspace/report.docx",
+      sourceFormat: "docx",
+      sourceMimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      sourceManifestPath: "/workspace/projects/report/extract/manifest.json",
+      inspectionPath: "/workspace/projects/report/output/report.inspect.json",
+      inspectionSummary: {
+        format: "pdf",
+        counts: {
+          pageCount: 3,
+          sheetCount: null,
+          formulaCount: null,
+          blankSheetCount: null,
+          paragraphCount: null,
+          headingCount: null,
+          tableCount: null,
+          textCharCount: 1800
+        },
+        warnings: []
+      },
+      isCurrentOutput: true
+    };
+    const lookupCalls: string[] = [];
+    let inspectInput: Record<string, unknown> | null = null;
+    let registerInput: Record<string, unknown> | null = null;
     const service = new RegisterChatAttachmentService(
-      { assistantChat: { findFirst: async () => null } } as never,
       {
-        create: async () => {
-          throw new Error("should not create");
+        assistantChat: {
+          findFirst: async () => ({
+            id: "chat-1",
+            surface: "web",
+            surfaceThreadKey: "web-thread-1"
+          })
+        }
+      } as never,
+      {
+        create: async (input: Record<string, unknown>) => {
+          createdInput = input;
+          return {
+            id: "attachment-auto-1",
+            storagePath: input.storagePath,
+            attachmentType: input.attachmentType,
+            originalFilename: input.originalFilename,
+            mimeType: input.mimeType,
+            sizeBytes: input.sizeBytes,
+            processingStatus: input.processingStatus,
+            metadata: input.metadata,
+            createdAt: new Date("2026-07-02T00:00:00.000Z")
+          };
         }
       } as never,
       {
         async get(input: { path: string }) {
           if (
             input.path === "/workspace/projects/report/project.json" ||
-            input.path === "/workspace/projects/report/output/report.inspect.json"
+            input.path === "/workspace/projects/report/output/report.pdf"
           ) {
             return {
               workspaceId: "workspace-1",
@@ -328,27 +386,94 @@ describe("register-chat-attachment.service", () => {
         },
         upsert: async () => {}
       } as never,
-      { findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const }) } as never
+      {
+        async findCurrentDocumentLinkByOutputPath(input: { outputPath: string }) {
+          lookupCalls.push(input.outputPath);
+          return lookupCalls.length === 1
+            ? ({ status: "none" as const } as const)
+            : ({ status: "ready" as const, link: documentLink } as const);
+        }
+      } as never,
+      {
+        async execute(input: Record<string, unknown>) {
+          inspectInput = input;
+          return {
+            accepted: true,
+            sourcePath: "/workspace/projects/report/output/report.pdf",
+            inspectPath: "/workspace/projects/report/output/report.inspect.json",
+            format: "pdf" as const,
+            counts: {
+              pageCount: 3,
+              sheetCount: null,
+              formulaCount: null,
+              blankSheetCount: null,
+              paragraphCount: null,
+              headingCount: null,
+              tableCount: null,
+              textCharCount: 1800
+            },
+            warnings: [],
+            suggestedReadPaths: ["/workspace/projects/report/output/report.inspect.json"],
+            comparison: null
+          };
+        }
+      } as never,
+      {
+        async execute(input: Record<string, unknown>) {
+          registerInput = input;
+          return {
+            accepted: true,
+            docId: "doc-auto-1",
+            versionId: "version-auto-1",
+            versionNumber: 1,
+            descriptorMode: "create_document" as const,
+            documentType: "workspace_document" as const,
+            outputFormat: "pdf" as const,
+            outputPath: "/workspace/projects/report/output/report.pdf",
+            workspaceProjectPath: "/workspace/projects/report",
+            sourceManifestPath: "/workspace/projects/report/extract/manifest.json",
+            inspectionPath: "/workspace/projects/report/output/report.inspect.json"
+          };
+        }
+      } as never
     );
 
-    await assert.rejects(
-      () =>
-        service.execute({
-          assistantId: "assistant-1",
-          workspaceId: "workspace-1",
-          chatId: "chat-1",
-          messageId: "message-1",
-          storagePath: "/workspace/projects/report/output/report.pdf",
-          attachmentType: "document",
-          mimeType: "application/pdf",
-          sizeBytes: 128,
-          originalFilename: "report.pdf",
-          kind: "files.attach"
-        }),
-      (error: unknown) =>
-        error instanceof BadRequestException &&
-        /no current registered version points to it/i.test(error.message) &&
-        /document\.register_version/i.test(error.message)
+    const result = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      messageId: "message-1",
+      storagePath: "/workspace/projects/report/output/report.pdf",
+      attachmentType: "document",
+      mimeType: "application/pdf",
+      sizeBytes: 128,
+      originalFilename: "report.pdf",
+      kind: "files.attach"
+    });
+
+    assert.equal(result.attachmentId, "attachment-auto-1");
+    assert.equal(lookupCalls.length, 2);
+    assert.equal(inspectInput?.path, "/workspace/projects/report/output/report.pdf");
+    assert.equal(registerInput?.workspaceProjectPath, "/workspace/projects/report");
+    assert.equal(
+      registerInput?.inspectionPath,
+      "/workspace/projects/report/output/report.inspect.json"
+    );
+    assert.equal(
+      (
+        createdInput?.metadata as {
+          documentLink?: { outputPath?: string; workspaceProjectPath?: string };
+        }
+      )?.documentLink?.outputPath,
+      "/workspace/projects/report/output/report.pdf"
+    );
+    assert.equal(
+      (
+        createdInput?.metadata as {
+          documentLink?: { outputPath?: string; workspaceProjectPath?: string };
+        }
+      )?.documentLink?.workspaceProjectPath,
+      "/workspace/projects/report"
     );
   });
 });

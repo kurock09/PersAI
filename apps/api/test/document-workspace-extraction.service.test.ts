@@ -258,7 +258,8 @@ describe("DocumentWorkspaceExtractionService", () => {
     assert.match(exportPdfPy ?? "", /soffice/);
     assert.match(exportPdfPy ?? "", /--convert-to/);
     assert.match(exportPdfPy ?? "", /\/workspace\/projects\/revenue\/source\/revenue\.xlsx/);
-    assert.match(exportPdfPy ?? "", /PERSAI_OUTPUT_PATH/);
+    assert.match(exportPdfPy ?? "", /os\.environ\.get\('PERSAI_OUTPUT_PATH'\)/);
+    assert.match(exportPdfPy ?? "", /DEFAULT_OUTPUT_PATH/);
     assert.ok(Array.isArray(outcome.suggestedNextActions));
     assert.equal(outcome.suggestedNextActions?.length, 1);
     assert.deepEqual(outcome.suggestedNextActions?.[0]?.args, {
@@ -578,7 +579,8 @@ describe("DocumentWorkspaceExtractionService", () => {
     assert.match(exportPdfPy ?? "", /soffice/);
     assert.match(exportPdfPy ?? "", /--convert-to/);
     assert.match(exportPdfPy ?? "", /\/workspace\/projects\/source\/source\/source\.docx/);
-    assert.match(exportPdfPy ?? "", /PERSAI_OUTPUT_PATH/);
+    assert.match(exportPdfPy ?? "", /os\.environ\.get\('PERSAI_OUTPUT_PATH'\)/);
+    assert.match(exportPdfPy ?? "", /DEFAULT_OUTPUT_PATH/);
     assert.ok(Array.isArray(outcome.suggestedNextActions));
     assert.equal(outcome.suggestedNextActions?.length, 1);
     assert.deepEqual(outcome.suggestedNextActions?.[0]?.args, {
@@ -811,5 +813,143 @@ describe("DocumentWorkspaceExtractionService", () => {
     assert.equal(outcome.sourcePath, "/workspace/contracts/brief (6).docx");
     assert.ok(downloadedKeys.includes("gcs:contracts/brief (6).docx"));
     assert.match(outcome.warnings.join("\n"), /resolved to the newest sibling version/i);
+  });
+
+  test("reuses the existing document project for the same source instead of allocating a suffixed path", async () => {
+    const savedObjects = new Map<string, Buffer>();
+    const sourceBytes = Buffer.from("fake docx bytes", "utf8");
+    const existingProjectManifest = {
+      schema: "persai.document.project.v1",
+      projectPath: "/workspace/projects/source",
+      sourceKind: "imported_workspace_file",
+      sourcePath: "/workspace/source.docx",
+      projectSourcePath: "/workspace/projects/source/source/source.docx",
+      sourceFormat: "docx",
+      sourceMimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      extractManifestPath: "/workspace/projects/source/extract/manifest.json",
+      defaultRenderEntrypoint: "/workspace/projects/source/render/build.py",
+      defaultPdfExportEntrypoint: "/workspace/projects/source/render/export_pdf.py"
+    };
+    const service = new DocumentWorkspaceExtractionService(
+      {
+        async get(input: { path: string }) {
+          if (
+            input.path === "/workspace/source.docx" ||
+            input.path === "/workspace/projects/source/project.json"
+          ) {
+            return {
+              workspaceId: "workspace-1",
+              path: input.path,
+              mimeType:
+                input.path === "/workspace/source.docx"
+                  ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  : "application/json",
+              sizeBytes: BigInt(sourceBytes.length),
+              contentHash: input.path === "/workspace/source.docx" ? "hash-source-docx" : null,
+              shortDescription: null,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+          }
+          return null;
+        },
+        async list(input: { pathPrefix?: string }) {
+          if (input.pathPrefix === "/workspace/projects/source/") {
+            return [
+              {
+                workspaceId: "workspace-1",
+                path: "/workspace/projects/source/project.json",
+                mimeType: "application/json",
+                sizeBytes: BigInt(128),
+                contentHash: null,
+                shortDescription: null,
+                originChatId: null,
+                originAssistantId: null,
+                createdAt: new Date(),
+                updatedAt: new Date()
+              }
+            ];
+          }
+          return [];
+        },
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        buildWorkspaceObjectKey(input: { workspaceRelPath: string }) {
+          return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+        },
+        async downloadObject(objectKey: string) {
+          if (objectKey === "gcs:projects/source/project.json") {
+            return {
+              buffer: Buffer.from(JSON.stringify(existingProjectManifest, null, 2), "utf8"),
+              contentType: "application/json"
+            };
+          }
+          return {
+            buffer: sourceBytes,
+            contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          };
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer }) {
+          savedObjects.set(input.objectKey, input.buffer);
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: "application/octet-stream"
+          };
+        }
+      } as never,
+      {
+        async extract() {
+          return {
+            normalizedText: "Visible DOCX text",
+            markdown: "# DOCX\n\nVisible DOCX text",
+            provider: {
+              providerKey: "local" as const,
+              processorMode: "local" as const,
+              attemptedProviderKeys: ["local" as const]
+            },
+            quality: {
+              status: "ok" as const,
+              score: 0.9,
+              reasonCodes: [],
+              textChars: 17
+            }
+          };
+        }
+      } as never,
+      {
+        async pushWorkspaceFileBytes() {
+          return { mode: "written" as const, reason: null };
+        }
+      } as never
+    );
+
+    const first = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      path: "/workspace/source.docx",
+      mode: "auto",
+      outputDir: null
+    });
+    const second = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      path: "/workspace/source.docx",
+      mode: "auto",
+      outputDir: null
+    });
+
+    assert.equal(first.accepted, true);
+    assert.equal(second.accepted, true);
+    if (!first.accepted || !second.accepted) {
+      return;
+    }
+    assert.equal(first.projectPath, "/workspace/projects/source");
+    assert.equal(second.projectPath, "/workspace/projects/source");
+    assert.equal(second.projectManifestPath, "/workspace/projects/source/project.json");
+    assert.ok(savedObjects.has("gcs:projects/source/project.json"));
   });
 });

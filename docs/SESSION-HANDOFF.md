@@ -1,5 +1,35 @@
 # SESSION-HANDOFF
 
+## 2026-07-02 — ADR-131 delivery-safety correction + ADR-130 D8 recorded: doc slice landed locally (push=deploy pending founder go)
+
+Status: the document delivery-safety slice landed locally and was independently audited; nothing committed or pushed. Founder workflow is `push=deploy`, so commit + reconcile with `origin/main` + push (=deploy) + exec-image rebuild + the real live regression happen only on explicit founder go. Live regression is impossible before deploy because the fixes are not yet on the pods.
+
+**Why this slice exists.** Live PROD test on a real founder upload (`Карнаух_Федор_Отчет (1).docx`) failed hard: the model re-ran `document.extract` every turn (project proliferation `doc-…`→`-2`→`-3`), hand-built the PDF via `shell`+`soffice`, and then `files.attach` was **rejected** by the Wave 13B provenance gate — assistant reported false "готово" while the chat link 404'd. Root cause split: (a) the attach wall is a P0 delivery bug, (b) Problem F was not closed by prompt, (c) the re-extract loop is cross-turn tool amnesia (platform root, now owned by ADR-130 D8).
+
+**What changed (docs first, then mechanics-only code).**
+
+- **ADR-130** — recorded pain point **P6 (no cross-turn tool memory)**, decision **D8 (persist + replay thread tool history under cache discipline; tail-oriented full replay with compaction/elision, no cached-prefix invalidation)**, **Slice 6**, acceptance #8, and founder-approved sequencing (D8 recorded now; implemented after this doc slice). D8 supersedes the compact durable-state band-aid.
+- **ADR-131 Addendum 2026-07-02** — the doc-closure slice contract (5 items) + landed-locally progress note; Status reopened for delivery-safety correction.
+- **Code (5 mechanics fixes):**
+  1. `RegisterChatAttachmentService.resolveFilesAttachDocumentLink` — removed the hard-reject; auto-runs inspect → register_version server-side (reuses `DocumentWorkspaceInspectionService` + `DocumentWorkspaceVersionRegistrationService`, incl. `blocked` path via `revise_document`), re-resolves ready link, delivers exactly once; honest failure only if the file truly does not exist. Supersedes Wave 13B attach-refusal.
+  2. `DocumentWorkspaceExtractionService` — idempotent project reuse by source identity (`project.json` `sourcePath` or `contentHash`), latest registered canonical version for follow-on edit/render.
+  3. Single-door guidance — `document.extract` `suggestedNextActions` reason + `native-tool-projection.ts` / `tool-catalog-data.ts` / `bootstrap-preset-data.ts` point only to `document.render`; no `export_pdf.py`/shell steering; `shell` not gated.
+  4. Seeded `export_pdf.py` — `os.environ.get('PERSAI_OUTPUT_PATH')` with project-relative default (no standalone `NameError`); render still sets the env var.
+  5. Truthful delivery is structural (real attachment row), no prose heuristic.
+
+**Files touched.** `apps/api/src/modules/workspace-management/application/{register-chat-attachment.service,document-workspace-extraction.service}.ts` (+ their tests); `apps/runtime/src/modules/turns/{runtime-document-tool.service,native-tool-projection}.ts` (+ their tests); `apps/api/prisma/{tool-catalog-data,bootstrap-preset-data}.ts`; `apps/api/test/{tool-catalog-data.test.ts,fixtures/adr119-golden-prompt-snapshot.expected.txt}`; `docs/ADR/130-...md`; `docs/ADR/131-...md`; this handoff; `docs/CHANGELOG.md`.
+
+**Orchestration.** Parent orchestrated; one GPT-5.4 subagent implemented per the ADR-131 addendum contract; parent independently re-ran the two new reproducing tests green, audited the auto-register path for determinism/honest-failure, confirmed DI wiring (inspection + registration + prisma providers in the same module, no circular dependency), and verified Change 5 added no text-parsing heuristic.
+
+**Verification.** Subagent full AGENTS gate green (lint, `format:check`, api/web/runtime/sandbox typechecks, real `@persai/api` + `@persai/runtime` test runners, ADR-119 golden regenerated). Orchestrator independently re-ran both new reproducing tests green. The definitive full gate is rerun immediately before push (doc edits after that point still require a `format:check` re-run).
+
+**Residual / next.**
+
+1. On founder go: run the full AGENTS gate once more, commit, reconcile `origin/main`, push (=deploy), rebuild exec image.
+2. Post-deploy live regression on `persai-dev` with the real external DOCX: convert→pdf, edit/improve→docx, multi-file→one doc — assert exactly-once delivery, no broken link, no shell bypass, no project proliferation.
+3. Only after live passes: full-close ADR-129 + ADR-131 and update the AGENTS.md active-programs list; then start ADR-130 implementation (Slice 0 inventory/budget ledger → … → Slice 6 tool-history persistence).
+4. Flags (out of doc-slice scope): (a) orphan `node:test` files `runtime-files-tool.attach.test.ts` + `files-attach-after-image-generate.test.ts` not wired into the runtime suite; (b) `contracts:generate` single-quote churn across 659 generated files — pre-existing generator/prettier drift.
+
 ## 2026-07-01 — ADR-129 Addendum II/III: document tool polished to PROD (P-1..P-7 landed locally, push=deploy pending founder go)
 
 Status: full document-tool polishing program landed locally and verified; nothing committed or pushed. Founder workflow is `push=deploy`, so commit + reconcile with `origin/main` (1 behind) + push happen only on explicit founder go, followed by exec-image rebuild and live regression.

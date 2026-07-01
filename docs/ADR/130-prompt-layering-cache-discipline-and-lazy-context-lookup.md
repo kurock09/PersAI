@@ -84,6 +84,16 @@ The chat plan is useful and the engage result is acceptable as history, but the 
 
 ADR-119 correctly preserved `<voice>` and `<character_notes>` as layered blocks, but the active architecture still needs one explicit rule for precedence when user-authored character text conflicts with structural voice mechanics or other system-owned invariants. The field is user-owned and must remain verbatim, but its priority relative to other prompt owners must be stated clearly.
 
+#### P6 — No cross-turn tool memory (tool_use / tool_result are not persisted and replayed) [added 2026-07-02]
+
+The turn loop does not persist prior `tool_use` + `tool_result` blocks into the thread transcript and replay them on the next turn. `toolHistoryCount` resets per turn, so the model begins each turn with no memory of what it already did in this thread. This is a **platform-level root cause**, not a document quirk, and it was observed causing concrete production damage in the document workflow (2026-07-01 live, reproduced twice):
+
+- on a re-visited uploaded DOCX the model re-ran `document.extract` every turn, creating duplicate projects (`doc-…`, `-2`, `-3`);
+- it re-seeded scaffolds and, lacking memory of the render door, bypassed `document.render` by running `soffice` manually through `shell`;
+- it burned the per-turn tool budget without ever converging on a delivered file, then reported a false "готово" while the actual output was blocked and left as an unregistered orphan.
+
+The failure class is general to any multi-step tool workflow. A durable compact "active project" state fact would only patch the document symptom; the correct fix is persisting and replaying thread tool history under strict cache discipline so the model can see its own prior actions on every turn.
+
 ## Decision
 
 ### D1 — Four instruction/data layers, one owner each
@@ -238,6 +248,19 @@ Rules:
 - stable-prefix changes are allowed only as deliberate rollout events;
 - no slice may move turn-variable or workspace-variable data into BP1/BP2/BP3;
 - any seed/default/template change must document the one-time cache invalidation and the required materialization path.
+
+### D8 — Persist and replay thread tool history under cache discipline [added 2026-07-02]
+
+The thread must persist `tool_use` + `tool_result` blocks and replay them on subsequent turns so the model retains cross-turn memory of its own actions (parity with Claude/Cursor), instead of re-deriving state from scratch each turn.
+
+To keep this from bloating or thrashing the cached prefix, the replay is explicitly governed:
+
+- replayed tool history is **volatile context**, never baked into BP1/BP2/BP3 stable prefixes;
+- replay is tail-oriented: recent tool exchanges are replayed in full;
+- old or large `tool_result` payloads are compacted/elided with an explicit "earlier tool results truncated" marker — but never at the cost of the durable facts the model needs to continue (e.g. the active document project path/version);
+- growth of the replayed history must not silently invalidate the cached prefix; its churn stays in the volatile zone.
+
+This decision **supersedes the "compact durable-state fact" band-aid**: document-project reuse (no `-2`/`-3` proliferation), no-shell convergence on the render door, and honest delivery all follow naturally once the model can see its own prior tool actions. The document polishing slice may still add idempotent project reuse as an independent safety net, but it is no longer the primary fix for cross-turn amnesia.
 
 ## Non-goals
 
@@ -410,6 +433,27 @@ Acceptance:
 
 - next-session readers do not have to rediscover the precedence or prompt-owner model.
 
+### Slice 6 — Cross-turn tool-history persistence and replay (D8) [added 2026-07-02]
+
+Subagent: GPT-5.4.
+
+Goal:
+
+- give the model durable cross-turn memory of its own `tool_use` / `tool_result` actions under cache discipline.
+
+Do:
+
+- persist thread `tool_use` + `tool_result` blocks and replay them on subsequent turns as volatile context;
+- implement tail replay + compaction/elision of old/large tool results with an explicit truncation marker, preserving durable continuation facts;
+- verify no BP1/BP2/BP3 stable-prefix regression and no cache thrash from history growth.
+
+Acceptance:
+
+- across turns the model sees its prior tool actions and does not re-derive state (e.g. does not re-extract a document project it already created);
+- prefix cache discipline (D7) holds.
+
+Sequencing note (founder-approved 2026-07-02): this slice is **recorded now but scheduled after** the standalone document polishing/delivery-safety slice that closes the document ADRs. Order: (1) record D8 here; (2) land document polishing + honest delivery and close doc ADRs (129/131); (3) implement ADR-130 including this slice.
+
 ## Acceptance criteria
 
 This ADR is not complete until all of the following are true:
@@ -421,6 +465,7 @@ This ADR is not complete until all of the following are true:
 5. scenario/todo volatile duplication is materially reduced.
 6. `character_notes` precedence is explicit and documented.
 7. all prompt-owner decisions are reflected in active docs, not only in code.
+8. thread `tool_use` / `tool_result` history is persisted and replayed across turns under cache discipline (D8), so the model retains cross-turn memory of its own actions.
 
 ## Residual risk
 
@@ -430,4 +475,4 @@ This ADR is not complete until all of the following are true:
 
 ## Next recommended step
 
-Start with Slice 0 and persist the inventory/budget ledger before implementation changes begin. Once the orchestrator has that ledger, Slice 1 (`enabled_skills` compression + lazy skill detail lookup) is the highest-value first code slice.
+Founder-approved sequence (2026-07-02): D8 (cross-turn tool history) is **recorded here now**, but the **next actual implementation work is the standalone document polishing + honest-delivery slice** (remove the provenance delivery wall so attach auto-registers and always delivers; idempotent durable document project with latest-version editing; render as the single door without steering the model into `shell`; self-sufficient/hidden exporter) which then **closes the document ADRs (129/131)**. Only after that does ADR-130 implementation begin — starting with Slice 0 (inventory/budget ledger), then the highest-value slices, with Slice 6 (tool-history persistence) as the platform-root fix for cross-turn amnesia.

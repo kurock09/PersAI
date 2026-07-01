@@ -2763,9 +2763,7 @@ export class RuntimeDocumentToolService {
       projectManifest?.sourceKind === "imported_workspace_file" &&
       (projectManifest.sourceFormat === "docx" || projectManifest.sourceFormat === "xlsx")
     ) {
-      return `Imported ${projectManifest.sourceFormat.toUpperCase()} -> PDF export requires the visible Office PDF entrypoint ${buildDocumentProjectPdfExportEntrypoint(
-        buildDocumentWorkspaceProjectLayout(projectPath)
-      )}.`;
+      return `Imported ${projectManifest.sourceFormat.toUpperCase()} -> PDF export must go through document.render(format=pdf) on the extracted project. Do not pick or run a separate PDF conversion entrypoint.`;
     }
     if (format === "pdf") {
       return "document.render(format=pdf) requires a visible HTML entrypoint unless an explicit Python entrypoint is provided that writes the PDF to PERSAI_OUTPUT_PATH.";
@@ -2914,6 +2912,7 @@ export class RuntimeDocumentToolService {
       "os.makedirs(os.path.dirname(output_path), exist_ok=True)",
       "sys.path.insert(0, project_dir)",
       "os.chdir(project_dir)",
+      "os.environ['PERSAI_OUTPUT_PATH'] = output_path",
       'globals_dict = {"__name__": "__main__", "__file__": entrypoint_path, "PERSAI_OUTPUT_PATH": output_path}',
       "exec(compile(script_source, entrypoint_path, 'exec'), globals_dict)",
       "if not os.path.isfile(output_path):",

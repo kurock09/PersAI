@@ -110,7 +110,7 @@ describe("RuntimeDocumentToolService", () => {
                 format: "pdf" as const
               },
               reason:
-                "Convert the imported DOCX to PDF via the seeded LibreOffice export_pdf.py entrypoint. Do not read the source content chunk by chunk; call this action directly."
+                "Convert the imported DOCX to PDF by calling document.render directly. Do not read the source content chunk by chunk or run a shell conversion; call this action directly."
             }
           ]
         };
@@ -162,7 +162,7 @@ describe("RuntimeDocumentToolService", () => {
           format: "pdf"
         },
         reason:
-          "Convert the imported DOCX to PDF via the seeded LibreOffice export_pdf.py entrypoint. Do not read the source content chunk by chunk; call this action directly."
+          "Convert the imported DOCX to PDF by calling document.render directly. Do not read the source content chunk by chunk or run a shell conversion; call this action directly."
       }
     ]);
   });
@@ -683,6 +683,7 @@ describe("RuntimeDocumentToolService", () => {
       );
       assert.match(programSource, /soffice/);
       assert.match(programSource, /PERSAI_OUTPUT_PATH/);
+      assert.match(programSource, /os\.environ\['PERSAI_OUTPUT_PATH'\] = output_path/);
       assert.doesNotMatch(programSource, /weasyprint/i);
     }
   });
@@ -764,7 +765,7 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "skipped");
     assert.equal(result.payload.reason, "unsupported_render_source");
-    assert.match(result.payload.warning ?? "", /render\/export_pdf\.py/);
+    assert.match(result.payload.warning ?? "", /document\.render\(format=pdf\)/);
     assert.ok(
       sandboxCalls.every(
         (call) =>

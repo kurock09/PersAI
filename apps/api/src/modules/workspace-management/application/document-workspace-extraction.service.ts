@@ -16,6 +16,7 @@ import { DocumentExtractionService } from "./document-extraction.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import type {
   KnowledgeDocumentProcessingInput,
   KnowledgeExtractionQuality,
@@ -129,7 +130,8 @@ export class DocumentWorkspaceExtractionService {
     private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly documentExtractionService: DocumentExtractionService,
-    private readonly sandboxControlPlaneClient: SandboxControlPlaneClientService
+    private readonly sandboxControlPlaneClient: SandboxControlPlaneClientService,
+    private readonly prisma?: WorkspaceManagementPrismaService
   ) {}
 
   parseInput(value: unknown): WorkspaceDocumentExtractInput {
@@ -168,14 +170,27 @@ export class DocumentWorkspaceExtractionService {
         message: "document.extract path must be a valid /workspace/... file path."
       };
     }
-    const sourcePath = await this.resolveNewestVersionedSourcePath({
+    const sourceIdentityPath = await this.resolveNewestVersionedSourcePath({
       workspaceId: input.workspaceId,
       requestedPath: requestedSourcePath
     });
-    const projectPath = await this.resolveUniqueDocumentProjectPath({
+    const sourceIdentityMetadata = await this.workspaceFileMetadataService.get({
       workspaceId: input.workspaceId,
-      sourcePath
+      path: sourceIdentityPath
     });
+    if (sourceIdentityMetadata === null) {
+      return {
+        accepted: false,
+        code: "path_not_found",
+        message: `Workspace file not found: ${sourceIdentityPath}`
+      };
+    }
+    const projectPathResolution = await this.resolveUniqueDocumentProjectPath({
+      workspaceId: input.workspaceId,
+      sourcePath: sourceIdentityPath,
+      sourceContentHash: sourceIdentityMetadata.contentHash ?? null
+    });
+    const projectPath = projectPathResolution?.projectPath ?? null;
     if (projectPath === null) {
       return {
         accepted: false,
@@ -183,47 +198,66 @@ export class DocumentWorkspaceExtractionService {
         message: "Could not derive a valid document project path for document.extract."
       };
     }
+    const reusingExistingProject = projectPathResolution?.reuseExisting === true;
     const projectLayout = buildDocumentWorkspaceProjectLayout(projectPath);
-    const existingProjectChildren = await this.workspaceFileMetadataService.list({
-      workspaceId: input.workspaceId,
-      pathPrefix: `${projectPath}/`,
-      limit: 1
-    });
-    if (existingProjectChildren.length > 0) {
-      return {
-        accepted: false,
-        code: "project_path_not_empty",
-        message: `document.extract project path already contains workspace files: ${projectPath}`
-      };
+    if (!reusingExistingProject) {
+      const existingProjectChildren = await this.workspaceFileMetadataService.list({
+        workspaceId: input.workspaceId,
+        pathPrefix: `${projectPath}/`,
+        limit: 1
+      });
+      if (existingProjectChildren.length > 0) {
+        return {
+          accepted: false,
+          code: "project_path_not_empty",
+          message: `document.extract project path already contains workspace files: ${projectPath}`
+        };
+      }
     }
     const resolvedOutputDir = projectLayout.extractDir;
-    const existingOutputFile = await this.workspaceFileMetadataService.get({
-      workspaceId: input.workspaceId,
-      path: resolvedOutputDir
-    });
-    if (existingOutputFile !== null) {
-      return {
-        accepted: false,
-        code: "invalid_output_dir",
-        message: `document.extract outputDir points at an existing workspace file: ${resolvedOutputDir}`
-      };
+    if (!reusingExistingProject) {
+      const existingOutputFile = await this.workspaceFileMetadataService.get({
+        workspaceId: input.workspaceId,
+        path: resolvedOutputDir
+      });
+      if (existingOutputFile !== null) {
+        return {
+          accepted: false,
+          code: "invalid_output_dir",
+          message: `document.extract outputDir points at an existing workspace file: ${resolvedOutputDir}`
+        };
+      }
+      const existingOutputChildren = await this.workspaceFileMetadataService.list({
+        workspaceId: input.workspaceId,
+        pathPrefix: `${resolvedOutputDir}/`,
+        limit: 1
+      });
+      if (existingOutputChildren.length > 0) {
+        return {
+          accepted: false,
+          code: "output_dir_not_empty",
+          message: `document.extract outputDir already contains workspace files: ${resolvedOutputDir}`
+        };
+      }
     }
-    const existingOutputChildren = await this.workspaceFileMetadataService.list({
-      workspaceId: input.workspaceId,
-      pathPrefix: `${resolvedOutputDir}/`,
-      limit: 1
+    const sourceIdentityFormat = inferDocumentProjectSourceFormat({
+      sourcePath: sourceIdentityPath,
+      mimeType: sourceIdentityMetadata.mimeType
     });
-    if (existingOutputChildren.length > 0) {
-      return {
-        accepted: false,
-        code: "output_dir_not_empty",
-        message: `document.extract outputDir already contains workspace files: ${resolvedOutputDir}`
-      };
-    }
-    const sourceMetadata = await this.workspaceFileMetadataService.get({
+    const sourcePath = await this.resolveLatestProjectCanonicalSourcePath({
+      assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      path: sourcePath
+      projectPath,
+      sourcePath: sourceIdentityPath,
+      sourceFormat: sourceIdentityFormat
     });
+    const sourceMetadata =
+      sourcePath === sourceIdentityPath
+        ? sourceIdentityMetadata
+        : await this.workspaceFileMetadataService.get({
+            workspaceId: input.workspaceId,
+            path: sourcePath
+          });
     if (sourceMetadata === null) {
       return {
         accepted: false,
@@ -278,11 +312,17 @@ export class DocumentWorkspaceExtractionService {
           mode: input.mode
         });
     const sourceResolutionWarnings =
-      sourcePath === requestedSourcePath
+      sourceIdentityPath === requestedSourcePath
         ? []
         : [
-            `Requested source ${requestedSourcePath} was resolved to the newest sibling version ${sourcePath}.`
+            `Requested source ${requestedSourcePath} was resolved to the newest sibling version ${sourceIdentityPath}.`
           ];
+    const projectReuseWarnings =
+      reusingExistingProject && sourcePath !== sourceIdentityPath
+        ? [
+            `Reused existing document project ${projectPath} and refreshed its canonical source copy from the latest registered ${sourceFormat.toUpperCase()} version ${sourcePath}.`
+          ]
+        : [];
 
     const manifestPath = `${resolvedOutputDir}/manifest.json`;
     const manifest = this.buildManifest({
@@ -314,7 +354,10 @@ export class DocumentWorkspaceExtractionService {
     if (projectLayout !== null) {
       const extractedTextFile = build.files.find((file) => file.path.endsWith("/extracted.md"));
       const extractedText = extractedTextFile?.buffer.toString("utf8") ?? "";
-      const projectSourcePath = buildDocumentProjectSourceCopyPath(projectLayout, sourcePath);
+      const projectSourcePath = buildDocumentProjectSourceCopyPath(
+        projectLayout,
+        sourceIdentityPath
+      );
       const defaultRenderEntrypoint = resolveDocumentProjectDefaultRenderEntrypoint({
         layout: projectLayout,
         sourceKind: "imported_workspace_file",
@@ -323,11 +366,11 @@ export class DocumentWorkspaceExtractionService {
       const projectManifest = buildDocumentProjectManifest({
         layout: projectLayout,
         sourceKind: "imported_workspace_file",
-        sourcePath,
+        sourcePath: sourceIdentityPath,
         projectSourcePath,
         sourceFormat,
         sourceMimeType: mimeType,
-        sourceDisplayName: lastPathSegment(sourcePath),
+        sourceDisplayName: lastPathSegment(sourceIdentityPath),
         extractManifestPath: manifestPath,
         mimeType
       });
@@ -335,14 +378,14 @@ export class DocumentWorkspaceExtractionService {
         path: projectLayout.projectManifestPath,
         mimeType: "application/json",
         buffer: Buffer.from(JSON.stringify(projectManifest, null, 2), "utf8"),
-        shortDescription: `Document project manifest for ${sourcePath}`
+        shortDescription: `Document project manifest for ${sourceIdentityPath}`
       });
       if (projectSourcePath !== null) {
         projectFiles.push({
           path: projectSourcePath,
           mimeType,
           buffer: downloaded.buffer,
-          shortDescription: `Project-native source copy for ${sourcePath}`
+          shortDescription: `Project-native source copy for ${sourceIdentityPath}`
         });
       }
       if (projectSourcePath !== null && (sourceFormat === "docx" || sourceFormat === "xlsx")) {
@@ -356,7 +399,7 @@ export class DocumentWorkspaceExtractionService {
             }),
             "utf8"
           ),
-          shortDescription: `Native render scaffold for ${sourcePath}`
+          shortDescription: `Native render scaffold for ${sourceIdentityPath}`
         });
         projectFiles.push({
           path: buildDocumentProjectPdfExportEntrypoint(projectLayout),
@@ -368,7 +411,7 @@ export class DocumentWorkspaceExtractionService {
             }),
             "utf8"
           ),
-          shortDescription: `Office PDF export scaffold for ${sourcePath}`
+          shortDescription: `Office PDF export scaffold for ${sourceIdentityPath}`
         });
       }
       if (
@@ -381,12 +424,12 @@ export class DocumentWorkspaceExtractionService {
           mimeType: "text/html",
           buffer: Buffer.from(
             buildDocumentProjectRenderScaffoldHtml({
-              sourcePath,
+              sourcePath: sourceIdentityPath,
               extractedText
             }),
             "utf8"
           ),
-          shortDescription: `Render scaffold HTML for ${sourcePath}`
+          shortDescription: `Render scaffold HTML for ${sourceIdentityPath}`
         });
       }
     }
@@ -427,7 +470,7 @@ export class DocumentWorkspaceExtractionService {
       projectSourcePath:
         projectLayout === null
           ? null
-          : buildDocumentProjectSourceCopyPath(projectLayout, sourcePath),
+          : buildDocumentProjectSourceCopyPath(projectLayout, sourceIdentityPath),
       defaultRenderEntrypoint:
         projectLayout === null
           ? null
@@ -442,7 +485,7 @@ export class DocumentWorkspaceExtractionService {
         ...(projectLayout?.projectManifestPath ? [projectLayout.projectManifestPath] : []),
         ...(projectLayout === null
           ? []
-          : [buildDocumentProjectSourceCopyPath(projectLayout, sourcePath)].filter(
+          : [buildDocumentProjectSourceCopyPath(projectLayout, sourceIdentityPath)].filter(
               (value): value is string => typeof value === "string"
             )),
         ...(projectLayout === null
@@ -463,7 +506,12 @@ export class DocumentWorkspaceExtractionService {
       counts: build.counts,
       provider: build.provider,
       quality: build.quality,
-      warnings: [...resultWarnings, ...sourceResolutionWarnings, ...pushWarnings],
+      warnings: [
+        ...resultWarnings,
+        ...sourceResolutionWarnings,
+        ...projectReuseWarnings,
+        ...pushWarnings
+      ],
       suggestedNextActions
     };
   }
@@ -489,7 +537,7 @@ export class DocumentWorkspaceExtractionService {
           outputPath: input.projectLayout.defaultPdfOutputPath,
           format: "pdf"
         },
-        reason: `Convert the imported ${input.sourceFormat.toUpperCase()} to PDF via the seeded LibreOffice export_pdf.py entrypoint. Do not read the source content chunk by chunk; call this action directly.`
+        reason: `Convert the imported ${input.sourceFormat.toUpperCase()} to PDF by calling document.render directly. Do not read the source content chunk by chunk or run a shell conversion; call this action directly.`
       }
     ];
   }
@@ -712,7 +760,8 @@ export class DocumentWorkspaceExtractionService {
   private async resolveUniqueDocumentProjectPath(input: {
     workspaceId: string;
     sourcePath: string;
-  }): Promise<string | null> {
+    sourceContentHash: string | null;
+  }): Promise<{ projectPath: string; reuseExisting: boolean } | null> {
     const preferred = deriveDefaultDocumentProjectPath(input.sourcePath);
     const normalizedPreferred = normalizeWorkspaceDirectory(preferred);
     if (normalizedPreferred === null) {
@@ -730,12 +779,149 @@ export class DocumentWorkspaceExtractionService {
         pathPrefix: `${candidate}/`,
         limit: 1
       });
+      if (existingProjectManifest !== null) {
+        const existingManifest = await this.readDocumentProjectManifest({
+          workspaceId: input.workspaceId,
+          projectPath: candidate
+        });
+        if (
+          await this.projectManifestMatchesSourceIdentity({
+            workspaceId: input.workspaceId,
+            manifest: existingManifest,
+            sourcePath: input.sourcePath,
+            sourceContentHash: input.sourceContentHash
+          })
+        ) {
+          return { projectPath: candidate, reuseExisting: true };
+        }
+      }
       if (existingProjectManifest === null && existingChildren.length === 0) {
-        return candidate;
+        return { projectPath: candidate, reuseExisting: false };
       }
       suffix += 1;
     }
     return null;
+  }
+
+  private async readDocumentProjectManifest(input: {
+    workspaceId: string;
+    projectPath: string;
+  }): Promise<Record<string, unknown> | null> {
+    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
+      workspaceId: input.workspaceId,
+      workspaceRelPath: `${input.projectPath}/project.json`
+    });
+    const downloaded = await this.mediaObjectStorage.downloadObject(objectKey);
+    if (downloaded === null) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(downloaded.buffer.toString("utf8"));
+      return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async projectManifestMatchesSourceIdentity(input: {
+    workspaceId: string;
+    manifest: Record<string, unknown> | null;
+    sourcePath: string;
+    sourceContentHash: string | null;
+  }): Promise<boolean> {
+    const manifestSourcePath =
+      typeof input.manifest?.sourcePath === "string" ? input.manifest.sourcePath.trim() : null;
+    if (manifestSourcePath === null) {
+      return false;
+    }
+    if (manifestSourcePath === input.sourcePath) {
+      return true;
+    }
+    if (input.sourceContentHash === null) {
+      return false;
+    }
+    const manifestSourceMetadata = await this.workspaceFileMetadataService.get({
+      workspaceId: input.workspaceId,
+      path: manifestSourcePath
+    });
+    return manifestSourceMetadata?.contentHash === input.sourceContentHash;
+  }
+
+  private async resolveLatestProjectCanonicalSourcePath(input: {
+    assistantId: string;
+    workspaceId: string;
+    projectPath: string;
+    sourcePath: string;
+    sourceFormat: DocumentWorkspaceProjectSourceFormat;
+  }): Promise<string> {
+    if (
+      this.prisma === undefined ||
+      (input.sourceFormat !== "pdf" &&
+        input.sourceFormat !== "docx" &&
+        input.sourceFormat !== "xlsx")
+    ) {
+      return input.sourcePath;
+    }
+    const document = await this.prisma.assistantDocument.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        currentVersion: {
+          is: {
+            sourceJson: {
+              path: ["metadata", "documentWorkspace", "workspaceProjectPath"],
+              equals: input.projectPath
+            }
+          }
+        }
+      },
+      orderBy: {
+        updatedAt: "desc"
+      },
+      select: {
+        currentVersion: {
+          select: {
+            sourceJson: true
+          }
+        }
+      }
+    });
+    const sourceJson =
+      document?.currentVersion?.sourceJson !== null &&
+      typeof document?.currentVersion?.sourceJson === "object" &&
+      !Array.isArray(document?.currentVersion?.sourceJson)
+        ? (document.currentVersion.sourceJson as Record<string, unknown>)
+        : null;
+    const latestOutputFormat =
+      sourceJson?.outputFormat === "pdf" ||
+      sourceJson?.outputFormat === "docx" ||
+      sourceJson?.outputFormat === "xlsx"
+        ? sourceJson.outputFormat
+        : null;
+    const metadata =
+      sourceJson?.metadata !== null &&
+      typeof sourceJson?.metadata === "object" &&
+      !Array.isArray(sourceJson?.metadata)
+        ? (sourceJson.metadata as Record<string, unknown>)
+        : null;
+    const workspaceFacts =
+      metadata?.documentWorkspace !== null &&
+      typeof metadata?.documentWorkspace === "object" &&
+      !Array.isArray(metadata?.documentWorkspace)
+        ? (metadata.documentWorkspace as Record<string, unknown>)
+        : null;
+    const latestOutputPath =
+      typeof workspaceFacts?.outputPath === "string" ? workspaceFacts.outputPath : null;
+    if (latestOutputFormat !== input.sourceFormat || latestOutputPath === null) {
+      return input.sourcePath;
+    }
+    const latestOutputMetadata = await this.workspaceFileMetadataService.get({
+      workspaceId: input.workspaceId,
+      path: latestOutputPath
+    });
+    return latestOutputMetadata === null ? input.sourcePath : latestOutputPath;
   }
 
   private async resolveNewestVersionedSourcePath(input: {
@@ -1130,13 +1316,15 @@ function buildImportedOfficePdfExportScaffold(input: {
   projectSourcePath: string;
 }): string {
   return [
+    "import os",
     "from pathlib import Path",
     "import shutil",
     "import subprocess",
     "import tempfile",
     "",
     `SOURCE_PATH = Path(${JSON.stringify(input.projectSourcePath)})`,
-    "OUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)",
+    "DEFAULT_OUTPUT_PATH = SOURCE_PATH.parent.parent / 'output' / 'report.pdf'",
+    "OUTPUT_PATH = Path(os.environ.get('PERSAI_OUTPUT_PATH') or str(DEFAULT_OUTPUT_PATH))",
     "",
     "def export_pdf() -> None:",
     '    with tempfile.TemporaryDirectory(prefix="persai-office-pdf-", dir="/tmp") as tmp_dir:',

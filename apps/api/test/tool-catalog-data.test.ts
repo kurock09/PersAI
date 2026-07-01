@@ -115,7 +115,9 @@ function testDocumentCatalogRowTeachesVisibleWorkflow(): void {
   );
   assert.ok(
     row.modelUsageGuidance.includes("PDF render uses an HTML entrypoint by default") &&
-      row.modelUsageGuidance.includes("seeded LibreOffice exporter") &&
+      row.modelUsageGuidance.includes(
+        "runtime-managed Office export path inside `document.render`"
+      ) &&
       row.modelUsageGuidance.includes("ignores `content`/`template`"),
     "document guidance must default PDF to HTML and keep imported Office->PDF on the fixed LibreOffice path"
   );

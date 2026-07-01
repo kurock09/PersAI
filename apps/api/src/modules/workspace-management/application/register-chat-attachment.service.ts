@@ -12,11 +12,13 @@ import {
 import type { AssistantChatSurface } from "../domain/assistant-chat.entity";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { AssistantDocumentJobService } from "./assistant-document-job.service";
+import { DocumentWorkspaceInspectionService } from "./document-workspace-inspection.service";
 import {
   buildDefaultInspectionPath,
   inferProjectPathFromOutputPath,
   resolveVisibleWorkspaceOutputFormatFromPath
 } from "./document-workspace-deliverable-gating";
+import { DocumentWorkspaceVersionRegistrationService } from "./document-workspace-version-registration.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 
 export type RegisterChatAttachmentKind =
@@ -80,7 +82,9 @@ export class RegisterChatAttachmentService {
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
-    private readonly assistantDocumentJobService: AssistantDocumentJobService
+    private readonly assistantDocumentJobService: AssistantDocumentJobService,
+    private readonly documentWorkspaceInspectionService?: DocumentWorkspaceInspectionService,
+    private readonly documentWorkspaceVersionRegistrationService?: DocumentWorkspaceVersionRegistrationService
   ) {}
 
   parseRuntimeInput(value: unknown): RegisterChatAttachmentFromRuntimeInput {
@@ -195,6 +199,7 @@ export class RegisterChatAttachmentService {
         ? await this.resolveFilesAttachDocumentLink({
             assistantId: input.assistantId,
             workspaceId: input.workspaceId,
+            chatId: input.chatId,
             storagePath
           })
         : null;
@@ -304,6 +309,7 @@ export class RegisterChatAttachmentService {
   private async resolveFilesAttachDocumentLink(input: {
     assistantId: string;
     workspaceId: string;
+    chatId: string;
     storagePath: string;
   }) {
     const currentDocumentLink =
@@ -312,9 +318,6 @@ export class RegisterChatAttachmentService {
         workspaceId: input.workspaceId,
         outputPath: input.storagePath
       });
-    if (currentDocumentLink.status === "blocked") {
-      throw new BadRequestException(currentDocumentLink.message);
-    }
     if (currentDocumentLink.status === "ready") {
       return currentDocumentLink.link;
     }
@@ -328,23 +331,160 @@ export class RegisterChatAttachmentService {
       storagePath: input.storagePath
     });
     if (workspaceProjectPath === null) {
+      if (currentDocumentLink.status === "blocked") {
+        throw new BadRequestException(currentDocumentLink.message);
+      }
       return null;
     }
 
-    const defaultInspectionPath = buildDefaultInspectionPath(input.storagePath);
-    const defaultInspectionExists =
-      defaultInspectionPath === null
-        ? false
-        : (await this.workspaceFileMetadataService.get({
+    const existingDocId =
+      currentDocumentLink.status === "blocked"
+        ? await this.resolveCurrentVisibleWorkspaceDocumentIdByOutputPath({
+            assistantId: input.assistantId,
             workspaceId: input.workspaceId,
-            path: defaultInspectionPath
-          })) !== null;
-    const inspectHint =
-      defaultInspectionExists || defaultInspectionPath === null
-        ? "Run document.register_version on this output before files.attach so final delivery keeps project/source/version provenance."
-        : `Missing inspect sidecar ${defaultInspectionPath}. Run document.inspect, then document.register_version, then files.attach.`;
+            outputPath: input.storagePath
+          })
+        : null;
+    return this.autoRegisterProjectOwnedDocumentOutputForAttach({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      chatId: input.chatId,
+      storagePath: input.storagePath,
+      workspaceProjectPath,
+      existingDocId
+    });
+  }
+
+  private async resolveCurrentVisibleWorkspaceDocumentIdByOutputPath(input: {
+    assistantId: string;
+    workspaceId: string;
+    outputPath: string;
+  }): Promise<string | null> {
+    const document = await this.prisma.assistantDocument.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        currentVersion: {
+          is: {
+            sourceJson: {
+              path: ["metadata", "documentWorkspace", "outputPath"],
+              equals: input.outputPath
+            }
+          }
+        }
+      },
+      select: { id: true }
+    });
+    return document?.id ?? null;
+  }
+
+  private async autoRegisterProjectOwnedDocumentOutputForAttach(input: {
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    storagePath: string;
+    workspaceProjectPath: string;
+    existingDocId: string | null;
+  }) {
+    if (
+      this.documentWorkspaceInspectionService === undefined ||
+      this.documentWorkspaceVersionRegistrationService === undefined
+    ) {
+      const defaultInspectionPath = buildDefaultInspectionPath(input.storagePath);
+      const defaultInspectionExists =
+        defaultInspectionPath === null
+          ? false
+          : (await this.workspaceFileMetadataService.get({
+              workspaceId: input.workspaceId,
+              path: defaultInspectionPath
+            })) !== null;
+      const inspectHint =
+        defaultInspectionExists || defaultInspectionPath === null
+          ? "Run document.register_version on this output before files.attach so final delivery keeps project/source/version provenance."
+          : `Missing inspect sidecar ${defaultInspectionPath}. Run document.inspect, then document.register_version, then files.attach.`;
+      throw new BadRequestException(
+        `Document output ${input.storagePath} belongs to project ${input.workspaceProjectPath} but no current registered version points to it. ${inspectHint}`
+      );
+    }
+
+    const outputMetadata = await this.workspaceFileMetadataService.get({
+      workspaceId: input.workspaceId,
+      path: input.storagePath
+    });
+    if (outputMetadata === null) {
+      throw new BadRequestException(
+        `Document output ${input.storagePath} could not be attached because the workspace file does not exist.`
+      );
+    }
+
+    const chat = await this.prisma.assistantChat.findFirst({
+      where: {
+        id: input.chatId,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId
+      },
+      select: {
+        surface: true,
+        surfaceThreadKey: true
+      }
+    });
+    if (chat === null) {
+      throw new NotFoundException("chat_not_found");
+    }
+    if (chat.surface !== "web" && chat.surface !== "telegram") {
+      throw new BadRequestException(
+        `Document auto-registration for files.attach does not support chat surface ${chat.surface}.`
+      );
+    }
+
+    const inspect = await this.documentWorkspaceInspectionService.execute({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      path: input.storagePath,
+      depth: "standard",
+      outputPath: null
+    });
+    if (!inspect.accepted) {
+      throw new BadRequestException(
+        `Document output ${input.storagePath} could not be inspected for attach (${inspect.code}): ${inspect.message}`
+      );
+    }
+
+    const registration = await this.documentWorkspaceVersionRegistrationService.execute({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      channel: chat.surface,
+      externalThreadKey: chat.surfaceThreadKey,
+      sourceUserMessageText: `Auto-register visible workspace output during files.attach: ${input.storagePath}`,
+      sourceUserMessageCreatedAt: new Date().toISOString(),
+      descriptorMode: input.existingDocId === null ? null : "revise_document",
+      docId: input.existingDocId,
+      requestedName: null,
+      workspaceProjectPath: input.workspaceProjectPath,
+      outputPath: input.storagePath,
+      sourceManifestPath: null,
+      inspectionPath: inspect.inspectPath
+    });
+    if (!registration.accepted) {
+      throw new BadRequestException(
+        `Document output ${input.storagePath} could not be auto-registered for attach (${registration.code}): ${registration.message}`
+      );
+    }
+
+    const refreshedDocumentLink =
+      await this.assistantDocumentJobService.findCurrentDocumentLinkByOutputPath({
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        outputPath: input.storagePath
+      });
+    if (refreshedDocumentLink.status === "ready") {
+      return refreshedDocumentLink.link;
+    }
+    if (refreshedDocumentLink.status === "blocked") {
+      throw new BadRequestException(refreshedDocumentLink.message);
+    }
     throw new BadRequestException(
-      `Document output ${input.storagePath} belongs to project ${workspaceProjectPath} but no current registered version points to it. ${inspectHint}`
+      `Document output ${input.storagePath} was auto-registered during files.attach but no ready document link could be resolved afterwards.`
     );
   }
 }
