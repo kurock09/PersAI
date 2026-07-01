@@ -80,10 +80,17 @@ function testDocumentCatalogRowTeachesVisibleWorkflow(): void {
     "document guidance must reject legacy outputDir extract paths"
   );
   assert.ok(
+    row.modelUsageGuidance.includes("single deliverable step") &&
+      row.modelUsageGuidance.includes("Do NOT call files.attach for a render output"),
+    "document guidance must teach that render itself registers and delivers (no separate files.attach)"
+  );
+  assert.ok(
     row.modelUsageGuidance.includes(
-      "render (auto-registers the output), optionally inspect, then files.attach"
-    ),
-    "document guidance must teach the render auto-register -> optional inspect -> files.attach flow"
+      "projectPath`, `outputPath`, `format`, `content`, and optional `template`"
+    ) &&
+      row.modelUsageGuidance.includes("render/content.md") &&
+      row.modelUsageGuidance.includes("render/build.py"),
+    "document guidance must teach the one-call authored content/template render workflow"
   );
   assert.ok(
     row.modelUsageGuidance.includes("allocates a sibling name like `report (1).pdf`") &&
@@ -91,9 +98,15 @@ function testDocumentCatalogRowTeachesVisibleWorkflow(): void {
     "document guidance must teach collision-safe render output and explicit overwrite"
   );
   assert.ok(
-    row.modelUsageGuidance.includes("Do not call register_version in the standard render") &&
-      row.modelUsageGuidance.includes("advanced-only manual version registration"),
+    row.modelUsageGuidance.includes(
+      "do NOT call document.register_version after a normal render"
+    ) && row.modelUsageGuidance.includes("advanced-only manual version registration"),
     "document guidance must keep register_version advanced-only"
+  );
+  assert.ok(
+    row.modelUsageGuidance.includes('document({action:"edit"') &&
+      row.modelUsageGuidance.includes("all-or-nothing over the FULL content"),
+    "document guidance must teach the surgical all-or-nothing document.edit workflow"
   );
   assert.ok(
     row.modelUsageGuidance.includes("PERSAI_OUTPUT_PATH") &&
@@ -102,8 +115,9 @@ function testDocumentCatalogRowTeachesVisibleWorkflow(): void {
   );
   assert.ok(
     row.modelUsageGuidance.includes("PDF render uses an HTML entrypoint by default") &&
-      row.modelUsageGuidance.includes("DOCX/XLSX Python builder"),
-    "document guidance must prevent using a DOCX/XLSX builder as the PDF renderer"
+      row.modelUsageGuidance.includes("seeded LibreOffice exporter") &&
+      row.modelUsageGuidance.includes("ignores `content`/`template`"),
+    "document guidance must default PDF to HTML and keep imported Office->PDF on the fixed LibreOffice path"
   );
   assert.ok(
     !/async document providers|PDFMonkey|fileRef|AssistantFile|\/workspace\/input|\/workspace\/outbound/i.test(

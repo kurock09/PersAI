@@ -173,7 +173,7 @@ RUN rg --version \
   && tesseract --version \
   && pdftotext -v \
   && gs --version \
-  && python3 -c "import pandas, numpy, matplotlib, seaborn, openpyxl, xlsxwriter, docx, weasyprint, pdfplumber, pypdf, reportlab, PIL, pyzbar, qrcode, pytesseract, bs4, lxml, jinja2, dateutil, yaml, requests; print('python stack ok')" \
+  && python3 -c "import pandas, numpy, matplotlib, seaborn, openpyxl, xlsxwriter, docx, weasyprint, pdfplumber, pypdf, reportlab, PIL, pyzbar, qrcode, pytesseract, bs4, lxml, jinja2, markdown, dateutil, yaml, requests; print('python stack ok')" \
   && python3 -c "import site; assert site.ENABLE_USER_SITE; assert site.getuserbase() == '/workspace/.local'; print('python user-site writable target ok')" \
   && /bin/sh -lc 'python3 -c "import weasyprint, pandas, pyzbar, pytesseract; print(\"login-shell python stack ok\")"' \
   && /bin/sh -lc 'python3 -c "import site; assert site.ENABLE_USER_SITE and site.getuserbase() == \"/workspace/.local\"; print(\"login-shell python user-site ok\")"' \

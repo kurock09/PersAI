@@ -4220,7 +4220,8 @@ export class TurnExecutionService {
       `- imported DOCX/XLSX -> PDF export uses ${buildDocumentProjectPdfExportEntrypoint(layout)}`,
       `- write PDF/DOCX/XLSX outputs under ${layout.outputDir}/ (default PDF ${layout.defaultPdfOutputPath})`,
       "- document.render must stay inside this project; do not render from other workspace projects in the same turn.",
-      "- PDF render rebuilds HTML from full extract/extracted.md server-side; do not reassemble PDF HTML from partial files.read chunks."
+      "- PDF render rebuilds HTML from full extract/extracted.md server-side; do not reassemble PDF HTML from partial files.read chunks.",
+      "- Authored content/template scaffolding is for non-imported projects only; imported DOCX/XLSX -> PDF still uses the seeded Office exporter."
     ];
   }
 
@@ -4943,8 +4944,11 @@ export class TurnExecutionService {
           continue;
         }
         for (const artifact of result.artifacts) {
+          // ADR-129 P-1: deliver each storage path exactly once. Dedup by storagePath
+          // so a produced render output auto-attached here cannot be double-delivered
+          // if the model also attached it manually (or vice versa).
           const existingIndex = input.turnState.artifacts.findIndex(
-            (existing) => existing.artifactId === artifact.artifactId
+            (existing) => existing.storagePath === artifact.storagePath
           );
           if (existingIndex >= 0) {
             input.turnState.artifacts[existingIndex] = artifact;
@@ -5101,8 +5105,10 @@ export class TurnExecutionService {
     }
     if (outcome.artifacts !== undefined && outcome.artifacts.length > 0) {
       for (const artifact of outcome.artifacts) {
+        // ADR-129 P-1: exactly-once delivery — dedup delivered artifacts by
+        // storagePath so the same rendered file is never attached/delivered twice.
         const existingIndex = turnState.artifacts.findIndex(
-          (existingArtifact) => existingArtifact.artifactId === artifact.artifactId
+          (existingArtifact) => existingArtifact.storagePath === artifact.storagePath
         );
         if (existingIndex >= 0) {
           turnState.artifacts[existingIndex] = artifact;

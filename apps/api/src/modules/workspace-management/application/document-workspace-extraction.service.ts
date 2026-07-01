@@ -119,6 +119,7 @@ const SPREADSHEET_MIME_TYPES = new Set([
 ]);
 
 const MAX_RETURNED_OUTPUT_PATHS = 50;
+const MAX_VERSIONED_SOURCE_SIBLING_SCAN = 200;
 
 @Injectable()
 export class DocumentWorkspaceExtractionService {
@@ -159,14 +160,18 @@ export class DocumentWorkspaceExtractionService {
           "document.extract no longer accepts outputDir; extraction creates a document project under /workspace/projects/<slug>/."
       };
     }
-    const sourcePath = normalizeWorkspacePath(input.path);
-    if (sourcePath === null) {
+    const requestedSourcePath = normalizeWorkspacePath(input.path);
+    if (requestedSourcePath === null) {
       return {
         accepted: false,
         code: "invalid_source_path",
         message: "document.extract path must be a valid /workspace/... file path."
       };
     }
+    const sourcePath = await this.resolveNewestVersionedSourcePath({
+      workspaceId: input.workspaceId,
+      requestedPath: requestedSourcePath
+    });
     const projectPath = await this.resolveUniqueDocumentProjectPath({
       workspaceId: input.workspaceId,
       sourcePath
@@ -272,6 +277,12 @@ export class DocumentWorkspaceExtractionService {
           buffer: downloaded.buffer,
           mode: input.mode
         });
+    const sourceResolutionWarnings =
+      sourcePath === requestedSourcePath
+        ? []
+        : [
+            `Requested source ${requestedSourcePath} was resolved to the newest sibling version ${sourcePath}.`
+          ];
 
     const manifestPath = `${resolvedOutputDir}/manifest.json`;
     const manifest = this.buildManifest({
@@ -452,7 +463,7 @@ export class DocumentWorkspaceExtractionService {
       counts: build.counts,
       provider: build.provider,
       quality: build.quality,
-      warnings: [...resultWarnings, ...pushWarnings],
+      warnings: [...resultWarnings, ...sourceResolutionWarnings, ...pushWarnings],
       suggestedNextActions
     };
   }
@@ -492,21 +503,47 @@ export class DocumentWorkspaceExtractionService {
     buffer: Buffer;
     mode: WorkspaceDocumentExtractInput["mode"];
   }): Promise<ExtractionBuild> {
-    const extraction = await this.documentExtractionService.extract(
-      this.toExtractionInput({
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        sourcePath: input.sourcePath,
-        mimeType: input.mimeType,
-        buffer: input.buffer,
-        requestedMode: mapExtractMode(input.mode)
-      })
-    );
+    const fallbackWarnings: string[] = [];
+    let extraction;
+    try {
+      extraction = await this.documentExtractionService.extract(
+        this.toExtractionInput({
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          sourcePath: input.sourcePath,
+          mimeType: input.mimeType,
+          buffer: input.buffer,
+          requestedMode: mapExtractMode(input.mode)
+        })
+      );
+    } catch (error) {
+      if (input.mode !== "layout") {
+        throw error;
+      }
+      extraction = await this.documentExtractionService.extract(
+        this.toExtractionInput({
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          sourcePath: input.sourcePath,
+          mimeType: input.mimeType,
+          buffer: input.buffer,
+          requestedMode: mapExtractMode("text")
+        })
+      );
+      fallbackWarnings.push(
+        `Layout extraction fell back to text mode after the high-quality pass failed: ${
+          error instanceof Error ? error.message : "unknown extraction error"
+        }`
+      );
+    }
     const extractedText = extraction.markdown?.trim().length
       ? extraction.markdown.trim()
       : extraction.normalizedText.trim();
     const extractedPath = `${input.outputDir}/extracted.md`;
-    const warnings = this.buildWarnings(extraction.quality, extraction.provider);
+    const warnings = [
+      ...fallbackWarnings,
+      ...this.buildWarnings(extraction.quality, extraction.provider)
+    ];
     const pageCount =
       input.mimeType === "application/pdf" || input.mimeType === "application/x-pdf"
         ? await readPdfPageCount(input.buffer)
@@ -699,6 +736,50 @@ export class DocumentWorkspaceExtractionService {
       suffix += 1;
     }
     return null;
+  }
+
+  private async resolveNewestVersionedSourcePath(input: {
+    workspaceId: string;
+    requestedPath: string;
+  }): Promise<string> {
+    const requested = parseVersionedWorkspaceFilename(input.requestedPath);
+    if (requested === null) {
+      return input.requestedPath;
+    }
+    const siblings = await this.workspaceFileMetadataService.list({
+      workspaceId: input.workspaceId,
+      pathPrefix: `${requested.directory}/`,
+      limit: MAX_VERSIONED_SOURCE_SIBLING_SCAN
+    });
+    const candidates = siblings
+      .filter((row) => workspaceDirectory(row.path) === requested.directory)
+      .map((row) => {
+        const parsed = parseVersionedWorkspaceFilename(row.path);
+        return parsed !== null && parsed.familyKey === requested.familyKey ? { row, parsed } : null;
+      })
+      .filter(
+        (
+          candidate
+        ): candidate is {
+          row: (typeof siblings)[number];
+          parsed: Exclude<ReturnType<typeof parseVersionedWorkspaceFilename>, null>;
+        } => candidate !== null
+      )
+      .sort((left, right) => {
+        if (left.parsed.versionNumber !== right.parsed.versionNumber) {
+          return right.parsed.versionNumber - left.parsed.versionNumber;
+        }
+        const updatedAtDiff = right.row.updatedAt.getTime() - left.row.updatedAt.getTime();
+        if (updatedAtDiff !== 0) {
+          return updatedAtDiff;
+        }
+        const createdAtDiff = right.row.createdAt.getTime() - left.row.createdAt.getTime();
+        if (createdAtDiff !== 0) {
+          return createdAtDiff;
+        }
+        return right.row.path.localeCompare(left.row.path);
+      });
+    return candidates[0]?.row.path ?? input.requestedPath;
   }
 
   private async persistSidecar(input: {
@@ -971,6 +1052,37 @@ function lastPathSegment(path: string): string | null {
 
 function uniquePaths(paths: string[]): string[] {
   return Array.from(new Set(paths.filter((path) => path.trim().length > 0)));
+}
+
+function workspaceDirectory(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const slashIndex = normalized.lastIndexOf("/");
+  return slashIndex > 0 ? normalized.slice(0, slashIndex) : normalized;
+}
+
+function parseVersionedWorkspaceFilename(path: string): {
+  directory: string;
+  familyKey: string;
+  versionNumber: number;
+} | null {
+  const name = lastPathSegment(path);
+  if (name === null) {
+    return null;
+  }
+  const match = /^(.*?)(?: \((\d+)\))?(\.[^./]+)$/.exec(name);
+  if (match === null) {
+    return null;
+  }
+  const baseName = (match[1] ?? "").trim();
+  const extension = (match[3] ?? "").trim().toLowerCase();
+  if (baseName.length === 0 || extension.length === 0) {
+    return null;
+  }
+  return {
+    directory: workspaceDirectory(path),
+    familyKey: `${baseName.toLowerCase()}${extension}`,
+    versionNumber: Number.parseInt(match[2] ?? "0", 10) || 0
+  };
 }
 
 function buildImportedOfficeRenderScaffold(input: {

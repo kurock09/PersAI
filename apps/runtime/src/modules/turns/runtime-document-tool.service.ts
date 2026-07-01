@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   DEFAULT_RUNTIME_SANDBOX_POLICY,
+  buildDocumentProjectManifest,
   buildDocumentProjectPdfExportEntrypoint,
   buildDocumentProjectPythonRenderEntrypoint,
   buildDocumentProjectRenderScaffoldHtml,
@@ -15,6 +17,8 @@ import {
   type PersaiRuntimePresentationVisualStyle,
   type ProviderGatewayToolCall,
   type RuntimeAttachmentRef,
+  type RuntimeDocumentEditOpResult,
+  type RuntimeDocumentEditSummary,
   type RuntimeDocumentToolResult,
   type RuntimeDocumentVersionRegistrationSummary,
   type RuntimeOutputArtifact,
@@ -34,6 +38,33 @@ type DocumentProjectManifestFacts = {
   sourceFormat: DocumentWorkspaceProjectSourceFormat | null;
   defaultRenderEntrypoint: string | null;
   defaultPdfExportEntrypoint: string | null;
+};
+
+type DocumentRenderTemplateTheme = "default" | "report" | "minimal";
+type DocumentRenderTemplatePageSize = "A4" | "Letter";
+type NormalizedDocumentRenderTemplate = {
+  title: string | null;
+  theme: DocumentRenderTemplateTheme;
+  css: string | null;
+  pageSize: DocumentRenderTemplatePageSize;
+  runningHeader: string | null;
+  runningFooter: string | null;
+};
+
+type AuthoredRenderContentSource = {
+  markdown: string;
+  sourcePath: string | null;
+  sourceDisplayName: string | null;
+};
+
+type DocumentEditOp =
+  | { op: "replace"; find: string; replaceWith: string; all: boolean }
+  | { op: "section"; heading: string; content: string };
+
+type EditableDocumentContentSource = {
+  contentPath: string;
+  contentKind: "authored" | "extracted";
+  content: string;
 };
 
 export interface RuntimeDocumentToolExecutionResult {
@@ -115,8 +146,23 @@ export class RuntimeDocumentToolService {
       });
     }
 
+    if (parsed.kind === "edit") {
+      return this.executeEditToolCall({
+        bundle: params.bundle,
+        request: parsed.request,
+        sessionId: params.sessionId ?? null,
+        requestId: params.requestId ?? null,
+        originChatId: params.originChatId ?? null,
+        activeDocumentProjectPath: params.activeDocumentProjectPath ?? null,
+        conversation: params.conversation ?? null,
+        sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText,
+        sourceUserMessageCreatedAt:
+          params.deferToAsyncDocumentJob.sourceUserMessageCreatedAt ?? new Date(0).toISOString()
+      });
+    }
+
     return this.buildInvalidDocumentArgumentsResult(
-      'document.action must be "extract", "inspect", "render", or "register_version".'
+      'document.action must be "extract", "inspect", "render", "edit", or "register_version".'
     );
   }
 
@@ -522,7 +568,10 @@ export class RuntimeDocumentToolService {
       outputPath: string;
       format: "pdf" | "xlsx" | "docx";
       entrypoint: string | null;
+      requestedName?: string | null;
       replace?: boolean;
+      content: string | null;
+      template: NormalizedDocumentRenderTemplate | null;
     };
     sessionId: string | null;
     requestId: string | null;
@@ -593,13 +642,54 @@ export class RuntimeDocumentToolService {
       );
     }
 
+    // ADR-129 P-1: a render deliverable must live inside its document project so the
+    // subsequent version registration is always keyed on a matching projectPath +
+    // outputPath. Escaped outputs (e.g. workspace-root paths) are relocated into the
+    // canonical <project>/output/ directory under a meaningful derived filename.
+    const renderOutputPath = this.normalizeRenderOutputPath({
+      projectPath,
+      outputPath,
+      format: params.request.format,
+      requestedName: params.request.requestedName ?? null,
+      projectManifest
+    });
+
+    let authoredEntrypointPath: string | null = null;
+    try {
+      authoredEntrypointPath = await this.prepareAuthoredRenderArtifactsIfRequested({
+        bundle: params.bundle,
+        sessionId: params.sessionId,
+        requestId: params.requestId,
+        originChatId: params.originChatId,
+        projectPath,
+        format: params.request.format,
+        content: params.request.content,
+        template: params.request.template,
+        projectManifest
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to build authored document render sources.";
+      return this.renderSkipped(
+        params.request.format,
+        /document\.content|document\.template|currently supports format=pdf or format=docx/i.test(
+          message
+        )
+          ? "invalid_arguments"
+          : "runtime_degraded",
+        message
+      );
+    }
+
     let entrypointPath: string;
     try {
       const resolvedEntrypoint = await this.resolveRenderEntrypoint({
         bundle: params.bundle,
         projectPath,
         format: params.request.format,
-        entrypoint: params.request.entrypoint,
+        entrypoint: authoredEntrypointPath ?? params.request.entrypoint,
         projectManifest
       });
       if (resolvedEntrypoint === null) {
@@ -610,7 +700,7 @@ export class RuntimeDocumentToolService {
         );
       }
       entrypointPath = resolvedEntrypoint;
-      if (entrypointPath === outputPath) {
+      if (entrypointPath === renderOutputPath) {
         return this.renderSkipped(
           params.request.format,
           "invalid_arguments",
@@ -631,25 +721,12 @@ export class RuntimeDocumentToolService {
           );
         }
       }
-      const importedOfficePdfEntrypointError = this.validateImportedOfficePdfEntrypoint({
-        projectPath,
-        format: params.request.format,
-        projectManifest,
-        entrypointPath
-      });
-      if (importedOfficePdfEntrypointError !== null) {
-        return this.renderSkipped(
-          params.request.format,
-          "invalid_arguments",
-          importedOfficePdfEntrypointError
-        );
-      }
       if (params.activeDocumentProjectPath !== null) {
         const layout = buildDocumentWorkspaceProjectLayout(params.activeDocumentProjectPath);
         const validationError = validateDocumentProjectRenderPaths({
           layout,
           projectPath,
-          outputPath,
+          outputPath: renderOutputPath,
           entrypointPath
         });
         if (validationError !== null) {
@@ -670,7 +747,7 @@ export class RuntimeDocumentToolService {
         bundle: params.bundle,
         sessionId: params.sessionId,
         requestId: params.requestId,
-        outputPath,
+        outputPath: renderOutputPath,
         replace: params.request.replace === true
       });
     } catch (error) {
@@ -737,7 +814,7 @@ export class RuntimeDocumentToolService {
       );
     }
 
-    const autoRegister = await this.tryAutoRegisterRenderedVersion({
+    const finalize = await this.finalizeRenderedDocument({
       bundle: params.bundle,
       conversation: params.conversation,
       sourceUserMessageText: params.sourceUserMessageText,
@@ -745,24 +822,31 @@ export class RuntimeDocumentToolService {
       projectPath,
       outputPath: persisted.resolvedPath
     });
+    if (!finalize.ok) {
+      // ADR-129 P-1: render owns register + delivery. When the version cannot be
+      // registered (the deliverable gate that also blocks files.attach), the render
+      // must NOT read as a clean delivered success. Surface the failure honestly and
+      // do not record a produced/undelivered path, so nothing is auto-attached.
+      return this.renderSkipped(params.request.format, finalize.reason, finalize.warning);
+    }
 
     return {
       payload: {
         toolCode: "document",
         executionMode: "inline",
         requestedAction: "render",
-        descriptorMode: autoRegister.registration?.descriptorMode ?? null,
+        descriptorMode: finalize.registration?.descriptorMode ?? null,
         documentType: "workspace_document",
         provider: "sandbox",
         prompt: null,
         outputFormat: params.request.format,
-        docId: autoRegister.registration?.docId ?? null,
+        docId: finalize.registration?.docId ?? null,
         requestedName: this.basename(persisted.resolvedPath),
         artifacts: [],
         usage: null,
         action: "rendered",
         reason: null,
-        warning: autoRegister.warning,
+        warning: finalize.warning,
         render: {
           projectPath,
           outputPath: persisted.resolvedPath,
@@ -771,11 +855,11 @@ export class RuntimeDocumentToolService {
           sizeBytes: persisted.sizeBytes,
           mimeType: persisted.mimeType
         },
-        ...(autoRegister.registration === null
+        ...(finalize.registration === null
           ? {}
           : {
-              versionId: autoRegister.registration.versionId,
-              registration: autoRegister.registration
+              versionId: finalize.registration.versionId,
+              registration: finalize.registration
             })
       },
       artifacts: [],
@@ -783,7 +867,16 @@ export class RuntimeDocumentToolService {
     };
   }
 
-  private async tryAutoRegisterRenderedVersion(input: {
+  /**
+   * ADR-129 P-1: `document.render` is the single deliverable producer that also owns
+   * inspect + register. Registration (and the equivalent files.attach gate) require a
+   * relevant inspect sidecar, so the runtime inspects the freshly rendered output and
+   * then registers the version keyed on the in-project projectPath + outputPath. The
+   * successfully rendered output is delivered exactly once by the end-of-turn
+   * auto-attach machinery via the recorded produced path; the model must not call
+   * files.attach for a render output.
+   */
+  private async finalizeRenderedDocument(input: {
     bundle: AssistantRuntimeBundle;
     conversation: {
       channel: "web" | "telegram";
@@ -793,17 +886,50 @@ export class RuntimeDocumentToolService {
     sourceUserMessageCreatedAt: string;
     projectPath: string;
     outputPath: string;
-  }): Promise<{
-    registration: RuntimeDocumentVersionRegistrationSummary | null;
-    warning: string | null;
-  }> {
+  }): Promise<
+    | {
+        ok: true;
+        registration: RuntimeDocumentVersionRegistrationSummary | null;
+        warning: string | null;
+      }
+    | {
+        ok: false;
+        reason: string;
+        warning: string;
+      }
+  > {
     if (input.conversation === null) {
+      // Genuinely no chat context to register/deliver against. Keep the historical
+      // behavior: the render itself is valid, but no version/metadata was recorded.
       return {
+        ok: true,
         registration: null,
         warning:
           "auto_register_skipped:no_conversation_context: version was not registered automatically because no chat conversation was resolved for this render. Delivery still works, but document/version metadata is missing."
       };
     }
+
+    let inspectionPath: string | null = null;
+    let inspectDetail: string | null = null;
+    try {
+      const inspect = await this.persaiInternalApiClientService.inspectDocumentInWorkspace({
+        assistantId: input.bundle.metadata.assistantId,
+        workspaceId: input.bundle.metadata.workspaceId,
+        path: input.outputPath,
+        depth: "standard",
+        outputPath: null
+      });
+      if (inspect.accepted) {
+        inspectionPath = inspect.inspectPath;
+      } else {
+        inspectDetail = `inspect_rejected:${inspect.code}: ${inspect.message}`;
+      }
+    } catch (error) {
+      inspectDetail = `inspect_failed: ${
+        error instanceof Error ? error.message : "Document inspect is temporarily unavailable."
+      }`;
+    }
+
     try {
       const outcome = await this.persaiInternalApiClientService.registerDocumentVersion({
         assistantId: input.bundle.metadata.assistantId,
@@ -818,15 +944,19 @@ export class RuntimeDocumentToolService {
         workspaceProjectPath: input.projectPath,
         outputPath: input.outputPath,
         sourceManifestPath: null,
-        inspectionPath: null
+        inspectionPath
       });
       if (!outcome.accepted) {
         return {
-          registration: null,
-          warning: `auto_register_skipped:${outcome.code}: ${outcome.message}`
+          ok: false,
+          reason: `register_rejected:${outcome.code}`,
+          warning: `document.render produced ${input.outputPath} but could not register/deliver a document version (${outcome.code}): ${outcome.message}${
+            inspectDetail === null ? "" : ` [${inspectDetail}]`
+          }`
         };
       }
       return {
+        ok: true,
         registration: {
           docId: outcome.docId,
           versionId: outcome.versionId,
@@ -843,12 +973,13 @@ export class RuntimeDocumentToolService {
       };
     } catch (error) {
       return {
-        registration: null,
-        warning: `auto_register_skipped:runtime_degraded: ${
+        ok: false,
+        reason: "register_failed",
+        warning: `document.render produced ${input.outputPath} but document version registration failed: ${
           error instanceof Error
             ? error.message
             : "Document version registration is temporarily unavailable."
-        }`
+        }${inspectDetail === null ? "" : ` [${inspectDetail}]`}`
       };
     }
   }
@@ -879,6 +1010,534 @@ export class RuntimeDocumentToolService {
       artifacts: [],
       isError: reason === "invalid_arguments"
     };
+  }
+
+  /**
+   * ADR-129 Addendum III (P-3): `document.edit` applies ordered, declarative edit
+   * operations server-side over the FULL canonical editable content (never a truncated
+   * blob). It is all-or-nothing: every op must resolve first, then the updated content
+   * is written back once to the same visible source. If `rerender` is set and all ops
+   * apply, it chains into the single-door `document.render` so the updated document is
+   * registered + delivered exactly once via the existing path.
+   */
+  private async executeEditToolCall(params: {
+    bundle: AssistantRuntimeBundle;
+    request: {
+      projectPath: string;
+      edits: DocumentEditOp[];
+      rerender: boolean;
+      format: "pdf" | "xlsx" | "docx" | null;
+      outputPath: string | null;
+      requestedName: string | null;
+      replace: boolean;
+    };
+    sessionId: string | null;
+    requestId: string | null;
+    originChatId: string | null;
+    activeDocumentProjectPath: string | null;
+    conversation: {
+      channel: "web" | "telegram";
+      externalThreadKey: string;
+    } | null;
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+  }): Promise<RuntimeDocumentToolExecutionResult> {
+    const projectPath = this.normalizeWorkspacePath(params.request.projectPath, {
+      allowDirectory: true
+    });
+    if (projectPath === null) {
+      return this.editSkipped(
+        "invalid_arguments",
+        "document.projectPath must be a valid /workspace/... directory."
+      );
+    }
+    if (params.sessionId === null || params.requestId === null) {
+      return this.editSkipped(
+        "runtime_degraded",
+        "document.edit requires an active runtime session."
+      );
+    }
+    if (this.sandboxClientService?.isConfigured() !== true) {
+      return this.editSkipped("sandbox_unconfigured", "Sandbox service is not configured.");
+    }
+
+    let source: EditableDocumentContentSource | null;
+    try {
+      source = await this.resolveEditableContentSource({
+        bundle: params.bundle,
+        sessionId: params.sessionId,
+        requestId: params.requestId,
+        projectPath
+      });
+    } catch (error) {
+      return this.editSkipped(
+        "runtime_degraded",
+        error instanceof Error
+          ? error.message
+          : "document.edit could not read the project's editable content."
+      );
+    }
+    if (source === null) {
+      return this.editSkipped(
+        "no_editable_content",
+        `document.edit found no editable content for ${projectPath}. Extract a source (extract/extracted.md) or author render/content.md first.`
+      );
+    }
+
+    const applyOutcome = this.applyDocumentEditOps({
+      content: source.content,
+      edits: params.request.edits
+    });
+    const bytesBefore = Buffer.byteLength(source.content, "utf8");
+
+    if (!applyOutcome.ok) {
+      const failed = applyOutcome.results
+        .filter((result) => result.status === "failed")
+        .map(
+          (result) =>
+            `${result.op}(${result.failureReason ?? "failed"})${result.detail === null || result.detail === undefined ? "" : `: ${result.detail}`}`
+        )
+        .join("; ");
+      return this.editResult({
+        projectPath,
+        source,
+        applied: false,
+        results: applyOutcome.results,
+        bytesBefore,
+        bytesAfter: bytesBefore,
+        reason: "edit_op_failed",
+        warning: `document.edit made NO changes (all-or-nothing): ${failed}. The visible source ${source.contentPath} was left byte-for-byte unchanged.`
+      });
+    }
+
+    const bytesAfter = Buffer.byteLength(applyOutcome.content, "utf8");
+    try {
+      await this.writeWorkspaceTextFile({
+        bundle: params.bundle,
+        sessionId: params.sessionId,
+        requestId: `${params.requestId}:edit-write`,
+        originChatId: params.originChatId,
+        path: source.contentPath,
+        content: applyOutcome.content,
+        mimeType: "text/markdown"
+      });
+    } catch (error) {
+      return this.editSkipped(
+        "edit_write_failed",
+        error instanceof Error
+          ? error.message
+          : `document.edit could not write the updated content to ${source.contentPath}.`
+      );
+    }
+
+    if (!params.request.rerender) {
+      return this.editResult({
+        projectPath,
+        source,
+        applied: true,
+        results: applyOutcome.results,
+        bytesBefore,
+        bytesAfter,
+        reason: null,
+        warning: null
+      });
+    }
+
+    const rerender = await this.executeRenderToolCall({
+      bundle: params.bundle,
+      request: {
+        projectPath,
+        outputPath: params.request.outputPath as string,
+        format: params.request.format as "pdf" | "xlsx" | "docx",
+        entrypoint: null,
+        requestedName: params.request.requestedName,
+        replace: params.request.replace,
+        // Authored projects re-bind their updated content.md through the P-4 authored
+        // render path; imported/extracted projects reuse their existing/derived
+        // entrypoint (content stays null so render resolves the project entrypoint).
+        content: source.contentKind === "authored" ? source.contentPath : null,
+        template: null
+      },
+      sessionId: params.sessionId,
+      requestId: params.requestId,
+      originChatId: params.originChatId,
+      activeDocumentProjectPath: params.activeDocumentProjectPath,
+      conversation: params.conversation,
+      sourceUserMessageText: params.sourceUserMessageText,
+      sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt
+    });
+
+    const editSummary: RuntimeDocumentEditSummary = {
+      projectPath,
+      contentPath: source.contentPath,
+      contentKind: source.contentKind,
+      applied: true,
+      opCount: applyOutcome.results.length,
+      results: applyOutcome.results,
+      bytesBefore,
+      bytesAfter
+    };
+    return {
+      ...rerender,
+      payload: {
+        ...rerender.payload,
+        requestedAction: "edit",
+        edit: editSummary
+      }
+    };
+  }
+
+  private editResult(input: {
+    projectPath: string;
+    source: EditableDocumentContentSource;
+    applied: boolean;
+    results: RuntimeDocumentEditOpResult[];
+    bytesBefore: number;
+    bytesAfter: number;
+    reason: string | null;
+    warning: string | null;
+  }): RuntimeDocumentToolExecutionResult {
+    const summary: RuntimeDocumentEditSummary = {
+      projectPath: input.projectPath,
+      contentPath: input.source.contentPath,
+      contentKind: input.source.contentKind,
+      applied: input.applied,
+      opCount: input.results.length,
+      results: input.results,
+      bytesBefore: input.bytesBefore,
+      bytesAfter: input.bytesAfter
+    };
+    return {
+      payload: {
+        toolCode: "document",
+        executionMode: "inline",
+        requestedAction: "edit",
+        descriptorMode: null,
+        documentType: "workspace_document",
+        provider: "sandbox",
+        prompt: null,
+        outputFormat: null,
+        docId: null,
+        requestedName: null,
+        artifacts: [],
+        usage: null,
+        action: input.applied ? "edited" : "skipped",
+        reason: input.reason,
+        warning: input.warning,
+        edit: summary
+      },
+      artifacts: [],
+      isError: !input.applied
+    };
+  }
+
+  private editSkipped(reason: string, warning: string): RuntimeDocumentToolExecutionResult {
+    return {
+      payload: {
+        toolCode: "document",
+        executionMode: "inline",
+        requestedAction: "edit",
+        descriptorMode: null,
+        documentType: "workspace_document",
+        provider: "sandbox",
+        prompt: null,
+        outputFormat: null,
+        docId: null,
+        requestedName: null,
+        artifacts: [],
+        usage: null,
+        action: "skipped",
+        reason,
+        warning
+      },
+      artifacts: [],
+      isError: true
+    };
+  }
+
+  /**
+   * ADR-129 Addendum III (P-3): pick the project's single canonical editable content
+   * file deterministically. Authored projects (P-4) own `render/content.md`;
+   * imported/extracted projects own `extract/extracted.md`. The manifest sourceKind
+   * chooses the preferred order and the first candidate that actually exists wins, so
+   * the edit always targets a real visible source (or reports no editable content).
+   */
+  private async resolveEditableContentSource(input: {
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+    requestId: string;
+    projectPath: string;
+  }): Promise<EditableDocumentContentSource | null> {
+    const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
+    const authoredPath = `${layout.renderDir}/content.md`;
+    const extractedPath = `${layout.extractDir}/extracted.md`;
+    const manifest = await this.readDocumentProjectManifestFactsOptional(input);
+    const candidates: Array<{ path: string; kind: "authored" | "extracted" }> =
+      manifest?.sourceKind === "authored_workspace_project"
+        ? [
+            { path: authoredPath, kind: "authored" },
+            { path: extractedPath, kind: "extracted" }
+          ]
+        : [
+            { path: extractedPath, kind: "extracted" },
+            { path: authoredPath, kind: "authored" }
+          ];
+    const files = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
+      workspaceId: input.bundle.metadata.workspaceId,
+      pathPrefix: `${input.projectPath}/`,
+      assistantHandle: input.bundle.metadata.assistantHandle,
+      scope: "workspace_shared",
+      currentChatId: null,
+      currentAssistantId: input.bundle.metadata.assistantId
+    });
+    const filePaths = new Set(
+      files.items.filter((item) => item.type === "file").map((item) => item.path)
+    );
+    for (const candidate of candidates) {
+      if (!filePaths.has(candidate.path)) {
+        continue;
+      }
+      const content = await this.readWorkspaceTextFile({
+        bundle: input.bundle,
+        sessionId: input.sessionId,
+        requestId: `${input.requestId}:edit-read`,
+        path: candidate.path
+      });
+      return { contentPath: candidate.path, contentKind: candidate.kind, content };
+    }
+    return null;
+  }
+
+  /**
+   * ADR-129 Addendum III (P-3): apply the ordered ops over the full content string.
+   * All-or-nothing — ops are applied to a working copy in order; the first failing op
+   * aborts the edit (remaining ops are reported as skipped) and the caller writes
+   * nothing. Untouched content is preserved verbatim.
+   */
+  private applyDocumentEditOps(input: { content: string; edits: DocumentEditOp[] }): {
+    ok: boolean;
+    content: string;
+    results: RuntimeDocumentEditOpResult[];
+  } {
+    let working = input.content;
+    const results: RuntimeDocumentEditOpResult[] = [];
+    let failed = false;
+    for (let index = 0; index < input.edits.length; index += 1) {
+      const op = input.edits[index]!;
+      if (failed) {
+        results.push({
+          op: op.op,
+          status: "skipped",
+          replacements: 0,
+          failureReason: null,
+          detail: "not applied: a previous edit failed and the document was left unchanged."
+        });
+        continue;
+      }
+      const outcome =
+        op.op === "replace"
+          ? this.applyReplaceEditOp(working, op)
+          : this.applySectionEditOp(working, op);
+      if (!outcome.ok) {
+        failed = true;
+        results.push({
+          op: op.op,
+          status: "failed",
+          replacements: 0,
+          failureReason: outcome.failureReason,
+          detail: outcome.detail
+        });
+        continue;
+      }
+      working = outcome.content;
+      results.push({
+        op: op.op,
+        status: "applied",
+        replacements: outcome.replacements,
+        failureReason: null,
+        detail: null
+      });
+    }
+    if (failed) {
+      return { ok: false, content: input.content, results };
+    }
+    return { ok: true, content: working, results };
+  }
+
+  private applyReplaceEditOp(
+    content: string,
+    op: { find: string; replaceWith: string; all: boolean }
+  ):
+    | { ok: true; content: string; replacements: number }
+    | {
+        ok: false;
+        failureReason: "no_match" | "ambiguous_match" | "heading_not_found";
+        detail: string;
+      } {
+    const occurrences = this.countLiteralOccurrences(content, op.find);
+    if (occurrences === 0) {
+      return {
+        ok: false,
+        failureReason: "no_match",
+        detail: `find text was not present in the content: ${JSON.stringify(this.truncateForDetail(op.find))}`
+      };
+    }
+    if (!op.all && occurrences > 1) {
+      return {
+        ok: false,
+        failureReason: "ambiguous_match",
+        detail: `find text matched ${String(occurrences)} times; pass all:true to replace every occurrence or make find unique.`
+      };
+    }
+    if (op.all) {
+      return {
+        ok: true,
+        content: content.split(op.find).join(op.replaceWith),
+        replacements: occurrences
+      };
+    }
+    const idx = content.indexOf(op.find);
+    return {
+      ok: true,
+      content: content.slice(0, idx) + op.replaceWith + content.slice(idx + op.find.length),
+      replacements: 1
+    };
+  }
+
+  private applySectionEditOp(
+    content: string,
+    op: { heading: string; content: string }
+  ):
+    | { ok: true; content: string; replacements: number }
+    | {
+        ok: false;
+        failureReason: "no_match" | "ambiguous_match" | "heading_not_found";
+        detail: string;
+      } {
+    const target = this.parseHeadingQuery(op.heading);
+    const headings = this.findMarkdownHeadings(content);
+    const matches = headings.filter(
+      (heading) =>
+        heading.text === target.text && (target.level === null || heading.level === target.level)
+    );
+    if (matches.length === 0) {
+      return {
+        ok: false,
+        failureReason: "heading_not_found",
+        detail: `no Markdown heading matched ${JSON.stringify(op.heading)}.`
+      };
+    }
+    if (matches.length > 1) {
+      return {
+        ok: false,
+        failureReason: "ambiguous_match",
+        detail: `heading ${JSON.stringify(op.heading)} matched ${String(matches.length)} sections; make the heading unique.`
+      };
+    }
+    const match = matches[0]!;
+    const bodyEnd = this.resolveSectionBodyEnd(headings, match, content.length);
+    const before = content.slice(0, match.bodyStart);
+    const after = content.slice(bodyEnd);
+    let replacement = op.content.replace(/\n+$/, "");
+    replacement = `${replacement}\n`;
+    if (after.length > 0) {
+      replacement = `${replacement}\n`;
+    }
+    return { ok: true, content: `${before}${replacement}${after}`, replacements: 1 };
+  }
+
+  private countLiteralOccurrences(content: string, find: string): number {
+    if (find.length === 0) {
+      return 0;
+    }
+    let count = 0;
+    let from = 0;
+    for (;;) {
+      const idx = content.indexOf(find, from);
+      if (idx === -1) {
+        break;
+      }
+      count += 1;
+      from = idx + find.length;
+    }
+    return count;
+  }
+
+  private truncateForDetail(value: string): string {
+    const collapsed = value.replace(/\s+/g, " ").trim();
+    return collapsed.length > 80 ? `${collapsed.slice(0, 77)}...` : collapsed;
+  }
+
+  private parseHeadingQuery(heading: string): { level: number | null; text: string } {
+    const match = /^(#{1,6})\s+(.*)$/.exec(heading.trim());
+    if (match) {
+      return {
+        level: match[1]!.length,
+        text: match[2]!.replace(/\s+#*\s*$/, "").trim()
+      };
+    }
+    return { level: null, text: heading.trim() };
+  }
+
+  /**
+   * Parse ATX Markdown headings with character offsets so section edits can splice the
+   * body by offset (preserving every untouched byte). Lines inside fenced code blocks
+   * are ignored so `#` comments in code are never treated as headings.
+   */
+  private findMarkdownHeadings(content: string): Array<{
+    level: number;
+    text: string;
+    lineStart: number;
+    bodyStart: number;
+  }> {
+    const headings: Array<{ level: number; text: string; lineStart: number; bodyStart: number }> =
+      [];
+    let offset = 0;
+    let inFence = false;
+    let fenceMarker = "";
+    for (const rawLine of content.split("\n")) {
+      const lineStart = offset;
+      const bodyStart = offset + rawLine.length + 1;
+      offset = bodyStart;
+      const fenceMatch = /^\s*(```+|~~~+)/.exec(rawLine);
+      if (fenceMatch) {
+        const marker = fenceMatch[1]!;
+        if (!inFence) {
+          inFence = true;
+          fenceMarker = marker[0]!;
+        } else if (marker[0] === fenceMarker) {
+          inFence = false;
+          fenceMarker = "";
+        }
+        continue;
+      }
+      if (inFence) {
+        continue;
+      }
+      const headingMatch = /^(#{1,6})\s+(.*)$/.exec(rawLine);
+      if (headingMatch) {
+        headings.push({
+          level: headingMatch[1]!.length,
+          text: headingMatch[2]!.replace(/\s+#*\s*$/, "").trim(),
+          lineStart,
+          bodyStart
+        });
+      }
+    }
+    return headings;
+  }
+
+  private resolveSectionBodyEnd(
+    headings: Array<{ level: number; lineStart: number }>,
+    match: { level: number; lineStart: number },
+    contentLength: number
+  ): number {
+    for (const heading of headings) {
+      if (heading.lineStart > match.lineStart && heading.level <= match.level) {
+        return heading.lineStart;
+      }
+    }
+    return contentLength;
   }
 
   private async executeRegisterVersionToolCall(params: {
@@ -1059,6 +1718,9 @@ export class RuntimeDocumentToolService {
           outputPath: string;
           format: "pdf" | "xlsx" | "docx";
           entrypoint: string | null;
+          requestedName: string | null;
+          content: string | null;
+          template: NormalizedDocumentRenderTemplate | null;
         };
       }
     | {
@@ -1076,6 +1738,18 @@ export class RuntimeDocumentToolService {
           outputPath: string;
           sourceManifestPath: string | null;
           inspectionPath: string | null;
+        };
+      }
+    | {
+        kind: "edit";
+        request: {
+          projectPath: string;
+          edits: DocumentEditOp[];
+          rerender: boolean;
+          format: "pdf" | "xlsx" | "docx" | null;
+          outputPath: string | null;
+          requestedName: string | null;
+          replace: boolean;
         };
       }
     | Error {
@@ -1134,16 +1808,67 @@ export class RuntimeDocumentToolService {
       if (format !== "pdf" && format !== "xlsx" && format !== "docx") {
         return new Error("document.format must be pdf, xlsx, or docx.");
       }
-      return {
-        kind: "render",
-        request: {
-          projectPath,
-          outputPath,
-          format,
-          entrypoint: this.readNonEmptyString(row.entrypoint),
-          ...(row.replace === true ? { replace: true } : {})
+      try {
+        return {
+          kind: "render",
+          request: {
+            projectPath,
+            outputPath,
+            format,
+            entrypoint: this.readNonEmptyString(row.entrypoint),
+            requestedName: this.readNonEmptyString(row.requestedName),
+            content: this.readDocumentRenderContent(row.content),
+            template: this.readDocumentRenderTemplate(row.template),
+            ...(row.replace === true ? { replace: true } : {})
+          }
+        };
+      } catch (error) {
+        return new Error(
+          error instanceof Error ? error.message : "document.render arguments are invalid."
+        );
+      }
+    }
+    if (row.action === "edit") {
+      const projectPath = this.readNonEmptyString(row.projectPath);
+      if (projectPath === null) {
+        return new Error("document.projectPath must be a non-empty string.");
+      }
+      try {
+        const edits = this.readDocumentEditOps(row.edits);
+        const rerender = row.rerender === true;
+        let format: "pdf" | "xlsx" | "docx" | null = null;
+        let outputPath: string | null = null;
+        if (rerender) {
+          if (row.format !== "pdf" && row.format !== "xlsx" && row.format !== "docx") {
+            return new Error(
+              "document.edit with rerender=true requires document.format (pdf, xlsx, or docx)."
+            );
+          }
+          format = row.format;
+          outputPath = this.readNonEmptyString(row.outputPath);
+          if (outputPath === null) {
+            return new Error(
+              "document.edit with rerender=true requires a non-empty document.outputPath."
+            );
+          }
         }
-      };
+        return {
+          kind: "edit",
+          request: {
+            projectPath,
+            edits,
+            rerender,
+            format,
+            outputPath,
+            requestedName: this.readNonEmptyString(row.requestedName),
+            replace: row.replace === true
+          }
+        };
+      } catch (error) {
+        return new Error(
+          error instanceof Error ? error.message : "document.edit arguments are invalid."
+        );
+      }
     }
     if (row.action === "register_version") {
       const outputPath = this.readNonEmptyString(row.outputPath);
@@ -1182,12 +1907,50 @@ export class RuntimeDocumentToolService {
     }
     if (typeof row.prompt === "string" && row.prompt.trim().length > 0) {
       return new Error(
-        'document requires an explicit action such as "extract", "inspect", "render", or "register_version". Slide decks belong in the presentation tool.'
+        'document requires an explicit action such as "extract", "inspect", "render", "edit", or "register_version". Slide decks belong in the presentation tool.'
       );
     }
     return new Error(
-      'document.action must be "extract", "inspect", "render", or "register_version".'
+      'document.action must be "extract", "inspect", "render", "edit", or "register_version".'
     );
+  }
+
+  private readDocumentEditOps(value: unknown): DocumentEditOp[] {
+    if (!Array.isArray(value) || value.length === 0) {
+      throw new Error("document.edits must be a non-empty array of edit operations.");
+    }
+    return value.map((entry, index) => {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new Error(`document.edits[${index}] must be an object.`);
+      }
+      const row = entry as Record<string, unknown>;
+      if (row.op === "replace") {
+        const find = typeof row.find === "string" ? row.find : "";
+        if (find.length === 0) {
+          throw new Error(`document.edits[${index}].find must be a non-empty string.`);
+        }
+        if (typeof row.replaceWith !== "string") {
+          throw new Error(`document.edits[${index}].replaceWith must be a string.`);
+        }
+        return {
+          op: "replace" as const,
+          find,
+          replaceWith: row.replaceWith,
+          all: row.all === true
+        };
+      }
+      if (row.op === "section") {
+        const heading = typeof row.heading === "string" ? row.heading.trim() : "";
+        if (heading.length === 0) {
+          throw new Error(`document.edits[${index}].heading must be a non-empty string.`);
+        }
+        if (typeof row.content !== "string") {
+          throw new Error(`document.edits[${index}].content must be a string.`);
+        }
+        return { op: "section" as const, heading, content: row.content };
+      }
+      throw new Error(`document.edits[${index}].op must be "replace" or "section".`);
+    });
   }
 
   private readPresentationArguments(value: unknown):
@@ -1286,6 +2049,81 @@ export class RuntimeDocumentToolService {
 
   private readNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private readDocumentRenderContent(value: unknown): string | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new Error("document.content must be a non-empty string when provided.");
+    }
+    return value.trim();
+  }
+
+  private readDocumentRenderTemplate(value: unknown): NormalizedDocumentRenderTemplate | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("document.template must be an object when provided.");
+    }
+    const row = value as Record<string, unknown>;
+    const allowedKeys = new Set([
+      "title",
+      "theme",
+      "css",
+      "pageSize",
+      "runningHeader",
+      "runningFooter"
+    ]);
+    for (const key of Object.keys(row)) {
+      if (!allowedKeys.has(key)) {
+        throw new Error(
+          "document.template supports only title, theme, css, pageSize, runningHeader, and runningFooter."
+        );
+      }
+    }
+    const title = this.readNullableTemplateString(row.title, "document.template.title");
+    const css = this.readNullableTemplateString(row.css, "document.template.css");
+    const runningHeader = this.readNullableTemplateString(
+      row.runningHeader,
+      "document.template.runningHeader"
+    );
+    const runningFooter = this.readNullableTemplateString(
+      row.runningFooter,
+      "document.template.runningFooter"
+    );
+    if (
+      row.theme !== undefined &&
+      row.theme !== "default" &&
+      row.theme !== "report" &&
+      row.theme !== "minimal"
+    ) {
+      throw new Error("document.template.theme must be default, report, or minimal.");
+    }
+    if (row.pageSize !== undefined && row.pageSize !== "A4" && row.pageSize !== "Letter") {
+      throw new Error("document.template.pageSize must be A4 or Letter.");
+    }
+    return {
+      title,
+      theme: row.theme === "report" || row.theme === "minimal" ? row.theme : ("default" as const),
+      css,
+      pageSize: row.pageSize === "Letter" ? "Letter" : "A4",
+      runningHeader,
+      runningFooter
+    };
+  }
+
+  private readNullableTemplateString(value: unknown, fieldName: string): string | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (typeof value !== "string") {
+      throw new Error(`${fieldName} must be a string when provided.`);
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   private normalizeUuid(value: string | null): string | null {
@@ -1418,6 +2256,21 @@ export class RuntimeDocumentToolService {
     entrypoint: string | null;
     projectManifest: DocumentProjectManifestFacts | null;
   }): Promise<string | null> {
+    // ADR-129 P-2: imported DOCX/XLSX -> PDF is a fixed deterministic pipeline. The
+    // engine is always the seeded LibreOffice `export_pdf.py`; the model cannot select
+    // or override the engine for this conversion, so any provided entrypoint is ignored.
+    if (
+      input.format === "pdf" &&
+      input.projectManifest?.sourceKind === "imported_workspace_file" &&
+      (input.projectManifest.sourceFormat === "docx" ||
+        input.projectManifest.sourceFormat === "xlsx")
+    ) {
+      return this.resolveImportedOfficePdfExportEntrypoint({
+        bundle: input.bundle,
+        projectPath: input.projectPath,
+        projectManifest: input.projectManifest
+      });
+    }
     if (input.entrypoint !== null) {
       if (input.entrypoint.startsWith("/workspace/")) {
         return this.normalizeWorkspacePath(input.entrypoint);
@@ -1425,35 +2278,6 @@ export class RuntimeDocumentToolService {
       return this.normalizeWorkspacePath(
         `${input.projectPath}/${input.entrypoint.replace(/^\.?\//, "")}`
       );
-    }
-    if (
-      input.format === "pdf" &&
-      input.projectManifest?.sourceKind === "imported_workspace_file" &&
-      (input.projectManifest.sourceFormat === "docx" ||
-        input.projectManifest.sourceFormat === "xlsx")
-    ) {
-      const files = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
-        workspaceId: input.bundle.metadata.workspaceId,
-        pathPrefix: `${input.projectPath}/`,
-        assistantHandle: input.bundle.metadata.assistantHandle,
-        scope: "workspace_shared",
-        currentChatId: null,
-        currentAssistantId: input.bundle.metadata.assistantId
-      });
-      const filePaths = files.items.filter((item) => item.type === "file").map((item) => item.path);
-      const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
-      const preferredEntrypoints = [
-        input.projectManifest.defaultPdfExportEntrypoint,
-        buildDocumentProjectPdfExportEntrypoint(layout)
-      ].filter((value, index, array): value is string => {
-        return typeof value === "string" && value.length > 0 && array.indexOf(value) === index;
-      });
-      for (const preferred of preferredEntrypoints) {
-        if (filePaths.includes(preferred)) {
-          return preferred;
-        }
-      }
-      return null;
     }
     if (input.format !== "pdf") {
       if (
@@ -1513,6 +2337,420 @@ export class RuntimeDocumentToolService {
       return htmlCandidates[0] ?? null;
     }
     return null;
+  }
+
+  private async prepareAuthoredRenderArtifactsIfRequested(input: {
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+    requestId: string;
+    originChatId: string | null;
+    projectPath: string;
+    format: "pdf" | "xlsx" | "docx";
+    content: string | null;
+    template: NormalizedDocumentRenderTemplate | null;
+    projectManifest: DocumentProjectManifestFacts | null;
+  }): Promise<string | null> {
+    if (input.content === null) {
+      return null;
+    }
+    if (input.projectManifest?.sourceKind === "imported_workspace_file") {
+      return null;
+    }
+    if (input.format !== "pdf" && input.format !== "docx") {
+      throw new Error(
+        "document.content authored render currently supports format=pdf or format=docx."
+      );
+    }
+    const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
+    const authoredTemplate = input.template ?? {
+      title: null,
+      theme: "default",
+      css: null,
+      pageSize: "A4",
+      runningHeader: null,
+      runningFooter: null
+    };
+    const contentSource = await this.resolveAuthoredRenderContentSource({
+      bundle: input.bundle,
+      sessionId: input.sessionId,
+      requestId: input.requestId,
+      content: input.content
+    });
+    const contentPath = `${layout.renderDir}/content.md`;
+    const reportHtmlPath = layout.defaultRenderEntrypoint;
+    const indexHtmlPath = `${layout.renderDir}/index.html`;
+    const pythonEntrypointPath = buildDocumentProjectPythonRenderEntrypoint(layout);
+    const buildScript = this.buildAuthoredRenderScript({
+      contentPath,
+      reportHtmlPath,
+      indexHtmlPath,
+      template: authoredTemplate,
+      projectPath: input.projectPath,
+      format: input.format
+    });
+    const manifest = buildDocumentProjectManifest({
+      layout,
+      sourceKind: "authored_workspace_project",
+      sourcePath: contentSource.sourcePath,
+      projectSourcePath: contentPath,
+      sourceFormat: "text",
+      sourceMimeType: "text/markdown",
+      sourceDisplayName: contentSource.sourceDisplayName,
+      extractManifestPath: null,
+      mimeType: "text/markdown"
+    });
+    await this.writeWorkspaceTextFile({
+      bundle: input.bundle,
+      sessionId: input.sessionId,
+      requestId: `${input.requestId}:authored-manifest`,
+      originChatId: input.originChatId,
+      path: layout.projectManifestPath,
+      content: `${JSON.stringify(manifest, null, 2)}\n`,
+      mimeType: "application/json"
+    });
+    await this.writeWorkspaceTextFile({
+      bundle: input.bundle,
+      sessionId: input.sessionId,
+      requestId: `${input.requestId}:authored-markdown`,
+      originChatId: input.originChatId,
+      path: contentPath,
+      content: contentSource.markdown,
+      mimeType: "text/markdown"
+    });
+    await this.writeWorkspaceTextFile({
+      bundle: input.bundle,
+      sessionId: input.sessionId,
+      requestId: `${input.requestId}:authored-render-builder`,
+      originChatId: input.originChatId,
+      path: pythonEntrypointPath,
+      content: buildScript,
+      mimeType: "text/x-python"
+    });
+    // ADR-129 Addendum III: authored renders bind identical HTML from a single seeded
+    // Python `markdown` engine for both pdf and docx. The visible render/report.html and
+    // render/index.html sources are produced by build.py at render time (they remain
+    // repairable, visible sources after the render), so the effective entrypoint is the
+    // Python builder for BOTH formats — never a runtime JS-rendered HTML file.
+    return pythonEntrypointPath;
+  }
+
+  private async resolveAuthoredRenderContentSource(input: {
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+    requestId: string;
+    content: string;
+  }): Promise<AuthoredRenderContentSource> {
+    if (!input.content.startsWith("/workspace/")) {
+      return {
+        markdown: input.content,
+        sourcePath: null,
+        sourceDisplayName: "content.md"
+      };
+    }
+    const normalizedPath = this.normalizeWorkspacePath(input.content);
+    if (normalizedPath === null || !/\.(md|markdown)$/i.test(normalizedPath)) {
+      throw new Error(
+        "document.content path must be an inline Markdown string or a valid /workspace/... .md/.markdown file."
+      );
+    }
+    return {
+      markdown: await this.readWorkspaceTextFile({
+        bundle: input.bundle,
+        sessionId: input.sessionId,
+        requestId: input.requestId,
+        path: normalizedPath
+      }),
+      sourcePath: normalizedPath,
+      sourceDisplayName: this.basename(normalizedPath)
+    };
+  }
+
+  private buildAuthoredRenderCss(template: NormalizedDocumentRenderTemplate): string {
+    const pageMargin =
+      template.theme === "minimal"
+        ? "16mm 16mm 18mm 16mm"
+        : template.theme === "report"
+          ? "18mm 18mm 22mm 18mm"
+          : "20mm 18mm 22mm 18mm";
+    const pageDecorations = [
+      template.runningHeader === null
+        ? ""
+        : `  @top-center { content: "${this.escapeCssContent(template.runningHeader)}"; font-size: 9pt; color: #6b7280; }`,
+      template.runningFooter === null
+        ? ""
+        : `  @bottom-center { content: "${this.escapeCssContent(template.runningFooter)}"; font-size: 9pt; color: #6b7280; }`
+    ]
+      .filter((line) => line.length > 0)
+      .join("\n");
+    const themeCss =
+      template.theme === "minimal"
+        ? [
+            "body { font-family: Arial, Helvetica, sans-serif; color: #111827; background: #ffffff; }",
+            ".document-title { font-size: 26pt; margin: 0 0 10mm 0; color: #111827; }",
+            "h1, h2, h3, h4, h5, h6 { color: #111827; font-family: Arial, Helvetica, sans-serif; }"
+          ]
+        : template.theme === "report"
+          ? [
+              "body { font-family: Inter, Arial, Helvetica, sans-serif; color: #0f172a; background: #ffffff; }",
+              ".document-title { font-size: 28pt; letter-spacing: 0.01em; margin: 0 0 10mm 0; color: #0f3d91; }",
+              "h1, h2, h3, h4, h5, h6 { color: #0f3d91; font-family: Inter, Arial, Helvetica, sans-serif; }",
+              "table thead th { background: #e8eefc; }"
+            ]
+          : [
+              'body { font-family: "Times New Roman", Georgia, serif; color: #1f2937; background: #f8fafc; }',
+              ".document-title { font-size: 24pt; margin: 0 0 10mm 0; color: #1f4b99; }",
+              "h1, h2, h3, h4, h5, h6 { color: #1f4b99; font-family: Georgia, serif; }"
+            ];
+    return [
+      `@page { size: ${template.pageSize}; margin: ${pageMargin};`,
+      pageDecorations,
+      "}",
+      "html { font-size: 12pt; }",
+      ...themeCss,
+      "body { line-height: 1.55; margin: 0; }",
+      ".document-header { margin-bottom: 6mm; }",
+      ".document-body { max-width: 100%; }",
+      "p { margin: 0 0 8pt 0; }",
+      "ul, ol { margin: 0 0 10pt 20pt; }",
+      "li + li { margin-top: 3pt; }",
+      "blockquote { margin: 0 0 10pt 0; padding-left: 12pt; border-left: 3px solid #cbd5e1; color: #475569; }",
+      "table { width: 100%; border-collapse: collapse; margin: 0 0 10pt 0; }",
+      "th, td { border: 1px solid #cbd5e1; padding: 6pt 8pt; vertical-align: top; }",
+      "code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 0.92em; }",
+      "pre { white-space: pre-wrap; padding: 8pt; background: #f1f5f9; border-radius: 6px; overflow-wrap: anywhere; }",
+      template.css ?? ""
+    ]
+      .filter((line) => line.length > 0)
+      .join("\n");
+  }
+
+  private buildAuthoredRenderScript(input: {
+    contentPath: string;
+    reportHtmlPath: string;
+    indexHtmlPath: string;
+    template: NormalizedDocumentRenderTemplate;
+    projectPath: string;
+    format: "pdf" | "docx";
+  }): string {
+    const title = input.template.title ?? this.basename(input.projectPath);
+    const themeCss = this.buildAuthoredRenderCss(input.template);
+    return [
+      "from __future__ import annotations",
+      "",
+      "from html import escape",
+      "from pathlib import Path",
+      "",
+      "from bs4 import BeautifulSoup, NavigableString, Tag",
+      "from docx import Document",
+      "from docx.enum.text import WD_ALIGN_PARAGRAPH",
+      "from docx.shared import Inches, Mm",
+      "import markdown",
+      "",
+      `CONTENT_PATH = Path(${JSON.stringify(input.contentPath)})`,
+      `REPORT_HTML_PATH = Path(${JSON.stringify(input.reportHtmlPath)})`,
+      `INDEX_HTML_PATH = Path(${JSON.stringify(input.indexHtmlPath)})`,
+      `OUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)`,
+      `TITLE = ${this.toPythonLiteral(input.template.title)}`,
+      `TITLE_FALLBACK = ${JSON.stringify(title)}`,
+      `PAGE_SIZE = ${JSON.stringify(input.template.pageSize)}`,
+      `RUNNING_HEADER = ${this.toPythonLiteral(input.template.runningHeader)}`,
+      `RUNNING_FOOTER = ${this.toPythonLiteral(input.template.runningFooter)}`,
+      `THEME_CSS = ${JSON.stringify(themeCss)}`,
+      `RENDER_FORMAT = ${JSON.stringify(input.format)}`,
+      "",
+      "def build_html_document() -> str:",
+      "    markdown_source = CONTENT_PATH.read_text(encoding='utf-8')",
+      "    body_html = markdown.markdown(",
+      "        markdown_source,",
+      "        extensions=['extra', 'sane_lists', 'nl2br', 'tables']",
+      "    )",
+      "    title_value = TITLE or TITLE_FALLBACK",
+      "    title_block = ''",
+      "    if TITLE:",
+      "        title_block = (",
+      "            '<header class=\"document-header\">'",
+      "            f'<h1 class=\"document-title\">{escape(TITLE)}</h1>'",
+      "            '</header>'",
+      "        )",
+      "    full_html = ''.join([",
+      "        '<!DOCTYPE html>\\n',",
+      "        '<html lang=\"en\">\\n',",
+      "        '<head>\\n',",
+      "        '  <meta charset=\"utf-8\"/>\\n',",
+      "        f'  <title>{escape(title_value)}</title>\\n',",
+      "        '  <style>\\n',",
+      "        f'{THEME_CSS}\\n',",
+      "        '  </style>\\n',",
+      "        '</head>\\n',",
+      "        '<body>\\n',",
+      "        f'{title_block}\\n' if title_block else '',",
+      "        '  <main class=\"document-body\">\\n',",
+      "        f'{body_html}\\n',",
+      "        '  </main>\\n',",
+      "        '</body>\\n',",
+      "        '</html>\\n',",
+      "    ])",
+      "    REPORT_HTML_PATH.parent.mkdir(parents=True, exist_ok=True)",
+      "    REPORT_HTML_PATH.write_text(full_html, encoding='utf-8')",
+      "    INDEX_HTML_PATH.write_text(full_html, encoding='utf-8')",
+      "    return full_html",
+      "",
+      "def configure_sections(document: Document) -> None:",
+      "    for section in document.sections:",
+      "        section.top_margin = Mm(18)",
+      "        section.bottom_margin = Mm(20)",
+      "        section.left_margin = Mm(18)",
+      "        section.right_margin = Mm(18)",
+      "        if PAGE_SIZE == 'Letter':",
+      "            section.page_width = Inches(8.5)",
+      "            section.page_height = Inches(11)",
+      "        else:",
+      "            section.page_width = Mm(210)",
+      "            section.page_height = Mm(297)",
+      "        if RUNNING_HEADER:",
+      "            header = section.header.paragraphs[0] if section.header.paragraphs else section.header.add_paragraph()",
+      "            header.text = RUNNING_HEADER",
+      "            header.alignment = WD_ALIGN_PARAGRAPH.CENTER",
+      "        if RUNNING_FOOTER:",
+      "            footer = section.footer.paragraphs[0] if section.footer.paragraphs else section.footer.add_paragraph()",
+      "            footer.text = RUNNING_FOOTER",
+      "            footer.alignment = WD_ALIGN_PARAGRAPH.CENTER",
+      "",
+      "def add_table(document: Document, element: Tag) -> None:",
+      "    rows = element.find_all('tr')",
+      "    if not rows:",
+      "        return",
+      "    first_cells = rows[0].find_all(['th', 'td'])",
+      "    if not first_cells:",
+      "        return",
+      "    table = document.add_table(rows=len(rows), cols=len(first_cells))",
+      "    table.style = 'Table Grid'",
+      "    for row_index, row in enumerate(rows):",
+      "        cells = row.find_all(['th', 'td'])",
+      "        for cell_index, cell in enumerate(cells[: len(first_cells)]):",
+      "            table.cell(row_index, cell_index).text = cell.get_text(' ', strip=True)",
+      "",
+      "def add_blocks(document: Document, element: Tag) -> None:",
+      "    for child in element.children:",
+      "        if isinstance(child, NavigableString):",
+      "            if child.strip():",
+      "                document.add_paragraph(child.strip())",
+      "            continue",
+      "        if not isinstance(child, Tag):",
+      "            continue",
+      "        tag = child.name.lower()",
+      "        if tag in {'main', 'article', 'section', 'div', 'body'}:",
+      "            add_blocks(document, child)",
+      "            continue",
+      "        if tag in {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}:",
+      "            text = child.get_text(' ', strip=True)",
+      "            if text:",
+      "                document.add_heading(text, level=min(int(tag[1]), 6))",
+      "            continue",
+      "        if tag == 'p':",
+      "            text = child.get_text(' ', strip=True)",
+      "            if text:",
+      "                document.add_paragraph(text)",
+      "            continue",
+      "        if tag == 'ul':",
+      "            for item in child.find_all('li', recursive=False):",
+      "                text = item.get_text(' ', strip=True)",
+      "                if text:",
+      "                    document.add_paragraph(text, style='List Bullet')",
+      "            continue",
+      "        if tag == 'ol':",
+      "            for item in child.find_all('li', recursive=False):",
+      "                text = item.get_text(' ', strip=True)",
+      "                if text:",
+      "                    document.add_paragraph(text, style='List Number')",
+      "            continue",
+      "        if tag == 'table':",
+      "            add_table(document, child)",
+      "            continue",
+      "        text = child.get_text(' ', strip=True)",
+      "        if text:",
+      "            document.add_paragraph(text)",
+      "",
+      "def build_docx(html_document: str) -> None:",
+      "    soup = BeautifulSoup(html_document, 'html.parser')",
+      "    document = Document()",
+      "    configure_sections(document)",
+      "    document.core_properties.title = TITLE or TITLE_FALLBACK",
+      "    root = soup.body if soup.body is not None else soup",
+      "    add_blocks(document, root)",
+      "    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)",
+      "    document.save(str(OUTPUT_PATH))",
+      "",
+      "def build_pdf() -> None:",
+      "    from weasyprint import HTML",
+      "    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)",
+      "    HTML(filename=str(REPORT_HTML_PATH)).write_pdf(str(OUTPUT_PATH))",
+      "",
+      "def build() -> None:",
+      "    html_document = build_html_document()",
+      "    if RENDER_FORMAT == 'pdf':",
+      "        build_pdf()",
+      "    else:",
+      "        build_docx(html_document)",
+      "",
+      "if __name__ == '__main__':",
+      "    build()",
+      ""
+    ].join("\n");
+  }
+
+  private async writeWorkspaceTextFile(input: {
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+    requestId: string;
+    originChatId: string | null;
+    path: string;
+    content: string;
+    mimeType: string;
+  }): Promise<string> {
+    const job = await this.sandboxClientService!.waitForCompletion({
+      assistantId: input.bundle.metadata.assistantId,
+      assistantHandle: input.bundle.metadata.assistantHandle,
+      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
+      workspaceId: input.bundle.metadata.workspaceId,
+      runtimeRequestId: input.requestId,
+      runtimeSessionId: input.sessionId,
+      toolCode: "files",
+      policy: this.buildInlineDocumentSandboxPolicy(input.bundle.runtime.sandbox),
+      args: {
+        action: "write",
+        path: input.path,
+        content: input.content,
+        replace: true
+      }
+    } satisfies RuntimeSandboxJobRequest);
+    if (job.status !== "completed" || typeof job.reason === "string") {
+      throw new Error(
+        job.warning ?? job.violationMessage ?? job.reason ?? `Could not write ${input.path}.`
+      );
+    }
+    const writeOutcome = this.parseFilesWriteContent(job.content);
+    const resolvedPath = writeOutcome.resolvedPath ?? input.path;
+    try {
+      await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
+        workspaceId: input.bundle.metadata.workspaceId,
+        path: resolvedPath,
+        mimeType: input.mimeType,
+        sizeBytes: writeOutcome.sizeBytes ?? Buffer.byteLength(input.content, "utf8"),
+        contentHash: createHash("sha256").update(input.content, "utf8").digest("hex"),
+        replace: true,
+        ...(input.originChatId === null
+          ? {}
+          : {
+              originChatId: input.originChatId,
+              originAssistantId: input.bundle.metadata.assistantId
+            })
+      });
+    } catch {
+      // Best-effort only: authored scaffolding stays usable even if the metadata mirror
+      // upsert is temporarily unavailable, matching normal files.write behavior.
+    }
+    return resolvedPath;
   }
 
   private renderEntrypointMissingWarning(
@@ -1815,28 +3053,133 @@ export class RuntimeDocumentToolService {
     );
   }
 
-  private validateImportedOfficePdfEntrypoint(input: {
+  /**
+   * ADR-129 P-2: resolve the seeded LibreOffice Office->PDF exporter entrypoint. The
+   * engine for imported DOCX/XLSX -> PDF is fixed; if the visible `export_pdf.py`
+   * exporter is not present in the project, the render is skipped honestly rather than
+   * falling back to a different engine.
+   */
+  private async resolveImportedOfficePdfExportEntrypoint(input: {
+    bundle: AssistantRuntimeBundle;
     projectPath: string;
+    projectManifest: DocumentProjectManifestFacts;
+  }): Promise<string | null> {
+    const files = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
+      workspaceId: input.bundle.metadata.workspaceId,
+      pathPrefix: `${input.projectPath}/`,
+      assistantHandle: input.bundle.metadata.assistantHandle,
+      scope: "workspace_shared",
+      currentChatId: null,
+      currentAssistantId: input.bundle.metadata.assistantId
+    });
+    const filePaths = files.items.filter((item) => item.type === "file").map((item) => item.path);
+    const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
+    const preferredEntrypoints = [
+      input.projectManifest.defaultPdfExportEntrypoint,
+      buildDocumentProjectPdfExportEntrypoint(layout)
+    ].filter((value, index, array): value is string => {
+      return typeof value === "string" && value.length > 0 && array.indexOf(value) === index;
+    });
+    for (const preferred of preferredEntrypoints) {
+      if (filePaths.includes(preferred)) {
+        return preferred;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * ADR-129 P-1: keep a render deliverable inside its document project. Outputs that
+   * already live inside the project are respected as-is; outputs that escape the
+   * project (e.g. workspace-root paths that then fail registration) are relocated into
+   * the canonical `<project>/output/` directory under a meaningful filename derived
+   * from the requested name, the escaped basename, the imported source basename, or
+   * the project directory name.
+   */
+  private normalizeRenderOutputPath(input: {
+    projectPath: string;
+    outputPath: string;
     format: "pdf" | "xlsx" | "docx";
+    requestedName: string | null;
     projectManifest: DocumentProjectManifestFacts | null;
-    entrypointPath: string;
-  }): string | null {
-    if (
-      input.format !== "pdf" ||
-      input.projectManifest?.sourceKind !== "imported_workspace_file" ||
-      (input.projectManifest.sourceFormat !== "docx" &&
-        input.projectManifest.sourceFormat !== "xlsx")
-    ) {
-      return null;
+  }): string {
+    if (isWorkspacePathUnderPrefix(input.outputPath, input.projectPath)) {
+      return input.outputPath;
     }
     const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
-    const expectedEntrypoint =
-      input.projectManifest.defaultPdfExportEntrypoint ??
-      buildDocumentProjectPdfExportEntrypoint(layout);
-    if (input.entrypointPath === expectedEntrypoint) {
-      return null;
+    const basename = this.deriveRenderOutputBasename({
+      projectPath: input.projectPath,
+      outputPath: input.outputPath,
+      format: input.format,
+      requestedName: input.requestedName,
+      projectManifest: input.projectManifest
+    });
+    return `${layout.outputDir}/${basename}`;
+  }
+
+  private deriveRenderOutputBasename(input: {
+    projectPath: string;
+    outputPath: string;
+    format: "pdf" | "xlsx" | "docx";
+    requestedName: string | null;
+    projectManifest: DocumentProjectManifestFacts | null;
+  }): string {
+    const escapedStem = this.stemOf(this.basename(input.outputPath));
+    const importedSourceStem =
+      input.projectManifest?.sourceKind === "imported_workspace_file"
+        ? this.stemOf(
+            this.basename(
+              input.projectManifest.projectSourcePath ?? input.projectManifest.sourcePath ?? ""
+            )
+          )
+        : "";
+    const candidates: string[] = [
+      this.sanitizeOutputStem(this.stemOf(input.requestedName)),
+      this.isGenericOutputStem(escapedStem) ? "" : this.sanitizeOutputStem(escapedStem),
+      this.sanitizeOutputStem(importedSourceStem),
+      this.sanitizeOutputStem(this.basename(input.projectPath))
+    ];
+    for (const candidate of candidates) {
+      if (candidate.length > 0) {
+        return `${candidate}.${input.format}`;
+      }
     }
-    return `Imported ${input.projectManifest.sourceFormat.toUpperCase()} -> PDF render must use the visible Office PDF export entrypoint ${expectedEntrypoint}.`;
+    return `document.${input.format}`;
+  }
+
+  private stemOf(name: string | null): string {
+    if (name === null) {
+      return "";
+    }
+    const base = this.basename(name.trim());
+    const dotIndex = base.lastIndexOf(".");
+    return dotIndex > 0 ? base.slice(0, dotIndex) : base;
+  }
+
+  private sanitizeOutputStem(stem: string): string {
+    return stem
+      .trim()
+      .replace(/[^\p{L}\p{N}._ -]/gu, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private isGenericOutputStem(stem: string): boolean {
+    const lowered = stem.trim().toLowerCase();
+    if (lowered.length === 0) {
+      return true;
+    }
+    return [
+      "output",
+      "document",
+      "render",
+      "build",
+      "untitled",
+      "file",
+      "result",
+      "temp",
+      "tmp"
+    ].includes(lowered);
   }
 
   private async runDocumentCodeSandboxJob(input: {
@@ -2032,6 +3375,17 @@ export class RuntimeDocumentToolService {
     }
   }
 
+  private parseFilesWriteContent(content: string | null): {
+    sizeBytes: number | null;
+    resolvedPath: string | null;
+  } {
+    const row = this.parseJsonObject(content);
+    return {
+      sizeBytes: typeof row?.sizeBytes === "number" ? row.sizeBytes : null,
+      resolvedPath: typeof row?.resolvedPath === "string" ? row.resolvedPath : null
+    };
+  }
+
   private parseJsonObject(content: string | null): Record<string, unknown> | null {
     if (typeof content !== "string" || content.trim().length === 0) {
       return null;
@@ -2058,5 +3412,13 @@ export class RuntimeDocumentToolService {
     const normalized = path.replace(/\\/g, "/");
     const parts = normalized.split("/");
     return parts[parts.length - 1] ?? normalized;
+  }
+
+  private escapeCssContent(value: string): string {
+    return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, "\\A ");
+  }
+
+  private toPythonLiteral(value: string | null): string {
+    return value === null ? "None" : JSON.stringify(value);
   }
 }

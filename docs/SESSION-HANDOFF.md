@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-07-01 — ADR-129 Addendum II/III: document tool polished to PROD (P-1..P-7 landed locally, push=deploy pending founder go)
+
+Status: full document-tool polishing program landed locally and verified; nothing committed or pushed. Founder workflow is `push=deploy`, so commit + reconcile with `origin/main` (1 behind) + push happen only on explicit founder go, followed by exec-image rebuild and live regression.
+
+**What changed (north-star: runtime owns deterministic mechanics, model owns declarative intent).**
+
+- **P-1/P-2 — single deliverable door.** `document.render` normalizes the output path from the requested name, renders, internally inspects → auto-registers a version (honest `auto_register_skipped:<code>` on failure), and delivers exactly once (turn delivery deduped by `storagePath`). Imported Office→PDF forced through the seeded LibreOffice `export_pdf.py` entrypoint.
+- **P-4 — declarative authored render.** `document.render` accepts `content` (Markdown string/path) + `template` (title/theme/css/pageSize/running header/footer); DOCX and PDF both built by a single seeded Python `markdown` engine in a visible `render/build.py` (PDF via WeasyPrint). No new npm dependency (`markdown-it` introduced then removed). Imported-source precedence and single-door register/deliver preserved.
+- **P-3 — declarative edit.** New additive `document` `action="edit"`: ordered `replace`/`section` ops applied server-side over full canonical content (`render/content.md` authored, `extract/extracted.md` imported), strict all-or-nothing (zero/ambiguous → honest per-op failure, nothing written), optional `rerender` chaining back through the single render door.
+- **P-6 — extract robustness.** Transparent layout→text auto-fallback on layout-extraction timeout; deterministic newest-version source selection.
+- **P-5 — anti-loop is structural only.** Single-door render + `suggestedNextActions` + existing generic per-turn tool budget. The earlier document-specific hard cap was removed as an arbitrary symptom fix per founder review (`tsx --test` gave a false green; the real `run-suite-isolated.ts` harness caught the regression).
+- **P-7 — exec image.** `markdown==3.10.2` added to `apps/sandbox/exec-image/requirements.txt` + Dockerfile self-check (others already present since ADR-123). Requires image rebuild at deploy.
+- Reverted the uncommitted symptom guard `blockSmallPdfAfterDocumentStdoutLimit`.
+
+**Files touched.** `apps/runtime/src/modules/turns/{runtime-document-tool.service,turn-execution.service,native-tool-projection,runtime-files-tool.service}.ts`; runtime tests (`runtime-document-tool.service`, `native-tool-projection`, `turn-execution.service`); `apps/api/prisma/{tool-catalog-data,bootstrap-preset-data}.ts`; `apps/api/src/modules/workspace-management/application/document-workspace-extraction.service.ts` + its test; `apps/api/test/{tool-catalog-data.test.ts,fixtures/adr119-golden-prompt-snapshot.expected.txt}`; `apps/sandbox/exec-image/{Dockerfile,requirements.txt}` + `apps/sandbox/test/exec-image-dockerfile.test.ts`; `packages/runtime-contract/src/index.ts`; `docs/ADR/129-...md` (Addendum II + III); this handoff; `docs/CHANGELOG.md`.
+
+**Orchestration.** Parent agent orchestrated; GPT-5.4 subagents implemented each slice; parent independently re-verified every slice and corrected two subagent deviations (P-5 arbitrary budget removed; P-4 dual markdown engine unified to Python `markdown`).
+
+**Verification — full AGENTS gate GREEN (real harness).**
+
+- `corepack pnpm -r --if-present run lint` — pass.
+- `corepack pnpm run format:check` — pass.
+- typechecks: `@persai/api`, `@persai/web`, `@persai/runtime`, `@persai/sandbox`, `@persai/provider-gateway` — all pass.
+- `corepack pnpm --filter @persai/runtime run test` — 38 pass (incl. 4 new `document.edit` tests).
+- `corepack pnpm --filter @persai/api run test` — pass (ADR-119 golden snapshot byte-equal).
+- `corepack pnpm --filter @persai/sandbox run test` — 91 pass.
+
+**Residual / next.**
+
+1. On founder go: commit, reconcile `origin/main` (1 behind), push (=deploy), rebuild exec image so `markdown` lands in the sandbox baseline.
+2. Live regression on `persai-dev` after deploy: the 6 original scenarios + authored `content`/`template` render + `document.edit`.
+3. Flags (out of ADR-129 scope): (a) orphan `node:test` files `runtime-files-tool.attach.test.ts` + `files-attach-after-image-generate.test.ts` not wired into the runtime suite (fail only under `tsx --test`) — ADR-131 hygiene; (b) `contracts:generate` emits single-quote churn across 659 committed prettier-formatted generated files — pre-existing generator/prettier drift, reverted here.
+
 ## 2026-07-01 — ADR-131 local continuation: GH failures fixed, Slice 2 implemented locally, replace projections hardened
 
 Status: local-only continuation after founder instruction to **not push** until the remaining ADR-131 work is batched and verified together. This entry supersedes the earlier "commit/push this slice" residual for ADR-131 Slice 1.

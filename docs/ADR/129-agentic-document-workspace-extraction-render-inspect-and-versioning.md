@@ -25,6 +25,159 @@ The addendum also adds an explicit `suggestedNextActions` hint to `document.extr
 
 Cross-turn workspace pollution and wrong-file attachment (files from previous turns delivered as if freshly rendered) were also observed on this same live-validation, but that class of problems needs deeper design work than a simple server-side chain. It is captured as a separate program in ADR-131 and is intentionally not resolved in this addendum.
 
+## Addendum II — 2026-07-01: intent-level document tool, deterministic runtime pipeline, and full polishing plan
+
+This addendum is the **authoritative plan of record** for closing the document block to PROD. Later implementation must not deviate from it without a new founder-approved amendment. It is grounded in a six-scenario live-test matrix run on `persai.dev` with per-turn sandbox/DB logs.
+
+### Live-test evidence (2026-07-01, workspace `24926096-953e-49b9-af56-f3551ce6f602`)
+
+| # | Scenario | Result | Sandbox jobs | Failure mode |
+|---|----------|--------|-------------:|--------------|
+| S1 | Imported DOCX -> PDF (`Карнаух`) | FAIL — runaway loop, stopped manually | 33+ | ignored seeded `export_pdf.py`; hand-rolled `markdown`+`weasyprint`; picked older `(5).docx` over `(6)` |
+| S2 | New PDF from scratch | HEALTHY | 7 | none — `files.write` HTML -> render -> attach; registered `v1` |
+| S3 | New DOCX | works, noisy | 16 | `python-docx` not preinstalled (pip round); 3× `build.py` rewrites; delivered generic `output.docx`; no version |
+| S4 | New XLSX | works | 12 | `PERSAI_OUTPUT_PATH` wrong on first try; double `files.attach`; no version |
+| S5 | Table-heavy -> PDF | works | 11 | wrote `.html` as a file then read it as a directory (mkdir+mv); double attach; no version |
+| S6 | Imported PDF -> DOCX | works, manual | 10 | `document.extract` layout mode timed out -> text fallback surfaced as error; `python-docx` pip; delivered via manual `shell build.py`, no `document.render`, no version |
+
+### Confirmed problem set
+
+- **P1 (critical)** — imported source -> convert bypasses `document.render` / seeded `export_pdf.py`; the model hand-rolls a parallel pipeline (S1 catastrophic, S6 manual).
+- **P2 (critical)** — no bound on the model's manual tool loop; a turn ran 33+ jobs and had to be stopped by a human.
+- **P3** — exec image lacks `python-docx` (S3, S6 both pip-install at runtime).
+- **P4** — `PERSAI_OUTPUT_PATH` / project-path confusion recurs (S4 wrong path, S5 `.html`-as-directory).
+- **P5** — the same file is attached twice (S2, S4, S5).
+- **P6** — generic delivered filename (`output.docx`) instead of a meaningful name (S3).
+- **P7** — `document.extract` layout mode times out on large PDF and surfaces as a user-visible error (S6).
+- **P8** — naive source selection: first `glob` hit instead of newest version (S1 took `(5)` not `(6)`).
+- **P9** — versioning is inconsistent: only S2 registered a version. Two independent causes:
+  1. **Bypass** (S3, S6): deliverable built by manual `shell build.py` + `files.attach`; `document.render` never ran, so nothing registers.
+  2. **Silent skip** (S4, S5): `document.render` ran, but `outputPath` was at workspace root (not inside the project dir), `registerDocumentVersion` was rejected, and the render still returned success with an unseen `auto_register_skipped:*` warning.
+  S2 registered only because it happened to write the output inside the project directory.
+
+### North-star principle (non-negotiable)
+
+> **Content integrity and rendering are deterministic runtime mechanics. Design, authored text, and edits are the model's declarative input. The model has one door for producing a deliverable; there is no hand-assembly of document bytes through `shell`.**
+
+We do not fight symptoms (no "block small PDF", no "forbid weasyprint", no size heuristics). We remove the cause: the model hand-rolls because we ask it to orchestrate low-level assembly. We collapse the surface to one intent-level tool that covers 100% of the cases it currently hand-rolls, so there is no incentive to escape into `shell`.
+
+### Model-facing surface (declarative intent)
+
+The model expresses intent through three declarative inputs, plus an optional `source`:
+
+| Input | Meaning | Owner |
+|-------|---------|-------|
+| `content` | authored text as markdown/structure | model (creative) |
+| `template` | design: theme / CSS / layout / title / running heads | model (creative) |
+| `edit` | targeted operations over existing content (`find`/`replace`, section patch) | model (creative) |
+| `source` | path to imported `DOCX`/`PDF`/`XLSX` | user/workspace |
+
+The model never writes `build.py`, never chooses the render engine, never sets `PERSAI_OUTPUT_PATH`, never runs `mkdir`/`mv`/`pip` for document work.
+
+### Deterministic runtime pipeline (one transaction)
+
+```text
+source? -> extract (full content, never truncated)
+        -> apply (model edit-ops, surgical; untouched content passes through byte-for-byte)
+        -> render (engine chosen by source type: LibreOffice export_pdf.py for imported Office; HTML/CSS template for authored)
+        -> register version
+        -> attach
+```
+
+The result is exactly one of: a complete, versioned, attached file — or an honest failure. "Success with a truncated file" is impossible by construction, not by a size check.
+
+### Content vs creativity split (how "take text from DOCX, make a beautiful PDF" works)
+
+- **Content completeness = mechanics.** Extraction yields the full text/structure; the model never re-types or reassembles it.
+- **Design = creativity, expressed as data.** The model supplies a `template`/`theme` and (if it restructures) `content` as markdown — not a build script. The runtime binds full content into the model's template and renders deterministically.
+- **Edits in a big doc = operations, not rewrites.** The model locates the passage (`grep`/targeted read) and emits an `edit` op; the runtime applies it to the full content and re-renders. Pervasive edits (translate/retone all) are runtime-orchestrated section-by-section with guaranteed full coverage — the model never holds the whole document as a blob.
+
+### Implementation slices (authoritative; supersede the older "Remaining implementation slices" list below)
+
+| Slice | Deliverable | Closes | Priority |
+|------:|-------------|--------|:--------:|
+| P-1 | `document.render` is the single deliverable producer and itself performs `register_version` + `attach` in one operation; runtime normalizes `outputPath` inside the project and derives a meaningful filename | P1, P4, P5, P6, P9 | critical |
+| P-2 | Render engine chosen automatically by source type; imported `DOCX`/`XLSX` -> PDF always uses the seeded LibreOffice `export_pdf.py`; the model cannot pick the engine | P1 (S1/S6) | critical |
+| P-3 | `document.edit` — declarative targeted/section edit operations applied server-side over full content | big-doc edits | high |
+| P-4 | `template`/`content` accepted as declarative render inputs (model owns design; runtime binds full content) | creative layer | high |
+| P-5 | Anti-loop: extract->render is runtime-orchestrated (extract emits `suggestedNextActions` with the exact single `document.render` call), so the model has no reason to hand-assemble via `shell`. **No document-specific tool-budget cap** — see the note below. | P2 (S1 runaway) | critical |
+| P-6 | Extract robustness: layout timeout auto-falls back to text without a user-visible error; newest source version selected instead of first `glob` hit | P7, P8 | high |
+| P-7 | Exec image preinstalls `python-docx` (verify `openpyxl`/`markdown`/`weasyprint`); removes runtime pip rounds | P3 | high (independent, can land first) |
+
+Structural invariant introduced by P-1 (not a heuristic): **a document deliverable is produced only by `document.render`.** A file assembled ad hoc in `shell` is not a document-to-deliver. When `document.render` succeeds but `registerDocumentVersion` is rejected, that is not a silent success — it is either fixed (path normalization) or surfaced honestly.
+
+#### P-5 correction (2026-07-01, founder review): no document-specific tool-budget cap
+
+An initial P-5 implementation added a per-turn counter that hard-stopped model `shell`/`exec` calls after `document.extract` opened a project (cap = 2). This is **dropped**. Rationale, consistent with this ADR's north-star (remove the cause, do not fight symptoms):
+
+- The runaway loop in S1 was caused by hand-assembly through `shell`; P-1/P-2 remove that cause by making `document.render` the single deterministic door and having `extract` emit `suggestedNextActions` with the exact render call. There is no longer an incentive to loop.
+- A fixed count (`2`) has **no principled basis** and can false-positive on legitimate unrelated `shell` work in the same turn — precisely the kind of "locked logic" this ADR rejects.
+- Runaway tool use is already bounded generically by the existing per-turn tool-budget (`toolBudgetPolicy` / reservation exhaustion), which is tool-agnostic and does not need a document-specific duplicate.
+
+Anti-loop for P-5 is therefore purely structural: single door (P-1) + engine-by-source (P-2) + `suggestedNextActions` (extract) + the pre-existing generic per-turn tool budget. The document-specific counter and its tests are removed.
+
+### Symptom-patch revert (mandatory precondition)
+
+The uncommitted working-tree guard `blockSmallPdfAfterDocumentStdoutLimit` (a `< 64 KB` PDF attach block after a stdout-limit turn) in `runtime-files-tool.service.ts`, `turn-execution.service.ts`, and `runtime-files-tool.service.test.ts` is a symptom fix. It is **reverted** before implementation begins. Slices P-1 and P-2 make the truncated-delivery outcome impossible by construction, so no size heuristic is needed.
+
+### Verification and live regression (acceptance)
+
+Gate (per touched slice, and full before any push): `lint` + `format:check` + `typecheck` for api/web/runtime/sandbox + focused runtime/sandbox tests + regenerated golden fixtures (ADR-119 prompt fixture, native-tool-projection fixtures) when tool guidance/schema changes.
+
+Live regression re-runs all six scenarios. Acceptance invariant across all six:
+
+- imported DOCX/PDF conversions go through `export_pdf.py`/`document.render`, never manual `shell build.py`;
+- delivered file is full-size (S1 must not shrink a 70-page DOCX to a 2-page PDF);
+- exactly one registered version per delivered file;
+- exactly one `files.attach` per delivered file;
+- zero runtime `pip install` for document work;
+- no runaway loop (S1 completes in well under ten sandbox jobs).
+
+### Sequencing and risk
+
+Order: **P-7 (infra, independent) + symptom revert -> P-1 + P-2 (core: one door + engine) -> P-5 (anti-loop) -> P-6 (extract) -> P-3 (edit) -> P-4 (design)**.
+
+Risk: P-1 changes the `document` contract (render now owns attach/register), so tool guidance, the ADR-119 golden prompt fixture, and `runtime-document-tool.service.test.ts` / `native-tool-projection.test.ts` must be updated in the same slice. Every push deploys to `persai-dev`; therefore each slice runs the full gate and the six-scenario live regression, and push happens only on explicit founder instruction. Full cleanup is mandatory: no parallel/legacy document-assembly path, no dead `execute_document_code`-as-deliverable route, no TODO scaffolding left behind.
+
+### Orchestration note
+
+Implementation is executed by GPT-5.4 / Sonnet implementation subagents. The parent agent is orchestrator/auditor only: it does not write product code directly, it reviews subagent diffs against this addendum, runs the gate, and drives the live regression before any deploy.
+
+## Addendum III — 2026-07-01 — P-4 and P-3 declarative contracts (in PROD scope)
+
+Addendum II left P-3 (`document.edit`) and P-4 (`template`/`content`) at principle level. This addendum fixes their concrete model-facing contract so the declarative creative layer is production-defined, not improvised. Both are additive to the single-door `document.render` model of P-1/P-2 — no new escape hatch, no hand-assembly.
+
+### P-4 — declarative authored render (`content` + `template`)
+
+`document.render` gains two optional inputs used for **authored** documents (not imported Office sources, which stay on the fixed LibreOffice engine from P-2):
+
+- `content` — authored body as Markdown (a string, or a `/workspace/...` markdown file path). When present, the runtime deterministically builds the render entrypoint from `content` bound into the chosen template (Markdown → HTML via the seeded `markdown` python lib preinstalled by P-7), writes it as a visible project source under `render/`, and renders to the requested `format` (`pdf`/`docx`). The model no longer hand-writes `index.html`/`build.py` for authored docs.
+- `template` — declarative design object (all optional): `title`, `theme` (small seeded enum, e.g. `default`|`report`|`minimal`), `css` (extra CSS appended), `pageSize` (`A4`|`Letter`), `runningHeader`, `runningFooter`.
+
+Rules:
+- If `content` is provided and the project is **not** an imported Office source, the runtime owns entrypoint generation; a model-provided `entrypoint` is ignored for that render.
+- If `content` is omitted, existing entrypoint-based render is unchanged.
+- Imported Office → PDF (P-2) always wins and ignores `content`/`template`.
+- Render remains the single deliverable door: it still registers + delivers exactly once (P-1). `content`/`template` change only how the authored entrypoint is produced, never the delivery contract.
+
+This is the concrete answer to "take the text and assemble a beautiful PDF — the runtime is mechanics, not creativity": full content is bound by the runtime; design is declarative data.
+
+### P-3 — `document.edit` (surgical server-side edits over full content)
+
+New `action="edit"` on the `document` tool. It edits the project's canonical editable content (`extract/extracted.md` for imported/extracted projects; the authored `content` source for authored projects) server-side over the **full** content, then optionally re-renders.
+
+- Inputs: `projectPath` (the document project), `edits` (ordered array), optional `rerender` + `format`/`outputPath`.
+- `edits[]` operations:
+  - `{ op: "replace", find, replaceWith, all? }` — literal replace. Default `all:false` replaces the first occurrence and requires the `find` to be unambiguous; a zero-match or ambiguous non-`all` match returns an honest per-op failure (no silent no-op).
+  - `{ op: "section", heading, content }` — replace the body under the given Markdown heading with `content`, leaving all other sections byte-for-byte intact.
+- The runtime applies ops surgically (untouched content preserved verbatim), writes the updated content back as a visible source, and returns applied/failed counts per op. The model locates passages via `grep`/targeted `files.read` and emits ops; it never holds the whole document as a blob. If `rerender` is set, the edit chains into the single-door render (register + deliver once).
+
+This is the concrete answer to "what if the model must fix some text in a big doc": operations, not rewrites; guaranteed full-coverage passthrough for untouched content.
+
+### Sequencing, gate, and scope
+
+Order: **P-4 (authored content/template) → P-3 (edit)**. Each is a bounded slice with the full AGENTS gate (lint/format/typecheck api+web+runtime+sandbox + suites + regenerated golden fixtures because the `document` schema/guidance changes). No parallel/legacy authoring path; the seeded scaffold remains the only mechanism. Live regression (six scenarios + a new authored-content scenario and an edit scenario) runs on `persai-dev` after the founder authorizes deploy (push = deploy).
+
 ## Purpose
 
 This ADR defines the final production design for the active `document` system.

@@ -30,6 +30,22 @@ function createResolvedWritePathJob(path: string) {
   };
 }
 
+function createWrittenWorkspaceFileJob(path: string, sizeBytes: number) {
+  return {
+    status: "completed" as const,
+    exitCode: 0,
+    reason: null,
+    warning: null,
+    violationMessage: null,
+    stderr: null,
+    content: JSON.stringify({
+      sizeBytes,
+      resolvedPath: path
+    }),
+    files: []
+  };
+}
+
 function resolveWritePathJobIfRequested(input: {
   toolCode: string;
   args: Record<string, unknown>;
@@ -82,7 +98,21 @@ describe("RuntimeDocumentToolService", () => {
             reasonCodes: [],
             textChars: 1200
           },
-          warnings: []
+          warnings: [],
+          suggestedNextActions: [
+            {
+              tool: "document" as const,
+              action: "render" as const,
+              args: {
+                action: "render" as const,
+                projectPath: "/workspace/projects/source",
+                outputPath: "/workspace/projects/source/output/report.pdf",
+                format: "pdf" as const
+              },
+              reason:
+                "Convert the imported DOCX to PDF via the seeded LibreOffice export_pdf.py entrypoint. Do not read the source content chunk by chunk; call this action directly."
+            }
+          ]
         };
       }
     } as never);
@@ -121,6 +151,20 @@ describe("RuntimeDocumentToolService", () => {
       pageCount: 4,
       sheetCount: null
     });
+    assert.deepEqual(result.payload.extraction?.suggestedNextActions, [
+      {
+        tool: "document",
+        action: "render",
+        args: {
+          action: "render",
+          projectPath: "/workspace/projects/source",
+          outputPath: "/workspace/projects/source/output/report.pdf",
+          format: "pdf"
+        },
+        reason:
+          "Convert the imported DOCX to PDF via the seeded LibreOffice export_pdf.py entrypoint. Do not read the source content chunk by chunk; call this action directly."
+      }
+    ]);
   });
 
   test("rejects document.extract outputDir arguments", async () => {
@@ -1183,12 +1227,582 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(sandboxCalls[4]?.toolCode, "files");
   });
 
+  test("scaffolds authored content/template into visible render sources and delivers once", async () => {
+    for (const scenario of [
+      {
+        format: "pdf" as const,
+        outputPath: "/workspace/projects/authored/output/report.pdf",
+        entrypointPath: "/workspace/projects/authored/render/build.py",
+        mimeType: "application/pdf",
+        inspectPath: "/workspace/projects/authored/output/report.inspect.json"
+      },
+      {
+        format: "docx" as const,
+        outputPath: "/workspace/projects/authored/output/report.docx",
+        entrypointPath: "/workspace/projects/authored/render/build.py",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        inspectPath: "/workspace/projects/authored/output/report.inspect.json"
+      }
+    ]) {
+      const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
+      const writtenFiles = new Map<string, string>();
+      const registerCalls: Array<{ outputPath: string; workspaceProjectPath: string }> = [];
+      const inspectCalls: Array<{ path: string }> = [];
+      const service = new RuntimeDocumentToolService(
+        {
+          async upsertWorkspaceFileMetadata() {
+            return;
+          },
+          async inspectDocumentInWorkspace(input: { path: string }) {
+            inspectCalls.push({ path: input.path });
+            return {
+              accepted: true as const,
+              sourcePath: input.path,
+              inspectPath: scenario.inspectPath,
+              format: scenario.format,
+              counts: {
+                pageCount: scenario.format === "pdf" ? 1 : null,
+                sheetCount: null,
+                formulaCount: null,
+                blankSheetCount: null,
+                paragraphCount: scenario.format === "docx" ? 4 : null,
+                headingCount: scenario.format === "docx" ? 1 : null,
+                tableCount: null,
+                textCharCount: 48
+              },
+              warnings: [],
+              suggestedReadPaths: [],
+              comparison: null
+            };
+          },
+          async registerDocumentVersion(input: {
+            outputPath: string;
+            workspaceProjectPath: string;
+          }) {
+            registerCalls.push({
+              outputPath: input.outputPath,
+              workspaceProjectPath: input.workspaceProjectPath
+            });
+            return {
+              accepted: true as const,
+              docId: `doc-authored-${scenario.format}`,
+              versionId: `version-authored-${scenario.format}`,
+              versionNumber: 1,
+              descriptorMode: "create_document" as const,
+              documentType: "workspace_document" as const,
+              outputFormat: scenario.format,
+              outputPath: input.outputPath,
+              workspaceProjectPath: input.workspaceProjectPath,
+              sourceManifestPath: null,
+              inspectionPath: scenario.inspectPath
+            };
+          }
+        } as never,
+        {
+          isConfigured() {
+            return true;
+          },
+          async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+            sandboxCalls.push(input);
+            if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
+              return createResolvedWritePathJob(scenario.outputPath);
+            }
+            if (input.toolCode === "files" && input.args.action === "write") {
+              const path = String(input.args.path ?? "");
+              const content = String(input.args.content ?? "");
+              writtenFiles.set(path, content);
+              return createWrittenWorkspaceFileJob(path, Buffer.byteLength(content, "utf8"));
+            }
+            if (input.toolCode === "files" && input.args.action === "read") {
+              const path = String(input.args.path ?? "");
+              const content =
+                writtenFiles.get(path) ??
+                (path.endsWith("/project.json")
+                  ? null
+                  : (() => {
+                      throw new Error(`Unexpected read path: ${path}`);
+                    })());
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content:
+                  content === null
+                    ? JSON.stringify({
+                        content: null,
+                        sizeBytes: null,
+                        sha256: null,
+                        truncated: false
+                      })
+                    : JSON.stringify({
+                        content,
+                        sizeBytes: Buffer.byteLength(content, "utf8"),
+                        sha256: null,
+                        truncated: false
+                      }),
+                files: []
+              };
+            }
+            if (input.toolCode === "execute_document_code") {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: null,
+                files: [
+                  {
+                    relativePath: scenario.outputPath.replace("/workspace/", ""),
+                    displayName: scenario.outputPath.split("/").pop() ?? null,
+                    mimeType: scenario.mimeType,
+                    sizeBytes: 2048,
+                    logicalSizeBytes: 2048,
+                    storagePath: `sandbox/job/${scenario.format}`
+                  }
+                ]
+              };
+            }
+            if (input.toolCode === "files" && input.args.action === "attach") {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: JSON.stringify({
+                  action: "attached",
+                  attachment: {
+                    workspaceRelPath: scenario.outputPath,
+                    sourcePath: scenario.outputPath,
+                    sizeBytes: 2048,
+                    mimeType: scenario.mimeType,
+                    displayName: scenario.outputPath.split("/").pop()
+                  }
+                }),
+                files: []
+              };
+            }
+            throw new Error(`Unexpected sandbox call: ${input.toolCode}`);
+          }
+        } as never
+      );
+
+      const result = await service.executeToolCall({
+        bundle: createBundle(),
+        toolCall: {
+          id: `tool-authored-${scenario.format}`,
+          name: "document",
+          arguments: {
+            action: "render",
+            projectPath: "/workspace/projects/authored",
+            outputPath: scenario.outputPath,
+            format: scenario.format,
+            entrypoint: "ignored-by-runtime.html",
+            content: "# Overview\n\n- First point\n- Second point",
+            template: {
+              title: "Quarterly Summary",
+              theme: "report",
+              pageSize: "Letter",
+              runningHeader: "Q2 2026",
+              runningFooter: "Internal draft"
+            }
+          }
+        },
+        sessionId: `session-authored-${scenario.format}`,
+        requestId: `request-authored-${scenario.format}`,
+        conversation: {
+          channel: "web",
+          externalThreadKey: `chat:web:authored:${scenario.format}`
+        },
+        deferToAsyncDocumentJob: {
+          sourceUserMessageId: `msg-authored-${scenario.format}`,
+          sourceUserMessageText: "Render the authored report",
+          sourceUserMessageCreatedAt: "2026-07-01T19:30:00.000Z",
+          currentAttachments: [],
+          availableAttachments: []
+        }
+      });
+
+      assert.equal(result.isError, false);
+      assert.equal(result.payload.action, "rendered");
+      assert.equal(result.payload.render?.entrypointPath, scenario.entrypointPath);
+      assert.equal(result.payload.render?.outputPath, scenario.outputPath);
+      assert.equal(registerCalls.length, 1);
+      assert.equal(registerCalls[0]?.outputPath, scenario.outputPath);
+      assert.equal(registerCalls[0]?.workspaceProjectPath, "/workspace/projects/authored");
+      assert.equal(inspectCalls.length, 1);
+      assert.equal(inspectCalls[0]?.path, scenario.outputPath);
+      assert.equal(
+        sandboxCalls.filter((call) => call.toolCode === "files" && call.args.action === "attach")
+          .length,
+        1
+      );
+      // The runtime scaffolds exactly three visible sources (project.json, content.md,
+      // build.py). It must NOT pre-write report.html/index.html with a JS engine — those
+      // visible HTML sources are produced by the single seeded Python `markdown` engine
+      // inside build.py at render time.
+      assert.equal(
+        sandboxCalls.filter((call) => call.toolCode === "files" && call.args.action === "write")
+          .length,
+        3
+      );
+      assert.equal(
+        writtenFiles.has("/workspace/projects/authored/project.json"),
+        true,
+        "fresh authored render should scaffold a project manifest"
+      );
+      assert.equal(
+        writtenFiles.has("/workspace/projects/authored/render/content.md"),
+        true,
+        "fresh authored render should scaffold visible markdown source"
+      );
+      assert.equal(
+        writtenFiles.has("/workspace/projects/authored/render/build.py"),
+        true,
+        "fresh authored render should scaffold visible build.py"
+      );
+      assert.equal(
+        writtenFiles.has("/workspace/projects/authored/render/report.html"),
+        false,
+        "runtime must not pre-write report.html with a JS engine"
+      );
+      assert.equal(
+        writtenFiles.has("/workspace/projects/authored/render/index.html"),
+        false,
+        "runtime must not pre-write index.html with a JS engine"
+      );
+      // content.md carries the raw authored Markdown verbatim (bound later by Python).
+      assert.match(
+        writtenFiles.get("/workspace/projects/authored/render/content.md") ?? "",
+        /- First point/
+      );
+      // build.py is the single Markdown engine (Python `markdown`) for BOTH formats and
+      // produces the visible report.html/index.html plus the requested deliverable.
+      const authoredBuildPy =
+        writtenFiles.get("/workspace/projects/authored/render/build.py") ?? "";
+      assert.match(authoredBuildPy, /import markdown/);
+      assert.match(authoredBuildPy, /extensions=\['extra', 'sane_lists', 'nl2br', 'tables'\]/);
+      assert.match(authoredBuildPy, /REPORT_HTML_PATH\.write_text/);
+      assert.match(authoredBuildPy, /INDEX_HTML_PATH\.write_text/);
+      assert.match(authoredBuildPy, /Quarterly Summary/);
+      assert.match(authoredBuildPy, new RegExp(`RENDER_FORMAT = "${scenario.format}"`));
+      if (scenario.format === "pdf") {
+        assert.match(authoredBuildPy, /from weasyprint import HTML/);
+        assert.match(authoredBuildPy, /HTML\(filename=str\(REPORT_HTML_PATH\)\)\.write_pdf/);
+      } else {
+        assert.match(authoredBuildPy, /from bs4 import BeautifulSoup/);
+        assert.match(authoredBuildPy, /document\.save\(str\(OUTPUT_PATH\)\)/);
+      }
+      assert.ok(
+        !sandboxCalls.some(
+          (call) =>
+            call.toolCode === "files" &&
+            call.args.action === "read" &&
+            call.args.path === "/workspace/projects/authored/ignored-by-runtime.html"
+        ),
+        "authored content render must ignore model-provided entrypoint"
+      );
+    }
+  });
+
+  test("imported Office PDF render ignores authored content/template inputs", async () => {
+    for (const scenario of [
+      {
+        sourceFormat: "docx" as const,
+        sourcePath: "/workspace/source.docx",
+        projectSourcePath: "/workspace/projects/report/source/source.docx"
+      },
+      {
+        sourceFormat: "xlsx" as const,
+        sourcePath: "/workspace/source.xlsx",
+        projectSourcePath: "/workspace/projects/report/source/source.xlsx"
+      }
+    ]) {
+      const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
+      const service = new RuntimeDocumentToolService(
+        {
+          async listWorkspaceFilesFromManifest() {
+            return {
+              items: [
+                { type: "file", path: "/workspace/projects/report/project.json" },
+                { type: "file", path: "/workspace/projects/report/render/export_pdf.py" }
+              ]
+            };
+          },
+          async upsertWorkspaceFileMetadata() {
+            return;
+          }
+        } as never,
+        {
+          isConfigured() {
+            return true;
+          },
+          async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+            sandboxCalls.push(input);
+            const resolvedWritePath = resolveWritePathJobIfRequested(input);
+            if (resolvedWritePath !== null) {
+              return resolvedWritePath;
+            }
+            if (input.toolCode === "files" && input.args.action === "read") {
+              if (input.args.path === "/workspace/projects/report/project.json") {
+                return {
+                  status: "completed",
+                  exitCode: 0,
+                  reason: null,
+                  warning: null,
+                  violationMessage: null,
+                  stderr: null,
+                  content: JSON.stringify({
+                    content: JSON.stringify({
+                      schema: "persai.document.project.v1",
+                      sourceKind: "imported_workspace_file",
+                      sourceFormat: scenario.sourceFormat,
+                      sourcePath: scenario.sourcePath,
+                      projectSourcePath: scenario.projectSourcePath,
+                      defaultPdfExportEntrypoint: "/workspace/projects/report/render/export_pdf.py"
+                    }),
+                    sizeBytes: 128,
+                    sha256: null,
+                    truncated: false
+                  }),
+                  files: []
+                };
+              }
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: JSON.stringify({
+                  content: "print('office export')\n",
+                  sizeBytes: 24,
+                  sha256: null,
+                  truncated: false
+                }),
+                files: []
+              };
+            }
+            if (input.toolCode === "execute_document_code") {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: null,
+                files: []
+              };
+            }
+            if (input.toolCode === "files" && input.args.action === "attach") {
+              return {
+                status: "completed",
+                exitCode: 0,
+                reason: null,
+                warning: null,
+                violationMessage: null,
+                stderr: null,
+                content: JSON.stringify({
+                  action: "attached",
+                  attachment: {
+                    workspaceRelPath: "/workspace/projects/report/output/report.pdf",
+                    sourcePath: "/workspace/projects/report/output/report.pdf",
+                    sizeBytes: 2048,
+                    mimeType: "application/pdf",
+                    displayName: "report.pdf"
+                  }
+                }),
+                files: []
+              };
+            }
+            throw new Error(`Unexpected sandbox call: ${input.toolCode}`);
+          }
+        } as never
+      );
+
+      const result = await service.executeToolCall({
+        bundle: createBundle(),
+        toolCall: {
+          id: `tool-imported-ignore-${scenario.sourceFormat}`,
+          name: "document",
+          arguments: {
+            action: "render",
+            projectPath: "/workspace/projects/report",
+            outputPath: "/workspace/projects/report/output/report.pdf",
+            format: "pdf",
+            content: "# Should be ignored",
+            template: { title: "Ignore me", theme: "minimal" }
+          }
+        },
+        sessionId: `session-imported-ignore-${scenario.sourceFormat}`,
+        requestId: `request-imported-ignore-${scenario.sourceFormat}`,
+        deferToAsyncDocumentJob: {
+          sourceUserMessageId: `msg-imported-ignore-${scenario.sourceFormat}`,
+          sourceUserMessageText: "Render the imported document as PDF",
+          currentAttachments: [],
+          availableAttachments: []
+        }
+      });
+
+      assert.equal(result.isError, false);
+      assert.equal(result.payload.action, "rendered");
+      assert.equal(
+        result.payload.render?.entrypointPath,
+        "/workspace/projects/report/render/export_pdf.py"
+      );
+      assert.equal(
+        sandboxCalls.filter((call) => call.toolCode === "files" && call.args.action === "write")
+          .length,
+        0
+      );
+    }
+  });
+
+  test("omitting authored content keeps the legacy entrypoint render path unchanged", async () => {
+    const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return {
+            items: [
+              {
+                path: "/workspace/report/render/report.html",
+                type: "file" as const,
+                sizeBytes: 120,
+                mimeType: "text/html",
+                modifiedAt: "2026-07-01T12:00:00.000Z"
+              }
+            ]
+          };
+        },
+        async upsertWorkspaceFileMetadata() {
+          return;
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          sandboxCalls.push(input);
+          const resolvedWritePath = resolveWritePathJobIfRequested(input);
+          if (resolvedWritePath !== null) {
+            return resolvedWritePath;
+          }
+          if (input.toolCode === "files" && input.args.action === "read") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                content: "<html><body><h1>Legacy Report</h1></body></html>",
+                sizeBytes: 48,
+                sha256: null,
+                truncated: false
+              }),
+              files: []
+            };
+          }
+          if (input.toolCode === "execute_document_code") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: null,
+              files: []
+            };
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                action: "attached",
+                attachment: {
+                  workspaceRelPath: "/workspace/report/output/report.pdf",
+                  sourcePath: "/workspace/report/output/report.pdf",
+                  sizeBytes: 2048,
+                  mimeType: "application/pdf",
+                  displayName: "report.pdf"
+                }
+              }),
+              files: []
+            };
+          }
+          throw new Error(`Unexpected sandbox call: ${input.toolCode}`);
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-legacy-render",
+        name: "document",
+        arguments: {
+          action: "render",
+          projectPath: "/workspace/report",
+          outputPath: "/workspace/report/output/report.pdf",
+          format: "pdf",
+          entrypoint: "render/report.html",
+          template: { title: "Ignored without content" }
+        }
+      },
+      sessionId: "session-legacy-render",
+      requestId: "request-legacy-render",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-legacy-render",
+        sourceUserMessageText: "Render the legacy report",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "rendered");
+    assert.equal(result.payload.render?.entrypointPath, "/workspace/report/render/report.html");
+    assert.equal(
+      sandboxCalls.filter((call) => call.toolCode === "files" && call.args.action === "write")
+        .length,
+      0
+    );
+    assert.equal(
+      sandboxCalls.filter(
+        (call) =>
+          call.toolCode === "files" &&
+          call.args.action === "read" &&
+          call.args.path === "/workspace/report/render/report.html"
+      ).length,
+      1
+    );
+  });
+
   test("auto-registers a document version after successful render when conversation is present", async () => {
     const registerCalls: Array<{
       workspaceProjectPath: string;
       outputPath: string;
       channel: string;
+      inspectionPath: string | null;
     }> = [];
+    const inspectCalls: Array<{ path: string }> = [];
     const service = new RuntimeDocumentToolService(
       {
         async listWorkspaceFilesFromManifest() {
@@ -1207,15 +1821,39 @@ describe("RuntimeDocumentToolService", () => {
         async upsertWorkspaceFileMetadata() {
           return;
         },
+        async inspectDocumentInWorkspace(input: { path: string }) {
+          inspectCalls.push({ path: input.path });
+          return {
+            accepted: true as const,
+            sourcePath: input.path,
+            inspectPath: "/workspace/projects/auto-register/output/report.inspect.json",
+            format: "pdf" as const,
+            counts: {
+              pageCount: 1,
+              sheetCount: null,
+              formulaCount: null,
+              blankSheetCount: null,
+              paragraphCount: null,
+              headingCount: null,
+              tableCount: null,
+              textCharCount: null
+            },
+            warnings: [],
+            suggestedReadPaths: [],
+            comparison: null
+          };
+        },
         async registerDocumentVersion(input: {
           channel: string;
           workspaceProjectPath: string;
           outputPath: string;
+          inspectionPath: string | null;
         }) {
           registerCalls.push({
             channel: input.channel,
             workspaceProjectPath: input.workspaceProjectPath,
-            outputPath: input.outputPath
+            outputPath: input.outputPath,
+            inspectionPath: input.inspectionPath ?? null
           });
           return {
             accepted: true as const,
@@ -1347,6 +1985,12 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(registerCalls.length, 1);
     assert.equal(registerCalls[0]?.channel, "web");
     assert.equal(registerCalls[0]?.workspaceProjectPath, "/workspace/projects/auto-register");
+    assert.equal(inspectCalls.length, 1);
+    assert.equal(inspectCalls[0]?.path, "/workspace/projects/auto-register/output/report.pdf");
+    assert.equal(
+      registerCalls[0]?.inspectionPath,
+      "/workspace/projects/auto-register/output/report.inspect.json"
+    );
   });
 
   test("document.render collision defaults to sibling path and auto-registers the resolved output", async () => {
@@ -1662,7 +2306,130 @@ describe("RuntimeDocumentToolService", () => {
     });
   });
 
-  test("returns render success with auto_register_skipped warning when auto-register fails best-effort", async () => {
+  test("relocates an escaped render output path into the project output directory", async () => {
+    const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return {
+            items: [
+              {
+                path: "/workspace/price-list/index.html",
+                type: "file" as const,
+                sizeBytes: 120,
+                mimeType: "text/html",
+                modifiedAt: "2026-06-30T12:00:00.000Z"
+              }
+            ]
+          };
+        },
+        async upsertWorkspaceFileMetadata() {
+          return;
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          sandboxCalls.push(input);
+          const resolvedWritePath = resolveWritePathJobIfRequested(input);
+          if (resolvedWritePath !== null) {
+            return resolvedWritePath;
+          }
+          if (input.toolCode === "execute_document_code") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: null,
+              files: []
+            };
+          }
+          if (input.toolCode === "files" && input.args.action === "read") {
+            const path = String(input.args.path ?? "");
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                content: path.endsWith("project.json")
+                  ? ""
+                  : "<html><body><h1>Prices</h1></body></html>",
+                sizeBytes: 41,
+                sha256: null,
+                truncated: false
+              }),
+              files: []
+            };
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                action: "attached",
+                attachment: {
+                  workspaceRelPath: "/workspace/price-list/output/price-list.pdf",
+                  sourcePath: "/workspace/price-list/output/price-list.pdf",
+                  sizeBytes: 2048,
+                  mimeType: "application/pdf",
+                  displayName: "price-list.pdf"
+                }
+              }),
+              files: []
+            };
+          }
+          throw new Error(`Unexpected sandbox call: ${input.toolCode}`);
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-relocate-1",
+        name: "document",
+        arguments: {
+          action: "render",
+          projectPath: "/workspace/price-list",
+          outputPath: "/workspace/price-list.pdf",
+          format: "pdf",
+          entrypoint: "index.html"
+        }
+      },
+      sessionId: "session-relocate-1",
+      requestId: "request-relocate-1",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-relocate-1",
+        sourceUserMessageText: "Render the price list",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "rendered");
+    assert.equal(result.payload.render?.outputPath, "/workspace/price-list/output/price-list.pdf");
+    const resolveCall = sandboxCalls.find(
+      (call) => call.toolCode === "files" && call.args.action === "resolve_write_path"
+    );
+    assert.equal(resolveCall?.args.path, "/workspace/price-list/output/price-list.pdf");
+    const renderJob = sandboxCalls.find((call) => call.toolCode === "execute_document_code");
+    assert.equal(renderJob?.args.outputFileName, "price-list/output/price-list.pdf");
+  });
+
+  test("surfaces a registration rejection honestly instead of a clean delivered success", async () => {
     const service = new RuntimeDocumentToolService(
       {
         async listWorkspaceFilesFromManifest() {
@@ -1680,6 +2447,13 @@ describe("RuntimeDocumentToolService", () => {
         },
         async upsertWorkspaceFileMetadata() {
           return;
+        },
+        async inspectDocumentInWorkspace() {
+          return {
+            accepted: false as const,
+            code: "unsupported_inspect_source",
+            message: "Inspect could not read the rendered output."
+          };
         },
         async registerDocumentVersion() {
           return {
@@ -1792,15 +2566,13 @@ describe("RuntimeDocumentToolService", () => {
     });
 
     assert.equal(result.isError, false);
-    assert.equal(result.payload.action, "rendered");
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "register_rejected:inspect_missing");
     assert.equal(result.payload.docId, null);
-    assert.equal(result.payload.versionId, undefined);
     assert.equal(result.payload.registration ?? null, null);
-    assert.match(result.payload.warning ?? "", /^auto_register_skipped:inspect_missing/);
-    assert.equal(
-      result.payload.render?.outputPath,
-      "/workspace/projects/best-effort/output/report.pdf"
-    );
+    assert.equal(result.payload.render ?? null, null);
+    assert.match(result.payload.warning ?? "", /could not register\/deliver a document version/);
+    assert.match(result.payload.warning ?? "", /inspect_rejected:unsupported_inspect_source/);
   });
 
   test("renders a visible Python build script for xlsx output", async () => {
@@ -2548,6 +3320,475 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(capturedInputs[0]!.directToolExecution.request.targetSlideCount, 7);
     assert.equal(capturedInputs[1]!.directToolExecution.request.targetSlideCount, 30);
     assert.equal(capturedInputs[2]!.directToolExecution.request.targetSlideCount, null);
+  });
+
+  test("document.edit applies a replace over the full canonical content and preserves the rest", async () => {
+    const projectPath = "/workspace/projects/report";
+    const extractedPath = "/workspace/projects/report/extract/extracted.md";
+    const originalContent =
+      "# Quarterly Report\n\nAlpha beta gamma.\n\n## Details\n\nOld body here.\n\n## Notes\n\nKeep this intact.\n";
+    const writtenFiles = new Map<string, string>();
+    const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return { items: [{ type: "file", path: extractedPath }] };
+        },
+        async upsertWorkspaceFileMetadata() {
+          return;
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          sandboxCalls.push(input);
+          if (input.toolCode === "files" && input.args.action === "write") {
+            const path = String(input.args.path ?? "");
+            const content = String(input.args.content ?? "");
+            writtenFiles.set(path, content);
+            return createWrittenWorkspaceFileJob(path, Buffer.byteLength(content, "utf8"));
+          }
+          if (input.toolCode === "files" && input.args.action === "read") {
+            const path = String(input.args.path ?? "");
+            const content = writtenFiles.has(path)
+              ? writtenFiles.get(path)!
+              : path === extractedPath
+                ? originalContent
+                : null;
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                content,
+                sizeBytes: content === null ? null : Buffer.byteLength(content, "utf8"),
+                sha256: null,
+                truncated: false
+              }),
+              files: []
+            };
+          }
+          throw new Error(
+            `Unexpected sandbox call: ${input.toolCode}:${String(input.args.action)}`
+          );
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-edit-replace",
+        name: "document",
+        arguments: {
+          action: "edit",
+          projectPath,
+          edits: [{ op: "replace", find: "Old body here.", replaceWith: "New body here." }]
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-1",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-edit-replace",
+        sourceUserMessageText: "Fix the details section",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "edited");
+    assert.equal(result.payload.edit?.applied, true);
+    assert.equal(result.payload.edit?.contentKind, "extracted");
+    assert.equal(result.payload.edit?.contentPath, extractedPath);
+    assert.equal(result.payload.edit?.opCount, 1);
+    assert.equal(result.payload.edit?.results[0]?.status, "applied");
+    assert.equal(result.payload.edit?.results[0]?.replacements, 1);
+    const updated = writtenFiles.get(extractedPath) ?? "";
+    assert.equal(updated, originalContent.replace("Old body here.", "New body here."));
+    assert.match(updated, /## Notes\n\nKeep this intact\./);
+    assert.equal(
+      sandboxCalls.filter((call) => call.toolCode === "files" && call.args.action === "write")
+        .length,
+      1
+    );
+  });
+
+  test("document.edit reports an honest per-op failure and writes nothing on zero/ambiguous match", async () => {
+    const projectPath = "/workspace/projects/report";
+    const extractedPath = "/workspace/projects/report/extract/extracted.md";
+    const originalContent = "foo foo foo\n";
+    const writeCalls: string[] = [];
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return { items: [{ type: "file", path: extractedPath }] };
+        },
+        async upsertWorkspaceFileMetadata() {
+          return;
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          if (input.toolCode === "files" && input.args.action === "write") {
+            writeCalls.push(String(input.args.path ?? ""));
+            return createWrittenWorkspaceFileJob(String(input.args.path ?? ""), 0);
+          }
+          if (input.toolCode === "files" && input.args.action === "read") {
+            const path = String(input.args.path ?? "");
+            const content = path === extractedPath ? originalContent : null;
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                content,
+                sizeBytes: content === null ? null : Buffer.byteLength(content, "utf8"),
+                sha256: null,
+                truncated: false
+              }),
+              files: []
+            };
+          }
+          throw new Error(
+            `Unexpected sandbox call: ${input.toolCode}:${String(input.args.action)}`
+          );
+        }
+      } as never
+    );
+
+    const ambiguous = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-edit-ambiguous",
+        name: "document",
+        arguments: {
+          action: "edit",
+          projectPath,
+          edits: [{ op: "replace", find: "foo", replaceWith: "bar" }]
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-1",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-edit-ambiguous",
+        sourceUserMessageText: "Replace foo",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(ambiguous.isError, true);
+    assert.equal(ambiguous.payload.action, "skipped");
+    assert.equal(ambiguous.payload.reason, "edit_op_failed");
+    assert.equal(ambiguous.payload.edit?.applied, false);
+    assert.equal(ambiguous.payload.edit?.results[0]?.status, "failed");
+    assert.equal(ambiguous.payload.edit?.results[0]?.failureReason, "ambiguous_match");
+
+    const zeroMatch = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-edit-zero",
+        name: "document",
+        arguments: {
+          action: "edit",
+          projectPath,
+          edits: [{ op: "replace", find: "absent-passage", replaceWith: "x" }]
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-2",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-edit-zero",
+        sourceUserMessageText: "Replace absent",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(zeroMatch.isError, true);
+    assert.equal(zeroMatch.payload.action, "skipped");
+    assert.equal(zeroMatch.payload.edit?.results[0]?.failureReason, "no_match");
+    assert.equal(writeCalls.length, 0, "a failed all-or-nothing edit must write nothing");
+  });
+
+  test("document.edit section op replaces only the targeted section body", async () => {
+    const projectPath = "/workspace/projects/report";
+    const extractedPath = "/workspace/projects/report/extract/extracted.md";
+    const originalContent =
+      "# Doc\n\nIntro paragraph.\n\n## Alpha\n\nAlpha body original.\n\n## Beta\n\nBeta body original.\n\n### Beta Sub\n\nSub content.\n\n## Gamma\n\nGamma body.\n";
+    const writtenFiles = new Map<string, string>();
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return { items: [{ type: "file", path: extractedPath }] };
+        },
+        async upsertWorkspaceFileMetadata() {
+          return;
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          if (input.toolCode === "files" && input.args.action === "write") {
+            const path = String(input.args.path ?? "");
+            writtenFiles.set(path, String(input.args.content ?? ""));
+            return createWrittenWorkspaceFileJob(path, 0);
+          }
+          if (input.toolCode === "files" && input.args.action === "read") {
+            const path = String(input.args.path ?? "");
+            const content = path === extractedPath ? originalContent : null;
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                content,
+                sizeBytes: content === null ? null : Buffer.byteLength(content, "utf8"),
+                sha256: null,
+                truncated: false
+              }),
+              files: []
+            };
+          }
+          throw new Error(
+            `Unexpected sandbox call: ${input.toolCode}:${String(input.args.action)}`
+          );
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-edit-section",
+        name: "document",
+        arguments: {
+          action: "edit",
+          projectPath,
+          edits: [{ op: "section", heading: "## Beta", content: "Beta body REPLACED." }]
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-1",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-edit-section",
+        sourceUserMessageText: "Rewrite the Beta section",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.payload.action, "edited");
+    assert.equal(result.payload.edit?.results[0]?.status, "applied");
+    const updated = writtenFiles.get(extractedPath) ?? "";
+    assert.match(updated, /## Alpha\n\nAlpha body original\.\n\n## Beta\n/);
+    assert.match(updated, /Beta body REPLACED\./);
+    assert.ok(!updated.includes("Beta body original."), "old Beta body must be gone");
+    assert.ok(
+      !updated.includes("### Beta Sub"),
+      "the replaced section body includes its subsection"
+    );
+    assert.match(updated, /## Gamma\n\nGamma body\./);
+  });
+
+  test("document.edit with rerender chains into a single register + deliver door", async () => {
+    const projectPath = "/workspace/projects/authored";
+    const contentPath = "/workspace/projects/authored/render/content.md";
+    const outputPath = "/workspace/projects/authored/output/report.pdf";
+    const originalContent = "# Draft\n\n- one\n- two\n";
+    const writtenFiles = new Map<string, string>();
+    const registerCalls: Array<{ outputPath: string; workspaceProjectPath: string }> = [];
+    const attachCalls: string[] = [];
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return { items: [{ type: "file", path: contentPath }] };
+        },
+        async upsertWorkspaceFileMetadata() {
+          return;
+        },
+        async inspectDocumentInWorkspace(input: { path: string }) {
+          return {
+            accepted: true as const,
+            sourcePath: input.path,
+            inspectPath: "/workspace/projects/authored/output/report.inspect.json",
+            format: "pdf" as const,
+            counts: {
+              pageCount: 1,
+              sheetCount: null,
+              formulaCount: null,
+              blankSheetCount: null,
+              paragraphCount: null,
+              headingCount: null,
+              tableCount: null,
+              textCharCount: 24
+            },
+            warnings: [],
+            suggestedReadPaths: [],
+            comparison: null
+          };
+        },
+        async registerDocumentVersion(input: { outputPath: string; workspaceProjectPath: string }) {
+          registerCalls.push({
+            outputPath: input.outputPath,
+            workspaceProjectPath: input.workspaceProjectPath
+          });
+          return {
+            accepted: true as const,
+            docId: "doc-edit-rerender",
+            versionId: "version-edit-rerender",
+            versionNumber: 2,
+            descriptorMode: "revise_document" as const,
+            documentType: "workspace_document" as const,
+            outputFormat: "pdf" as const,
+            outputPath: input.outputPath,
+            workspaceProjectPath: input.workspaceProjectPath,
+            sourceManifestPath: null,
+            inspectionPath: "/workspace/projects/authored/output/report.inspect.json"
+          };
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          const resolved = resolveWritePathJobIfRequested(input);
+          if (resolved !== null) {
+            return resolved;
+          }
+          if (input.toolCode === "files" && input.args.action === "write") {
+            const path = String(input.args.path ?? "");
+            const content = String(input.args.content ?? "");
+            writtenFiles.set(path, content);
+            return createWrittenWorkspaceFileJob(path, Buffer.byteLength(content, "utf8"));
+          }
+          if (input.toolCode === "files" && input.args.action === "read") {
+            const path = String(input.args.path ?? "");
+            const content = writtenFiles.has(path)
+              ? writtenFiles.get(path)!
+              : path === contentPath
+                ? originalContent
+                : null;
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                content,
+                sizeBytes: content === null ? null : Buffer.byteLength(content, "utf8"),
+                sha256: null,
+                truncated: false
+              }),
+              files: []
+            };
+          }
+          if (input.toolCode === "execute_document_code") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: null,
+              files: [
+                {
+                  relativePath: outputPath.replace("/workspace/", ""),
+                  displayName: "report.pdf",
+                  mimeType: "application/pdf",
+                  sizeBytes: 2048,
+                  logicalSizeBytes: 2048,
+                  storagePath: "sandbox/job/edit-rerender"
+                }
+              ]
+            };
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            attachCalls.push(String(input.args.path ?? ""));
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                action: "attached",
+                attachment: {
+                  workspaceRelPath: outputPath,
+                  sourcePath: outputPath,
+                  sizeBytes: 2048,
+                  mimeType: "application/pdf",
+                  displayName: "report.pdf"
+                }
+              }),
+              files: []
+            };
+          }
+          throw new Error(
+            `Unexpected sandbox call: ${input.toolCode}:${String(input.args.action)}`
+          );
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-edit-rerender",
+        name: "document",
+        arguments: {
+          action: "edit",
+          projectPath,
+          edits: [{ op: "replace", find: "- one", replaceWith: "- uno" }],
+          rerender: true,
+          format: "pdf",
+          outputPath
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-1",
+      conversation: { channel: "web", externalThreadKey: "chat:web:edit-rerender" },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-edit-rerender",
+        sourceUserMessageText: "Fix the first bullet and re-render",
+        sourceUserMessageCreatedAt: "2026-07-01T20:00:00.000Z",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "rendered");
+    assert.equal(result.payload.requestedAction, "edit");
+    assert.equal(result.payload.edit?.applied, true);
+    assert.equal(result.payload.edit?.contentKind, "authored");
+    assert.equal(result.payload.render?.outputPath, outputPath);
+    assert.equal(registerCalls.length, 1, "rerender must register exactly once");
+    assert.equal(registerCalls[0]?.workspaceProjectPath, projectPath);
+    assert.equal(attachCalls.length, 1, "rerender must deliver exactly once");
+    assert.match(writtenFiles.get(contentPath) ?? "", /- uno/);
   });
 });
 

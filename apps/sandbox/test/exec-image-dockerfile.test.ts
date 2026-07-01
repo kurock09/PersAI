@@ -111,6 +111,10 @@ test("exec image preinstalls curated document/data/image system and python basel
   }
 
   for (const pkg of [
+    "python-docx",
+    "openpyxl",
+    "weasyprint",
+    "markdown",
     "xlsxwriter",
     "pypdf",
     "reportlab",

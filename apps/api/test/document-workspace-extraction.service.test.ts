@@ -592,4 +592,224 @@ describe("DocumentWorkspaceExtractionService", () => {
       /Convert the imported DOCX to PDF/i
     );
   });
+
+  test("layout extraction falls back to text mode with a warning instead of surfacing an error", async () => {
+    const requestedModes: Array<string | undefined> = [];
+    const service = new DocumentWorkspaceExtractionService(
+      {
+        async get(input: { path: string }) {
+          if (input.path !== "/workspace/source.pdf") {
+            return null;
+          }
+          return {
+            workspaceId: "workspace-1",
+            path: "/workspace/source.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: BigInt(64),
+            contentHash: null,
+            shortDescription: null,
+            createdAt: new Date("2026-07-01T12:00:00.000Z"),
+            updatedAt: new Date("2026-07-01T12:00:00.000Z")
+          };
+        },
+        async list() {
+          return [];
+        },
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        buildWorkspaceObjectKey(input: { workspaceRelPath: string }) {
+          return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+        },
+        async downloadObject() {
+          return {
+            buffer: Buffer.from("%PDF-1.4 fallback case", "utf8"),
+            contentType: "application/pdf"
+          };
+        },
+        async saveObject() {
+          return {
+            objectKey: "gcs:any",
+            sizeBytes: 1,
+            mimeType: "application/pdf"
+          };
+        }
+      } as never,
+      {
+        async extract(input: { requestedMode?: string }) {
+          requestedModes.push(input.requestedMode);
+          if (input.requestedMode === "high_quality_fallback") {
+            throw new Error("LlamaParse job did not complete in time (last status: RUNNING).");
+          }
+          return {
+            normalizedText: "Plain text fallback content",
+            markdown: null,
+            provider: {
+              providerKey: "local" as const,
+              processorMode: "local" as const,
+              attemptedProviderKeys: ["local" as const]
+            },
+            quality: {
+              status: "ok" as const,
+              score: 0.7,
+              reasonCodes: [],
+              textChars: 27
+            }
+          };
+        }
+      } as never,
+      {
+        async pushWorkspaceFileBytes() {
+          return { mode: "written" as const, reason: null };
+        }
+      } as never
+    );
+
+    const outcome = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      path: "/workspace/source.pdf",
+      mode: "layout",
+      outputDir: null
+    });
+
+    assert.equal(outcome.accepted, true);
+    assert.deepEqual(requestedModes, ["high_quality_fallback", "local"]);
+    if (!outcome.accepted) {
+      return;
+    }
+    assert.match(outcome.warnings.join("\n"), /fell back to text mode/i);
+    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/extract/extracted.md"));
+  });
+
+  test("resolves a requested older numbered sibling to the newest version deterministically", async () => {
+    const downloadedKeys: string[] = [];
+    const service = new DocumentWorkspaceExtractionService(
+      {
+        async get(input: { path: string }) {
+          if (input.path === "/workspace/contracts/brief (5).docx") {
+            return {
+              workspaceId: "workspace-1",
+              path: input.path,
+              mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              sizeBytes: BigInt(50),
+              contentHash: null,
+              shortDescription: null,
+              createdAt: new Date("2026-06-29T10:00:00.000Z"),
+              updatedAt: new Date("2026-06-29T10:00:00.000Z")
+            };
+          }
+          if (input.path === "/workspace/contracts/brief (6).docx") {
+            return {
+              workspaceId: "workspace-1",
+              path: input.path,
+              mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              sizeBytes: BigInt(60),
+              contentHash: null,
+              shortDescription: null,
+              createdAt: new Date("2026-06-30T10:00:00.000Z"),
+              updatedAt: new Date("2026-06-30T10:00:00.000Z")
+            };
+          }
+          return null;
+        },
+        async list(input: { pathPrefix?: string }) {
+          if (input.pathPrefix === "/workspace/contracts/") {
+            return [
+              {
+                workspaceId: "workspace-1",
+                path: "/workspace/contracts/brief (5).docx",
+                mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                sizeBytes: BigInt(50),
+                contentHash: null,
+                shortDescription: null,
+                originChatId: null,
+                originAssistantId: null,
+                createdAt: new Date("2026-06-29T10:00:00.000Z"),
+                updatedAt: new Date("2026-06-29T10:00:00.000Z")
+              },
+              {
+                workspaceId: "workspace-1",
+                path: "/workspace/contracts/brief (6).docx",
+                mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                sizeBytes: BigInt(60),
+                contentHash: null,
+                shortDescription: null,
+                originChatId: null,
+                originAssistantId: null,
+                createdAt: new Date("2026-06-30T10:00:00.000Z"),
+                updatedAt: new Date("2026-06-30T10:00:00.000Z")
+              }
+            ];
+          }
+          return [];
+        },
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        buildWorkspaceObjectKey(input: { workspaceRelPath: string }) {
+          const key = `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+          downloadedKeys.push(key);
+          return key;
+        },
+        async downloadObject() {
+          return {
+            buffer: Buffer.from("fake docx bytes", "utf8"),
+            contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          };
+        },
+        async saveObject() {
+          return {
+            objectKey: "gcs:any",
+            sizeBytes: 1,
+            mimeType: "application/octet-stream"
+          };
+        }
+      } as never,
+      {
+        async extract() {
+          return {
+            normalizedText: "Visible DOCX text",
+            markdown: "# DOCX\n\nVisible DOCX text",
+            provider: {
+              providerKey: "local" as const,
+              processorMode: "local" as const,
+              attemptedProviderKeys: ["local" as const]
+            },
+            quality: {
+              status: "ok" as const,
+              score: 0.9,
+              reasonCodes: [],
+              textChars: 17
+            }
+          };
+        }
+      } as never,
+      {
+        async pushWorkspaceFileBytes() {
+          return { mode: "written" as const, reason: null };
+        }
+      } as never
+    );
+
+    const outcome = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      path: "/workspace/contracts/brief (5).docx",
+      mode: "auto",
+      outputDir: null
+    });
+
+    assert.equal(outcome.accepted, true);
+    if (!outcome.accepted) {
+      return;
+    }
+    assert.equal(outcome.sourcePath, "/workspace/contracts/brief (6).docx");
+    assert.ok(downloadedKeys.includes("gcs:contracts/brief (6).docx"));
+    assert.match(outcome.warnings.join("\n"), /resolved to the newest sibling version/i);
+  });
 });
