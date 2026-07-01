@@ -1133,6 +1133,305 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(sandboxCalls[3]?.toolCode, "files");
   });
 
+  test("auto-registers a document version after successful render when conversation is present", async () => {
+    const registerCalls: Array<{
+      workspaceProjectPath: string;
+      outputPath: string;
+      channel: string;
+    }> = [];
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return {
+            items: [
+              {
+                path: "/workspace/projects/auto-register/render/report.html",
+                type: "file" as const,
+                sizeBytes: 120,
+                mimeType: "text/html",
+                modifiedAt: "2026-06-30T12:00:00.000Z"
+              }
+            ]
+          };
+        },
+        async upsertWorkspaceFileMetadata() {
+          return;
+        },
+        async registerDocumentVersion(input: {
+          channel: string;
+          workspaceProjectPath: string;
+          outputPath: string;
+        }) {
+          registerCalls.push({
+            channel: input.channel,
+            workspaceProjectPath: input.workspaceProjectPath,
+            outputPath: input.outputPath
+          });
+          return {
+            accepted: true as const,
+            docId: "doc-auto-1",
+            versionId: "version-auto-1",
+            versionNumber: 1,
+            descriptorMode: "create_document" as const,
+            documentType: "workspace_document" as const,
+            outputFormat: "pdf" as const,
+            outputPath: input.outputPath,
+            workspaceProjectPath: input.workspaceProjectPath,
+            sourceManifestPath: null,
+            inspectionPath: null
+          };
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          if (input.toolCode === "execute_document_code") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: null,
+              files: [
+                {
+                  relativePath: "output/report.pdf",
+                  displayName: "report.pdf",
+                  mimeType: "application/pdf",
+                  sizeBytes: 2048,
+                  logicalSizeBytes: 2048,
+                  storagePath: "sandbox/job/report.pdf"
+                }
+              ]
+            };
+          }
+          if (input.toolCode === "files" && input.args.action === "read") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                content: "<html><body><h1>Report</h1></body></html>",
+                sizeBytes: 41,
+                sha256: null,
+                truncated: false
+              }),
+              files: []
+            };
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                action: "attached",
+                attachment: {
+                  workspaceRelPath: "/workspace/projects/auto-register/output/report.pdf",
+                  sourcePath: "/workspace/projects/auto-register/output/report.pdf",
+                  sizeBytes: 2048,
+                  mimeType: "application/pdf",
+                  displayName: "report.pdf"
+                }
+              }),
+              files: []
+            };
+          }
+          throw new Error(`Unexpected sandbox call: ${input.toolCode}`);
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-auto-register-render-1",
+        name: "document",
+        arguments: {
+          action: "render",
+          projectPath: "/workspace/projects/auto-register",
+          outputPath: "/workspace/projects/auto-register/output/report.pdf",
+          format: "pdf",
+          entrypoint: "render/report.html"
+        }
+      },
+      sessionId: "session-auto-1",
+      requestId: "request-auto-1",
+      conversation: {
+        channel: "web",
+        externalThreadKey: "chat:web:auto-register"
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-auto-register-1",
+        sourceUserMessageText: "Render this report",
+        sourceUserMessageCreatedAt: "2026-06-30T12:00:00.000Z",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "rendered");
+    assert.equal(result.payload.warning, null);
+    assert.equal(result.payload.docId, "doc-auto-1");
+    assert.equal(result.payload.versionId, "version-auto-1");
+    assert.equal(result.payload.descriptorMode, "create_document");
+    assert.equal(
+      result.payload.registration?.outputPath,
+      "/workspace/projects/auto-register/output/report.pdf"
+    );
+    assert.equal(result.payload.registration?.versionNumber, 1);
+    assert.equal(registerCalls.length, 1);
+    assert.equal(registerCalls[0]?.channel, "web");
+    assert.equal(registerCalls[0]?.workspaceProjectPath, "/workspace/projects/auto-register");
+  });
+
+  test("returns render success with auto_register_skipped warning when auto-register fails best-effort", async () => {
+    const service = new RuntimeDocumentToolService(
+      {
+        async listWorkspaceFilesFromManifest() {
+          return {
+            items: [
+              {
+                path: "/workspace/projects/best-effort/render/report.html",
+                type: "file" as const,
+                sizeBytes: 120,
+                mimeType: "text/html",
+                modifiedAt: "2026-06-30T12:00:00.000Z"
+              }
+            ]
+          };
+        },
+        async upsertWorkspaceFileMetadata() {
+          return;
+        },
+        async registerDocumentVersion() {
+          return {
+            accepted: false as const,
+            code: "inspect_missing",
+            message:
+              "Document deliverable output requires a relevant document.inspect result before document.register_version or files.attach."
+          };
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          if (input.toolCode === "execute_document_code") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: null,
+              files: [
+                {
+                  relativePath: "output/report.pdf",
+                  displayName: "report.pdf",
+                  mimeType: "application/pdf",
+                  sizeBytes: 2048,
+                  logicalSizeBytes: 2048,
+                  storagePath: "sandbox/job/report.pdf"
+                }
+              ]
+            };
+          }
+          if (input.toolCode === "files" && input.args.action === "read") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                content: "<html><body><h1>Report</h1></body></html>",
+                sizeBytes: 41,
+                sha256: null,
+                truncated: false
+              }),
+              files: []
+            };
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                action: "attached",
+                attachment: {
+                  workspaceRelPath: "/workspace/projects/best-effort/output/report.pdf",
+                  sourcePath: "/workspace/projects/best-effort/output/report.pdf",
+                  sizeBytes: 2048,
+                  mimeType: "application/pdf",
+                  displayName: "report.pdf"
+                }
+              }),
+              files: []
+            };
+          }
+          throw new Error(`Unexpected sandbox call: ${input.toolCode}`);
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-auto-register-best-effort-1",
+        name: "document",
+        arguments: {
+          action: "render",
+          projectPath: "/workspace/projects/best-effort",
+          outputPath: "/workspace/projects/best-effort/output/report.pdf",
+          format: "pdf",
+          entrypoint: "render/report.html"
+        }
+      },
+      sessionId: "session-best-effort-1",
+      requestId: "request-best-effort-1",
+      conversation: {
+        channel: "web",
+        externalThreadKey: "chat:web:best-effort"
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-best-effort-1",
+        sourceUserMessageText: "Render this report",
+        sourceUserMessageCreatedAt: "2026-06-30T12:00:00.000Z",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "rendered");
+    assert.equal(result.payload.docId, null);
+    assert.equal(result.payload.versionId, undefined);
+    assert.equal(result.payload.registration ?? null, null);
+    assert.match(result.payload.warning ?? "", /^auto_register_skipped:inspect_missing/);
+    assert.equal(
+      result.payload.render?.outputPath,
+      "/workspace/projects/best-effort/output/report.pdf"
+    );
+  });
+
   test("renders a visible Python build script for xlsx output", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
     const service = new RuntimeDocumentToolService(

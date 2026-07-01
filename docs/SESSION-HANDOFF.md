@@ -1,5 +1,72 @@
 # SESSION-HANDOFF
 
+## 2026-07-01 — ADR-131 broadened: workspace file identity, isolation, and safe delivery (doc-only → full workspace)
+
+Status: docs-only change. `docs/ADR/131-workspace-project-isolation-and-cross-turn-delivery-safety.md` was rewritten from the narrow "cross-turn delivery safety for the document tool" problem statement into a full problem statement plus candidate directions for workspace file identity, isolation, and safe delivery across the whole model-facing `files.*` surface. No code changed. No implementation slice was opened. `AGENTS.md` already listed ADR-131 as an active orchestration program.
+
+**Scope broadening rationale.** Live PROD validation on 2026-07-01 surfaced two failure classes that live below the document-tool layer and hit every file the model touches: (1) silent same-name overwrite through `files.write` (default `mode: "overwrite"`), `shell`/`exec`, `document.render` `outputPath`, and control-plane `writeWorkspaceFileControlPlane`, which destroys the bytes prior chat attachments / gallery tiles / mobile-share previews resolve to (mobile users see one file in preview and share a different one); (2) unscoped visibility on `files.list` / `files.read` / `files.preview` / `files.attach`, which lets the model confuse files across chats and other assistants of the same workspace even though `workspace_file_metadata` already carries `originChatId` and `originAssistantId`. The narrow doc-tool scope of the original ADR-131 (Problems E/F/G) is preserved verbatim inside the new umbrella as Block 3.
+
+**Structure of the rewritten ADR.**
+
+- Block 1 — Anti-clobber and stable byte identity. Chosen base: **Variant A** (macOS-Finder / Google-Drive style ` (N)` collision + explicit `replace: true` for overwrite). Variant B (content-addressed blob store + immutable `storageContentHash`) is documented but deferred to a later dedicated ADR if Variant A proves insufficient.
+- Block 2 — Scope tiers and default visibility. Three explicit tiers backed by existing manifest columns: chat (default), assistant (on-demand widen), workspace-shared (further on-demand widen). No physical `/workspace/` migration required; `ADR-128` flat namespace is preserved.
+- Block 3 — Cross-turn delivery safety. Original Problems E (cross-turn pollution → wrong-file attach), F (bypass of seeded `export_pdf.py`), G (`shell` `stdout_limit_exceeded` on large docs) kept verbatim, now positioned as specialisations of Blocks 1 and 2.
+
+**Founder-confirmed decisions in the rewritten ADR.**
+
+- Anti-clobber base: Variant A. Immutable-hash Variant B deferred.
+- Single umbrella ADR: E/F/G stay inside ADR-131; anti-clobber and scope-tier work are not spun off into separate ADRs.
+
+**Parent-orchestrator proposals still awaiting founder sign-off (documented as such inside the ADR).**
+
+- Default scope tier for Block 2 is chat (with assistant / workspace-shared on-demand widen). Founder framed the problem as "chat first, assistant on-demand, workspace-shared on-demand" but did not literally confirm chat-scope-default as the confirmed baseline; treated as recommendation in the ADR text.
+- Priority order across the three blocks (recommendation in ADR: Block 1 first for data integrity, Block 2 second for model confusion, Block 3 as specialisations).
+- Exact contract shape for widening `files.list({ scope })` and for the anti-clobber `replace` flag on `files.write`, `document.render`, and control-plane writes.
+- Whether Problem F fix is prompt-only or runtime-enforced.
+
+**Non-goals reaffirmed.** Not reversing ADR-128 flat namespace. Not introducing content-hash identity in this ADR. Not changing GCS layout. Not merging Files with Knowledge. Not raising sandbox `shell` stdout limits. Not re-opening ADR-126 / ADR-127.
+
+**Files touched.** `docs/ADR/131-workspace-project-isolation-and-cross-turn-delivery-safety.md` (rewritten). This handoff. `docs/CHANGELOG.md`.
+
+**Tests run.** None — docs-only change, no runtime, contract, or schema code touched.
+
+**Residual / next.** Founder to decide priority order plus contract shapes above, then convert ADR-131 into an implementation ADR (or supersede with a new numbered ADR that implements the chosen design). Do not open implementation slices until that decision lands.
+
+## 2026-07-01 — ADR-129 addendum: auto-register on document.render + extract nextAction hint; ADR-131 opened for cross-turn workspace safety
+
+Status: implemented locally on top of ADR-129 baseline `43a51f8a`. Focused runtime tests and API extraction tests re-run and pass. Golden prompt fixture (ADR-119) regenerated because model-facing document guidance intentionally changed.
+
+**Scope (bounded slice, one problem class per fix).**
+
+- Make `document.render` deterministically register a new document version on success (no more model-owned `register_version` for the standard render → attach flow, no more PDF vs Office asymmetry on the `v1` badge).
+- Make `document.extract` return an explicit `suggestedNextActions` hint for imported DOCX/XLSX so the model calls the seeded LibreOffice `export_pdf.py` path verbatim instead of hand-assembling HTML from partial `files.read` chunks.
+- Do NOT re-open ADR-129 DoD. Do NOT implement workspace isolation / cross-turn delivery safety in this slice — that class of problems is captured in the newly opened ADR-131 as an evidence-only problem statement.
+
+**Fix.**
+
+- `RuntimeDocumentToolService.executeRenderToolCall` now chains into `PersaiInternalApiClientService.registerDocumentVersion` after successful `persistRenderedWorkspaceFile`. On success the render payload carries `versionId`, `docId`, `descriptorMode`, and a full `registration` summary. On failure the render itself is still valid (attachment still works); a `warning` starting with `auto_register_skipped:<code>` is surfaced so the model can decide whether to retry or degrade.
+- When runtime cannot resolve a chat conversation for the render (best-effort chain), the payload carries `warning: "auto_register_skipped:no_conversation_context: …"` and skips the API call entirely.
+- `DocumentWorkspaceExtractionService.execute` now includes `suggestedNextActions: [{ tool: "document", action: "render", args: { action: "render", projectPath, outputPath, format: "pdf" }, reason: "Convert the imported DOCX/XLSX to PDF via the seeded LibreOffice export_pdf.py entrypoint. Do not read the source content chunk by chunk; call this action directly." }]` for imported DOCX and XLSX sources. Imported PDF returns `null` (no obvious conversion).
+- Runtime plumbs `outcome.suggestedNextActions` into `RuntimeDocumentExtractionSummary.suggestedNextActions`; contract updated with a new `RuntimeDocumentSuggestedNextAction` type.
+- Model-facing guidance (`native-tool-projection.ts` + `bootstrap-preset-data.ts` documents-category selector) now says: render auto-registers, `document.register_version` is only for advanced cases (revising an existing `docId`, or non-default sourceManifestPath/inspectionPath), and extract's `suggestedNextActions` should be called verbatim.
+- ADR-129 addendum block added at the head of the ADR file to describe the auto-register + nextAction behavior without expanding DoD.
+- New ADR-131 opened for the structural problems observed in live PROD chats today (cross-turn workspace pollution → wrong-file attachment; model bypasses seeded `export_pdf.py`; shell `stdout_limit_exceeded` on large DOCX dumps). ADR-131 is problem-statement only, no implementation. `AGENTS.md` active-orchestration-programs list updated to include ADR-131.
+
+**Checks.**
+
+- `corepack pnpm --filter @persai/runtime run test` — PASS (28 tests in `runtime-document-tool.service.test.ts` including two new auto-register cases).
+- `corepack pnpm --filter @persai/api test -- --test-name-pattern='ADR-119|xlsx workbook|docx into a native|pdf into visible'` — PASS. Golden ADR-119 fixture regenerated intentionally.
+- `ReadLints` on all touched files — clean.
+- Verification gate (repo-wide `lint`, `format:check`, `typecheck api/web`) still to be re-run at end of session.
+
+**Residual / deferred (not in this slice).**
+
+- Cross-turn workspace pollution: `/workspace/projects/<slug>/` can be reused across turns and files older than the current turn can be attached as if they were freshly rendered. Captured in ADR-131.
+- `files.attach` currently has no cross-turn safety guard on document outputs; captured in ADR-131.
+- Sandbox `shell` `stdout_limit_exceeded` on large DOCX/XLSX text dumps: the correct fix is model guidance + `files.read` chunked path, not raising the limit. Captured in ADR-131.
+
+**Next.** Ship this bounded slice through the verification gate, deploy, live-validate PDF/DOCX/XLSX render on a clean workspace (each format ends with `v1` badge automatically). Then prioritize ADR-131 as the next slice — the "wrong file attached" failure mode is the highest-severity remaining PROD issue.
+
 ## 2026-07-01 — ADR-129 production document path: full verification gate passed, commit/push for deploy
 
 Status: full local verification gate passed from baseline `39cda024`; commit + push requested for auto-deploy.

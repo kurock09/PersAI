@@ -16,6 +16,7 @@ import {
   type ProviderGatewayToolCall,
   type RuntimeAttachmentRef,
   type RuntimeDocumentToolResult,
+  type RuntimeDocumentVersionRegistrationSummary,
   type RuntimeOutputArtifact,
   type RuntimeSandboxJobRequest,
   type RuntimeSandboxJobResult,
@@ -95,7 +96,11 @@ export class RuntimeDocumentToolService {
         sessionId: params.sessionId ?? null,
         requestId: params.requestId ?? null,
         originChatId: params.originChatId ?? null,
-        activeDocumentProjectPath: params.activeDocumentProjectPath ?? null
+        activeDocumentProjectPath: params.activeDocumentProjectPath ?? null,
+        conversation: params.conversation ?? null,
+        sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText,
+        sourceUserMessageCreatedAt:
+          params.deferToAsyncDocumentJob.sourceUserMessageCreatedAt ?? new Date(0).toISOString()
       });
     }
 
@@ -370,7 +375,8 @@ export class RuntimeDocumentToolService {
             counts: outcome.counts,
             provider: outcome.provider,
             quality: outcome.quality,
-            warnings: outcome.warnings
+            warnings: outcome.warnings,
+            suggestedNextActions: outcome.suggestedNextActions
           }
         },
         artifacts: [],
@@ -521,6 +527,12 @@ export class RuntimeDocumentToolService {
     requestId: string | null;
     originChatId: string | null;
     activeDocumentProjectPath: string | null;
+    conversation: {
+      channel: "web" | "telegram";
+      externalThreadKey: string;
+    } | null;
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
   }): Promise<RuntimeDocumentToolExecutionResult> {
     const projectPath = this.normalizeWorkspacePath(params.request.projectPath, {
       allowDirectory: true
@@ -687,43 +699,15 @@ export class RuntimeDocumentToolService {
       );
     }
 
+    let persisted: { sizeBytes: number; mimeType: string };
     try {
-      const persisted = await this.persistRenderedWorkspaceFile({
+      persisted = await this.persistRenderedWorkspaceFile({
         bundle: params.bundle,
         sessionId: params.sessionId,
         requestId: params.requestId,
         outputPath,
         originChatId: params.originChatId
       });
-      return {
-        payload: {
-          toolCode: "document",
-          executionMode: "inline",
-          requestedAction: "render",
-          descriptorMode: null,
-          documentType: "workspace_document",
-          provider: "sandbox",
-          prompt: null,
-          outputFormat: params.request.format,
-          docId: null,
-          requestedName: this.basename(outputPath),
-          artifacts: [],
-          usage: null,
-          action: "rendered",
-          reason: null,
-          warning: null,
-          render: {
-            projectPath,
-            outputPath,
-            format: params.request.format,
-            entrypointPath,
-            sizeBytes: persisted.sizeBytes,
-            mimeType: persisted.mimeType
-          }
-        },
-        artifacts: [],
-        isError: false
-      };
     } catch (error) {
       return this.renderSkipped(
         params.request.format,
@@ -732,6 +716,121 @@ export class RuntimeDocumentToolService {
           ? error.message
           : "Rendered output could not be persisted to the canonical workspace."
       );
+    }
+
+    const autoRegister = await this.tryAutoRegisterRenderedVersion({
+      bundle: params.bundle,
+      conversation: params.conversation,
+      sourceUserMessageText: params.sourceUserMessageText,
+      sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
+      projectPath,
+      outputPath
+    });
+
+    return {
+      payload: {
+        toolCode: "document",
+        executionMode: "inline",
+        requestedAction: "render",
+        descriptorMode: autoRegister.registration?.descriptorMode ?? null,
+        documentType: "workspace_document",
+        provider: "sandbox",
+        prompt: null,
+        outputFormat: params.request.format,
+        docId: autoRegister.registration?.docId ?? null,
+        requestedName: this.basename(outputPath),
+        artifacts: [],
+        usage: null,
+        action: "rendered",
+        reason: null,
+        warning: autoRegister.warning,
+        render: {
+          projectPath,
+          outputPath,
+          format: params.request.format,
+          entrypointPath,
+          sizeBytes: persisted.sizeBytes,
+          mimeType: persisted.mimeType
+        },
+        ...(autoRegister.registration === null
+          ? {}
+          : {
+              versionId: autoRegister.registration.versionId,
+              registration: autoRegister.registration
+            })
+      },
+      artifacts: [],
+      isError: false
+    };
+  }
+
+  private async tryAutoRegisterRenderedVersion(input: {
+    bundle: AssistantRuntimeBundle;
+    conversation: {
+      channel: "web" | "telegram";
+      externalThreadKey: string;
+    } | null;
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+    projectPath: string;
+    outputPath: string;
+  }): Promise<{
+    registration: RuntimeDocumentVersionRegistrationSummary | null;
+    warning: string | null;
+  }> {
+    if (input.conversation === null) {
+      return {
+        registration: null,
+        warning:
+          "auto_register_skipped:no_conversation_context: version was not registered automatically because no chat conversation was resolved for this render. Delivery still works, but document/version metadata is missing."
+      };
+    }
+    try {
+      const outcome = await this.persaiInternalApiClientService.registerDocumentVersion({
+        assistantId: input.bundle.metadata.assistantId,
+        workspaceId: input.bundle.metadata.workspaceId,
+        channel: input.conversation.channel,
+        externalThreadKey: input.conversation.externalThreadKey,
+        sourceUserMessageText: input.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
+        descriptorMode: null,
+        docId: null,
+        requestedName: null,
+        workspaceProjectPath: input.projectPath,
+        outputPath: input.outputPath,
+        sourceManifestPath: null,
+        inspectionPath: null
+      });
+      if (!outcome.accepted) {
+        return {
+          registration: null,
+          warning: `auto_register_skipped:${outcome.code}: ${outcome.message}`
+        };
+      }
+      return {
+        registration: {
+          docId: outcome.docId,
+          versionId: outcome.versionId,
+          versionNumber: outcome.versionNumber,
+          descriptorMode: outcome.descriptorMode,
+          documentType: outcome.documentType,
+          outputFormat: outcome.outputFormat,
+          outputPath: outcome.outputPath,
+          workspaceProjectPath: outcome.workspaceProjectPath,
+          sourceManifestPath: outcome.sourceManifestPath,
+          inspectionPath: outcome.inspectionPath
+        },
+        warning: null
+      };
+    } catch (error) {
+      return {
+        registration: null,
+        warning: `auto_register_skipped:runtime_degraded: ${
+          error instanceof Error
+            ? error.message
+            : "Document version registration is temporarily unavailable."
+        }`
+      };
     }
   }
 

@@ -2088,6 +2088,19 @@ export interface RuntimeDocumentExtractionSummary {
   } | null;
   quality?: RuntimeFilesReadExtractionQuality | null;
   warnings?: string[];
+  suggestedNextActions?: RuntimeDocumentSuggestedNextAction[] | null;
+}
+
+export interface RuntimeDocumentSuggestedNextAction {
+  tool: "document";
+  action: "render";
+  args: {
+    action: "render";
+    projectPath: string;
+    outputPath: string;
+    format: "pdf" | "xlsx" | "docx";
+  };
+  reason: string;
 }
 
 export interface RuntimeDocumentInspectionSummary {

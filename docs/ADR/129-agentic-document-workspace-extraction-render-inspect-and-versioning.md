@@ -8,6 +8,23 @@ Open. The repo contains a partial local implementation of the new document syste
 
 2026-06-29
 
+## Addendum — 2026-07-01: auto-register on render + extract nextAction hint
+
+The originally documented flow required the model to explicitly call `document.register_version` after each successful `document.render` in order to produce a `v1` badge. In PROD this produced two observed failure modes:
+
+1. **PDF vs Office asymmetry.** In neutral repro on a clean workspace the model correctly called `register_version` after `document.render(format=xlsx)` and `document.render(format=docx)`, but skipped it after `document.render(format=pdf)`. Deliverable PDFs shipped without a `v1` badge and without stored document/version metadata.
+2. **Explicit `register_version` was noise on the happy path.** The advanced parameters (`descriptorMode="revise_document"`, non-default `sourceManifestPath` / `inspectionPath`) are only meaningful when revising an existing document by `docId`. Requiring the model to call the action for every fresh render was extra opportunity for it to skip or mis-fill it.
+
+Both are now addressed server-side. This does not change ADR-129's DoD; it changes how the DoD is satisfied.
+
+- `RuntimeDocumentToolService.executeRenderToolCall` now chains into `PersaiInternalApiClientService.registerDocumentVersion` on successful `persistRenderedWorkspaceFile`. The render payload carries `versionId`, `docId`, `descriptorMode`, and a `registration` summary uniformly for PDF/DOCX/XLSX.
+- Auto-register is best-effort. On failure the render itself is still valid and `attach` still works; a `warning` starting with `auto_register_skipped:<code>` is surfaced so the model can decide to retry or degrade explicitly. When no chat conversation can be resolved for the render, the warning is `auto_register_skipped:no_conversation_context: …` and no API call is made.
+- `document.register_version` stays in the tool surface as an explicit advanced action for revising an existing `docId` (`descriptorMode="revise_document"`), for attaching non-default `sourceManifestPath` / `inspectionPath`, or for the model to explicitly re-register after an `auto_register_skipped` warning. The standard render → attach flow does not need it.
+
+The addendum also adds an explicit `suggestedNextActions` hint to `document.extract` for imported DOCX and XLSX sources, so the model calls the seeded LibreOffice `export_pdf.py` path verbatim instead of hand-assembling HTML from partial `files.read` chunks. Imported PDF returns `null` (no obvious conversion). The runtime plumbs this through `RuntimeDocumentExtractionSummary.suggestedNextActions` (contract-level `RuntimeDocumentSuggestedNextAction`) and both the native tool projection and the documents-category selector guidance now instruct the model to follow the suggestion when present.
+
+Cross-turn workspace pollution and wrong-file attachment (files from previous turns delivered as if freshly rendered) were also observed on this same live-validation, but that class of problems needs deeper design work than a simple server-side chain. It is captured as a separate program in ADR-131 and is intentionally not resolved in this addendum.
+
 ## Purpose
 
 This ADR defines the final production design for the active `document` system.

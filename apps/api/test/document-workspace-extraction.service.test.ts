@@ -140,6 +140,7 @@ describe("DocumentWorkspaceExtractionService", () => {
     assert.equal(manifest.sourceFormat, "pdf");
     assert.equal(manifest.sourceMimeType, "application/pdf");
     assert.equal(manifest.outputDir, "/workspace/projects/source/extract");
+    assert.equal(outcome.suggestedNextActions, null);
   });
 
   test("extracts an xlsx workbook into summary plus per-sheet csv sidecars", async () => {
@@ -258,6 +259,18 @@ describe("DocumentWorkspaceExtractionService", () => {
     assert.match(exportPdfPy ?? "", /--convert-to/);
     assert.match(exportPdfPy ?? "", /\/workspace\/projects\/revenue\/source\/revenue\.xlsx/);
     assert.match(exportPdfPy ?? "", /PERSAI_OUTPUT_PATH/);
+    assert.ok(Array.isArray(outcome.suggestedNextActions));
+    assert.equal(outcome.suggestedNextActions?.length, 1);
+    assert.deepEqual(outcome.suggestedNextActions?.[0]?.args, {
+      action: "render",
+      projectPath: "/workspace/projects/revenue",
+      outputPath: "/workspace/projects/revenue/output/report.pdf",
+      format: "pdf"
+    });
+    assert.match(
+      outcome.suggestedNextActions?.[0]?.reason ?? "",
+      /Convert the imported XLSX to PDF/i
+    );
   });
 
   test("infers spreadsheet extraction when stored mime type is generic", async () => {
@@ -566,5 +579,17 @@ describe("DocumentWorkspaceExtractionService", () => {
     assert.match(exportPdfPy ?? "", /--convert-to/);
     assert.match(exportPdfPy ?? "", /\/workspace\/projects\/source\/source\/source\.docx/);
     assert.match(exportPdfPy ?? "", /PERSAI_OUTPUT_PATH/);
+    assert.ok(Array.isArray(outcome.suggestedNextActions));
+    assert.equal(outcome.suggestedNextActions?.length, 1);
+    assert.deepEqual(outcome.suggestedNextActions?.[0]?.args, {
+      action: "render",
+      projectPath: "/workspace/projects/source",
+      outputPath: "/workspace/projects/source/output/report.pdf",
+      format: "pdf"
+    });
+    assert.match(
+      outcome.suggestedNextActions?.[0]?.reason ?? "",
+      /Convert the imported DOCX to PDF/i
+    );
   });
 });

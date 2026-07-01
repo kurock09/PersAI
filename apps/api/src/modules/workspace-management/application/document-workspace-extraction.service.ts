@@ -36,6 +36,18 @@ type WorkspaceDocumentExtractRejected = {
   message: string;
 };
 
+type WorkspaceDocumentExtractSuggestedNextAction = {
+  tool: "document";
+  action: "render";
+  args: {
+    action: "render";
+    projectPath: string;
+    outputPath: string;
+    format: "pdf" | "xlsx" | "docx";
+  };
+  reason: string;
+};
+
 type WorkspaceDocumentExtractAccepted = {
   accepted: true;
   sourcePath: string;
@@ -56,6 +68,7 @@ type WorkspaceDocumentExtractAccepted = {
   provider: KnowledgeProcessingProviderTrace | null;
   quality: KnowledgeExtractionQuality | null;
   warnings: string[];
+  suggestedNextActions: WorkspaceDocumentExtractSuggestedNextAction[] | null;
 };
 
 type SidecarFile = {
@@ -388,6 +401,11 @@ export class DocumentWorkspaceExtractionService {
             `Extraction wrote ${String(allOutputPaths.length)} sidecar files; read ${manifestPath} for the full file list.`
           ]
         : build.warnings;
+    const suggestedNextActions = this.buildExtractSuggestedNextActions({
+      projectPath,
+      projectLayout,
+      sourceFormat
+    });
     return {
       accepted: true,
       sourcePath,
@@ -434,8 +452,35 @@ export class DocumentWorkspaceExtractionService {
       counts: build.counts,
       provider: build.provider,
       quality: build.quality,
-      warnings: [...resultWarnings, ...pushWarnings]
+      warnings: [...resultWarnings, ...pushWarnings],
+      suggestedNextActions
     };
+  }
+
+  private buildExtractSuggestedNextActions(input: {
+    projectPath: string | null;
+    projectLayout: ReturnType<typeof buildDocumentWorkspaceProjectLayout> | null;
+    sourceFormat: DocumentWorkspaceProjectSourceFormat;
+  }): WorkspaceDocumentExtractSuggestedNextAction[] | null {
+    if (input.projectPath === null || input.projectLayout === null) {
+      return null;
+    }
+    if (input.sourceFormat !== "docx" && input.sourceFormat !== "xlsx") {
+      return null;
+    }
+    return [
+      {
+        tool: "document",
+        action: "render",
+        args: {
+          action: "render",
+          projectPath: input.projectPath,
+          outputPath: input.projectLayout.defaultPdfOutputPath,
+          format: "pdf"
+        },
+        reason: `Convert the imported ${input.sourceFormat.toUpperCase()} to PDF via the seeded LibreOffice export_pdf.py entrypoint. Do not read the source content chunk by chunk; call this action directly.`
+      }
+    ];
   }
 
   private async buildSharedExtraction(input: {

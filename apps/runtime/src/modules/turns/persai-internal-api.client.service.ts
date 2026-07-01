@@ -761,6 +761,17 @@ export class PersaiInternalApiClientService {
         projectSourcePath: string | null;
         defaultRenderEntrypoint: string | null;
         defaultPdfOutputPath: string | null;
+        suggestedNextActions: Array<{
+          tool: "document";
+          action: "render";
+          args: {
+            action: "render";
+            projectPath: string;
+            outputPath: string;
+            format: "pdf" | "xlsx" | "docx";
+          };
+          reason: string;
+        }> | null;
       }
     | {
         accepted: false;
@@ -861,7 +872,8 @@ export class PersaiInternalApiClientService {
               : null,
           warnings: Array.isArray(payload.warnings)
             ? payload.warnings.filter((entry): entry is string => typeof entry === "string")
-            : []
+            : [],
+          suggestedNextActions: this.parseSuggestedNextActions(payload.suggestedNextActions)
         };
       }
       if (
@@ -2389,6 +2401,64 @@ export class PersaiInternalApiClientService {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private parseSuggestedNextActions(value: unknown): Array<{
+    tool: "document";
+    action: "render";
+    args: {
+      action: "render";
+      projectPath: string;
+      outputPath: string;
+      format: "pdf" | "xlsx" | "docx";
+    };
+    reason: string;
+  }> | null {
+    if (!Array.isArray(value)) {
+      return null;
+    }
+    const parsed: Array<{
+      tool: "document";
+      action: "render";
+      args: {
+        action: "render";
+        projectPath: string;
+        outputPath: string;
+        format: "pdf" | "xlsx" | "docx";
+      };
+      reason: string;
+    }> = [];
+    for (const entry of value) {
+      const record = this.asObject(entry);
+      if (record === null) {
+        continue;
+      }
+      if (record.tool !== "document" || record.action !== "render") {
+        continue;
+      }
+      const args = this.asObject(record.args);
+      if (
+        args === null ||
+        args.action !== "render" ||
+        typeof args.projectPath !== "string" ||
+        typeof args.outputPath !== "string" ||
+        (args.format !== "pdf" && args.format !== "xlsx" && args.format !== "docx")
+      ) {
+        continue;
+      }
+      parsed.push({
+        tool: "document",
+        action: "render",
+        args: {
+          action: "render",
+          projectPath: args.projectPath,
+          outputPath: args.outputPath,
+          format: args.format
+        },
+        reason: typeof record.reason === "string" ? record.reason : ""
+      });
+    }
+    return parsed.length === 0 ? null : parsed;
   }
 
   private readDocumentInspectionComparison(value: unknown): {
