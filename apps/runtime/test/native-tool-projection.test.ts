@@ -346,7 +346,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           displayName: "Document",
           description: "Create and revise assistant documents through the visible workspace loop.",
           usageGuidance:
-            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. document.extract creates bounded projects under /workspace/projects/<slug>/ and no longer accepts outputDir. PDF render uses an HTML entrypoint by default and does not auto-run a DOCX/XLSX Python builder as a PDF renderer. For a simple new PDF request, First write /workspace/<project>/index.html, then document.render, document.inspect, files.attach. For a simple new DOCX/XLSX request, First write a visible Python entrypoint under /workspace/<project> (default build.py unless you pass entrypoint), then document.render, document.inspect, files.attach. Python render entrypoints must write exactly to PERSAI_OUTPUT_PATH and must not construct /workspace/workspace paths. Slide decks belong in presentation.",
+            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. document.extract creates bounded projects under /workspace/projects/<slug>/ and no longer accepts outputDir. PDF render uses an HTML entrypoint by default and does not auto-run a DOCX/XLSX Python builder as a PDF renderer. For a simple new PDF request, First write /workspace/<project>/index.html, then document.render, document.inspect, files.attach. For a simple new DOCX/XLSX request, First write a visible Python entrypoint under /workspace/<project> (default build.py unless you pass entrypoint), then document.render, document.inspect, files.attach. If outputPath is already occupied, document.render preserves earlier deliveries by default and allocates a sibling name like `report (1).pdf`; pass `replace: true` only when the user explicitly asked to overwrite that exact file. Python render entrypoints must write exactly to PERSAI_OUTPUT_PATH. Slide decks belong in presentation.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -389,7 +389,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           description:
             "Path-driven file operations on the single flat `/workspace/` namespace. Read and write files by their exact listed `/workspace/...` path; user uploads may be sanitized, renamed, or collision-suffixed, so never reconstruct paths from displayName/filename. Use `/tmp/` for ephemeral scratch that the user should never see.",
           usageGuidance:
-            "Files in this workspace live under `/workspace/`. Read any file with `files.read` using the exact path from the Working Files block, `files.list`, or a prior tool result. Write to any path under `/workspace/` (creates or overwrites). Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new `/workspace/...` path. Use `/tmp/` for ephemeral scratch that the user should not see.",
+            "Files in this workspace live under `/workspace/`. Read any file with `files.read` using the exact path from the Working Files block, `files.list`, or a prior tool result. By default writing to an existing path allocates a new sibling name like `report (1).pdf`, so previous deliveries stay intact. Pass `replace: true` on `files.write` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new `/workspace/...` path. Use `/tmp/` for ephemeral scratch that the user should not see.",
           kind: "plan",
           executionMode: "inline",
           usageRule: "allowed",
@@ -604,6 +604,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     files?.description ?? "",
     /Do not reconstruct upload paths from displayName\/filename/
   );
+  assert.match(files?.description ?? "", /allocates a new sibling name like `report \(1\)\.pdf`/i);
+  assert.match(files?.description ?? "", /Pass `replace: true` on `files\.write`/i);
   assert.doesNotMatch(files?.description ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(files?.description ?? "", /\/workspace\/input/);
   assert.doesNotMatch(files?.description ?? "", /\/workspace\/outbound/);
@@ -639,6 +641,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         dir?: { description?: string };
         content?: { description?: string };
         mode?: { description?: string };
+        replace?: { type?: string; description?: string };
         maxBytes?: { description?: string };
         maxDepth?: { description?: string };
       };
@@ -646,6 +649,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   )?.properties;
   assert.match(filesProperties?.path?.description ?? "", /pod-absolute path/i);
   assert.match(filesProperties?.content?.description ?? "", /write/i);
+  assert.equal(filesProperties?.replace?.type, "boolean");
+  assert.match(filesProperties?.mode?.description ?? "", /legacy write mode/i);
+  assert.match(filesProperties?.replace?.description ?? "", /exact-overwrite flag/i);
   assert.equal(
     filesProperties?.["alias" as keyof typeof filesProperties],
     undefined,
@@ -881,6 +887,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         format?: { enum?: unknown[]; description?: string };
         entrypoint?: { description?: string };
         outputPath?: { description?: string };
+        replace?: { type?: string; description?: string };
         descriptorMode?: { enum?: unknown[]; description?: string };
         docId?: { description?: string };
       };
@@ -908,6 +915,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     documentProperties?.outputPath?.description ?? "",
     /inspect|render|register_version/i
   );
+  assert.equal(documentProperties?.replace?.type, "boolean");
+  assert.match(
+    documentProperties?.replace?.description ?? "",
+    /occupied outputPath resolves to a sibling ` \(N\)` filename/i
+  );
   assert.deepEqual(documentProperties?.descriptorMode?.enum, [
     "create_document",
     "revise_document"
@@ -928,8 +940,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     document?.description ?? "",
-    /PERSAI_OUTPUT_PATH.*\/workspace\/workspace/s,
-    "document guidance must prevent build.py double-workspace path construction"
+    /PERSAI_OUTPUT_PATH/i,
+    "document guidance must mention the provided render output path"
   );
   assert.match(
     document?.description ?? "",
@@ -943,7 +955,17 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     document?.description ?? "",
-    /Slide decks belong in presentation|Do not use the presentation tool/i,
+    /allocates a sibling name like `report \(1\)\.pdf`/i,
+    "document guidance must teach collision-safe render output"
+  );
+  assert.match(
+    document?.description ?? "",
+    /pass `replace: true` only when the user explicitly asked to overwrite that exact file/i,
+    "document guidance must teach explicit overwrite semantics"
+  );
+  assert.match(
+    document?.description ?? "",
+    /Slide decks belong|Do not use the presentation tool/i,
     "document guidance must steer ordinary PDF work away from presentation"
   );
   assert.doesNotMatch(

@@ -8,7 +8,12 @@ test("resolveMacOsCollisionBasename: empty set returns exact basename", () => {
 
 test("resolveMacOsCollisionBasename: increments numeric suffix", () => {
   const existing = new Set(["report.pdf"]);
+  assert.equal(resolveMacOsCollisionBasename("report.pdf", existing), "report (1).pdf");
+  existing.add("report (1).pdf");
   assert.equal(resolveMacOsCollisionBasename("report.pdf", existing), "report (2).pdf");
-  existing.add("report (2).pdf");
-  assert.equal(resolveMacOsCollisionBasename("report.pdf", existing), "report (3).pdf");
+});
+
+test("resolveMacOsCollisionBasename: existing suffixed input continues from that suffix", () => {
+  const existing = new Set(["report (2).pdf"]);
+  assert.equal(resolveMacOsCollisionBasename("report (2).pdf", existing), "report (3).pdf");
 });

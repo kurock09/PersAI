@@ -160,7 +160,7 @@ export class WorkspaceFileBridgeService {
     const writeResult = await this.workspaceFileWrite(ctx, {
       path: targetPath,
       contents: input.contents,
-      mode: "overwrite"
+      replace: true
     });
     return {
       success: writeResult.success,
@@ -202,6 +202,7 @@ export class WorkspaceFileBridgeService {
       basename?: string | null;
       path?: string | null;
       contents: Buffer;
+      replace?: boolean;
     }
   ): Promise<
     WorkspaceFileBridgeResult<{
@@ -217,7 +218,7 @@ export class WorkspaceFileBridgeService {
       const writeResult = await this.workspaceFileWrite(ctx, {
         path: explicitPath,
         contents: input.contents,
-        mode: "overwrite"
+        replace: input.replace === true
       });
       const resolvedPath = writeResult.data.resolvedPath;
       return {
@@ -344,9 +345,10 @@ export class WorkspaceFileBridgeService {
       path: string;
       contents: Buffer;
       mode?: "overwrite" | "create_only";
+      replace?: boolean;
     }
   ): Promise<WorkspaceFileBridgeResult<{ resolvedPath: string; bytes: number }>> {
-    const resolved = this.resolveModelPath(ctx, input.path);
+    const requested = this.resolveModelPath(ctx, input.path);
     const quotaExhaustedReason = await this.checkStorageQuotaBeforeWrite(
       ctx,
       input.contents.length
@@ -355,8 +357,8 @@ export class WorkspaceFileBridgeService {
       const event: WorkspaceFileBridgeEvent = {
         workspaceId: ctx.workspaceId,
         assistantId: ctx.assistantId,
-        absolutePath: resolved.absolutePath,
-        relativePath: resolved.relativePath,
+        absolutePath: requested.absolutePath,
+        relativePath: requested.relativePath,
         status: "error",
         exitCode: null,
         bytes: null,
@@ -368,16 +370,41 @@ export class WorkspaceFileBridgeService {
         success: false,
         reason: quotaExhaustedReason,
         latencyMs: 0,
-        data: { resolvedPath: resolved.absolutePath, bytes: 0 }
+        data: { resolvedPath: requested.absolutePath, bytes: 0 }
       };
     }
-    const mode = input.mode ?? "overwrite";
+    const mode = input.mode;
+    const replace = input.replace === true || mode === "overwrite";
+    const createOnly = mode === "create_only";
+    const resolvedTarget = createOnly
+      ? {
+          success: true as const,
+          reason: null,
+          latencyMs: 0,
+          data: { resolvedPath: requested.absolutePath }
+        }
+      : await this.resolveWorkspaceWritePath(ctx, {
+          path: requested.absolutePath,
+          replace
+        });
+    if (!resolvedTarget.success) {
+      return {
+        success: false,
+        reason: resolvedTarget.reason,
+        latencyMs: resolvedTarget.latencyMs,
+        data: {
+          resolvedPath: resolvedTarget.data.resolvedPath,
+          bytes: 0
+        }
+      };
+    }
+    const resolvedPath = resolvedTarget.data.resolvedPath;
     const shellCommand = [
-      `mkdir -p ${posixSingleQuote(this.parentDir(resolved.absolutePath))}`,
-      mode === "create_only"
-        ? `if [ -e ${posixSingleQuote(resolved.absolutePath)} ]; then echo create_only_collision >&2; exit 64; fi`
+      `mkdir -p ${posixSingleQuote(this.parentDir(resolvedPath))}`,
+      createOnly
+        ? `if [ -e ${posixSingleQuote(resolvedPath)} ]; then echo create_only_collision >&2; exit 64; fi`
         : ":",
-      `cat > ${posixSingleQuote(resolved.absolutePath)}`
+      `cat > ${posixSingleQuote(resolvedPath)}`
     ].join(" && ");
 
     const startedAt = Date.now();
@@ -402,8 +429,8 @@ export class WorkspaceFileBridgeService {
     const event: WorkspaceFileBridgeEvent = {
       workspaceId: ctx.workspaceId,
       assistantId: ctx.assistantId,
-      absolutePath: resolved.absolutePath,
-      relativePath: resolved.relativePath,
+      absolutePath: resolvedPath,
+      relativePath: this.toWorkspaceRelPath(resolvedPath).replace(`${WORKSPACE_MOUNT_ROOT}/`, ""),
       status: success ? "ok" : "error",
       exitCode: podResult.exitCode,
       bytes: success ? input.contents.length : null,
@@ -417,14 +444,14 @@ export class WorkspaceFileBridgeService {
         await this.sandboxObjectStorageService.saveObject({
           objectKey: this.sandboxObjectStorageService.buildWorkspaceObjectKey({
             workspaceId: ctx.workspaceId,
-            workspaceRelPath: this.toWorkspaceRelPath(resolved.absolutePath)
+            workspaceRelPath: this.toWorkspaceRelPath(resolvedPath)
           }),
           buffer: input.contents,
           mimeType: "application/octet-stream"
         });
       } catch (error) {
         this.logger.warn(
-          `workspace_file_write_gcs_persist_failed workspace=${ctx.workspaceId} path=${resolved.absolutePath} reason=${error instanceof Error ? error.message : String(error)}`
+          `workspace_file_write_gcs_persist_failed workspace=${ctx.workspaceId} path=${resolvedPath} reason=${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -434,8 +461,60 @@ export class WorkspaceFileBridgeService {
       reason,
       latencyMs,
       data: {
-        resolvedPath: resolved.absolutePath,
+        resolvedPath,
         bytes: input.contents.length
+      }
+    };
+  }
+
+  async resolveWorkspaceWritePath(
+    ctx: WorkspaceBridgeContext,
+    input: {
+      path: string;
+      replace?: boolean;
+    }
+  ): Promise<WorkspaceFileBridgeResult<{ resolvedPath: string }>> {
+    const requested = this.resolveModelPath(ctx, input.path);
+    if (input.replace === true) {
+      return {
+        success: true,
+        reason: null,
+        latencyMs: 0,
+        data: { resolvedPath: requested.absolutePath }
+      };
+    }
+    const parentPath = this.parentDir(requested.absolutePath);
+    const parentList = await this.workspaceFileList(ctx, { path: parentPath });
+    if (!parentList.success) {
+      if (parentList.reason === "path_not_found") {
+        return {
+          success: true,
+          reason: null,
+          latencyMs: parentList.latencyMs,
+          data: { resolvedPath: requested.absolutePath }
+        };
+      }
+      return {
+        success: false,
+        reason: parentList.reason ?? "write_failed",
+        latencyMs: parentList.latencyMs,
+        data: { resolvedPath: requested.absolutePath }
+      };
+    }
+    const existingNames = new Set(parentList.data.map((entry) => this.basename(entry.path)));
+    const resolvedBasename = resolveMacOsCollisionBasename(
+      this.basename(requested.absolutePath),
+      existingNames
+    );
+    return {
+      success: true,
+      reason: null,
+      latencyMs: parentList.latencyMs,
+      data: {
+        resolvedPath:
+          resolvedBasename === this.basename(requested.absolutePath)
+            ? requested.absolutePath
+            : `${parentPath}/${resolvedBasename}`
       }
     };
   }
@@ -942,6 +1021,11 @@ export class WorkspaceFileBridgeService {
       return "/";
     }
     return absolutePath.slice(0, idx);
+  }
+
+  private basename(absolutePath: string): string {
+    const idx = absolutePath.lastIndexOf("/");
+    return idx >= 0 ? absolutePath.slice(idx + 1) : absolutePath;
   }
 
   private async checkStorageQuotaBeforeWrite(

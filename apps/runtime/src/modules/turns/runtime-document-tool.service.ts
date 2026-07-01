@@ -522,6 +522,7 @@ export class RuntimeDocumentToolService {
       outputPath: string;
       format: "pdf" | "xlsx" | "docx";
       entrypoint: string | null;
+      replace?: boolean;
     };
     sessionId: string | null;
     requestId: string | null;
@@ -663,6 +664,23 @@ export class RuntimeDocumentToolService {
       );
     }
 
+    let resolvedOutputPath: string;
+    try {
+      resolvedOutputPath = await this.resolveRenderOutputPath({
+        bundle: params.bundle,
+        sessionId: params.sessionId,
+        requestId: params.requestId,
+        outputPath,
+        replace: params.request.replace === true
+      });
+    } catch (error) {
+      return this.renderSkipped(
+        params.request.format,
+        "runtime_degraded",
+        error instanceof Error ? error.message : "Failed to resolve document.render output path."
+      );
+    }
+
     let job: RuntimeSandboxJobResult;
     try {
       const programSource = await this.buildRenderProgramSource({
@@ -670,7 +688,7 @@ export class RuntimeDocumentToolService {
         sessionId: params.sessionId,
         requestId: params.requestId,
         projectPath,
-        outputPath,
+        outputPath: resolvedOutputPath,
         entrypointPath,
         format: params.request.format,
         activeDocumentProjectPath: params.activeDocumentProjectPath,
@@ -680,7 +698,7 @@ export class RuntimeDocumentToolService {
         bundle: params.bundle,
         sessionId: params.sessionId,
         requestId: params.requestId,
-        outputPath,
+        outputPath: resolvedOutputPath,
         programSource
       });
     } catch (error) {
@@ -699,13 +717,13 @@ export class RuntimeDocumentToolService {
       );
     }
 
-    let persisted: { sizeBytes: number; mimeType: string };
+    let persisted: { sizeBytes: number; mimeType: string; resolvedPath: string };
     try {
       persisted = await this.persistRenderedWorkspaceFile({
         bundle: params.bundle,
         sessionId: params.sessionId,
         requestId: params.requestId,
-        outputPath,
+        outputPath: resolvedOutputPath,
         originChatId: params.originChatId
       });
     } catch (error) {
@@ -724,7 +742,7 @@ export class RuntimeDocumentToolService {
       sourceUserMessageText: params.sourceUserMessageText,
       sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
       projectPath,
-      outputPath
+      outputPath: persisted.resolvedPath
     });
 
     return {
@@ -738,7 +756,7 @@ export class RuntimeDocumentToolService {
         prompt: null,
         outputFormat: params.request.format,
         docId: autoRegister.registration?.docId ?? null,
-        requestedName: this.basename(outputPath),
+        requestedName: this.basename(persisted.resolvedPath),
         artifacts: [],
         usage: null,
         action: "rendered",
@@ -746,7 +764,7 @@ export class RuntimeDocumentToolService {
         warning: autoRegister.warning,
         render: {
           projectPath,
-          outputPath,
+          outputPath: persisted.resolvedPath,
           format: params.request.format,
           entrypointPath,
           sizeBytes: persisted.sizeBytes,
@@ -1121,7 +1139,8 @@ export class RuntimeDocumentToolService {
           projectPath,
           outputPath,
           format,
-          entrypoint: this.readNonEmptyString(row.entrypoint)
+          entrypoint: this.readNonEmptyString(row.entrypoint),
+          replace: row.replace === true ? true : undefined
         }
       };
     }
@@ -1842,7 +1861,7 @@ export class RuntimeDocumentToolService {
     requestId: string;
     outputPath: string;
     originChatId: string | null;
-  }): Promise<{ mimeType: string; sizeBytes: number }> {
+  }): Promise<{ mimeType: string; sizeBytes: number; resolvedPath: string }> {
     const job = await this.sandboxClientService!.waitForCompletion({
       assistantId: input.bundle.metadata.assistantId,
       assistantHandle: input.bundle.metadata.assistantHandle,
@@ -1871,7 +1890,7 @@ export class RuntimeDocumentToolService {
     }
     await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
       workspaceId: input.bundle.metadata.workspaceId,
-      path: input.outputPath,
+      path: attach.workspaceRelPath,
       mimeType: attach.mimeType,
       sizeBytes: attach.sizeBytes,
       ...(input.originChatId === null
@@ -1882,9 +1901,47 @@ export class RuntimeDocumentToolService {
           })
     });
     return {
+      resolvedPath: attach.workspaceRelPath,
       mimeType: attach.mimeType,
       sizeBytes: attach.sizeBytes
     };
+  }
+
+  private async resolveRenderOutputPath(input: {
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+    requestId: string;
+    outputPath: string;
+    replace: boolean;
+  }): Promise<string> {
+    const job = await this.sandboxClientService!.waitForCompletion({
+      assistantId: input.bundle.metadata.assistantId,
+      assistantHandle: input.bundle.metadata.assistantHandle,
+      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
+      workspaceId: input.bundle.metadata.workspaceId,
+      runtimeRequestId: `${input.requestId}:resolve-output-path`,
+      runtimeSessionId: input.sessionId,
+      toolCode: "files",
+      policy: this.buildInlineDocumentSandboxPolicy(input.bundle.runtime.sandbox),
+      args: {
+        action: "resolve_write_path",
+        path: input.outputPath,
+        replace: input.replace
+      }
+    } satisfies RuntimeSandboxJobRequest);
+    if (job.status !== "completed" || typeof job.reason === "string") {
+      throw new Error(
+        job.warning ??
+          job.violationMessage ??
+          job.reason ??
+          `Could not resolve ${input.outputPath} for document.render.`
+      );
+    }
+    const resolvedPath = this.parseResolvedWritePathContent(job.content);
+    if (resolvedPath === null) {
+      throw new Error("Sandbox path resolution completed without a valid resolvedPath payload.");
+    }
+    return resolvedPath;
   }
 
   private buildInlineDocumentSandboxPolicy(
@@ -1949,6 +2006,18 @@ export class RuntimeDocumentToolService {
       mimeType: value.mimeType,
       displayName: value.displayName
     };
+  }
+
+  private parseResolvedWritePathContent(content: string | null): string | null {
+    if (content === null) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      return typeof parsed.resolvedPath === "string" ? parsed.resolvedPath : null;
+    } catch {
+      return null;
+    }
   }
 
   private parseJsonObject(content: string | null): Record<string, unknown> | null {

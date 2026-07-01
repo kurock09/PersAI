@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-07-01 — ADR-131 Slice 1 landed locally: anti-clobber Variant A across files.write, document.render, and control-plane writes
+
+Status: implementation slice completed locally after ADR-131 founder closure `e8ae4b91`; pending commit/push at the time of this handoff entry. Scope stayed inside ADR-131 Block 1. No Block 2 chat-scoping work and no Block 3 residual work landed in this slice.
+
+**What changed.**
+
+- `files.write` now defaults to collision-safe sibling allocation when the requested path already exists. The actual returned `path` / `resolvedPath` is the path written and upserted into the manifest. Boolean `replace: true` is the explicit exact-overwrite opt-in; legacy `mode: "overwrite"` is compatibility-only and maps to exact overwrite; `mode: "create_only"` still fails on exact collision.
+- `document.render` resolves an occupied `outputPath` before rendering, persists the rendered file at that resolved path, and auto-registers the resolved path. `replace: true` keeps the exact output path only when the user explicitly requested overwrite.
+- Control-plane explicit-path writes in the sandbox bridge route through the same collision-aware writer and return the resolved path. Control-plane `replace: true` preserves exact overwrite behavior when intentionally requested.
+- Production model-facing guidance was aligned across runtime fallback, API runtime policy/catalog data, tool catalog tests, runtime projection tests, ADR-119 golden prompt fixture, and runtime contract shape.
+
+**Files touched.** `apps/sandbox/src/workspace-file-bridge.service.ts`, `apps/sandbox/src/sandbox.service.ts`, `apps/sandbox/src/sandbox.controller.ts`, `apps/sandbox/src/shared-outbound-basename.ts`, sandbox tests; `apps/runtime/src/modules/turns/runtime-files-tool.service.ts`, `runtime-document-tool.service.ts`, `native-tool-projection.ts`, runtime tests; `apps/api/prisma/tool-catalog-data.ts`, `bootstrap-preset-data.ts`, `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`, API tool catalog test and ADR-119 golden fixture; `packages/runtime-contract/src/index.ts`; `docs/ADR/131-workspace-project-isolation-and-cross-turn-delivery-safety.md`; this handoff; `docs/CHANGELOG.md`.
+
+**Orchestrator audit.** GPT-5.4 read-only audit returned `FIX-THEN-GO`: core Slice 1 behavior was correct, but API catalog `document` guidance was stale and could override runtime fallback in production. Fixed `apps/api/prisma/tool-catalog-data.ts` and `apps/api/test/tool-catalog-data.test.ts`; re-audit returned `BLOCKER RESOLVED`.
+
+**Verification run.**
+
+- `corepack pnpm --filter @persai/runtime run test` — pass.
+- `corepack pnpm --filter @persai/sandbox run test` — pass.
+- `corepack pnpm --filter @persai/api run test` — pass after catalog/test blocker fix.
+- `corepack pnpm -r --if-present run lint` — pass.
+- `corepack pnpm run format:check` — pass.
+- `corepack pnpm --filter @persai/api run typecheck` — pass.
+- `corepack pnpm --filter @persai/web run typecheck` — pass.
+
+**Residual / next.** Commit and push this slice if the final local state remains clean. After deploy, ADR-131 next implementation slice is Block 2: chat-scoped `files.*` (`files.list` default chat scope; assistant/workspace-shared on-demand widen; cross-scope read/preview/attach marker). Known pre-existing docs debt remains: `docs/API-BOUNDARY.md` still has alias-first Files wording and should be fixed in a separate docs-truth slice, not bundled into this implementation.
+
 ## 2026-07-01 — ADR-131 founder-closed: all four decision points confirmed; implementation-ordered
 
 Status: docs-only change on top of push `7dea8b37` (which broadened ADR-131 to umbrella and shipped the ADR-129 addendum). No code changed. `docs/ADR/131-workspace-project-isolation-and-cross-turn-delivery-safety.md` is now `Accepted`. All four decision points documented as pending in the broadened ADR are founder-confirmed and folded into a concrete implementation plan.

@@ -334,7 +334,7 @@ export type RuntimeFilesReadExtractionQuality = {
 
 /**
  * Single result shape returned by every `files.*` action. The `action`
- * discriminant matches the requested action verbatim (one of the five
+ * discriminant matches the requested action verbatim (one of the six
  * canonical values); `skipped` is the sole error/blocked outcome.
  */
 export interface RuntimeFilesToolResult {

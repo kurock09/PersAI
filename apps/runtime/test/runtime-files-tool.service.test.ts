@@ -503,6 +503,242 @@ test("files.write /workspace/ path upserts manifest", async () => {
   assert.equal(upsertInput?.sizeBytes, 42);
 });
 
+test("files.write default collision returns resolved sibling path and upserts manifest there", async () => {
+  let sandboxArgs: Record<string, unknown> | undefined;
+  let upsertInput: Record<string, unknown> | undefined;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion(input: { args: Record<string, unknown> }) {
+        sandboxArgs = input.args;
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({
+            sizeBytes: 42,
+            resolvedPath: "/workspace/notes (1).md"
+          })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      },
+      async upsertWorkspaceFileMetadata(input: Record<string, unknown>) {
+        upsertInput = input;
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-write-collision",
+      name: "files",
+      arguments: {
+        action: "write",
+        path: "/workspace/notes.md",
+        content: "# notes\nhello"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: "chat-1",
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.action, "written");
+  assert.equal(result.payload.path, "/workspace/notes (1).md");
+  assert.deepEqual(sandboxArgs, {
+    action: "write",
+    path: "/workspace/notes.md",
+    content: "# notes\nhello"
+  });
+  assert.equal(upsertInput?.path, "/workspace/notes (1).md");
+  assert.equal(upsertInput?.originChatId, "chat-1");
+  assert.equal(upsertInput?.originAssistantId, "assistant-1");
+});
+
+test("files.write replace=true overwrites the exact path", async () => {
+  let sandboxArgs: Record<string, unknown> | undefined;
+  let upsertInput: Record<string, unknown> | undefined;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion(input: { args: Record<string, unknown> }) {
+        sandboxArgs = input.args;
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({
+            sizeBytes: 7,
+            resolvedPath: "/workspace/report.txt"
+          })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      },
+      async upsertWorkspaceFileMetadata(input: Record<string, unknown>) {
+        upsertInput = input;
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-write-replace",
+      name: "files",
+      arguments: {
+        action: "write",
+        path: "/workspace/report.txt",
+        content: "updated",
+        replace: true
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: null,
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.path, "/workspace/report.txt");
+  assert.deepEqual(sandboxArgs, {
+    action: "write",
+    path: "/workspace/report.txt",
+    content: "updated",
+    replace: true
+  });
+  assert.equal(upsertInput?.path, "/workspace/report.txt");
+});
+
+test("files.write legacy overwrite mode is forwarded for compatibility", async () => {
+  let sandboxArgs: Record<string, unknown> | undefined;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion(input: { args: Record<string, unknown> }) {
+        sandboxArgs = input.args;
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({
+            sizeBytes: 4,
+            resolvedPath: "/workspace/report.txt"
+          })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      },
+      async upsertWorkspaceFileMetadata() {
+        return;
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-write-overwrite-mode",
+      name: "files",
+      arguments: {
+        action: "write",
+        path: "/workspace/report.txt",
+        content: "data",
+        mode: "overwrite"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: null,
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.deepEqual(sandboxArgs, {
+    action: "write",
+    path: "/workspace/report.txt",
+    content: "data",
+    mode: "overwrite"
+  });
+  assert.equal(result.payload.path, "/workspace/report.txt");
+});
+
+test("files.write create_only collisions still fail honestly", async () => {
+  let sandboxArgs: Record<string, unknown> | undefined;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion(input: { args: Record<string, unknown> }) {
+        sandboxArgs = input.args;
+        return {
+          status: "completed",
+          reason: "create_only_collision",
+          warning: null,
+          violationMessage: null,
+          content: null
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-write-create-only",
+      name: "files",
+      arguments: {
+        action: "write",
+        path: "/workspace/report.txt",
+        content: "data",
+        mode: "create_only"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: null,
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.deepEqual(sandboxArgs, {
+    action: "write",
+    path: "/workspace/report.txt",
+    content: "data",
+    mode: "create_only"
+  });
+  assert.equal(result.isError, true);
+  assert.equal(result.payload.action, "skipped");
+  assert.equal(result.payload.reason, "create_only_collision");
+});
+
 test("files.write /workspace/ path does NOT upsert manifest", async () => {
   let upsertCalled = false;
   const service = new RuntimeFilesToolService(

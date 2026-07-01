@@ -1321,10 +1321,10 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
       [
         'Use action="extract" to turn an existing `/workspace/...` source file into a bounded document project under `/workspace/projects/<slug>/` with `project.json`, `extract/` sidecars, a seeded `render/report.html`, and an `output/` directory. The result is compact and points to the project manifest plus sidecar paths to read next with `files.read` or `grep`. When the extracted source is DOCX or XLSX, the result also contains `suggestedNextActions` with the exact `document.render(format=pdf, projectPath, outputPath)` call to use — follow it directly to convert the source to PDF via the seeded LibreOffice entrypoint. Do not read the source content chunk by chunk when the suggested action already covers the request.',
         'Use action="inspect" to validate an existing `/workspace/...` PDF/XLSX/DOCX, write a visible `*.inspect.json` sidecar, and return a compact summary of counts/warnings/suggested reads.',
-        'Use action="render" to build a visible `/workspace/...` project into a concrete PDF/XLSX/DOCX output path. PDF render uses an HTML entrypoint by default; it does not auto-run a DOCX/XLSX Python builder as a PDF renderer. XLSX/DOCX render uses a visible Python build script (default `build.py`). On success, the current output is automatically registered as the assistant document/version (`registration.versionId` in the result). You do NOT need to call `document.register_version` afterwards for standard delivery. If the auto-register was skipped (see `warning` starting with `auto_register_skipped:`), the render itself is still valid — attachment still works, but version metadata is missing.',
+        'Use action="render" to build a visible `/workspace/...` project into a PDF/XLSX/DOCX output path. PDF render defaults to an HTML entrypoint; it does not auto-run a DOCX/XLSX Python builder as a PDF renderer. XLSX/DOCX render uses a visible Python build script (default `build.py`). If outputPath already exists, render keeps the earlier file and allocates a sibling name like `report (1).pdf` unless you pass `replace: true`. Render auto-registers the output as the current assistant document/version (`registration.versionId`). Standard delivery does not need `document.register_version`; if auto-register is skipped, the render still succeeds and can still be attached.',
         'Use action="register_version" ONLY for advanced cases: revising an existing document by `docId` (`descriptorMode="revise_document"`), or attaching non-default `sourceManifestPath`/`inspectionPath`. Standard render → attach flow does not need this action because render auto-registers.',
         "For DOCX/PDF conversion from an attached source, call document.extract first — it seeds the project and returns `suggestedNextActions` with the exact next document.render call for DOCX→PDF (LibreOffice) or XLSX→PDF (LibreOffice). Call that action verbatim. Do not hand-build HTML from partial files.read chunks and do not render from unrelated workspace projects.",
-        "For ordinary PDF/DOCX/XLSX work, use the visible workspace loop: extract into a document project when helpful, create or edit real source files under `/workspace`, render the output (auto-registers), optionally inspect the result, then attach the checked file. Project-owned PDF/DOCX/XLSX outputs may be rejected at files.attach time until the relevant inspect/provenance truth exists.",
+        "For ordinary PDF/DOCX/XLSX work, stay in the visible workspace loop: extract into a document project when helpful, edit real source files under `/workspace`, render the output, optionally inspect the result, then attach the checked file. Project-owned PDF/DOCX/XLSX outputs may be rejected at files.attach time until the relevant inspect/provenance truth exists.",
         "For a simple new PDF document/manual/report, do not call document before a source entrypoint exists. First write `/workspace/<project>/index.html` with files.write, then call document.render with format=pdf (auto-registers), then files.attach the rendered PDF.",
         "For a simple new DOCX/XLSX request, do not call document before a source build script exists. First write `/workspace/<project>/build.py` with files.write, then call document.render with format=docx or xlsx (auto-registers), then files.attach the rendered file.",
         "For Python-based document.render, write the final file exactly to the provided PERSAI_OUTPUT_PATH environment variable. The runtime executes the Python entrypoint from projectPath; do not chdir into /workspace yourself and do not construct paths like /workspace/workspace/....",
@@ -1398,7 +1398,12 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         outputPath: {
           type: "string",
           description:
-            'Optional sidecar/output path depending on action. For `action="inspect"`, writes the JSON sidecar there (default: sibling `<basename>.inspect.json`). For `action="render"`, this is the required final `/workspace/...` output file path. For `action="register_version"`, this is the already rendered `/workspace/...` output file that should become the registered current document version.'
+            'Optional sidecar/output path depending on action. For `action="inspect"`, writes the JSON sidecar there (default: sibling `<basename>.inspect.json`). For `action="render"`, this is the required final `/workspace/...` output file path; if that path already exists, PersAI preserves it by default and writes a sibling ` (N)` filename unless you pass `replace: true`. For `action="register_version"`, this is the already rendered `/workspace/...` output file that should become the registered current document version.'
+        },
+        replace: {
+          type: "boolean",
+          description:
+            'Optional exact-overwrite flag for `action="render"`. By default an occupied outputPath resolves to a sibling ` (N)` filename so earlier deliveries stay intact. Pass `replace: true` only when the user explicitly asked to overwrite that same file.'
         },
         requestedName: {
           type: "string",
@@ -1732,7 +1737,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "files",
     description: resolveToolDefinitionDescription(
       policy,
-      "Files in this workspace live under `/workspace/`. Read any file with `files.read` using the exact path from the Working Files block, `files.list`, or a prior tool result. Write to any path under `/workspace/` (creates or overwrites). Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new `/workspace/...` path. Use `/tmp/` for ephemeral scratch that the user should not see."
+      "Files in this workspace live under `/workspace/`. Read any file with `files.read` using the exact path from the Working Files block, `files.list`, or a prior tool result. By default writing to an existing path allocates a new sibling name like `report (1).pdf`, so previous deliveries stay intact. Pass `replace: true` on `files.write` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new `/workspace/...` path. Use `/tmp/` for ephemeral scratch that the user should not see."
     ),
     inputSchema: {
       type: "object",
@@ -1761,7 +1766,12 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         mode: {
           type: "string",
           description:
-            'Optional write mode: "overwrite" (default) or "create_only" (fail if path already exists).'
+            'Optional legacy write mode. Use `mode: "create_only"` to fail if the exact path already exists. `mode: "overwrite"` is accepted for compatibility and behaves like `replace: true`, but prefer `replace` for new calls.'
+        },
+        replace: {
+          type: "boolean",
+          description:
+            'Optional exact-overwrite flag for action="write". By default an occupied path resolves to a sibling ` (N)` filename so earlier deliveries stay intact. Pass `replace: true` only when the user explicitly asked to overwrite that same file.'
         },
         maxBytes: {
           type: "integer",

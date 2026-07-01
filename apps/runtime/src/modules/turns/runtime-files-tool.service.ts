@@ -41,7 +41,8 @@ type FilesWriteRequest = {
   action: "write";
   path: string;
   content: string;
-  mode: "overwrite" | "create_only";
+  mode?: "overwrite" | "create_only";
+  replace?: boolean;
 };
 
 type FilesDeleteRequest = {
@@ -439,7 +440,8 @@ export class RuntimeFilesToolService {
       action: "write",
       path: request.path,
       content: request.content,
-      mode: request.mode
+      ...(request.mode === undefined ? {} : { mode: request.mode }),
+      ...(request.replace === undefined ? {} : { replace: request.replace })
     });
     if (job.status !== "completed") {
       return {
@@ -470,15 +472,16 @@ export class RuntimeFilesToolService {
       };
     }
     const writeOutcome = this.parseWriteContent(job.content);
+    const resolvedPath = writeOutcome.resolvedPath ?? request.path;
     // ADR-128 Slice 4 — every successful write under `/workspace/` mirrors to
     // the authoritative manifest. The upsert is best-effort: failure is logged
     // at warn and the write outcome is still surfaced to the model.
-    if (this.isPersistedWorkspaceWritePath(request.path)) {
+    if (this.isPersistedWorkspaceWritePath(resolvedPath)) {
       const sizeBytes = writeOutcome.sizeBytes ?? request.content.length;
       try {
         await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
           workspaceId: params.bundle.metadata.workspaceId,
-          path: request.path,
+          path: resolvedPath,
           mimeType: this.inferMimeForWrite(request.path, request.content),
           sizeBytes,
           ...(params.chatId === null
@@ -490,7 +493,7 @@ export class RuntimeFilesToolService {
         });
       } catch (error) {
         this.logger.warn(
-          `files_write_manifest_upsert_failed path=${request.path} reason=${error instanceof Error ? error.message : String(error)}`
+          `files_write_manifest_upsert_failed path=${resolvedPath} reason=${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -502,7 +505,7 @@ export class RuntimeFilesToolService {
         action: "written",
         reason: null,
         warning: job.warning,
-        path: request.path,
+        path: resolvedPath,
         sizeBytes: writeOutcome.sizeBytes
       },
       isError: false
@@ -811,8 +814,15 @@ export class RuntimeFilesToolService {
         if (path === null || content === null) {
           return new Error("files.write requires a non-empty path and string content.");
         }
-        const mode = row.mode === "create_only" ? "create_only" : "overwrite";
-        return { action: "write", path, content, mode };
+        const mode = row.mode === "create_only" || row.mode === "overwrite" ? row.mode : undefined;
+        const replace = row.replace === true ? true : undefined;
+        return {
+          action: "write",
+          path,
+          content,
+          ...(mode === undefined ? {} : { mode }),
+          ...(replace === undefined ? {} : { replace })
+        };
       }
       case "delete": {
         const path = this.readNonEmptyString(row.path);
@@ -968,17 +978,21 @@ export class RuntimeFilesToolService {
     }
   }
 
-  private parseWriteContent(content: string | null): { sizeBytes: number | null } {
+  private parseWriteContent(content: string | null): {
+    sizeBytes: number | null;
+    resolvedPath: string | null;
+  } {
     if (content === null) {
-      return { sizeBytes: null };
+      return { sizeBytes: null, resolvedPath: null };
     }
     try {
       const parsed = JSON.parse(content) as Record<string, unknown>;
       return {
-        sizeBytes: typeof parsed.sizeBytes === "number" ? parsed.sizeBytes : null
+        sizeBytes: typeof parsed.sizeBytes === "number" ? parsed.sizeBytes : null,
+        resolvedPath: typeof parsed.resolvedPath === "string" ? parsed.resolvedPath : null
       };
     } catch {
-      return { sizeBytes: null };
+      return { sizeBytes: null, resolvedPath: null };
     }
   }
 

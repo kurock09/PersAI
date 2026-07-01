@@ -81,9 +81,19 @@ function testDocumentCatalogRowTeachesVisibleWorkflow(): void {
   );
   assert.ok(
     row.modelUsageGuidance.includes(
-      "render, inspect, optionally register_version, then files.attach"
+      "render (auto-registers the output), optionally inspect, then files.attach"
     ),
-    "document guidance must teach the render -> inspect -> optional register_version -> files.attach flow"
+    "document guidance must teach the render auto-register -> optional inspect -> files.attach flow"
+  );
+  assert.ok(
+    row.modelUsageGuidance.includes("allocates a sibling name like `report (1).pdf`") &&
+      row.modelUsageGuidance.includes("replace: true"),
+    "document guidance must teach collision-safe render output and explicit overwrite"
+  );
+  assert.ok(
+    row.modelUsageGuidance.includes("Do not call register_version in the standard render") &&
+      row.modelUsageGuidance.includes("advanced-only manual version registration"),
+    "document guidance must keep register_version advanced-only"
   );
   assert.ok(
     row.modelUsageGuidance.includes("PERSAI_OUTPUT_PATH") &&

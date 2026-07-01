@@ -120,19 +120,21 @@ GOTCHAS:
     description:
       "Create, inspect, render, and register user-ready PDF/DOCX/XLSX files through a visible workspace workflow.",
     modelDescription:
-      "Build or revise user-ready PDF, DOCX, and XLSX files through visible workspace source files, render, inspect, and files.attach.",
+      "Build or revise user-ready PDF, DOCX, and XLSX files through visible workspace source files, collision-safe render, optional inspect, auto-register, and files.attach.",
     modelUsageGuidance: `WHEN TO USE: User asks for a PDF document, DOCX/Word file, XLSX/spreadsheet, report, manual, instruction, table, or other ordinary document output — including from uploaded source files. Use the visible workspace loop, not presentation.
 WHEN NOT TO USE: User asks for slides, a deck, or a presentation (use \`presentation\`). User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (use \`files.attach\`; do not regenerate just to resend).
 EXAMPLES:
 - document({action:"extract", path:"/workspace/source.pdf"}) — create a bounded document project under \`/workspace/projects/<slug>/\` with extract sidecars and a seeded render scaffold.
-- document({action:"render", projectPath:"/workspace/projects/report", outputPath:"/workspace/projects/report/output/report.pdf", format:"pdf"}) — build a visible PDF from the active document project.
+- document({action:"render", projectPath:"/workspace/projects/report", outputPath:"/workspace/projects/report/output/report.pdf", format:"pdf"}) — build a visible PDF from the active document project; if outputPath exists, render preserves it by default and writes a sibling like \`report (1).pdf\`.
 - document({action:"render", projectPath:"/workspace/projects/report", outputPath:"/workspace/projects/report/output/report.xlsx", format:"xlsx"}) — build a visible spreadsheet from workspace source files.
 - document({action:"inspect", path:"/workspace/projects/report/output/report.xlsx"}) — inspect the rendered XLSX/DOCX/PDF before delivery.
-- document({action:"register_version", outputPath:"/workspace/projects/report/output/report.xlsx", workspaceProjectPath:"/workspace/projects/report", inspectionPath:"/workspace/projects/report/output/report.inspect.json"}) — optionally persist PersAI version metadata before files.attach.
+- document({action:"render", projectPath:"/workspace/projects/report", outputPath:"/workspace/projects/report/output/report.pdf", format:"pdf", replace:true}) — exact overwrite only when the user explicitly asked to replace that file.
+- document({action:"register_version", outputPath:"/workspace/projects/report/output/report.xlsx", workspaceProjectPath:"/workspace/projects/report", inspectionPath:"/workspace/projects/report/output/report.inspect.json"}) — advanced-only manual version registration when revising an existing docId or using non-default source/inspection paths; standard render auto-registers.
 GOTCHAS:
 - document.extract no longer accepts outputDir; do not write flat \`*.extract\` sidecars manually.
-- For document work from an uploaded or existing workspace source, the normal flow is: extract into a document project when needed, render, inspect, optionally register_version, then files.attach.
-- For a simple new PDF, first write \`/workspace/<project>/index.html\` with files.write, then document.render(format=pdf), document.inspect, files.attach. Do not call presentation for a PDF document/manual/report.
+- For document work from an uploaded or existing workspace source, the normal flow is: extract into a document project when needed, render (auto-registers the output), optionally inspect, then files.attach. Do not call register_version in the standard render → attach flow.
+- For a simple new PDF, first write \`/workspace/<project>/index.html\` with files.write, then document.render(format=pdf), optional document.inspect, files.attach. Do not call presentation for a PDF document/manual/report.
+- If outputPath is already occupied, document.render preserves earlier deliveries by default and allocates a sibling name like \`report (1).pdf\`; pass \`replace: true\` only when the user explicitly asked to overwrite that exact file.
 - PDF render uses an HTML entrypoint by default; do not ask PDF render to auto-run a DOCX/XLSX Python builder as the PDF renderer.
 - For Python-based \`document.render\`, write the final file exactly to \`PERSAI_OUTPUT_PATH\`. Do not chdir into \`/workspace\` yourself and do not construct paths like \`/workspace/workspace/...\`.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
@@ -335,20 +337,21 @@ GOTCHAS:
     // policy-overridden: the real model-facing text is supplied by
     // runtime-tool-policy.ts resolveRuntimeToolUsageGuidance and always
     // supersedes this catalog value. Edit the hardcoded override there, not here.
-    modelUsageGuidance: `Files in this workspace live under \`/workspace/\`. Read any file with \`files.read\` using the exact path from the Working Files block, \`files.list\`, or a prior tool result. Write to any path under \`/workspace/\` (creates or overwrites). Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new \`/workspace/...\` path. Use \`/tmp/\` for ephemeral scratch that the user should not see.
+    modelUsageGuidance: `Files in this workspace live under \`/workspace/\`. Read any file with \`files.read\` using the exact path from the Working Files block, \`files.list\`, or a prior tool result. By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` on \`files.write\` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new \`/workspace/...\` path. Use \`/tmp/\` for ephemeral scratch that the user should not see.
 WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace file to chat.
 WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a NEW structured document (use document).
 EXAMPLES:
 - files({action:"list", path:"/workspace/"}) — see every file in the workspace.
 - files({action:"read", path:"/workspace/report.csv"}) — read any file under /workspace/.
 - files({action:"preview", path:"/workspace/notes.md", maxBytes:4096}) — peek at the head of a large file.
-- files({action:"write", path:"/workspace/draft.txt", content:"hello"}) — write or overwrite a file.
+- files({action:"write", path:"/workspace/draft.txt", content:"hello"}) — create a new file or allocate a sibling \` (N)\` filename when that exact path is already occupied.
 - files({action:"delete", path:"/workspace/tmp.bin"}) — remove an unneeded file.
 - files({action:"attach", path:"/workspace/draft.txt"}) — deliver a file to the user as a chat attachment.
 GOTCHAS:
 - Six actions only: list, read, preview, write, delete, attach. There is no legacy file-id selector and no search/send/edit action here.
 - Paths must be pod-absolute and under /workspace/. Use /tmp/ for ephemeral scratch.
 - For list supply the directory path; for read/preview/write/delete/attach supply the file path.
+- By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` only when the user explicitly asked to overwrite that exact file.
 - attach delivers an EXISTING file; it does not regenerate. If the file is not yet written, write it first.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,

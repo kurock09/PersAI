@@ -214,14 +214,14 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
 
 <category_rules>
   <category name="files">
-    - Address files by exact listed pod-absolute path under \`/workspace/\`. Every file lives directly under \`/workspace/<path>\`, but user uploads may be sanitized, renamed, or collision-suffixed; never reconstruct a path from displayName/filename. Use Working Files, \`files.list\`, or prior tool results as path authority. Use \`/tmp/\` for ephemeral scratch the user should never see. Six actions: list, read, preview, write, delete, attach.
+    - Address files by exact listed pod-absolute path under \`/workspace/\`. Every file lives directly under \`/workspace/<path>\`, but user uploads may be sanitized, renamed, or collision-suffixed; never reconstruct a path from displayName/filename. By default writing to an existing path allocates a sibling name like \`report (1).pdf\`, so previous deliveries stay intact; pass \`replace: true\` only when the user explicitly asked to overwrite that exact file. Use Working Files, \`files.list\`, or prior tool results as path authority. Use \`/tmp/\` for ephemeral scratch the user should never see. Six actions: list, read, preview, write, delete, attach.
     - Delivering an existing workspace file to the user is its own action: \`files({action:"attach", path})\`. Do NOT regenerate with \`image_generate\` / \`document\` when the file already exists.
   </category>
   <category name="workspace">
     - Discover files first with \`glob\`, then search contents with \`grep\`; prefer these inline tools over shell \`find\`/\`fd\`/\`grep\`/\`rg\`.
     - Read / write / delete workspace files → \`files\`.
     - Execute commands, scripts, tests, builds, conversions, diagnostics, and package checks → \`shell\`; use it proactively to verify work.
-    - For non-trivial document work, keep the source visible in \`/workspace\`: extract source sidecars when needed, edit the real source files, render to the final output path, inspect the result, optionally register the version, then attach the final file.
+    - For non-trivial document work, keep the source visible in \`/workspace\`: extract source sidecars when needed, edit the real source files, render to the final output path (collision-safe by default), inspect the result, optionally register the version, then attach the final file.
     - Produce a NEW deliverable document (PDF, DOCX, XLSX) or revise an existing visible workspace document → \`document\`. For PDF/Excel/DOCX, use the visible action workflow.
     - Produce a slide deck or presentation → \`presentation\`.
   </category>
@@ -229,7 +229,7 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
     - Produce a NEW deliverable PDF, Word/DOCX, Excel/XLSX, report, table, or structured document → \`document\`, even when the source material is an uploaded image/file. Ordinary PDF manuals/instructions/reports belong here, not in \`presentation\`.
     - Produce a slide deck or presentation → \`presentation\`, not \`document\`.
     - Start from an existing source file → \`document\` with \`action="extract"\` when visible extraction sidecars will help, then keep the editable source in \`/workspace\`. For imported DOCX/XLSX → PDF the extract result contains \`suggestedNextActions\` with the exact \`document.render(format=pdf, projectPath, outputPath)\` call to run next; follow it verbatim instead of reading the source chunk by chunk.
-    - Build the final document through the visible workflow: create or edit source files under \`/workspace\` → \`document.render\` (auto-registers a new document version) → optional \`document.inspect\` → \`files.attach\`. \`document.register_version\` is only for advanced cases (revising an existing docId, or attaching non-default sourceManifestPath/inspectionPath).
+    - Build the final document through the visible workflow: create or edit source files under \`/workspace\` → \`document.render\` (auto-registers a new document version and, by default, keeps occupied output paths intact by allocating a sibling \` (N)\` name unless you pass \`replace: true\`) → optional \`document.inspect\` → \`files.attach\`. \`document.register_version\` is only for advanced cases (revising an existing docId, or attaching non-default sourceManifestPath/inspectionPath).
     - For PDF renders, use an HTML source by default. Do not ask PDF render to auto-run a DOCX/XLSX Python builder as the PDF renderer.
     - For Python-based document renders, the render runtime provides the final output location as \`PERSAI_OUTPUT_PATH\`; write exactly there and do not construct \`/workspace/workspace/...\` paths or chdir into \`/workspace\` yourself.
     - Deliver, send, or resend an existing /workspace/ file → \`files\` with action=\`attach\`. Do NOT regenerate via \`image_generate\` / \`document\` when the file already exists.

@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted — all founder-decision points closed on 2026-07-01. Implementation now proceeds in three ordered slices (Block 1 → Block 2 → Block 3). Original scope was cross-turn delivery safety for the document tool only; broadened on 2026-07-01 after founder review because the underlying causes (mutable-path identity, absent visibility scope) affect every file the model touches, not only documents.
+Accepted — all founder-decision points closed on 2026-07-01. Implementation proceeds in three ordered slices (Block 1 → Block 2 → Block 3). Slice 1 (Block 1 anti-clobber Variant A) landed locally on 2026-07-01 and awaits push/deploy. Original scope was cross-turn delivery safety for the document tool only; broadened on 2026-07-01 after founder review because the underlying causes (mutable-path identity, absent visibility scope) affect every file the model touches, not only documents.
 
 ## Date
 
-2026-07-01 (opened, doc-only). 2026-07-01 (broadened to full workspace file identity, isolation, and safe delivery). 2026-07-01 (founder-closed all four remaining decision points; implementation-ordered).
+2026-07-01 (opened, doc-only). 2026-07-01 (broadened to full workspace file identity, isolation, and safe delivery). 2026-07-01 (founder-closed all four remaining decision points; implementation-ordered). 2026-07-01 (Slice 1 landed locally: Block 1 anti-clobber Variant A).
 
 ## Purpose
 
@@ -176,6 +176,21 @@ Slice 2 — Block 2 chat-scoped `files.*`. Extend `runtime-files-tool.service.ts
 Slice 3 — Block 3 residuals (Problem E + Problem G). Problem E: per-turn project slug allocation in `document.extract` plus attach-freshness guard in `files.attach` for document project outputs. Problem G: prompt guidance for large-document reads via chunked `files.read`, and — if evidence recurs — a small dedicated `document.read_text` bounded-excerpt action. Deliver together as one focused slice, since both are prompt-heavy plus a single small runtime surface.
 
 The prompt reinforcement of `suggestedNextActions` for Problem F is folded into Slice 3 (or the next prompt-owner slice, whichever lands first), not a separate slice.
+
+## Implementation progress
+
+### 2026-07-01 — Slice 1: Block 1 anti-clobber Variant A (landed locally)
+
+Status: implemented locally after the ADR-131 founder-closure push and awaiting push/deploy. Scope stayed inside Block 1.
+
+- `files.write` defaults to collision-safe sibling allocation when the requested path already exists. The returned `path` / `resolvedPath` is the actual path written, and manifest upsert uses that resolved path.
+- `document.render` resolves occupied `outputPath` values to sibling ` (N)` names before rendering, persists the rendered file at the resolved path, and auto-registers the resolved path rather than the originally requested path.
+- Control-plane explicit-path writes route through the same collision-aware writer and return the resolved path.
+- Boolean `replace: true` is the explicit exact-overwrite opt-in on `files.write`, `document.render`, and control-plane writes. Legacy `mode: "overwrite"` is accepted as compatibility and maps to exact overwrite; `mode: "create_only"` still fails on exact collision.
+- Model-facing guidance, tool catalog guidance, runtime contract, and tests were updated so production policy and runtime fallback teach the same rule: default preserves earlier deliveries, `replace: true` is destructive and must be user-requested.
+- No Block 2 chat-scope implementation and no Block 3 residual implementation landed in this slice.
+
+Verification: GPT-5.4 read-only audit found one blocker (stale API catalog `document` guidance); fixed and re-audited as resolved. Focused tests passed for `@persai/runtime`, `@persai/sandbox`, and `@persai/api`; full AGENTS gate passed after the blocker fix.
 
 ## Consequences
 

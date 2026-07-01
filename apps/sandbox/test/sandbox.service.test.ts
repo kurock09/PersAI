@@ -635,6 +635,79 @@ test("SandboxService: files.read forwards model-requested maxBytes to workspace 
   assert.equal(payload.truncated, true);
 });
 
+test("SandboxService: files.write forwards replace and returns resolvedPath", async () => {
+  let capturedWrite: {
+    path: string;
+    contents: Buffer;
+    mode?: "overwrite" | "create_only";
+    replace?: boolean;
+  } | null = null;
+  const service = new SandboxService(
+    {} as never,
+    {} as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never,
+    {
+      async workspaceFileWrite(
+        _ctx: unknown,
+        input: {
+          path: string;
+          contents: Buffer;
+          mode?: "overwrite" | "create_only";
+          replace?: boolean;
+        }
+      ) {
+        capturedWrite = input;
+        return {
+          success: true,
+          reason: null,
+          latencyMs: 1,
+          data: {
+            resolvedPath: "/workspace/report (1).txt",
+            bytes: input.contents.length
+          }
+        };
+      }
+    } as never
+  );
+
+  const result = await (
+    service as unknown as {
+      executeFilesBridgeAction(
+        bridgeCtx: unknown,
+        args: Record<string, unknown>
+      ): Promise<{ reason: string | null; content: string | null }>;
+    }
+  ).executeFilesBridgeAction(
+    {
+      assistantId: "assistant-write-2",
+      assistantHandle: "writer",
+      siblingHandles: [],
+      workspaceId: "workspace-write-2",
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+      workspaceQuotaBytes: null,
+      sharedQuotaBytes: null
+    },
+    {
+      action: "write",
+      path: "/workspace/report.txt",
+      content: "hello",
+      replace: true
+    }
+  );
+
+  assert.equal(result.reason, null);
+  assert.deepEqual(capturedWrite, {
+    path: "/workspace/report.txt",
+    contents: Buffer.from("hello", "utf8"),
+    replace: true
+  });
+  const payload = JSON.parse(result.content!) as { sizeBytes: number; resolvedPath: string };
+  assert.equal(payload.sizeBytes, 5);
+  assert.equal(payload.resolvedPath, "/workspace/report (1).txt");
+});
+
 test("SandboxService: control-plane workspace write can hydrate bytes from workspace storage", async () => {
   let downloadedObjectKey: string | null = null;
   let capturedWrite: { basename: string; contents: Buffer } | null = null;
@@ -694,6 +767,76 @@ test("SandboxService: control-plane workspace write can hydrate bytes from works
   const write = capturedWrite as unknown as { basename: string; contents: Buffer };
   assert.equal(write.basename, "LOG006.01 (2).csv");
   assert.equal(write.contents.toString("utf8"), "csv-bytes");
+});
+
+test("SandboxService: control-plane workspace write forwards replace for explicit paths", async () => {
+  let capturedWrite: {
+    basename: string;
+    path: string | null;
+    contents: Buffer;
+    replace?: boolean;
+  } | null = null;
+  const service = new SandboxService(
+    {} as never,
+    {} as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never,
+    {
+      async writeWorkspaceFileControlPlane(
+        _ctx: unknown,
+        input: {
+          basename: string;
+          path?: string | null;
+          contents: Buffer;
+          replace?: boolean;
+        }
+      ) {
+        capturedWrite = {
+          basename: input.basename,
+          path: input.path ?? null,
+          contents: input.contents,
+          replace: input.replace
+        };
+        return {
+          success: true,
+          reason: null,
+          latencyMs: 1,
+          data: {
+            workspaceRelPath: "/workspace/docs/report.pdf",
+            absolutePath: "/workspace/docs/report.pdf",
+            bytes: input.contents.length,
+            mode: "written" as const
+          }
+        };
+      }
+    } as never
+  );
+
+  const result = await service.writeWorkspaceFileControlPlane({
+    assistantId: "assistant-write-3",
+    workspaceId: "workspace-write-3",
+    assistantHandle: "writer",
+    siblingHandles: [],
+    basename: "report.pdf",
+    path: "/workspace/docs/report.pdf",
+    contents: Buffer.from("pdf"),
+    replace: true,
+    mimeType: "application/pdf"
+  });
+
+  assert.deepEqual(result, {
+    ok: true,
+    mode: "written",
+    workspaceRelPath: "/workspace/docs/report.pdf",
+    sizeBytes: 3
+  });
+  assert.deepEqual(capturedWrite, {
+    basename: "report.pdf",
+    path: "/workspace/docs/report.pdf",
+    contents: Buffer.from("pdf"),
+    replace: true
+  });
 });
 
 test("SandboxService: render_html_to_pdf runs weasyprint command and removes transient .render-input.html", async () => {

@@ -153,6 +153,7 @@ export class SandboxController {
       typeof row.storagePath === "string" && row.storagePath.trim().length > 0
         ? row.storagePath.trim()
         : null;
+    const replace = row.replace === true;
     if (contentBase64 === null && storagePath === null) {
       throw new ServiceUnavailableException("Either contentBase64 or storagePath is required.");
     }
@@ -174,6 +175,7 @@ export class SandboxController {
       siblingHandles,
       basename,
       path,
+      replace,
       contents: contentBase64 === null ? null : Buffer.from(contentBase64, "base64"),
       storagePath,
       mimeType

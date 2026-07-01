@@ -249,6 +249,7 @@ export class SandboxService {
     siblingHandles?: readonly string[] | null;
     basename: string;
     path?: string | null;
+    replace?: boolean;
     contents?: Buffer | null;
     storagePath?: string | null;
     mimeType: string;
@@ -294,7 +295,8 @@ export class SandboxService {
         {
           basename: input.basename,
           path: input.path ?? null,
-          contents
+          contents,
+          replace: input.replace === true
         }
       );
       if (!writeResult.success) {
@@ -1025,6 +1027,7 @@ export class SandboxService {
       action !== "read" &&
       action !== "stat" &&
       action !== "write" &&
+      action !== "resolve_write_path" &&
       action !== "delete" &&
       action !== "attach"
     ) {
@@ -1163,13 +1166,19 @@ export class SandboxService {
       if (action === "write") {
         const path = this.requireString(args.path, "path");
         const contentStr = this.requireString(args.content, "content");
-        const mode: "overwrite" | "create_only" =
-          args.mode === "create_only" ? "create_only" : "overwrite";
+        const mode: "overwrite" | "create_only" | undefined =
+          args.mode === "create_only"
+            ? "create_only"
+            : args.mode === "overwrite"
+              ? "overwrite"
+              : undefined;
+        const replace = args.replace === true;
         const contents = Buffer.from(contentStr, "utf8");
         const result = await this.workspaceFileBridgeService.workspaceFileWrite(bridgeCtx, {
           path,
           contents,
-          mode
+          ...(mode === undefined ? {} : { mode }),
+          replace
         });
         if (!result.success) {
           return {
@@ -1187,7 +1196,36 @@ export class SandboxService {
           exitCode: 0,
           stdout: null,
           stderr: null,
-          content: JSON.stringify({ sizeBytes: result.data.bytes })
+          content: JSON.stringify({
+            sizeBytes: result.data.bytes,
+            resolvedPath: result.data.resolvedPath
+          })
+        };
+      }
+
+      if (action === "resolve_write_path") {
+        const path = this.requireString(args.path, "path");
+        const result = await this.workspaceFileBridgeService.resolveWorkspaceWritePath(bridgeCtx, {
+          path,
+          replace: args.replace === true
+        });
+        if (!result.success) {
+          return {
+            reason: result.reason,
+            warning: null,
+            exitCode: null,
+            stdout: null,
+            stderr: null,
+            content: null
+          };
+        }
+        return {
+          reason: null,
+          warning: null,
+          exitCode: 0,
+          stdout: null,
+          stderr: null,
+          content: JSON.stringify({ resolvedPath: result.data.resolvedPath })
         };
       }
 

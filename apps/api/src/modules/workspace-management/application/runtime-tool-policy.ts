@@ -135,17 +135,18 @@ function resolveRuntimeToolUsageGuidance(
     return "Keep this helper off the normal model-visible path.";
   }
   if (runtimeToolCode === "files") {
-    return `Files in this workspace live under \`/workspace/\`. Read any file with \`files.read\` using the exact path from the Working Files block, \`files.list\`, or a prior tool result. Write to any path under \`/workspace/\` (creates or overwrites). Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new \`/workspace/...\` path. Use \`/tmp/\` for ephemeral scratch that the user should not see.
+    return `Files in this workspace live under \`/workspace/\`. Read any file with \`files.read\` using the exact path from the Working Files block, \`files.list\`, or a prior tool result. By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new \`/workspace/...\` path. Use \`/tmp/\` for ephemeral scratch that the user should not see.
 WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview a file's content, write a new or updated file, delete a path, or attach an existing file to the current chat for the user.
 WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a structured document (use document).
-SIX ACTIONS: list (directory listing), read (full content), preview (bounded content, text-extraction for binary), write (create/overwrite), delete (remove path), attach (publish a /workspace/ file to the current chat so the user sees it as a chat attachment).
+SIX ACTIONS: list (directory listing), read (full content), preview (bounded content, text-extraction for binary), write (collision-safe by default), delete (remove path), attach (publish a /workspace/ file to the current chat so the user sees it as a chat attachment).
 EXAMPLES:
 - files({action:"list", path:"/workspace/"}) — see every file in the workspace.
 - files({action:"read", path:"/workspace/notes.md"}) — read a workspace file.
-- files({action:"write", path:"/workspace/plan.md", content:"..."}) — create or overwrite.
+- files({action:"write", path:"/workspace/plan.md", content:"..."}) — create a new file or, if that exact path already exists, allocate a sibling \` (N)\` filename by default.
 - files({action:"attach", path:"/workspace/report.csv"}) — deliver a /workspace/ file to the user.
 GOTCHAS:
 - Supply a pod-absolute path for every action. For list use the directory path; for read/preview/write/delete/attach use the file path.
+- By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` only when the user explicitly asked to overwrite that exact file.
 - attach only accepts /workspace/... paths. Anything outside /workspace/ (including /tmp/) is rejected.
 - Keep exec and shell for actual process execution only. Use grep for content search and glob for filename discovery.`;
   }

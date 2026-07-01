@@ -143,15 +143,15 @@ test("workspaceFileWrite: successful overwrite to /workspace/foo.txt mirrors to 
   assert.equal(result.success, true);
   assert.equal(result.reason, null);
   assert.equal(result.data.bytes, contents.length);
-  assert.equal(exec.calls.length, 1);
-  assert.ok(exec.calls[0]?.shellCommand.includes("cat > '/workspace/foo.txt'"));
-  assert.ok(exec.calls[0]?.shellCommand.includes("mkdir -p '/workspace'"));
-  assert.equal(exec.calls[0]?.stdin?.toString(), "hello world");
+  assert.equal(exec.calls.length, 2);
+  assert.ok(exec.calls[1]?.shellCommand.includes("cat > '/workspace/foo.txt'"));
+  assert.ok(exec.calls[1]?.shellCommand.includes("mkdir -p '/workspace'"));
+  assert.equal(exec.calls[1]?.stdin?.toString(), "hello world");
   // ADR-128 Slice 4: every /workspace/ write mirrors to GCS — no scratch carve-out.
   assert.equal(storage.savedObjects.length, 1);
   assert.ok(storage.savedObjects[0]?.objectKey.includes(WS_ID));
-  assert.equal(audit.ops.length, 1);
-  assert.equal(audit.ops[0]?.status, "ok");
+  assert.equal(audit.ops.length, 2);
+  assert.equal(audit.ops[1]?.status, "ok");
 });
 
 test("workspaceFileWrite: nested subdirectory under /workspace/ mirrors to GCS too", async () => {
@@ -166,8 +166,8 @@ test("workspaceFileWrite: nested subdirectory under /workspace/ mirrors to GCS t
   });
 
   assert.equal(result.success, true);
-  assert.equal(exec.calls.length, 1);
-  assert.ok(exec.calls[0]?.shellCommand.includes("foo.png"));
+  assert.equal(exec.calls.length, 2);
+  assert.ok(exec.calls[1]?.shellCommand.includes("foo.png"));
   assert.equal(storage.savedObjects.length, 1);
   assert.deepEqual(storage.savedObjects[0]?.buffer, contents);
 });
@@ -217,7 +217,7 @@ test("writeWorkspaceFileWithCollision: empty workspace dir → exact basename la
   assert.ok(exec.calls[1]?.shellCommand.includes("report.pdf"));
 });
 
-test("writeWorkspaceFileWithCollision: report.pdf exists → report (2).pdf lands", async () => {
+test("writeWorkspaceFileWithCollision: report.pdf exists → report (1).pdf lands", async () => {
   const exec = makeExec([
     {
       exitCode: 0,
@@ -240,18 +240,18 @@ test("writeWorkspaceFileWithCollision: report.pdf exists → report (2).pdf land
   });
 
   assert.equal(result.success, true);
-  assert.equal(result.data.resolvedBasename, "report (2).pdf");
-  assert.equal(result.data.workspaceRelPath, "/workspace/report (2).pdf");
-  assert.ok(exec.calls[1]?.shellCommand.includes("report (2).pdf"));
+  assert.equal(result.data.resolvedBasename, "report (1).pdf");
+  assert.equal(result.data.workspaceRelPath, "/workspace/report (1).pdf");
+  assert.ok(exec.calls[1]?.shellCommand.includes("report (1).pdf"));
 });
 
-test("writeWorkspaceFileWithCollision: report.pdf and report (2).pdf exist → report (3).pdf lands", async () => {
+test("writeWorkspaceFileWithCollision: report.pdf and report (1).pdf exist → report (2).pdf lands", async () => {
   const exec = makeExec([
     {
       exitCode: 0,
       stdout: [
         `/workspace/report.pdf\tf\t100\t1700000000`,
-        `/workspace/report (2).pdf\tf\t100\t1700000001`
+        `/workspace/report (1).pdf\tf\t100\t1700000001`
       ].join("\n"),
       stderr: ""
     },
@@ -271,8 +271,88 @@ test("writeWorkspaceFileWithCollision: report.pdf and report (2).pdf exist → r
   });
 
   assert.equal(result.success, true);
-  assert.equal(result.data.resolvedBasename, "report (3).pdf");
-  assert.equal(result.data.workspaceRelPath, "/workspace/report (3).pdf");
+  assert.equal(result.data.resolvedBasename, "report (2).pdf");
+  assert.equal(result.data.workspaceRelPath, "/workspace/report (2).pdf");
+});
+
+test("workspaceFileWrite: existing explicit path defaults to sibling collision suffix", async () => {
+  const exec = makeExec([
+    {
+      exitCode: 0,
+      stdout: [
+        `/workspace/reports/report.pdf\tf\t100\t1700000000`,
+        `/workspace/reports/report (1).pdf\tf\t100\t1700000001`
+      ].join("\n"),
+      stderr: ""
+    },
+    { exitCode: 0, stdout: "", stderr: "" }
+  ]);
+  const bridge = makeBridge(
+    exec.service,
+    makeStorage().service,
+    makeObs().service,
+    makeAudit().service
+  );
+
+  const result = await bridge.workspaceFileWrite(CTX, {
+    path: "/workspace/reports/report.pdf",
+    contents: Buffer.from("pdf")
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.data.resolvedPath, "/workspace/reports/report (2).pdf");
+  assert.ok(exec.calls[1]?.shellCommand.includes("cat > '/workspace/reports/report (2).pdf'"));
+});
+
+test("workspaceFileWrite: replace=true overwrites exact explicit path", async () => {
+  const exec = makeExec([{ exitCode: 0, stdout: "", stderr: "" }]);
+  const bridge = makeBridge(
+    exec.service,
+    makeStorage().service,
+    makeObs().service,
+    makeAudit().service
+  );
+
+  const result = await bridge.workspaceFileWrite(CTX, {
+    path: "/workspace/reports/report.pdf",
+    contents: Buffer.from("pdf"),
+    replace: true
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.data.resolvedPath, "/workspace/reports/report.pdf");
+  assert.equal(exec.calls.length, 1);
+  assert.ok(exec.calls[0]?.shellCommand.includes("cat > '/workspace/reports/report.pdf'"));
+});
+
+test("workspaceFileWrite: explicit path without extension allocates suffix and respects trailing (N)", async () => {
+  const exec = makeExec([
+    {
+      exitCode: 0,
+      stdout: [
+        `/workspace/notes/report\tf\t100\t1700000000`,
+        `/workspace/notes/report (1)\tf\t100\t1700000001`,
+        `/workspace/notes/report (2)\tf\t100\t1700000002`
+      ].join("\n"),
+      stderr: ""
+    },
+    { exitCode: 0, stdout: "", stderr: "" }
+  ]);
+  const bridge = makeBridge(
+    exec.service,
+    makeStorage().service,
+    makeObs().service,
+    makeAudit().service
+  );
+
+  const result = await bridge.workspaceFileWrite(CTX, {
+    path: "/workspace/notes/report (2)",
+    contents: Buffer.from("note")
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.data.resolvedPath, "/workspace/notes/report (3)");
+  assert.ok(exec.calls[1]?.shellCommand.includes("cat > '/workspace/notes/report (3)'"));
 });
 
 // ─── workspaceFileRead ────────────────────────────────────────────────────────
@@ -507,7 +587,7 @@ test("workspaceFileWrite: cap null → write proceeds without du", async () => {
   });
 
   assert.equal(result.success, true);
-  assert.equal(exec.calls.length, 1);
+  assert.equal(exec.calls.length, 2);
   assert.ok(!exec.calls[0]?.shellCommand.includes("du -sb"));
 });
 
@@ -529,9 +609,9 @@ test("workspaceFileWrite: current + new under cap → write proceeds", async () 
   });
 
   assert.equal(result.success, true);
-  assert.equal(exec.calls.length, 2);
+  assert.equal(exec.calls.length, 3);
   assert.ok(exec.calls[0]?.shellCommand.includes("du -sb"));
-  assert.ok(exec.calls[1]?.shellCommand.includes("cat >"));
+  assert.ok(exec.calls[2]?.shellCommand.includes("cat >"));
 });
 
 test("writeWorkspaceFileWithCollision: cap exceeded → workspace_quota_exhausted", async () => {
@@ -752,17 +832,67 @@ test("writeWorkspaceFileControlPlane: explicit path uses required workspace writ
   assert.equal(result.data.absolutePath, "/workspace/source.extract/extracted.md");
   assert.equal(result.data.bytes, contents.length);
   assert.equal(exec.tryCalls.length, 0);
-  assert.equal(exec.calls.length, 1);
+  assert.equal(exec.calls.length, 2);
   assert.match(
-    exec.calls[0]?.shellCommand ?? "",
+    exec.calls[1]?.shellCommand ?? "",
     /cat > '\/workspace\/source\.extract\/extracted\.md'/
   );
-  assert.equal(exec.calls[0]?.stdin?.toString(), contents.toString());
+  assert.equal(exec.calls[1]?.stdin?.toString(), contents.toString());
   assert.equal(audit.ops.at(-1)?.status, "ok");
   assert.equal(storage.savedObjects.length, 1);
   assert.ok(
     storage.savedObjects[0]?.objectKey.includes(`${WS_ID}/workspace/source.extract/extracted.md`)
   );
+});
+
+test("writeWorkspaceFileControlPlane: explicit path defaults to sibling collision suffix", async () => {
+  const exec = makeExec([
+    {
+      exitCode: 0,
+      stdout: `/workspace/source.extract/extracted.md\tf\t18\t1700000000`,
+      stderr: ""
+    },
+    { exitCode: 0, stdout: "", stderr: "" }
+  ]);
+  const bridge = makeBridge(
+    exec.service,
+    makeStorage().service,
+    makeObs().service,
+    makeAudit().service
+  );
+
+  const result = await bridge.writeWorkspaceFileControlPlane(CTX, {
+    basename: "extracted.md",
+    path: "/workspace/source.extract/extracted.md",
+    contents: Buffer.from("# Extracted\n\nBody")
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.data.workspaceRelPath, "/workspace/source.extract/extracted (1).md");
+  assert.ok(
+    exec.calls[1]?.shellCommand.includes("cat > '/workspace/source.extract/extracted (1).md'")
+  );
+});
+
+test("writeWorkspaceFileControlPlane: explicit path replace=true keeps exact path", async () => {
+  const exec = makeExec([{ exitCode: 0, stdout: "", stderr: "" }]);
+  const bridge = makeBridge(
+    exec.service,
+    makeStorage().service,
+    makeObs().service,
+    makeAudit().service
+  );
+
+  const result = await bridge.writeWorkspaceFileControlPlane(CTX, {
+    basename: "extracted.md",
+    path: "/workspace/source.extract/extracted.md",
+    contents: Buffer.from("# Extracted\n\nBody"),
+    replace: true
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.data.workspaceRelPath, "/workspace/source.extract/extracted.md");
+  assert.equal(exec.calls.length, 1);
 });
 
 test("writeWorkspaceFileControlPlane: no Running pod → success with mode=deferred and no exec call", async () => {
