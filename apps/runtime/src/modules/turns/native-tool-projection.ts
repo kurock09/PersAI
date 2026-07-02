@@ -1828,10 +1828,7 @@ function createBackgroundTaskToolDefinition(
 function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "files",
-    description: resolveToolDefinitionDescription(
-      policy,
-      'Files in this workspace live under `/workspace/`. By default `files.list` shows only the current chat scope. Widen only when the user asks: `scope:"assistant"` for this assistant\'s other chats, then `scope:"workspace_shared"` for the whole workspace. Read/preview/attach/delete by exact path from the Working Files block, a scoped `files.list`, or a prior tool result; if touching a file outside the current chat scope, first surface it via widened list and then pass `crossScope:true`. By default writing to an existing path allocates a new sibling name like `report (1).pdf`, so previous deliveries stay intact. Pass `replace: true` on `files.write` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. Use `/tmp/` for ephemeral scratch that the user should not see.'
-    ),
+    description: resolveToolDefinitionDescription(policy, "Path-driven workspace file operations."),
     inputSchema: {
       type: "object",
       additionalProperties: false,

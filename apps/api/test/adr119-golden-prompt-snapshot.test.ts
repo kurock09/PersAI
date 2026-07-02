@@ -229,6 +229,19 @@ async function runAdr119GoldenPromptSnapshotTest(): Promise<void> {
     "rendered prompt must contain <memory_protocol>"
   );
   assert.ok(
+    rendered.includes('source:"memory"'),
+    "rendered prompt must teach on-demand memory lookup via knowledge tools"
+  );
+  assert.ok(
+    rendered.includes("There is no always-on pushed `<persai_memory>` block."),
+    "rendered prompt must explicitly deny an always-on pushed memory block"
+  );
+  assert.doesNotMatch(
+    rendered,
+    /Long-term memories may be injected via/,
+    "rendered prompt must not carry the stale pushed-memory wording"
+  );
+  assert.ok(
     rendered.includes("<reminders_protocol>"),
     "rendered prompt must contain <reminders_protocol>"
   );

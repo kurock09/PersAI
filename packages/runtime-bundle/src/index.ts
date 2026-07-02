@@ -206,8 +206,8 @@ export interface AssistantRuntimePromptDocuments {
 export interface AssistantRuntimeCompiledOrdinaryPromptSections {
   assistantIdentity: string | null;
   userIdentity: string | null;
-  locale: string;
-  timezone: string;
+  locale: string | null;
+  timezone: string | null;
   personaInstructions: string | null;
   soul: string;
   user: string;
@@ -217,6 +217,8 @@ export interface AssistantRuntimeCompiledOrdinaryPromptSections {
   remindersProtocol?: string;
   /** ADR-119 Slice 9 — memory protocol declaration block for the stable cache prefix. */
   memoryProtocol?: string;
+  /** ADR-130 Slice 2 — explicit owned response contract block in the stable cache prefix. */
+  responseContract?: string;
   tools: string;
   agents: string;
   backgroundTaskEvaluation?: string;
@@ -332,16 +334,10 @@ export function createAssistantRuntimeBundle(
       // `xml_canonical_v1` instead.
       compileMode: "legacy_markdown",
       sections: {
-        assistantIdentity:
-          input.persona.displayName === null
-            ? null
-            : `Assistant display name: ${input.persona.displayName}`,
-        userIdentity:
-          input.userContext.displayName === null
-            ? null
-            : `User display name: ${input.userContext.displayName}`,
-        locale: `User locale: ${input.userContext.locale}`,
-        timezone: `User timezone: ${input.userContext.timezone}`,
+        assistantIdentity: null,
+        userIdentity: null,
+        locale: null,
+        timezone: null,
         personaInstructions: input.persona.instructions,
         soul: input.promptDocuments.soul,
         user: input.promptDocuments.user,
@@ -358,15 +354,6 @@ export function createAssistantRuntimeBundle(
       // `promptDocuments.heartbeat` only and is rendered by the runtime as a per-turn developer
       // message tail so it never invalidates provider prompt caching.
       systemPrompt: [
-        input.persona.displayName === null
-          ? null
-          : `Assistant display name: ${input.persona.displayName}`,
-        input.userContext.displayName === null
-          ? null
-          : `User display name: ${input.userContext.displayName}`,
-        `User locale: ${input.userContext.locale}`,
-        `User timezone: ${input.userContext.timezone}`,
-        input.persona.instructions,
         input.promptDocuments.soul,
         input.promptDocuments.user,
         input.promptDocuments.identity,
@@ -380,15 +367,6 @@ export function createAssistantRuntimeBundle(
         .join("\n\n"),
       stablePrefix: buildAssistantRuntimePromptStablePrefix(
         [
-          input.persona.displayName === null
-            ? null
-            : `Assistant display name: ${input.persona.displayName}`,
-          input.userContext.displayName === null
-            ? null
-            : `User display name: ${input.userContext.displayName}`,
-          `User locale: ${input.userContext.locale}`,
-          `User timezone: ${input.userContext.timezone}`,
-          input.persona.instructions,
           input.promptDocuments.soul,
           input.promptDocuments.user,
           input.promptDocuments.identity,

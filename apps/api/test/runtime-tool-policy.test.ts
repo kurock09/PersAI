@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import type { EffectiveToolAvailabilityState } from "../src/modules/workspace-management/application/effective-tool-availability.types";
 import { resolveRuntimeToolPolicies } from "../src/modules/workspace-management/application/runtime-tool-policy";
+import { TOOL_CATALOG } from "../prisma/tool-catalog-data";
+
+const FILES_CATALOG_ROW = TOOL_CATALOG.find((tool) => tool.code === "files");
+assert.ok(FILES_CATALOG_ROW, "files catalog row must exist for policy-owner tests");
 
 const tools = [
   {
@@ -91,8 +95,8 @@ const tools = [
     code: "files",
     displayName: "Files",
     description: "Unified assistant file tool.",
-    modelDescription: null,
-    modelUsageGuidance: null,
+    modelDescription: FILES_CATALOG_ROW?.modelDescription ?? null,
+    modelUsageGuidance: FILES_CATALOG_ROW?.modelUsageGuidance ?? null,
     capabilityGroup: "workspace_ops",
     toolClass: "utility",
     policyClass: "plan_managed",
@@ -265,6 +269,11 @@ async function run(): Promise<void> {
     filesPolicy?.description ?? "",
     /Path-driven file operations on the single flat `\/workspace\/` namespace/
   );
+  assert.equal(
+    filesPolicy?.description ?? "",
+    FILES_CATALOG_ROW?.modelDescription ?? "",
+    "files description must flow from the catalog owner without a runtime-policy shadow override"
+  );
   assert.match(filesPolicy?.description ?? "", /exact listed `\/workspace\/\.\.\.` path/);
   assert.match(
     filesPolicy?.description ?? "",
@@ -276,6 +285,11 @@ async function run(): Promise<void> {
   assert.doesNotMatch(filesPolicy?.description ?? "", /write-and-send|files\.send|files\.search/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /coming soon/i);
   assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN TO USE:/m);
+  assert.equal(
+    filesPolicy?.usageGuidance ?? "",
+    FILES_CATALOG_ROW?.modelUsageGuidance ?? "",
+    "files usage guidance must flow from the catalog owner without a runtime-policy shadow override"
+  );
   assert.match(filesPolicy?.usageGuidance ?? "", /exact path from the Working Files block/);
   assert.match(
     filesPolicy?.usageGuidance ?? "",
@@ -285,7 +299,6 @@ async function run(): Promise<void> {
   assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN NOT TO USE:/m);
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/input/);
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/outbound/);
-  assert.match(filesPolicy?.usageGuidance ?? "", /^SIX ACTIONS:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^EXAMPLES:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^GOTCHAS:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /six actions|Six actions/i);

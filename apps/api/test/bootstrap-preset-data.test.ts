@@ -146,10 +146,15 @@ async function runSoulCharacterNotes(): Promise<void> {
     !(VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system ?? "").includes("{{persona_instructions_block}}"),
     "system template must not reintroduce {{persona_instructions_block}} (persona dedup)"
   );
-  // Response UI Contract is now wrapped in <response_contract>.
+  // ADR-130 Slice 2 — Response UI Contract is now its own owned block: the system
+  // template references it via {{response_contract_block}}; the literal
+  // <response_contract> block lives in the response_contract template, not system.
   const system = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system ?? "";
-  assert.equal(countOccurrences(system, "<response_contract>"), 1);
-  assert.equal(countOccurrences(system, "</response_contract>"), 1);
+  assert.equal(countOccurrences(system, "{{response_contract_block}}"), 1);
+  assert.equal(countOccurrences(system, "<response_contract>"), 0);
+  const responseContract = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.response_contract ?? "";
+  assert.equal(countOccurrences(responseContract, "<response_contract>"), 1);
+  assert.equal(countOccurrences(responseContract, "</response_contract>"), 1);
 }
 
 async function runRemindersProtocolSlice5(): Promise<void> {
@@ -179,10 +184,10 @@ async function runRemindersProtocolSlice5(): Promise<void> {
     "system template must contain {{reminders_protocol_block}} placeholder (ADR-119 Slice 5)"
   );
 
-  // {{reminders_protocol_block}} must appear between {{enabled_skills_block}} and <response_contract>.
+  // {{reminders_protocol_block}} must appear between {{enabled_skills_block}} and {{response_contract_block}}.
   const skillsIdx = system.indexOf("{{enabled_skills_block}}");
   const remindersIdx = system.indexOf("{{reminders_protocol_block}}");
-  const contractIdx = system.indexOf("<response_contract>");
+  const contractIdx = system.indexOf("{{response_contract_block}}");
   assert.ok(skillsIdx !== -1 && remindersIdx !== -1 && contractIdx !== -1);
   assert.ok(
     remindersIdx > skillsIdx,
@@ -190,7 +195,7 @@ async function runRemindersProtocolSlice5(): Promise<void> {
   );
   assert.ok(
     remindersIdx < contractIdx,
-    "{{reminders_protocol_block}} must appear before <response_contract>"
+    "{{reminders_protocol_block}} must appear before {{response_contract_block}}"
   );
 }
 
@@ -241,10 +246,10 @@ async function runMemoryProtocolSlice9(): Promise<void> {
     "system template must contain {{memory_protocol_block}} placeholder (ADR-119 Slice 9)"
   );
 
-  // {{memory_protocol_block}} must appear between {{reminders_protocol_block}} and <response_contract>.
+  // {{memory_protocol_block}} must appear between {{reminders_protocol_block}} and {{response_contract_block}}.
   const remindersIdx = system.indexOf("{{reminders_protocol_block}}");
   const memoryIdx = system.indexOf("{{memory_protocol_block}}");
-  const contractIdx = system.indexOf("<response_contract>");
+  const contractIdx = system.indexOf("{{response_contract_block}}");
   assert.ok(remindersIdx !== -1 && memoryIdx !== -1 && contractIdx !== -1);
   assert.ok(
     memoryIdx > remindersIdx,
@@ -252,7 +257,7 @@ async function runMemoryProtocolSlice9(): Promise<void> {
   );
   assert.ok(
     memoryIdx < contractIdx,
-    "{{memory_protocol_block}} must appear before <response_contract>"
+    "{{memory_protocol_block}} must appear before {{response_contract_block}}"
   );
 
   // agents template must no longer contain a <memory_protocol> inner block.
@@ -264,35 +269,42 @@ async function runMemoryProtocolSlice9(): Promise<void> {
 }
 
 async function runResponseContractSlice8(): Promise<void> {
-  const system = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system ?? "";
+  const responseContract = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.response_contract ?? "";
+  assert.ok(responseContract.length > 0, "response_contract template must be non-empty");
 
-  // New test: system template contains <must> and <prefer> nested inside <response_contract>.
+  const system = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system ?? "";
+  assert.ok(
+    system.includes("{{response_contract_block}}"),
+    "system template must contain {{response_contract_block}} placeholder"
+  );
+
+  // New test: response_contract template contains <must> and <prefer> nested inside <response_contract>.
   assert.equal(
-    countOccurrences(system, "<must>"),
+    countOccurrences(responseContract, "<must>"),
     1,
-    "system template must open <must> exactly once inside <response_contract>"
+    "response_contract template must open <must> exactly once inside <response_contract>"
   );
   assert.equal(
-    countOccurrences(system, "</must>"),
+    countOccurrences(responseContract, "</must>"),
     1,
-    "system template must close </must> exactly once"
+    "response_contract template must close </must> exactly once"
   );
   assert.equal(
-    countOccurrences(system, "<prefer>"),
+    countOccurrences(responseContract, "<prefer>"),
     1,
-    "system template must open <prefer> exactly once inside <response_contract>"
+    "response_contract template must open <prefer> exactly once inside <response_contract>"
   );
   assert.equal(
-    countOccurrences(system, "</prefer>"),
+    countOccurrences(responseContract, "</prefer>"),
     1,
-    "system template must close </prefer> exactly once"
+    "response_contract template must close </prefer> exactly once"
   );
 
   // Verify nesting: <must> and <prefer> appear between <response_contract> and </response_contract>.
-  const rcOpen = system.indexOf("<response_contract>");
-  const rcClose = system.indexOf("</response_contract>");
-  const mustOpen = system.indexOf("<must>");
-  const preferOpen = system.indexOf("<prefer>");
+  const rcOpen = responseContract.indexOf("<response_contract>");
+  const rcClose = responseContract.indexOf("</response_contract>");
+  const mustOpen = responseContract.indexOf("<must>");
+  const preferOpen = responseContract.indexOf("<prefer>");
   assert.ok(rcOpen !== -1 && rcClose !== -1 && mustOpen !== -1 && preferOpen !== -1);
   assert.ok(
     mustOpen > rcOpen && mustOpen < rcClose,
@@ -304,15 +316,15 @@ async function runResponseContractSlice8(): Promise<void> {
   );
 
   // New test: MUST tier contains the 4 hard invariants.
-  const mustClose = system.indexOf("</must>");
-  const mustContent = system.slice(mustOpen, mustClose);
+  const mustClose = responseContract.indexOf("</must>");
+  const mustContent = responseContract.slice(mustOpen, mustClose);
   assert.ok(
     mustContent.includes("polished product blocks"),
     "<must> must contain 'polished product blocks' invariant"
   );
   assert.ok(
-    mustContent.includes("assistant_gender"),
-    "<must> must contain 'assistant_gender' invariant"
+    !mustContent.includes("assistant_gender"),
+    "<response_contract> must not duplicate gendered self-reference mechanics owned by <voice>"
   );
   assert.ok(
     mustContent.includes("fenced code blocks"),
@@ -324,8 +336,8 @@ async function runResponseContractSlice8(): Promise<void> {
   );
 
   // New test: PREFER tier contains the 4 soft preferences.
-  const preferClose = system.indexOf("</prefer>");
-  const preferContent = system.slice(preferOpen, preferClose);
+  const preferClose = responseContract.indexOf("</prefer>");
+  const preferContent = responseContract.slice(preferOpen, preferClose);
   assert.ok(preferContent.includes("opener"), "<prefer> must contain opener preference");
   assert.ok(
     preferContent.includes("Calm formatting"),
@@ -342,7 +354,7 @@ async function runResponseContractSlice8(): Promise<void> {
 
   // New test: <response_contract> immediate children are <must> and <prefer>, not a bare list.
   // Check that the text immediately after <response_contract>\n is <must>, not a bare bullet.
-  const afterRcOpen = system.slice(rcOpen + "<response_contract>".length).trimStart();
+  const afterRcOpen = responseContract.slice(rcOpen + "<response_contract>".length).trimStart();
   assert.ok(
     afterRcOpen.startsWith("<must>"),
     "<response_contract> first non-whitespace child must be <must>, not a bare list item"

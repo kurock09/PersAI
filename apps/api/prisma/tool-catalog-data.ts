@@ -341,9 +341,6 @@ GOTCHAS:
       "Path-driven workspace file operations: list, read, preview, write, delete, attach.",
     modelDescription:
       "Path-driven file operations on the single flat `/workspace/` namespace. Read/write/delete/attach by exact listed `/workspace/...` path; never reconstruct paths from displayName/filename. Default visibility is current-chat scoped; widen to assistant or workspace_shared only on explicit user need. Writes are collision-safe by default, with `replace: true` as the exact-overwrite opt-in.",
-    // policy-overridden: the real model-facing text is supplied by
-    // runtime-tool-policy.ts resolveRuntimeToolUsageGuidance and always
-    // supersedes this catalog value. Edit the hardcoded override there, not here.
     modelUsageGuidance: `Files in this workspace live under \`/workspace/\`. By default \`files.list\` shows only the current chat scope. Widen only when the user asks: \`scope:"assistant"\` for this assistant's other chats, then \`scope:"workspace_shared"\` for the whole workspace. Read/preview/attach/delete by exact path from the Working Files block, a scoped \`files.list\`, or a prior tool result; if touching a file outside the current chat scope, first surface it via widened list and then pass \`crossScope:true\`. By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` on \`files.write\` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To create a new file, pick a new \`/workspace/...\` path. Use \`/tmp/\` for ephemeral scratch that the user should not see.
 WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace file to chat.
 WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a NEW structured document (use document).
@@ -360,6 +357,7 @@ GOTCHAS:
 - Six actions only: list, read, preview, write, delete, attach. There is no legacy file-id selector and no search/send/edit action here.
 - Paths must be pod-absolute and under /workspace/. Use /tmp/ for ephemeral scratch.
 - For list supply the directory path; for read/preview/write/delete/attach supply the file path.
+- For read/preview you may pass \`maxBytes\` to cap returned bytes; for list you may pass \`maxDepth\` to bound recursion. Server-side limits still apply.
 - Default scope is the current chat. Cross-chat or cross-assistant files require an explicit widened \`files.list({scope})\` followed by \`crossScope:true\` on the concrete operation.
 - By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` only when the user explicitly asked to overwrite that exact file.
 - attach delivers an EXISTING file; it does not regenerate. If the file is not yet written, write it first.`,

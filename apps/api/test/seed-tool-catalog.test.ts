@@ -82,8 +82,8 @@ async function run(): Promise<void> {
     assert.ok(skillEntry, "skill must be present in TOOL_CATALOG");
     assert.equal(skillEntry?.policyClass, "platform_managed");
     assert.ok(
-      skillEntry?.modelDescription?.includes("Engage"),
-      "skill modelDescription must mention Engage"
+      skillEntry?.modelDescription?.toLowerCase().includes("engage"),
+      "skill modelDescription must mention engage"
     );
     assert.ok(
       skillEntry?.modelUsageGuidance?.includes("engage"),

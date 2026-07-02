@@ -3,12 +3,16 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import { projectRuntimeNativeTools } from "../src/modules/turns/native-tool-projection";
+import { TOOL_CATALOG } from "../../api/prisma/tool-catalog-data";
 import {
   ANTI_COLLAGE_RULE,
   STANDALONE_IMAGE_RULE,
   referenceGuidanceRule,
   seriesItemHeaderLine
 } from "@persai/runtime-contract";
+
+const FILES_CATALOG_ROW = TOOL_CATALOG.find((tool) => tool.code === "files");
+assert.ok(FILES_CATALOG_ROW, "files catalog row must exist for projection tests");
 
 function findRepoRoot(): string {
   const starts = Array.from(new Set([path.resolve(__dirname), path.resolve(process.cwd())]));
@@ -386,10 +390,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         {
           toolCode: "files",
           displayName: "Files",
-          description:
-            "Path-driven file operations on the single flat `/workspace/` namespace. Read and write files by their exact listed `/workspace/...` path; user uploads may be sanitized, renamed, or collision-suffixed, so never reconstruct paths from displayName/filename. Use `/tmp/` for ephemeral scratch that the user should never see.",
-          usageGuidance:
-            "Files in this workspace live under `/workspace/`. Read any file with `files.read` using the exact path from the Working Files block, `files.list`, or a prior tool result. By default writing to an existing path allocates a new sibling name like `report (1).pdf`, so previous deliveries stay intact. Pass `replace: true` on `files.write` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To edit an uploaded file, write to its exact listed path. To create a new file, pick a new `/workspace/...` path. Use `/tmp/` for ephemeral scratch that the user should not see.",
+          description: FILES_CATALOG_ROW?.modelDescription ?? null,
+          usageGuidance: FILES_CATALOG_ROW?.modelUsageGuidance ?? null,
           kind: "plan",
           executionMode: "inline",
           usageRule: "allowed",
@@ -599,13 +601,18 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "Search the public web for current external facts.\nUse this when the answer depends on recent external information or links. May be called in parallel with other independent searches."
   );
   assert.match(files?.description ?? "", /single flat `\/workspace\/` namespace/);
+  assert.match(files?.description ?? "", /scope:"assistant"/);
+  assert.match(files?.description ?? "", /crossScope:true/);
   assert.match(files?.description ?? "", /exact path from the Working Files block/);
-  assert.match(
-    files?.description ?? "",
-    /Do not reconstruct upload paths from displayName\/filename/
-  );
+  // ADR-130 Slice 2: the anti-reconstruct rule is owned by the (within-cap)
+  // model description; the longer guidance restatement ("Do not reconstruct
+  // upload paths…") falls past TOOL_DESCRIPTION_CAP after the ownership move and
+  // is intentionally not asserted here (descriptor slimming is Slice 3).
+  assert.match(files?.description ?? "", /never reconstruct paths from displayName\/filename/);
   assert.match(files?.description ?? "", /allocates a new sibling name like `report \(1\)\.pdf`/i);
-  assert.match(files?.description ?? "", /Pass `replace: true` on `files\.write`/i);
+  // Within-cap replace-semantics owner (the guidance restatement "Pass replace:
+  // true on files.write" falls past TOOL_DESCRIPTION_CAP after the ownership move).
+  assert.match(files?.description ?? "", /`replace: true` as the exact-overwrite opt-in/i);
   assert.doesNotMatch(files?.description ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(files?.description ?? "", /\/workspace\/input/);
   assert.doesNotMatch(files?.description ?? "", /\/workspace\/outbound/);

@@ -165,6 +165,14 @@ function testFilesCatalogRowUsesExactListedPaths(): void {
     "files guidance must teach explicit cross-scope operations"
   );
   assert.ok(
+    /Six actions only: list, read, preview, write, delete, attach/i.test(text),
+    "files guidance must enumerate the six actions in the catalog owner"
+  );
+  assert.ok(
+    text.includes("`maxBytes`") && text.includes("`maxDepth`"),
+    "files guidance must teach maxBytes/maxDepth mechanics in the catalog owner"
+  );
+  assert.ok(
     text.includes("Do not reconstruct upload paths from displayName/filename"),
     "files guidance must forbid reconstructing upload paths from display names"
   );

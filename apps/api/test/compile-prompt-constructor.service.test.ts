@@ -704,7 +704,9 @@ async function runMemoryProtocolSlice9(): Promise<void> {
     assert.match(systemPrompt, /<\/read>/);
     assert.match(systemPrompt, /<write>/);
     assert.match(systemPrompt, /<\/write>/);
-    assert.match(systemPrompt, /persai_memory/);
+    assert.match(systemPrompt, /source:"memory"/);
+    assert.match(systemPrompt, /There is no always-on pushed `<persai_memory>` block/);
+    assert.doesNotMatch(systemPrompt, /Long-term memories may be injected via/);
   }
 
   // New test: when promptTemplates.memory_protocol = null, the fallback default is used.
