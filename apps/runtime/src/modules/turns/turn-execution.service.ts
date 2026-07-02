@@ -714,18 +714,21 @@ export class TurnExecutionService {
       input,
       bundleEntry.parsedBundle
     );
-    // ADR-118 Slice 4: inject the active scenario volatile block before the memory block.
-    // Order: scenario first (what to do), memory second (what we know).
-    const activeScenarioBlock = this.buildActiveScenarioBlockService.buildBlock({
-      bundle: bundleEntry.parsedBundle,
-      skillDecisionState: input.skillStateContext?.decision ?? null
-    });
     // ADR-125 Slice 1: chat plan volatile block. Surfaces the current
     // windowed plan even when the most recent tool call did not touch it.
     // The hydrator returns both the rendered `<persai_chat_plan>` block and
-    // the source `todos` so we can derive the per-turn lifecycle reminder
-    // from the same single round-trip (no second `readChatPlanWindow` call).
+    // the source `todos` so we can derive the per-turn lifecycle reminder AND
+    // the ADR-130 D5 current-step selection from the same single round-trip
+    // (no second `readChatPlanWindow` call).
     const chatPlan = await this.turnContextHydrationService.buildChatPlanBlock(input);
+    // ADR-118 Slice 4: inject the active scenario volatile block before the memory block.
+    // Order: scenario first (what to do), memory second (what we know).
+    // ADR-130 D5: the block renders only the current step, derived from the plan.
+    const activeScenarioBlock = this.buildActiveScenarioBlockService.buildBlock({
+      bundle: bundleEntry.parsedBundle,
+      skillDecisionState: input.skillStateContext?.decision ?? null,
+      chatPlanTodos: chatPlan?.todos ?? null
+    });
     // ADR-119 Slice 5 + ADR-125 follow-up: build system-reminder blocks using
     // an initial empty tool budget snapshot. The snapshot is empty at
     // turn-prep time (no tools used yet); budget-warning reminders fire only
@@ -5783,11 +5786,13 @@ export class TurnExecutionService {
     input: RuntimeTurnRequest,
     toolBudgetSnapshot: ToolBudgetSnapshot
   ): Promise<void> {
+    const chatPlan = await this.turnContextHydrationService.buildChatPlanBlock(input);
+    // ADR-130 D5: derive the current scenario step from the same windowed plan.
     const activeScenarioBlock = this.buildActiveScenarioBlockService.buildBlock({
       bundle: execution.bundle,
-      skillDecisionState: execution.currentSkillDecisionState
+      skillDecisionState: execution.currentSkillDecisionState,
+      chatPlanTodos: chatPlan?.todos ?? null
     });
-    const chatPlan = await this.turnContextHydrationService.buildChatPlanBlock(input);
     const reminderBlocks = this.buildSystemReminderBlocksService.buildBlocks({
       bundle: execution.bundle,
       skillDecisionState: execution.currentSkillDecisionState,

@@ -2,9 +2,22 @@ import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
   RuntimeBundleSkillScenario,
-  RuntimeSkillDecisionState
+  RuntimeSkillDecisionState,
+  RuntimeTodoItem
 } from "@persai/runtime-contract";
-import { BuildActiveScenarioBlockService } from "../src/modules/turns/build-active-scenario-block.service";
+import {
+  BuildActiveScenarioBlockService,
+  resolveCurrentStepIndex
+} from "../src/modules/turns/build-active-scenario-block.service";
+
+function makeTodo(overrides: Partial<RuntimeTodoItem> & { id: string }): RuntimeTodoItem {
+  return {
+    id: overrides.id,
+    parentId: overrides.parentId ?? null,
+    content: overrides.content ?? `Task ${overrides.id}`,
+    status: overrides.status ?? "pending"
+  };
+}
 
 const CAROUSEL_SCENARIO: RuntimeBundleSkillScenario = {
   key: "instagram_carousel",
@@ -682,5 +695,128 @@ export async function runBuildActiveScenarioBlockServiceTest(): Promise<void> {
     const r1 = svc.buildBlock({ bundle, skillDecisionState: activeStateWithScenario });
     const r2 = svc.buildBlock({ bundle, skillDecisionState: activeStateWithScenario });
     assert.equal(r1!.content, r2!.content, "byte-stability: same input → identical output");
+  }
+
+  // ADR-130 Slice 4 — the block owns only the CURRENT step + exit condition.
+
+  // (s) No chat plan (pre-seed) → renders step 1 only; step 2 body is NOT repeated.
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+    ]);
+    const result = svc.buildBlock({ bundle, skillDecisionState: activeStateWithScenario });
+    const content = result!.content as string;
+    assert.match(content, /<step number="1">/, "pre-seed → current step is step 1");
+    assert.match(
+      content,
+      /<directive>CALL image_generate with outputMode=series, count=8<\/directive>/
+    );
+    // Step 2's body must NOT appear (single-owner: chat plan / intake own the list).
+    assert.doesNotMatch(content, /<step number="2">/, "step 2 body must not be repeated here");
+    assert.doesNotMatch(content, /Call skill\(\{ action: release \}\) when done\./);
+    // exit condition is still owned by this block.
+    assert.match(content, /<exit_condition>All 8 slides confirmed\.<\/exit_condition>/);
+  }
+
+  // (t) in_progress row at index 1 → renders step 2 only; step 1 body absent.
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+    ]);
+    const result = svc.buildBlock({
+      bundle,
+      skillDecisionState: activeStateWithScenario,
+      chatPlanTodos: [
+        makeTodo({ id: "t1", status: "completed", content: "Generate slides" }),
+        makeTodo({ id: "t2", status: "in_progress", content: "Release" })
+      ]
+    });
+    const content = result!.content as string;
+    assert.match(content, /<step number="2">/, "in_progress index 1 → current step is step 2");
+    assert.match(content, /Call skill\(\{ action: release \}\) when done\./);
+    assert.doesNotMatch(content, /<step number="1">/, "step 1 body must not be repeated here");
+    assert.doesNotMatch(content, /CALL image_generate with outputMode=series/);
+  }
+
+  // (u) No in_progress row but one completed → completed-count fallback → step 2.
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+    ]);
+    const result = svc.buildBlock({
+      bundle,
+      skillDecisionState: activeStateWithScenario,
+      chatPlanTodos: [
+        makeTodo({ id: "t1", status: "completed", content: "Generate slides" }),
+        makeTodo({ id: "t2", status: "pending", content: "Release" })
+      ]
+    });
+    const content = result!.content as string;
+    assert.match(content, /<step number="2">/, "completed-count fallback → step 2");
+    assert.doesNotMatch(content, /<step number="1">/);
+  }
+
+  // (v) Deviating plan (in_progress index beyond step range) → clamped to last step.
+  {
+    const bundle = createBundle([
+      { id: "skill-marketer", name: "Marketer", scenarios: [CAROUSEL_SCENARIO] }
+    ]);
+    const result = svc.buildBlock({
+      bundle,
+      skillDecisionState: activeStateWithScenario,
+      chatPlanTodos: [
+        makeTodo({ id: "a", status: "completed" }),
+        makeTodo({ id: "b", status: "completed" }),
+        makeTodo({ id: "c", status: "completed" }),
+        makeTodo({ id: "d", status: "in_progress" })
+      ]
+    });
+    const content = result!.content as string;
+    assert.match(content, /<step number="2">/, "out-of-range current step clamps to last step");
+    assert.doesNotMatch(content, /<step number="1">/);
+  }
+
+  // (w) resolveCurrentStepIndex unit coverage.
+  {
+    assert.equal(resolveCurrentStepIndex(0, null), 0, "no steps → 0");
+    assert.equal(resolveCurrentStepIndex(3, null), 0, "null todos → step 1");
+    assert.equal(resolveCurrentStepIndex(3, []), 0, "empty todos → step 1");
+    assert.equal(
+      resolveCurrentStepIndex(3, [
+        makeTodo({ id: "1", status: "completed" }),
+        makeTodo({ id: "2", status: "in_progress" }),
+        makeTodo({ id: "3", status: "pending" })
+      ]),
+      1,
+      "in_progress at index 1 → 1"
+    );
+    assert.equal(
+      resolveCurrentStepIndex(3, [
+        makeTodo({ id: "1", status: "completed" }),
+        makeTodo({ id: "2", status: "completed" }),
+        makeTodo({ id: "3", status: "pending" })
+      ]),
+      2,
+      "two completed, none in_progress → 2"
+    );
+    assert.equal(
+      resolveCurrentStepIndex(2, [
+        makeTodo({ id: "1", status: "completed" }),
+        makeTodo({ id: "2", status: "completed" }),
+        makeTodo({ id: "3", status: "completed" })
+      ]),
+      1,
+      "completed count beyond range clamps to last step"
+    );
+    // Child rows are ignored in favour of top-level ordering.
+    assert.equal(
+      resolveCurrentStepIndex(3, [
+        makeTodo({ id: "p1", status: "completed" }),
+        makeTodo({ id: "p2", status: "in_progress" }),
+        makeTodo({ id: "c1", parentId: "p2", status: "pending" })
+      ]),
+      1,
+      "top-level in_progress index wins over nested rows"
+    );
   }
 }

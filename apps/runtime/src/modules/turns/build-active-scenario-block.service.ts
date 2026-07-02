@@ -4,17 +4,29 @@ import type {
   ProviderGatewayTextMessage,
   RuntimeBundleSkillScenario,
   RuntimeBundleSkillScenarioStep,
-  RuntimeSkillDecisionState
+  RuntimeSkillDecisionState,
+  RuntimeTodoItem
 } from "@persai/runtime-contract";
 
 /**
- * ADR-119 Slice 4 — composes the volatile active-scenario block in canonical XML format.
+ * ADR-119 Slice 4 / ADR-130 Slice 4 — composes the volatile active-scenario block
+ * in canonical XML format.
  *
  * When the turn carries an active scenario (non-null `activeScenarioKey` + `activeSkillId`),
  * this service looks up the scenario in `bundle.skills.enabled[i].scenarios[]` and renders
- * the structured XML block per ADR-119 D5. The block is emitted as a `ProviderGatewayTextMessage`
+ * the structured XML block. The block is emitted as a `ProviderGatewayTextMessage`
  * with `cacheRole: "volatile_context"` and `volatileKind: "active_scenario"` so provider clients
  * wrap it with `<persai_active_scenario>` instead of the memory tag.
+ *
+ * ADR-130 D5 — the block owns ONLY the current operational step (full body) plus the
+ * exit condition. It no longer repeats every step body every turn: the ordered
+ * plan/status list is owned by `<persai_chat_plan>`, and the step enumeration for
+ * plan authoring is owned by the scenario plan-intake reminder. The "current step"
+ * is derived from the chat-plan todos (the model-owned progression signal): the
+ * in_progress row's position, or the count of completed rows, maps to the scenario
+ * step index. When the plan is empty (pre-seed) or absent, the current step is
+ * step 1. This keeps the same scenario step body from being repeated across
+ * multiple volatile owners in the same turn.
  *
  * Returns null when:
  * - `activeScenarioKey` or `activeSkillId` is null (no active scenario)
@@ -27,6 +39,7 @@ export class BuildActiveScenarioBlockService {
   buildBlock(params: {
     bundle: AssistantRuntimeBundle;
     skillDecisionState: RuntimeSkillDecisionState | null | undefined;
+    chatPlanTodos?: readonly RuntimeTodoItem[] | null;
   }): ProviderGatewayTextMessage | null {
     const state = params.skillDecisionState;
     if (
@@ -59,7 +72,11 @@ export class BuildActiveScenarioBlockService {
     }
 
     const skillDisplayName = skill.name;
-    const blockText = renderActiveScenarioBlock(scenario, skillDisplayName);
+    const currentStepIndex = resolveCurrentStepIndex(
+      scenario.steps.length,
+      params.chatPlanTodos ?? null
+    );
+    const blockText = renderActiveScenarioBlock(scenario, skillDisplayName, currentStepIndex);
 
     return {
       role: "user",
@@ -68,6 +85,37 @@ export class BuildActiveScenarioBlockService {
       volatileKind: "active_scenario"
     };
   }
+}
+
+/**
+ * ADR-130 D5 — derive the current scenario step index from the model-owned chat
+ * plan. The plan-intake reminder authors one top-level todo row per scenario step,
+ * in order, so:
+ * - an `in_progress` row's ordinal position is the current step;
+ * - otherwise the number of `completed` rows is the next step to work on;
+ * - an empty/absent plan (pre-seed) means step 1.
+ * The result is clamped to the scenario's step range so a model that deviates from
+ * the 1:1 mapping still yields a valid, plausible step rather than an out-of-range
+ * read. The authoritative ordered progress remains visible in `<persai_chat_plan>`.
+ */
+export function resolveCurrentStepIndex(
+  stepCount: number,
+  todos: readonly RuntimeTodoItem[] | null
+): number {
+  if (stepCount <= 0) {
+    return 0;
+  }
+  if (todos === null || todos.length === 0) {
+    return 0;
+  }
+  const topLevel = todos.filter((t) => t.parentId === null);
+  const rows = topLevel.length > 0 ? topLevel : todos;
+  const inProgressIndex = rows.findIndex((t) => t.status === "in_progress");
+  if (inProgressIndex >= 0) {
+    return Math.min(inProgressIndex, stepCount - 1);
+  }
+  const completedCount = rows.filter((t) => t.status === "completed").length;
+  return Math.min(completedCount, stepCount - 1);
 }
 
 function escapeXml(text: string): string {
@@ -81,12 +129,19 @@ function escapeXml(text: string): string {
 
 export function renderActiveScenarioBlock(
   scenario: RuntimeBundleSkillScenario,
-  skillDisplayName: string
+  skillDisplayName: string,
+  currentStepIndex = 0
 ): string {
   const parts: string[] = [`Active: ${scenario.displayName} (Skill: ${skillDisplayName})`, ""];
 
-  for (const step of scenario.steps) {
-    parts.push(renderStep(step));
+  // ADR-130 D5 — render only the current operational step in full. The ordered
+  // plan/status list is owned by <persai_chat_plan>; the full step enumeration
+  // for plan authoring is owned by the scenario plan-intake reminder.
+  const steps = scenario.steps;
+  if (steps.length > 0) {
+    const index = Math.min(Math.max(currentStepIndex, 0), steps.length - 1);
+    const currentStep = steps[index]!;
+    parts.push(renderStep(currentStep));
   }
 
   parts.push(`<exit_condition>${escapeXml(scenario.exitCondition)}</exit_condition>`);
