@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-07-02 — ADR-130 Slice 6b (D8 bounded replay/read path) landed locally; next = parent audit / commit decision
+
+Status: **ADR-130 Slice 6b is implemented locally, not committed, not pushed.** Baseline before this slice: `77969bd4`. Scope was strictly the replay/read half of D8: no schema redesign, no current-turn tool-loop changes, no cache-marker logic changes, no client-facing DTO/entity changes.
+
+**What landed.**
+- `ProviderGatewayTextMessage` now additively carries optional `priorToolExchanges?: ProviderGatewayToolExchange[]` so a prior assistant turn can replay its own historical native tool pairs immediately before its final text.
+- Runtime hydration now reads `assistant_chat_messages.tool_exchanges` directly from Prisma, validates JSON back into `ProviderGatewayToolExchange[]`, and attaches replay only to prior assistant turns. The current inbound user message is never annotated.
+- New pure helper `apps/runtime/src/modules/turns/prior-tool-exchange-replay.ts` implements the locked replay policy deterministically: last 3 prior assistant turns with exchanges, total replay budget ~2000 tokens, drop-oldest-first when over budget, per-result 2000-char tail keep with a top truncation marker, binary placeholder reuse via exported `isLikelyBinaryContent`, and per-call serialized argument cap of 600 chars.
+- Anthropic/OpenAI/DeepSeek provider clients now reuse their existing exchange->native rendering paths for both replayed prior exchanges and the live `input.toolHistory` loop. Replay is emitted before the owning assistant message content; current-turn `toolHistory` still emits after the current question.
+- Cache-guard coverage was extended so replayed prior exchanges are proven to stay in the tail/request messages and not in the cached stable prefix.
+
+**Files touched.**
+- Contract: `packages/runtime-contract/src/index.ts`
+- Runtime: `apps/runtime/src/modules/turns/{prior-tool-exchange-replay.ts,sanitize-tool-result-for-model.ts,turn-context-hydration.service.ts}`
+- Provider gateway: `apps/provider-gateway/src/modules/providers/{anthropic/anthropic-provider.client.ts,openai/openai-provider.client.ts,deepseek/deepseek-provider.client.ts}`
+- Tests: `apps/runtime/test/{turn-context-hydration.service.test.ts,prompt-cache-stable-prefix-guard.test.ts}`, `apps/provider-gateway/test/{anthropic-provider.client.test.ts,openai-provider.client.test.ts,deepseek-provider.client.test.ts}`
+- Docs: `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+**Verification.**
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` ✅
+- `corepack pnpm --filter @persai/runtime run typecheck` ✅
+- `corepack pnpm --filter @persai/provider-gateway test` ✅
+- `corepack pnpm --filter @persai/runtime test` ✅
+- `corepack pnpm --filter @persai/api run typecheck` ✅
+- `corepack pnpm --filter @persai/web run typecheck` ✅
+- `corepack pnpm -r --if-present run lint` ✅
+- `corepack pnpm run format:check` ✅
+- `@persai/runtime-contract` has no `build` script in `package.json`, so there was no contract build step to run.
+
+**Residuals / next.**
+- Slice 6b is local-only and awaits parent/orchestrator audit of the diff plus whatever commit strategy the parent wants for the ADR-130 batch.
+- Next recommended step: parent audit this Slice 6b diff together with the already-landed Slice 6a persistence layer, then decide whether to commit the combined D8 persistence+replay slice or queue it behind any adjacent ADR-130 batching.
+
 ## 2026-07-02 — ADR-130 Slice 6a (D8 persistence layer only) landed locally; next = Slice 6b runtime replay/read path
 
 Status: **ADR-130 Slice 6a is implemented locally, not committed, not pushed.** Baseline before this slice: `a0531a80`. Scope was strictly the dormant persistence foundation for D8: add a dedicated server-only `assistant_chat_messages.tool_exchanges` JSONB column, thread runtime `ProviderGatewayToolExchange[]` through the internal runtime -> API persist path, and keep all client-facing entities/DTOs/stream payloads unchanged.

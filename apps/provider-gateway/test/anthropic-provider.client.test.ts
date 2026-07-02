@@ -849,6 +849,102 @@ export async function runAnthropicProviderClientTest(): Promise<void> {
   ]);
   assertNoDeveloperRole(capturedGeneratePayload!.messages);
 
+  const replayRequest: ProviderGatewayTextGenerateRequest = {
+    ...createRequest(),
+    promptCache: {
+      key: "ps1:replay-cache",
+      retention: "in_memory",
+      anthropicHistoryBreakpointMinTokens: 1
+    },
+    messages: [
+      {
+        role: "user",
+        content: "first question"
+      },
+      {
+        role: "assistant",
+        content: "historical answer",
+        priorToolExchanges: [
+          {
+            toolCall: {
+              id: "toolu_prior",
+              name: "knowledge_search",
+              arguments: { query: "prior question" }
+            },
+            toolResult: {
+              toolCallId: "toolu_prior",
+              name: "knowledge_search",
+              content: '{"toolCode":"knowledge_search","action":"completed"}',
+              isError: false
+            }
+          }
+        ]
+      },
+      {
+        role: "user",
+        content: "current question"
+      }
+    ],
+    toolHistory: [
+      {
+        toolCall: {
+          id: "toolu_current",
+          name: "knowledge_fetch",
+          arguments: { source: "memory", referenceId: "memory-1" }
+        },
+        toolResult: {
+          toolCallId: "toolu_current",
+          name: "knowledge_fetch",
+          content: '{"toolCode":"knowledge_fetch","action":"completed"}',
+          isError: false
+        }
+      }
+    ]
+  };
+  await client.generateText(replayRequest);
+  const replayMessages = capturedGeneratePayload!.messages as Array<{
+    role?: unknown;
+    content?: unknown;
+  }>;
+  assert.equal(replayMessages[0]?.role, "user");
+  assert.equal(replayMessages[1]?.role, "assistant");
+  assert.equal(replayMessages[2]?.role, "user");
+  assert.deepEqual(replayMessages[3], {
+    role: "assistant",
+    content: "historical answer"
+  });
+  assert.deepEqual(replayMessages[4], {
+    role: "user",
+    content: "current question"
+  });
+  assert.equal(replayMessages[5]?.role, "assistant");
+  assert.equal(replayMessages[6]?.role, "user");
+  const replayToolUseMessages = replayMessages.filter((message) => {
+    if (message.role !== "assistant" || !Array.isArray(message.content)) {
+      return false;
+    }
+    return (message.content[0] as { type?: unknown } | undefined)?.type === "tool_use";
+  });
+  assert.equal(replayToolUseMessages.length, 2);
+  assert.equal(
+    Array.isArray(replayToolUseMessages[0]?.content) &&
+      (replayToolUseMessages[0]?.content[0] as { id?: unknown }).id,
+    "toolu_prior"
+  );
+  assert.equal(
+    Array.isArray(replayToolUseMessages[1]?.content) &&
+      (replayToolUseMessages[1]?.content[0] as { id?: unknown }).id,
+    "toolu_current"
+  );
+  assert.ok(
+    replayToolUseMessages.some(
+      (message) =>
+        Array.isArray(message.content) &&
+        "cache_control" in ((message.content[0] as Record<string, unknown>) ?? {})
+    ),
+    "moving Anthropic history caching must treat replayed prior exchanges as normal history messages"
+  );
+
   const cacheAwareRequest: ProviderGatewayTextGenerateRequest = {
     ...request,
     developerInstructions: "Volatile per-turn routing context.",

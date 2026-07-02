@@ -752,6 +752,9 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
         volatileContextMessages.push(message);
         continue;
       }
+      for (const exchange of message.priorToolExchanges ?? []) {
+        this.pushAnthropicExchangeMessages(messages, exchange);
+      }
       messages.push({
         role: message.role,
         content: this.toAnthropicMessageContent(message.content)
@@ -761,28 +764,7 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
     // Volatile context is spliced in just ahead of it so the question keeps the highest recency.
     const userQuestionIndex = messages.length - 1;
     for (const exchange of input.toolHistory ?? []) {
-      messages.push({
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: exchange.toolCall.id,
-            name: exchange.toolCall.name,
-            input: exchange.toolCall.arguments
-          }
-        ]
-      });
-      messages.push({
-        role: "user",
-        content: [
-          {
-            type: "tool_result",
-            tool_use_id: exchange.toolCall.id,
-            content: exchange.toolResult.content,
-            is_error: exchange.toolResult.isError
-          }
-        ]
-      });
+      this.pushAnthropicExchangeMessages(messages, exchange);
     }
     const toolFollowUpUserContent = input.toolFollowUpUserContent;
     if (toolFollowUpUserContent !== undefined) {
@@ -809,6 +791,34 @@ export class AnthropicProviderClient implements ProviderWarmableClient {
       messages.push(developerInstructionsSuffix);
     }
     return messages;
+  }
+
+  private pushAnthropicExchangeMessages(
+    target: AnthropicBuiltMessage[],
+    exchange: NonNullable<ProviderGatewayTextGenerateRequest["toolHistory"]>[number]
+  ): void {
+    target.push({
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: exchange.toolCall.id,
+          name: exchange.toolCall.name,
+          input: exchange.toolCall.arguments
+        }
+      ]
+    });
+    target.push({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: exchange.toolCall.id,
+          content: exchange.toolResult.content,
+          is_error: exchange.toolResult.isError
+        }
+      ]
+    });
   }
 
   /**

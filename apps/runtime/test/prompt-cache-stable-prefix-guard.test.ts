@@ -157,6 +157,38 @@ function collectVolatileKinds(messages: ProviderGatewayTextMessage[]): string[] 
     .map((message) => message.volatileKind ?? "unknown");
 }
 
+function buildReplayHistoryMessages(toolResultText: string): ProviderGatewayTextMessage[] {
+  return [
+    {
+      role: "user",
+      content: "Earlier question"
+    },
+    {
+      role: "assistant",
+      content: "Earlier answer",
+      priorToolExchanges: [
+        {
+          toolCall: {
+            id: "prior-call-1",
+            name: "knowledge_search",
+            arguments: { query: "refund policy" }
+          },
+          toolResult: {
+            toolCallId: "prior-call-1",
+            name: "knowledge_search",
+            content: toolResultText,
+            isError: false
+          }
+        }
+      ]
+    },
+    {
+      role: "user",
+      content: "hello runtime"
+    }
+  ];
+}
+
 export async function runPromptCacheStablePrefixGuardTest(): Promise<void> {
   const harness = buildTurnExecutionHarness();
   const entry = harness.bundleRegistry.entry;
@@ -322,6 +354,65 @@ export async function runPromptCacheStablePrefixGuardTest(): Promise<void> {
     turnA.systemPrompt.length <= STABLE_PREFIX_BUDGET_CHARS,
     "assembled stable prefix must stay within the shared STABLE_PREFIX_BUDGET_CHARS budget"
   );
+
+  // ── (5) Prior tool-exchange replay stays in the tail only ─────────────────
+  harness.turnContextHydrationService.messages = buildReplayHistoryMessages("replay-alpha");
+  const replayTurnA = await runTurn(harness, bundleHash, {
+    scenario: SCENARIO_A,
+    chatPlan: makeChatPlanResult("todo-r1", "Reuse prior tool output", "in_progress"),
+    presenceBlock: "It is 15:00 in Europe/Tbilisi; the user is active right now."
+  });
+  harness.turnContextHydrationService.messages = buildReplayHistoryMessages("replay-alpha");
+  const replayTurnARepeat = await runTurn(harness, bundleHash, {
+    scenario: SCENARIO_A,
+    chatPlan: makeChatPlanResult("todo-r1", "Reuse prior tool output", "in_progress"),
+    presenceBlock: "It is 15:00 in Europe/Tbilisi; the user is active right now."
+  });
+  harness.turnContextHydrationService.messages = buildReplayHistoryMessages("replay-beta");
+  const replayTurnB = await runTurn(harness, bundleHash, {
+    scenario: SCENARIO_A,
+    chatPlan: makeChatPlanResult("todo-r1", "Reuse prior tool output", "in_progress"),
+    presenceBlock: "It is 15:00 in Europe/Tbilisi; the user is active right now."
+  });
+
+  assert.equal(
+    replayTurnA.systemPrompt,
+    replayTurnB.systemPrompt,
+    "changing prior tool-exchange replay must not change the cached stable prefix"
+  );
+  assert.equal(
+    replayTurnA.promptCacheKey,
+    replayTurnB.promptCacheKey,
+    "changing prior tool-exchange replay must not change the stable-prefix cache key"
+  );
+  assert.deepEqual(
+    replayTurnA.messages,
+    replayTurnARepeat.messages,
+    "identical prior tool-exchange replay state must build byte-identical tail messages"
+  );
+  assert.notDeepEqual(
+    replayTurnA.messages,
+    replayTurnB.messages,
+    "different prior tool-exchange replay content must stay confined to the message tail"
+  );
+  assert.ok(
+    !replayTurnA.systemPrompt.includes("replay-alpha") &&
+      !replayTurnB.systemPrompt.includes("replay-beta"),
+    "replayed tool results must never leak into the cached stable prefix"
+  );
+  const replayAssistantMessageA = replayTurnA.messages.find(
+    (message) =>
+      message.role === "assistant" && contentToString(message.content) === "Earlier answer"
+  );
+  const replayAssistantMessageB = replayTurnB.messages.find(
+    (message) =>
+      message.role === "assistant" && contentToString(message.content) === "Earlier answer"
+  );
+  assert.equal(
+    replayAssistantMessageA?.priorToolExchanges?.[0]?.toolResult.content,
+    "replay-alpha"
+  );
+  assert.equal(replayAssistantMessageB?.priorToolExchanges?.[0]?.toolResult.content, "replay-beta");
 }
 
 if (process.argv[1] && process.argv[1].endsWith("prompt-cache-stable-prefix-guard.test.ts")) {

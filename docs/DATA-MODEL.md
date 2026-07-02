@@ -13,7 +13,7 @@ PersAI is the source of truth for:
 - runtime bundle materialization
 - durable materialization rollout control-plane state through `materialization_rollouts` and `materialization_rollout_items`
 - canonical chats and messages
-- `assistant_chat_messages.tool_exchanges` as a server-only nullable JSONB seam for full per-turn tool exchanges (`tool_use` + `tool_result`, including result content) captured from the runtime turn result for later D8 replay work; it is written only on the repository path and intentionally never projected through the client-facing message entity/DTO surfaces
+- `assistant_chat_messages.tool_exchanges` as a server-only nullable JSONB seam for full per-turn tool exchanges (`tool_use` + `tool_result`, including result content) captured from the runtime turn result (ADR-130 Slice 6a); it is written only on the repository path and intentionally never projected through the client-facing message entity/DTO surfaces. ADR-130 Slice 6b reads this column back on the runtime hydration path and replays the last few prior turns' exchanges as native `tool_use`/`tool_result` blocks woven into the conversation tail (window 3, ~2000-token budget, per-result 2000-char tail cap, args 600-char cap, binary placeholder), so it stays inside the uncached tail and never mutates the cached prefix
 - canonical assistant chat attachments and media metadata
 - persisted app-user identity/profile state, including `app_users.preferred_locale` as the primary user language truth and `app_users.country_code` as separate regional metadata
 - `platform_site_pages` as the platform-owned persisted source for `/terms`, `/privacy`, `/requisites`, and `/contacts`, keyed by `slug + market + locale + status`
@@ -148,6 +148,7 @@ Assistant-assisted Skill authoring currently returns a transient draft proposal 
 The following columns were added by ADR-119 migrations. Both are additive and reversible:
 
 **`AssistantMemoryRegistryItem.provenance`** (`assistant_memory_registry_items.provenance`):
+
 - Type: `AssistantMemoryProvenance` enum — values: `user_explicit`, `system_inferred`, `auto_extracted`, `legacy`.
 - Added by migration `20260618153000_adr119_memory_provenance`.
 - Default `legacy` used as backfill for all pre-existing rows.
@@ -155,12 +156,14 @@ The following columns were added by ADR-119 migrations. Both are additive and re
 - Persisted on the row and surfaced read-only in the Memory Center. (The always-on `<persai_memory>` contextual render that previously exposed `provenance` as an XML attribute was retired by ADR-120 Slice 1; cross-chat recall is now pull-only via the `knowledge_search` `memory` source.)
 
 **`SkillScenario.firstStepPreview`** (`skill_scenarios.first_step_preview`):
+
 - Type: `VARCHAR(200)`, nullable.
 - Added by migration `20260618160000_adr119_first_step_preview`.
 - Default `null`; `null` means the catalog preview auto-derives from `steps[0].directive`.
 - When non-null/non-empty, the value is rendered verbatim as `<first_step_preview>` in the AOT cached `<enabled_skills>` catalog block, letting admins override the model-visible step-1 summary without editing the full scenario steps.
 
 **`SkillScenarioStep` JSON shape additions** (no migration — `steps` is a JSON column on `skill_scenarios`):
+
 - `expectedUserResponse?: string | null` — what the model should expect the user to provide to satisfy this step (ADR-119 Slice 4).
 - `nextStepTrigger?: string | null` — explicit transition condition; when true the model advances to the next step (ADR-119 Slice 4).
 - `recoveryGuidance?: string | null` — guidance for recovering if the user's response is off-script (ADR-119 Slice 4).

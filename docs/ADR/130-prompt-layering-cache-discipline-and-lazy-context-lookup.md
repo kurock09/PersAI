@@ -100,12 +100,12 @@ The failure class is general to any multi-step tool workflow. A durable compact 
 
 We formalize four distinct prompt/tool layers and assign one owner to each:
 
-| Concern | Owner | Lives in |
-| --- | --- | --- |
-| Cross-tool selection and "which tool / when" | Native Tool Runtime selection guide | `tools` prompt template |
-| Per-tool mechanical contract and parameters | Tool descriptor path | catalog -> runtime policy -> projection |
-| Provider/rendering hygiene | provider/runtime contract fragments | provider-facing code only |
-| Large or dynamic reference data | lazy action lookup | existing tool family action/result |
+| Concern                                      | Owner                               | Lives in                                |
+| -------------------------------------------- | ----------------------------------- | --------------------------------------- |
+| Cross-tool selection and "which tool / when" | Native Tool Runtime selection guide | `tools` prompt template                 |
+| Per-tool mechanical contract and parameters  | Tool descriptor path                | catalog -> runtime policy -> projection |
+| Provider/rendering hygiene                   | provider/runtime contract fragments | provider-facing code only               |
+| Large or dynamic reference data              | lazy action lookup                  | existing tool family action/result      |
 
 Rules:
 
@@ -212,11 +212,11 @@ Every detail moved out of the prefix/descriptor loads through a read-only action
 
 Concrete lazy actions this ADR introduces:
 
-| Family | Action | Serves |
-| --- | --- | --- |
-| `skill` | `describe(skillId, scenarioKey?)`, `list` | scenario `one_line` / `first_step_preview` / `recommended_tools` / guardrails / examples, long skill-card body |
-| `video_generate` | `list_personas`, `list_voices`, `describe_avatar_mode` | workspace persona catalog, voice shortlists, cinematic-vs-talking_avatar selection detail |
-| `document` | `describe_workflow` | multi-step examples, LibreOffice import path, project/path/collision semantics |
+| Family           | Action                                                 | Serves                                                                                                         |
+| ---------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `skill`          | `describe(skillId, scenarioKey?)`, `list`              | scenario `one_line` / `first_step_preview` / `recommended_tools` / guardrails / examples, long skill-card body |
+| `video_generate` | `list_personas`, `list_voices`, `describe_avatar_mode` | workspace persona catalog, voice shortlists, cinematic-vs-talking_avatar selection detail                      |
+| `document`       | `describe_workflow`                                    | multi-step examples, LibreOffice import path, project/path/collision semantics                                 |
 
 ### D5 — Scenario/todo truth is split deliberately, not duplicated
 
@@ -298,6 +298,14 @@ Replay contract (concrete):
 - **Replay window:** the last N tool exchanges are replayed in full; older ones collapse to a single compact marker (`[earlier tool results truncated]`) plus preserved durable continuation facts (active project path/version, produced file paths, last delivery outcome).
 - **Position:** replay is emitted in the conversation-tail/volatile zone after the stable prefix, tagged so Anthropic (`tool_use` / `tool_result`) and OpenAI (`function_call` / `function_call_output`) render it natively without touching the cached prefix.
 - **Not a new provider path:** the runtime already builds in-turn `toolHistory` (runtime -> provider-gateway -> native blocks); D8 adds the cross-turn persistence + bounded replay layer on top. P6's "`toolHistoryCount` resets per turn" refers to that per-turn in-memory array being re-initialized empty each turn — D8 is the durable layer it currently lacks.
+
+Landed design [2026-07-02] — supersedes the hypothesis above where they differ. During implementation the "separate volatile block" framing was rejected in favour of the provider-native, cache-correct shape (Path A):
+
+- **Where persisted (6a):** a dedicated server-only nullable JSONB column `assistant_chat_messages.tool_exchanges` stores each assistant turn's full `ProviderGatewayToolExchange[]` (`tool_use` + `tool_result`, result content included). Written only on the repository path; never projected to any client-facing entity/DTO.
+- **Representation (6b):** replay is NOT a tagged volatile block. Prior exchanges are woven into the transcript as **native `tool_use`/`tool_result` blocks at their own turn's position** (between that turn's user question and its final assistant text) via a new `ProviderGatewayTextMessage.priorToolExchanges` field. All three providers (Anthropic `tool_use`/`tool_result`, OpenAI `function_call`/`function_call_output`, DeepSeek `tool_calls` + `role:"tool"`) reuse their existing exchange renderer — one representation only, no digest, no parallel path.
+- **Window + budget:** the last 3 prior assistant turns that carry exchanges are replayed; a total replay budget (~2000 tokens) drops the oldest turn first when exceeded. Older turns are not replayed (their final text stays, exactly as before). The current inbound turn is never attached (its in-turn loop still flows via `toolHistory`).
+- **Per-result / per-args caps:** each `tool_result` is capped to 2000 chars keeping the TAIL with a top marker `[tool result truncated: N chars omitted, showing tail]`; binary content collapses to `[binary content omitted]` (shared detector reused from `sanitize-tool-result-for-model`); `tool_use` arguments cap at 600 serialized chars. All caps are size-based and deterministic (position-independent).
+- **Cache correctness (why no volatile block is needed):** the replay lives inside the recent conversation tail, which is already the uncached window (`ANTHROPIC_HISTORY_BREAKPOINT_MIN_TOKENS` = 3000 tokens sits below the Anthropic moving history breakpoint; OpenAI/DeepSeek automatic prefix caching only re-processes the tail). Adding the newest turn's blocks and dropping the oldest as it ages both happen in this tail, so the deep cached prefix (system + tools + older history) is never mutated. Anthropic's moving-breakpoint byte accounting counts the replayed blocks naturally because they become ordinary history messages. A cache-stable-prefix guard test pins that replay changes only tail messages and that identical replay state is byte-identical.
 
 This decision **supersedes the "compact durable-state fact" band-aid**: document-project reuse (no `-2`/`-3` proliferation), no-shell convergence on the render door, and honest delivery all follow naturally once the model can see its own prior tool actions. The document polishing slice may still add idempotent project reuse as an independent safety net, but it is no longer the primary fix for cross-turn amnesia.
 
@@ -505,6 +513,11 @@ Acceptance:
 - prefix cache discipline (D7) holds.
 
 Sequencing note (founder-approved 2026-07-02): this slice is **recorded now but scheduled after** the standalone document polishing/delivery-safety slice that closes the document ADRs. Order: (1) record D8 here; (2) land document polishing + honest delivery and close doc ADRs (129/131); (3) implement ADR-130 including this slice.
+
+Landed [2026-07-02] — local, uncommitted-then-committed, no push:
+
+- **6a (persistence):** dedicated server-only `assistant_chat_messages.tool_exchanges` JSONB column; runtime turn result threads `toolExchanges` through the API persist path into the repository; never client-projected. (committed `77969bd4`)
+- **6b (replay):** native `priorToolExchanges` replay per the "Landed design" contract above — window 3 / ~2000-token budget / per-result 2000-char tail cap / args 600-char cap / binary placeholder — woven into the transcript tail, reusing each provider's existing exchange renderer; deterministic; cache-stable-prefix guard extended. Verified: provider-gateway + runtime suites green (re-run by the auditor), api/web/runtime/provider typechecks, lint, format:check.
 
 ## Acceptance criteria
 

@@ -5,6 +5,7 @@ import type {
   ProviderGatewayMessageContent,
   ProviderGatewayMessageContentBlock,
   ProviderGatewayPdfContentBlock,
+  ProviderGatewayToolExchange,
   ProviderGatewayTextMessage,
   RuntimeAttachmentRef,
   RuntimeFileHandle,
@@ -28,6 +29,7 @@ import {
   resolveRuntimeContextHydrationConfig,
   resolveSharedCompactionSummaryCharBudget
 } from "./runtime-context-hydration-policy";
+import { buildPriorToolExchangeReplayMap } from "./prior-tool-exchange-replay";
 import {
   formatCrossSessionCarryOverStableBlock,
   formatDurableMemoryCoreStableBlock,
@@ -281,6 +283,7 @@ type CanonicalChatMessageRow = {
   content: string;
   createdAt: Date | null;
   attachments: CanonicalChatAttachmentRow[];
+  toolExchanges: ProviderGatewayToolExchange[];
   /** ADR-100 Piece 2 — optional JSONB metadata from the message row; may contain discoveredFilePaths. */
   metadata?: Record<string, unknown> | null;
 };
@@ -1208,6 +1211,13 @@ export class TurnContextHydrationService {
   ): Promise<ProviderGatewayTextMessage[]> {
     const hydrated: ProviderGatewayTextMessage[] = [];
     let currentMessageFound = false;
+    const priorToolExchangesByMessageId = buildPriorToolExchangeReplayMap(
+      messages.filter(
+        (message) =>
+          message.id === input.idempotencyKey || this.isHydratableCanonicalMessage(message)
+      ),
+      input.idempotencyKey
+    );
 
     for (const message of messages) {
       const isCurrentInboundMessage = message.id === input.idempotencyKey;
@@ -1229,9 +1239,16 @@ export class TurnContextHydrationService {
       const content = !isCurrentInboundMessage
         ? this.withTruncationMarker(rawContent, message)
         : rawContent;
+      const priorToolExchanges =
+        !isCurrentInboundMessage && message.author === "assistant"
+          ? priorToolExchangesByMessageId.get(message.id)
+          : undefined;
 
       hydrated.push({
         role: this.toProviderRole(message.author),
+        ...(priorToolExchanges !== undefined && priorToolExchanges.length > 0
+          ? { priorToolExchanges }
+          : {}),
         content:
           isCurrentInboundMessage || message.author !== "user"
             ? content
@@ -1330,6 +1347,7 @@ export class TurnContextHydrationService {
         content: true,
         createdAt: true,
         metadata: true,
+        toolExchanges: true,
         attachments: {
           where: {
             processingStatus: "ready"
@@ -1355,6 +1373,7 @@ export class TurnContextHydrationService {
       content: message.content,
       createdAt: message.createdAt instanceof Date ? message.createdAt : null,
       metadata: this.asObject(message.metadata),
+      toolExchanges: this.parseStoredToolExchanges(message.toolExchanges),
       attachments: message.attachments
         .filter((attachment) => {
           const metadata = this.asObject(attachment.metadata);
@@ -2005,6 +2024,59 @@ export class TurnContextHydrationService {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
+  }
+
+  private parseStoredToolExchanges(value: unknown): ProviderGatewayToolExchange[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const parsed: ProviderGatewayToolExchange[] = [];
+    for (const entry of value) {
+      const exchange = this.parseStoredToolExchange(entry);
+      if (exchange !== null) {
+        parsed.push(exchange);
+      }
+    }
+    return parsed;
+  }
+
+  private parseStoredToolExchange(value: unknown): ProviderGatewayToolExchange | null {
+    const exchange = this.asObject(value);
+    if (exchange === null) {
+      return null;
+    }
+    const toolCall = this.asObject(exchange.toolCall);
+    const toolResult = this.asObject(exchange.toolResult);
+    const toolCallArguments = toolCall === null ? null : this.asObject(toolCall.arguments);
+    if (
+      toolCall === null ||
+      toolResult === null ||
+      toolCallArguments === null ||
+      typeof toolCall.id !== "string" ||
+      typeof toolCall.name !== "string" ||
+      typeof toolResult.toolCallId !== "string" ||
+      typeof toolResult.name !== "string" ||
+      typeof toolResult.content !== "string" ||
+      typeof toolResult.isError !== "boolean"
+    ) {
+      return null;
+    }
+    return {
+      toolCall: {
+        id: toolCall.id,
+        name: toolCall.name,
+        arguments: toolCallArguments
+      },
+      toolResult: {
+        toolCallId: toolResult.toolCallId,
+        name: toolResult.name,
+        content: toolResult.content,
+        isError: toolResult.isError
+      },
+      ...(typeof exchange.reasoningContent === "string"
+        ? { reasoningContent: exchange.reasoningContent }
+        : {})
+    };
   }
 
   private isAssistantGeneratedFile(file: Pick<RuntimeFileHandle, "authorLabel">): boolean {

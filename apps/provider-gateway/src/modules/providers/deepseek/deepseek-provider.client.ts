@@ -300,39 +300,16 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
         });
         continue;
       }
+      for (const exchange of message.priorToolExchanges ?? []) {
+        this.pushDeepSeekExchangeMessages(messages, exchange);
+      }
       messages.push({
         role: message.role,
         content: this.textOnlyContent(message.content)
       });
     }
     for (const exchange of input.toolHistory ?? []) {
-      const reasoningContent =
-        typeof exchange.reasoningContent === "string" && exchange.reasoningContent.trim().length > 0
-          ? exchange.reasoningContent
-          : null;
-      messages.push({
-        role: "assistant",
-        content: null,
-        // ADR-124 — DeepSeek thinking mode requires the assistant tool-call
-        // message to carry back the `reasoning_content` it produced; omitting
-        // it yields a 400 ("reasoning_content ... must be passed back").
-        ...(reasoningContent === null ? {} : { reasoning_content: reasoningContent }),
-        tool_calls: [
-          {
-            id: exchange.toolCall.id,
-            type: "function",
-            function: {
-              name: exchange.toolCall.name,
-              arguments: JSON.stringify(exchange.toolCall.arguments)
-            }
-          }
-        ]
-      });
-      messages.push({
-        role: "tool",
-        tool_call_id: exchange.toolResult.toolCallId,
-        content: exchange.toolResult.content
-      });
+      this.pushDeepSeekExchangeMessages(messages, exchange);
     }
     if (input.toolFollowUpUserContent !== undefined) {
       messages.push({
@@ -341,6 +318,39 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
       });
     }
     return messages;
+  }
+
+  private pushDeepSeekExchangeMessages(
+    target: Array<Record<string, unknown>>,
+    exchange: NonNullable<ProviderGatewayTextGenerateRequest["toolHistory"]>[number]
+  ): void {
+    const reasoningContent =
+      typeof exchange.reasoningContent === "string" && exchange.reasoningContent.trim().length > 0
+        ? exchange.reasoningContent
+        : null;
+    target.push({
+      role: "assistant",
+      content: null,
+      // ADR-124 — DeepSeek thinking mode requires the assistant tool-call
+      // message to carry back the `reasoning_content` it produced; omitting
+      // it yields a 400 ("reasoning_content ... must be passed back").
+      ...(reasoningContent === null ? {} : { reasoning_content: reasoningContent }),
+      tool_calls: [
+        {
+          id: exchange.toolCall.id,
+          type: "function",
+          function: {
+            name: exchange.toolCall.name,
+            arguments: JSON.stringify(exchange.toolCall.arguments)
+          }
+        }
+      ]
+    });
+    target.push({
+      role: "tool",
+      tool_call_id: exchange.toolResult.toolCallId,
+      content: exchange.toolResult.content
+    });
   }
 
   private textOnlyContent(content: ProviderGatewayMessageContent): string {

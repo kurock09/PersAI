@@ -816,6 +816,95 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
     }
   ]);
 
+  const replayRequest: ProviderGatewayTextGenerateRequest = {
+    ...createRequest(),
+    messages: [
+      {
+        role: "user",
+        content: "first question"
+      },
+      {
+        role: "assistant",
+        content: "historical answer",
+        priorToolExchanges: [
+          {
+            toolCall: {
+              id: "call-prior",
+              name: "knowledge_search",
+              arguments: { query: "prior question" }
+            },
+            toolResult: {
+              toolCallId: "call-prior",
+              name: "knowledge_search",
+              content: '{"toolCode":"knowledge_search","action":"completed"}',
+              isError: false
+            }
+          }
+        ]
+      },
+      {
+        role: "user",
+        content: "current question"
+      }
+    ],
+    toolHistory: [
+      {
+        toolCall: {
+          id: "call-current",
+          name: "knowledge_fetch",
+          arguments: { source: "memory", referenceId: "memory-1" }
+        },
+        toolResult: {
+          toolCallId: "call-current",
+          name: "knowledge_fetch",
+          content: '{"toolCode":"knowledge_fetch","action":"completed"}',
+          isError: false
+        }
+      }
+    ]
+  };
+  await client.generateText(replayRequest);
+  assert.deepEqual(capturedGeneratePayload!.input, [
+    {
+      role: "developer",
+      content: [{ type: "input_text", text: "Be concise." }]
+    },
+    {
+      role: "user",
+      content: "first question"
+    },
+    {
+      type: "function_call",
+      call_id: "call-prior",
+      name: "knowledge_search",
+      arguments: '{"query":"prior question"}'
+    },
+    {
+      type: "function_call_output",
+      call_id: "call-prior",
+      output: '{"toolCode":"knowledge_search","action":"completed"}'
+    },
+    {
+      role: "assistant",
+      content: "historical answer"
+    },
+    {
+      role: "user",
+      content: "current question"
+    },
+    {
+      type: "function_call",
+      call_id: "call-current",
+      name: "knowledge_fetch",
+      arguments: '{"source":"memory","referenceId":"memory-1"}'
+    },
+    {
+      type: "function_call_output",
+      call_id: "call-current",
+      output: '{"toolCode":"knowledge_fetch","action":"completed"}'
+    }
+  ]);
+
   const stream = await client.streamText(request);
   const events = await collectStream(stream);
   // ADR-119 Slice 2: instructions must be absent in streaming path too.

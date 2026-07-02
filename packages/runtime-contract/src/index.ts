@@ -3183,6 +3183,8 @@ export interface RuntimeBundleSkillScenario {
 
 export interface ProviderGatewayTextMessage {
   role: "user" | "assistant";
+  /** ADR-130 Slice 6b — before rendering this assistant message's own content, replay these prior tool exchanges as native tool_use/tool_result pairs. */
+  priorToolExchanges?: ProviderGatewayToolExchange[];
   content: ProviderGatewayMessageContent;
   /**
    * ADR-110 prompt-cache discipline: marks a per-turn, query-dependent context message that

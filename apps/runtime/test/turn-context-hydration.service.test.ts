@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
-import type { RuntimeTurnRequest } from "@persai/runtime-contract";
+import type { ProviderGatewayToolExchange, RuntimeTurnRequest } from "@persai/runtime-contract";
 import type { RuntimeStatePrismaService } from "../src/modules/runtime-state/infrastructure/persistence/runtime-state-prisma.service";
 import {
   PersaiInternalApiClientService,
@@ -212,6 +212,7 @@ class FakeRuntimeStatePrismaService {
     author: "user" | "assistant" | "system";
     content: string;
     createdAt?: Date | null;
+    toolExchanges?: ProviderGatewayToolExchange[] | null;
     /** ADR-100 Piece 2 — optional message-level metadata, may carry discoveredFilePaths. */
     metadata?: Record<string, unknown> | null;
     attachments: Array<{
@@ -1935,6 +1936,195 @@ async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
         markerCount,
         1,
         "truncation test 4 (idempotency): marker must appear exactly once, not doubled"
+      );
+    }
+
+    const makeExchange = (input: {
+      id: string;
+      name?: string;
+      arguments?: Record<string, unknown>;
+      content: string;
+      isError?: boolean;
+    }): ProviderGatewayToolExchange => ({
+      toolCall: {
+        id: input.id,
+        name: input.name ?? "knowledge_search",
+        arguments: input.arguments ?? { query: input.id }
+      },
+      toolResult: {
+        toolCallId: input.id,
+        name: input.name ?? "knowledge_search",
+        content: input.content,
+        isError: input.isError ?? false
+      }
+    });
+
+    const findHydratedMessage = (
+      messages: Awaited<ReturnType<TurnContextHydrationService["buildMessages"]>>,
+      role: "user" | "assistant",
+      snippet: string
+    ) =>
+      messages.find(
+        (message) =>
+          message.role === role &&
+          typeof message.content === "string" &&
+          message.content.includes(snippet)
+      );
+
+    // Test 5: replay attaches only to the last 3 prior assistant turns, never
+    // to the current inbound user message, and is deterministic for identical state.
+    {
+      const { svc, prisma } = buildMinimalHarness();
+      prisma.messages = [
+        { id: "u-1", author: "user", content: "first question", attachments: [] },
+        {
+          id: "a-1",
+          author: "assistant",
+          content: "assistant one",
+          attachments: [],
+          toolExchanges: [makeExchange({ id: "call-1", content: "result-1" })]
+        },
+        { id: "u-2", author: "user", content: "second question", attachments: [] },
+        {
+          id: "a-2",
+          author: "assistant",
+          content: "assistant two",
+          attachments: [],
+          toolExchanges: [makeExchange({ id: "call-2", content: "result-2" })]
+        },
+        { id: "u-3", author: "user", content: "third question", attachments: [] },
+        {
+          id: "a-3",
+          author: "assistant",
+          content: "assistant three",
+          attachments: [],
+          toolExchanges: [makeExchange({ id: "call-3", content: "result-3" })]
+        },
+        { id: "u-4", author: "user", content: "fourth question", attachments: [] },
+        {
+          id: "a-4",
+          author: "assistant",
+          content: "assistant four",
+          attachments: [],
+          toolExchanges: [makeExchange({ id: "call-4", content: "result-4" })]
+        },
+        { id: "u-5", author: "user", content: "continue", attachments: [] }
+      ];
+      const firstPass = await svc.buildMessages(buildMinimalRequest("u-5"), createRuntimeBundle());
+      const secondPass = await svc.buildMessages(buildMinimalRequest("u-5"), createRuntimeBundle());
+      assert.deepEqual(
+        firstPass,
+        secondPass,
+        "replay hydration must be byte-stable for identical stored tool state"
+      );
+
+      const assistantOne = findHydratedMessage(firstPass, "assistant", "assistant one");
+      const assistantTwo = findHydratedMessage(firstPass, "assistant", "assistant two");
+      const assistantThree = findHydratedMessage(firstPass, "assistant", "assistant three");
+      const assistantFour = findHydratedMessage(firstPass, "assistant", "assistant four");
+      const currentUser = findHydratedMessage(firstPass, "user", "continue");
+      assert.ok(assistantOne, "replay test 5: oldest assistant message must be present");
+      assert.ok(assistantTwo, "replay test 5: second assistant message must be present");
+      assert.ok(assistantThree, "replay test 5: third assistant message must be present");
+      assert.ok(assistantFour, "replay test 5: fourth assistant message must be present");
+      assert.ok(currentUser, "replay test 5: current inbound user message must be present");
+      assert.equal(
+        assistantOne?.priorToolExchanges,
+        undefined,
+        "replay test 5: only the last 3 prior assistant turns should carry replay"
+      );
+      assert.equal(assistantTwo?.priorToolExchanges?.[0]?.toolCall.id, "call-2");
+      assert.equal(assistantThree?.priorToolExchanges?.[0]?.toolCall.id, "call-3");
+      assert.equal(assistantFour?.priorToolExchanges?.[0]?.toolCall.id, "call-4");
+      assert.equal(
+        "priorToolExchanges" in (currentUser ?? {}),
+        false,
+        "replay test 5: current inbound user message must never receive replay attachments"
+      );
+    }
+
+    // Test 6: over-budget replay drops the oldest turn first and applies the
+    // result/argument caps deterministically.
+    {
+      const { svc, prisma } = buildMinimalHarness();
+      const oversizedResult = "A".repeat(5_000);
+      const oversizedArguments = { payload: "x".repeat(2_000) };
+      prisma.messages = [
+        { id: "u-1", author: "user", content: "q1", attachments: [] },
+        {
+          id: "a-1",
+          author: "assistant",
+          content: "assistant heavy",
+          attachments: [],
+          toolExchanges: [
+            makeExchange({ id: "heavy-1", content: oversizedResult }),
+            makeExchange({ id: "heavy-2", content: oversizedResult }),
+            makeExchange({ id: "heavy-3", content: oversizedResult }),
+            makeExchange({ id: "heavy-4", content: oversizedResult })
+          ]
+        },
+        { id: "u-2", author: "user", content: "q2", attachments: [] },
+        {
+          id: "a-2",
+          author: "assistant",
+          content: "assistant capped",
+          attachments: [],
+          toolExchanges: [
+            makeExchange({
+              id: "capped-1",
+              arguments: oversizedArguments,
+              content: oversizedResult
+            })
+          ]
+        },
+        { id: "u-3", author: "user", content: "q3", attachments: [] },
+        {
+          id: "a-3",
+          author: "assistant",
+          content: "assistant binary",
+          attachments: [],
+          toolExchanges: [makeExchange({ id: "binary-1", content: `%PDF-${"B".repeat(4_000)}` })]
+        },
+        { id: "u-4", author: "user", content: "continue", attachments: [] }
+      ];
+      const messages = await svc.buildMessages(buildMinimalRequest("u-4"), createRuntimeBundle());
+      const assistantHeavy = findHydratedMessage(messages, "assistant", "assistant heavy");
+      const assistantCapped = findHydratedMessage(messages, "assistant", "assistant capped");
+      const assistantBinary = findHydratedMessage(messages, "assistant", "assistant binary");
+      assert.ok(assistantHeavy, "replay test 6: heavy assistant message must be present");
+      assert.ok(assistantCapped, "replay test 6: capped assistant message must be present");
+      assert.ok(assistantBinary, "replay test 6: binary assistant message must be present");
+      assert.equal(
+        assistantHeavy?.priorToolExchanges,
+        undefined,
+        "replay test 6: oldest replay turn must be dropped first when the total budget is exceeded"
+      );
+      const cappedExchange = assistantCapped?.priorToolExchanges?.[0];
+      assert.ok(cappedExchange, "replay test 6: capped assistant turn must retain replay");
+      assert.ok(
+        cappedExchange?.toolResult.content.startsWith(
+          "[tool result truncated: 3000 chars omitted, showing tail]\n"
+        ),
+        "replay test 6: oversized tool_result content must keep the tail with the top marker"
+      );
+      assert.equal(
+        cappedExchange?.toolResult.content.endsWith(oversizedResult.slice(-2_000)),
+        true,
+        "replay test 6: truncated tool_result must preserve the original tail bytes"
+      );
+      const serializedArguments = JSON.stringify(cappedExchange?.toolCall.arguments ?? {});
+      assert.ok(
+        serializedArguments.length <= 600,
+        "replay test 6: replayed tool arguments must stay within the serialized cap"
+      );
+      assert.ok(
+        serializedArguments.includes("tool arguments truncated"),
+        "replay test 6: oversized tool arguments must carry the truncation marker"
+      );
+      assert.equal(
+        assistantBinary?.priorToolExchanges?.[0]?.toolResult.content,
+        "[binary content omitted]",
+        "replay test 6: binary tool_result content must be replaced with the binary placeholder"
       );
     }
   }

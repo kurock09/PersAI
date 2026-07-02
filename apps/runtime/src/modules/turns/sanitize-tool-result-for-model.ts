@@ -50,7 +50,7 @@ function isRuntimeFilesToolResultShape(value: Record<string, unknown>): boolean 
   return value.toolCode === "files" && value.executionMode === "inline";
 }
 
-function isLikelyBinaryContent(value: string): boolean {
+export function isLikelyBinaryContent(value: string): boolean {
   if (value.length === 0) {
     return false;
   }

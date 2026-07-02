@@ -184,6 +184,100 @@ export async function runDeepSeekProviderClientTest(): Promise<void> {
     }
   });
 
+  const replayRequest: ProviderGatewayTextGenerateRequest = {
+    ...createRequest(),
+    messages: [
+      {
+        role: "user",
+        content: "first question"
+      },
+      {
+        role: "assistant",
+        content: "historical answer",
+        priorToolExchanges: [
+          {
+            toolCall: {
+              id: "call-prior",
+              name: "knowledge_search",
+              arguments: { query: "prior question" }
+            },
+            toolResult: {
+              toolCallId: "call-prior",
+              name: "knowledge_search",
+              content: '{"toolCode":"knowledge_search","action":"completed"}',
+              isError: false
+            }
+          }
+        ]
+      },
+      {
+        role: "user",
+        content: "current question"
+      }
+    ],
+    toolHistory: [
+      {
+        toolCall: {
+          id: "call-current",
+          name: "knowledge_fetch",
+          arguments: { source: "memory", referenceId: "memory-1" }
+        },
+        toolResult: {
+          toolCallId: "call-current",
+          name: "knowledge_fetch",
+          content: '{"toolCode":"knowledge_fetch","action":"completed"}',
+          isError: false
+        }
+      }
+    ]
+  };
+  await client.generateText(replayRequest);
+  assert.deepEqual(capturedGeneratePayload?.["messages"], [
+    { role: "system", content: "Be concise." },
+    { role: "system", content: "Use tools when helpful." },
+    { role: "user", content: "first question" },
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        {
+          id: "call-prior",
+          type: "function",
+          function: {
+            name: "knowledge_search",
+            arguments: '{"query":"prior question"}'
+          }
+        }
+      ]
+    },
+    {
+      role: "tool",
+      tool_call_id: "call-prior",
+      content: '{"toolCode":"knowledge_search","action":"completed"}'
+    },
+    { role: "assistant", content: "historical answer" },
+    { role: "user", content: "current question" },
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        {
+          id: "call-current",
+          type: "function",
+          function: {
+            name: "knowledge_fetch",
+            arguments: '{"source":"memory","referenceId":"memory-1"}'
+          }
+        }
+      ]
+    },
+    {
+      role: "tool",
+      tool_call_id: "call-current",
+      content: '{"toolCode":"knowledge_fetch","action":"completed"}'
+    }
+  ]);
+
   let capturedStreamPayload: Record<string, unknown> | null = null;
   (client as unknown as { client: unknown }).client = {
     chat: {

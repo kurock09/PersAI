@@ -1451,6 +1451,9 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
         volatileContextMessages.push(message);
         continue;
       }
+      for (const exchange of message.priorToolExchanges ?? []) {
+        this.pushOpenAIExchangeItems(items, exchange);
+      }
       items.push({
         role: message.role,
         content: this.toOpenAIMessageContent(message.content)
@@ -1460,17 +1463,7 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
     // context is spliced in just ahead of it so the question keeps the highest recency.
     const userQuestionIndex = items.length - 1;
     for (const exchange of input.toolHistory ?? []) {
-      items.push({
-        type: "function_call",
-        call_id: exchange.toolCall.id,
-        name: exchange.toolCall.name,
-        arguments: JSON.stringify(exchange.toolCall.arguments)
-      });
-      items.push({
-        type: "function_call_output",
-        call_id: exchange.toolCall.id,
-        output: exchange.toolResult.content
-      });
+      this.pushOpenAIExchangeItems(items, exchange);
     }
     const toolFollowUpUserContent = input.toolFollowUpUserContent;
     if (toolFollowUpUserContent !== undefined) {
@@ -1504,6 +1497,23 @@ export class OpenAIProviderClient implements ProviderWarmableClient {
       });
     }
     return items;
+  }
+
+  private pushOpenAIExchangeItems(
+    target: OpenAIBuiltInputItem[],
+    exchange: NonNullable<ProviderGatewayTextGenerateRequest["toolHistory"]>[number]
+  ): void {
+    target.push({
+      type: "function_call",
+      call_id: exchange.toolCall.id,
+      name: exchange.toolCall.name,
+      arguments: JSON.stringify(exchange.toolCall.arguments)
+    });
+    target.push({
+      type: "function_call_output",
+      call_id: exchange.toolCall.id,
+      output: exchange.toolResult.content
+    });
   }
 
   private isOpenAIVolatileContextMessage(
