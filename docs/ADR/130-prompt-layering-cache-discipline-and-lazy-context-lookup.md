@@ -201,6 +201,23 @@ If a descriptor includes:
 
 that content is a candidate for lazy lookup and should not remain inline.
 
+#### Lazy-action contract (shared by D2 and D4) [added 2026-07-02]
+
+Every detail moved out of the prefix/descriptor loads through a read-only action in the owning tool family, under one uniform contract:
+
+- the action is **read-only**: no side effects, no state mutation, safe to call speculatively;
+- it returns a **bounded** payload (its own char cap) as a normal tool result, never a pushed prompt block;
+- the result is **volatile/tail** content only — it must never re-enter the stable prefix;
+- the descriptor keeps a one-line pointer to the action (e.g. "details: `skill.describe`") instead of the content itself.
+
+Concrete lazy actions this ADR introduces:
+
+| Family | Action | Serves |
+| --- | --- | --- |
+| `skill` | `describe(skillId, scenarioKey?)`, `list` | scenario `one_line` / `first_step_preview` / `recommended_tools` / guardrails / examples, long skill-card body |
+| `video_generate` | `list_personas`, `list_voices`, `describe_avatar_mode` | workspace persona catalog, voice shortlists, cinematic-vs-talking_avatar selection detail |
+| `document` | `describe_workflow` | multi-step examples, LibreOffice import path, project/path/collision semantics |
+
 ### D5 — Scenario/todo truth is split deliberately, not duplicated
 
 While a scenario is active and a chat plan exists:
@@ -235,19 +252,34 @@ This means:
 - we do state clearly that `character_notes` does not overrule hard safety, result-contract honesty, or tool-usage invariants;
 - when `<voice>` and `<character_notes>` pull in different directions, the compiler does not merge them by heuristic prose; it preserves both, with `<voice>` as the structural envelope.
 
-### D7 — Prompt-cache discipline becomes an explicit rollout invariant
+### D7 — Prompt-cache discipline becomes an explicit, testable rollout invariant [expanded 2026-07-02]
 
-Every slice in this ADR must classify its effect on the three ADR-119 stable breakpoints:
+BP1/BP2/BP3 are **logical invalidation groups**, not physical provider breakpoints. Verified cache reality (2026-07-02):
 
-- BP1: identity/voice/character notes
-- BP2: protocols/response contract/tool policy
-- BP3: enabled skills catalog
+- **Anthropic** places a single `cache_control` marker on the whole `tools + system` zone — there are no per-zone markers (the ADR-119 Slice 2 multi-block path was rejected). Any change anywhere in the system prefix invalidates the whole cached prefix.
+- **OpenAI** caches by exact longest-prefix match — ordering is load-bearing; volatile content must never be interleaved into the stable prefix.
+
+The governing invariant is therefore **zone order + byte-stability**, not breakpoint bookkeeping:
+
+```text
+[ STABLE PREFIX (byte-stable across turns) ]
+    -> [ VOLATILE CONTEXT ]
+        -> [ CONVERSATION TAIL + tool-history replay ]
+```
 
 Rules:
 
-- stable-prefix changes are allowed only as deliberate rollout events;
-- no slice may move turn-variable or workspace-variable data into BP1/BP2/BP3;
-- any seed/default/template change must document the one-time cache invalidation and the required materialization path.
+- the stable prefix must be byte-identical across turns for the same materialized bundle; nothing turn-variable or workspace-variable may appear inside it;
+- volatile and tail content (active scenario, chat plan, reminders, environment, D8 tool-history replay) must always sit **after** the stable prefix, never spliced into it;
+- every slice classifies its effect on BP1/BP2/BP3 content and treats any prefix change as a single deliberate rollout event with a documented one-time cache invalidation + materialization path;
+- a golden cache-guard test (defined in Slice 0) asserts (a) the stable prefix holds no turn/workspace-variable strings, (b) no volatile `volatileKind` block appears inside the stable prefix, and (c) each zone stays within its char/token budget.
+
+Tools-array stability (verified 2026-07-02):
+
+- The `tools` array is the FIRST cached segment (Anthropic order `tools -> system -> messages`; OpenAI exact prefix). Any per-turn byte change to `tools` invalidates the entire downstream prefix.
+- Current good state: ordinary chat keeps `toolChoice: "auto"` and a bundle-stable tool set; per-turn variability (presence, routing) correctly lives in `developerInstructions`, not in `tools`/`system`. `excludedToolNames` is used only for background synthetic turns. This is aligned with OpenAI/Anthropic guidance and must be preserved.
+- **Known per-turn `tools` mutation to fix or accept:** the `knowledge_search` / `knowledge_fetch` source enum is rebuilt per turn (the `skill` source is added/dropped based on active-skill routing — `turn-execution.service.ts:781-786, 909-923`). Because `tools` is first, this busts the whole prefix on skill-toggle turns. Preferred fix: keep the enum byte-stable and enforce skill-source access at execution time (ADR-120 already gates access server-side), or document it as an accepted cache cost. Do not solve it by editing the array shape per turn.
+- Invariant for any FUTURE per-turn tool gating: restrict via provider `allowed_tools` / `tool_choice`, never by editing the `tools` array bytes (both providers cache-preserve the former, bust on the latter).
 
 ### D8 — Persist and replay thread tool history under cache discipline [added 2026-07-02]
 
@@ -259,6 +291,13 @@ To keep this from bloating or thrashing the cached prefix, the replay is explici
 - replay is tail-oriented: recent tool exchanges are replayed in full;
 - old or large `tool_result` payloads are compacted/elided with an explicit "earlier tool results truncated" marker — but never at the cost of the durable facts the model needs to continue (e.g. the active document project path/version);
 - growth of the replayed history must not silently invalidate the cached prefix; its churn stays in the volatile zone.
+
+Replay contract (concrete):
+
+- **Where persisted:** tool exchanges are stored as replayable thread state (canonical transcript metadata or runtime-session state — the implementation slice picks exactly one owner and documents it), keyed to the chat so a later turn can rebuild them.
+- **Replay window:** the last N tool exchanges are replayed in full; older ones collapse to a single compact marker (`[earlier tool results truncated]`) plus preserved durable continuation facts (active project path/version, produced file paths, last delivery outcome).
+- **Position:** replay is emitted in the conversation-tail/volatile zone after the stable prefix, tagged so Anthropic (`tool_use` / `tool_result`) and OpenAI (`function_call` / `function_call_output`) render it natively without touching the cached prefix.
+- **Not a new provider path:** the runtime already builds in-turn `toolHistory` (runtime -> provider-gateway -> native blocks); D8 adds the cross-turn persistence + bounded replay layer on top. P6's "`toolHistoryCount` resets per turn" refers to that per-turn in-memory array being re-initialized empty each turn — D8 is the durable layer it currently lacks.
 
 This decision **supersedes the "compact durable-state fact" band-aid**: document-project reuse (no `-2`/`-3` proliferation), no-shell convergence on the render door, and honest delivery all follow naturally once the model can see its own prior tool actions. The document polishing slice may still add idempotent project reuse as an independent safety net, but it is no longer the primary fix for cross-turn amnesia.
 
@@ -314,28 +353,41 @@ Prompt-focused minimum tests, when relevant:
 - `apps/runtime/test/turn-execution.service.test.ts`
 - `apps/runtime/test/build-system-reminder-blocks.service.test.ts`
 
-### Slice 0 — Inventory and budget ledger
+### Slice 0 — Executable inventory, per-tool optimization table, and budget ledger [expanded 2026-07-02]
 
-Subagent: GPT-5.4.
+Subagent: GPT-5.4. Orchestrator reviews and signs off before any behavior-changing slice starts.
 
 Goal:
 
-- produce the implementation ledger before behavior changes.
+- produce the executable ledger every later slice follows: a per-tool decision table, a system-prefix owner table, numeric zone budgets, the stale-test ledger, and the cache-guard baseline.
 
 Do:
 
-- inventory every current prompt/descripor string touched by this ADR;
-- classify each as stable-prefix / volatile / descriptor / lazy-lookup candidate;
-- record prompt-budget baselines for the current `enabled_skills` and heavy descriptors;
-- confirm exact duplicate/stale owners before code deletion starts.
+- **Per-tool table (all model-facing tools, ~26).** One row per tool with columns: current model-facing size (chars) · keep-inline (mechanical contract) · -> move to action (lazy) · -> selection-guide (cross-tool) · -> provider-only · delete (duplicate/stale). Every non-empty cell names the concrete string with its `file:line`. Example decided rows (from the 2026-07-02 audit): `video_generate` -> persona/voice catalogs + mode tutorial move to `list_personas`/`list_voices`/`describe_avatar_mode`; `skill` -> scenario detail moves to `skill.describe`/`skill.list`; `document` -> multi-step tutorial moves to `document.describe_workflow`; `files` -> delete the runtime-tool-policy shadow override, keep one descriptor + one selection-guide entry.
+- **System-prefix owner table.** One row per stable-prefix block/fact (identity, user, locale, timezone, voice, character_notes, response_contract, reminders_protocol, memory_protocol, enabled_skills, tool_usage_policy): current owner(s) -> single target owner -> duplicates to delete.
+- **Numeric budgets.** Record current char/token size per zone (stable-prefix total, enabled_skills, each heavy descriptor, selection guide, volatile blocks) and set a target ceiling per zone. These ceilings are the measurable acceptance bar for later slices.
+- **Stale-test ledger.** List every test that currently locks stale behavior (e.g. the `persai_memory` assertion in `compile-prompt-constructor.service.test.ts`, `SCENARIO_CATALOG_RENDER_LIMIT=8`, the ADR-119 golden snapshot) with the slice that will update each. A slice updates its own guard tests; it never preserves stale wording just to keep tests green.
+- **Cache-guard baseline.** Capture the current stable-prefix hash and define the golden cache-guard test (D7): stable prefix byte-stable, no turn/workspace-variable strings inside it, no volatile block inside it, each zone within budget.
 
 Deliverable:
 
-- `docs/ADR/130-prompt-layering-inventory.md`
+- **LANDED 2026-07-02:** `docs/ADR/130-prompt-layering-inventory.md` — per-tool optimization table (24 model-facing tools + 5 shadow rows), system-prefix owner table, numeric zone budgets (baseline → target ceiling), stale-test ledger by slice, and the cache-guard test spec. Produced by 3 GPT-5.4 read-only worker audits, compiled by the orchestrator. No behavior change.
 
-Acceptance:
+Acceptance (met):
 
-- every later slice has a concrete move/delete/keep ledger to follow.
+- every later slice has a concrete move/delete/keep row with `file:line`;
+- every zone has a baseline number and a proposed target ceiling (§3 constants pending founder confirmation);
+- the cache-guard test spec and stale-test ledger exist before any code deletion starts.
+
+#### Slice 0 decisions closed (2026-07-02, best-practice-grounded)
+
+Grounded in current OpenAI + Anthropic caching guidance (order `tools -> system -> messages`; any prefix byte change busts everything downstream; keep a small stable core catalog and load detail on demand; vary tool access via `allowed_tools`/`tool_choice`, never by editing the array).
+
+1. **Budget ceilings — confirmed as CI guard floors, not targets.** `STABLE_PREFIX ≤ 10k`, `ENABLED_SKILLS ≤ 4.5k` (24-32 scenario rows, `key+name` only), `SELECTION_GUIDE ≤ 6.5k`, inline `TOOL_DESCRIPTION ≤ 1.5k` (+ lazy actions). Guard rule: never shrink the stable prefix below the provider cache minimum (Sonnet 1024 tok / Opus-Haiku 4096 tok) — under-minimum prefixes are not cached at all.
+2. **`character_notes` + uncapped skill fields — asymmetric.** `character_notes` stays verbatim (D6); apply a generous soft cap with a UI warning (~2k chars), never a silent prod truncation — it is stable per assistant so it does not hurt cache. System-owned skill fields ARE hard-capped: `summary ≤160`, `when_to_use ≤200`, `recommended_tools` bounded. Rule: user-authored text = budget + warning; system text = hard cap.
+3. **`files` single owner — collapse to two.** Selection guide owns "when files vs exec/shell/grep/glob"; the descriptor (catalog -> projection) owns mechanics. Delete the hardcoded `runtime-tool-policy.ts` override (the shadow owner) and the stale catalog copy. General rule: the policy layer carries permissions/limits only, never model-facing prose.
+4. **Lazy-action families/signatures — confirmed (priority by weight):** `video_generate.list_personas()` / `list_voices({mode,locale?})` / `describe_avatar_mode()`; `skill.list({category?})` / `describe({skillId,scenarioKey?})`; `document.describe_workflow({kind})`; `shell.describe_environment()` (low priority). Contract per the D2/D4 lazy-action table.
+5. **Tools-array cache invariant added to D7** (see D7): ordinary tool set stays bundle-stable + `toolChoice:"auto"`; the one live per-turn `tools` mutation is the `knowledge_search`/`knowledge_fetch` skill-source enum — fix by execution-time gating or accept as cost; future tool gating uses `allowed_tools`/`tool_choice`, never array edits.
 
 ### Slice 1 — Compact `<enabled_skills>` and add lazy skill detail lookup
 
@@ -458,14 +510,16 @@ Sequencing note (founder-approved 2026-07-02): this slice is **recorded now but 
 
 This ADR is not complete until all of the following are true:
 
-1. `enabled_skills` stays compact with many enabled skills.
-2. dynamic catalogs are no longer injected inline into heavy descriptors.
-3. the stable prefix contains no stale pushed-memory wording.
-4. `files` model-facing guidance has a single clear owner.
-5. scenario/todo volatile duplication is materially reduced.
-6. `character_notes` precedence is explicit and documented.
-7. all prompt-owner decisions are reflected in active docs, not only in code.
-8. thread `tool_use` / `tool_result` history is persisted and replayed across turns under cache discipline (D8), so the model retains cross-turn memory of its own actions.
+1. `enabled_skills` stays within its Slice 0 char/token ceiling regardless of how many skills are enabled (scenario rows = `key + name`, global cap ~24-32 + compact tail).
+2. no heavy descriptor exceeds its Slice 0 ceiling; dynamic/workspace catalogs (personas, voices, skill/scenario detail, document tutorials) load via lazy actions, not inline.
+3. the stable prefix contains no stale pushed-memory wording (`memory_protocol` matches ADR-120 reality).
+4. `files` model-facing guidance has a single clear owner (no runtime-policy shadow override).
+5. scenario/todo volatile duplication is materially reduced: `<persai_active_scenario>` renders only the current step + exit condition, and no step body is repeated across volatile owners in the same turn.
+6. `character_notes` precedence is explicit and documented (D6 four-tier rule).
+7. every cross-tool "which / when-not" rule lives only in the selection guide; descriptors carry no sibling-tool routing (D1).
+8. the cache-guard test passes: stable prefix is byte-stable, holds no turn/workspace-variable data, and no volatile block appears inside it (D7).
+9. thread `tool_use` / `tool_result` history is persisted and replayed across turns under cache discipline (D8), so the model retains cross-turn memory of its own actions.
+10. all prompt-owner decisions are reflected in the active program ledger, not only in code.
 
 ## Residual risk
 
