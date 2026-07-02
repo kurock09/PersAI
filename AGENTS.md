@@ -17,6 +17,7 @@ This repository contains the active PersAI platform baseline.
 
 ## Repo rules
 
+- ADR-132 has an additional local repair slice landed 2026-07-03: chat delivery for PDF/DOCX/XLSX must be attachment-first and must not wait for best-effort inspect/register/documentLink metadata enrichment; runtime `document.render` / `document.convert` must not recreate the old active `project.json` workflow for ordinary authored/convert outputs.
 - one session = one bounded slice unless the user explicitly asks for broader work
 - no silent architecture changes
 - if docs and code diverge, surface the conflict

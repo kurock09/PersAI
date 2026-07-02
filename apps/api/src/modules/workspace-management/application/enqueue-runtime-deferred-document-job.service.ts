@@ -489,9 +489,9 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         accepted: false,
         code: "revise_document_requires_presentation",
         message:
-          "Deferred revise_document only supports Gamma presentations. PDF/DOCX/XLSX documents must be revised through the visible workspace workflow.",
+          "Deferred revise_document only supports Gamma presentations. PDF/DOCX/XLSX documents must stay on the live document tool surface.",
         guidance:
-          "Use document.extract/render/inspect/register_version with visible /workspace files, then deliver the checked output with files.attach."
+          "Use document.inspect, document.render, or document.convert for ordinary document work. For targeted shell-based edits, save the PDF/DOCX/XLSX output and deliver it with files.attach."
       };
     }
 
@@ -555,7 +555,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         message:
           "The path does not resolve to a Gamma presentation accessible to this assistant. Uploaded DOCX/PDF/XLSX workspace files are not revise_document targets.",
         guidance:
-          "Do not ask the user to re-upload the same file. For an existing /workspace DOCX/PDF/XLSX file, use the visible workspace workflow instead: document.extract when needed, edit visible source files, document.render, document.inspect, then files.attach."
+          "Do not ask the user to re-upload the same file. For an existing /workspace DOCX/PDF/XLSX file, use document.inspect, document.render, or document.convert directly. For targeted shell-based edits, save the updated file and deliver it with files.attach."
       };
     }
     return { ok: true, context: result.context };
@@ -610,9 +610,9 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         accepted: false,
         code: "revise_document_requires_presentation",
         message:
-          "Deferred revise_document only supports Gamma presentations. PDF/DOCX/XLSX documents must be revised through the visible workspace workflow.",
+          "Deferred revise_document only supports Gamma presentations. PDF/DOCX/XLSX documents must stay on the live document tool surface.",
         guidance:
-          "Use document.extract/render/inspect/register_version with visible /workspace files, then deliver the checked output with files.attach."
+          "Use document.inspect, document.render, or document.convert for ordinary document work. For targeted shell-based edits, save the PDF/DOCX/XLSX output and deliver it with files.attach."
       };
     }
 
@@ -714,9 +714,9 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         accepted: false,
         code: "export_or_redeliver_requires_presentation",
         message:
-          "Deferred export_or_redeliver only supports Gamma presentations. PDF/DOCX/XLSX files must be delivered through the visible workspace workflow.",
+          "Deferred export_or_redeliver only supports Gamma presentations. PDF/DOCX/XLSX files must stay on the live document tool surface.",
         guidance:
-          "Use document.extract/render/inspect/register_version with visible /workspace files, then deliver the checked output with files.attach."
+          "Use document.inspect, document.render, or document.convert for ordinary document work. For targeted shell-based edits, save the PDF/DOCX/XLSX output and deliver it with files.attach."
       };
     }
     if (exportContext.currentVersionStatus !== "ready") {
@@ -820,9 +820,9 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         throw new BadRequestException({
           code: "descriptor_mode_retired",
           message:
-            "Background PDF/DOCX/XLSX document generation is retired. Use document.extract/render/inspect/register_version with visible /workspace files, then files.attach.",
+            "Background PDF/DOCX/XLSX document generation is retired. Use document.inspect, document.render, or document.convert on the live document surface instead.",
           guidance:
-            "Create or edit visible source files under /workspace, render the checked output with document.render, inspect it with document.inspect, optionally register metadata with document.register_version, then deliver with files.attach."
+            "Create or edit visible source files under /workspace, use document.render for authored output, use document.convert for format changes, and use files.attach only when you produced the final PDF/DOCX/XLSX bytes through shell-based editing."
         });
       }
       throw new BadRequestException(

@@ -75,9 +75,7 @@ import {
   type RuntimeUsageSnapshot,
   type PersaiRuntimeKnowledgeSource,
   type PersaiRuntimeModelRole,
-  type RuntimeTrace,
-  buildDocumentProjectPdfExportEntrypoint,
-  buildDocumentWorkspaceProjectLayout
+  type RuntimeTrace
 } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
 import { RuntimeObservabilityService } from "../observability/runtime-observability.service";
@@ -274,8 +272,6 @@ type TurnExecutionState = {
   discoveredFilePathSet: string[];
   /** ADR-129 W9 — structural delivery facts accumulated during the tool loop. */
   deliveryFacts: RuntimeTurnDeliveryFactsTracker;
-  /** ADR-129 W10 — active bounded document project from the latest document.extract. */
-  activeDocumentProjectPath: string | null;
   currentChatId: string | null;
   workspaceId: string;
   /**
@@ -1292,8 +1288,7 @@ export class TurnExecutionService {
                           input.idempotencyKey,
                           turnState.artifacts,
                           turnState.fileHandles,
-                          execution.availableWorkingFileHandles,
-                          turnState
+                          execution.availableWorkingFileHandles
                         );
                       } catch (error) {
                         yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
@@ -2124,7 +2119,6 @@ export class TurnExecutionService {
     context?: {
       currentChatId: string | null;
       producedPaths: ReadonlySet<string>;
-      activeDocumentProjectPath?: string | null;
     }
   ): string | null {
     const producedPaths = context?.producedPaths ?? new Set<string>();
@@ -2150,12 +2144,6 @@ export class TurnExecutionService {
     }
 
     const lines = ["## Working Files"];
-    const activeDocumentProjectNote = this.buildActiveDocumentProjectNote(
-      context?.activeDocumentProjectPath ?? null
-    );
-    if (activeDocumentProjectNote !== null) {
-      lines.push("", ...activeDocumentProjectNote);
-    }
     const documentPriorityNote = this.buildWorkingFileDocumentPriorityNote(chatScopedFiles);
     if (documentPriorityNote !== null) {
       lines.push("", ...documentPriorityNote);
@@ -2340,7 +2328,7 @@ export class TurnExecutionService {
       "## Open Document Jobs",
       "Server truth: background document rendering is already in progress in this chat.",
       "Use this status block for any progress reply in the current turn.",
-      "Do not start a PDF/DOCX/XLSX background document job; visible document work must use document.extract/render/inspect/register_version plus files.attach.",
+      "Do not start a new PDF/DOCX/XLSX background document job. Ordinary document work uses document.inspect, document.render, or document.convert, and shell-produced PDF/DOCX/XLSX outputs are delivered with files.attach.",
       "These are older or already-open jobs. They are NOT proof that the current user turn started a new delivery job.",
       "Only say a new presentation request was accepted, queued, or in progress when this same turn actually returned a structural pending_delivery result with a real jobId.",
       ...openDocumentJobs.slice(0, MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS).map((job, index) => {
@@ -2924,8 +2912,7 @@ export class TurnExecutionService {
                 input.idempotencyKey,
                 turnState.artifacts,
                 turnState.fileHandles,
-                availableWorkingFileHandles,
-                turnState
+                availableWorkingFileHandles
               );
           this.maybeRefundToolRequestRejectionReservation(toolBudgetPolicy, entry, outcome);
           outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
@@ -3124,8 +3111,7 @@ export class TurnExecutionService {
               params.input.idempotencyKey,
               currentArtifacts,
               currentFileHandles,
-              params.availableWorkingFileHandles,
-              params.turnState
+              params.availableWorkingFileHandles
             )
           } satisfies ExecutedToolCallResult;
         } catch (error) {
@@ -3146,8 +3132,7 @@ export class TurnExecutionService {
     currentUserMessageId: string | null,
     currentArtifacts: RuntimeOutputArtifact[],
     currentFileHandles: RuntimeFileHandle[],
-    availableWorkingFileHandles: RuntimeFileHandle[],
-    turnState: TurnExecutionState
+    availableWorkingFileHandles: RuntimeFileHandle[]
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
@@ -3352,8 +3337,7 @@ export class TurnExecutionService {
             currentAttachments: execution.currentMessageAttachments,
             availableAttachments: documentSourceAttachments
           },
-          originChatId: this.resolveCurrentChatId(input),
-          activeDocumentProjectPath: turnState.activeDocumentProjectPath
+          originChatId: this.resolveCurrentChatId(input)
         });
         return this.createToolExecutionOutcome(
           toolCall,
@@ -4004,7 +3988,6 @@ export class TurnExecutionService {
       workingFilesContext?: {
         currentChatId: string | null;
         producedPaths: ReadonlySet<string>;
-        activeDocumentProjectPath?: string | null;
       };
     }
   ): ProviderGatewayTextGenerateRequest {
@@ -4075,7 +4058,6 @@ export class TurnExecutionService {
     workingFilesContext?: {
       currentChatId: string | null;
       producedPaths: ReadonlySet<string>;
-      activeDocumentProjectPath?: string | null;
     }
   ): string | null {
     let sections = this.replaceDeveloperInstructionSection(
@@ -4239,25 +4221,6 @@ export class TurnExecutionService {
     const markers = this.formatWorkingFileMarkers(file);
     const microDescription = this.formatWorkingFileMicroDescription(file.semanticSummaryHint);
     return `- ${createdAt} | ${author} | ${alias} | ${filename} | path=${file.storagePath} | ${markers} | ${microDescription}`;
-  }
-
-  private buildActiveDocumentProjectNote(
-    activeDocumentProjectPath: string | null
-  ): string[] | null {
-    if (activeDocumentProjectPath === null) {
-      return null;
-    }
-    const layout = buildDocumentWorkspaceProjectLayout(activeDocumentProjectPath);
-    return [
-      "Active document project (from document.extract this turn):",
-      `- projectPath=${layout.projectPath}`,
-      `- render HTML under ${layout.renderDir}/ (default entrypoint ${layout.defaultRenderEntrypoint})`,
-      `- imported DOCX/XLSX -> PDF export uses ${buildDocumentProjectPdfExportEntrypoint(layout)}`,
-      `- write PDF/DOCX/XLSX outputs under ${layout.outputDir}/ (default PDF ${layout.defaultPdfOutputPath})`,
-      "- document.render must stay inside this project; do not render from other workspace projects in the same turn.",
-      "- PDF render rebuilds HTML from full extract/extracted.md server-side; do not reassemble PDF HTML from partial files.read chunks.",
-      "- Authored content/template scaffolding is for non-imported projects only; imported DOCX/XLSX -> PDF still uses the seeded Office exporter."
-    ];
   }
 
   private buildWorkingFileDocumentPriorityNote(files: RuntimeFileHandle[]): string[] | null {
@@ -4914,7 +4877,6 @@ export class TurnExecutionService {
       closedOpenLoopRefs: [],
       discoveredFilePathSet: [],
       deliveryFacts: createEmptyTurnDeliveryFacts(),
-      activeDocumentProjectPath: null,
       currentChatId: null,
       workspaceId: ""
     };
@@ -5003,12 +4965,10 @@ export class TurnExecutionService {
   private createWorkingFilesContext(turnState: TurnExecutionState): {
     currentChatId: string | null;
     producedPaths: ReadonlySet<string>;
-    activeDocumentProjectPath: string | null;
   } {
     return {
       currentChatId: turnState.currentChatId,
-      producedPaths: new Set(turnState.deliveryFacts.producedPaths),
-      activeDocumentProjectPath: turnState.activeDocumentProjectPath
+      producedPaths: new Set(turnState.deliveryFacts.producedPaths)
     };
   }
 
@@ -5408,8 +5368,7 @@ export class TurnExecutionService {
           input.input.idempotencyKey,
           input.turnState.artifacts,
           input.turnState.fileHandles,
-          input.execution.availableWorkingFileHandles,
-          input.turnState
+          input.execution.availableWorkingFileHandles
         );
         outcome.exchange.reasoningContent = firstResult.reasoningContent ?? null;
         toolHistory.push(outcome.exchange);

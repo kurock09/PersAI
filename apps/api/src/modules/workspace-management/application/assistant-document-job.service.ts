@@ -86,10 +86,10 @@ export type AssistantDocumentExportOrRedeliverContext = AssistantDocumentRevisio
   } | null;
 };
 
-// Visible-workspace document outputs are PDF/XLSX/DOCX. Presentations are not
-// registered via document.register_version — they go through the deferred Gamma
-// render pipeline. The Prisma enum AssistantDocumentOutputFormat is intentionally
-// narrowed to the deferred render-job tables only (pdf/pptx).
+// Visible-workspace document outputs are PDF/XLSX/DOCX. Presentations do not
+// use the visible-workspace version-registration lane — they stay on the
+// deferred Gamma render pipeline. The Prisma enum AssistantDocumentOutputFormat
+// is intentionally narrowed to the deferred render-job tables only (pdf/pptx).
 export type VisibleWorkspaceDocumentOutputFormat = "pdf" | "xlsx" | "docx";
 
 export type RegisterVisibleWorkspaceDocumentVersionInput = {

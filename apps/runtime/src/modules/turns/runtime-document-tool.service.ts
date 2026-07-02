@@ -3,10 +3,6 @@ import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   DEFAULT_RUNTIME_SANDBOX_POLICY,
-  buildDocumentProjectManifest,
-  buildDocumentWorkspaceProjectLayout,
-  type DocumentWorkspaceProjectSourceFormat,
-  type DocumentWorkspaceProjectSourceKind,
   type PersaiRuntimePresentationImagePolicy,
   type PersaiRuntimePresentationVisualDensity,
   type PersaiRuntimePresentationVisualStyle,
@@ -44,7 +40,6 @@ type AuthoredRenderContentSource = {
 
 type AuthoredRenderArtifacts = {
   sourceMarkdownPath: string;
-  projectPath: string;
   programSource: string;
 };
 
@@ -80,7 +75,6 @@ export class RuntimeDocumentToolService {
       availableAttachments: RuntimeAttachmentRef[];
     };
     originChatId?: string | null;
-    activeDocumentProjectPath?: string | null;
   }): Promise<RuntimeDocumentToolExecutionResult> {
     const parsed = this.readDocumentArguments(params.toolCall.arguments);
     if (parsed instanceof Error) {
@@ -101,7 +95,6 @@ export class RuntimeDocumentToolService {
         sessionId: params.sessionId ?? null,
         requestId: params.requestId ?? null,
         originChatId: params.originChatId ?? null,
-        activeDocumentProjectPath: params.activeDocumentProjectPath ?? null,
         conversation: params.conversation ?? null,
         sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText,
         sourceUserMessageCreatedAt:
@@ -419,10 +412,8 @@ export class RuntimeDocumentToolService {
   private async executeRenderToolCall(params: {
     bundle: AssistantRuntimeBundle;
     request: {
-      projectPath?: string;
       outputPath: string;
       format: "pdf" | "xlsx" | "docx";
-      entrypoint?: string | null;
       requestedName?: string | null;
       replace?: boolean;
       content: string | null;
@@ -434,7 +425,6 @@ export class RuntimeDocumentToolService {
     sessionId: string | null;
     requestId: string | null;
     originChatId: string | null;
-    activeDocumentProjectPath?: string | null;
     conversation: {
       channel: "web" | "telegram";
       externalThreadKey: string;
@@ -561,7 +551,7 @@ export class RuntimeDocumentToolService {
       operation: "render",
       sourceUserMessageText: params.sourceUserMessageText,
       sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
-      projectPath: authoredRenderArtifacts!.projectPath,
+      workspaceProjectPath: null,
       outputPath: persisted.resolvedPath,
       sourceMarkdownPath: authoredRenderArtifacts!.sourceMarkdownPath
     });
@@ -603,11 +593,9 @@ export class RuntimeDocumentToolService {
   }
 
   /**
-   * `document.render` / `document.convert` persist the output first, then attempt
-   * inspect + version registration as best-effort enrichment. If inspect or
-   * registration fails after persist, the output still remains a successful
-   * produced file and auto-attaches at end-of-turn; the failure is surfaced as a
-   * warning instead of collapsing the tool result to `action: "skipped"`.
+   * `document.render` / `document.convert` persist bytes first, then attempt
+   * inspect + version metadata as best-effort enrichment. Metadata failure never
+   * gates current-turn file delivery.
    */
   private async finalizeRenderedDocument(input: {
     bundle: AssistantRuntimeBundle;
@@ -618,7 +606,7 @@ export class RuntimeDocumentToolService {
     operation: "render" | "convert";
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
-    projectPath: string;
+    workspaceProjectPath: string | null;
     outputPath: string;
     sourceMarkdownPath: string | null;
   }): Promise<{
@@ -667,7 +655,7 @@ export class RuntimeDocumentToolService {
         descriptorMode: null,
         docId: null,
         requestedName: null,
-        workspaceProjectPath: input.projectPath,
+        workspaceProjectPath: input.workspaceProjectPath,
         outputPath: input.outputPath,
         sourceManifestPath: null,
         inspectionPath
@@ -675,7 +663,7 @@ export class RuntimeDocumentToolService {
       if (!outcome.accepted) {
         return {
           registration: null,
-          warning: `document.${input.operation} produced ${input.outputPath} but could not register/deliver a document version (${outcome.code}): ${outcome.message}${
+          warning: `document.${input.operation} produced ${input.outputPath} but could not enrich document metadata (${outcome.code}): ${outcome.message}${
             inspectDetail === null ? "" : ` [${inspectDetail}]`
           }`
         };
@@ -698,7 +686,7 @@ export class RuntimeDocumentToolService {
     } catch (error) {
       return {
         registration: null,
-        warning: `document.${input.operation} produced ${input.outputPath} but document version registration failed: ${
+        warning: `document.${input.operation} produced ${input.outputPath} but document metadata enrichment failed: ${
           error instanceof Error
             ? error.message
             : "Document version registration is temporarily unavailable."
@@ -791,26 +779,6 @@ export class RuntimeDocumentToolService {
         "document.outputPath extension must match document.targetFormat."
       );
     }
-    try {
-      await this.persistWorkspaceDocumentManifest({
-        bundle: params.bundle,
-        sessionId: params.sessionId,
-        requestId: `${params.requestId}:convert-manifest`,
-        originChatId: params.originChatId,
-        projectPath: this.dirname(outputPath),
-        sourceKind: "imported_workspace_file",
-        sourcePath,
-        projectSourcePath: sourcePath,
-        sourceFormat,
-        sourceMimeType: this.resolveDocumentMimeTypeFromFormat(sourceFormat)
-      });
-    } catch (error) {
-      return this.convertSkipped(
-        "runtime_degraded",
-        error instanceof Error ? error.message : "Failed to persist document conversion metadata."
-      );
-    }
-
     let job: RuntimeSandboxJobResult;
     try {
       job = await this.runDocumentCodeSandboxJob({
@@ -863,7 +831,7 @@ export class RuntimeDocumentToolService {
       operation: "convert",
       sourceUserMessageText: params.sourceUserMessageText,
       sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
-      projectPath: this.dirname(persisted.resolvedPath),
+      workspaceProjectPath: null,
       outputPath: persisted.resolvedPath,
       sourceMarkdownPath: null
     });
@@ -1358,7 +1326,6 @@ export class RuntimeDocumentToolService {
     if (input.content === null && input.contentPath === null) {
       return null;
     }
-    const projectPath = this.dirname(input.outputPath);
     const authoredTemplate: NormalizedDocumentRenderTemplate = {
       title: null,
       theme: input.style ?? "default",
@@ -1376,32 +1343,8 @@ export class RuntimeDocumentToolService {
       contentPath: input.contentPath,
       outputPath: input.outputPath
     });
-    const layout = buildDocumentWorkspaceProjectLayout(projectPath);
-    const manifest = buildDocumentProjectManifest({
-      layout,
-      sourceKind: "authored_workspace_project",
-      sourcePath: contentSource.sourcePath ?? contentSource.markdownPath,
-      projectSourcePath: contentSource.markdownPath,
-      sourceFormat: "text",
-      sourceMimeType: "text/markdown",
-      sourceDisplayName: this.basename(contentSource.markdownPath),
-      extractManifestPath: null,
-      mimeType: "text/markdown"
-    });
-    await this.writeWorkspaceTextFile({
-      bundle: input.bundle,
-      sessionId: input.sessionId,
-      requestId: `${input.requestId}:authored-manifest`,
-      originChatId: input.originChatId,
-      path: `${projectPath}/project.json`,
-      content: `${JSON.stringify(manifest, null, 2)}\n`,
-      mimeType: "application/json",
-      replace: true
-    });
-
     return {
       sourceMarkdownPath: contentSource.markdownPath,
-      projectPath,
       programSource:
         input.format === "xlsx"
           ? this.buildAuthoredWorkbookScript({
@@ -1859,45 +1802,6 @@ export class RuntimeDocumentToolService {
       "    convert()",
       ""
     ].join("\n");
-  }
-
-  private async persistWorkspaceDocumentManifest(input: {
-    bundle: AssistantRuntimeBundle;
-    sessionId: string;
-    requestId: string;
-    originChatId: string | null;
-    projectPath: string;
-    sourceKind: DocumentWorkspaceProjectSourceKind;
-    sourcePath: string | null;
-    projectSourcePath: string | null;
-    sourceFormat: DocumentWorkspaceProjectSourceFormat;
-    sourceMimeType: string | null;
-  }): Promise<void> {
-    const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
-    const manifest = buildDocumentProjectManifest({
-      layout,
-      sourceKind: input.sourceKind,
-      sourcePath: input.sourcePath,
-      projectSourcePath: input.projectSourcePath,
-      sourceFormat: input.sourceFormat,
-      sourceMimeType: input.sourceMimeType,
-      sourceDisplayName:
-        input.projectSourcePath === null && input.sourcePath === null
-          ? null
-          : this.basename(input.projectSourcePath ?? input.sourcePath ?? input.projectPath),
-      extractManifestPath: null,
-      mimeType: input.sourceMimeType
-    });
-    await this.writeWorkspaceTextFile({
-      bundle: input.bundle,
-      sessionId: input.sessionId,
-      requestId: input.requestId,
-      originChatId: input.originChatId,
-      path: `${input.projectPath}/project.json`,
-      content: `${JSON.stringify(manifest, null, 2)}\n`,
-      mimeType: "application/json",
-      replace: true
-    });
   }
 
   private deriveConvertedOutputPath(

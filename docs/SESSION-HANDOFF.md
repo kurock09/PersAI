@@ -1,5 +1,42 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-132 repair slice landed locally; delivery no longer waits for document metadata enrichment
+
+Status: **implemented locally, verified, not committed/pushed yet at the time this entry was written by the repair session.** Branch note: local `main` was clean before repair but diverged from `origin/main` (`ahead 2, behind 1`); the remote-only commit was a GitOps image-tag pin and was not merged in this repair slice.
+
+**Why this repair exists.** Live test generated `/workspace/test.pdf` successfully, but the file did not appear in chat and download returned `404`. Cluster logs showed `MediaDeliveryService` dropping the document artifact because `files.attach` tried to auto-register the document first and registration rejected `workspaceProjectPath=/workspace` as `invalid_project_path`. That violated ADR-132 D6: document metadata may fail, but current-turn produced bytes must still deliver.
+
+**What changed.**
+
+- `RegisterChatAttachmentService` now splits delivery from enrichment. For doc-extension `files.attach` (`pdf`/`docx`/`xlsx`), the service verifies the workspace file and chat surface, creates the attachment row, upserts workspace metadata, and only then attempts inspect -> register version -> `documentLink` metadata update. Failures in inspect/register/link enrichment are logged as warnings and do not remove or block the attachment.
+- `DocumentWorkspaceVersionRegistrationService` no longer requires project-layout truth for registration metadata. `workspaceProjectPath`, `projectManifestPath`, source kind/source path/source format/source manifest are nullable metadata; root-level `/workspace/*.pdf|docx|xlsx` outputs are valid. Existing document identity is still resolved server-side by `outputPath`.
+- Runtime `document.render` / `document.convert` no longer write active `project.json` manifests for authored/convert outputs and no longer pass parent directories as a delivery gate. D5 sibling Markdown remains the source for authored Case A revisions.
+- Active model-facing/runtime guidance no longer teaches the old ADR-129 `document.extract` / `document.register_version` / active document project workflow. Internal extraction/OCR code remains available behind `document.inspect`.
+
+**Files touched.**
+
+- API: `apps/api/src/modules/workspace-management/application/{register-chat-attachment.service.ts, document-workspace-version-registration.service.ts, document-workspace-deliverable-gating.ts, enqueue-runtime-deferred-document-job.service.ts, assistant-document-job.service.ts}`
+- Runtime: `apps/runtime/src/modules/turns/{runtime-document-tool.service.ts, turn-execution.service.ts, runtime-document-provider-adapter.service.ts}`
+- Tests: `apps/api/test/{register-chat-attachment.service.test.ts, document-workspace-version-registration.service.test.ts}`, `apps/runtime/test/runtime-document-tool.service.test.ts`
+- Docs: `docs/ADR/132-document-single-door-mechanics-and-honest-delivery.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
+
+**Verification green.**
+
+- `corepack pnpm --filter @persai/api exec tsx test/register-chat-attachment.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/document-workspace-version-registration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+**Residuals / next.**
+
+- No push was performed. Founder still controls push/deploy.
+- After deploy, live-validate ADR-132 criteria on `persai.dev`: net-new PDF/DOCX/XLSX, convert, Case A edit, Case B shell/upload edit, multi-source deliverable, and real download links with no 404/orphan.
+- Internal `document-workspace-extraction.service.ts` still contains `document.extract` wording because it is the API-owned inspect/OCR implementation, not a model-facing verb. Do not reopen it unless inspect itself leaks the old workflow into prompts or delivery gates.
+
 ## 2026-07-03 — ADR-130 follow-through Slices 7, 8, and 10 landed locally; full gate green; ready for batched commit
 
 Status: **ADR-130 remains open, but the follow-through cleanup slices below are now implemented locally, verified, and ready for the next batched commit.** Nothing pushed. Slice 9 was explicitly skipped by founder direction.

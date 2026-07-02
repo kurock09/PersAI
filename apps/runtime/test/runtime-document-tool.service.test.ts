@@ -367,34 +367,23 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.render?.outputPath, "/workspace/reports/monthly.pdf");
     assert.equal(result.payload.render?.sourceMarkdownPath, resolvedMarkdownPath);
     assert.equal(result.payload.render?.mimeType, "application/pdf");
-    assert.equal(registerCalls[0]?.workspaceProjectPath, "/workspace/reports");
+    assert.equal(registerCalls[0]?.workspaceProjectPath, null);
     assert.equal(registerCalls[0]?.outputPath, "/workspace/reports/monthly.pdf");
     assert.deepEqual(
       sandboxCalls.map((call) => `${call.toolCode}:${String(call.args.action ?? "")}`),
-      [
-        "files:resolve_write_path",
-        "files:write",
-        "files:write",
-        "execute_document_code:",
-        "files:attach"
-      ]
+      ["files:resolve_write_path", "files:write", "execute_document_code:", "files:attach"]
     );
     assert.equal(sandboxCalls[0]?.args.path, "/workspace/reports/monthly.md");
     assert.equal(sandboxCalls[0]?.args.replace, false);
     assert.equal(sandboxCalls[1]?.args.path, resolvedMarkdownPath);
     assert.equal(sandboxCalls[1]?.args.replace, false);
-    assert.equal(sandboxCalls[2]?.args.path, "/workspace/reports/project.json");
     const programSource = String(
       sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args.programSource ??
         ""
     );
     assert.match(programSource, /CONTENT_PATH = Path\(".*monthly \(1\)\.md"\)/);
     assert.match(programSource, /HTML\(string=build_html_document\(\)/);
-    assert.deepEqual(metadataPaths, [
-      resolvedMarkdownPath,
-      "/workspace/reports/project.json",
-      "/workspace/reports/monthly.pdf"
-    ]);
+    assert.deepEqual(metadataPaths, [resolvedMarkdownPath, "/workspace/reports/monthly.pdf"]);
   });
 
   test("renders authored XLSX from Markdown tables and writes sibling markdown", async () => {
@@ -615,7 +604,7 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.convert?.sourcePath, "/workspace/source.docx");
     assert.equal(result.payload.convert?.outputPath, "/workspace/source.pdf");
     assert.equal(result.payload.convert?.targetFormat, "pdf");
-    assert.equal(registerCalls[0]?.workspaceProjectPath, "/workspace");
+    assert.equal(registerCalls[0]?.workspaceProjectPath, null);
     assert.equal(registerCalls[0]?.outputPath, "/workspace/source.pdf");
     const programSource = String(
       sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args.programSource ??
@@ -657,8 +646,7 @@ describe("RuntimeDocumentToolService", () => {
           return {
             accepted: false as const,
             code: "inspection_required",
-            message:
-              "document.register_version requires a valid document.inspect sidecar for the output."
+            message: "A valid document.inspect sidecar is required to register document metadata."
           };
         }
       } as never,
@@ -953,11 +941,9 @@ describe("RuntimeDocumentToolService", () => {
       [
         "files:resolve_write_path",
         "files:write",
-        "files:write",
         "execute_document_code:",
         "files:attach",
         "files:read",
-        "files:write",
         "execute_document_code:",
         "files:attach"
       ]
@@ -965,7 +951,7 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(sandboxCalls[0]?.args.path, sourceMarkdownPath);
     assert.equal(sandboxCalls[1]?.args.path, sourceMarkdownPath);
     assert.equal(sandboxCalls[1]?.args.content, initialMarkdown.trim());
-    assert.equal(sandboxCalls[5]?.args.path, sourceMarkdownPath);
+    assert.equal(sandboxCalls[4]?.args.path, sourceMarkdownPath);
     assert.equal(
       sandboxCalls.filter(
         (call) =>

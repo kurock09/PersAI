@@ -4,6 +4,26 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-132 document surface focused checks
+
+When a change touches `document.inspect`, `document.render`, `document.convert`, document auto-registration, or `files.attach` delivery of `pdf`/`docx`/`xlsx`, run these focused checks before the broad gate:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/register-chat-attachment.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/document-workspace-version-registration.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+```
+
+Interpretation rules:
+
+1. `files.attach` for an existing allowed PDF/DOCX/XLSX workspace file must create the chat attachment row before best-effort inspect/register/documentLink metadata enrichment; enrichment failure must log a warning and must not drop delivery.
+2. Root-level `/workspace/*.pdf|docx|xlsx` outputs are valid. `workspaceProjectPath`, `projectManifestPath`, and source-manifest facts are nullable metadata, not delivery gates.
+3. `document.render` and `document.convert` must not recreate the old active `project.json` workflow for ordinary authored/convert outputs. Authored revisions use the sibling `.md` file and re-render at the same `outputPath`.
+4. Removed model-facing verbs (`document.extract`, `document.edit`, `document.register_version`) remain hard-rejected. Internal extraction/OCR code may keep extraction naming only behind `document.inspect`.
+5. After deploy, live validation must prove real chat delivery and download links for net-new render, convert, Case A source edit/re-render, and Case B shell-produced document attach.
+
 ## ADR-093 clean PROD launch readiness — verification discipline
 
 When work is executed under [`docs/ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md`](ADR/093-clean-prod-launch-readiness-and-concurrency-hardening.md), verification is **not** “ship and hope”:

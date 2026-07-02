@@ -1,7 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
-  buildDocumentProjectSourceCopyPath,
-  buildDocumentProjectManifest,
   buildDocumentWorkspaceProjectLayout,
   type DocumentWorkspaceProjectSourceFormat,
   type DocumentWorkspaceProjectSourceKind
@@ -112,7 +110,8 @@ export class DocumentWorkspaceVersionRegistrationService {
       return {
         accepted: false,
         code: "invalid_output_path",
-        message: "document.register_version outputPath must be a valid /workspace/... file path."
+        message:
+          "Automatic document version registration requires a valid /workspace/... outputPath."
       };
     }
     const requestedWorkspaceProjectPath =
@@ -123,8 +122,7 @@ export class DocumentWorkspaceVersionRegistrationService {
       return {
         accepted: false,
         code: "invalid_project_path",
-        message:
-          "document.register_version workspaceProjectPath must be a valid /workspace/... directory."
+        message: "workspaceProjectPath must be a valid /workspace/... directory when provided."
       };
     }
     const requestedSourceManifestPath =
@@ -133,8 +131,7 @@ export class DocumentWorkspaceVersionRegistrationService {
       return {
         accepted: false,
         code: "invalid_source_manifest_path",
-        message:
-          "document.register_version sourceManifestPath must be a valid /workspace/... file path."
+        message: "sourceManifestPath must be a valid /workspace/... file path when provided."
       };
     }
     const inspectionPath =
@@ -143,8 +140,7 @@ export class DocumentWorkspaceVersionRegistrationService {
       return {
         accepted: false,
         code: "invalid_inspection_path",
-        message:
-          "document.register_version inspectionPath must be a valid /workspace/... file path."
+        message: "inspectionPath must be a valid /workspace/... file path when provided."
       };
     }
 
@@ -154,7 +150,7 @@ export class DocumentWorkspaceVersionRegistrationService {
         accepted: false,
         code: "unsupported_output_format",
         message:
-          "document.register_version currently supports rendered PDF, XLSX, and DOCX workspace outputs."
+          "Automatic document version registration currently supports PDF, XLSX, and DOCX workspace outputs."
       };
     }
 
@@ -248,8 +244,7 @@ export class DocumentWorkspaceVersionRegistrationService {
       return {
         accepted: false,
         code: "inspection_required",
-        message:
-          "document.register_version requires a valid document.inspect sidecar for the output."
+        message: "A valid document.inspect sidecar is required to register document metadata."
       };
     }
     if (inspection.sourcePath !== null && inspection.sourcePath !== outputPath) {
@@ -289,7 +284,7 @@ export class DocumentWorkspaceVersionRegistrationService {
         accepted: false,
         code: "invalid_descriptor_mode",
         message:
-          "document.register_version must use revise_document for an existing docId. For a new visible workspace output, omit descriptorMode or use create_document."
+          "Existing document identities require revise_document semantics. For a new visible workspace output, omit descriptorMode or use create_document."
       };
     }
 
@@ -390,12 +385,12 @@ export class DocumentWorkspaceVersionRegistrationService {
   }): Promise<
     | {
         ok: true;
-        workspaceProjectPath: string;
-        projectManifestPath: string;
+        workspaceProjectPath: string | null;
+        projectManifestPath: string | null;
         projectSourcePath: string | null;
-        sourceKind: DocumentWorkspaceProjectSourceKind;
+        sourceKind: DocumentWorkspaceProjectSourceKind | null;
         sourcePath: string | null;
-        sourceFormat: DocumentWorkspaceProjectSourceFormat;
+        sourceFormat: DocumentWorkspaceProjectSourceFormat | null;
         sourceMimeType: string | null;
         sourceManifestPath: string | null;
       }
@@ -407,24 +402,19 @@ export class DocumentWorkspaceVersionRegistrationService {
   > {
     const workspaceProjectPath =
       input.requestedWorkspaceProjectPath ?? inferProjectPathFromOutputPath(input.outputPath);
-    if (workspaceProjectPath === null) {
-      return {
-        ok: false,
-        code: "project_path_required",
-        message:
-          "document.register_version requires a document project. Pass workspaceProjectPath or register an output under <project>/output/."
-      };
-    }
-
-    const projectManifestPath = `${workspaceProjectPath}/project.json`;
-    const existingProjectManifestMetadata = await this.workspaceFileMetadataService.get({
-      workspaceId: input.workspaceId,
-      path: projectManifestPath
-    });
+    const projectManifestPath =
+      workspaceProjectPath === null ? null : `${workspaceProjectPath}/project.json`;
+    const existingProjectManifestMetadata =
+      projectManifestPath === null
+        ? null
+        : await this.workspaceFileMetadataService.get({
+            workspaceId: input.workspaceId,
+            path: projectManifestPath
+          });
     const existingProjectManifest =
       existingProjectManifestMetadata === null
         ? null
-        : await this.readJsonWorkspaceObject(input.workspaceId, projectManifestPath);
+        : await this.readJsonWorkspaceObject(input.workspaceId, projectManifestPath!);
     if (existingProjectManifestMetadata !== null && existingProjectManifest === null) {
       return {
         ok: false,
@@ -433,65 +423,47 @@ export class DocumentWorkspaceVersionRegistrationService {
       };
     }
 
-    const sourceKind = this.resolveProjectSourceKind(existingProjectManifest);
+    const siblingMarkdownPath = await this.resolveSiblingMarkdownPath({
+      workspaceId: input.workspaceId,
+      outputPath: input.outputPath
+    });
+    const sourceKind = this.resolveProjectSourceKind(existingProjectManifest, siblingMarkdownPath);
     const sourcePath =
       this.resolveProjectSourcePath(existingProjectManifest) ??
-      (await this.resolveDefaultAuthoredSourcePath({
-        workspaceId: input.workspaceId,
-        workspaceProjectPath,
-        outputFormat: input.outputFormat,
-        sourceKind
-      }));
+      (sourceKind === "authored_workspace_project" ? siblingMarkdownPath : null);
     const projectSourcePath =
       this.resolveProjectSourceCopyPath(existingProjectManifest) ??
-      (await this.resolveDefaultProjectSourcePath({
-        workspaceId: input.workspaceId,
-        workspaceProjectPath,
-        sourceKind,
-        sourcePath
-      }));
+      (sourceKind === "authored_workspace_project" ? sourcePath : null);
     const sourceFormat =
       this.resolveProjectSourceFormat(existingProjectManifest) ??
-      inferProjectSourceFormatFromFacts({
-        sourceKind,
-        sourcePath,
-        outputFormat: input.outputFormat
-      });
+      (sourceKind === null
+        ? null
+        : inferProjectSourceFormatFromFacts({
+            sourceKind,
+            sourcePath,
+            outputFormat: input.outputFormat
+          }));
     const sourceMimeType =
       this.resolveProjectSourceMimeType(existingProjectManifest) ??
-      inferProjectSourceMimeType({
-        sourceFormat
-      });
+      (sourceFormat === null
+        ? null
+        : inferProjectSourceMimeType({
+            sourceFormat
+          }));
     const sourceManifestPath =
       input.requestedSourceManifestPath ??
       this.resolveProjectExtractManifestPath(existingProjectManifest) ??
-      (await this.resolveDefaultExtractManifestPath({
-        workspaceId: input.workspaceId,
-        workspaceProjectPath
-      }));
-
-    const layout = buildDocumentWorkspaceProjectLayout(workspaceProjectPath);
-    const projectManifest = buildDocumentProjectManifest({
-      layout,
-      sourceKind,
-      sourcePath,
-      projectSourcePath,
-      sourceFormat,
-      sourceMimeType,
-      sourceDisplayName: basenameOrNull(sourcePath),
-      extractManifestPath: sourceManifestPath,
-      mimeType: sourceMimeType
-    });
-    await this.persistProjectManifest({
-      workspaceId: input.workspaceId,
-      path: projectManifestPath,
-      manifest: projectManifest
-    });
+      (workspaceProjectPath === null
+        ? null
+        : await this.resolveDefaultExtractManifestPath({
+            workspaceId: input.workspaceId,
+            workspaceProjectPath
+          }));
 
     return {
       ok: true,
       workspaceProjectPath,
-      projectManifestPath,
+      projectManifestPath: existingProjectManifestMetadata === null ? null : projectManifestPath,
       projectSourcePath,
       sourceKind,
       sourcePath,
@@ -502,13 +474,14 @@ export class DocumentWorkspaceVersionRegistrationService {
   }
 
   private resolveProjectSourceKind(
-    manifest: Record<string, unknown> | null
-  ): DocumentWorkspaceProjectSourceKind {
+    manifest: Record<string, unknown> | null,
+    siblingMarkdownPath: string | null
+  ): DocumentWorkspaceProjectSourceKind | null {
     const sourceKind = manifest?.["sourceKind"];
     if (sourceKind === "imported_workspace_file" || sourceKind === "authored_workspace_project") {
       return sourceKind;
     }
-    return manifest === null ? "authored_workspace_project" : "imported_workspace_file";
+    return siblingMarkdownPath === null ? null : "authored_workspace_project";
   }
 
   private resolveProjectSourcePath(manifest: Record<string, unknown> | null): string | null {
@@ -548,35 +521,20 @@ export class DocumentWorkspaceVersionRegistrationService {
       : null;
   }
 
-  private async resolveDefaultAuthoredSourcePath(input: {
+  private async resolveSiblingMarkdownPath(input: {
     workspaceId: string;
-    workspaceProjectPath: string;
-    outputFormat: VisibleWorkspaceDocumentOutputFormat;
-    sourceKind: DocumentWorkspaceProjectSourceKind;
+    outputPath: string;
   }): Promise<string | null> {
-    if (input.sourceKind !== "authored_workspace_project") {
+    const dotIndex = input.outputPath.lastIndexOf(".");
+    if (dotIndex <= "/workspace/".length) {
       return null;
     }
-    const layout = buildDocumentWorkspaceProjectLayout(input.workspaceProjectPath);
-    const candidates =
-      input.outputFormat === "pdf"
-        ? [
-            layout.defaultRenderEntrypoint,
-            `${input.workspaceProjectPath}/render/index.html`,
-            `${input.workspaceProjectPath}/index.html`,
-            `${input.workspaceProjectPath}/report.html`
-          ]
-        : [`${input.workspaceProjectPath}/build.py`];
-    for (const candidate of candidates) {
-      const metadata = await this.workspaceFileMetadataService.get({
-        workspaceId: input.workspaceId,
-        path: candidate
-      });
-      if (metadata !== null) {
-        return candidate;
-      }
-    }
-    return candidates[0] ?? null;
+    const candidate = `${input.outputPath.slice(0, dotIndex)}.md`;
+    const metadata = await this.workspaceFileMetadataService.get({
+      workspaceId: input.workspaceId,
+      path: candidate
+    });
+    return metadata === null ? null : candidate;
   }
 
   private async resolveDefaultExtractManifestPath(input: {
@@ -589,53 +547,6 @@ export class DocumentWorkspaceVersionRegistrationService {
       path: candidate
     });
     return metadata === null ? null : candidate;
-  }
-
-  private async resolveDefaultProjectSourcePath(input: {
-    workspaceId: string;
-    workspaceProjectPath: string;
-    sourceKind: DocumentWorkspaceProjectSourceKind;
-    sourcePath: string | null;
-  }): Promise<string | null> {
-    if (input.sourceKind === "authored_workspace_project") {
-      return input.sourcePath;
-    }
-    const candidate = buildDocumentProjectSourceCopyPath(
-      buildDocumentWorkspaceProjectLayout(input.workspaceProjectPath),
-      input.sourcePath
-    );
-    if (candidate === null) {
-      return null;
-    }
-    const metadata = await this.workspaceFileMetadataService.get({
-      workspaceId: input.workspaceId,
-      path: candidate
-    });
-    return metadata === null ? null : candidate;
-  }
-
-  private async persistProjectManifest(input: {
-    workspaceId: string;
-    path: string;
-    manifest: Record<string, unknown>;
-  }): Promise<void> {
-    const buffer = Buffer.from(JSON.stringify(input.manifest, null, 2), "utf8");
-    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
-      workspaceId: input.workspaceId,
-      workspaceRelPath: input.path
-    });
-    await this.mediaObjectStorage.saveObject({
-      objectKey,
-      buffer,
-      mimeType: "application/json"
-    });
-    await this.workspaceFileMetadataService.upsert({
-      workspaceId: input.workspaceId,
-      path: input.path,
-      mimeType: "application/json",
-      sizeBytes: buffer.length,
-      shortDescription: "Document project manifest"
-    });
   }
 
   private async readInspectionFacts(
@@ -798,17 +709,4 @@ function isProjectSourceFormat(value: unknown): value is DocumentWorkspaceProjec
       value as DocumentWorkspaceProjectSourceFormat
     )
   );
-}
-
-function basenameOrNull(path: string | null): string | null {
-  if (path === null) {
-    return null;
-  }
-  const normalized = path.trim().replace(/\/+$/g, "");
-  if (normalized.length === 0) {
-    return null;
-  }
-  const segments = normalized.split("/");
-  const basename = segments[segments.length - 1] ?? "";
-  return basename.length > 0 ? basename : null;
 }

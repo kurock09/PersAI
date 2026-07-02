@@ -83,6 +83,20 @@ function createAttachmentRepository(createdInputs: Record<string, unknown>[]) {
   };
 }
 
+function createAttachmentMetadataUpdater(updatedMetadata: Record<string, unknown>[]) {
+  return {
+    assistantChatMessageAttachment: {
+      update: async (input: { data: { metadata: Record<string, unknown> } }) => {
+        updatedMetadata.push(input.data.metadata);
+        return {
+          id: "attachment-updated",
+          metadata: input.data.metadata
+        };
+      }
+    }
+  };
+}
+
 describe("register-chat-attachment.service", () => {
   test("rejects storage paths outside /workspace/ and /workspace/", async () => {
     const service = new RegisterChatAttachmentService(
@@ -274,6 +288,7 @@ describe("register-chat-attachment.service", () => {
 
     for (const testCase of cases) {
       const createdInputs: Record<string, unknown>[] = [];
+      const updatedMetadata: Record<string, unknown>[] = [];
       let inspectInput: Record<string, unknown> | null = null;
       let registerInput: Record<string, unknown> | null = null;
       let lookupCount = 0;
@@ -294,7 +309,8 @@ describe("register-chat-attachment.service", () => {
           },
           assistantDocument: {
             findFirst: async () => null
-          }
+          },
+          ...createAttachmentMetadataUpdater(updatedMetadata)
         } as never,
         createAttachmentRepository(createdInputs) as never,
         {
@@ -373,14 +389,14 @@ describe("register-chat-attachment.service", () => {
       assert.equal(result.attachmentId, "attachment-1");
       assert.equal(lookupCount, 2);
       assert.equal(inspectInput?.path, testCase.path);
-      assert.equal(registerInput?.workspaceProjectPath, "/workspace");
+      assert.equal(registerInput?.workspaceProjectPath, null);
       assert.equal(
-        (createdInputs[0]?.metadata as { documentLink?: { outputFormat?: string } })?.documentLink
+        (updatedMetadata[0] as { documentLink?: { outputFormat?: string } })?.documentLink
           ?.outputFormat,
         testCase.format
       );
       assert.equal(
-        (createdInputs[0]?.metadata as { documentLink?: { outputPath?: string } })?.documentLink
+        (updatedMetadata[0] as { documentLink?: { outputPath?: string } })?.documentLink
           ?.outputPath,
         testCase.path
       );
@@ -389,6 +405,7 @@ describe("register-chat-attachment.service", () => {
 
   test("re-attaching the same document path auto-registers a new version", async () => {
     const createdInputs: Record<string, unknown>[] = [];
+    const updatedMetadata: Record<string, unknown>[] = [];
     const registerInputs: Record<string, unknown>[] = [];
     const links = [
       { status: "none" as const },
@@ -429,7 +446,8 @@ describe("register-chat-attachment.service", () => {
         },
         assistantDocument: {
           findFirst: async () => null
-        }
+        },
+        ...createAttachmentMetadataUpdater(updatedMetadata)
       } as never,
       createAttachmentRepository(createdInputs) as never,
       {
@@ -514,17 +532,15 @@ describe("register-chat-attachment.service", () => {
     assert.equal(registerInputs[1]?.docId, "doc-auto-1");
     assert.equal(registerInputs[1]?.descriptorMode, "revise_document");
     assert.equal(
-      (
-        createdInputs[1]?.metadata as {
-          documentLink?: { versionNumber?: number; descriptorMode?: string };
-        }
-      )?.documentLink?.versionNumber,
+      (updatedMetadata[1] as { documentLink?: { versionNumber?: number; descriptorMode?: string } })
+        ?.documentLink?.versionNumber,
       2
     );
   });
 
   test("Case B: shell rewrites file bytes and files.attach records a new version", async () => {
     const createdInputs: Record<string, unknown>[] = [];
+    const updatedMetadata: Record<string, unknown>[] = [];
     const registerInputs: Record<string, unknown>[] = [];
     const links = [
       { status: "none" as const },
@@ -565,7 +581,8 @@ describe("register-chat-attachment.service", () => {
         },
         assistantDocument: {
           findFirst: async () => null
-        }
+        },
+        ...createAttachmentMetadataUpdater(updatedMetadata)
       } as never,
       createAttachmentRepository(createdInputs) as never,
       {
@@ -664,7 +681,7 @@ describe("register-chat-attachment.service", () => {
     assert.equal(registerInputs[1]?.descriptorMode, "revise_document");
     assert.equal(
       (
-        createdInputs[1]?.metadata as {
+        updatedMetadata[1] as {
           documentLink?: { versionNumber?: number; descriptorMode?: string; outputPath?: string };
         }
       )?.documentLink?.versionNumber,
@@ -672,7 +689,7 @@ describe("register-chat-attachment.service", () => {
     );
     assert.equal(
       (
-        createdInputs[1]?.metadata as {
+        updatedMetadata[1] as {
           documentLink?: { versionNumber?: number; descriptorMode?: string; outputPath?: string };
         }
       )?.documentLink?.descriptorMode,
@@ -680,12 +697,99 @@ describe("register-chat-attachment.service", () => {
     );
     assert.equal(
       (
-        createdInputs[1]?.metadata as {
+        updatedMetadata[1] as {
           documentLink?: { versionNumber?: number; descriptorMode?: string; outputPath?: string };
         }
       )?.documentLink?.outputPath,
       "/workspace/report.xlsx"
     );
+  });
+
+  test("files.attach still creates an attachment row when document enrichment fails", async () => {
+    const createdInputs: Record<string, unknown>[] = [];
+    let registerCalls = 0;
+
+    const service = new RegisterChatAttachmentService(
+      {
+        assistantChat: {
+          findFirst: async () => ({
+            id: "chat-1",
+            surface: "web",
+            surfaceThreadKey: "web-thread-1"
+          })
+        },
+        assistantDocument: {
+          findFirst: async () => null
+        },
+        assistantChatMessageAttachment: {
+          update: async () => {
+            throw new Error("metadata update should not run when enrichment fails");
+          }
+        }
+      } as never,
+      createAttachmentRepository(createdInputs) as never,
+      {
+        async get(input: { path: string }) {
+          return input.path === "/workspace/test.pdf"
+            ? createWorkspaceMetadata("/workspace/test.pdf")
+            : null;
+        },
+        upsert: async () => {}
+      } as never,
+      {
+        async findCurrentDocumentLinkByOutputPath() {
+          return { status: "none" as const };
+        }
+      } as never,
+      {
+        async execute() {
+          return {
+            accepted: false,
+            code: "inspect_failed",
+            message: "inspect unavailable"
+          };
+        }
+      } as never,
+      {
+        async execute() {
+          registerCalls += 1;
+          return {
+            accepted: true,
+            docId: "doc-unreachable",
+            versionId: "version-unreachable",
+            versionNumber: 1,
+            descriptorMode: "create_document" as const,
+            documentType: "workspace_document" as const,
+            outputFormat: "pdf" as const,
+            outputPath: "/workspace/test.pdf",
+            workspaceProjectPath: "/workspace",
+            sourceManifestPath: null,
+            inspectionPath: "/workspace/test.inspect.json"
+          };
+        }
+      } as never
+    );
+
+    const result = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      messageId: "message-1",
+      storagePath: "/workspace/test.pdf",
+      attachmentType: "document",
+      mimeType: "application/pdf",
+      sizeBytes: 64,
+      originalFilename: "test.pdf",
+      kind: "files.attach"
+    });
+
+    assert.equal(result.attachmentId, "attachment-1");
+    assert.equal(createdInputs.length, 1);
+    assert.equal(
+      ((createdInputs[0]?.metadata as Record<string, unknown> | null) ?? {})["documentLink"],
+      undefined
+    );
+    assert.equal(registerCalls, 0);
   });
 
   test("missing workspace document output fails honestly without provenance-wall wording", async () => {
@@ -782,7 +886,7 @@ describe("register-chat-attachment.service", () => {
       });
 
       assert.equal(result.attachmentId, "attachment-1");
-      assert.equal(lookupCount, 1);
+      assert.equal(lookupCount, 0);
       assert.equal(
         (createdInputs[0]?.metadata as { documentLink?: unknown } | undefined)?.documentLink,
         undefined

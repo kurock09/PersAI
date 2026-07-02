@@ -25,7 +25,11 @@ export function normalizeWorkspacePath(value: string): string | null {
 }
 
 export function normalizeWorkspaceDirectory(value: string): string | null {
-  const path = normalizeWorkspacePath(value);
+  const trimmed = value.trim().replace(/\\/g, "/");
+  if (trimmed === "/workspace") {
+    return "/workspace";
+  }
+  const path = normalizeWorkspacePath(trimmed);
   if (path === null) {
     return null;
   }

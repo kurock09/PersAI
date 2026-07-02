@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { DocumentWorkspaceVersionRegistrationService } from "../src/modules/workspace-management/application/document-workspace-version-registration.service";
 
 describe("DocumentWorkspaceVersionRegistrationService", () => {
-  test("registers an authored xlsx project with explicit project/source provenance", async () => {
+  test("registers a root-level authored xlsx output without requiring project.json", async () => {
     const registeredInputs: unknown[] = [];
     const savedObjects = new Map<string, Buffer>();
     const inspection = {
@@ -55,9 +55,9 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       {
         async get(input: { path: string }) {
           if (
-            input.path === "/workspace/model/output.xlsx" ||
-            input.path === "/workspace/model/output.inspect.json" ||
-            input.path === "/workspace/model/build.py"
+            input.path === "/workspace/output.xlsx" ||
+            input.path === "/workspace/output.inspect.json" ||
+            input.path === "/workspace/output.md"
           ) {
             return {
               workspaceId: "workspace-1",
@@ -83,7 +83,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
         },
         async downloadObject(objectKey: string) {
-          if (objectKey === "gcs:model/output.inspect.json") {
+          if (objectKey === "gcs:output.inspect.json") {
             return {
               buffer: Buffer.from(JSON.stringify(inspection), "utf8"),
               contentType: "application/json"
@@ -119,10 +119,10 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       descriptorMode: null,
       docId: null,
       requestedName: "output.xlsx",
-      workspaceProjectPath: "/workspace/model",
-      outputPath: "/workspace/model/output.xlsx",
+      workspaceProjectPath: "/workspace",
+      outputPath: "/workspace/output.xlsx",
       sourceManifestPath: null,
-      inspectionPath: "/workspace/model/output.inspect.json"
+      inspectionPath: "/workspace/output.inspect.json"
     });
 
     assert.equal(outcome.accepted, true);
@@ -145,13 +145,13 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
         inspectionSummary: { counts: { sheetCount: number | null } } | null;
       };
     };
-    assert.equal(registered.workspaceFacts.workspaceProjectPath, "/workspace/model");
-    assert.equal(registered.workspaceFacts.projectManifestPath, "/workspace/model/project.json");
-    assert.equal(registered.workspaceFacts.projectSourcePath, "/workspace/model/build.py");
+    assert.equal(registered.workspaceFacts.workspaceProjectPath, "/workspace");
+    assert.equal(registered.workspaceFacts.projectManifestPath, null);
+    assert.equal(registered.workspaceFacts.projectSourcePath, "/workspace/output.md");
     assert.equal(registered.workspaceFacts.sourceKind, "authored_workspace_project");
-    assert.equal(registered.workspaceFacts.sourcePath, "/workspace/model/build.py");
-    assert.equal(registered.workspaceFacts.sourceFormat, "python");
-    assert.equal(registered.workspaceFacts.sourceMimeType, "text/x-python");
+    assert.equal(registered.workspaceFacts.sourcePath, "/workspace/output.md");
+    assert.equal(registered.workspaceFacts.sourceFormat, "text");
+    assert.equal(registered.workspaceFacts.sourceMimeType, "text/plain");
     assert.equal(registered.workspaceFacts.inspectionSummary?.counts.sheetCount, 2);
   });
 
@@ -516,7 +516,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
             if (
               where?.assistantId === "assistant-1" &&
               where?.workspaceId === "workspace-1" &&
-              where?.currentVersion?.is?.sourceJson?.equals === "/workspace/model/output.xlsx"
+              where?.currentVersion?.is?.sourceJson?.equals === "/workspace/output.xlsx"
             ) {
               return { id: "doc-existing-1" };
             }
@@ -540,9 +540,9 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       {
         async get(input: { path: string }) {
           if (
-            input.path === "/workspace/model/output.xlsx" ||
-            input.path === "/workspace/model/output.inspect.json" ||
-            input.path === "/workspace/model/build.py"
+            input.path === "/workspace/output.xlsx" ||
+            input.path === "/workspace/output.inspect.json" ||
+            input.path === "/workspace/output.md"
           ) {
             return {
               workspaceId: "workspace-1",
@@ -568,7 +568,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
         },
         async downloadObject(objectKey: string) {
-          if (objectKey === "gcs:model/output.inspect.json") {
+          if (objectKey === "gcs:output.inspect.json") {
             return {
               buffer: Buffer.from(JSON.stringify(inspection), "utf8"),
               contentType: "application/json"
@@ -604,10 +604,10 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       descriptorMode: null,
       docId: null,
       requestedName: "output.xlsx",
-      workspaceProjectPath: "/workspace/model",
-      outputPath: "/workspace/model/output.xlsx",
+      workspaceProjectPath: "/workspace",
+      outputPath: "/workspace/output.xlsx",
       sourceManifestPath: null,
-      inspectionPath: "/workspace/model/output.inspect.json"
+      inspectionPath: "/workspace/output.inspect.json"
     });
 
     assert.equal(outcome.accepted, true);

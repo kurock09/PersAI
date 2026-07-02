@@ -13,13 +13,12 @@ import { ProviderGatewayClientService } from "./provider-gateway.client.service"
 import { SandboxClientService } from "./sandbox-client.service";
 import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
 
-// ADR-129 hard cutover: document worker now serves Gamma presentations only.
-// All sandbox/HTML/PDF/DOCX/XLSX worker paths and source-extraction sidecars
-// were retired; PDF/DOCX/XLSX document work now flows through the visible
-// workspace workflow (document.extract → workspace edits → document.render
-// → document.inspect → files.attach). The Gamma path stays because the
-// founder reserved presentation generation as a deferred provider call that
-// has no equivalent visible-workspace render primitive.
+// ADR-132 hard cutover: document worker now serves Gamma presentations only.
+// Ordinary PDF/DOCX/XLSX document work stays on the live three-verb surface
+// (`document.inspect`, `document.render`, `document.convert`) plus
+// `files.attach` for shell-produced outputs. The Gamma path stays because
+// presentation generation remains a deferred provider call with no equivalent
+// synchronous render primitive.
 
 const DEFAULT_DOCUMENT_TIMEOUT_MS = 6 * 60 * 1000;
 type SupportedDocumentProvider = "gamma";
@@ -42,9 +41,9 @@ export class RuntimeDocumentProviderAdapterService {
     if (provider !== "gamma") {
       throw new BadRequestException(
         `Document provider "${String(provider)}" is no longer supported by the worker. ` +
-          "Non-presentation document work runs through the visible workspace " +
-          "workflow (document.extract → workspace edits → document.render → " +
-          "document.inspect → files.attach)."
+          "Non-presentation document work runs through document.inspect / " +
+          "document.render / document.convert, with files.attach used only " +
+          "to deliver shell-produced outputs."
       );
     }
     const credential = this.resolveDocumentCredential(input.bundle, provider);
