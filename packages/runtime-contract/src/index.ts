@@ -1,4 +1,16 @@
-export * from "./prompt-budget";
+/**
+ * ADR-130 Slice 1 — shared prompt-budget guardrails.
+ *
+ * Inlined here (was `./prompt-budget`) so `@persai/runtime-contract` stays a
+ * single-file package: it is consumed as raw TS via `main: src/index.ts` and
+ * loaded by Node's native type-stripping, which does not resolve extensionless
+ * relative imports at runtime.
+ */
+export const ENABLED_SKILLS_BUDGET_CHARS = 4_500;
+export const STABLE_PREFIX_BUDGET_CHARS = 10_000;
+export const ENABLED_SKILLS_SCENARIO_ROW_CAP = 32;
+export const SKILL_SUMMARY_CAP = 160;
+export const SKILL_WHEN_TO_USE_CAP = 200;
 
 export const PERSAI_RUNTIME_CONTRACT_SCHEMA = "persai.runtime.contract.v1" as const;
 
