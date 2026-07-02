@@ -1,6 +1,36 @@
 # SESSION-HANDOFF
 
-## 2026-07-02 — ADR-132 Slice 2 landed locally (document identity registry + honest delivery, walls removed); Slice 3 next
+## 2026-07-02 — ADR-132 Slice 3 landed locally (Case A/B editing paths locked; server-side identity resolution; legacy-verb rejection tests); Slice 4 (docs + closure) next
+
+Status: **ADR-132 Slice 3 committed as `3462e521` (feat) + `54e5049d` (fix) locally, not pushed** (push=deploy still batched behind ADR-130 completion, per founder instruction). Docs follow-through (this section + CHANGELOG entry) landed by the parent orchestrator.
+
+**What Slice 3 landed.**
+
+- **Case A guidance (four-step recipe)** in `native-tool-projection.ts`, `tool-catalog-data.ts`, and `bootstrap-preset-data.ts`: `files.read(<siblingMarkdownPath>)` → edit Markdown → `files.write(<siblingMarkdownPath>, newContent, replace: true)` → `document.render({ contentPath: <siblingMarkdownPath>, format: <same>, outputPath: <same as before> })`. Case B guidance (`shell` + `openpyxl` / `python-docx` / `weasyprint` + `files.attach(path)`) was already present from Slice 1 and is not rewritten.
+- **Legacy-verb hard rejection** locked in tests for `edit` and `register_version` (symmetric to Slice 1's `extract` rejection).
+- **Case A property test** at the runtime level: repeat renders at the same `outputPath` produce v+1 with the edited Markdown flowing into the render program's `contentPath`.
+- **Case B property test** extending `register-chat-attachment.service.test.ts`: `files.attach` at an existing document path auto-registers a new version with `descriptorMode: "revise_document"` against the same `docId`.
+- **ADR-119 golden prompt snapshot regenerated** for the added Case A guidance line.
+
+**Correction — server-side document identity resolution (`54e5049d`).**
+The initial Slice 3 mechanical fix used an in-memory `Map` on `RuntimeDocumentToolService` keyed on `(workspaceId, outputPath)` to remember the docId across renders. That was architecturally fragile: it did not survive pod restarts and was not shared across pods, so repeat renders hitting a different runtime instance would still mint a fresh document. Corrected by resolving document identity **server-side** in `DocumentWorkspaceVersionRegistrationService`: when the runtime calls the internal register endpoint with `docId=null`, the API now looks up an existing `assistantDocument` whose current version metadata carries the same `outputPath` and, if found, treats the call as `revise_document` against that docId. Runtime is stateless again — `finalizeDocumentDelivery` always sends `{docId: null, descriptorMode: null}`. Added `apps/api/test/document-workspace-version-registration.service.test.ts` case `resolves existing docId from outputPath when caller passes docId=null (Case A / render revision)`.
+
+**Files touched (Slice 3 + correction).**
+- `apps/api/prisma/{bootstrap-preset-data.ts, tool-catalog-data.ts}`
+- `apps/api/src/modules/workspace-management/application/document-workspace-version-registration.service.ts` (+ new private `resolveExistingDocIdByOutputPath`)
+- `apps/api/test/{document-workspace-version-registration.service.test.ts, register-chat-attachment.service.test.ts}`
+- `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt` (regenerated)
+- `apps/runtime/src/modules/turns/{native-tool-projection.ts, runtime-document-tool.service.ts}`
+- `apps/runtime/test/runtime-document-tool.service.test.ts`
+
+**Verification.** Full AGENTS gate green: `pnpm -r --if-present run lint`, `pnpm run format:check`, `pnpm --filter @persai/api|web|runtime run typecheck`. Full `@persai/api` + `@persai/runtime` suites green — 11 runtime document tests (including new: `rejects removed "edit"`, `rejects removed "register_version"`, `Case A: edit sibling markdown and re-render bumps to v+1 with markdown bytes preserved`, and the pre-existing `rendering the same output path twice records two versions`); 5 API version-registration tests including the new `resolves existing docId from outputPath` case.
+
+**Next (still ADR-132).**
+- **Slice 4 — Docs + closure:** update `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md` to match landed code (three-verb surface, D4 identity registry, D5 sibling-Markdown collocation, honest-delivery semantics, no document-scoped walls); close `docs/ADR/129-agentic-document-workspace-extraction-render-inspect-and-versioning.md` and the document-scoped items in `docs/ADR/131-workspace-project-isolation-and-cross-turn-delivery-safety.md`; update `docs/ADR/132-document-single-door-mechanics-and-honest-delivery.md` status to Closed with completion notes. Then run the live acceptance suite per ADR-132 acceptance criteria 1–11.
+
+**Coordination reminder.** ADR-130 Slice 3 (heavy-descriptor re-layering) still owns the **`video_generate`** re-layering — that is not this orchestrator's ADR. The **document** part of that re-layering was folded into ADR-132's Slices 1 and 4 (see ADR-132 § "Coordination with ADR-130"). ADR-130 Slice 6 (D8 cross-turn tool memory) is the shared platform fix consumed here for reliable multi-turn edits.
+
+## 2026-07-02 — ADR-132 Slice 2 landed locally (document identity registry + honest delivery, walls removed); superseded by Slice 3 section above
 
 Status: **ADR-132 Slice 2 committed `0bc56ca2` locally, not pushed** (push=deploy still batched behind ADR-130 completion, per founder instruction). Docs follow-through (this section + CHANGELOG entry) landed by the parent orchestrator as promised in the Slice 2 commit message.
 
