@@ -87,6 +87,8 @@ ADR-117 defines one owner per model/provider instruction concern:
 
 Precedence rule: if a rule compares two tools, chooses between tools, or explains when not to call a sibling tool, it belongs only in the selection guide. Descriptor text stays mechanical, and provider-rendering hygiene stays provider-only.
 
+Canonical model-facing names are `knowledge_search`, `knowledge_fetch`, and `quota_status`. The catalog rows `memory_search`, `memory_get`, and `persai_tool_quota_status` remain hidden alias/remap plumbing for runtime wiring and credentials only; they are not separate prompt owners and must not carry competing model-facing instruction truth.
+
 ### Runtime preflight
 
 - public API route: `GET /api/v1/assistant/runtime/preflight`

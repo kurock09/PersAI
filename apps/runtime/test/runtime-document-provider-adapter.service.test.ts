@@ -105,7 +105,8 @@ export async function runRuntimeDocumentProviderAdapterServiceTest(): Promise<vo
       (error: unknown) =>
         error instanceof BadRequestException &&
         /no longer supported by the worker/.test(error.message) &&
-        /visible workspace/.test(error.message)
+        /document\.inspect \/ document\.render \/ document\.convert/.test(error.message) &&
+        /files\.attach/.test(error.message)
     );
   });
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Open
+Closed locally 2026-07-03
 
 ## Date
 
@@ -562,6 +562,16 @@ Do: make the admin palette + preview/reset-default reflect the backend truth (ad
 
 Acceptance: the admin constructor palette/default match the backend-compiled assembly; no dangling/yellow tokens; one source of truth for the default order.
 
+### Closure note [2026-07-03]
+
+Slices 7, 8, and 10 landed locally and closed the remaining post-audit scope:
+
+- **Slice 7 / D1** made `<tool_usage_policy>` the single owner of cross-tool routing.
+- **Slice 8 / §6** removed dead projection fallback prose, cleared shadow prompt-owner drift on the hidden alias/remap rows, and deduped pending-delivery honesty to the real live owners.
+- **Slice 10** brought the admin Prompt Constructor UI back into alignment with the backend-compiled assembly and removed the stale local preview/default copy.
+
+Founder direction on 2026-07-03 explicitly skipped Slice 9. Under the current post-ADR-132 tool surface this does **not** re-open a stale lazy-action shape: `document` is now the strict three-verb surface (`inspect` / `render` / `convert`), and no new `document.describe_workflow(...)` compat path was introduced. `shell.describe_environment()` remains deliberately out of prefix scope.
+
 ## Acceptance criteria
 
 This ADR is not complete until all of the following are true:
@@ -578,6 +588,8 @@ This ADR is not complete until all of the following are true:
 10. all prompt-owner decisions are reflected in the active program ledger, not only in code.
 11. the admin Prompt Constructor (`apps/web/app/admin/presets/page.tsx`) block palette and preview/reset-default match the backend-compiled system assembly (`bootstrap-preset-data.ts` + `compile-prompt-constructor.service.ts`): no dangling/unregistered tokens, no retired legacy blocks advertised, one source of truth for the default order (Slice 10).
 
+All criteria above are satisfied on the local tree as of 2026-07-03.
+
 ## Residual risk
 
 - Compacting `<enabled_skills>` too aggressively could reduce first-turn scenario discoverability; Slice 1 must verify that `skill.describe` and engage flow preserve practical usability.
@@ -586,4 +598,4 @@ This ADR is not complete until all of the following are true:
 
 ## Next recommended step
 
-Founder-approved sequence (2026-07-02): D8 (cross-turn tool history) is **recorded here now**, but the **next actual implementation work is the standalone document polishing + honest-delivery slice** (remove the provenance delivery wall so attach auto-registers and always delivers; idempotent durable document project with latest-version editing; render as the single door without steering the model into `shell`; self-sufficient/hidden exporter) which then **closes the document ADRs (129/131)**. Only after that does ADR-130 implementation begin — starting with Slice 0 (inventory/budget ledger), then the highest-value slices, with Slice 6 (tool-history persistence) as the platform-root fix for cross-turn amnesia.
+Push/deploy the verified local batch and run the usual live regression on prompt assembly, tool routing, and document workflow continuity against dev before treating the closure as rollout-complete.

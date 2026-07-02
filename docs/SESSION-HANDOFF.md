@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-130 closure docs landed locally after full gate; branch ready for rebase + push
+
+Status: **ADR-130 code + closure docs are implemented locally and gate-green.** Since the earlier local ADR-130 follow-through batch, the closure sweep has now landed too: the ADR itself is marked **Closed locally 2026-07-03**, the system docs (`ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`) reflect the final prompt-owner truth, and the only remaining branch work is remote sync (`main` is behind `origin/main` by one commit) plus founder-authorized push/deploy.
+
+**What changed after the earlier local ADR-130 batch.**
+
+- `docs/ADR/130-prompt-layering-cache-discipline-and-lazy-context-lookup.md` now marks ADR-130 closed locally, records Slices 7/8/10 as landed, notes the founder-directed skip of Slice 9 under the post-ADR-132 tool surface, and updates the next step to rollout/live regression.
+- `docs/ARCHITECTURE.md` now states the final closed-local ADR-130 truth: compact `<enabled_skills>`, explicit `memory_protocol` / `response_contract`, current-step-only `<persai_active_scenario>`, single-owner `<tool_usage_policy>`, and a truthful admin Prompt Constructor.
+- `docs/API-BOUNDARY.md` now makes the canonical model-facing names explicit (`knowledge_search`, `knowledge_fetch`, `quota_status`) and records `memory_search`, `memory_get`, and `persai_tool_quota_status` as hidden alias/remap rows rather than competing prompt owners.
+- `docs/DATA-MODEL.md` now records the same hidden-row plumbing vs canonical model-owner split next to the `assistant_chat_messages.tool_exchanges` ADR-130 seam.
+- Two stale tests were updated to match the new ADR-132 wording while preserving behavior: `apps/api/test/enqueue-runtime-deferred-document-job.service.test.ts` and `apps/runtime/test/runtime-document-provider-adapter.service.test.ts`.
+
+**Verification gate (all green on the local tree).**
+
+- `corepack pnpm -r --if-present run lint` ✅
+- `corepack pnpm run format:check` ✅
+- `corepack pnpm --filter @persai/api run typecheck` ✅
+- `corepack pnpm --filter @persai/web run typecheck` ✅
+- `corepack pnpm --filter @persai/runtime run typecheck` ✅
+- `corepack pnpm --filter @persai/api test` ✅
+- `corepack pnpm --filter @persai/runtime test` ✅
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/presets/page.test.tsx --config vitest.config.ts` ✅
+
+**Next recommended step.**
+
+- Rebase local `main` onto the one remote commit now sitting on `origin/main`, then push the verified branch so ADR-130 closure and the ADR-132 document fixes deploy together.
+
 ## 2026-07-03 — ADR-132 repair slice landed locally; delivery no longer waits for document metadata enrichment
 
 Status: **implemented locally, verified, not committed/pushed yet at the time this entry was written by the repair session.** Branch note: local `main` was clean before repair but diverged from `origin/main` (`ahead 2, behind 1`); the remote-only commit was a GitOps image-tag pin and was not merged in this repair slice.

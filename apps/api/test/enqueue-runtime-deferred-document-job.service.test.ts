@@ -281,7 +281,7 @@ async function runRevisionByStoragePathSteersBackToVisibleWorkflow(): Promise<vo
   );
   assert.match(
     result.accepted === false ? (result.guidance ?? "") : "",
-    /Do not ask the user to re-upload.*document\.extract.*document\.render.*document\.inspect.*files\.attach/is
+    /Do not ask the user to re-upload.*document\.inspect.*document\.render.*document\.convert.*files\.attach/is
   );
 }
 
