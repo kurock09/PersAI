@@ -32,6 +32,11 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           async findFirst() {
             return { userId: "user-1" };
           }
+        },
+        assistantDocument: {
+          async findFirst() {
+            return null;
+          }
         }
       } as never,
       {
@@ -192,6 +197,11 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
         assistant: {
           async findFirst() {
             return { userId: "user-1" };
+          }
+        },
+        assistantDocument: {
+          async findFirst() {
+            return null;
           }
         }
       } as never,
@@ -367,6 +377,11 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           async findFirst() {
             return { userId: "user-1" };
           }
+        },
+        assistantDocument: {
+          async findFirst() {
+            return null;
+          }
         }
       } as never,
       {
@@ -453,5 +468,157 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       return;
     }
     assert.equal(outcome.code, "inspection_required");
+  });
+
+  test("resolves existing docId from outputPath when caller passes docId=null (Case A / render revision)", async () => {
+    const registeredInputs: Record<string, unknown>[] = [];
+    const savedObjects = new Map<string, Buffer>();
+    const inspection = {
+      schema: "persai.document.inspect.v1",
+      format: "xlsx",
+      counts: {
+        pageCount: null,
+        sheetCount: 2,
+        formulaCount: 3,
+        blankSheetCount: 0,
+        paragraphCount: null,
+        headingCount: null,
+        tableCount: null,
+        textCharCount: null
+      },
+      warnings: []
+    };
+    const service = new DocumentWorkspaceVersionRegistrationService(
+      {
+        assistantChat: {
+          async findFirst() {
+            return { id: "chat-1" };
+          }
+        },
+        assistant: {
+          async findFirst() {
+            return { userId: "user-1" };
+          }
+        },
+        assistantDocument: {
+          async findFirst(query: { where?: Record<string, unknown> }) {
+            const where = query?.where as
+              | {
+                  assistantId?: string;
+                  workspaceId?: string;
+                  currentVersion?: {
+                    is?: {
+                      sourceJson?: { path?: string[]; equals?: string };
+                    };
+                  };
+                }
+              | undefined;
+            if (
+              where?.assistantId === "assistant-1" &&
+              where?.workspaceId === "workspace-1" &&
+              where?.currentVersion?.is?.sourceJson?.equals === "/workspace/model/output.xlsx"
+            ) {
+              return { id: "doc-existing-1" };
+            }
+            return null;
+          }
+        }
+      } as never,
+      {
+        async registerVisibleWorkspaceVersion(input: Record<string, unknown>) {
+          registeredInputs.push(input);
+          return {
+            docId: "doc-existing-1",
+            versionId: "version-existing-2",
+            versionNumber: 2,
+            descriptorMode: "revise_document",
+            documentType: "workspace_document",
+            outputFormat: "xlsx"
+          };
+        }
+      } as never,
+      {
+        async get(input: { path: string }) {
+          if (
+            input.path === "/workspace/model/output.xlsx" ||
+            input.path === "/workspace/model/output.inspect.json" ||
+            input.path === "/workspace/model/build.py"
+          ) {
+            return {
+              workspaceId: "workspace-1",
+              path: input.path,
+              mimeType: input.path.endsWith(".xlsx")
+                ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                : "application/json",
+              sizeBytes: BigInt(128),
+              contentHash: null,
+              shortDescription: null,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+          }
+          return null;
+        },
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        buildWorkspaceObjectKey(input: { workspaceRelPath: string }) {
+          return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+        },
+        async downloadObject(objectKey: string) {
+          if (objectKey === "gcs:model/output.inspect.json") {
+            return {
+              buffer: Buffer.from(JSON.stringify(inspection), "utf8"),
+              contentType: "application/json"
+            };
+          }
+          const saved = savedObjects.get(objectKey);
+          if (saved) {
+            return {
+              buffer: saved,
+              contentType: "application/json"
+            };
+          }
+          return null;
+        },
+        async saveObject(input: { objectKey: string; buffer: Buffer }) {
+          savedObjects.set(input.objectKey, input.buffer);
+          return {
+            objectKey: input.objectKey,
+            sizeBytes: input.buffer.length,
+            mimeType: "application/json"
+          };
+        }
+      } as never
+    );
+
+    const outcome = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "thread-1",
+      sourceUserMessageText: "revise workbook",
+      sourceUserMessageCreatedAt: "2026-07-02T20:30:00.000Z",
+      descriptorMode: null,
+      docId: null,
+      requestedName: "output.xlsx",
+      workspaceProjectPath: "/workspace/model",
+      outputPath: "/workspace/model/output.xlsx",
+      sourceManifestPath: null,
+      inspectionPath: "/workspace/model/output.inspect.json"
+    });
+
+    assert.equal(outcome.accepted, true);
+    if (!outcome.accepted) {
+      return;
+    }
+    assert.equal(outcome.docId, "doc-existing-1");
+    assert.equal(outcome.versionNumber, 2);
+    assert.equal(outcome.descriptorMode, "revise_document");
+    assert.equal(registeredInputs.length, 1);
+    assert.equal(registeredInputs[0]?.docId, "doc-existing-1");
+    assert.equal(registeredInputs[0]?.descriptorMode, "revise_document");
   });
 });

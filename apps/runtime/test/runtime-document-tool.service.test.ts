@@ -941,8 +941,8 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(registerCalls[0]?.descriptorMode, null);
     assert.equal(registerCalls[0]?.docId, null);
     assert.equal(registerCalls[0]?.versionNumber, undefined);
-    assert.equal(registerCalls[1]?.descriptorMode, "revise_document");
-    assert.equal(registerCalls[1]?.docId, "doc-case-a-1");
+    assert.equal(registerCalls[1]?.descriptorMode, null);
+    assert.equal(registerCalls[1]?.docId, null);
     assert.equal(first.payload.registration?.descriptorMode, "create_document");
     assert.equal(first.payload.registration?.versionNumber, 1);
     assert.equal(second.payload.registration?.descriptorMode, "revise_document");

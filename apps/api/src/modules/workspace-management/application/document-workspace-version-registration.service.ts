@@ -268,9 +268,20 @@ export class DocumentWorkspaceVersionRegistrationService {
       };
     }
 
+    const effectiveDocId =
+      input.docId ??
+      (await this.resolveExistingDocIdByOutputPath({
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        outputPath
+      }));
+    const effectiveDescriptorMode: WorkspaceDocumentRegisterVersionInput["descriptorMode"] =
+      input.docId === null && effectiveDocId !== null && input.descriptorMode === null
+        ? "revise_document"
+        : input.descriptorMode;
     const descriptorMode = this.resolveDescriptorMode({
-      descriptorMode: input.descriptorMode,
-      docId: input.docId,
+      descriptorMode: effectiveDescriptorMode,
+      docId: effectiveDocId,
       outputFormat
     });
     if (descriptorMode === null) {
@@ -307,7 +318,7 @@ export class DocumentWorkspaceVersionRegistrationService {
       descriptorMode,
       outputFormat,
       requestedName: input.requestedName,
-      ...(input.docId === null ? {} : { docId: input.docId }),
+      ...(effectiveDocId === null ? {} : { docId: effectiveDocId }),
       workspaceFacts
     });
 
@@ -327,6 +338,29 @@ export class DocumentWorkspaceVersionRegistrationService {
       sourceManifestPath: projectContext.sourceManifestPath,
       inspectionPath
     };
+  }
+
+  private async resolveExistingDocIdByOutputPath(input: {
+    assistantId: string;
+    workspaceId: string;
+    outputPath: string;
+  }): Promise<string | null> {
+    const document = await this.prisma.assistantDocument.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        currentVersion: {
+          is: {
+            sourceJson: {
+              path: ["metadata", "documentWorkspace", "outputPath"],
+              equals: input.outputPath
+            }
+          }
+        }
+      },
+      select: { id: true }
+    });
+    return document?.id ?? null;
   }
 
   private resolveDescriptorMode(input: {

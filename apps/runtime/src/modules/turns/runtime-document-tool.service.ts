@@ -56,14 +56,6 @@ export interface RuntimeDocumentToolExecutionResult {
 
 @Injectable()
 export class RuntimeDocumentToolService {
-  // Case A re-renders need the last registered doc identity for the same
-  // workspace output path so repeated renders record v+1 instead of minting a
-  // new visible document row.
-  private readonly documentIdentityByWorkspacePath = new Map<
-    string,
-    { docId: string; sourceMarkdownPath: string | null }
-  >();
-
   constructor(
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
     private readonly sandboxClientService?: SandboxClientService
@@ -665,9 +657,6 @@ export class RuntimeDocumentToolService {
     }
 
     try {
-      const priorIdentity = this.documentIdentityByWorkspacePath.get(
-        this.buildDocumentIdentityKey(input.bundle.metadata.workspaceId, input.outputPath)
-      );
       const outcome = await this.persaiInternalApiClientService.registerDocumentVersion({
         assistantId: input.bundle.metadata.assistantId,
         workspaceId: input.bundle.metadata.workspaceId,
@@ -675,8 +664,8 @@ export class RuntimeDocumentToolService {
         externalThreadKey: input.conversation.externalThreadKey,
         sourceUserMessageText: input.sourceUserMessageText,
         sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
-        descriptorMode: priorIdentity === undefined ? null : "revise_document",
-        docId: priorIdentity?.docId ?? null,
+        descriptorMode: null,
+        docId: null,
         requestedName: null,
         workspaceProjectPath: input.projectPath,
         outputPath: input.outputPath,
@@ -691,13 +680,6 @@ export class RuntimeDocumentToolService {
           }`
         };
       }
-      this.documentIdentityByWorkspacePath.set(
-        this.buildDocumentIdentityKey(input.bundle.metadata.workspaceId, input.outputPath),
-        {
-          docId: outcome.docId,
-          sourceMarkdownPath: input.sourceMarkdownPath
-        }
-      );
       return {
         registration: {
           docId: outcome.docId,
@@ -723,10 +705,6 @@ export class RuntimeDocumentToolService {
         }${inspectDetail === null ? "" : ` [${inspectDetail}]`}`
       };
     }
-  }
-
-  private buildDocumentIdentityKey(workspaceId: string, outputPath: string): string {
-    return `${workspaceId}:${outputPath}`;
   }
 
   private renderSkipped(
