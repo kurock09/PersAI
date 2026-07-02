@@ -493,6 +493,8 @@ Acceptance:
 
 - next-session readers do not have to rediscover the precedence or prompt-owner model.
 
+Closed [2026-07-02]: D6 precedence codified in code (`20e1792c`) and in `ARCHITECTURE.md` (persona-layer precedence note). **Cache-prefix rollout SHA = `f1a7ca44c545dd7a957e908e7c8107cc64df2fcd`** — the deploy SHA that shipped the full ADR-130 prompt-layering/cache-discipline program (Slices 0–6b) to `origin/main` after a green gate. No further prompt-owner residuals; this also resolves the ADR-117 "cache-prefix rollout SHA pending" note for the layering cutover.
+
 ### Slice 6 — Cross-turn tool-history persistence and replay (D8) [added 2026-07-02]
 
 Subagent: GPT-5.4.

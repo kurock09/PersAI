@@ -1,10 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-07-02 — ADR-130 full program (Slices 0–6b) verified + pushed/deployed; cache-prefix rollout SHA = `f1a7ca44`
+
+Status: **ADR-130 is complete, gate-green, and pushed to `origin/main`.** Rollout/deploy SHA (cache-prefix rollout note for ADR-130 Slice 5 and the ADR-117 residual) = `f1a7ca44c545dd7a957e908e7c8107cc64df2fcd`. Local `main` was rebased onto `origin/main` (absorbing the GitOps bot commit `f31a61d7`) with no conflicts, then fast-forward pushed `f31a61d7..f1a7ca44`.
+
+**What shipped in this push (19 commits).**
+
+- ADR-130 Slice 0 inventory (`1c42ede8`), Slice 1 compact `enabled_skills` + lazy `skill.list/describe` (`9c284cd4`), Slice 2 single-owner system prefix (`88873897`), Slice 3 `video_generate` lazy read-only actions (`a0531a80`), Slice 4 current-step `<persai_active_scenario>` (`d61e2cc3`), Slice 5/D6 `character_notes` precedence (`20e1792c`), Slice 6a persist `tool_exchanges` server-only column (`77969bd4`), Slice 6b native cross-turn tool-history replay (`d226ee5e`).
+- ADR-132 document-surface program (Slices 0–4) authored by the adjacent session.
+- Timeout ceiling config `90s -> 300s` (`6b7aa9fd`).
+
+**Verification gate (all green on the pushed tree).**
+
+- `corepack pnpm --filter @persai/api run typecheck` ✅
+- `corepack pnpm --filter @persai/web run typecheck` ✅
+- `corepack pnpm --filter @persai/api test` ✅
+- `corepack pnpm -r --if-present run lint` ✅
+- `corepack pnpm run format:check` ✅
+- Slice 6a/6b runtime + provider-gateway typecheck/suites were re-run green during the 6b audit.
+
+**Deploy watch.**
+
+- Slice 6a carries the additive Prisma migration `20260702210000_adr130_message_tool_exchanges` (`tool_exchanges` JSONB). Per repo CI truth, `Dev Image Publish` pauses on the `persai-dev-migrations` GitHub Environment and waits for manual approval before GitOps tag pinning continues. Approve that rollout to let the deploy finish.
+
+**Next recommended step.**
+
+- Approve the `persai-dev-migrations` environment gate, then live-validate ADR-130 behaviour on dev: compact skills prompt + `skill.describe` lazy path, `video_generate` read-only actions, current-step scenario block, and cross-turn tool-history replay (last 3 turns) without cache regressions.
+
 ## 2026-07-02 — ADR-130 Slice 6b (D8 bounded replay/read path) landed locally; next = parent audit / commit decision
 
 Status: **ADR-130 Slice 6b is implemented locally, not committed, not pushed.** Baseline before this slice: `77969bd4`. Scope was strictly the replay/read half of D8: no schema redesign, no current-turn tool-loop changes, no cache-marker logic changes, no client-facing DTO/entity changes.
 
 **What landed.**
+
 - `ProviderGatewayTextMessage` now additively carries optional `priorToolExchanges?: ProviderGatewayToolExchange[]` so a prior assistant turn can replay its own historical native tool pairs immediately before its final text.
 - Runtime hydration now reads `assistant_chat_messages.tool_exchanges` directly from Prisma, validates JSON back into `ProviderGatewayToolExchange[]`, and attaches replay only to prior assistant turns. The current inbound user message is never annotated.
 - New pure helper `apps/runtime/src/modules/turns/prior-tool-exchange-replay.ts` implements the locked replay policy deterministically: last 3 prior assistant turns with exchanges, total replay budget ~2000 tokens, drop-oldest-first when over budget, per-result 2000-char tail keep with a top truncation marker, binary placeholder reuse via exported `isLikelyBinaryContent`, and per-call serialized argument cap of 600 chars.
@@ -12,6 +40,7 @@ Status: **ADR-130 Slice 6b is implemented locally, not committed, not pushed.** 
 - Cache-guard coverage was extended so replayed prior exchanges are proven to stay in the tail/request messages and not in the cached stable prefix.
 
 **Files touched.**
+
 - Contract: `packages/runtime-contract/src/index.ts`
 - Runtime: `apps/runtime/src/modules/turns/{prior-tool-exchange-replay.ts,sanitize-tool-result-for-model.ts,turn-context-hydration.service.ts}`
 - Provider gateway: `apps/provider-gateway/src/modules/providers/{anthropic/anthropic-provider.client.ts,openai/openai-provider.client.ts,deepseek/deepseek-provider.client.ts}`
@@ -19,6 +48,7 @@ Status: **ADR-130 Slice 6b is implemented locally, not committed, not pushed.** 
 - Docs: `docs/CHANGELOG.md`, `docs/SESSION-HANDOFF.md`
 
 **Verification.**
+
 - `corepack pnpm --filter @persai/provider-gateway run typecheck` ✅
 - `corepack pnpm --filter @persai/runtime run typecheck` ✅
 - `corepack pnpm --filter @persai/provider-gateway test` ✅
@@ -30,6 +60,7 @@ Status: **ADR-130 Slice 6b is implemented locally, not committed, not pushed.** 
 - `@persai/runtime-contract` has no `build` script in `package.json`, so there was no contract build step to run.
 
 **Residuals / next.**
+
 - Slice 6b is local-only and awaits parent/orchestrator audit of the diff plus whatever commit strategy the parent wants for the ADR-130 batch.
 - Next recommended step: parent audit this Slice 6b diff together with the already-landed Slice 6a persistence layer, then decide whether to commit the combined D8 persistence+replay slice or queue it behind any adjacent ADR-130 batching.
 
@@ -38,6 +69,7 @@ Status: **ADR-130 Slice 6b is implemented locally, not committed, not pushed.** 
 Status: **ADR-130 Slice 6a is implemented locally, not committed, not pushed.** Baseline before this slice: `a0531a80`. Scope was strictly the dormant persistence foundation for D8: add a dedicated server-only `assistant_chat_messages.tool_exchanges` JSONB column, thread runtime `ProviderGatewayToolExchange[]` through the internal runtime -> API persist path, and keep all client-facing entities/DTOs/stream payloads unchanged.
 
 **What landed.**
+
 - Prisma `AssistantChatMessage` now has nullable `toolExchanges Json? @map("tool_exchanges") @db.JsonB`, with additive migration `apps/api/prisma/migrations/20260702210000_adr130_message_tool_exchanges/migration.sql` containing exactly: `ALTER TABLE "assistant_chat_messages" ADD COLUMN "tool_exchanges" JSONB;`
 - `RuntimeTurnResult` additively gained optional `toolExchanges?: ProviderGatewayToolExchange[]` beside `toolInvocations`, and runtime now populates it from the per-turn accumulated `toolHistory` on both the streamed and sync turn paths by copying executed exchanges into `turnState.toolExchanges`.
 - API internal relay now threads `toolExchanges` through `assistant-runtime.facade.ts`, the sync/stream/Telegram runtime clients, and `persistAssistantMessage(...)`, which passes the exchanges directly to `chatRepository.createMessage(...)`. They are **not** written into `metadata`.
@@ -45,12 +77,14 @@ Status: **ADR-130 Slice 6a is implemented locally, not committed, not pushed.** 
 - Client read/list path remains no-leak by construction: `ManageWebChatListService` still maps messages via `mapAssistantChatMessageToWebState({ message, attachments })`, and that mapper only reads `metadata` plus attachments and only extracts `workingNotes` / `toolInvocations` from `metadata`.
 
 **Files touched.**
+
 - Prisma/data model: `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20260702210000_adr130_message_tool_exchanges/migration.sql`, `docs/DATA-MODEL.md`
 - Runtime contract/execution: `packages/runtime-contract/src/index.ts`, `apps/runtime/src/modules/turns/turn-execution.service.ts`
 - API persistence/relay: `apps/api/src/modules/workspace-management/domain/assistant-chat.repository.ts`, `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository.ts`, `apps/api/src/modules/workspace-management/application/{assistant-runtime.facade.ts,persist-assistant-message.ts,web-runtime-turn-client.service.ts,web-runtime-stream-client.service.ts,send-web-chat-turn.service.ts,stream-web-chat-turn.service.ts,handle-internal-telegram-turn.service.ts,send-native-telegram-turn.service.ts}`
 - Tests/docs: `apps/api/test/{persist-assistant-message.test.ts,manage-web-chat-list.service.test.ts}`, `docs/CHANGELOG.md`
 
 **Verification.**
+
 - `corepack pnpm --filter @persai/api run prisma:generate` ✅
 - `corepack pnpm --filter @persai/runtime run typecheck` ✅
 - `corepack pnpm --filter @persai/api run typecheck` ✅
@@ -61,6 +95,7 @@ Status: **ADR-130 Slice 6a is implemented locally, not committed, not pushed.** 
 - Extra AGENTS gate: `corepack pnpm --filter @persai/web run typecheck` ✅
 
 **Residuals / next.**
+
 - This slice is intentionally dormant storage only: nothing replays or reads `tool_exchanges` yet, and no client-visible behavior changed.
 - Next recommended step: **ADR-130 Slice 6b** — add the runtime-side direct Prisma read + bounded cross-turn replay builder that consumes `assistant_chat_messages.tool_exchanges` as volatile tail context without touching the stable prefix.
 
@@ -101,6 +136,7 @@ Status: **ADR-130 Slice 3 is implemented locally, not committed, not pushed.** B
 - `runtime-media-job-run.service.ts` now defensively rejects any accidental direct-worker invocation of a read-only `video_generate` lookup; direct media jobs must remain real generation calls.
 
 **Next.**
+
 1. Parent/orchestrator audit these local ADR-130 Slice 3 changes and commit them if accepted.
 2. Finish the remaining ADR-130 work, especially Slice 6 / D8 cross-turn tool memory persistence + replay.
 3. Founder go still gates the single batched push/deploy alongside the already-landed ADR-132 local batch.
@@ -121,18 +157,19 @@ Status: **ADR-132 fully implemented locally (all five slices), not pushed.** Fou
 
 **Complete ADR-132 slice roll-up (local commits, in order).**
 
-| Slice | Feat | Docs / Fix |
-| --- | --- | --- |
-| Open ADR | `d086c530` | — |
-| Slice 0 (ledger) | `99e58c67` | — |
-| Slice 1 (atomic cutover to 3 verbs) | `808960b3` | `35304479` |
-| Slice 2 (D4 registry + honest delivery + walls removed) | `0bc56ca2` | `7859b6d2` |
-| Slice 3 (Case A/B locked; legacy-verb rejection; server-side identity) | `3462e521` | fix `54e5049d`, docs `db53089d` |
-| Slice 4 (docs closure + ADR-129/131/132 status sweep) | this commit | — |
+| Slice                                                                  | Feat        | Docs / Fix                      |
+| ---------------------------------------------------------------------- | ----------- | ------------------------------- |
+| Open ADR                                                               | `d086c530`  | —                               |
+| Slice 0 (ledger)                                                       | `99e58c67`  | —                               |
+| Slice 1 (atomic cutover to 3 verbs)                                    | `808960b3`  | `35304479`                      |
+| Slice 2 (D4 registry + honest delivery + walls removed)                | `0bc56ca2`  | `7859b6d2`                      |
+| Slice 3 (Case A/B locked; legacy-verb rejection; server-side identity) | `3462e521`  | fix `54e5049d`, docs `db53089d` |
+| Slice 4 (docs closure + ADR-129/131/132 status sweep)                  | this commit | —                               |
 
 **Verification for Slice 4.** Docs-only change. Full AGENTS gate re-run before commit: `pnpm -r --if-present run lint`, `pnpm run format:check`, `pnpm --filter @persai/api|web|runtime run typecheck` — all green (no code touched).
 
 **Next.**
+
 1. **Parallel agent** finishes ADR-130 (Slice 3 `video_generate` heavy-descriptor re-layering — the **document** part is already handled by ADR-132 Slice 1/4, per ADR-132 § "Coordination with ADR-130"; plus Slice 6 D8 cross-turn tool memory; plus any remaining closure).
 2. **Founder** gives the batched push go — `push=deploy` for the whole ADR-132 (11 commits) + ADR-130 tail.
 3. **Live acceptance** on `persai.dev` in the founder session against ADR-132 § "Acceptance criteria" 1–11 (net-new PDF/DOCX/XLSX; Case A byte-preservation; Case B object-model preservation; convert; multi-source combine; exactly-once delivery; no legacy verbs; no seeded scripts; no document walls; `shell` ungated; docs match code).
@@ -155,6 +192,7 @@ Status: **ADR-132 Slice 3 committed as `3462e521` (feat) + `54e5049d` (fix) loca
 The initial Slice 3 mechanical fix used an in-memory `Map` on `RuntimeDocumentToolService` keyed on `(workspaceId, outputPath)` to remember the docId across renders. That was architecturally fragile: it did not survive pod restarts and was not shared across pods, so repeat renders hitting a different runtime instance would still mint a fresh document. Corrected by resolving document identity **server-side** in `DocumentWorkspaceVersionRegistrationService`: when the runtime calls the internal register endpoint with `docId=null`, the API now looks up an existing `assistantDocument` whose current version metadata carries the same `outputPath` and, if found, treats the call as `revise_document` against that docId. Runtime is stateless again — `finalizeDocumentDelivery` always sends `{docId: null, descriptorMode: null}`. Added `apps/api/test/document-workspace-version-registration.service.test.ts` case `resolves existing docId from outputPath when caller passes docId=null (Case A / render revision)`.
 
 **Files touched (Slice 3 + correction).**
+
 - `apps/api/prisma/{bootstrap-preset-data.ts, tool-catalog-data.ts}`
 - `apps/api/src/modules/workspace-management/application/document-workspace-version-registration.service.ts` (+ new private `resolveExistingDocIdByOutputPath`)
 - `apps/api/test/{document-workspace-version-registration.service.test.ts, register-chat-attachment.service.test.ts}`
@@ -165,6 +203,7 @@ The initial Slice 3 mechanical fix used an in-memory `Map` on `RuntimeDocumentTo
 **Verification.** Full AGENTS gate green: `pnpm -r --if-present run lint`, `pnpm run format:check`, `pnpm --filter @persai/api|web|runtime run typecheck`. Full `@persai/api` + `@persai/runtime` suites green — 11 runtime document tests (including new: `rejects removed "edit"`, `rejects removed "register_version"`, `Case A: edit sibling markdown and re-render bumps to v+1 with markdown bytes preserved`, and the pre-existing `rendering the same output path twice records two versions`); 5 API version-registration tests including the new `resolves existing docId from outputPath` case.
 
 **Next (still ADR-132).**
+
 - **Slice 4 — Docs + closure:** update `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md` to match landed code (three-verb surface, D4 identity registry, D5 sibling-Markdown collocation, honest-delivery semantics, no document-scoped walls); close `docs/ADR/129-agentic-document-workspace-extraction-render-inspect-and-versioning.md` and the document-scoped items in `docs/ADR/131-workspace-project-isolation-and-cross-turn-delivery-safety.md`; update `docs/ADR/132-document-single-door-mechanics-and-honest-delivery.md` status to Closed with completion notes. Then run the live acceptance suite per ADR-132 acceptance criteria 1–11.
 
 **Coordination reminder.** ADR-130 Slice 3 (heavy-descriptor re-layering) still owns the **`video_generate`** re-layering — that is not this orchestrator's ADR. The **document** part of that re-layering was folded into ADR-132's Slices 1 and 4 (see ADR-132 § "Coordination with ADR-130"). ADR-130 Slice 6 (D8 cross-turn tool memory) is the shared platform fix consumed here for reliable multi-turn edits.
@@ -182,6 +221,7 @@ Status: **ADR-132 Slice 2 committed `0bc56ca2` locally, not pushed** (push=deplo
 - **New runtime seam** in `turn-delivery-facts.ts` + `turn-execution.service.ts` records document-render/convert deliveries so the exactly-once dedup keeps holding across the new auto-register path.
 
 **Files touched.**
+
 - `apps/api/src/modules/workspace-management/application/{assistant-document-job.service.ts, document-workspace-deliverable-gating.ts, document-workspace-version-registration.service.ts, register-chat-attachment.service.ts}`
 - `apps/api/test/{document-workspace-version-registration.service.test.ts, register-chat-attachment.service.test.ts}`
 - `apps/runtime/src/modules/turns/{runtime-document-tool.service.ts, turn-delivery-facts.ts, turn-execution.service.ts}`
@@ -190,11 +230,13 @@ Status: **ADR-132 Slice 2 committed `0bc56ca2` locally, not pushed** (push=deplo
 **Verification.** Full AGENTS gate green: `pnpm -r --if-present run lint`, `pnpm run format:check`, `pnpm --filter @persai/api|web|runtime run typecheck`. Full `@persai/api` + `@persai/runtime` suites green (per Slice 2 subagent report + orchestrator audit; will re-verify on the current HEAD before Slice 3 commit).
 
 **Explicitly out of Slice 2 scope (owned by ADR-131 addendum, not this ADR).**
+
 - Sandbox / `files.*` cross-scope semantics.
 - `hardDeleteChat` orphaning.
 - Schema changes.
 
 **Next (still ADR-132).**
+
 1. **Slice 3 — editing paths (Case A + Case B) clean:**
    - Case A: model edits the persisted Markdown source via `files.read` + `files.write(replace: true)`, then re-calls `document.render` with the same `outputPath`; registry drives `v+1`.
    - Case B: model writes new Python via `shell` (openpyxl/python-docx) to mutate the file at the same path, then `files.attach(path)`; registry drives `v+1`.
@@ -209,6 +251,7 @@ Status: **ADR-132 Slice 2 committed `0bc56ca2` locally, not pushed** (push=deplo
 Status: **ADR-132 (document — single door mechanics and honest delivery) is progressing under parent orchestration.** Program opened `d086c530`; Slice 0 read-only ledger committed `99e58c67`; **Slice 1 atomic cutover committed `2ce5ab88` locally, not pushed** (push=deploy is batched behind ADR-130 completion, per founder instruction).
 
 **What Slice 1 landed.**
+
 - Model-facing `document` verbs = exactly three: `inspect(path)`, `render({content|contentPath, format:"pdf"|"xlsx"|"docx", style?, template?, outputPath})`, `convert({source, targetFormat, outputPath?})`.
 - Deleted (no aliases, no compat): `extract`, `edit`, `register_version` verbs and their entire private implementation surface (dispatch, parser, methods, edit helpers, `DocumentEditOp`/`EditableDocumentContentSource` types).
 - Contract cleanup in `packages/runtime-contract/src/index.ts`: retired `"extract"|"edit"|"register_version"` from `requestedAction`, `"extracted"|"edited"|"registered"` from `action`, dropped `extraction?:` / `edit?:` payload fields, deleted interfaces `RuntimeDocumentEditOpResult` / `RuntimeDocumentEditSummary` / `RuntimeDocumentExtractionSummary` / `RuntimeDocumentSuggestedNextAction`. Added `RuntimeDocumentConvertSummary` and reshaped `RuntimeDocumentRenderSummary` around the new contract (`sourceMarkdownPath` D5 collocation instead of `projectPath`/`entrypointPath`).
@@ -219,6 +262,7 @@ Status: **ADR-132 (document — single door mechanics and honest delivery) is pr
 - Retired dead runtime code: legacy `.py` entrypoint fallback, extracted-project activation seam (`turnState.activeDocumentProjectPath` setter on `"extracted"`), `DocumentProjectManifestFacts` type + its 13 helper methods (`resolveRenderEntrypoint`, `renderEntrypointMissingWarning`, `resolvePdfHtmlSourceForRender`, `readDocumentProjectManifestFactsOptional`, `resolveImportedNativeRenderWarning`, `resolveImportedOfficePdfExportEntrypoint`, `normalizeRenderOutputPath`, `deriveRenderOutputBasename`, `sanitizeOutputStem`, `isGenericOutputStem`, `readDocumentProjectSourcePath`, `buildRenderProgramSource`, `buildPythonRenderProgramSource`), unused imports (`validateDocumentProjectRenderPaths`, `buildDocumentProjectPdfExportEntrypoint`, `buildDocumentProjectPythonRenderEntrypoint`, `buildDocumentProjectRenderScaffoldHtml`, `buildImportedOfficePdfExportScaffold`, `buildImportedOfficeRenderScaffold`, `isWorkspacePathUnderPrefix`).
 
 **Verification.** Full AGENTS gate green locally on the committed state:
+
 - `corepack pnpm -r --if-present run lint`
 - `corepack pnpm run format:check`
 - `corepack pnpm --filter @persai/api run typecheck`
@@ -230,6 +274,7 @@ Status: **ADR-132 (document — single door mechanics and honest delivery) is pr
 **Explicit non-scope of Slice 1.** Delivery-wall removal (block on registration, manual `register_version` nudge in `RegisterChatAttachmentService`, deliverable gating, provenance walls) is **deferred to Slice 2 by ADR-132 design**. The API-side `assistant-document-job.service.ts` and delivery gating remain untouched in this commit.
 
 **Next.**
+
 1. **Do not push.** Push=deploy; per founder instruction the whole batch waits until the neighbor closes ADR-130.
 2. Founder go → Slice 2 (delivery walls removal + API-side idempotent register on `render`; scoped strictly to document-owned outputs per user instruction — no sandbox/session-file barrier changes).
 3. Slice 3+ (if needed) for D5 source-markdown residuals and end-to-end live regression.
@@ -239,18 +284,21 @@ Status: **ADR-132 (document — single door mechanics and honest delivery) is pr
 Status: ADR-130 (prompt layering, cache discipline, lazy context lookup) is progressing slice-by-slice with the parent agent as orchestrator/auditor. All work is **committed locally, not pushed** (push=deploy is batched for the session finish after the full AGENTS gate). Baseline before this run: timeout raise `6b7aa9fd`, Slice 0 inventory `1c42ede8`.
 
 **Landed (local commits, each independently verified with FULL api+runtime suites, not just focused runs):**
+
 - **Slice 1** (`9c284cd4`) — compact `<enabled_skills>` (scenario rows = `key + name`, global cap + compact tail), lazy `skill.list` / `skill.describe` read-only actions, shared `@persai/runtime-contract` prompt-budget constants, and a real (non-tautological) cross-turn cache-guard test.
 - **Slice 2** (`88873897`) — single-owner system prefix: `memory_protocol` rewritten to ADR-120 truth, `response_contract` extracted to its own `{{response_contract_block}}` template, duplicate identity/user/locale/timezone plain-line renders removed, `files` mechanics owned solely by the catalog entry (runtime-policy + projection shadow copies deleted). Golden snapshot regenerated. Also fixed two stale tests the earlier focused runs missed (`seed-tool-catalog` case-insensitive `engage`; within-cap `files` projection assertions).
 - **Slice 4** (`d61e2cc3`) — `<persai_active_scenario>` now renders only the CURRENT step + exit condition (was every step body every turn). Current step derived from the model-owned chat plan (`resolveCurrentStepIndex`: in_progress row position → completed-row count → step 1, clamped). The lean scenario-tick reminder is kept (it owns "N steps total" + ordering once the block shows a single step).
 - **Slice 5 / D6** (this entry) — `character_notes` precedence codified: a system-owned `<precedence>` clause added inside the `<voice>` envelope (character_notes stays verbatim); documented in `ARCHITECTURE.md`. Golden snapshot regenerated. The broader Slice-5 closure-doc sweep (API-BOUNDARY/DATA-MODEL full alignment + rollout notes) is deferred to the finish gate so it captures Slices 3 and 6 too.
 
 **Paused / sequenced:**
+
 - **Slice 3** (heavy descriptor re-layering: `video_generate`/`document` → lazy `list_personas`/`list_voices`/`describe_avatar_mode`/`describe_workflow`) is **PAUSED** at founder instruction — a colleague is finishing document-tool edits (`docs/ADR/132-document-single-door-mechanics-and-honest-delivery.md`, untracked) and Slice 3 touches the same document/video descriptors.
 - **Slice 6** (D8 cross-turn `tool_use`/`tool_result` persistence + bounded tail replay) is pending and is the culminating platform-root fix for cross-turn amnesia; it overlaps heavily with the document workflow, so it should follow the colleague's document mini-ADR to avoid churn.
 
 **Verification state.** After each slice: full `@persai/api` suite, full `@persai/runtime` suite, api+runtime typechecks, api+runtime lint, and repo `format:check` all green locally. The finish gate (full AGENTS verification across all packages) runs before the single batched push.
 
 **Next.**
+
 1. When the colleague's document mini-ADR (132) lands, resume Slice 3, then Slice 6 (D8).
 2. Complete the Slice-5 closure-doc sweep (ARCHITECTURE/API-BOUNDARY/DATA-MODEL/handoff) + cache-prefix rollout notes.
 3. Run the full AGENTS gate, then the single batched push (=deploy; note the stable-prefix change is a deliberate one-time cache-invalidation rollout).
@@ -260,6 +308,7 @@ Status: ADR-130 (prompt layering, cache discipline, lazy context lookup) is prog
 Status: ADR-131 Wave 2 (runtime-internal builders/exporters) is committed (`a2a6ee88`), pushed, deployed, and **live-validated green**. Separately, a founder-directed timeout raise (90s → 300s across the turn/stream/provider chain) landed locally and is **not yet committed/pushed** (push=deploy pending founder go).
 
 **Live regression result (closure gate for the render/delivery scenario).** Fresh chat, same real DOCX (`Карнаух_Федор_Отчет (1).docx`), same prompt «переделай это в pdf». Verified from runtime/api/sandbox logs (thread `web-1782990014494`, req `f956cd86`):
+
 - Model used `document.render` — «прямой рендер», **no shell/`soffice`, no seeded-script execution**; 10 steps (was 26 shell steps).
 - Single project `doc-3533d8e8`, **no `-2`/`-3` proliferation** (idempotent extract held).
 - `report.pdf` at `output/report.pdf` (198772 B, exit_code=0), delivered **once**, version badge `v1`.
@@ -269,6 +318,7 @@ Status: ADR-131 Wave 2 (runtime-internal builders/exporters) is committed (`a2a6
 **Timeout raise (uncommitted).** The web streaming turn was capped at the hardcoded 90s `PERSAI_RUNTIME_STREAM_TIMEOUT_MS` default. Raised the whole cascading chain to 300s: zod defaults in `packages/config/{api-config,runtime-config,provider-gateway-config}.ts` + the two helm overrides in `infra/helm/values.yaml`+`values-dev.yaml`; `provider-gateway-config.test.ts` defaults updated. No repo ingress read-timeout to fight. Gate green (lint, format:check, api/web/runtime/provider-gateway typechecks, provider-gateway test, `helm lint`/`template` render = `"300000"`).
 
 **Next.**
+
 1. Timeout raise committed locally per founder go; push (=deploy, helm change → rollout + gitops pin) is batched for the ADR-130 session finish after the full AGENTS gate.
 2. Record final closure of the ADR-129/131 render+delivery scenario (image-in-PDF stays an explicit 2nd-wave residual).
 3. ADR-130 implementation begins per its work plan: Slice 0 (inventory/budget ledger) **landed** (`docs/ADR/130-prompt-layering-inventory.md`); next is **Slice 1** (compact `<enabled_skills>` + lazy `skill.describe`, the biggest prefix-size win), then the remaining ownership/dedupe slices, with **Slice 6 (D8 cross-turn tool-history persistence)** as the culminating platform-root fix for cross-turn amnesia.
@@ -278,12 +328,14 @@ Status: ADR-131 Wave 2 (runtime-internal builders/exporters) is committed (`a2a6
 Status: deployed (`a2a6ee88`) and live-validated green (see top section). This slice follows the 2026-07-02 ADR-131 "seeded exporter scripts are the trap" contract exactly: imported DOCX/XLSX projects no longer materialize runnable `render/build.py` / `render/export_pdf.py` files, and authored `document.render(content/template)` no longer persists a visible `render/build.py`. The runtime now generates the imported/export/authored Python program source in memory and executes it through the existing ephemeral `execute_document_code` path.
 
 **What changed.**
+
 - `packages/runtime-contract/src/index.ts` is now the single source of truth for the imported Office same-format builder and LibreOffice PDF exporter scaffold bodies (`buildImportedOfficeRenderScaffold`, `buildImportedOfficePdfExportScaffold`).
 - `DocumentWorkspaceExtractionService` stopped seeding visible runnable Python scripts for imported DOCX/XLSX projects. Extract still writes `project.json`, `source/<copy>`, `extract/*`, and for PDF/text-like imports the visible `render/report.html` preview scaffold.
 - `RuntimeDocumentToolService` no longer scans the manifest for visible imported/export Python scripts or reads them from the workspace on the default imported/authored paths. Imported DOCX/XLSX same-format revision, imported DOCX/XLSX -> PDF, and authored `content`/`template` render all build `programSource` in memory; only explicit manual `entrypoint` fallback still reads a visible script.
 - Model-facing document guidance was updated so authored render talks about visible `render/content.md` plus runtime-internal builders, while imported Office guidance points only to `document.render`.
 
 **Files touched.**
+
 - `packages/runtime-contract/src/index.ts`
 - `apps/api/src/modules/workspace-management/application/document-workspace-extraction.service.ts`
 - `apps/runtime/src/modules/turns/runtime-document-tool.service.ts`
@@ -294,10 +346,12 @@ Status: deployed (`a2a6ee88`) and live-validated green (see top section). This s
 - `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt` regenerated via the sanctioned delete-and-rerun path
 
 **Verification status.**
+
 - Focused checks green locally: `@persai/api` typecheck, extraction service tests, tool catalog tests, runtime typecheck, runtime document-tool tests, native-tool-projection test, and ADR-119 golden regeneration + rerun path.
 - Full AGENTS verification gate plus requested package tests must be rerun before any commit/push or deploy claim.
 
 **Next.**
+
 1. Run the full required verification sequence (`lint`, `format:check`, api/web/runtime/sandbox typechecks, runtime suite, api suite).
 2. If green, reconcile docs if needed and wait for founder/orchestrator instruction before any commit/push.
 3. Post-deploy live regression remains the closure gate for ADR-129 + ADR-131.
