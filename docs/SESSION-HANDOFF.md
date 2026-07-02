@@ -1,6 +1,40 @@
 # SESSION-HANDOFF
 
-## 2026-07-02 — ADR-132 Slice 3 landed locally (Case A/B editing paths locked; server-side identity resolution; legacy-verb rejection tests); Slice 4 (docs + closure) next
+## 2026-07-02 — ADR-132 Slice 4 landed locally (docs closure); ADR-132 closed locally, ADR-129 closed, ADR-131 doc-scoped items closed; next = neighbor finishes ADR-130 → founder push → live acceptance
+
+Status: **ADR-132 fully implemented locally (all five slices), not pushed.** Founder directive is `push=deploy`, batched behind ADR-130 completion. After the parallel agent finishes ADR-130 (Slices 3, 6, and any remaining items) and founder gives the go, the whole batch pushes to `persai-dev` for live regression against ADR-132's acceptance criteria 1–11.
+
+**What Slice 4 landed.**
+
+- **`docs/ARCHITECTURE.md`** (Files truth section) — added a bullet describing the three-verb model-facing document surface (`inspect` / `render` / `convert`), D4 identity registry, D5 sibling-Markdown collocation, hard rejection of the removed legacy verbs, and Case A/B as the two edit paths with `shell` remaining ungated.
+- **`docs/API-BOUNDARY.md`** — rewrote the three paragraphs that used to describe the old five-verb model-facing chain into a description of the new three-verb surface, server-side auto-registration (D4), and how `document.inspect` internally runs the same API-owned extract+OCR pipeline previously exposed as `document.extract`.
+- **`docs/DATA-MODEL.md`** (Document render-job truth section) — added notes explaining that ADR-132's D4 identity registry is code-level over the existing document tables (no new persistence), that identity resolution lives server-side in `RegisterChatAttachmentService` (files.attach path) and `DocumentWorkspaceVersionRegistrationService` (render/convert path), that the runtime is stateless with respect to document identity, and that D5 sibling-Markdown is a normal workspace file served through the ordinary `files.*` surface.
+- **`docs/ADR/129-*.md`** marked **Closed 2026-07-02** with an explicit note that ADR-132 supersedes and completes it; all ADR-129 slices + 2026-07-01 addenda subsumed by ADR-132's landed slices.
+- **`docs/ADR/131-*.md`** status updated — document-scoped items are closed by ADR-132; workspace-scope items (Block 1 anti-clobber + `replace: true`, Block 2 chat-scoped `files.*` + replace-projection refresh, Block 3 stale-project guidance) remain landed locally under ADR-131 territory and await deploy + live regression.
+- **`docs/ADR/132-*.md`** marked **Closed locally 2026-07-02** with a detailed slice-by-slice completion note referencing every commit SHA (`d086c530` open → `99e58c67` Slice 0 → `808960b3` Slice 1 code → `35304479` Slice 1 docs → `0bc56ca2` Slice 2 code → `7859b6d2` Slice 2 docs → `3462e521` Slice 3 code → `54e5049d` Slice 3 fix → `db53089d` Slice 3 docs → this Slice 4 commit).
+- **`AGENTS.md`** — active-ADR list rewritten so ADR-129, ADR-131, and ADR-132 are in the Closed program archive and **ADR-130 is the only remaining active orchestration program**.
+
+**Complete ADR-132 slice roll-up (local commits, in order).**
+
+| Slice | Feat | Docs / Fix |
+| --- | --- | --- |
+| Open ADR | `d086c530` | — |
+| Slice 0 (ledger) | `99e58c67` | — |
+| Slice 1 (atomic cutover to 3 verbs) | `808960b3` | `35304479` |
+| Slice 2 (D4 registry + honest delivery + walls removed) | `0bc56ca2` | `7859b6d2` |
+| Slice 3 (Case A/B locked; legacy-verb rejection; server-side identity) | `3462e521` | fix `54e5049d`, docs `db53089d` |
+| Slice 4 (docs closure + ADR-129/131/132 status sweep) | this commit | — |
+
+**Verification for Slice 4.** Docs-only change. Full AGENTS gate re-run before commit: `pnpm -r --if-present run lint`, `pnpm run format:check`, `pnpm --filter @persai/api|web|runtime run typecheck` — all green (no code touched).
+
+**Next.**
+1. **Parallel agent** finishes ADR-130 (Slice 3 `video_generate` heavy-descriptor re-layering — the **document** part is already handled by ADR-132 Slice 1/4, per ADR-132 § "Coordination with ADR-130"; plus Slice 6 D8 cross-turn tool memory; plus any remaining closure).
+2. **Founder** gives the batched push go — `push=deploy` for the whole ADR-132 (11 commits) + ADR-130 tail.
+3. **Live acceptance** on `persai.dev` in the founder session against ADR-132 § "Acceptance criteria" 1–11 (net-new PDF/DOCX/XLSX; Case A byte-preservation; Case B object-model preservation; convert; multi-source combine; exactly-once delivery; no legacy verbs; no seeded scripts; no document walls; `shell` ungated; docs match code).
+
+**Coordination reminder.** ADR-130's Slice 6 (D8 cross-turn tool memory persistence + replay) is the shared platform enabler consumed here for reliable multi-turn Case A edits; ADR-132 depends on it but does not re-implement it. Everything else in ADR-130 is orthogonal.
+
+## 2026-07-02 — ADR-132 Slice 3 landed locally (Case A/B editing paths locked; server-side identity resolution; legacy-verb rejection tests); superseded by Slice 4 section above
 
 Status: **ADR-132 Slice 3 committed as `3462e521` (feat) + `54e5049d` (fix) locally, not pushed** (push=deploy still batched behind ADR-130 completion, per founder instruction). Docs follow-through (this section + CHANGELOG entry) landed by the parent orchestrator.
 

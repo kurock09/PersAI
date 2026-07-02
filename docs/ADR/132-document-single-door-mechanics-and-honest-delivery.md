@@ -2,7 +2,15 @@
 
 ## Status
 
-Open — opened 2026-07-02 on explicit founder priority ("делай adr … ты оркестратор"), rewritten 2026-07-02 after founder correction of scope and role split.
+Closed locally 2026-07-02 — all five slices landed under parent-orchestrator supervision:
+
+- **Slice 0** (`99e58c67`) — read-only keep/remove ledger with file:line anchors.
+- **Slice 1** (`808960b3` + docs `35304479`) — atomic cutover: `document.inspect`, `document.render`, `document.convert` replace `document.extract` / `document.edit` / `document.register_version`; seeded `render/build.py` / `render/export_pdf.py` scaffolds gone (in-memory program source only); XLSX authored render enabled; D5 sibling-Markdown collocation live; legacy guidance purged from projection / catalog / preset.
+- **Slice 2** (`0bc56ca2` + docs `7859b6d2`) — D4 document identity registry with two triggers (`document.render` / `document.convert` at an `outputPath`; `files.attach` on a doc-extension file); honest delivery on partial failure (`rendered` / `converted` with `warning` starting `auto_register_skipped:<code>` / `inspect_skipped:<code>` instead of collapsing to `skipped`); document-scoped delivery walls removed (`validateVisibleWorkspaceDocumentDeliverable` gate and `blocked` outcome deleted; manual `register_version` nudge replaced with structural `InternalServerErrorException`).
+- **Slice 3** (`3462e521` + fix `54e5049d` + docs `db53089d`) — Case A guidance (four-step recipe: `files.read` → edit MD → `files.write(replace: true)` → `document.render({contentPath, outputPath})`) added to projection / catalog / preset; hard-rejection tests for the removed `edit` and `register_version` verbs; Case A/B property tests at runtime and API levels; ADR-119 golden prompt snapshot regenerated; **server-side document identity resolution** in `DocumentWorkspaceVersionRegistrationService` (`resolveExistingDocIdByOutputPath`) — runtime is stateless again, always sends `{docId: null, descriptorMode: null}`.
+- **Slice 4** (this commit) — docs closure: `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md` updated to reflect the three-verb surface + D4 registry + D5 sibling-Markdown; `docs/CHANGELOG.md` + `docs/SESSION-HANDOFF.md` updated; **ADR-129 marked Closed** (superseded/completed by this ADR); **ADR-131 document-scoped items marked closed** by this ADR (workspace-scope items — Block 1 anti-clobber, Block 2 chat-scoped `files.*`, Block 3 stale-project guidance — remain landed locally in ADR-131 territory and await deploy).
+
+Push=deploy is batched behind ADR-130 completion (founder directive). Live acceptance (criteria 1–11 below) runs post-deploy on `persai.dev` in the founder session.
 
 ## Baseline SHA
 

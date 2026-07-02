@@ -2,7 +2,7 @@
 
 ## Status
 
-Open. The repo contains a partial local implementation of the new document system, but the production closure is not complete yet.
+Closed 2026-07-02. Superseded and completed by **ADR-132** (`docs/ADR/132-document-single-door-mechanics-and-honest-delivery.md`), which collapsed the model-facing document surface to three verbs (`document.inspect`, `document.render`, `document.convert`), retired `document.extract` / `document.edit` / `document.register_version`, landed the D4 identity registry and D5 sibling-Markdown collocation, removed the document-scoped delivery walls, and locked Case A (edit sibling MD + re-render) and Case B (shell + openpyxl / python-docx / weasyprint + files.attach) as the two mechanically-distinct edit paths. All ADR-129 slices, addenda (2026-07-01 auto-register-on-render + `suggestedNextActions`, 2026-07-01 Addendum II intent-level tool + deterministic runtime, 2026-07-01 Addendum III polishing plan) are subsumed by ADR-132's landed slices `d086c530` → `db53089d`. Live acceptance for the merged document program is now owned by ADR-132's acceptance criteria 1–11. This ADR remains in the archive for historical context; do not reopen for new scope.
 
 ## Date
 
