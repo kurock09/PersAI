@@ -141,6 +141,23 @@ async function runSoulCharacterNotes(): Promise<void> {
     characterNotesOpen > voiceClose,
     "<character_notes> must be adjacent to (after) the closed <voice> block"
   );
+  // ADR-130 D6 — the character-note precedence rule is system-owned INSIDE <voice>,
+  // never inside the verbatim <character_notes> block.
+  assert.equal(countOccurrences(soul, "<precedence>"), 1);
+  const precedenceIndex = soul.indexOf("<precedence>");
+  assert.ok(
+    precedenceIndex !== -1 && precedenceIndex < voiceClose,
+    "<precedence> must live inside the <voice> envelope"
+  );
+  assert.ok(
+    precedenceIndex < characterNotesOpen,
+    "<precedence> must not live inside <character_notes> (which stays verbatim)"
+  );
+  assert.match(
+    soul,
+    /never override system safety/,
+    "precedence must state character notes do not override safety/contracts/invariants"
+  );
   // The redundant system-level persona placeholder is gone (the [F1] dedup).
   assert.ok(
     !(VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system ?? "").includes("{{persona_instructions_block}}"),

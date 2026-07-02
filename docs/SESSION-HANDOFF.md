@@ -1,5 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-07-02 — ADR-130 prompt-layering: Slices 1/2/4 + D6 landed locally; Slice 3 paused, Slice 6 pending (push=deploy batched at finish)
+
+Status: ADR-130 (prompt layering, cache discipline, lazy context lookup) is progressing slice-by-slice with the parent agent as orchestrator/auditor. All work is **committed locally, not pushed** (push=deploy is batched for the session finish after the full AGENTS gate). Baseline before this run: timeout raise `6b7aa9fd`, Slice 0 inventory `1c42ede8`.
+
+**Landed (local commits, each independently verified with FULL api+runtime suites, not just focused runs):**
+- **Slice 1** (`9c284cd4`) — compact `<enabled_skills>` (scenario rows = `key + name`, global cap + compact tail), lazy `skill.list` / `skill.describe` read-only actions, shared `@persai/runtime-contract` prompt-budget constants, and a real (non-tautological) cross-turn cache-guard test.
+- **Slice 2** (`88873897`) — single-owner system prefix: `memory_protocol` rewritten to ADR-120 truth, `response_contract` extracted to its own `{{response_contract_block}}` template, duplicate identity/user/locale/timezone plain-line renders removed, `files` mechanics owned solely by the catalog entry (runtime-policy + projection shadow copies deleted). Golden snapshot regenerated. Also fixed two stale tests the earlier focused runs missed (`seed-tool-catalog` case-insensitive `engage`; within-cap `files` projection assertions).
+- **Slice 4** (`d61e2cc3`) — `<persai_active_scenario>` now renders only the CURRENT step + exit condition (was every step body every turn). Current step derived from the model-owned chat plan (`resolveCurrentStepIndex`: in_progress row position → completed-row count → step 1, clamped). The lean scenario-tick reminder is kept (it owns "N steps total" + ordering once the block shows a single step).
+- **Slice 5 / D6** (this entry) — `character_notes` precedence codified: a system-owned `<precedence>` clause added inside the `<voice>` envelope (character_notes stays verbatim); documented in `ARCHITECTURE.md`. Golden snapshot regenerated. The broader Slice-5 closure-doc sweep (API-BOUNDARY/DATA-MODEL full alignment + rollout notes) is deferred to the finish gate so it captures Slices 3 and 6 too.
+
+**Paused / sequenced:**
+- **Slice 3** (heavy descriptor re-layering: `video_generate`/`document` → lazy `list_personas`/`list_voices`/`describe_avatar_mode`/`describe_workflow`) is **PAUSED** at founder instruction — a colleague is finishing document-tool edits (`docs/ADR/132-document-single-door-mechanics-and-honest-delivery.md`, untracked) and Slice 3 touches the same document/video descriptors.
+- **Slice 6** (D8 cross-turn `tool_use`/`tool_result` persistence + bounded tail replay) is pending and is the culminating platform-root fix for cross-turn amnesia; it overlaps heavily with the document workflow, so it should follow the colleague's document mini-ADR to avoid churn.
+
+**Verification state.** After each slice: full `@persai/api` suite, full `@persai/runtime` suite, api+runtime typechecks, api+runtime lint, and repo `format:check` all green locally. The finish gate (full AGENTS verification across all packages) runs before the single batched push.
+
+**Next.**
+1. When the colleague's document mini-ADR (132) lands, resume Slice 3, then Slice 6 (D8).
+2. Complete the Slice-5 closure-doc sweep (ARCHITECTURE/API-BOUNDARY/DATA-MODEL/handoff) + cache-prefix rollout notes.
+3. Run the full AGENTS gate, then the single batched push (=deploy; note the stable-prefix change is a deliberate one-time cache-invalidation rollout).
+
 ## 2026-07-02 — ADR-131 Wave 2 deployed + live-GREEN, and turn timeout raised 90s → 300s
 
 Status: ADR-131 Wave 2 (runtime-internal builders/exporters) is committed (`a2a6ee88`), pushed, deployed, and **live-validated green**. Separately, a founder-directed timeout raise (90s → 300s across the turn/stream/provider chain) landed locally and is **not yet committed/pushed** (push=deploy pending founder go).

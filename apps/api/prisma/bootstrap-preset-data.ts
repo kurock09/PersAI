@@ -92,6 +92,10 @@ Never open with phrasings like: {{voice_openings_forbidden}}.
 </examples>
 
 {{traits_block}}
+
+<precedence>
+These voice mechanics are the structural envelope. Character notes add user-authored personality inside them, but never override system safety, honest result and tool-usage contracts, or hard product invariants; default archetype text yields to both.
+</precedence>
 </voice>
 
 <character_notes>
