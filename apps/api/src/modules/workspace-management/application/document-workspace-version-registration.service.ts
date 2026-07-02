@@ -13,7 +13,6 @@ import {
   normalizeWorkspaceDirectory,
   normalizeWorkspacePath,
   resolveVisibleWorkspaceOutputFormatFromPath,
-  validateVisibleWorkspaceDocumentDeliverable,
   type DocumentWorkspaceInspectionFacts,
   type VisibleWorkspaceDocumentOutputFormat
 } from "./document-workspace-deliverable-gating";
@@ -245,6 +244,29 @@ export class DocumentWorkspaceVersionRegistrationService {
         message: `Workspace inspection sidecar not found or invalid JSON: ${inspectionPath}`
       };
     }
+    if (inspectionPath === null || inspection === null || inspection.summary === null) {
+      return {
+        accepted: false,
+        code: "inspection_required",
+        message:
+          "document.register_version requires a valid document.inspect sidecar for the output."
+      };
+    }
+    if (inspection.sourcePath !== null && inspection.sourcePath !== outputPath) {
+      return {
+        accepted: false,
+        code: "inspection_output_mismatch",
+        message: `Inspection sidecar ${inspectionPath} describes ${inspection.sourcePath}, not ${outputPath}.`
+      };
+    }
+    const inspectionFormat = inspection.format ?? inspection.summary.format;
+    if (inspectionFormat !== outputFormat) {
+      return {
+        accepted: false,
+        code: "inspection_format_mismatch",
+        message: `Inspection sidecar ${inspectionPath} is for ${inspectionFormat ?? "unknown"}, not ${outputFormat}.`
+      };
+    }
 
     const descriptorMode = this.resolveDescriptorMode({
       descriptorMode: input.descriptorMode,
@@ -272,21 +294,8 @@ export class DocumentWorkspaceVersionRegistrationService {
       sourceManifestPath: projectContext.sourceManifestPath,
       sourceManifest,
       inspectionPath,
-      inspectionSummary: inspection?.summary ?? null
+      inspectionSummary: inspection.summary
     };
-
-    const deliverableValidation = validateVisibleWorkspaceDocumentDeliverable({
-      workspaceFacts,
-      outputPath,
-      inspection
-    });
-    if (!deliverableValidation.ok) {
-      return {
-        accepted: false,
-        code: deliverableValidation.code,
-        message: deliverableValidation.message
-      };
-    }
 
     const registered = await this.assistantDocumentJobService.registerVisibleWorkspaceVersion({
       assistantId: input.assistantId,

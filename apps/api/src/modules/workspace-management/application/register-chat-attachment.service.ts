@@ -1,4 +1,10 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException
+} from "@nestjs/common";
 import type { AttachmentType } from "@prisma/client";
 import {
   PERSAI_RUNTIME_CHANNELS,
@@ -14,7 +20,6 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { AssistantDocumentJobService } from "./assistant-document-job.service";
 import { DocumentWorkspaceInspectionService } from "./document-workspace-inspection.service";
 import {
-  buildDefaultInspectionPath,
   inferProjectPathFromOutputPath,
   resolveVisibleWorkspaceOutputFormatFromPath
 } from "./document-workspace-deliverable-gating";
@@ -318,10 +323,6 @@ export class RegisterChatAttachmentService {
         workspaceId: input.workspaceId,
         outputPath: input.storagePath
       });
-    if (currentDocumentLink.status === "ready") {
-      return currentDocumentLink.link;
-    }
-
     const outputFormat = resolveVisibleWorkspaceOutputFormatFromPath(input.storagePath);
     if (outputFormat !== "pdf" && outputFormat !== "xlsx" && outputFormat !== "docx") {
       return null;
@@ -330,27 +331,24 @@ export class RegisterChatAttachmentService {
       workspaceId: input.workspaceId,
       storagePath: input.storagePath
     });
-    if (workspaceProjectPath === null) {
-      if (currentDocumentLink.status === "blocked") {
-        throw new BadRequestException(currentDocumentLink.message);
-      }
-      return null;
-    }
-
     const existingDocId =
-      currentDocumentLink.status === "blocked"
-        ? await this.resolveCurrentVisibleWorkspaceDocumentIdByOutputPath({
+      currentDocumentLink.status === "ready"
+        ? currentDocumentLink.link.docId
+        : await this.resolveCurrentVisibleWorkspaceDocumentIdByOutputPath({
             assistantId: input.assistantId,
             workspaceId: input.workspaceId,
             outputPath: input.storagePath
-          })
-        : null;
+          });
+    const fallbackWorkspaceProjectPath = (() => {
+      const lastSlash = input.storagePath.lastIndexOf("/");
+      return lastSlash >= "/workspace".length ? input.storagePath.slice(0, lastSlash) : null;
+    })();
     return this.autoRegisterProjectOwnedDocumentOutputForAttach({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
       chatId: input.chatId,
       storagePath: input.storagePath,
-      workspaceProjectPath,
+      workspaceProjectPath: workspaceProjectPath ?? fallbackWorkspaceProjectPath,
       existingDocId
     });
   }
@@ -383,27 +381,15 @@ export class RegisterChatAttachmentService {
     workspaceId: string;
     chatId: string;
     storagePath: string;
-    workspaceProjectPath: string;
+    workspaceProjectPath: string | null;
     existingDocId: string | null;
   }) {
     if (
       this.documentWorkspaceInspectionService === undefined ||
       this.documentWorkspaceVersionRegistrationService === undefined
     ) {
-      const defaultInspectionPath = buildDefaultInspectionPath(input.storagePath);
-      const defaultInspectionExists =
-        defaultInspectionPath === null
-          ? false
-          : (await this.workspaceFileMetadataService.get({
-              workspaceId: input.workspaceId,
-              path: defaultInspectionPath
-            })) !== null;
-      const inspectHint =
-        defaultInspectionExists || defaultInspectionPath === null
-          ? "Run document.register_version on this output before files.attach so final delivery keeps project/source/version provenance."
-          : `Missing inspect sidecar ${defaultInspectionPath}. Run document.inspect, then document.register_version, then files.attach.`;
-      throw new BadRequestException(
-        `Document output ${input.storagePath} belongs to project ${input.workspaceProjectPath} but no current registered version points to it. ${inspectHint}`
+      throw new InternalServerErrorException(
+        "Document auto-registration for files.attach is unavailable because the inspection or version-registration service is not wired."
       );
     }
 
@@ -480,11 +466,8 @@ export class RegisterChatAttachmentService {
     if (refreshedDocumentLink.status === "ready") {
       return refreshedDocumentLink.link;
     }
-    if (refreshedDocumentLink.status === "blocked") {
-      throw new BadRequestException(refreshedDocumentLink.message);
-    }
     throw new BadRequestException(
-      `Document output ${input.storagePath} was auto-registered during files.attach but no ready document link could be resolved afterwards.`
+      `Document output ${input.storagePath} was auto-registered during files.attach, but link resolution did not find the current registered output afterwards.`
     );
   }
 }

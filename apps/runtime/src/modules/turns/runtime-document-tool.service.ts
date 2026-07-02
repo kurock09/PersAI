@@ -558,18 +558,12 @@ export class RuntimeDocumentToolService {
     const finalize = await this.finalizeRenderedDocument({
       bundle: params.bundle,
       conversation: params.conversation,
+      operation: "render",
       sourceUserMessageText: params.sourceUserMessageText,
       sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
       projectPath: authoredRenderArtifacts!.projectPath,
       outputPath: persisted.resolvedPath
     });
-    if (!finalize.ok) {
-      // ADR-129 P-1: render owns register + delivery. When the version cannot be
-      // registered (the deliverable gate that also blocks files.attach), the render
-      // must NOT read as a clean delivered success. Surface the failure honestly and
-      // do not record a produced/undelivered path, so nothing is auto-attached.
-      return this.renderSkipped(params.request.format, finalize.reason, finalize.warning);
-    }
 
     return {
       payload: {
@@ -608,13 +602,11 @@ export class RuntimeDocumentToolService {
   }
 
   /**
-   * ADR-129 P-1: `document.render` is the single deliverable producer that also owns
-   * inspect + register. Registration (and the equivalent files.attach gate) require a
-   * relevant inspect sidecar, so the runtime inspects the freshly rendered output and
-   * then registers the version keyed on the in-project projectPath + outputPath. The
-   * successfully rendered output is delivered exactly once by the end-of-turn
-   * auto-attach machinery via the recorded produced path; the model must not call
-   * files.attach for a render output.
+   * `document.render` / `document.convert` persist the output first, then attempt
+   * inspect + version registration as best-effort enrichment. If inspect or
+   * registration fails after persist, the output still remains a successful
+   * produced file and auto-attaches at end-of-turn; the failure is surfaced as a
+   * warning instead of collapsing the tool result to `action: "skipped"`.
    */
   private async finalizeRenderedDocument(input: {
     bundle: AssistantRuntimeBundle;
@@ -622,30 +614,22 @@ export class RuntimeDocumentToolService {
       channel: "web" | "telegram";
       externalThreadKey: string;
     } | null;
+    operation: "render" | "convert";
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
     projectPath: string;
     outputPath: string;
-  }): Promise<
-    | {
-        ok: true;
-        registration: RuntimeDocumentVersionRegistrationSummary | null;
-        warning: string | null;
-      }
-    | {
-        ok: false;
-        reason: string;
-        warning: string;
-      }
-  > {
+  }): Promise<{
+    registration: RuntimeDocumentVersionRegistrationSummary | null;
+    warning: string | null;
+  }> {
     if (input.conversation === null) {
       // Genuinely no chat context to register/deliver against. Keep the historical
       // behavior: the render itself is valid, but no version/metadata was recorded.
       return {
-        ok: true,
         registration: null,
         warning:
-          "auto_register_skipped:no_conversation_context: version was not registered automatically because no chat conversation was resolved for this render. Delivery still works, but document/version metadata is missing."
+          "auto_register_skipped:no_conversation_context: version was not registered automatically because no chat conversation was resolved for this document. Delivery still works, but document/version metadata is missing."
       };
     }
 
@@ -688,15 +672,13 @@ export class RuntimeDocumentToolService {
       });
       if (!outcome.accepted) {
         return {
-          ok: false,
-          reason: `register_rejected:${outcome.code}`,
-          warning: `document.render produced ${input.outputPath} but could not register/deliver a document version (${outcome.code}): ${outcome.message}${
+          registration: null,
+          warning: `document.${input.operation} produced ${input.outputPath} but could not register/deliver a document version (${outcome.code}): ${outcome.message}${
             inspectDetail === null ? "" : ` [${inspectDetail}]`
           }`
         };
       }
       return {
-        ok: true,
         registration: {
           docId: outcome.docId,
           versionId: outcome.versionId,
@@ -713,9 +695,8 @@ export class RuntimeDocumentToolService {
       };
     } catch (error) {
       return {
-        ok: false,
-        reason: "register_failed",
-        warning: `document.render produced ${input.outputPath} but document version registration failed: ${
+        registration: null,
+        warning: `document.${input.operation} produced ${input.outputPath} but document version registration failed: ${
           error instanceof Error
             ? error.message
             : "Document version registration is temporarily unavailable."
@@ -877,14 +858,12 @@ export class RuntimeDocumentToolService {
     const finalize = await this.finalizeRenderedDocument({
       bundle: params.bundle,
       conversation: params.conversation,
+      operation: "convert",
       sourceUserMessageText: params.sourceUserMessageText,
       sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
       projectPath: this.dirname(persisted.resolvedPath),
       outputPath: persisted.resolvedPath
     });
-    if (!finalize.ok) {
-      return this.convertSkipped(finalize.reason, finalize.warning);
-    }
 
     return {
       payload: {

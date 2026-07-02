@@ -144,6 +144,7 @@ import {
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import {
+  buildRuntimeFileHandleFromDocumentConvert,
   buildRuntimeFileHandleFromDocumentRender,
   createEmptyTurnDeliveryFacts,
   finalizeTurnDeliveryFacts,
@@ -5087,6 +5088,19 @@ export class TurnExecutionService {
           turnState.fileHandles[existingIndex] = renderedHandle;
         } else {
           turnState.fileHandles.push(renderedHandle);
+        }
+      } else if (documentPayload.action === "converted" && documentPayload.convert != null) {
+        const convertedHandle = buildRuntimeFileHandleFromDocumentConvert({
+          convert: documentPayload.convert,
+          workspaceId: turnState.workspaceId
+        });
+        const existingIndex = turnState.fileHandles.findIndex(
+          (existing) => existing.storagePath === convertedHandle.storagePath
+        );
+        if (existingIndex >= 0) {
+          turnState.fileHandles[existingIndex] = convertedHandle;
+        } else {
+          turnState.fileHandles.push(convertedHandle);
         }
       }
     }

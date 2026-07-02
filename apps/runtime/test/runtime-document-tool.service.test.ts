@@ -543,6 +543,310 @@ describe("RuntimeDocumentToolService", () => {
     assert.match(programSource, /SOURCE_PATH = Path\("\/workspace\/source\.docx"\)/);
     assert.match(programSource, /TARGET_FORMAT = "pdf"/);
   });
+
+  test("render stays rendered with warning when auto-register fails after persist", async () => {
+    const service = new RuntimeDocumentToolService(
+      {
+        async upsertWorkspaceFileMetadata() {
+          return;
+        },
+        async inspectDocumentInWorkspace() {
+          return {
+            accepted: true as const,
+            sourcePath: "/workspace/reports/monthly.pdf",
+            inspectPath: "/workspace/reports/monthly.inspect.json",
+            format: "pdf" as const,
+            counts: {
+              pageCount: 1,
+              sheetCount: null,
+              formulaCount: null,
+              blankSheetCount: null,
+              paragraphCount: 1,
+              headingCount: 1,
+              tableCount: 0,
+              textCharCount: 22
+            },
+            warnings: [],
+            suggestedReadPaths: [],
+            comparison: null
+          };
+        },
+        async registerDocumentVersion() {
+          return {
+            accepted: false as const,
+            code: "inspection_required",
+            message:
+              "document.register_version requires a valid document.inspect sidecar for the output."
+          };
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
+            return createResolvedWritePathJob("/workspace/reports/monthly.md");
+          }
+          if (input.toolCode === "files" && input.args.action === "write") {
+            return createWrittenWorkspaceFileJob(
+              String(input.args.path ?? ""),
+              String(input.args.content ?? "")
+            );
+          }
+          if (input.toolCode === "execute_document_code") {
+            return createCompletedDocumentJob();
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            return createAttachedWorkspaceFileJob(
+              "/workspace/reports/monthly.pdf",
+              "application/pdf",
+              321
+            );
+          }
+          throw new Error(
+            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
+          );
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-render-warning",
+        name: "document",
+        arguments: {
+          action: "render",
+          outputPath: "/workspace/reports/monthly.pdf",
+          format: "pdf",
+          content: "# Monthly\n\nSummary body."
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-render-warning",
+      conversation: {
+        channel: "web",
+        externalThreadKey: "thread-warning"
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-warning",
+        sourceUserMessageText: "Make the monthly PDF",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "rendered");
+    assert.equal(result.payload.render?.outputPath, "/workspace/reports/monthly.pdf");
+    assert.match(result.payload.warning ?? "", /inspection_required/);
+    assert.equal(result.payload.registration, undefined);
+  });
+
+  test("convert stays converted with warning when auto-register fails after persist", async () => {
+    const service = new RuntimeDocumentToolService(
+      {
+        async upsertWorkspaceFileMetadata() {
+          return;
+        },
+        async inspectDocumentInWorkspace() {
+          return {
+            accepted: true as const,
+            sourcePath: "/workspace/source.pdf",
+            inspectPath: "/workspace/source.inspect.json",
+            format: "pdf" as const,
+            counts: {
+              pageCount: 1,
+              sheetCount: null,
+              formulaCount: null,
+              blankSheetCount: null,
+              paragraphCount: 1,
+              headingCount: 1,
+              tableCount: 0,
+              textCharCount: 40
+            },
+            warnings: [],
+            suggestedReadPaths: [],
+            comparison: null
+          };
+        },
+        async registerDocumentVersion() {
+          throw new Error("registration unavailable");
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          if (input.toolCode === "files" && input.args.action === "write") {
+            return createWrittenWorkspaceFileJob(
+              String(input.args.path ?? ""),
+              String(input.args.content ?? "")
+            );
+          }
+          if (input.toolCode === "execute_document_code") {
+            return createCompletedDocumentJob();
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            return createAttachedWorkspaceFileJob("/workspace/source.pdf", "application/pdf", 2048);
+          }
+          throw new Error(
+            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
+          );
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-convert-warning",
+        name: "document",
+        arguments: {
+          action: "convert",
+          source: "/workspace/source.docx",
+          targetFormat: "pdf"
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-convert-warning",
+      conversation: {
+        channel: "web",
+        externalThreadKey: "thread-convert-warning"
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-convert-warning",
+        sourceUserMessageText: "Convert this file",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "converted");
+    assert.equal(result.payload.convert?.outputPath, "/workspace/source.pdf");
+    assert.match(result.payload.warning ?? "", /registration unavailable/);
+    assert.equal(result.payload.registration, undefined);
+  });
+
+  test("rendering the same output path twice records two versions", async () => {
+    const registerCalls: Array<Record<string, unknown>> = [];
+    const service = new RuntimeDocumentToolService(
+      {
+        async upsertWorkspaceFileMetadata() {
+          return;
+        },
+        async inspectDocumentInWorkspace() {
+          return {
+            accepted: true as const,
+            sourcePath: "/workspace/reports/monthly.pdf",
+            inspectPath: "/workspace/reports/monthly.inspect.json",
+            format: "pdf" as const,
+            counts: {
+              pageCount: 1,
+              sheetCount: null,
+              formulaCount: null,
+              blankSheetCount: null,
+              paragraphCount: 1,
+              headingCount: 1,
+              tableCount: 0,
+              textCharCount: 22
+            },
+            warnings: [],
+            suggestedReadPaths: [],
+            comparison: null
+          };
+        },
+        async registerDocumentVersion(args: Record<string, unknown>) {
+          registerCalls.push(args);
+          const versionNumber = registerCalls.length;
+          return {
+            accepted: true as const,
+            docId: "doc-1",
+            versionId: `version-${versionNumber}`,
+            versionNumber,
+            descriptorMode:
+              versionNumber === 1 ? ("create_document" as const) : ("revise_document" as const),
+            documentType: "workspace_document" as const,
+            outputFormat: "pdf" as const,
+            outputPath: "/workspace/reports/monthly.pdf",
+            workspaceProjectPath: "/workspace/reports",
+            sourceManifestPath: null,
+            inspectionPath: "/workspace/reports/monthly.inspect.json"
+          };
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
+            return createResolvedWritePathJob("/workspace/reports/monthly.md");
+          }
+          if (input.toolCode === "files" && input.args.action === "write") {
+            return createWrittenWorkspaceFileJob(
+              String(input.args.path ?? ""),
+              String(input.args.content ?? "")
+            );
+          }
+          if (input.toolCode === "execute_document_code") {
+            return createCompletedDocumentJob();
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            return createAttachedWorkspaceFileJob(
+              "/workspace/reports/monthly.pdf",
+              "application/pdf",
+              321
+            );
+          }
+          throw new Error(
+            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
+          );
+        }
+      } as never
+    );
+
+    const executeRender = (requestId: string, content: string) =>
+      service.executeToolCall({
+        bundle: createBundle(),
+        toolCall: {
+          id: requestId,
+          name: "document",
+          arguments: {
+            action: "render",
+            outputPath: "/workspace/reports/monthly.pdf",
+            format: "pdf",
+            content
+          }
+        },
+        sessionId: "session-1",
+        requestId,
+        conversation: {
+          channel: "web",
+          externalThreadKey: "thread-versioning"
+        },
+        deferToAsyncDocumentJob: {
+          sourceUserMessageId: `${requestId}-msg`,
+          sourceUserMessageText: "Render the document",
+          currentAttachments: [],
+          availableAttachments: []
+        }
+      });
+
+    const first = await executeRender("render-v1", "# Monthly\n\nVersion 1");
+    const second = await executeRender("render-v2", "# Monthly\n\nVersion 2");
+
+    assert.equal(first.payload.action, "rendered");
+    assert.equal(second.payload.action, "rendered");
+    assert.equal(first.payload.registration?.versionNumber, 1);
+    assert.equal(second.payload.registration?.versionNumber, 2);
+    assert.equal(registerCalls.length, 2);
+    assert.equal(registerCalls[0]?.outputPath, "/workspace/reports/monthly.pdf");
+    assert.equal(registerCalls[1]?.outputPath, "/workspace/reports/monthly.pdf");
+  });
 });
 
 export async function runRuntimeDocumentToolServiceTest(): Promise<void> {

@@ -118,6 +118,10 @@ function recordDocumentToolDeliveryFacts(
     appendUniquePath(tracker.producedPaths, payload.render.outputPath);
     return;
   }
+  if (payload.action === "converted" && payload.convert !== undefined && payload.convert !== null) {
+    appendUniquePath(tracker.producedPaths, payload.convert.outputPath);
+    return;
+  }
   if (payload.action === "pending_delivery" && typeof payload.jobId === "string") {
     appendUniquePath(tracker.pendingDocumentJobIds, payload.jobId);
   }
@@ -151,6 +155,24 @@ export function buildRuntimeFileHandleFromDocumentRender(input: {
     storagePath: input.render.outputPath,
     mimeType: input.render.mimeType,
     sizeBytes: input.render.sizeBytes,
+    displayName: basename,
+    workspaceId: input.workspaceId,
+    authorLabel: "model",
+    sourceToolCode: "document",
+    scopeTier: "chat",
+    createdAt: new Date().toISOString()
+  };
+}
+
+export function buildRuntimeFileHandleFromDocumentConvert(input: {
+  convert: NonNullable<RuntimeDocumentToolResult["convert"]>;
+  workspaceId: string;
+}): RuntimeFileHandle {
+  const basename = input.convert.outputPath.split("/").pop() ?? "document";
+  return {
+    storagePath: input.convert.outputPath,
+    mimeType: input.convert.mimeType,
+    sizeBytes: input.convert.sizeBytes,
     displayName: basename,
     workspaceId: input.workspaceId,
     authorLabel: "model",

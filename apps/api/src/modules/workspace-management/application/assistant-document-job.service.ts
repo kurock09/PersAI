@@ -19,7 +19,6 @@ import {
   type AssistantDocumentWorkspaceFacts,
   normalizeDocumentWorkspaceFacts
 } from "./assistant-document-link-metadata";
-import { validateVisibleWorkspaceDocumentDeliverable } from "./document-workspace-deliverable-gating";
 import type { AssistantWebChatMessageAttachmentDocumentLink } from "./web-chat.types";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -110,11 +109,6 @@ export type RegisterVisibleWorkspaceDocumentVersionInput = {
 export type CurrentDocumentLinkLookupOutcome =
   | {
       status: "none";
-    }
-  | {
-      status: "blocked";
-      code: string;
-      message: string;
     }
   | {
       status: "ready";
@@ -961,27 +955,6 @@ export class AssistantDocumentJobService {
     }
     const sourceJson = this.normalizeSourcePayload(document.currentVersion.sourceJson);
     const workspaceFacts = this.readDocumentWorkspaceFacts(sourceJson.metadata);
-    const deliverableValidation = validateVisibleWorkspaceDocumentDeliverable({
-      workspaceFacts,
-      outputPath: input.outputPath,
-      inspection: {
-        sourcePath: workspaceFacts.outputPath,
-        format:
-          sourceJson.outputFormat === "pdf" ||
-          sourceJson.outputFormat === "xlsx" ||
-          sourceJson.outputFormat === "docx"
-            ? sourceJson.outputFormat
-            : null,
-        summary: workspaceFacts.inspectionSummary
-      }
-    });
-    if (!deliverableValidation.ok) {
-      return {
-        status: "blocked",
-        code: deliverableValidation.code,
-        message: deliverableValidation.message
-      };
-    }
     return {
       status: "ready",
       link: buildAssistantDocumentLinkMetadata({
