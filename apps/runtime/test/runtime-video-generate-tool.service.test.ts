@@ -8,6 +8,7 @@ import type {
   RuntimeAttachmentRef,
   RuntimeBrowserConfig,
   RuntimeKnowledgeAccessConfig,
+  RuntimeVideoGenerateToolResult,
   RuntimeVideoModelParameters,
   RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
@@ -72,6 +73,30 @@ function createBundle(options?: {
       gender: "male" | "female" | "neutral" | "unknown";
       description: string | null;
       styleTags: string[];
+    }>;
+  } | null;
+  talkingAvatarVideoVoiceCatalog?: {
+    provider: "heygen";
+    fetchedAt: string;
+    shortlist: Array<{
+      voiceKey: string;
+      providerVoiceId: string;
+      displayName: string;
+      locale: string | null;
+      gender: "male" | "female" | "neutral" | "unknown";
+      description: string | null;
+      styleTags: string[];
+    }>;
+  } | null;
+  videoPersonaCatalog?: {
+    provider: "heygen";
+    schema: "persai.runtimeVideoPersonaCatalog.v1";
+    personas: Array<{
+      personaId: string;
+      displayName: string;
+      voiceLabel: string;
+      presetVoiceLabel?: string | null;
+      linkedClonedVoiceDisplayName?: string | null;
     }>;
   } | null;
   fallbacks?: Array<{
@@ -225,13 +250,22 @@ function createBundle(options?: {
                   id: options?.secretId ?? "tool/image_generate/api-key"
                 },
                 configured: true,
-                providerId: options?.providerId ?? "heygen",
+                providerId:
+                  options?.talkingAvatarVideoVoiceCatalog !== undefined ||
+                  options?.videoPersonaCatalog !== undefined
+                    ? "heygen"
+                    : (options?.providerId ?? "heygen"),
                 ...(options?.modelKey ? { modelKey: options.modelKey } : {}),
                 ...(options?.videoModelParameters
                   ? { videoModelParameters: options.videoModelParameters }
                   : {}),
-                ...(options?.videoVoiceCatalog
-                  ? { videoVoiceCatalog: options.videoVoiceCatalog }
+                ...(options?.talkingAvatarVideoVoiceCatalog
+                  ? { videoVoiceCatalog: options.talkingAvatarVideoVoiceCatalog }
+                  : options?.videoVoiceCatalog
+                    ? { videoVoiceCatalog: options.videoVoiceCatalog }
+                    : {}),
+                ...(options?.videoPersonaCatalog
+                  ? { videoPersonaCatalog: options.videoPersonaCatalog }
                   : {})
               }
             }
@@ -382,6 +416,10 @@ function createToolCall(argumentsObject: Record<string, unknown>): ProviderGatew
     name: "video_generate",
     arguments: argumentsObject
   };
+}
+
+function generationPayload(payload: unknown): RuntimeVideoGenerateToolResult {
+  return payload as RuntimeVideoGenerateToolResult;
 }
 
 function createReferenceAttachment(
@@ -756,6 +794,227 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   assert.equal(
     hiddenProjection.tools.some((tool) => tool.name === "video_generate"),
     false
+  );
+
+  const readOnlyLookupBundle = createBundle({
+    providerId: "kling",
+    secretId: "tool/video_generate/kling/api-key",
+    modelKey: "kling-v3",
+    videoModelParameters: KLING_VIDEO_MODEL_PARAMETERS,
+    videoVoiceCatalog: {
+      provider: "kling",
+      fetchedAt: "2026-06-02T12:00:00.000Z",
+      shortlist: [
+        {
+          voiceKey: "cinematic-en",
+          providerVoiceId: "voice-cinematic-en",
+          displayName: "Cinematic EN",
+          locale: "en-US",
+          gender: "female",
+          description: null,
+          styleTags: []
+        },
+        {
+          voiceKey: "cinematic-ru",
+          providerVoiceId: "voice-cinematic-ru",
+          displayName: "Cinematic RU",
+          locale: "ru-RU",
+          gender: "male",
+          description: null,
+          styleTags: []
+        }
+      ]
+    },
+    includeTalkingAvatarRef: true,
+    talkingAvatarVideoVoiceCatalog: {
+      provider: "heygen",
+      fetchedAt: "2026-06-05T00:00:00.000Z",
+      shortlist: [
+        {
+          voiceKey: "avatar-ru",
+          providerVoiceId: "avatar-ru-1",
+          displayName: "Avatar RU",
+          locale: "ru-RU",
+          gender: "female",
+          description: null,
+          styleTags: []
+        },
+        {
+          voiceKey: "avatar-en",
+          providerVoiceId: "avatar-en-1",
+          displayName: "Avatar EN",
+          locale: "en-US",
+          gender: "male",
+          description: null,
+          styleTags: []
+        }
+      ]
+    },
+    videoPersonaCatalog: {
+      provider: "heygen",
+      schema: "persai.runtimeVideoPersonaCatalog.v1",
+      personas: [
+        {
+          personaId: "persona-1",
+          displayName: "Masha",
+          voiceLabel: "Brand Voice",
+          presetVoiceLabel: "Russian (Female)",
+          linkedClonedVoiceDisplayName: "Brand Voice"
+        }
+      ]
+    }
+  });
+  const providerCallsBeforeReadOnly = providerGatewayClientService.videoCalls.length;
+  const listPersonasResult = await service.executeToolCall({
+    bundle: readOnlyLookupBundle,
+    toolCall: createToolCall({
+      action: "list_personas"
+    }),
+    availableAttachments: [],
+    sessionId: "session-readonly-1",
+    requestId: "request-readonly-1"
+  });
+  assert.equal(listPersonasResult.isError, false);
+  assert.deepEqual(listPersonasResult.artifacts, []);
+  const listPersonasPayload = listPersonasResult.payload as {
+    action: string;
+    personas: Array<{
+      personaId: string;
+      displayName: string;
+      voiceLabel: string;
+      linkedClonedVoiceLabel?: string | null;
+    }>;
+  };
+  assert.equal(listPersonasPayload.action, "listed_personas");
+  assert.deepEqual(listPersonasPayload.personas, [
+    {
+      personaId: "persona-1",
+      displayName: "Masha",
+      voiceLabel: "Brand Voice",
+      linkedClonedVoiceLabel: "Brand Voice"
+    }
+  ]);
+
+  const emptyPersonasResult = await service.executeToolCall({
+    bundle: createBundle({
+      providerId: "kling",
+      secretId: "tool/video_generate/kling/api-key",
+      modelKey: "kling-v3",
+      videoModelParameters: KLING_VIDEO_MODEL_PARAMETERS
+    }),
+    toolCall: createToolCall({
+      action: "list_personas"
+    }),
+    availableAttachments: [],
+    sessionId: "session-readonly-2",
+    requestId: "request-readonly-2"
+  });
+  assert.equal(emptyPersonasResult.isError, false);
+  assert.deepEqual(emptyPersonasResult.artifacts, []);
+  const emptyPersonasPayload = emptyPersonasResult.payload as {
+    action: string;
+    personas: unknown[];
+    note?: string | null;
+  };
+  assert.equal(emptyPersonasPayload.action, "listed_personas");
+  assert.equal(emptyPersonasPayload.personas.length, 0);
+  assert.match(emptyPersonasPayload.note ?? "", /Settings -> Characters/i);
+
+  const listVoicesResult = await service.executeToolCall({
+    bundle: readOnlyLookupBundle,
+    toolCall: createToolCall({
+      action: "list_voices",
+      locale: "ru-RU"
+    }),
+    availableAttachments: [],
+    sessionId: "session-readonly-3",
+    requestId: "request-readonly-3"
+  });
+  assert.equal(listVoicesResult.isError, false);
+  assert.deepEqual(listVoicesResult.artifacts, []);
+  const listVoicesPayload = listVoicesResult.payload as {
+    action: string;
+    locale: string | null;
+    voices: Array<{ voiceKey: string }>;
+  };
+  assert.equal(listVoicesPayload.action, "listed_voices");
+  assert.equal(listVoicesPayload.locale, "ru-RU");
+  assert.equal(listVoicesPayload.voices[0]?.voiceKey, "cinematic-ru");
+  assert.equal(listVoicesPayload.voices[1]?.voiceKey, "avatar-ru");
+
+  const talkingAvatarVoicesOnlyResult = await service.executeToolCall({
+    bundle: readOnlyLookupBundle,
+    toolCall: createToolCall({
+      action: "list_voices",
+      mode: "talking_avatar",
+      locale: "en-US"
+    }),
+    availableAttachments: [],
+    sessionId: "session-readonly-4",
+    requestId: "request-readonly-4"
+  });
+  assert.equal(talkingAvatarVoicesOnlyResult.isError, false);
+  assert.deepEqual(talkingAvatarVoicesOnlyResult.artifacts, []);
+  const talkingAvatarVoicesPayload = talkingAvatarVoicesOnlyResult.payload as {
+    action: string;
+    mode: string | null;
+    voices: Array<{ voiceKey: string }>;
+  };
+  assert.equal(talkingAvatarVoicesPayload.action, "listed_voices");
+  assert.equal(talkingAvatarVoicesPayload.mode, "talking_avatar");
+  assert.deepEqual(
+    talkingAvatarVoicesPayload.voices.map((voice) => voice.voiceKey),
+    ["avatar-en", "avatar-ru"]
+  );
+
+  const describeAvatarModeEnabledResult = await service.executeToolCall({
+    bundle: readOnlyLookupBundle,
+    toolCall: createToolCall({
+      action: "describe_avatar_mode"
+    }),
+    availableAttachments: [],
+    sessionId: "session-readonly-5",
+    requestId: "request-readonly-5"
+  });
+  assert.equal(describeAvatarModeEnabledResult.isError, false);
+  assert.deepEqual(describeAvatarModeEnabledResult.artifacts, []);
+  const describeAvatarModeEnabledPayload = describeAvatarModeEnabledResult.payload as {
+    action: string;
+    available: boolean;
+    modeChoiceRule?: string | null;
+    personaCreationGuidance?: string | null;
+  };
+  assert.equal(describeAvatarModeEnabledPayload.action, "described_avatar_mode");
+  assert.equal(describeAvatarModeEnabledPayload.available, true);
+  assert.match(describeAvatarModeEnabledPayload.modeChoiceRule ?? "", /talking[- ]head/i);
+  assert.match(
+    describeAvatarModeEnabledPayload.personaCreationGuidance ?? "",
+    /Settings -> Characters/i
+  );
+
+  const describeAvatarModeDisabledResult = await service.executeToolCall({
+    bundle: bundle,
+    toolCall: createToolCall({
+      action: "describe_avatar_mode"
+    }),
+    availableAttachments: [],
+    sessionId: "session-readonly-6",
+    requestId: "request-readonly-6"
+  });
+  assert.equal(describeAvatarModeDisabledResult.isError, false);
+  assert.deepEqual(describeAvatarModeDisabledResult.artifacts, []);
+  const describeAvatarModeDisabledPayload = describeAvatarModeDisabledResult.payload as {
+    action: string;
+    available: boolean;
+    note?: string | null;
+  };
+  assert.equal(describeAvatarModeDisabledPayload.action, "described_avatar_mode");
+  assert.equal(describeAvatarModeDisabledPayload.available, false);
+  assert.match(describeAvatarModeDisabledPayload.note ?? "", /Only cinematic mode applies/i);
+  assert.equal(
+    providerGatewayClientService.videoCalls.length,
+    providerCallsBeforeReadOnly,
+    "read-only video lookups must not call the provider"
   );
 
   const proModelResult = await service.executeToolCall({
@@ -2210,12 +2469,13 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     sessionId: "session-1",
     requestId: "request-talking-avatar-echo"
   });
-  assert.equal(echoTestResult.payload.requestedMode, "talking_avatar");
-  assert.equal(echoTestResult.payload.requestedSpeechText, "Echo speech.");
-  assert.equal(echoTestResult.payload.requestedSpeechLanguage, "zh-CN");
-  assert.equal(echoTestResult.payload.requestedPersonaId, "persona-echo-test");
-  assert.equal(echoTestResult.payload.requestedPortraitImageAlias, null);
-  assert.equal(echoTestResult.payload.requestedVoiceKey, "anya-warm");
+  const echoTestPayload = generationPayload(echoTestResult.payload);
+  assert.equal(echoTestPayload.requestedMode, "talking_avatar");
+  assert.equal(echoTestPayload.requestedSpeechText, "Echo speech.");
+  assert.equal(echoTestPayload.requestedSpeechLanguage, "zh-CN");
+  assert.equal(echoTestPayload.requestedPersonaId, "persona-echo-test");
+  assert.equal(echoTestPayload.requestedPortraitImageAlias, null);
+  assert.equal(echoTestPayload.requestedVoiceKey, "anya-warm");
 
   // ── Structural validation tests (Slice 3 — unchanged by Slice 7) ─────────
 
@@ -2315,9 +2575,10 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   });
   // The credential gate fires first (no video_generate_talking_avatar on plain bundle)
   // but the prompt is echoed in the payload — confirm placeholder was synthesized.
-  assert.notEqual(taNoPromptResult.payload.action, "invalid_arguments" as never);
+  const taNoPromptPayload = generationPayload(taNoPromptResult.payload);
+  assert.notEqual(taNoPromptPayload.action, "invalid_arguments" as never);
   assert.equal(
-    taNoPromptResult.payload.prompt,
+    taNoPromptPayload.prompt,
     "Talking-avatar render",
     "Fix #2: talking_avatar without prompt must yield placeholder 'Talking-avatar render'"
   );
@@ -2336,8 +2597,9 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     sessionId: "session-1",
     requestId: "request-ta-with-prompt"
   });
+  const taWithPromptPayload = generationPayload(taWithPromptResult.payload);
   assert.equal(
-    taWithPromptResult.payload.prompt,
+    taWithPromptPayload.prompt,
     "User scene context",
     "Fix #2: talking_avatar with explicit prompt must preserve user value"
   );
@@ -2421,8 +2683,9 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     sessionId: "session-1",
     requestId: "request-ta-credential-routing-present"
   });
+  const talkingAvatarWithCredentialPayload = generationPayload(talkingAvatarWithCredential.payload);
   assert.notEqual(
-    talkingAvatarWithCredential.payload.reason,
+    talkingAvatarWithCredentialPayload.reason,
     "talking_avatar_provider_unavailable",
     "Fix #3e: bundle with video_generate_talking_avatar credential must NOT return provider_unavailable"
   );

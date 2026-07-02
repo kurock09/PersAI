@@ -134,8 +134,74 @@ type AdaptedVideoAttemptRequest = {
   warning: string | null;
 };
 
+type RuntimeVideoGenerateReadOnlyAction = "list_personas" | "list_voices" | "describe_avatar_mode";
+
+export type RuntimeVideoGenerateReadOnlyToolResult =
+  | {
+      toolCode: "video_generate";
+      executionMode: "worker";
+      action: "listed_personas";
+      personas: Array<{
+        personaId: string;
+        displayName: string;
+        voiceLabel: string;
+        linkedClonedVoiceLabel?: string | null;
+      }>;
+      note: string | null;
+      truncated: boolean;
+    }
+  | {
+      toolCode: "video_generate";
+      executionMode: "worker";
+      action: "listed_voices";
+      mode: RuntimeVideoGenerateMode | null;
+      locale: string | null;
+      voices: Array<{
+        mode: RuntimeVideoGenerateMode;
+        voiceKey: string;
+        displayName: string;
+        locale: string | null;
+        gender: "male" | "female" | "neutral" | "unknown";
+      }>;
+      note: string | null;
+      truncated: boolean;
+    }
+  | {
+      toolCode: "video_generate";
+      executionMode: "worker";
+      action: "described_avatar_mode";
+      available: boolean;
+      note: string | null;
+      modeChoiceRule: string | null;
+      personaResolution: string | null;
+      personaCreationGuidance: string | null;
+      singleSpeakerPerCall: string | null;
+      voiceSelectionPrecedence: string | null;
+      portraitAliasVoiceRule: string | null;
+      aspectRatioRule: string | null;
+      cinematicOnlyFieldsIgnoredRule: string | null;
+    };
+
+export type RuntimeVideoGenerateServicePayload =
+  | RuntimeVideoGenerateToolResult
+  | RuntimeVideoGenerateReadOnlyToolResult;
+
+export function isRuntimeVideoGenerateReadOnlyPayload(
+  payload: RuntimeVideoGenerateServicePayload
+): payload is RuntimeVideoGenerateReadOnlyToolResult {
+  return (
+    payload.action === "listed_personas" ||
+    payload.action === "listed_voices" ||
+    payload.action === "described_avatar_mode"
+  );
+}
+
+const VIDEO_PERSONA_LIST_CAP_CHARS = 2_000;
+const VIDEO_VOICE_LIST_CAP_CHARS = 3_000;
+const VIDEO_AVATAR_MODE_CAP_CHARS = 3_000;
+
 export interface RuntimeVideoGenerateToolExecutionResult {
-  payload: RuntimeVideoGenerateToolResult;
+  payload: RuntimeVideoGenerateServicePayload;
   artifacts: RuntimeOutputArtifact[];
   isError: boolean;
 }
@@ -187,6 +253,10 @@ export class RuntimeVideoGenerateToolService {
         artifacts: [],
         isError: true
       };
+    }
+
+    if (isReadOnlyVideoGenerateAction(request.action)) {
+      return this.executeReadOnlyAction(params.bundle, request);
     }
 
     const policy = this.resolveAllowedWorkerToolPolicy(params.bundle, VIDEO_GENERATE_TOOL_CODE);
@@ -1081,6 +1151,313 @@ export class RuntimeVideoGenerateToolService {
     };
   }
 
+  private executeReadOnlyAction(
+    bundle: AssistantRuntimeBundle,
+    request: RuntimeVideoGenerateRequest
+  ): RuntimeVideoGenerateToolExecutionResult {
+    switch (request.action) {
+      case "list_personas":
+        return {
+          payload: this.buildListPersonasPayload(bundle),
+          artifacts: [],
+          isError: false
+        };
+      case "list_voices":
+        return {
+          payload: this.buildListVoicesPayload(bundle, request),
+          artifacts: [],
+          isError: false
+        };
+      case "describe_avatar_mode":
+        return {
+          payload: this.buildDescribeAvatarModePayload(bundle),
+          artifacts: [],
+          isError: false
+        };
+      default:
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            action: "described_avatar_mode",
+            available: false,
+            note: "Unsupported read-only video action.",
+            modeChoiceRule: null,
+            personaResolution: null,
+            personaCreationGuidance: null,
+            singleSpeakerPerCall: null,
+            voiceSelectionPrecedence: null,
+            portraitAliasVoiceRule: null,
+            aspectRatioRule: null,
+            cinematicOnlyFieldsIgnoredRule: null
+          },
+          artifacts: [],
+          isError: false
+        };
+    }
+  }
+
+  private buildListPersonasPayload(
+    bundle: AssistantRuntimeBundle
+  ): Extract<RuntimeVideoGenerateReadOnlyToolResult, { action: "listed_personas" }> {
+    const talkingAvatarCredential =
+      bundle.governance.toolCredentialRefs[VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY] ?? null;
+    const personas = talkingAvatarCredential?.videoPersonaCatalog?.personas ?? [];
+    const rows = personas.map((persona) => ({
+      personaId: persona.personaId,
+      displayName: persona.displayName,
+      voiceLabel: persona.voiceLabel,
+      ...(typeof persona.linkedClonedVoiceDisplayName === "string" &&
+      persona.linkedClonedVoiceDisplayName.trim().length > 0
+        ? { linkedClonedVoiceLabel: persona.linkedClonedVoiceDisplayName.trim() }
+        : {})
+    }));
+    const { rows: cappedRows, truncated } = this.capArrayBySerializedLength(
+      rows,
+      (nextRows) => ({
+        toolCode: VIDEO_GENERATE_TOOL_CODE,
+        executionMode: "worker" as const,
+        action: "listed_personas" as const,
+        personas: nextRows,
+        note:
+          rows.length === 0
+            ? "No saved characters yet. Ask the user to create one in Settings -> Characters."
+            : null,
+        truncated: false
+      }),
+      VIDEO_PERSONA_LIST_CAP_CHARS
+    );
+    return {
+      toolCode: VIDEO_GENERATE_TOOL_CODE,
+      executionMode: "worker",
+      action: "listed_personas",
+      personas: cappedRows,
+      note:
+        rows.length === 0
+          ? "No saved characters yet. Ask the user to create one in Settings -> Characters."
+          : null,
+      truncated
+    };
+  }
+
+  private buildListVoicesPayload(
+    bundle: AssistantRuntimeBundle,
+    request: RuntimeVideoGenerateRequest
+  ): Extract<RuntimeVideoGenerateReadOnlyToolResult, { action: "listed_voices" }> {
+    const cinematicCredential =
+      bundle.governance.toolCredentialRefs[VIDEO_GENERATE_TOOL_CODE] ?? null;
+    const talkingAvatarCredential =
+      bundle.governance.toolCredentialRefs[VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY] ?? null;
+    const requestedMode = request.mode ?? null;
+    const requestedLocale = request.locale ?? null;
+    const rows = [
+      ...this.describeCatalogVoices(
+        cinematicCredential?.videoVoiceCatalog?.shortlist ?? [],
+        "cinematic",
+        requestedMode,
+        requestedLocale
+      ),
+      ...this.describeCatalogVoices(
+        talkingAvatarCredential?.videoVoiceCatalog?.shortlist ?? [],
+        "talking_avatar",
+        requestedMode,
+        requestedLocale
+      )
+    ].sort((left, right) => {
+      const leftScore = this.scoreVoiceLocaleMatch(left.locale, requestedLocale);
+      const rightScore = this.scoreVoiceLocaleMatch(right.locale, requestedLocale);
+      if (rightScore !== leftScore) {
+        return rightScore - leftScore;
+      }
+      if (left.mode !== right.mode) {
+        return left.mode.localeCompare(right.mode);
+      }
+      return left.displayName.localeCompare(right.displayName);
+    });
+    const note =
+      rows.length > 0
+        ? null
+        : requestedMode === "talking_avatar" && talkingAvatarCredential === null
+          ? "Talking-avatar voices are unavailable for this assistant right now."
+          : "No saved video voices are available for this request yet.";
+    const { rows: cappedRows, truncated } = this.capArrayBySerializedLength(
+      rows,
+      (nextRows) => ({
+        toolCode: VIDEO_GENERATE_TOOL_CODE,
+        executionMode: "worker" as const,
+        action: "listed_voices" as const,
+        mode: requestedMode,
+        locale: requestedLocale,
+        voices: nextRows,
+        note,
+        truncated: false
+      }),
+      VIDEO_VOICE_LIST_CAP_CHARS
+    );
+    return {
+      toolCode: VIDEO_GENERATE_TOOL_CODE,
+      executionMode: "worker",
+      action: "listed_voices",
+      mode: requestedMode,
+      locale: requestedLocale,
+      voices: cappedRows,
+      note,
+      truncated
+    };
+  }
+
+  private buildDescribeAvatarModePayload(
+    bundle: AssistantRuntimeBundle
+  ): Extract<RuntimeVideoGenerateReadOnlyToolResult, { action: "described_avatar_mode" }> {
+    const talkingAvatarCredential =
+      bundle.governance.toolCredentialRefs[VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY] ?? null;
+    if (talkingAvatarCredential === null || talkingAvatarCredential.configured !== true) {
+      return {
+        toolCode: VIDEO_GENERATE_TOOL_CODE,
+        executionMode: "worker",
+        action: "described_avatar_mode",
+        available: false,
+        note: "talking_avatar is unavailable for this assistant right now. Only cinematic mode applies.",
+        modeChoiceRule: null,
+        personaResolution: null,
+        personaCreationGuidance: null,
+        singleSpeakerPerCall: null,
+        voiceSelectionPrecedence: null,
+        portraitAliasVoiceRule: null,
+        aspectRatioRule: null,
+        cinematicOnlyFieldsIgnoredRule: null
+      };
+    }
+    const payload = {
+      toolCode: VIDEO_GENERATE_TOOL_CODE,
+      executionMode: "worker" as const,
+      action: "described_avatar_mode" as const,
+      available: true,
+      note: null,
+      modeChoiceRule:
+        "Use mode='talking_avatar' only for a speaking avatar or talking-head request with real spoken words from speechText plus either a saved persona or a portrait image. Use mode='cinematic' for ordinary motion clips, silent clips, gestures, smiles, camera movement, product/fashion/cinematic work, and any no-speech request.",
+      personaResolution:
+        "When the user names a saved character, match that exact displayName case-insensitively and pass its personaId. Do not invent personaIds. If no saved character matches, ask for clarification or suggest creating one first.",
+      personaCreationGuidance:
+        "You cannot create personas from this tool. When the user wants to save a new character, direct them to Settings -> Characters to create it there.",
+      singleSpeakerPerCall:
+        "Each video_generate call can create only one clip with one speaker. If the user wants multiple speakers, split it into separate clips rather than forcing multiple personas into one call.",
+      voiceSelectionPrecedence:
+        "Voice selection precedence is strict: an explicit user-specified voice wins; otherwise a saved persona keeps its stored voice by default; otherwise use a listed talking-avatar voice for the portrait path. Never guess a voiceKey that was not listed.",
+      portraitAliasVoiceRule:
+        "On the portraitImageAlias path, choose a listed voiceKey that fits the requested language and style. If the portrait path has no explicit voiceKey, runtime returns voice_required so the model can retry with a listed voice.",
+      aspectRatioRule:
+        "For saved personas, omit talkingAvatarAspectRatio because the saved persona format already decides it. For portraitImageAlias only, pass talkingAvatarAspectRatio only when the user explicitly asked for 16:9, 9:16, or 1:1.",
+      cinematicOnlyFieldsIgnoredRule:
+        "When mode='talking_avatar', omit cinematic-only controls: audioMode, inputMode, voiceKeys, voiceIds, referenceImageAlias, referenceImageAliases, size, seconds, and filename. Talking-avatar audio comes from speechText plus voiceKey or the persona's stored voice."
+    };
+    return this.capObjectBySerializedLength(payload, VIDEO_AVATAR_MODE_CAP_CHARS);
+  }
+
+  private describeCatalogVoices(
+    shortlist: NonNullable<
+      NonNullable<AssistantRuntimeBundleToolCredentialRef["videoVoiceCatalog"]>["shortlist"]
+    >,
+    mode: RuntimeVideoGenerateMode,
+    requestedMode: RuntimeVideoGenerateMode | null,
+    requestedLocale: string | null
+  ): Array<{
+    mode: RuntimeVideoGenerateMode;
+    voiceKey: string;
+    displayName: string;
+    locale: string | null;
+    gender: "male" | "female" | "neutral" | "unknown";
+  }> {
+    if (requestedMode !== null && requestedMode !== mode) {
+      return [];
+    }
+    const normalizedLocale = requestedLocale?.trim().toLowerCase() ?? null;
+    return [...shortlist]
+      .sort((left, right) => {
+        const leftScore = this.scoreVoiceLocaleMatch(left.locale, normalizedLocale);
+        const rightScore = this.scoreVoiceLocaleMatch(right.locale, normalizedLocale);
+        if (rightScore !== leftScore) {
+          return rightScore - leftScore;
+        }
+        return left.displayName.localeCompare(right.displayName);
+      })
+      .map((entry) => ({
+        mode,
+        voiceKey: entry.voiceKey,
+        displayName: entry.displayName,
+        locale: entry.locale ?? null,
+        gender: entry.gender
+      }));
+  }
+
+  private scoreVoiceLocaleMatch(locale: string | null, requestedLocale: string | null): number {
+    if (requestedLocale === null) {
+      return 0;
+    }
+    const normalizedLocale = locale?.trim().toLowerCase() ?? null;
+    if (normalizedLocale === null) {
+      return 0;
+    }
+    if (normalizedLocale === requestedLocale) {
+      return 2;
+    }
+    const requestedLanguage = requestedLocale.split("-")[0] ?? requestedLocale;
+    const localeLanguage = normalizedLocale.split("-")[0] ?? normalizedLocale;
+    return localeLanguage === requestedLanguage ? 1 : 0;
+  }
+
+  private capArrayBySerializedLength<T>(
+    rows: T[],
+    buildPayload: (rows: T[]) => Record<string, unknown>,
+    maxChars: number
+  ): { rows: T[]; truncated: boolean } {
+    const cappedRows = [...rows];
+    let truncated = false;
+    while (JSON.stringify(buildPayload(cappedRows)).length > maxChars && cappedRows.length > 0) {
+      cappedRows.pop();
+      truncated = true;
+    }
+    return { rows: cappedRows, truncated: truncated || cappedRows.length < rows.length };
+  }
+
+  private capObjectBySerializedLength<T extends Record<string, unknown>>(
+    value: T,
+    maxChars: number
+  ): T {
+    if (JSON.stringify(value).length <= maxChars) {
+      return value;
+    }
+    const capped: Record<string, unknown> = { ...value };
+    const trimmableKeys = [
+      "personaCreationGuidance",
+      "portraitAliasVoiceRule",
+      "voiceSelectionPrecedence",
+      "singleSpeakerPerCall",
+      "personaResolution",
+      "modeChoiceRule",
+      "aspectRatioRule",
+      "cinematicOnlyFieldsIgnoredRule",
+      "note"
+    ] as const;
+    for (const key of trimmableKeys) {
+      if (JSON.stringify(capped).length <= maxChars) {
+        break;
+      }
+      if (typeof capped[key] === "string") {
+        capped[key] = this.truncateText(capped[key] as string, 220);
+      }
+    }
+    return capped as T;
+  }
+
+  private truncateText(value: string, maxChars: number): string {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    if (normalized.length <= maxChars) {
+      return normalized;
+    }
+    return `${normalized.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+  }
+
   private resolveMediaJobIdFromSession(sessionId: string): string | null {
     const prefix = "media-job:";
     if (!sessionId.startsWith(prefix)) {
@@ -1120,10 +1497,12 @@ export class RuntimeVideoGenerateToolService {
     const unknownKeys = Object.keys(args).filter(
       (key) =>
         key !== "toolCode" &&
+        key !== "action" &&
         key !== "prompt" &&
         key !== "filename" &&
         key !== "size" &&
         key !== "seconds" &&
+        key !== "locale" &&
         key !== "audioMode" &&
         key !== "inputMode" &&
         key !== "referenceImageAlias" &&
@@ -1146,6 +1525,21 @@ export class RuntimeVideoGenerateToolService {
       return new Error(`toolCode must be ${VIDEO_GENERATE_TOOL_CODE}`);
     }
 
+    const action =
+      args.action === undefined || args.action === null
+        ? "generate"
+        : args.action === "generate" ||
+            args.action === "list_personas" ||
+            args.action === "list_voices" ||
+            args.action === "describe_avatar_mode"
+          ? args.action
+          : null;
+    if ("action" in args && args.action !== null && action === null) {
+      return new Error(
+        'action must be one of "generate", "list_personas", "list_voices", or "describe_avatar_mode" when provided'
+      );
+    }
+
     // Parse mode first so the prompt requirement can depend on it (Fix #3 / E14).
     // ADR-109 Slice 3: talking-avatar fields. Defensive structural parsing.
     // No regex / string-matching / message-body parsing (invariant #15).
@@ -1166,7 +1560,9 @@ export class RuntimeVideoGenerateToolService {
     // When talking_avatar omits prompt, synthesize a structural placeholder for observability.
     const promptRaw = this.asNonEmptyString(args.prompt);
     let prompt: string;
-    if (modeEarly === "talking_avatar") {
+    if (action !== "generate") {
+      prompt = promptRaw ?? "";
+    } else if (modeEarly === "talking_avatar") {
       prompt = promptRaw ?? "Talking-avatar render";
     } else {
       if (promptRaw === null) {
@@ -1203,6 +1599,12 @@ export class RuntimeVideoGenerateToolService {
           : null;
     if ("seconds" in args && args.seconds !== null && seconds === null) {
       return new Error("seconds must be a positive integer when provided");
+    }
+
+    const locale =
+      args.locale === undefined || args.locale === null ? null : this.asNonEmptyString(args.locale);
+    if ("locale" in args && args.locale !== null && locale === null) {
+      return new Error("locale must be a non-empty string when provided");
     }
 
     const audioMode =
@@ -1368,7 +1770,7 @@ export class RuntimeVideoGenerateToolService {
     // For mode === "cinematic" or mode absent/null we silently ignore the new
     // fields. (No multi-character refusal in code; that constraint lives in the
     // LLM-facing tool description — Slice 10 work.)
-    if (mode === "talking_avatar") {
+    if (action === "generate" && mode === "talking_avatar") {
       if (speechText === null) {
         return new Error(
           "speechText is required when mode is talking_avatar. Use talking_avatar only for a speaking avatar with an actual script. For silent/no-speech/ordinary video requests, use mode='cinematic' instead."
@@ -1388,10 +1790,12 @@ export class RuntimeVideoGenerateToolService {
 
     return {
       toolCode: VIDEO_GENERATE_TOOL_CODE,
+      action,
       prompt,
       filename,
       size,
       seconds,
+      locale,
       audioMode,
       inputMode,
       referenceImageAlias,
@@ -2997,4 +3401,12 @@ export class RuntimeVideoGenerateToolService {
   private normalizeAlias(value: string): string {
     return value.trim().toLowerCase();
   }
+}
+
+function isReadOnlyVideoGenerateAction(
+  action: RuntimeVideoGenerateRequest["action"]
+): action is RuntimeVideoGenerateReadOnlyAction {
+  return (
+    action === "list_personas" || action === "list_voices" || action === "describe_avatar_mode"
+  );
 }

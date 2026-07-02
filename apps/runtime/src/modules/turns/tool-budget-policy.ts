@@ -304,6 +304,9 @@ export class ToolBudgetPolicy {
         observed: iterationIndex + 1
       };
     }
+    if (Number.isFinite(requestedUnits) && Math.floor(requestedUnits) === 0) {
+      return { exhausted: false };
+    }
     const units =
       Number.isFinite(requestedUnits) && requestedUnits > 0 ? Math.floor(requestedUnits) : 1;
     const cap = this.perToolCap(toolName);

@@ -502,4 +502,29 @@ export async function runToolBudgetPolicyTest(): Promise<void> {
       "ADR-105 Slice 2 regression: default-units observed must be 3 (consumed) + 1 (requested) = 4."
     );
   }
+
+  // Case 4: explicit requestedUnits=0 is a true no-op reservation. It must not
+  // consume cap, must not exhaust, and must leave the counter unchanged so the
+  // next real unit still sees the original budget.
+  const zeroUnitPolicy = new ToolBudgetPolicy("reasoning", {
+    perToolCapOverrides: new Map([["video_generate", 1]])
+  });
+  const zeroUnitReservation = zeroUnitPolicy.reserve("video_generate", 0, 0);
+  assert.equal(
+    zeroUnitReservation.exhausted,
+    false,
+    "ADR-130 Slice 3 regression: reserve(video_generate, 0, 0) must be a no-op, not an exhaustion."
+  );
+  const firstRealVideoReservation = zeroUnitPolicy.reserve("video_generate", 0, 1);
+  assert.equal(
+    firstRealVideoReservation.exhausted,
+    false,
+    "ADR-130 Slice 3 regression: requestedUnits=0 must not consume the per-tool cap."
+  );
+  const secondRealVideoReservation = zeroUnitPolicy.reserve("video_generate", 0, 1);
+  assert.equal(
+    secondRealVideoReservation.exhausted,
+    true,
+    "ADR-130 Slice 3 regression: after a zero-unit no-op and one real unit, the second real unit must exhaust cap=1."
+  );
 }

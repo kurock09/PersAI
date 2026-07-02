@@ -2998,6 +2998,12 @@ export class TurnExecutionService {
         MAX_RUNTIME_IMAGE_EDIT_COUNT
       );
     }
+    if (
+      toolCall.name === VIDEO_GENERATE_TOOL_CODE &&
+      this.isReadOnlyVideoGenerateLookup(toolCall)
+    ) {
+      return 0;
+    }
     return 1;
   }
 
@@ -3011,6 +3017,16 @@ export class TurnExecutionService {
       return minCount;
     }
     return Math.min(value, maxCount);
+  }
+
+  private isReadOnlyVideoGenerateLookup(toolCall: ProviderGatewayToolCall): boolean {
+    if (toolCall.name !== VIDEO_GENERATE_TOOL_CODE) {
+      return false;
+    }
+    const action = toolCall.arguments.action;
+    return (
+      action === "list_personas" || action === "list_voices" || action === "describe_avatar_mode"
+    );
   }
 
   /**
@@ -3426,27 +3442,34 @@ export class TurnExecutionService {
         );
       }
       case VIDEO_GENERATE_TOOL_CODE: {
-        const availableImageAttachments = await this.resolveAvailableImageToolAttachments(
-          execution.currentMessageAttachments,
-          availableWorkingFileHandles,
-          currentArtifacts,
-          currentFileHandles
-        );
-        const result = await this.runtimeVideoGenerateToolService.executeToolCall({
-          bundle: execution.bundle,
-          toolCall,
-          availableAttachments: availableImageAttachments,
-          sessionId: acceptedTurn.session.sessionId,
-          requestId: acceptedTurn.receipt.requestId,
-          ...(this.shouldDeferMediaToolExecution(input)
-            ? {
-                deferToAsyncMediaJob: {
-                  sourceUserMessageId: input.idempotencyKey,
-                  sourceUserMessageText: input.message.text
-                }
-              }
-            : {})
-        });
+        const result = this.isReadOnlyVideoGenerateLookup(toolCall)
+          ? await this.runtimeVideoGenerateToolService.executeToolCall({
+              bundle: execution.bundle,
+              toolCall,
+              availableAttachments: [],
+              sessionId: acceptedTurn.session.sessionId,
+              requestId: acceptedTurn.receipt.requestId
+            })
+          : await this.runtimeVideoGenerateToolService.executeToolCall({
+              bundle: execution.bundle,
+              toolCall,
+              availableAttachments: await this.resolveAvailableImageToolAttachments(
+                execution.currentMessageAttachments,
+                availableWorkingFileHandles,
+                currentArtifacts,
+                currentFileHandles
+              ),
+              sessionId: acceptedTurn.session.sessionId,
+              requestId: acceptedTurn.receipt.requestId,
+              ...(this.shouldDeferMediaToolExecution(input)
+                ? {
+                    deferToAsyncMediaJob: {
+                      sourceUserMessageId: input.idempotencyKey,
+                      sourceUserMessageText: input.message.text
+                    }
+                  }
+                : {})
+            });
         return this.createToolExecutionOutcome(
           toolCall,
           result.payload,

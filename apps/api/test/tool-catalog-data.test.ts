@@ -126,6 +126,32 @@ function testDocumentCatalogRowTeachesThreeVerbSurface(): void {
   );
 }
 
+function testVideoGenerateCatalogRowUsesLazyLookupGuidance(): void {
+  const row = TOOL_CATALOG.find((t) => t.code === "video_generate");
+  assert.ok(row, "video_generate catalog row must exist");
+  const text = `${row.description}\n${row.modelDescription}\n${row.modelUsageGuidance}`;
+  assert.ok(
+    text.includes('action:"describe_avatar_mode"') &&
+      text.includes('action:"list_personas"') &&
+      text.includes('action:"list_voices"'),
+    "video_generate guidance must point to the three lazy read-only lookup actions"
+  );
+  assert.ok(
+    text.includes("read-only"),
+    "video_generate guidance must say the lazy lookup actions are read-only"
+  );
+  assert.ok(
+    /Never guess personaId or voiceKey/i.test(text),
+    "video_generate guidance must forbid guessing personaId or voiceKey"
+  );
+  assert.ok(
+    !/Available voiceKeys|videoPersonas|linkedClonedVoiceLabel=|Mode choice is strict|Each video_generate call produces ONE clip with ONE speaker/i.test(
+      text
+    ),
+    "video_generate catalog wording must not inline the heavy persona, voice, or talking-avatar tutorial content"
+  );
+}
+
 function testFilesCatalogRowUsesExactListedPaths(): void {
   const rows = TOOL_CATALOG.filter((t) => t.code === "files");
   assert.strictEqual(rows.length, 1, "TOOL_CATALOG must contain exactly one files row");
@@ -236,6 +262,7 @@ export async function runToolCatalogDataTest(): Promise<void> {
   testTodoWriteCatalogRow();
   testSkillCatalogRowMentionsPlanIntake();
   testDocumentCatalogRowTeachesThreeVerbSurface();
+  testVideoGenerateCatalogRowUsesLazyLookupGuidance();
   testPresentationCatalogRowIsDeckSpecific();
   testDocumentCatalogRowSteersAwayFromPresentation();
   testFilesCatalogRowUsesExactListedPaths();

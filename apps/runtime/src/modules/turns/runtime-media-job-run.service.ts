@@ -16,7 +16,10 @@ import type {
 } from "@persai/runtime-contract";
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
-import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
+import {
+  isRuntimeVideoGenerateReadOnlyPayload,
+  RuntimeVideoGenerateToolService
+} from "./runtime-video-generate-tool.service";
 import { RuntimeExecutionAdmissionService } from "./runtime-execution-admission.service";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
@@ -203,6 +206,11 @@ export class RuntimeMediaJobRunService {
           sessionId: `media-job:${input.job.id}`,
           requestId: toolRunKey
         });
+        if (isRuntimeVideoGenerateReadOnlyPayload(result.payload)) {
+          throw new BadRequestException(
+            "directToolExecution for video_generate must execute generation, not a read-only lookup."
+          );
+        }
         this.assertVideoToolResultAccepted(
           result.payload.reason,
           result.payload.warning,

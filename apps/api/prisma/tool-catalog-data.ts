@@ -106,6 +106,8 @@ EXAMPLES:
 - video_generate({prompt:"…"}) — text-only short clip.
 - video_generate({prompt:"…", referenceImageAlias:"…"}) — clip guided by one current or recent chat image.
 GOTCHAS:
+- For talking-avatar rules, saved characters, or available voices, first call video_generate with action:"describe_avatar_mode", action:"list_personas", or action:"list_voices"; these lookups are read-only.
+- Never guess personaId or voiceKey; load them from those read-only actions first.
 - Single source-image guidance only; do not pass multiple reference aliases.
 - Output may arrive asynchronously; do not claim the clip is delivered until the tool result confirms success.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,

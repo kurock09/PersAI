@@ -97,83 +97,8 @@ function buildPendingDeliveryHint(params: {
     .join(" ");
 }
 
-function describeVideoVoiceCatalogHint(
-  credential: AssistantRuntimeBundleToolCredentialRef,
-  talkingAvatarEnabled: boolean
-): string | null {
-  const catalog = credential.videoVoiceCatalog;
-  const shortlist = catalog?.shortlist ?? [];
-  if (shortlist.length === 0) {
-    return null;
-  }
-  const entries = shortlist.slice(0, 12).map((entry) => {
-    const details = [entry.displayName, entry.locale, entry.gender]
-      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-      .join(", ");
-    return details.length > 0 ? `${entry.voiceKey} (${details})` : entry.voiceKey;
-  });
-  const base = `Available voiceKeys for voice_control (cinematic video only): ${entries.join("; ")}. Use these only for cinematic narration via audioMode="voice_control".`;
-  // Only cross-reference the talking-avatar voice path when that feature is
-  // actually enabled — Slice 8 invariant: do not surface talking-avatar to the
-  // model when talkingVideoEnabled is off.
-  if (!talkingAvatarEnabled) {
-    return base;
-  }
-  return `${base} Do not reuse this list for mode="talking_avatar": that path uses its own voiceKey field or a saved persona's voice.`;
-}
-
-function describeTalkingAvatarVoiceCatalogHint(
-  credential: AssistantRuntimeBundleToolCredentialRef
-): string | null {
-  const shortlist = credential.videoVoiceCatalog?.shortlist ?? [];
-  if (shortlist.length === 0) {
-    return null;
-  }
-  const entries = shortlist.slice(0, 20).map((entry) => {
-    const details = [entry.displayName, entry.locale, entry.gender]
-      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-      .join(", ");
-    return details.length > 0 ? `${entry.voiceKey} (${details})` : entry.voiceKey;
-  });
-  return `Available talking-avatar voiceKeys shortlist (prefer this set when the user did not name a saved persona): up to 10 EN and 10 RU voices, balanced across female/male as much as the catalog allows. ${entries.join("; ")}. For portraitImageAlias talking-avatar requests without an explicit voice, choose from this shortlist instead of inventing voice keys or dumping a long catalog.`;
-}
-
-function describeVideoPersonaCatalogHint(
-  credential: AssistantRuntimeBundleToolCredentialRef
-): string {
-  const catalog = credential.videoPersonaCatalog;
-  const personas = catalog?.personas ?? [];
-  if (personas.length === 0) {
-    return `Available saved characters (videoPersonas): none yet. Suggest the user create one via Settings → Characters when they want a named character.`;
-  }
-  const lines = personas
-    .slice(0, 10)
-    .map((p) => {
-      const linkedClone =
-        typeof p.linkedClonedVoiceDisplayName === "string" &&
-        p.linkedClonedVoiceDisplayName.trim().length > 0
-          ? p.linkedClonedVoiceDisplayName.trim()
-          : null;
-      const presetFallback =
-        typeof p.presetVoiceLabel === "string" && p.presetVoiceLabel.trim().length > 0
-          ? p.presetVoiceLabel.trim()
-          : null;
-      if (linkedClone) {
-        const fallbackNote = presetFallback ? `, presetFallbackVoiceLabel="${presetFallback}"` : "";
-        return `- personaId="${p.personaId}", displayName="${p.displayName}", voiceLabel="${p.voiceLabel}", linkedClonedVoiceLabel="${linkedClone}"${fallbackNote}`;
-      }
-      return `- personaId="${p.personaId}", displayName="${p.displayName}", voiceLabel="${p.voiceLabel}"`;
-    })
-    .join("\n");
-  const hasLinkedClone = personas.some(
-    (p) =>
-      typeof p.linkedClonedVoiceDisplayName === "string" &&
-      p.linkedClonedVoiceDisplayName.trim().length > 0
-  );
-  const cloneGuidance = hasLinkedClone
-    ? " Some saved personas use a linked cloned voice. When the user selects that persona, keep its saved voice by default; the linkedClonedVoiceLabel is a safe human label, not a provider id, and the presetFallbackVoiceLabel remains only as fallback metadata."
-    : "";
-  return `Available saved characters (videoPersonas):\n${lines}${cloneGuidance}`;
+function buildVideoGenerateLazyLookupHint(): string {
+  return 'For talking-avatar rules, saved characters, and available voices, call video_generate with action="describe_avatar_mode", "list_personas", or "list_voices" first; never guess personaId or voiceKey.';
 }
 
 /**
@@ -348,11 +273,7 @@ export function projectRuntimeNativeTools(
     (!isTalkingAvatarVideoProvider(videoGenerateCredential.providerId) || talkingVideoEnabled)
   ) {
     projectedTools.push(
-      createVideoGenerateToolDefinition(
-        videoGeneratePolicy,
-        videoGenerateCredential,
-        talkingAvatarCredential
-      )
+      createVideoGenerateToolDefinition(videoGeneratePolicy, talkingAvatarCredential)
     );
   }
   const ttsPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "tts", "worker");
@@ -1080,40 +1001,9 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
 
 function createVideoGenerateToolDefinition(
   policy: RuntimeToolPolicy,
-  credential: AssistantRuntimeBundleToolCredentialRef,
   talkingAvatarCredential: AssistantRuntimeBundleToolCredentialRef | null
 ): ProviderGatewayToolDefinition {
-  // ADR-109 Slice 10c Fix #3f: voice catalog for cinematic (Kling) comes from cinematic ref.
-  // Voice catalog + persona catalog for talking_avatar come from the talking-avatar ref.
   const talkingAvatarEnabled = talkingAvatarCredential !== null;
-  const voiceCatalogHint = describeVideoVoiceCatalogHint(credential, talkingAvatarEnabled);
-  const talkingAvatarHint = talkingAvatarEnabled
-    ? [
-        // Section 1: when to use talking_avatar
-        "Mode choice is strict. Use mode='talking_avatar' only when the user explicitly asks for a speaking avatar / talking head / character reading a script: the output must include spoken words from speechText, AND either (a) has an attached portrait to use as the speaker, or (b) names a saved character (persona) from the workspace. Use mode='cinematic' (default) for ordinary video, image animation, product/fashion/cinematic clips, silent clips, no-speech requests, gestures, smiles, winks, air kisses, camera motion, music-only mood, or any request that does not explicitly require spoken avatar narration.",
-        "Never use mode='talking_avatar' with empty speechText, placeholder speechText, or when the user says no speech / без речи / no dialogue. In those cases use mode='cinematic' with audioMode='silent' when silence/no speech matters.",
-        // Section 2: persona resolution
-        "The videoPersonas block below lists this workspace's saved characters with their personaId and displayName. When the user names a character (e.g. 'have Masha read this'), find the matching persona by exact displayName (case-insensitive) and pass its personaId. Persona names are unique within a workspace, so a name match is unambiguous. If no persona matches, do not invent IDs — either ask the user to clarify which character, or suggest creating one via Settings → Characters first.",
-        // Section 3: persona creation guidance
-        "You cannot create personas yourself. Creating a saved character requires the user to visit Settings → Characters and upload a portrait + name + voice. When the user asks to 'save this photo as <name>' or similar, instruct them to use Settings → Characters; do NOT attempt to create the persona via this tool.",
-        // Section 4: single character per call
-        "Each video_generate call produces ONE clip with ONE speaker (or no speaker for cinematic). If the user requests multiple speakers in a single clip, propose splitting into multiple sequential calls — one per speaker — and combining the results (or playing them in sequence). Do NOT call video_generate with multiple personas; the contract supports exactly one persona OR one portrait alias per call.",
-        // Section 5: voice selection precedence
-        "Voice selection precedence: if the user explicitly specifies a voice, gender/style of voice, or a concrete voiceKey/voiceId, follow that instruction. If the user names or selects a saved persona, use that persona's stored voice by default and only pass voiceKey to deliberately override it for one call.",
-        // Section 6: voice selection — portrait alias path
-        "Voice selection (portrait alias path): when passing portraitImageAlias, select voiceKey from the available voice shortlist based on the visual character in the image plus the request context (language, tone, brand fit, likely presentation). If the image strongly suggests a masculine/feminine presentation, prefer a matching voice, but treat this as a practical fit choice rather than a factual identity claim. If the image is ambiguous or confidence is low, you may briefly ask the user which voice they want. When voiceKey is omitted on the portrait path, runtime returns voice_required honestly so the model can retry with an explicit choice.",
-        // Section 7: aspect-ratio selection for talking_avatar
-        "Talking-avatar aspect ratio: for saved personas (personaId), omit talkingAvatarAspectRatio; the saved persona's avatar format is fixed and runtime will use it. For ad-hoc portraitImageAlias only, pass talkingAvatarAspectRatio only when the user explicitly says vertical/portrait/9:16, square/1:1, or widescreen/landscape/16:9. Do not infer aspect ratio from words like short, social, platform, task, source image shape, or general context.",
-        // Section 8: cinematic-only fields ignored in talking_avatar mode
-        "When mode='talking_avatar', omit all cinematic-only controls: audioMode, inputMode, voiceKeys, voiceIds, referenceImageAlias, referenceImageAliases, size, seconds, and filename. Talking-avatar audio comes from speechText + voiceKey (or the persona's stored voice); the portrait source is personaId XOR portraitImageAlias. talkingAvatarAspectRatio is only an explicit ad-hoc portraitImageAlias aspect request; never use it as a model guess for saved personas.",
-        // Section 9: persona shortlist (from talking-avatar credential ref)
-        describeVideoPersonaCatalogHint(talkingAvatarCredential)
-      ].join(" ")
-    : null;
-  // ADR-109 Slice 10c Fix #3f: talking-avatar voice catalog hint from talking-avatar ref.
-  const talkingAvatarVoiceCatalogHint = talkingAvatarEnabled
-    ? describeTalkingAvatarVoiceCatalogHint(talkingAvatarCredential)
-    : null;
   return {
     name: "video_generate",
     description: appendToolDefinitionHint(
@@ -1133,9 +1023,7 @@ function createVideoGenerateToolDefinition(
             quotaToolCode: "video_generate"
           })
         ].join(" "),
-        talkingAvatarHint,
-        voiceCatalogHint,
-        talkingAvatarVoiceCatalogHint
+        buildVideoGenerateLazyLookupHint()
       ]
         .filter((entry): entry is string => entry !== null)
         .join(" ")
@@ -1143,12 +1031,17 @@ function createVideoGenerateToolDefinition(
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["prompt"],
       properties: {
+        action: {
+          type: "string",
+          enum: ["generate", "list_personas", "list_voices", "describe_avatar_mode"],
+          description:
+            'Optional action. Omit or use "generate" for real video generation. Use the other actions for read-only persona, voice, or talking-avatar guidance lookups.'
+        },
         prompt: {
           type: "string",
           description:
-            "Text prompt describing the video clip to generate. Required for cinematic mode. Optional for talking_avatar — provide a one-line scene context for observability, or omit."
+            'Text prompt describing the video clip to generate. Required when action is omitted or "generate" and mode is cinematic. Optional for talking_avatar generation, where it may be a short scene note; ignored by read-only lookup actions.'
         },
         ...(talkingAvatarEnabled
           ? {
@@ -1171,7 +1064,7 @@ function createVideoGenerateToolDefinition(
               personaId: {
                 type: "string",
                 description:
-                  "Optional ID of a saved video persona (character) to use as the avatar. Use this when the assistant has a named character configured. Mutually exclusive with portraitImageAlias."
+                  'Optional ID of a saved video persona (character) to use as the avatar. Load available personaIds first with action="list_personas". Mutually exclusive with portraitImageAlias.'
               },
               portraitImageAlias: {
                 type: "string",
@@ -1181,7 +1074,7 @@ function createVideoGenerateToolDefinition(
               voiceKey: {
                 type: "string",
                 description:
-                  "Optional PersAI voice key from the materialized shortlist to override the persona's default voice. Omit on the persona path to use the persona's stored voice. Required on the portraitImageAlias path."
+                  "Optional PersAI voice key to override the persona's default voice. Load available voiceKeys first with action=\"list_voices\". Omit on the persona path to use the persona's stored voice. Required on the portraitImageAlias path."
               },
               talkingAvatarAspectRatio: {
                 type: "string",
@@ -1191,6 +1084,11 @@ function createVideoGenerateToolDefinition(
               }
             }
           : {}),
+        locale: {
+          type: "string",
+          description:
+            'Optional locale hint used only by action="list_voices" to prefer matching-locale voices first (for example "en-US" or "ru-RU").'
+        },
         referenceImageAlias: {
           type: "string",
           description:
@@ -1212,7 +1110,7 @@ function createVideoGenerateToolDefinition(
           type: "array",
           items: { type: "string" },
           description:
-            "Cinematic-only optional ordered PersAI voice keys for Kling voice-controlled text-to-video or image-to-video requests. Use only keys from the materialized shortlist shown in this assistant's video catalog/tool guidance; do not invent keys. Omit when mode='talking_avatar'; use the singular voiceKey field instead."
+            "Cinematic-only optional ordered PersAI voice keys for Kling voice-controlled text-to-video or image-to-video requests. Load valid keys first with action=\"list_voices\"; do not invent keys. Omit when mode='talking_avatar'; use the singular voiceKey field instead."
         },
         audioMode: {
           type: "string",

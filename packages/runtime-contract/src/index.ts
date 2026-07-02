@@ -1974,10 +1974,12 @@ export interface RuntimeVideoModelParameters {
 
 export interface RuntimeVideoGenerateRequest {
   toolCode: "video_generate";
+  action?: "generate" | "list_personas" | "list_voices" | "describe_avatar_mode" | null;
   prompt: string;
   filename: string | null;
   size: PersaiRuntimeVideoGenerateSize | null;
   seconds: number | null;
+  locale?: string | null;
   audioMode?: RuntimeVideoAudioMode | null;
   inputMode?: RuntimeVideoInputMode | null;
   referenceImageAlias: string | null;

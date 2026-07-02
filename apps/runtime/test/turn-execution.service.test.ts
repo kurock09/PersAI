@@ -6575,6 +6575,34 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     );
   }
   {
+    const unitResolver = service as unknown as {
+      resolveRequestedToolResultUnits(toolCall: ProviderGatewayToolCall): number;
+    };
+    assert.equal(
+      unitResolver.resolveRequestedToolResultUnits({
+        id: "tool-call-video-readonly",
+        name: "video_generate",
+        arguments: {
+          action: "list_voices",
+          locale: "ru-RU"
+        }
+      }),
+      0,
+      "ADR-130 Slice 3 regression: read-only video_generate lookups must reserve 0 media units."
+    );
+    assert.equal(
+      unitResolver.resolveRequestedToolResultUnits({
+        id: "tool-call-video-generate",
+        name: "video_generate",
+        arguments: {
+          prompt: "Generate a teaser clip"
+        }
+      }),
+      1,
+      "ADR-130 Slice 3 regression: real video generation must still reserve exactly 1 unit."
+    );
+  }
+  {
     const documentAttachments = (
       service as unknown as {
         mergeWorkingFileDocumentSourceAttachments(

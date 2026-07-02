@@ -747,7 +747,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         voiceKeys?: { description?: string };
       };
     };
-    assert.deepEqual(videoGenerateSchema.required ?? [], ["prompt"]);
+    assert.equal(
+      videoGenerateSchema.required,
+      undefined,
+      "Slice 3: prompt must no longer be globally required because read-only actions omit it"
+    );
     assert.match(
       videoGenerateSchema.properties?.size?.description ?? "",
       /Cinematic-only optional output size\/aspect hint/i
@@ -791,10 +795,14 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     );
     assert.match(
       videoGenerateSchema.properties?.voiceKeys?.description ?? "",
-      /materialized shortlist/i
+      /action="list_voices"/i
     );
-    assert.match(videoGenerate.description ?? "", /Available voiceKeys/i);
-    assert.match(videoGenerate.description ?? "", /owen/i);
+    assert.match(
+      videoGenerate.description ?? "",
+      /action="describe_avatar_mode", "list_personas", or "list_voices"/i
+    );
+    assert.doesNotMatch(videoGenerate.description ?? "", /Available voiceKeys/i);
+    assert.doesNotMatch(videoGenerate.description ?? "", /\bowen\b/i);
   }
   assert.ok(videoGenerate, "video_generate should be projected for configured Runway refs");
 
@@ -1178,9 +1186,12 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "Slice 8: description must mention talking-avatar when talkingVideoEnabled=true"
   );
   assert.match(
-    heygenTalkingTool?.description ?? "",
-    /talkingAvatarAspectRatio/i,
-    "Slice 8: description must explain talkingAvatarAspectRatio when talkingVideoEnabled=true"
+    String(
+      (heygenTalkingProps?.talkingAvatarAspectRatio as { description?: string } | undefined)
+        ?.description ?? ""
+    ),
+    /aspect ratio|portraitImageAlias/i,
+    "Slice 8: schema must explain talkingAvatarAspectRatio when talkingVideoEnabled=true"
   );
 
   // Runway + talkingVideoEnabled=false → tool IS projected but WITHOUT talking-avatar fields
@@ -1234,10 +1245,10 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     undefined,
     "Slice 8: talkingAvatarAspectRatio field must NOT appear in schema when talkingVideoEnabled=false"
   );
-  assert.doesNotMatch(
+  assert.match(
     runwayTalkingDisabledTool?.description ?? "",
     /talking-avatar/i,
-    "Slice 8: description must NOT mention talking-avatar when talkingVideoEnabled=false"
+    "Slice 3: compact lazy-action pointer may still mention talking-avatar lookups when talking generation is disabled"
   );
 
   // talkingVideoEnabled absent (undefined) → same as false — cinematic-only schema
@@ -1360,7 +1371,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     }
   ];
 
-  // Case 1: talkingVideoEnabled=true + non-empty videoPersonaCatalog (2 personas)
+  // Case 1: talkingVideoEnabled=true keeps the mechanical schema but removes
+  // inline persona/voice/tutorial payloads in favor of the lazy actions.
   const slice10TwoPersonasBundle = makeHeygenTalkingBundle(
     {
       provider: "heygen",
@@ -1374,150 +1386,43 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     (t) => t.name === "video_generate"
   );
   assert.ok(slice10TwoPersonasTool, "Slice 10: tool must be projected for heygen+talkingEnabled");
-
-  // Section 1: when to use talking_avatar
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /Mode choice is strict/,
-    "Slice 10: description must contain section 1 trigger conditions"
+  const slice10TwoPersonasSchema = slice10TwoPersonasTool?.inputSchema as {
+    required?: string[];
+    properties?: Record<string, { enum?: unknown[]; description?: string }>;
+  };
+  assert.equal(
+    slice10TwoPersonasSchema.required,
+    undefined,
+    "Slice 3: prompt must no longer be globally required because read-only actions omit it"
+  );
+  assert.deepEqual(slice10TwoPersonasSchema.properties?.action?.enum, [
+    "generate",
+    "list_personas",
+    "list_voices",
+    "describe_avatar_mode"
+  ]);
+  assert.ok(
+    typeof slice10TwoPersonasSchema.properties?.locale?.description === "string",
+    "Slice 3: locale helper field must be exposed for list_voices"
   );
   assert.match(
     slice10TwoPersonasTool?.description ?? "",
-    /no-speech requests/,
-    "talking-avatar guidance must route no-speech video requests to cinematic mode"
-  );
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /empty speechText/,
-    "talking-avatar guidance must forbid empty speechText"
-  );
-  // Section 2: persona resolution
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /Persona names are unique within a workspace/,
-    "Slice 10: description must contain section 2 unique-name disambiguation statement"
-  );
-  // Section 3: persona creation guidance
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /You cannot create personas yourself/,
-    "Slice 10: description must contain section 3 persona creation guidance"
-  );
-  // Section 4: single character per call
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /Each video_generate call produces ONE clip with ONE speaker/,
-    "Slice 10: description must contain section 4 single speaker per call"
-  );
-  // Section 7: persona shortlist renders both personas
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /displayName="Маша"/,
-    "Slice 10: persona A displayName must appear in description"
-  );
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /linkedClonedVoiceLabel="Brand Voice"/,
-    "Slice 10: linked cloned voice label must appear for personas that carry cloned voice metadata"
-  );
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /presetFallbackVoiceLabel="Russian \(Female\)"/,
-    "Slice 10: preset fallback voice label must remain additive metadata when a linked cloned voice exists"
-  );
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    new RegExp(PERSONA_A.personaId),
-    "Slice 10: persona A personaId must appear in description"
-  );
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /displayName="Anna"/,
-    "Slice 10: persona B displayName must appear in description"
-  );
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    new RegExp(PERSONA_B.personaId),
-    "Slice 10: persona B personaId must appear in description"
-  );
-  // Voice shortlist hint still appears
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /Available voiceKeys for voice_control/,
-    "Slice 10: voice shortlist hint must still appear when talkingVideoEnabled=true"
-  );
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /masha_voice/,
-    "Slice 10: voice key from shortlist must appear in description"
-  );
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /Available talking-avatar voiceKeys shortlist/,
-    "Slice 10: talking-avatar should expose its own short voice shortlist hint"
-  );
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /up to 10 EN and 10 RU voices, balanced across female\/male/,
-    "Slice 10: talking-avatar hint should explain the 10 EN + 10 RU balanced target"
-  );
-  assert.match(
-    slice10TwoPersonasTool?.description ?? "",
-    /Some saved personas use a linked cloned voice\./,
-    "Slice 5: cloned voice guidance should appear only when persona catalog includes linked clone metadata"
-  );
-
-  // Case 2: talkingVideoEnabled=true + empty videoPersonaCatalog
-  const slice10EmptyPersonasBundle = makeHeygenTalkingBundle({
-    provider: "heygen",
-    schema: "persai.runtimeVideoPersonaCatalog.v1",
-    personas: []
-  });
-  const slice10EmptyTool = projectRuntimeNativeTools(slice10EmptyPersonasBundle).tools.find(
-    (t) => t.name === "video_generate"
-  );
-  assert.match(
-    slice10EmptyTool?.description ?? "",
-    /none yet/,
-    "Slice 10: empty persona catalog must render 'none yet' message"
-  );
-  assert.match(
-    slice10EmptyTool?.description ?? "",
-    /Settings → Characters/,
-    "Slice 10: empty persona catalog must suggest Settings → Characters"
+    /action="describe_avatar_mode", "list_personas", or "list_voices"/i,
+    "Slice 3: compact lazy-action pointer must be present in the projected description"
   );
   assert.doesNotMatch(
     slice10TwoPersonasTool?.description ?? "",
-    /Assistant Settings → Characters/,
-    "Slice 9: video persona guidance should use the product-accurate Settings wording consistently"
-  );
-
-  // Case 3: talkingVideoEnabled=true + missing videoPersonaCatalog (undefined) → same as empty
-  const slice10UndefinedPersonasBundle = makeHeygenTalkingBundle(undefined);
-  const slice10UndefinedTool = projectRuntimeNativeTools(slice10UndefinedPersonasBundle).tools.find(
-    (t) => t.name === "video_generate"
-  );
-  assert.match(
-    slice10UndefinedTool?.description ?? "",
-    /none yet/,
-    "Slice 10: missing persona catalog must render 'none yet' message (defensive default)"
-  );
-
-  const slice5PresetOnlyBundle = makeHeygenTalkingBundle({
-    provider: "heygen",
-    schema: "persai.runtimeVideoPersonaCatalog.v1",
-    personas: [PERSONA_B]
-  });
-  const slice5PresetOnlyTool = projectRuntimeNativeTools(slice5PresetOnlyBundle).tools.find(
-    (t) => t.name === "video_generate"
+    /Mode choice is strict|You cannot create personas yourself|Each video_generate call produces ONE clip with ONE speaker|Persona names are unique within a workspace|Available voiceKeys for voice_control|Available talking-avatar voiceKeys shortlist|linkedClonedVoiceLabel=|presetFallbackVoiceLabel=|displayName="Маша"|displayName="Anna"|Some saved personas use a linked cloned voice\./i,
+    "Slice 3: heavy persona, voice, and talking-avatar tutorial content must not remain inline"
   );
   assert.doesNotMatch(
-    slice5PresetOnlyTool?.description ?? "",
-    /Some saved personas use a linked cloned voice\./,
-    "Slice 5: cloned voice guidance must stay absent when persona catalog has no linked clone metadata"
+    slice10TwoPersonasTool?.description ?? "",
+    new RegExp(`${PERSONA_A.personaId}|${PERSONA_B.personaId}`),
+    "Slice 3: persona ids must no longer be inlined into the projected description"
   );
 
-  // Case 4: talkingVideoEnabled=false → none of the talking-avatar sections appear
+  // Case 2: talkingVideoEnabled=false still keeps the lazy pointer and action
+  // enum, but omits the talking-avatar generation fields.
   const slice10TalkingDisabledBundle = {
     ...artifact.bundle,
     governance: {
@@ -1537,25 +1442,15 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   const slice10TalkingDisabledTool = projectRuntimeNativeTools(
     slice10TalkingDisabledBundle
   ).tools.find((t) => t.name === "video_generate");
-  assert.doesNotMatch(
+  assert.match(
     slice10TalkingDisabledTool?.description ?? "",
-    /Mode choice is strict/,
-    "Slice 10: talking-avatar section 1 must NOT appear when talkingVideoEnabled=false"
+    /action="describe_avatar_mode", "list_personas", or "list_voices"/i,
+    "Slice 3: compact lazy-action pointer must remain present even on cinematic-only projection"
   );
   assert.doesNotMatch(
     slice10TalkingDisabledTool?.description ?? "",
-    /You cannot create personas yourself/,
-    "Slice 10: section 3 must NOT appear when talkingVideoEnabled=false"
-  );
-  assert.doesNotMatch(
-    slice10TalkingDisabledTool?.description ?? "",
-    /videoPersonas/,
-    "Slice 10: persona shortlist must NOT appear when talkingVideoEnabled=false"
-  );
-  assert.doesNotMatch(
-    slice10TalkingDisabledTool?.description ?? "",
-    /linkedClonedVoiceLabel=/,
-    "Slice 5: cloned voice guidance must not appear when talking video is disabled"
+    /Mode choice is strict|You cannot create personas yourself|Available voiceKeys for voice_control|videoPersonas|linkedClonedVoiceLabel=|Some saved personas use a linked cloned voice\./i,
+    "Slice 3: cinematic-only projection must not inline the removed talking-avatar or catalog content"
   );
 
   // Snapshot test: canonical fixture (talkingVideoEnabled=true, 1 voice, 2 personas)
@@ -1576,41 +1471,21 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   // Stable sub-string assertions (stable across formatting changes):
   assert.ok(
-    snapshotTool?.description?.includes("Use mode='talking_avatar'"),
-    "Slice 10 snapshot: contains mode selection anchor"
-  );
-  assert.ok(
-    snapshotTool?.description?.includes("Persona names are unique within a workspace"),
-    "Slice 10 snapshot: contains unique-name anchor"
-  );
-  assert.ok(
-    snapshotTool?.description?.includes("You cannot create personas yourself"),
-    "Slice 10 snapshot: contains persona-creation anchor"
-  );
-  assert.ok(
     snapshotTool?.description?.includes(
-      "Each video_generate call produces ONE clip with ONE speaker"
+      'action="describe_avatar_mode", "list_personas", or "list_voices"'
     ),
-    "Slice 10 snapshot: contains single-speaker anchor"
-  );
-  assert.ok(
-    snapshotTool?.description?.includes(PERSONA_A.personaId),
-    "Slice 10 snapshot: persona A id present"
-  );
-  assert.ok(
-    snapshotTool?.description?.includes(PERSONA_B.personaId),
-    "Slice 10 snapshot: persona B id present"
+    "Slice 3 snapshot: contains the lazy-action pointer"
   );
 
   console.log("Slice 10 description char count:", snapshotTool?.description?.length ?? 0);
 
   // ── ADR-109 Slice 10c Fix #3f: projection tests for separate talking-avatar credential ──
-  // The talking-avatar schema fields (mode/speechText etc.) and description sections are
+  // The talking-avatar schema fields (mode/speechText etc.) are
   // now gated on toolCredentialRefs["video_generate_talking_avatar"] being present,
   // NOT on the cinematic credential's providerId or talkingVideoEnabled alone.
 
-  // Slice 10c Projection Test 1: video_generate_talking_avatar present → description
-  // includes talking-avatar block (section 1 anchor and persona shortlist anchor).
+  // Slice 10c Projection Test 1: video_generate_talking_avatar present → talking-avatar
+  // generation fields appear, but the description stays compact.
   const slice10cWithTalkingAvatarRef = {
     ...artifact.bundle,
     governance: {
@@ -1642,8 +1517,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     slice10cWithTalkingTool?.description ?? "",
-    /talking-avatar/i,
-    "Slice 10c projection: description must include talking-avatar block when video_generate_talking_avatar ref is present"
+    /action="describe_avatar_mode", "list_personas", or "list_voices"/i,
+    "Slice 3 projection: compact lazy-action pointer must appear when video_generate_talking_avatar ref is present"
   );
   assert.ok(
     (slice10cWithTalkingTool?.inputSchema as { properties?: Record<string, unknown> })?.properties
@@ -1657,7 +1532,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
 
   // Slice 10c Projection Test 2: video_generate_talking_avatar absent → description
-  // OMITS talking-avatar block even if cinematic providerId happens to be heygen-like.
+  // stays compact and mode field is omitted.
   const slice10cWithoutTalkingAvatarRef = {
     ...artifact.bundle,
     governance: {
@@ -1679,10 +1554,10 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     slice10cWithoutTalkingTool,
     "Slice 10c projection: video_generate must still be projected (cinematic still works)"
   );
-  assert.doesNotMatch(
+  assert.match(
     slice10cWithoutTalkingTool?.description ?? "",
-    /talking-avatar video/,
-    "Slice 10c projection: description must NOT include talking-avatar section when video_generate_talking_avatar ref is absent"
+    /action="describe_avatar_mode", "list_personas", or "list_voices"/i,
+    "Slice 3 projection: compact lazy-action pointer must remain present when video_generate_talking_avatar ref is absent"
   );
   assert.equal(
     (slice10cWithoutTalkingTool?.inputSchema as { properties?: Record<string, unknown> })

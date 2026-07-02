@@ -1,5 +1,46 @@
 # SESSION-HANDOFF
 
+## 2026-07-02 — ADR-130 Slice 3 landed locally for `video_generate` lazy descriptor lookups; next = founder audit/commit, then ADR-130 Slice 6 + batched push/deploy
+
+Status: **ADR-130 Slice 3 is implemented locally, not committed, not pushed.** Baseline before this slice: `51a3bc2f`. Scope was strictly `video_generate` heavy-descriptor re-layering; `document` remained untouched per ADR-132 ownership.
+
+**What landed.**
+
+- `video_generate` now exposes three lazy read-only actions: `action="list_personas"`, `action="list_voices"`, and `action="describe_avatar_mode"`. These short-circuit at the top of runtime execution, never call the provider, return bounded payloads, and surface `artifacts: []` / `isError: false`.
+- The always-projected `video_generate` descriptor is now compact and deterministic. Inline persona catalogs, voice shortlists, and the 9-part talking-avatar tutorial were removed from projection and replaced with one stable pointer telling the model to call the lazy actions first and never guess `personaId` or `voiceKey`.
+- Read-only `video_generate` lookups now reserve **0 media units**: `ToolBudgetPolicy.reserve(..., 0)` is a true no-op, turn execution returns `0` requested units for those read-only actions, and the read-only dispatch path skips attachment resolution plus async media deferral.
+- `RuntimeVideoGenerateRequest` now additively accepts optional `action` and `locale`, and the video tool catalog guidance mirrors the same lazy lookup pattern.
+- Runtime/API tests were updated for the new projection shape, read-only service payloads, zero-unit budget behavior, turn-execution budgeting, and tool-catalog guidance. The ADR-119 golden prompt fixture was regenerated through the sanctioned delete-and-rerun path and then re-verified.
+
+**Files touched.**
+
+- `packages/runtime-contract/src/index.ts`
+- `apps/runtime/src/modules/turns/{native-tool-projection.ts,runtime-media-job-run.service.ts,runtime-video-generate-tool.service.ts,tool-budget-policy.ts,turn-execution.service.ts}`
+- `apps/runtime/test/{native-tool-projection.test.ts,runtime-video-generate-tool.service.test.ts,tool-budget-policy.test.ts,turn-execution.service.test.ts}`
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/test/tool-catalog-data.test.ts`
+
+**Verification.**
+
+- `corepack pnpm --filter @persai/runtime run typecheck` ✅
+- `corepack pnpm --filter @persai/api run typecheck` ✅
+- `corepack pnpm --filter @persai/runtime run test` ✅
+- `corepack pnpm --filter @persai/api run test` ✅
+- `corepack pnpm -r --if-present run lint` ✅
+- `corepack pnpm run format:check` ✅
+- Additional spot checks after regeneration/cleanup: `tsx apps/runtime/test/run-one.ts test/native-tool-projection.test.ts runNativeToolProjectionTest`, `tsx apps/runtime/test/run-one.ts test/runtime-video-generate-tool.service.test.ts runRuntimeVideoGenerateToolServiceTest`, `tsx apps/runtime/test/run-one.ts "apps/api/test/tool-catalog-data.test.ts" runToolCatalogDataTest`, and `tsx apps/api/test/adr119-golden-prompt-snapshot.test.ts` ✅
+
+**Notable decisions / residuals.**
+
+- The compact projected `video_generate` description now measures **1261 chars** in the canonical talking-avatar fixture (`native-tool-projection` test log).
+- `list_voices(locale=...)` now applies locale preference across the combined cinematic + talking-avatar result set, not just within each individual source shortlist.
+- `runtime-media-job-run.service.ts` now defensively rejects any accidental direct-worker invocation of a read-only `video_generate` lookup; direct media jobs must remain real generation calls.
+
+**Next.**
+1. Parent/orchestrator audit these local ADR-130 Slice 3 changes and commit them if accepted.
+2. Finish the remaining ADR-130 work, especially Slice 6 / D8 cross-turn tool memory persistence + replay.
+3. Founder go still gates the single batched push/deploy alongside the already-landed ADR-132 local batch.
+
 ## 2026-07-02 — ADR-132 Slice 4 landed locally (docs closure); ADR-132 closed locally, ADR-129 closed, ADR-131 doc-scoped items closed; next = neighbor finishes ADR-130 → founder push → live acceptance
 
 Status: **ADR-132 fully implemented locally (all five slices), not pushed.** Founder directive is `push=deploy`, batched behind ADR-130 completion. After the parallel agent finishes ADR-130 (Slices 3, 6, and any remaining items) and founder gives the go, the whole batch pushes to `persai-dev` for live regression against ADR-132's acceptance criteria 1–11.
