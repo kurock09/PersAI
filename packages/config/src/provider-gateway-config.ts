@@ -60,8 +60,8 @@ const baseProviderGatewayConfigSchema = z.object({
     .int()
     .positive()
     .default(10_000),
-  PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
-  PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
+  PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   PERSAI_API_BASE_URL: optionalString,
   PERSAI_INTERNAL_API_TOKEN: optionalString,
   PROVIDER_GATEWAY_BROWSERLESS_BASE_URL: optionalUrl.default(

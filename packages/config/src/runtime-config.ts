@@ -45,7 +45,7 @@ const baseRuntimeConfigSchema = z.object({
   // New writes land under <bucket>/fs/... The legacy prefix is wiped by W5.
   PERSAI_MEDIA_OBJECT_PREFIX: z.string().min(1).default("fs"),
   RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
-  RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
+  RUNTIME_PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   RUNTIME_SANDBOX_BASE_URL: optionalUrl,
   RUNTIME_SANDBOX_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
   // End-to-end budget the runtime allows for a sandbox job to complete must include

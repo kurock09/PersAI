@@ -69,7 +69,7 @@ api:
     PERSAI_WEB_CHAT_STREAM_RUNTIME_MODE: "native"
     PERSAI_RUNTIME_BASE_URL: "http://runtime:3012"
     PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS: "10000"
-    PERSAI_RUNTIME_TURN_TIMEOUT_MS: "90000"
+    PERSAI_RUNTIME_TURN_TIMEOUT_MS: "300000"
     PERSAI_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
     PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "10000"
     PERSAI_WEB_BASE_URL: "https://persai.dev"
@@ -377,7 +377,7 @@ runtime:
     PERSAI_MEDIA_BUCKET_NAME: "persai-dev-workspaces"
     PERSAI_MEDIA_OBJECT_PREFIX: "fs"
     RUNTIME_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
-    RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "90000"
+    RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "300000"
     RUNTIME_SANDBOX_BASE_URL: "http://sandbox:3013"
     RUNTIME_SANDBOX_TIMEOUT_MS: "20000"
     # End-to-end sandbox job budget must cover cold-start pod provisioning (node autoscale

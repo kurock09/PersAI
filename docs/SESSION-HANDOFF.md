@@ -1,8 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-07-02 — ADR-131 Wave 2 deployed + live-GREEN, and turn timeout raised 90s → 300s
+
+Status: ADR-131 Wave 2 (runtime-internal builders/exporters) is committed (`a2a6ee88`), pushed, deployed, and **live-validated green**. Separately, a founder-directed timeout raise (90s → 300s across the turn/stream/provider chain) landed locally and is **not yet committed/pushed** (push=deploy pending founder go).
+
+**Live regression result (closure gate for the render/delivery scenario).** Fresh chat, same real DOCX (`Карнаух_Федор_Отчет (1).docx`), same prompt «переделай это в pdf». Verified from runtime/api/sandbox logs (thread `web-1782990014494`, req `f956cd86`):
+- Model used `document.render` — «прямой рендер», **no shell/`soffice`, no seeded-script execution**; 10 steps (was 26 shell steps).
+- Single project `doc-3533d8e8`, **no `-2`/`-3` proliferation** (idempotent extract held).
+- `report.pdf` at `output/report.pdf` (198772 B, exit_code=0), delivered **once**, version badge `v1`.
+- Metadata lookup **200** and the real user download of the delivered link **200** (the exact request that returned 404 before).
+- Turn `totalRuntimeMs=71598` (~72s), under the old 90s cap.
+
+**Timeout raise (uncommitted).** The web streaming turn was capped at the hardcoded 90s `PERSAI_RUNTIME_STREAM_TIMEOUT_MS` default. Raised the whole cascading chain to 300s: zod defaults in `packages/config/{api-config,runtime-config,provider-gateway-config}.ts` + the two helm overrides in `infra/helm/values.yaml`+`values-dev.yaml`; `provider-gateway-config.test.ts` defaults updated. No repo ingress read-timeout to fight. Gate green (lint, format:check, api/web/runtime/provider-gateway typechecks, provider-gateway test, `helm lint`/`template` render = `"300000"`).
+
+**Next.**
+1. Timeout raise committed locally per founder go; push (=deploy, helm change → rollout + gitops pin) is batched for the ADR-130 session finish after the full AGENTS gate.
+2. Record final closure of the ADR-129/131 render+delivery scenario (image-in-PDF stays an explicit 2nd-wave residual).
+3. ADR-130 implementation begins per its work plan: Slice 0 (inventory/budget ledger) **landed** (`docs/ADR/130-prompt-layering-inventory.md`); next is **Slice 1** (compact `<enabled_skills>` + lazy `skill.describe`, the biggest prefix-size win), then the remaining ownership/dedupe slices, with **Slice 6 (D8 cross-turn tool-history persistence)** as the culminating platform-root fix for cross-turn amnesia.
+
 ## 2026-07-02 — ADR-131 Wave 2 structural correction: imported/export builders are runtime-internal, not visible project files
 
-Status: implemented locally, not committed, not pushed. This slice follows the 2026-07-02 ADR-131 "seeded exporter scripts are the trap" contract exactly: imported DOCX/XLSX projects no longer materialize runnable `render/build.py` / `render/export_pdf.py` files, and authored `document.render(content/template)` no longer persists a visible `render/build.py`. The runtime now generates the imported/export/authored Python program source in memory and executes it through the existing ephemeral `execute_document_code` path.
+Status: deployed (`a2a6ee88`) and live-validated green (see top section). This slice follows the 2026-07-02 ADR-131 "seeded exporter scripts are the trap" contract exactly: imported DOCX/XLSX projects no longer materialize runnable `render/build.py` / `render/export_pdf.py` files, and authored `document.render(content/template)` no longer persists a visible `render/build.py`. The runtime now generates the imported/export/authored Python program source in memory and executes it through the existing ephemeral `execute_document_code` path.
 
 **What changed.**
 - `packages/runtime-contract/src/index.ts` is now the single source of truth for the imported Office same-format builder and LibreOffice PDF exporter scaffold bodies (`buildImportedOfficeRenderScaffold`, `buildImportedOfficePdfExportScaffold`).
