@@ -243,23 +243,11 @@ describe("DocumentWorkspaceExtractionService", () => {
       outcome.outputPaths.includes("/workspace/projects/revenue/extract/sheets/01-Revenue.csv")
     );
     assert.ok(outcome.outputPaths.includes("/workspace/projects/revenue/source/revenue.xlsx"));
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/revenue/render/build.py"));
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/revenue/render/export_pdf.py"));
     assert.ok(savedKeys.includes("gcs:projects/revenue/extract/manifest.json"));
-    assert.ok(savedKeys.includes("gcs:projects/revenue/render/build.py"));
-    assert.ok(savedKeys.includes("gcs:projects/revenue/render/export_pdf.py"));
-    const buildPy = savedObjects.get("gcs:projects/revenue/render/build.py")?.toString("utf8");
-    assert.match(buildPy ?? "", /from openpyxl import load_workbook/);
-    assert.match(buildPy ?? "", /\/workspace\/projects\/revenue\/source\/revenue\.xlsx/);
-    assert.match(buildPy ?? "", /PERSAI_OUTPUT_PATH/);
-    const exportPdfPy = savedObjects
-      .get("gcs:projects/revenue/render/export_pdf.py")
-      ?.toString("utf8");
-    assert.match(exportPdfPy ?? "", /soffice/);
-    assert.match(exportPdfPy ?? "", /--convert-to/);
-    assert.match(exportPdfPy ?? "", /\/workspace\/projects\/revenue\/source\/revenue\.xlsx/);
-    assert.match(exportPdfPy ?? "", /os\.environ\.get\('PERSAI_OUTPUT_PATH'\)/);
-    assert.match(exportPdfPy ?? "", /DEFAULT_OUTPUT_PATH/);
+    assert.ok(!outcome.outputPaths.includes("/workspace/projects/revenue/render/build.py"));
+    assert.ok(!outcome.outputPaths.includes("/workspace/projects/revenue/render/export_pdf.py"));
+    assert.ok(!savedKeys.includes("gcs:projects/revenue/render/build.py"));
+    assert.ok(!savedKeys.includes("gcs:projects/revenue/render/export_pdf.py"));
     assert.ok(Array.isArray(outcome.suggestedNextActions));
     assert.equal(outcome.suggestedNextActions?.length, 1);
     assert.deepEqual(outcome.suggestedNextActions?.[0]?.args, {
@@ -548,8 +536,8 @@ describe("DocumentWorkspaceExtractionService", () => {
     assert.equal(outcome.projectPath, "/workspace/projects/source");
     assert.equal(outcome.projectSourcePath, "/workspace/projects/source/source/source.docx");
     assert.equal(outcome.defaultRenderEntrypoint, "/workspace/projects/source/render/build.py");
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/render/build.py"));
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/render/export_pdf.py"));
+    assert.ok(!outcome.outputPaths.includes("/workspace/projects/source/render/build.py"));
+    assert.ok(!outcome.outputPaths.includes("/workspace/projects/source/render/export_pdf.py"));
     assert.ok(!outcome.outputPaths.includes("/workspace/projects/source/render/report.html"));
 
     const projectManifestBuffer = savedObjects.get("gcs:projects/source/project.json");
@@ -566,21 +554,8 @@ describe("DocumentWorkspaceExtractionService", () => {
       projectManifest.defaultPdfExportEntrypoint,
       "/workspace/projects/source/render/export_pdf.py"
     );
-
-    const buildPyBuffer = savedObjects.get("gcs:projects/source/render/build.py");
-    assert.ok(buildPyBuffer);
-    const buildPy = buildPyBuffer!.toString("utf8");
-    assert.match(buildPy, /from docx import Document/);
-    assert.match(buildPy, /\/workspace\/projects\/source\/source\/source\.docx/);
-    assert.match(buildPy, /PERSAI_OUTPUT_PATH/);
-    const exportPdfPy = savedObjects
-      .get("gcs:projects/source/render/export_pdf.py")
-      ?.toString("utf8");
-    assert.match(exportPdfPy ?? "", /soffice/);
-    assert.match(exportPdfPy ?? "", /--convert-to/);
-    assert.match(exportPdfPy ?? "", /\/workspace\/projects\/source\/source\/source\.docx/);
-    assert.match(exportPdfPy ?? "", /os\.environ\.get\('PERSAI_OUTPUT_PATH'\)/);
-    assert.match(exportPdfPy ?? "", /DEFAULT_OUTPUT_PATH/);
+    assert.equal(savedObjects.has("gcs:projects/source/render/build.py"), false);
+    assert.equal(savedObjects.has("gcs:projects/source/render/export_pdf.py"), false);
     assert.ok(Array.isArray(outcome.suggestedNextActions));
     assert.equal(outcome.suggestedNextActions?.length, 1);
     assert.deepEqual(outcome.suggestedNextActions?.[0]?.args, {

@@ -89,7 +89,8 @@ function testDocumentCatalogRowTeachesVisibleWorkflow(): void {
       "projectPath`, `outputPath`, `format`, `content`, and optional `template`"
     ) &&
       row.modelUsageGuidance.includes("render/content.md") &&
-      row.modelUsageGuidance.includes("render/build.py"),
+      row.modelUsageGuidance.includes("project manifest") &&
+      row.modelUsageGuidance.includes("builder in memory"),
     "document guidance must teach the one-call authored content/template render workflow"
   );
   assert.ok(

@@ -8,6 +8,8 @@ import {
   buildDocumentProjectPythonRenderEntrypoint,
   buildDocumentProjectRenderScaffoldHtml,
   buildDocumentWorkspaceProjectLayout,
+  buildImportedOfficePdfExportScaffold,
+  buildImportedOfficeRenderScaffold,
   isWorkspacePathUnderPrefix,
   validateDocumentProjectRenderPaths,
   type DocumentWorkspaceProjectSourceFormat,
@@ -55,6 +57,11 @@ type AuthoredRenderContentSource = {
   markdown: string;
   sourcePath: string | null;
   sourceDisplayName: string | null;
+};
+
+type AuthoredRenderArtifacts = {
+  entrypointPath: string;
+  programSource: string;
 };
 
 type DocumentEditOp =
@@ -654,9 +661,9 @@ export class RuntimeDocumentToolService {
       projectManifest
     });
 
-    let authoredEntrypointPath: string | null = null;
+    let authoredRenderArtifacts: AuthoredRenderArtifacts | null = null;
     try {
-      authoredEntrypointPath = await this.prepareAuthoredRenderArtifactsIfRequested({
+      authoredRenderArtifacts = await this.prepareAuthoredRenderArtifactsIfRequested({
         bundle: params.bundle,
         sessionId: params.sessionId,
         requestId: params.requestId,
@@ -689,7 +696,7 @@ export class RuntimeDocumentToolService {
         bundle: params.bundle,
         projectPath,
         format: params.request.format,
-        entrypoint: authoredEntrypointPath ?? params.request.entrypoint,
+        entrypoint: authoredRenderArtifacts?.entrypointPath ?? params.request.entrypoint,
         projectManifest
       });
       if (resolvedEntrypoint === null) {
@@ -769,7 +776,8 @@ export class RuntimeDocumentToolService {
         entrypointPath,
         format: params.request.format,
         activeDocumentProjectPath: params.activeDocumentProjectPath,
-        projectManifest
+        projectManifest,
+        authoredProgramSource: authoredRenderArtifacts?.programSource ?? null
       });
       job = await this.runDocumentCodeSandboxJob({
         bundle: params.bundle,
@@ -2256,9 +2264,9 @@ export class RuntimeDocumentToolService {
     entrypoint: string | null;
     projectManifest: DocumentProjectManifestFacts | null;
   }): Promise<string | null> {
-    // ADR-129 P-2: imported DOCX/XLSX -> PDF is a fixed deterministic pipeline. The
-    // engine is always the seeded LibreOffice `export_pdf.py`; the model cannot select
-    // or override the engine for this conversion, so any provided entrypoint is ignored.
+    // ADR-129 P-2 / ADR-131 Wave 2: imported DOCX/XLSX -> PDF is a fixed deterministic
+    // pipeline. The engine is always the runtime-managed LibreOffice exporter, so any
+    // provided entrypoint is ignored for this conversion.
     if (
       input.format === "pdf" &&
       input.projectManifest?.sourceKind === "imported_workspace_file" &&
@@ -2266,7 +2274,6 @@ export class RuntimeDocumentToolService {
         input.projectManifest.sourceFormat === "xlsx")
     ) {
       return this.resolveImportedOfficePdfExportEntrypoint({
-        bundle: input.bundle,
         projectPath: input.projectPath,
         projectManifest: input.projectManifest
       });
@@ -2284,30 +2291,15 @@ export class RuntimeDocumentToolService {
         input.projectManifest?.sourceKind === "imported_workspace_file" &&
         (input.projectManifest.sourceFormat === "docx" ||
           input.projectManifest.sourceFormat === "xlsx") &&
+        typeof input.projectManifest.projectSourcePath === "string" &&
         input.projectManifest.sourceFormat === input.format
       ) {
-        const files = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
-          workspaceId: input.bundle.metadata.workspaceId,
-          pathPrefix: `${input.projectPath}/`,
-          assistantHandle: input.bundle.metadata.assistantHandle,
-          scope: "workspace_shared",
-          currentChatId: null,
-          currentAssistantId: input.bundle.metadata.assistantId
-        });
-        const filePaths = files.items
-          .filter((item) => item.type === "file")
-          .map((item) => item.path);
         const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
         const preferredEntrypoints = [
           input.projectManifest.defaultRenderEntrypoint,
           buildDocumentProjectPythonRenderEntrypoint(layout)
         ].filter((value): value is string => typeof value === "string" && value.length > 0);
-        for (const preferred of preferredEntrypoints) {
-          if (filePaths.includes(preferred)) {
-            return preferred;
-          }
-        }
-        return null;
+        return preferredEntrypoints[0] ?? null;
       }
       return `${input.projectPath}/build.py`;
     }
@@ -2349,7 +2341,7 @@ export class RuntimeDocumentToolService {
     content: string | null;
     template: NormalizedDocumentRenderTemplate | null;
     projectManifest: DocumentProjectManifestFacts | null;
-  }): Promise<string | null> {
+  }): Promise<AuthoredRenderArtifacts | null> {
     if (input.content === null) {
       return null;
     }
@@ -2417,21 +2409,14 @@ export class RuntimeDocumentToolService {
       content: contentSource.markdown,
       mimeType: "text/markdown"
     });
-    await this.writeWorkspaceTextFile({
-      bundle: input.bundle,
-      sessionId: input.sessionId,
-      requestId: `${input.requestId}:authored-render-builder`,
-      originChatId: input.originChatId,
-      path: pythonEntrypointPath,
-      content: buildScript,
-      mimeType: "text/x-python"
-    });
     // ADR-129 Addendum III: authored renders bind identical HTML from a single seeded
     // Python `markdown` engine for both pdf and docx. The visible render/report.html and
-    // render/index.html sources are produced by build.py at render time (they remain
-    // repairable, visible sources after the render), so the effective entrypoint is the
-    // Python builder for BOTH formats — never a runtime JS-rendered HTML file.
-    return pythonEntrypointPath;
+    // render/index.html sources are produced by the runtime-internal builder at render
+    // time; the authored Markdown remains the visible editable source.
+    return {
+      entrypointPath: pythonEntrypointPath,
+      programSource: buildScript
+    };
   }
 
   private async resolveAuthoredRenderContentSource(input: {
@@ -2773,9 +2758,7 @@ export class RuntimeDocumentToolService {
       (projectManifest.sourceFormat === "docx" || projectManifest.sourceFormat === "xlsx") &&
       projectManifest.sourceFormat === format
     ) {
-      return `Imported ${format.toUpperCase()} projects require a visible native Python entrypoint at ${buildDocumentProjectPythonRenderEntrypoint(
-        buildDocumentWorkspaceProjectLayout(projectPath)
-      )} or an explicit document.entrypoint under the project's render/ directory.`;
+      return `Imported ${format.toUpperCase()} projects require document.render to use the runtime-managed native builder for ${projectPath}.`;
     }
     return "Could not resolve a visible Python entrypoint for document.render.";
   }
@@ -2867,7 +2850,37 @@ export class RuntimeDocumentToolService {
     format: "pdf" | "xlsx" | "docx";
     activeDocumentProjectPath: string | null;
     projectManifest: DocumentProjectManifestFacts | null;
+    authoredProgramSource: string | null;
   }): Promise<string> {
+    if (
+      input.projectManifest?.sourceKind === "imported_workspace_file" &&
+      (input.projectManifest.sourceFormat === "docx" ||
+        input.projectManifest.sourceFormat === "xlsx") &&
+      typeof input.projectManifest.projectSourcePath === "string"
+    ) {
+      if (input.format === "pdf") {
+        return this.buildPythonRenderProgramSource({
+          projectPath: input.projectPath,
+          entrypointPath: input.entrypointPath,
+          outputPath: input.outputPath,
+          scriptSource: buildImportedOfficePdfExportScaffold({
+            sourceFormat: input.projectManifest.sourceFormat,
+            projectSourcePath: input.projectManifest.projectSourcePath
+          })
+        });
+      }
+      if (input.projectManifest.sourceFormat === input.format) {
+        return this.buildPythonRenderProgramSource({
+          projectPath: input.projectPath,
+          entrypointPath: input.entrypointPath,
+          outputPath: input.outputPath,
+          scriptSource: buildImportedOfficeRenderScaffold({
+            sourceFormat: input.projectManifest.sourceFormat,
+            projectSourcePath: input.projectManifest.projectSourcePath
+          })
+        });
+      }
+    }
     const loweredEntrypoint = input.entrypointPath.toLowerCase();
     if (loweredEntrypoint.endsWith(".html") || loweredEntrypoint.endsWith(".htm")) {
       const htmlSource = await this.resolvePdfHtmlSourceForRender({
@@ -2896,19 +2909,41 @@ export class RuntimeDocumentToolService {
         "document.render currently supports HTML entrypoints for PDF and Python build/export entrypoints for workspace renders."
       );
     }
+    if (input.authoredProgramSource !== null) {
+      return this.buildPythonRenderProgramSource({
+        projectPath: input.projectPath,
+        entrypointPath: input.entrypointPath,
+        outputPath: input.outputPath,
+        scriptSource: input.authoredProgramSource
+      });
+    }
     const scriptSource = await this.readWorkspaceTextFile({
       bundle: input.bundle,
       sessionId: input.sessionId,
       requestId: input.requestId,
       path: input.entrypointPath
     });
+    return this.buildPythonRenderProgramSource({
+      projectPath: input.projectPath,
+      entrypointPath: input.entrypointPath,
+      outputPath: input.outputPath,
+      scriptSource
+    });
+  }
+
+  private buildPythonRenderProgramSource(input: {
+    projectPath: string;
+    entrypointPath: string;
+    outputPath: string;
+    scriptSource: string;
+  }): string {
     return [
       "import os",
       "import sys",
       `project_dir = ${JSON.stringify(input.projectPath)}`,
       `entrypoint_path = ${JSON.stringify(input.entrypointPath)}`,
       `output_path = ${JSON.stringify(input.outputPath)}`,
-      `script_source = ${JSON.stringify(scriptSource)}`,
+      `script_source = ${JSON.stringify(input.scriptSource)}`,
       "os.makedirs(os.path.dirname(output_path), exist_ok=True)",
       "sys.path.insert(0, project_dir)",
       "os.chdir(project_dir)",
@@ -3048,30 +3083,22 @@ export class RuntimeDocumentToolService {
       `document.render(format=${input.format}) cannot yet export imported ${input.projectManifest.sourceFormat.toUpperCase()} ` +
       `projects through a native source-preserving engine. The visible native project source is ` +
       `${visibleSourcePath}. Only same-format ${input.projectManifest.sourceFormat.toUpperCase()} ` +
-      "revision and the visible Office PDF export entrypoint are currently supported for this imported project."
+      "revision and the runtime-managed Office PDF export path are currently supported for this imported project."
     );
   }
 
   /**
-   * ADR-129 P-2: resolve the seeded LibreOffice Office->PDF exporter entrypoint. The
-   * engine for imported DOCX/XLSX -> PDF is fixed; if the visible `export_pdf.py`
-   * exporter is not present in the project, the render is skipped honestly rather than
-   * falling back to a different engine.
+   * ADR-129 P-2 / ADR-131 Wave 2: derive the canonical runtime-managed Office->PDF
+   * exporter path. The path remains in project metadata for provenance, but render no
+   * longer depends on a visible `render/export_pdf.py` file being present in the manifest.
    */
   private async resolveImportedOfficePdfExportEntrypoint(input: {
-    bundle: AssistantRuntimeBundle;
     projectPath: string;
     projectManifest: DocumentProjectManifestFacts;
   }): Promise<string | null> {
-    const files = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
-      workspaceId: input.bundle.metadata.workspaceId,
-      pathPrefix: `${input.projectPath}/`,
-      assistantHandle: input.bundle.metadata.assistantHandle,
-      scope: "workspace_shared",
-      currentChatId: null,
-      currentAssistantId: input.bundle.metadata.assistantId
-    });
-    const filePaths = files.items.filter((item) => item.type === "file").map((item) => item.path);
+    if (typeof input.projectManifest.projectSourcePath !== "string") {
+      return null;
+    }
     const layout = buildDocumentWorkspaceProjectLayout(input.projectPath);
     const preferredEntrypoints = [
       input.projectManifest.defaultPdfExportEntrypoint,
@@ -3079,12 +3106,7 @@ export class RuntimeDocumentToolService {
     ].filter((value, index, array): value is string => {
       return typeof value === "string" && value.length > 0 && array.indexOf(value) === index;
     });
-    for (const preferred of preferredEntrypoints) {
-      if (filePaths.includes(preferred)) {
-        return preferred;
-      }
-    }
-    return null;
+    return preferredEntrypoints[0] ?? null;
   }
 
   /**

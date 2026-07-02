@@ -253,6 +253,30 @@ All five addendum contract items landed:
 
 Verification (subagent full AGENTS gate + independent orchestrator audit): repo lint, `format:check`, `@persai/api` / `@persai/web` / `@persai/runtime` / `@persai/sandbox` typechecks, and the real `@persai/api` + `@persai/runtime` package test runners all green; ADR-119 golden snapshot regenerated via the sanctioned delete-and-rerun mechanism. Orchestrator independently re-ran the two new reproducing tests green (`auto-registers files.attach for project-owned document outputs without a registered current version`; `reuses the existing document project for the same source instead of allocating a suffixed path`), reviewed the auto-register path for determinism/honest-failure, and confirmed DI wiring (inspection + registration + prisma are providers in the same module, no circular dependency). The definitive full gate is rerun immediately before push. Live regression on the real external DOCX is post-deploy.
 
+### 2026-07-02 — Live re-test FAILED; structural correction: seeded exporter scripts are the trap (Wave 2 of the doc-closure slice)
+
+Deploy `943beba2` rolled out to `persai-dev` and the real founder DOCX (`Карнаух_Федор_Отчет (1).docx`) was re-tested live. **It failed again**, and the log evidence proves the 2026-07-02 guidance-text change was a symptom fix:
+
+- Request `04808c7b` (model `deepseek-v4-pro`): `document.extract` ran exactly once (project `doc-4d9da7`, no `-2`/`-3` proliferation in-turn — but the turn was cut short so cross-turn idempotency was not exercised). **`document.render` was never called** (zero `/internal/runtime/document-render` hits on either api pod).
+- Sandbox audit shows the model listed the project, read the seeded `render/build.py` and `render/export_pdf.py`, and executed them via `shell` (`exec_pod_session` ×4) — LibreOffice/Python fumbling. The turn was then interrupted at 90s by a provider text-stream timeout. Nothing was produced or delivered.
+
+**Root cause.** Removing only the *guidance text* that named `export_pdf.py` did not help, because `document.extract` still **materializes `render/build.py` and `render/export_pdf.py` as model-visible workspace files** inside the project. The model discovers them by `files.list` and runs them in `shell`. The trap is the visible runnable script itself, not the wording.
+
+**Architecture reality (mapped read-only before deciding).** Render execution is *already* runtime-internal and ephemeral: `document.render` builds an in-memory `programSource` and runs it via sandbox `execute_document_code` (transient `/workspace/.document-code.py`, not manifest-registered, deleted after run). What is still model-visible is (a) the **seeded** `render/*.py` scaffolds written at extract, and (b) the runtime step that **resolves the entrypoint from the manifest and reads the visible script body** before embedding it into `programSource`.
+
+**Structural decision (founder-approved 2026-07-02).** Make the exporter a pure runtime-internal mechanic:
+
+1. `document.extract` stops seeding model-visible runnable scripts (`render/build.py`, `render/export_pdf.py`) for imported DOCX/XLSX projects. The project keeps only visible **data** artifacts (`source/<copy>`, `extract/*`, `project.json`, and — for PDF/text imports — the `render/report.html` preview) plus `output/`.
+2. The runtime generates the exporter/builder program source **in-memory** inside `buildRenderProgramSource`, keyed off `project.json` facts (`sourceKind`, `sourceFormat`, `projectSourcePath`) — no manifest scan for a visible entrypoint, no `files.read` of a seeded script. The shared scaffold builders move to `packages/runtime-contract` so extract-era bodies are reused without persisting them.
+3. Authored `content.md` remains a visible, editable data file (it is the authored source `document.edit` operates on); only the runnable `build.py` for authored renders stops being persisted as visible and is generated in-memory too.
+4. `document.render` remains the single door and now has no visible script for the model to run instead. `shell` stays available and ungated.
+
+This partially **reverses ADR-129 Wave 12B/12C** (which deliberately made imported Office render/export a *visible* native entrypoint). The visibility that Wave 12B/12C introduced is the exact cause of the shell bypass; correctness wins over that visibility. Sandbox exec is unchanged (already ephemeral).
+
+**Out of scope for this wave (founder-directed):** (a) the 90s document-turn provider timeout / slow-model routing — founder owns this, do not touch; (b) a regression where the model previously could embed an image inside a generated PDF and now cannot — deferred to a later "second wave" verification, not this slice.
+
+**Closure gate unchanged:** ADR-129 and ADR-131 stay open until a live re-test on the real external DOCX shows the model completing via `document.render` (no shell bypass), exactly-once delivery, no broken link, and no project proliferation.
+
 ## Consequences
 
 - Not fixing Block 1 leaves silent data loss on `files.write` / `shell` / `document.render` and leaves the wrong-file mobile-share class in PROD.

@@ -209,6 +209,42 @@ describe("RuntimeDocumentToolService", () => {
         },
         async upsertWorkspaceFileMetadata() {
           return;
+        },
+        async inspectDocumentInWorkspace() {
+          return {
+            accepted: true as const,
+            sourcePath: "/workspace/projects/report/output/report.pdf",
+            inspectPath: "/workspace/projects/report/output/report.inspect.json",
+            format: "pdf" as const,
+            counts: {
+              pageCount: 1,
+              sheetCount: null,
+              formulaCount: null,
+              blankSheetCount: null,
+              paragraphCount: null,
+              headingCount: null,
+              tableCount: null,
+              textCharCount: fullExtractedText.length
+            },
+            warnings: [],
+            suggestedReadPaths: [],
+            comparison: null
+          };
+        },
+        async registerDocumentVersion() {
+          return {
+            accepted: true as const,
+            docId: "doc-render-project-full-text",
+            versionId: "version-render-project-full-text",
+            versionNumber: 1,
+            descriptorMode: "create_document" as const,
+            documentType: "workspace_document" as const,
+            outputFormat: "pdf" as const,
+            outputPath: "/workspace/projects/report/output/report.pdf",
+            workspaceProjectPath: "/workspace/projects/report",
+            sourceManifestPath: null,
+            inspectionPath: "/workspace/projects/report/output/report.inspect.json"
+          };
         }
       } as never,
       {
@@ -359,38 +395,26 @@ describe("RuntimeDocumentToolService", () => {
     assert.doesNotMatch(programSource, /Truncated/);
   });
 
-  test("renders imported office projects through the seeded native build scaffold", async () => {
+  test("renders imported office projects through the runtime-managed native builder", async () => {
     for (const scenario of [
       {
         format: "docx" as const,
         outputPath: "/workspace/projects/report/output/report.docx",
         sourcePath: "/workspace/source.docx",
         projectSourcePath: "/workspace/projects/report/source/source.docx",
-        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        buildScript:
-          "from docx import Document\ndocument = Document(str(SOURCE_PATH))\ndocument.save(PERSAI_OUTPUT_PATH)\n"
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       },
       {
         format: "xlsx" as const,
         outputPath: "/workspace/projects/report/output/report.xlsx",
         sourcePath: "/workspace/source.xlsx",
         projectSourcePath: "/workspace/projects/report/source/source.xlsx",
-        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        buildScript:
-          "from openpyxl import load_workbook\nworkbook = load_workbook(filename=str(SOURCE_PATH))\nworkbook.save(PERSAI_OUTPUT_PATH)\n"
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       }
     ]) {
       const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
       const service = new RuntimeDocumentToolService(
         {
-          async listWorkspaceFilesFromManifest() {
-            return {
-              items: [
-                { type: "file", path: "/workspace/projects/report/project.json" },
-                { type: "file", path: "/workspace/projects/report/render/build.py" }
-              ]
-            };
-          },
           async upsertWorkspaceFileMetadata() {
             return;
           }
@@ -430,21 +454,7 @@ describe("RuntimeDocumentToolService", () => {
                   files: []
                 };
               }
-              return {
-                status: "completed",
-                exitCode: 0,
-                reason: null,
-                warning: null,
-                violationMessage: null,
-                stderr: null,
-                content: JSON.stringify({
-                  content: scenario.buildScript,
-                  sizeBytes: scenario.buildScript.length,
-                  sha256: null,
-                  truncated: false
-                }),
-                files: []
-              };
+              throw new Error(`Unexpected read path: ${String(input.args.path ?? "")}`);
             }
             if (input.toolCode === "execute_document_code") {
               return {
@@ -525,10 +535,23 @@ describe("RuntimeDocumentToolService", () => {
           ? /from docx import Document/
           : /from openpyxl import load_workbook/
       );
+      assert.match(
+        programSource,
+        new RegExp(scenario.projectSourcePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      );
+      assert.ok(
+        !sandboxCalls.some(
+          (call) =>
+            call.toolCode === "files" &&
+            call.args.action === "read" &&
+            call.args.path === "/workspace/projects/report/render/build.py"
+        ),
+        "runtime-managed imported Office render must not read a visible build.py"
+      );
     }
   });
 
-  test("renders imported office pdf export through the visible Office exporter entrypoint", async () => {
+  test("renders imported office pdf export through the runtime-managed exporter", async () => {
     for (const scenario of [
       {
         sourceFormat: "docx" as const,
@@ -544,15 +567,6 @@ describe("RuntimeDocumentToolService", () => {
       const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
       const service = new RuntimeDocumentToolService(
         {
-          async listWorkspaceFilesFromManifest() {
-            return {
-              items: [
-                { type: "file", path: "/workspace/projects/report/project.json" },
-                { type: "file", path: "/workspace/projects/report/render/export_pdf.py" },
-                { type: "file", path: "/workspace/projects/report/render/report.html" }
-              ]
-            };
-          },
           async upsertWorkspaceFileMetadata() {
             return;
           }
@@ -593,22 +607,7 @@ describe("RuntimeDocumentToolService", () => {
                   files: []
                 };
               }
-              return {
-                status: "completed",
-                exitCode: 0,
-                reason: null,
-                warning: null,
-                violationMessage: null,
-                stderr: null,
-                content: JSON.stringify({
-                  content:
-                    "from pathlib import Path\nimport subprocess\nOUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)\nsubprocess.run(['soffice', '--headless'], check=False)\nOUTPUT_PATH.write_bytes(b'%PDF-1.4 fake')\n",
-                  sizeBytes: 128,
-                  sha256: null,
-                  truncated: false
-                }),
-                files: []
-              };
+              throw new Error(`Unexpected read path: ${String(input.args.path ?? "")}`);
             }
             if (input.toolCode === "execute_document_code") {
               return {
@@ -684,21 +683,64 @@ describe("RuntimeDocumentToolService", () => {
       assert.match(programSource, /soffice/);
       assert.match(programSource, /PERSAI_OUTPUT_PATH/);
       assert.match(programSource, /os\.environ\['PERSAI_OUTPUT_PATH'\] = output_path/);
+      assert.match(
+        programSource,
+        new RegExp(scenario.projectSourcePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      );
       assert.doesNotMatch(programSource, /weasyprint/i);
+      assert.ok(
+        !sandboxCalls.some(
+          (call) =>
+            call.toolCode === "files" &&
+            call.args.action === "read" &&
+            call.args.path === "/workspace/projects/report/render/export_pdf.py"
+        ),
+        "runtime-managed imported Office PDF export must not read a visible export_pdf.py"
+      );
     }
   });
 
-  test("does not fall back to extracted-text HTML for imported office pdf export", async () => {
+  test("renders imported office pdf export without any visible exporter file", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
     const service = new RuntimeDocumentToolService(
       {
-        async listWorkspaceFilesFromManifest() {
+        async upsertWorkspaceFileMetadata() {
+          return;
+        },
+        async inspectDocumentInWorkspace() {
           return {
-            items: [
-              { type: "file", path: "/workspace/projects/report/project.json" },
-              { type: "file", path: "/workspace/projects/report/render/build.py" },
-              { type: "file", path: "/workspace/projects/report/render/report.html" }
-            ]
+            accepted: true as const,
+            sourcePath: "/workspace/projects/report/output/report.pdf",
+            inspectPath: "/workspace/projects/report/output/report.inspect.json",
+            format: "pdf" as const,
+            counts: {
+              pageCount: 1,
+              sheetCount: null,
+              formulaCount: null,
+              blankSheetCount: null,
+              paragraphCount: null,
+              headingCount: null,
+              tableCount: null,
+              textCharCount: 64
+            },
+            warnings: [],
+            suggestedReadPaths: [],
+            comparison: null
+          };
+        },
+        async registerDocumentVersion() {
+          return {
+            accepted: true as const,
+            docId: "doc-imported-docx-pdf",
+            versionId: "version-imported-docx-pdf",
+            versionNumber: 1,
+            descriptorMode: "create_document" as const,
+            documentType: "workspace_document" as const,
+            outputFormat: "pdf" as const,
+            outputPath: "/workspace/projects/report/output/report.pdf",
+            workspaceProjectPath: "/workspace/projects/report",
+            sourceManifestPath: null,
+            inspectionPath: "/workspace/projects/report/output/report.inspect.json"
           };
         }
       } as never,
@@ -711,6 +753,39 @@ describe("RuntimeDocumentToolService", () => {
           const resolvedWritePath = resolveWritePathJobIfRequested(input);
           if (resolvedWritePath !== null) {
             return resolvedWritePath;
+          }
+          if (input.toolCode === "execute_document_code") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: null,
+              files: []
+            };
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            return {
+              status: "completed",
+              exitCode: 0,
+              reason: null,
+              warning: null,
+              violationMessage: null,
+              stderr: null,
+              content: JSON.stringify({
+                action: "attached",
+                attachment: {
+                  workspaceRelPath: "/workspace/projects/report/output/report.pdf",
+                  sourcePath: "/workspace/projects/report/output/report.pdf",
+                  sizeBytes: 4096,
+                  mimeType: "application/pdf",
+                  displayName: "report.pdf"
+                }
+              }),
+              files: []
+            };
           }
           return {
             status: "completed",
@@ -763,35 +838,35 @@ describe("RuntimeDocumentToolService", () => {
     });
 
     assert.equal(result.isError, false);
-    assert.equal(result.payload.action, "skipped");
-    assert.equal(result.payload.reason, "unsupported_render_source");
-    assert.match(result.payload.warning ?? "", /document\.render\(format=pdf\)/);
+    assert.equal(result.payload.action, "rendered");
     assert.ok(
       sandboxCalls.every(
         (call) =>
-          call.toolCode !== "execute_document_code" &&
           !(
             call.toolCode === "files" &&
+            call.args.action === "read" &&
+            call.args.path === "/workspace/projects/report/render/export_pdf.py"
+          )
+      ),
+      "imported office pdf export must not read a visible export_pdf.py"
+    );
+    assert.ok(
+      sandboxCalls.every(
+        (call) =>
+          !(
+            call.toolCode === "files" &&
+            call.args.action === "read" &&
             call.args.path === "/workspace/projects/report/render/report.html"
           )
       ),
-      "imported office pdf export must not fall back to report.html or execute a synthetic HTML render"
+      "imported office pdf export must not fall back to report.html"
     );
   });
 
   test("fails honestly when the imported office pdf exporter does not create the output", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
     const service = new RuntimeDocumentToolService(
-      {
-        async listWorkspaceFilesFromManifest() {
-          return {
-            items: [
-              { type: "file", path: "/workspace/projects/report/project.json" },
-              { type: "file", path: "/workspace/projects/report/render/export_pdf.py" }
-            ]
-          };
-        }
-      } as never,
+      {} as never,
       {
         isConfigured() {
           return true;
@@ -828,22 +903,7 @@ describe("RuntimeDocumentToolService", () => {
                 files: []
               };
             }
-            return {
-              status: "completed",
-              exitCode: 0,
-              reason: null,
-              warning: null,
-              violationMessage: null,
-              stderr: null,
-              content: JSON.stringify({
-                content:
-                  "import subprocess\nfrom pathlib import Path\nOUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)\nsubprocess.run(['soffice', '--headless'], check=False)\nprint(OUTPUT_PATH)\n",
-                sizeBytes: 96,
-                sha256: null,
-                truncated: false
-              }),
-              files: []
-            };
+            throw new Error(`Unexpected read path: ${String(input.args.path ?? "")}`);
           }
           if (input.toolCode === "execute_document_code") {
             return {
@@ -896,6 +956,15 @@ describe("RuntimeDocumentToolService", () => {
     );
     assert.match(programSource, /soffice/);
     assert.doesNotMatch(programSource, /weasyprint/i);
+    assert.ok(
+      !sandboxCalls.some(
+        (call) =>
+          call.toolCode === "files" &&
+          call.args.action === "read" &&
+          call.args.path === "/workspace/projects/report/render/export_pdf.py"
+      ),
+      "imported office pdf export failure should still come from the in-memory exporter"
+    );
   });
 
   test("rejects document.extract paths outside canonical workspace", async () => {
@@ -1444,14 +1513,13 @@ describe("RuntimeDocumentToolService", () => {
           .length,
         1
       );
-      // The runtime scaffolds exactly three visible sources (project.json, content.md,
-      // build.py). It must NOT pre-write report.html/index.html with a JS engine — those
-      // visible HTML sources are produced by the single seeded Python `markdown` engine
-      // inside build.py at render time.
+      // The runtime scaffolds exactly two visible sources (project.json, content.md).
+      // The authored builder now stays runtime-internal, and the visible report/index
+      // HTML files are produced at render time from that in-memory program.
       assert.equal(
         sandboxCalls.filter((call) => call.toolCode === "files" && call.args.action === "write")
           .length,
-        3
+        2
       );
       assert.equal(
         writtenFiles.has("/workspace/projects/authored/project.json"),
@@ -1465,8 +1533,8 @@ describe("RuntimeDocumentToolService", () => {
       );
       assert.equal(
         writtenFiles.has("/workspace/projects/authored/render/build.py"),
-        true,
-        "fresh authored render should scaffold visible build.py"
+        false,
+        "fresh authored render should keep build.py runtime-internal"
       );
       assert.equal(
         writtenFiles.has("/workspace/projects/authored/render/report.html"),
@@ -1483,22 +1551,31 @@ describe("RuntimeDocumentToolService", () => {
         writtenFiles.get("/workspace/projects/authored/render/content.md") ?? "",
         /- First point/
       );
-      // build.py is the single Markdown engine (Python `markdown`) for BOTH formats and
-      // produces the visible report.html/index.html plus the requested deliverable.
-      const authoredBuildPy =
-        writtenFiles.get("/workspace/projects/authored/render/build.py") ?? "";
-      assert.match(authoredBuildPy, /import markdown/);
-      assert.match(authoredBuildPy, /extensions=\['extra', 'sane_lists', 'nl2br', 'tables'\]/);
-      assert.match(authoredBuildPy, /REPORT_HTML_PATH\.write_text/);
-      assert.match(authoredBuildPy, /INDEX_HTML_PATH\.write_text/);
-      assert.match(authoredBuildPy, /Quarterly Summary/);
-      assert.match(authoredBuildPy, new RegExp(`RENDER_FORMAT = "${scenario.format}"`));
+      // The in-memory authored builder is the single Markdown engine (Python `markdown`)
+      // for BOTH formats and produces the visible report.html/index.html plus the
+      // requested deliverable.
+      const authoredProgramSource = String(
+        sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args
+          .programSource ?? ""
+      );
+      assert.match(authoredProgramSource, /import markdown/);
+      assert.match(
+        authoredProgramSource,
+        /extensions=\['extra', 'sane_lists', 'nl2br', 'tables'\]/
+      );
+      assert.match(authoredProgramSource, /REPORT_HTML_PATH\.write_text/);
+      assert.match(authoredProgramSource, /INDEX_HTML_PATH\.write_text/);
+      assert.match(authoredProgramSource, /Quarterly Summary/);
+      assert.match(
+        authoredProgramSource,
+        new RegExp(`RENDER_FORMAT = \\\\"${scenario.format}\\\\"`)
+      );
       if (scenario.format === "pdf") {
-        assert.match(authoredBuildPy, /from weasyprint import HTML/);
-        assert.match(authoredBuildPy, /HTML\(filename=str\(REPORT_HTML_PATH\)\)\.write_pdf/);
+        assert.match(authoredProgramSource, /from weasyprint import HTML/);
+        assert.match(authoredProgramSource, /HTML\(filename=str\(REPORT_HTML_PATH\)\)\.write_pdf/);
       } else {
-        assert.match(authoredBuildPy, /from bs4 import BeautifulSoup/);
-        assert.match(authoredBuildPy, /document\.save\(str\(OUTPUT_PATH\)\)/);
+        assert.match(authoredProgramSource, /from bs4 import BeautifulSoup/);
+        assert.match(authoredProgramSource, /document\.save\(str\(OUTPUT_PATH\)\)/);
       }
       assert.ok(
         !sandboxCalls.some(
@@ -1528,14 +1605,6 @@ describe("RuntimeDocumentToolService", () => {
       const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
       const service = new RuntimeDocumentToolService(
         {
-          async listWorkspaceFilesFromManifest() {
-            return {
-              items: [
-                { type: "file", path: "/workspace/projects/report/project.json" },
-                { type: "file", path: "/workspace/projects/report/render/export_pdf.py" }
-              ]
-            };
-          },
           async upsertWorkspaceFileMetadata() {
             return;
           }
@@ -1575,21 +1644,7 @@ describe("RuntimeDocumentToolService", () => {
                   files: []
                 };
               }
-              return {
-                status: "completed",
-                exitCode: 0,
-                reason: null,
-                warning: null,
-                violationMessage: null,
-                stderr: null,
-                content: JSON.stringify({
-                  content: "print('office export')\n",
-                  sizeBytes: 24,
-                  sha256: null,
-                  truncated: false
-                }),
-                files: []
-              };
+              throw new Error(`Unexpected read path: ${String(input.args.path ?? "")}`);
             }
             if (input.toolCode === "execute_document_code") {
               return {
@@ -1663,6 +1718,14 @@ describe("RuntimeDocumentToolService", () => {
         sandboxCalls.filter((call) => call.toolCode === "files" && call.args.action === "write")
           .length,
         0
+      );
+      assert.ok(
+        !sandboxCalls.some(
+          (call) =>
+            call.toolCode === "files" &&
+            call.args.action === "read" &&
+            call.args.path === "/workspace/projects/report/render/export_pdf.py"
+        )
       );
     }
   });

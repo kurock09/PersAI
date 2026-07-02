@@ -1,5 +1,34 @@
 # SESSION-HANDOFF
 
+## 2026-07-02 — ADR-131 Wave 2 structural correction: imported/export builders are runtime-internal, not visible project files
+
+Status: implemented locally, not committed, not pushed. This slice follows the 2026-07-02 ADR-131 "seeded exporter scripts are the trap" contract exactly: imported DOCX/XLSX projects no longer materialize runnable `render/build.py` / `render/export_pdf.py` files, and authored `document.render(content/template)` no longer persists a visible `render/build.py`. The runtime now generates the imported/export/authored Python program source in memory and executes it through the existing ephemeral `execute_document_code` path.
+
+**What changed.**
+- `packages/runtime-contract/src/index.ts` is now the single source of truth for the imported Office same-format builder and LibreOffice PDF exporter scaffold bodies (`buildImportedOfficeRenderScaffold`, `buildImportedOfficePdfExportScaffold`).
+- `DocumentWorkspaceExtractionService` stopped seeding visible runnable Python scripts for imported DOCX/XLSX projects. Extract still writes `project.json`, `source/<copy>`, `extract/*`, and for PDF/text-like imports the visible `render/report.html` preview scaffold.
+- `RuntimeDocumentToolService` no longer scans the manifest for visible imported/export Python scripts or reads them from the workspace on the default imported/authored paths. Imported DOCX/XLSX same-format revision, imported DOCX/XLSX -> PDF, and authored `content`/`template` render all build `programSource` in memory; only explicit manual `entrypoint` fallback still reads a visible script.
+- Model-facing document guidance was updated so authored render talks about visible `render/content.md` plus runtime-internal builders, while imported Office guidance points only to `document.render`.
+
+**Files touched.**
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/document-workspace-extraction.service.ts`
+- `apps/runtime/src/modules/turns/runtime-document-tool.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/prisma/bootstrap-preset-data.ts`
+- tests in `apps/api/test`, `apps/runtime/test`, `packages/runtime-contract/test`
+- `apps/api/test/fixtures/adr119-golden-prompt-snapshot.expected.txt` regenerated via the sanctioned delete-and-rerun path
+
+**Verification status.**
+- Focused checks green locally: `@persai/api` typecheck, extraction service tests, tool catalog tests, runtime typecheck, runtime document-tool tests, native-tool-projection test, and ADR-119 golden regeneration + rerun path.
+- Full AGENTS verification gate plus requested package tests must be rerun before any commit/push or deploy claim.
+
+**Next.**
+1. Run the full required verification sequence (`lint`, `format:check`, api/web/runtime/sandbox typechecks, runtime suite, api suite).
+2. If green, reconcile docs if needed and wait for founder/orchestrator instruction before any commit/push.
+3. Post-deploy live regression remains the closure gate for ADR-129 + ADR-131.
+
 ## 2026-07-02 — ADR-131 delivery-safety correction + ADR-130 D8 recorded: doc slice landed locally (push=deploy pending founder go)
 
 Status: the document delivery-safety slice landed locally and was independently audited; nothing committed or pushed. Founder workflow is `push=deploy`, so commit + reconcile with `origin/main` + push (=deploy) + exec-image rebuild + the real live regression happen only on explicit founder go. Live regression is impossible before deploy because the fixes are not yet on the pods.

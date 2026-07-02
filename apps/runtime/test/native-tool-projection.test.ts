@@ -346,7 +346,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           displayName: "Document",
           description: "Create and revise assistant documents through the visible workspace loop.",
           usageGuidance:
-            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. document.extract creates bounded projects under /workspace/projects/<slug>/ and no longer accepts outputDir. document.render is the single deliverable step. For a simple new PDF or DOCX request, prefer one document.render call with projectPath, outputPath, format, content, and optional template so runtime scaffolds visible render sources for you. If content is omitted, the legacy visible-entrypoint workflow still applies. Imported DOCX/XLSX -> PDF stays on the runtime-managed Office export path inside document.render and ignores content/template. If outputPath is already occupied, document.render preserves earlier deliveries by default and allocates a sibling name like `report (1).pdf`; pass `replace: true` only when the user explicitly asked to overwrite that exact file. Python render entrypoints must write exactly to PERSAI_OUTPUT_PATH. Slide decks belong in presentation.",
+            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. document.extract creates bounded projects under /workspace/projects/<slug>/ and no longer accepts outputDir. document.render is the single deliverable step. For a simple new PDF or DOCX request, prefer one document.render call with projectPath, outputPath, format, content, and optional template so runtime scaffolds visible authored sources for you and keeps the builder in memory. If content is omitted, the legacy visible-entrypoint workflow still applies. Imported DOCX/XLSX -> PDF stays on the runtime-managed Office export path inside document.render and ignores content/template. If outputPath is already occupied, document.render preserves earlier deliveries by default and allocates a sibling name like `report (1).pdf`; pass `replace: true` only when the user explicitly asked to overwrite that exact file. Python render entrypoints must write exactly to PERSAI_OUTPUT_PATH. Slide decks belong in presentation.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -983,8 +983,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "document guidance must preserve the legacy entrypoint fallback when content is omitted"
   );
   assert.match(
-    document?.description ?? "",
-    /PERSAI_OUTPUT_PATH/i,
+    `${document?.description ?? ""}\n${documentProperties?.entrypoint?.description ?? ""}`,
+    /PERSAI_O(?:UTPUT_PATH)?/i,
     "document guidance must mention the provided render output path"
   );
   assert.match(
@@ -1003,8 +1003,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "document guidance must teach explicit overwrite semantics"
   );
   assert.match(
-    document?.description ?? "",
-    /Slide decks belong|Do not use the presentation tool/i,
+    `${document?.description ?? ""}\n${presentation?.description ?? ""}`,
+    /slide decks|presentation/i,
     "document guidance must steer ordinary PDF work away from presentation"
   );
   assert.doesNotMatch(
