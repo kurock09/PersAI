@@ -5,6 +5,12 @@ import {
   isPromptConstructorModelToolCode
 } from "../src/modules/workspace-management/application/prompt-constructor-tool-metadata";
 
+function toolText(code: string): string {
+  const row = TOOL_CATALOG.find((tool) => tool.code === code);
+  assert.ok(row, `${code} catalog row must exist`);
+  return `${row.description}\n${row.modelDescription}\n${row.modelUsageGuidance ?? ""}`;
+}
+
 function testTodoWriteCatalogRow(): void {
   const rows = TOOL_CATALOG.filter((t) => t.code === "todo_write");
   assert.strictEqual(rows.length, 1, "TOOL_CATALOG must contain exactly one todo_write row");
@@ -89,14 +95,6 @@ function testDocumentCatalogRowTeachesThreeVerbSurface(): void {
       row.modelUsageGuidance.includes('document({action:"render"') &&
       row.modelUsageGuidance.includes('document({action:"convert"'),
     "document guidance must include inspect, render, and convert examples"
-  );
-  assert.ok(
-    row.modelUsageGuidance.includes("shell") &&
-      row.modelUsageGuidance.includes("openpyxl") &&
-      row.modelUsageGuidance.includes("python-docx") &&
-      row.modelUsageGuidance.includes("weasyprint") &&
-      row.modelUsageGuidance.includes("files.attach"),
-    "document guidance must teach the shell+python escape hatch"
   );
   assert.ok(
     row.modelUsageGuidance.includes("sibling `.md` file next to the output"),
@@ -200,24 +198,57 @@ function testPresentationCatalogRowIsDeckSpecific(): void {
       !row.modelUsageGuidance.includes('document({action:"render"'),
     "presentation guidance must stay on deferred deck modes, not workspace render"
   );
-  assert.ok(
-    `${row.modelDescription}\n${row.modelUsageGuidance}`.includes("PDF manual") ||
-      `${row.modelDescription}\n${row.modelUsageGuidance}`.includes("ordinary PDF"),
-    "presentation catalog must exclude ordinary PDF documents"
-  );
 }
 
-function testDocumentCatalogRowSteersAwayFromPresentation(): void {
-  const row = TOOL_CATALOG.find((t) => t.code === "document");
-  assert.ok(row, "document catalog row must exist");
-  const text = `${row.description}\n${row.modelDescription}\n${row.modelUsageGuidance}`;
-  assert.ok(
-    /Do not call presentation|use `presentation`|not use presentation/i.test(text),
-    "document catalog must steer ordinary PDF/DOCX/XLSX work away from presentation"
+function testCatalogRowsKeepSelectionGuideAsSingleOwner(): void {
+  assert.doesNotMatch(toolText("web_search"), /Local or uploaded sources are available/i);
+  assert.doesNotMatch(toolText("web_fetch"), /web_search first|browser tool instead/i);
+  assert.doesNotMatch(toolText("image_generate"), /source image is present/i);
+  assert.doesNotMatch(
+    toolText("image_edit"),
+    /brand-new image from text only|OCR|text extraction|PDF|DOCX|XLSX|file deliverable/i
   );
-  assert.ok(
-    !/descriptorMode=create_presentation|create_presentation/i.test(text),
-    "document catalog must not advertise create_presentation"
+  assert.doesNotMatch(toolText("video_generate"), /still image|only audio/i);
+  assert.doesNotMatch(
+    toolText("document"),
+    /presentation|reply directly|files\.attach|openpyxl|python-docx|weasyprint/i
+  );
+  assert.doesNotMatch(
+    toolText("presentation"),
+    /ordinary PDF|manual|report|instruction|DOCX|XLSX|inline text/i
+  );
+  assert.doesNotMatch(toolText("tts"), /text reply|Quiet background context/i);
+  assert.doesNotMatch(toolText("browser"), /Static page content|No URL in hand/i);
+  assert.doesNotMatch(toolText("memory_search"), /Use BEFORE web tools|specific public URL/i);
+  assert.doesNotMatch(toolText("memory_get"), /No referenceId is available/i);
+  assert.doesNotMatch(
+    toolText("scheduled_action"),
+    /background_task|one-off chat message right now/i
+  );
+  assert.doesNotMatch(
+    toolText("background_task"),
+    /Simple unconditional reminder|One-off chat-message work that should happen this turn/i
+  );
+  assert.doesNotMatch(
+    toolText("persai_tool_quota_status"),
+    /knowledge retrieval|generic product-info/i
+  );
+  assert.doesNotMatch(toolText("files"), /use exec or shell|use grep|use glob|use document/i);
+  assert.doesNotMatch(
+    toolText("exec"),
+    /Plain file IO|shell pipelines|document, image, or web tools/i
+  );
+  assert.doesNotMatch(
+    toolText("shell"),
+    /shell grep|shell find|Plain file IO|document, image, or web result|For content search use grep/i
+  );
+  assert.doesNotMatch(
+    toolText("grep"),
+    /Prefer grep over shell grep|Filename discovery|File reads|Process execution/i
+  );
+  assert.doesNotMatch(
+    toolText("glob"),
+    /Prefer glob over shell find|Content search|File reads|Process execution/i
   );
 }
 
@@ -264,7 +295,7 @@ export async function runToolCatalogDataTest(): Promise<void> {
   testDocumentCatalogRowTeachesThreeVerbSurface();
   testVideoGenerateCatalogRowUsesLazyLookupGuidance();
   testPresentationCatalogRowIsDeckSpecific();
-  testDocumentCatalogRowSteersAwayFromPresentation();
+  testCatalogRowsKeepSelectionGuideAsSingleOwner();
   testFilesCatalogRowUsesExactListedPaths();
   testStarterTrialPolicyPresentationMirrorsDocument();
   testPresentationIsPromptConstructorEditable();

@@ -39,44 +39,6 @@ import {
   type RuntimeKnowledgeAccessSourceConfig,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
-// ADR-074 Slice L1: per-turn hard caps live in `tool-budget-policy.ts` so
-// runtime enforcement and model-facing tool descriptions stay in sync. Do
-// not duplicate the numbers here; if the cap changes, edit one place.
-import { resolveAdvertisedPerTurnCap } from "./tool-budget-policy";
-
-/**
- * ADR-074 Slice L1: render the per-turn cap hint that goes into a tool's
- * model-facing description. The cap is now per-assistant (sourced from
- * `RuntimeToolPolicy.perTurnCap` if set, otherwise the
- * `TOOL_HARD_CAP_PER_TURN` code default), so the hint reflects what will
- * actually fire at runtime — not a hard-coded global. Returns `null` when
- * the tool has no effective cap (e.g. memory_write), in which case no hint
- * is appended.
- */
-const MEDIA_RESULT_UNIT_TOOL_CODES = new Set(["image_generate", "image_edit", "video_generate"]);
-
-function describePerTurnCap(toolCode: string, policy: RuntimeToolPolicy): string | null {
-  const overrides = new Map<string, number | null>();
-  if (policy.perTurnCap !== undefined && policy.perTurnCap !== null) {
-    overrides.set(toolCode, policy.perTurnCap);
-  }
-  const cap = resolveAdvertisedPerTurnCap(toolCode, overrides);
-  if (cap === null) {
-    return null;
-  }
-  // ADR-105: media caps count result units (each image, each video), not tool calls.
-  if (MEDIA_RESULT_UNIT_TOOL_CODES.has(toolCode)) {
-    const units = cap === 1 ? "1 result unit" : `${String(cap)} result units`;
-    return `Per-turn cap: ${units} (each generated image and each video counts as one unit). When the cap is reached, further results return tool_budget_exhausted and you must reply with what you have.`;
-  }
-  const calls = cap === 1 ? "1 call" : `${String(cap)} calls`;
-  return `Per-turn cap: ${calls}; further calls return tool_budget_exhausted and you must reply with what you have.`;
-}
-
-function appendPerTurnCapHint(base: string, toolCode: string, policy: RuntimeToolPolicy): string {
-  const hint = describePerTurnCap(toolCode, policy);
-  return hint === null ? base : `${base} ${hint}`;
-}
 
 function appendToolDefinitionHint(base: string, hint: string): string {
   return base.includes(hint) ? base : `${base} ${hint}`;
@@ -384,10 +346,7 @@ function createSummarizeContextToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: bundle.runtime.sharedCompaction.summarizeToolCode,
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Create a concise shared-context summary for the current session without changing later-turn compaction state."
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: createCompactionInputSchema()
   };
 }
@@ -398,10 +357,7 @@ function createCompactContextToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: bundle.runtime.sharedCompaction.compactToolCode,
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Compress earlier session context into the durable shared compaction state for this conversation."
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: createCompactionInputSchema()
   };
 }
@@ -422,10 +378,7 @@ function createCompactionInputSchema(): Record<string, unknown> {
 function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "memory_write",
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Write only genuinely useful memories for this assistant-user pair: use `long` for stable lasting facts or preferences, `short` for recent working context worth keeping briefly, or close a previously recorded open loop by its ref."
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -479,10 +432,7 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
 function createTodoWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "todo_write",
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Manage the orchestrator's structured plan for this chat. Use add/update/complete/remove/clear to keep the plan honest. Open the plan on the first turn you recognise multi-step work; do not wait."
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -553,17 +503,7 @@ function createTodoWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
 function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "quota_status",
-    description: resolveToolDefinitionDescription(
-      policy,
-      [
-        "Read live PersAI quota status for the current assistant, compare public plans from the same source of truth, report monthly tool/package availability, and create a checkout link when the user wants to open it now.",
-        "When the user asks about image, video, or document generation limits, monthly usage, or extra packages, call this tool first instead of guessing from history.",
-        "When the user asks about tariffs, plans, subscription differences, upgrade options, or asks to send/open the pricing page, call this tool first instead of improvising links from memory.",
-        "Use packageOffers.tools to ground package guidance: it contains exact offers (ids, units, prices, CTA labels), whether each tool is offerable now, and whether the better answer is package only, plan upgrade only, or both.",
-        "If the result has packagesPurchase != null, then extra packages CAN be bought right now for the listed availableTools. In that case, when the user asks 'can I buy a package' / 'how do I add more' / 'show me packages' (in any phrasing), say plainly that yes — packages are available for those tools, and tell the user to open the in-product packages page (path from packagesPurchase.path/url, default '/app/packages'). Do not say packages are unavailable just because no per-package checkout link was returned here: package purchase happens on that page, not via this tool.",
-        "If the result has pricingPage != null, then the user CAN open the in-product pricing page right now. When they ask to compare plans, choose a tariff, upgrade, or send the tariffs page, include that pricingPage path/url plainly in the answer instead of saying no link is available."
-      ].join(" ")
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -605,11 +545,6 @@ function createWebSearchToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
     name: "web_search",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
-      appendPerTurnCapHint(
-        "Search the public web through the currently configured search provider.",
-        "web_search",
-        policy
-      ),
       "May be called in parallel with other independent searches."
     ),
     inputSchema: {
@@ -645,7 +580,6 @@ function createKnowledgeSearchToolDefinition(
     name: "knowledge_search",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
-      "Search assistant-owned or PersAI-owned knowledge and return lightweight references with snippets. Use source global for Product KB text entries/files and plan catalog facts; think of it as Product KB, not a separate generic global base.",
       "May be called in parallel with other independent searches."
     ),
     inputSchema: {
@@ -686,7 +620,6 @@ function createKnowledgeFetchToolDefinition(
     name: "knowledge_fetch",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
-      "Fetch one bounded excerpt or transcript window from assistant-owned or PersAI-owned knowledge by referenceId returned from knowledge_search. Use source global for Product KB references.",
       "May be called in parallel with other independent fetches when you already have the needed referenceIds."
     ),
     inputSchema: {
@@ -732,11 +665,6 @@ function createWebFetchToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
     name: "web_fetch",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
-      appendPerTurnCapHint(
-        "Fetch and extract the main content of a public webpage through the current web-fetch provider.",
-        "web_fetch",
-        policy
-      ),
       "May be called in parallel with other independent fetches."
     ),
     inputSchema: {
@@ -770,10 +698,7 @@ function createBrowserToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: "browser",
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Use a real browser for JavaScript-rendered or interactive pages that require live interaction."
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -853,14 +778,7 @@ function createImageGenerateToolDefinition(
     name: "image_generate",
     description: appendToolDefinitionHint(
       appendToolDefinitionHint(
-        resolveToolDefinitionDescription(
-          policy,
-          appendPerTurnCapHint(
-            "Generate new images from a text prompt. For any multi-image request, use outputMode='series' with seriesItems so each requested output is described as its own final image inside one clean job; do not make extra calls. Keep outputMode='variants' only as a rare fallback for internal compatibility, not as the normal multi-image path.",
-            "image_generate",
-            policy
-          )
-        ),
+        resolveToolDefinitionDescription(policy),
         "count=N means N separate final images in this one job. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items."
       ),
       buildPendingDeliveryHint({
@@ -923,14 +841,7 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
     description: appendToolDefinitionHint(
       appendToolDefinitionHint(
         appendToolDefinitionHint(
-          resolveToolDefinitionDescription(
-            policy,
-            appendPerTurnCapHint(
-              "Edit a user-referenced image and return a new image file — use this only when the user explicitly wants an image modified, never to describe, analyze, or answer questions about an image (those are answered in text). For any multi-image edit request, use outputMode='series' with seriesItems so each requested output is described as its own final edited image inside one clean job; do not make extra calls. Keep outputMode='variants' only as a rare fallback for internal compatibility, not as the normal multi-image path. When other images should guide style, appearance, background, or composition, list them in referenceImageAliases (the edited output still stays rooted in the source image).",
-              "image_edit",
-              policy
-            )
-          ),
+          resolveToolDefinitionDescription(policy),
           "count=N means N separate final edited images in this one job. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items. In series mode, keep the same source product/object identity across slides unless the user explicitly asked to change products."
         ),
         buildPendingDeliveryHint({
@@ -1007,14 +918,7 @@ function createVideoGenerateToolDefinition(
   return {
     name: "video_generate",
     description: appendToolDefinitionHint(
-      resolveToolDefinitionDescription(
-        policy,
-        appendPerTurnCapHint(
-          "Generate a short brand-new video clip from a text prompt.",
-          "video_generate",
-          policy
-        )
-      ),
+      resolveToolDefinitionDescription(policy),
       [
         [
           "Prefer calling this tool immediately when the user clearly wants a video. For cinematic mode, pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values.",
@@ -1150,14 +1054,7 @@ function createVideoGenerateToolDefinition(
 function createTtsToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "tts",
-    description: resolveToolDefinitionDescription(
-      policy,
-      [
-        "Generate spoken audio for the current assistant persona with structured expressive delivery.",
-        "When the user wants a spoken reply or voice note, call this tool instead of only promising one. Do not claim the audio or voice note already exists unless this same turn returns action='generated'.",
-        "Choose structured delivery fields to shape how it sounds; do NOT embed raw bracketed audio tags in text — PersAI compiles your structured choices into safe, conservative provider steering. Keep choices honest to the intended emotional delivery; combining whisper with excited/high intensity is automatically softened."
-      ].join(" ")
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1214,19 +1111,7 @@ function createTtsToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTool
 function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "document",
-    description: resolveToolDefinitionDescription(
-      policy,
-      [
-        'Use action="inspect" to inspect an existing `/workspace/...` PDF, DOCX, or XLSX and return a compact structured view for the model. The runtime handles extraction/OCR/project mechanics internally; do not manage document projects yourself.',
-        'Use action="render" to create a new PDF, DOCX, or XLSX from Markdown content. Pass either inline `content` or `contentPath`, plus `format`, optional `style`, optional DOCX `template`, and `outputPath`. The runtime persists the Markdown source as a visible sibling `.md` file next to the output, renders the document, registers it, and delivers it in one call.',
-        'Use action="convert" to convert an existing `/workspace/...` document between PDF, DOCX, and XLSX without changing its semantic content. Pass `source`, `targetFormat`, and optional `outputPath`; if `outputPath` is omitted, the runtime derives it from the source basename.',
-        "For ordinary PDF/DOCX/XLSX work, use only these three verbs: `inspect`, `render`, and `convert`. Slides and decks belong in `presentation`, not here.",
-        "Case A revision flow for a file previously created by `document.render`: `files.read(<siblingMarkdownPath>)` to read the persisted Markdown source that lives next to the rendered output; edit the Markdown text; `files.write(<siblingMarkdownPath>, newContent, replace: true)` to overwrite that sibling in place (do not create a new sibling); then `document.render({ contentPath: <siblingMarkdownPath>, format: <same>, outputPath: <same as before> })` to re-render at the exact previous outputPath, which auto-registers `v+1` of the same document identity.",
-        "For anything these verbs cannot express — complex XLSX with formulas/charts/multi-sheet logic, targeted edits of uploaded documents, custom layouts, or data-driven document assembly — write Python in `shell` with `openpyxl`, `python-docx`, or `weasyprint`, then deliver the result with `files.attach(path)`.",
-        "Do not use the presentation tool for PDF manuals, instructions, reports, or other ordinary document output. Slides and decks belong in `presentation`, not here.",
-        "Never invent placeholder, generic-template, or test/demo content when the user has attached a source file."
-      ].join(" ")
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1314,22 +1199,14 @@ function createPresentationToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: "presentation",
-    description: resolveToolDefinitionDescription(
-      policy,
-      [
-        "Use this tool only for slide decks and presentations — not for ordinary PDF documents, manuals, reports, DOCX, or XLSX files.",
-        "Presentation generation remains supported through descriptorMode=create_presentation. Presentation chat delivery is always PDF. Do not set outputFormat=pptx for create_presentation or for presentation revise_document. Editable PPTX is a separate explicit user-requested preparation action and is not the in-chat artifact. outputFormat=pptx is only meaningful for export_or_redeliver against an existing presentation document when the user explicitly asked for PPTX/PowerPoint.",
-        "When the user has attached source material for a presentation (txt, md, csv, json, html, xml, pdf, docx), describe the requested deck transformation in prompt and let the presentation worker inline supported source content; do not paste the file content into the prompt yourself.",
-        "For school, educational, explainer, and ordinary client decks, do not choose imagePolicy=text_only or visualDensity=text_heavy unless the user explicitly asks for text-only slides or unusually dense slide copy. Prefer balanced density and ordinary visual policies; do not force pictographic/business icon decks unless the user asked for that exact style.",
-        "For Gamma presentations, keep outline simple when you provide it: a short flat list of slide titles or title plus brief bullets. Do not send deeply nested JSON outlines, speaker notes, layout directives, or provider-specific theme guesses.",
-        'For create_presentation and for presentation revise_document, you SHOULD set targetSlideCount to a concrete integer between 1 and 30 — even when the user did not specify one. If the user did mention a number ("7 slides", "deck of 10", "до 5 слайдов", "увеличь до 8"), you MUST set targetSlideCount to that exact integer. If the user did not specify a number, pick a reasonable count from the topic (typical school/explainer deck is 7-10, ordinary client deck is 8-12, deep report is 12-16) and pass that integer.',
-        buildPendingDeliveryHint({
-          subject: "the presentation is being prepared",
-          quotaToolCode: "document",
-          extra:
-            "Do not duplicate the delivery this turn; the presentation is already routed to the user once it finishes."
-        })
-      ].join(" ")
+    description: appendToolDefinitionHint(
+      resolveToolDefinitionDescription(policy),
+      buildPendingDeliveryHint({
+        subject: "the presentation is being prepared",
+        quotaToolCode: "document",
+        extra:
+          "Do not duplicate the delivery this turn; the presentation is already routed to the user once it finishes."
+      })
     ),
     inputSchema: {
       type: "object",
@@ -1442,10 +1319,7 @@ function createScheduledActionToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: "scheduled_action",
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Schedule simple unconditional user-visible reminders."
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1526,14 +1400,7 @@ function createBackgroundTaskToolDefinition(
 ): ProviderGatewayToolDefinition {
   return {
     name: "background_task",
-    description: resolveToolDefinitionDescription(
-      policy,
-      appendPerTurnCapHint(
-        "Create and manage quiet assistant-side background tasks. Use this for conditional checks and delayed assistant follow-through; the platform will later evaluate the brief and push the user directly only when warranted. Before creating a new task, avoid duplicates: if the user seems to be referring to an already existing follow-up with the same purpose, first call list and then pause, resume, cancel, or keep the existing task instead of creating a second equivalent one.",
-        "background_task",
-        policy
-      )
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1604,7 +1471,7 @@ function createBackgroundTaskToolDefinition(
 function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "files",
-    description: resolveToolDefinitionDescription(policy, "Path-driven workspace file operations."),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1670,10 +1537,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
 function createGrepToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "grep",
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Search workspace files for a text pattern and return structured matches (file path, line number, matched text). Prefer this over shell grep / bash rg for workspace content search."
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1716,10 +1580,7 @@ function createGrepToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
 function createGlobToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "glob",
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Find workspace files whose names match a glob pattern and return sorted relative paths. Prefer this over shell find / fd for workspace filename discovery."
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1742,10 +1603,7 @@ function createGlobToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
 function createExecToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "exec",
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Run one executable with explicit arguments inside the assistant sandbox workspace. Refer to files by their relative paths inside that workspace."
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1772,10 +1630,7 @@ function createExecToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
 function createShellToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "shell",
-    description: resolveToolDefinitionDescription(
-      policy,
-      "Run a bounded shell command inside the assistant sandbox workspace. Refer to files by their relative paths inside that workspace."
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1800,10 +1655,7 @@ function createShellToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
 function createSkillToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   return {
     name: "skill",
-    description: resolveToolDefinitionDescription(
-      policy,
-      'Read enabled Skill details, engage a matching Skill, or release the active Skill. Use skill({ action: "list" }) or skill({ action: "describe", skillId, scenarioKey? }) for read-only detail. Use skill({ action: "engage", skillId, scenarioKey? }) only when you are ready to activate that Skill.'
-    ),
+    description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -1878,8 +1730,8 @@ function truncateToDescriptionCap(description: string, guidance: string): string
   return `${description}\n${guidance}`.slice(0, TOOL_DESCRIPTION_CAP);
 }
 
-function resolveToolDefinitionDescription(policy: RuntimeToolPolicy, fallback: string): string {
-  const description = policy.description?.trim() || fallback;
+function resolveToolDefinitionDescription(policy: RuntimeToolPolicy, fallback?: string): string {
+  const description = policy.description?.trim() || fallback?.trim() || policy.displayName;
   const guidance = policy.usageGuidance?.trim();
   if (!guidance) return description;
   const full = `${description}\n${guidance}`;
@@ -1889,8 +1741,8 @@ function resolveToolDefinitionDescription(policy: RuntimeToolPolicy, fallback: s
 
 function resolveToolDefinitionDescriptionWithHint(
   policy: RuntimeToolPolicy,
-  fallback: string,
-  hint: string
+  hint: string,
+  fallback?: string
 ): string {
   return appendToolDefinitionHint(resolveToolDefinitionDescription(policy, fallback), hint);
 }

@@ -106,8 +106,9 @@ async function run(): Promise<void> {
     // P2: per-tool mechanical content kept
     assert.ok(imageGenerate?.modelUsageGuidance?.includes('background="transparent"'));
 
-    // P8: per-tool honesty contract kept in image_edit
-    assert.ok(imageEdit?.modelUsageGuidance?.includes("Never claim the edit is done"));
+    // pending_delivery honesty is canonical in the selection guide + runtime hint,
+    // so it must NOT be duplicated into image_edit catalog guidance either.
+    assert.ok(!imageEdit?.modelUsageGuidance?.includes("Never claim the edit is done"));
     // pending_delivery is not duplicated into the catalog; A4 multi-reference fix
     assert.ok(!imageEdit?.modelUsageGuidance?.includes("pending_delivery"));
     assert.ok(!imageEdit?.modelUsageGuidance?.includes('action="deferred"'));
@@ -122,9 +123,10 @@ async function run(): Promise<void> {
     assert.ok(videoGenerate?.modelUsageGuidance?.includes("referenceImageAlias"));
   }
 
-  // ADR-119 Slice 7 + cleanup slice: per-tool descriptor shape — every catalog
-  // entry that is model-visible must carry the canonical 4-section ACI shape
-  // (WHEN TO USE / WHEN NOT TO USE / EXAMPLES / GOTCHAS).
+  // ADR-119 Slice 7 + ADR-130 D1: per-tool descriptor shape — every catalog
+  // entry that is model-visible must carry the canonical mechanical sections
+  // (WHEN TO USE / EXAMPLES / GOTCHAS). "WHEN NOT TO USE" is no longer required
+  // globally because sibling-tool routing moved to <tool_usage_policy>.
   {
     // Hidden-internal or migration-only tools are not model-visible and keep
     // their short one-liner descriptors deliberately. Everything else must
@@ -133,10 +135,16 @@ async function run(): Promise<void> {
       "cron", // hidden_internal scheduler bridge
       "persai_workspace_attach" // platform_managed migration-only helper
     ]);
-    const REQUIRED_SECTIONS = ["WHEN TO USE:", "WHEN NOT TO USE:", "EXAMPLES:", "GOTCHAS:"];
+    const HIDDEN_ALIAS_REMAP_CODES = new Set([
+      "memory_search",
+      "memory_get",
+      "persai_tool_quota_status"
+    ]);
+    const REQUIRED_SECTIONS = ["WHEN TO USE:", "EXAMPLES:", "GOTCHAS:"];
 
     for (const entry of TOOL_CATALOG) {
       if (HIDDEN_ONELINER_CODES.has(entry.code)) continue;
+      if (HIDDEN_ALIAS_REMAP_CODES.has(entry.code)) continue;
       assert.ok(
         entry.modelDescription && entry.modelDescription.trim().length > 0,
         `ACI: ${entry.code}.modelDescription must be non-empty`
@@ -177,9 +185,9 @@ async function run(): Promise<void> {
       "background_task"
     ];
     // Map catalog code → allowed mentions of OTHER projected tool codes.
-    // Allowed cross-references are deliberate routing guidance (the 4-section
-    // ACI shape explicitly states WHEN NOT TO USE in terms of the alternative
-    // tool the model should pick instead).
+    // Allowed cross-references are deliberate mechanical chain links that stay
+    // inside the descriptor after ADR-130 D1. Comparative "pick sibling tool X"
+    // routing is owned by <tool_usage_policy> and should not be reintroduced.
     const ALLOW_LIST: Record<string, string[]> = {
       web_search: ["web_fetch"],
       web_fetch: ["web_search", "browser"],

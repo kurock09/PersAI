@@ -433,7 +433,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           toolCode: "grep",
           displayName: "Grep",
           description: "Search workspace files for a text pattern.",
-          usageGuidance: "Prefer grep over shell grep for workspace content search.",
+          usageGuidance: "Content search across workspace files.",
           kind: "plan",
           executionMode: "inline",
           usageRule: "allowed",
@@ -446,7 +446,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           toolCode: "glob",
           displayName: "Glob",
           description: "Find workspace files by name pattern.",
-          usageGuidance: "Prefer glob over shell find for workspace filename discovery.",
+          usageGuidance: "Filename discovery across workspace files.",
           kind: "plan",
           executionMode: "inline",
           usageRule: "allowed",
@@ -591,8 +591,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "pattern",
     "glob schema requires pattern"
   );
-  assert.match(grep?.description ?? "", /shell grep|content search/i);
-  assert.match(glob?.description ?? "", /shell find|filename/i);
+  assert.match(grep?.description ?? "", /content search/i);
+  assert.match(glob?.description ?? "", /filename/i);
   // ADR-123 Slice 7 — shell description must no longer steer away ("reserve
   // shell" / "prefer files") and must not point search at shell.
   assert.doesNotMatch(shell?.description ?? "", /reserve shell|prefer the .?files/i);
@@ -2534,13 +2534,13 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
     const ALLOW_LIST: Record<string, string[]> = {
       web_search: ["web_fetch"],
       web_fetch: ["web_search", "browser"],
-      memory_search: ["knowledge_fetch", "knowledge_search"],
-      memory_get: ["knowledge_search", "knowledge_fetch"],
       // shell guidance pre-dates Slice 7; it mentions "the files tool" for IO routing.
       shell: ["files"]
     };
 
-    // Only enforce on the 8 rewritten tools — other existing entries have not been
+    // Only enforce on the still-model-facing Slice 7 audited tools — hidden alias
+    // remap rows now intentionally omit duplicated shadow guidance.
+    // Other existing entries have not been
     // audited for cross-tool prose yet and may use tool names as ordinary English words.
     const SLICE7_CATALOG_CODES = new Set([
       "web_search",
@@ -2548,8 +2548,6 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
       "image_generate",
       "image_edit",
       "skill",
-      "memory_search",
-      "memory_get",
       "memory_write"
     ]);
 
@@ -2568,8 +2566,8 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
 
     const slice7Entries = extractedEntries.filter((e) => SLICE7_CATALOG_CODES.has(e.code));
     assert.ok(
-      slice7Entries.length >= 8,
-      `ADR-119 Slice 7 cross-tool drift: expected at least 8 Slice 7 entries with modelUsageGuidance, found ${String(slice7Entries.length)}`
+      slice7Entries.length >= 6,
+      `ADR-119 Slice 7 cross-tool drift: expected at least 6 Slice 7 entries with modelUsageGuidance, found ${String(slice7Entries.length)}`
     );
 
     for (const { code, guidance } of slice7Entries) {

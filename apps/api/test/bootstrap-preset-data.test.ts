@@ -446,9 +446,47 @@ async function runToolsWorkspaceCategoryAdr123Slice7(): Promise<void> {
     "ADR-119 invariant: <priority_order> block must be preserved"
   );
   assert.match(tools, /Discover files first with `glob`, then search contents with `grep`/i);
-  assert.match(tools, /Execute commands, scripts, tests, builds, conversions, diagnostics/i);
+  assert.match(
+    tools,
+    /Execute multi-step commands, pipelines, shell builtins, scripts, tests, builds, conversions, diagnostics/i
+  );
   assert.doesNotMatch(tools, /Carousel, series, or multiple variations/i);
   assert.match(tools, /source material for a PDF, Word, Excel, deck, report, OCR, table/i);
+}
+
+async function runToolsSingleOwnerRoutingAdr130D1(): Promise<void> {
+  const tools = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.tools ?? "";
+  assert.match(
+    tools,
+    /Use `knowledge_fetch` only after `knowledge_search` returns a `referenceId`/i
+  );
+  assert.match(
+    tools,
+    /If a specific public URL is already known, use `web_fetch`; otherwise use `web_search`/i
+  );
+  assert.match(
+    tools,
+    /For live current-user plan\/quota facts, use `quota_status` before knowledge retrieval; for generic product info that does not depend on live quotas, use `knowledge_search`/i
+  );
+  assert.match(
+    tools,
+    /If the user only wants text or no audio output was requested, reply directly/i
+  );
+  assert.match(tools, /Run one bounded executable with explicit arguments → `exec`\./i);
+  assert.match(
+    tools,
+    /Execute multi-step commands, pipelines, shell builtins, scripts, tests, builds, conversions, diagnostics, and package checks → `shell`/i
+  );
+  assert.match(tools, /Do NOT use `exec` as a substitute for document, image, or web tools\./i);
+  assert.match(tools, /reply directly; do not invoke `document` or `presentation`/i);
+  assert.match(
+    tools,
+    /One-off chat-message work that should happen this turn → reply directly; do not create `scheduled_action` or `background_task`/i
+  );
+  assert.match(
+    tools,
+    /If no URL is in hand, use `web_search`\. If the page is static and a URL is already known, use `web_fetch`\./i
+  );
 }
 
 async function run(): Promise<void> {
@@ -461,6 +499,7 @@ async function run(): Promise<void> {
   await runResponseContractSlice8();
   await runPresenceSlice12();
   await runToolsWorkspaceCategoryAdr123Slice7();
+  await runToolsSingleOwnerRoutingAdr130D1();
 }
 
 void run();

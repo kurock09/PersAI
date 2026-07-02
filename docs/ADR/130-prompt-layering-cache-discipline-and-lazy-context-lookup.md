@@ -521,6 +521,47 @@ Landed [2026-07-02] — local, uncommitted-then-committed, no push:
 - **6a (persistence):** dedicated server-only `assistant_chat_messages.tool_exchanges` JSONB column; runtime turn result threads `toolExchanges` through the API persist path into the repository; never client-projected. (committed `77969bd4`)
 - **6b (replay):** native `priorToolExchanges` replay per the "Landed design" contract above — window 3 / ~2000-token budget / per-result 2000-char tail cap / args 600-char cap / binary placeholder — woven into the transcript tail, reusing each provider's existing exchange renderer; deterministic; cache-stable-prefix guard extended. Verified: provider-gateway + runtime suites green (re-run by the auditor), api/web/runtime/provider typechecks, lint, format:check.
 
+### Follow-through slices [added 2026-07-03]
+
+Reconciliation note: Slices 0–6 landed and were pushed, but a 2026-07-03 re-audit against acceptance criteria #2/#7 and inventory §6 found the D1 descriptor dedup and the §6 cross-cutting cleanups were **not** actually executed (they were implied by Slice 3 + §6 but never landed). These follow-through slices make that remaining ADR-130 scope explicit in the ledger, plus one newly-found adjacent item (Slice 10). Baseline for these: prod hotfix `b1e8f9d3`.
+
+#### Slice 7 — D1 descriptor/template dedup (completes Slice 3's D1 obligation + criterion #7)
+
+Subagent: GPT-5.4. Goal: one owner for cross-tool routing = `<tool_usage_policy>` selection guide.
+
+Do:
+
+- DELETE from tool descriptors (`tool-catalog-data.ts`) and synthetic per-tool templates (`bootstrap-preset-data.ts`) every cross-tool "which / when-not / prefer X / use X first" clause that already exists in `<tool_usage_policy>`;
+- MOVE the unique routing rules (exact-URL→`web_fetch`, unknown-URL→`web_search`, no-URL→`web_search`, `knowledge_fetch` needs prior `knowledge_search`, `quota_status` before knowledge retrieval, `tts`/`presentation` "reply directly", `exec` vs `shell`/`files`) into the guide, then delete from the descriptor;
+- keep self-referential lazy-action pointers (e.g. `video_generate` → its own `describe_avatar_mode`/`list_personas`/`list_voices`);
+- update guard tests + regenerate the ADR-119 golden snapshot; keep the cache-guard green.
+
+Acceptance: criterion #7 holds; no routing rule lost (every MOVE present in the guide).
+
+#### Slice 8 — §6 cross-cutting cleanups
+
+Subagent: GPT-5.4. Do:
+
+- remove dead projection fallback description strings in `native-tool-projection.ts` (shadowed by non-null `policy.description`) — maintenance-debt removal, not live-token savings;
+- resolve shadow-source rows (`memory_search`/`memory_get`/`persai_tool_quota_status`) so the canonical `knowledge_search`/`knowledge_fetch`/`quota_status` synthetic owners are the only source;
+- dedupe pending-delivery honesty to a single owner (guide + one projection helper), removing per-tool catalog/projection copies (image_generate, image_edit, video_generate, presentation, tts).
+
+Acceptance: no dead fallback prose remains; one owner per shadow source; one pending-delivery honesty owner.
+
+#### Slice 9 — lazy-action completion (criterion #2 remainder), re-scoped for ADR-132
+
+Subagent: GPT-5.4. Note: the old inventory `document.describe_workflow({kind:"extract"|"edit"|"register_version"|…})` signature is **stale** — ADR-132 collapsed `document` to a strict three-verb surface, so `extract`/`edit`/`register_version` no longer exist. Do: after Slice 7 pruning, re-measure the `document` and `shell` descriptors; only add a lazy action if the pruned descriptor is still heavy, and if so scope it to current ADR-132 truth. `shell.describe_environment()` remains low priority (env/install/egress/git-auth tutorial off-prefix).
+
+Acceptance: criterion #2 holds for the current (post-ADR-132) tool surface; no stale lazy-action shape is introduced.
+
+#### Slice 10 — prompt-constructor admin registry single-source-of-truth
+
+Subagent: GPT-5.4. Problem (found 2026-07-03): the admin Prompt Constructor front (`apps/web/app/admin/presets/page.tsx`) drifted from the backend assembly: its block palette (L144-155) still lists retired legacy blocks (`assistant_identity_block`, `user_identity_block`, `locale_block`, `timezone_block`, `persona_instructions_block`, `heartbeat_block`) and omits the three blocks the live default assembly actually uses (`reminders_protocol_block`, `memory_protocol_block`, `response_contract_block`), and its hardcoded preview/reset-default (L392-414) diverges from the real backend default (`bootstrap-preset-data.ts:34-50`). This does not corrupt the compiled prompt (backend null-drops unknown tokens) but makes the control plane misleading and unsafe to edit.
+
+Do: make the admin palette + preview/reset-default reflect the backend truth (add the three real blocks, drop/label legacy, align the default order to `bootstrap L34-50`, fix stale hints like `agents_block` "memory policy block"); prefer sourcing the canonical default from one place rather than a divergent hardcoded copy. Keep backward-compat for legacy tokens in the compiler (they stay supported/null-dropped, just not advertised).
+
+Acceptance: the admin constructor palette/default match the backend-compiled assembly; no dangling/yellow tokens; one source of truth for the default order.
+
 ## Acceptance criteria
 
 This ADR is not complete until all of the following are true:
@@ -535,6 +576,7 @@ This ADR is not complete until all of the following are true:
 8. the cache-guard test passes: stable prefix is byte-stable, holds no turn/workspace-variable data, and no volatile block appears inside it (D7).
 9. thread `tool_use` / `tool_result` history is persisted and replayed across turns under cache discipline (D8), so the model retains cross-turn memory of its own actions.
 10. all prompt-owner decisions are reflected in the active program ledger, not only in code.
+11. the admin Prompt Constructor (`apps/web/app/admin/presets/page.tsx`) block palette and preview/reset-default match the backend-compiled system assembly (`bootstrap-preset-data.ts` + `compile-prompt-constructor.service.ts`): no dangling/unregistered tokens, no retired legacy blocks advertised, one source of truth for the default order (Slice 10).
 
 ## Residual risk
 

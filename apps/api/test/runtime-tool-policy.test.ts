@@ -296,7 +296,10 @@ async function run(): Promise<void> {
     /Do not reconstruct upload paths from displayName\/filename/
   );
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/<filename>/);
-  assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN NOT TO USE:/m);
+  assert.doesNotMatch(
+    filesPolicy?.usageGuidance ?? "",
+    /use exec or shell|use grep|use glob|use document/i
+  );
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/input/);
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/outbound/);
   assert.match(filesPolicy?.usageGuidance ?? "", /^EXAMPLES:/m);

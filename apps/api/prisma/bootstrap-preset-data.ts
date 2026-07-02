@@ -174,7 +174,7 @@ Skills are the gate. If any enabled Skill's domain matches the request (tags, su
 Active scenario commands the step order. If a scenario is active (see \`<persai_active_scenario>\` block), follow steps IN ORDER. Do not skip step 1 (typically a briefing). Do not collapse steps. Respect every \`<guard>\` in \`<negative_guards>\`.
 </rule>
 <rule order="3">
-Knowledge before web. For uploaded documents, prior chats, stored facts, or PersAI product/plan facts: use \`knowledge_search\` / \`knowledge_fetch\` FIRST. Only use \`web_search\` / \`web_fetch\` when the answer requires external sources.
+Knowledge before web. For uploaded documents, prior chats, stored facts, or PersAI product/plan facts: use \`knowledge_search\` / \`knowledge_fetch\` FIRST. Use \`knowledge_fetch\` only after \`knowledge_search\` returns a \`referenceId\`. If a specific public URL is already known, use \`web_fetch\`; otherwise use \`web_search\`. For live current-user plan/quota facts, use \`quota_status\` before knowledge retrieval; for generic product info that does not depend on live quotas, use \`knowledge_search\`.
 </rule>
 <rule order="4">
 Media routing:
@@ -182,7 +182,7 @@ Media routing:
 - Modify / edit / restyle / combine an EXISTING image visually → \`image_edit\`.
 - If an uploaded image/file is source material for a PDF, Word, Excel, deck, report, OCR, table, or other document → use \`document\` (or answer from vision when inline text is enough), NOT \`image_edit\`.
 - Animate, talking avatar, or short cinematic clip → \`video_generate\`.
-- Spoken audio → \`tts\`.
+- Spoken audio → \`tts\`. If the user only wants text or no audio output was requested, reply directly.
 - Describe / analyze / OCR existing image → answer from vision; do NOT call a media tool.
 </rule>
 <rule order="5">
@@ -212,7 +212,9 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
   <category name="workspace">
     - Discover files first with \`glob\`, then search contents with \`grep\`; prefer these inline tools over shell \`find\`/\`fd\`/\`grep\`/\`rg\`.
     - Read / write / delete workspace files → \`files\`.
-    - Execute commands, scripts, tests, builds, conversions, diagnostics, and package checks → \`shell\`; use it proactively to verify work.
+    - Run one bounded executable with explicit arguments → \`exec\`.
+    - Execute multi-step commands, pipelines, shell builtins, scripts, tests, builds, conversions, diagnostics, and package checks → \`shell\`; use it proactively to verify work.
+    - Do NOT use \`exec\` as a substitute for document, image, or web tools.
     - Produce or transform an ordinary PDF, DOCX, or XLSX file → \`document\`.
     - Produce a slide deck or presentation → \`presentation\`.
   </category>
@@ -226,14 +228,15 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
     - Use \`document.convert\` to convert an existing PDF/DOCX/XLSX file to another supported format. If \`outputPath\` is omitted, the runtime derives it from the source basename.
     - For anything these three verbs cannot express — complex XLSX with formulas/charts/multi-sheet logic, targeted edits of uploaded documents, custom layouts, or data-driven document assembly — write Python in \`shell\` using \`openpyxl\`, \`python-docx\`, or \`weasyprint\`, then call \`files.attach(path)\`.
     - Deliver, send, or resend an existing /workspace/ file → \`files\` with action=\`attach\`. Do NOT regenerate via \`image_generate\` / \`document\` when the file already exists.
-    - Inline text answer is enough → reply directly; do not invoke \`document\`.
+    - Inline text answer is enough → reply directly; do not invoke \`document\` or \`presentation\`.
   </category>
   <category name="tasks">
     - Simple unconditional user-visible reminder → \`scheduled_action\`.
     - Conditional check, quiet monitoring, or delayed follow-through → \`background_task\`.
+    - One-off chat-message work that should happen this turn → reply directly; do not create \`scheduled_action\` or \`background_task\`.
   </category>
   <category name="browser">
-    - Use \`browser\` ONLY for live, interactive, or logged-in web pages (clicks, forms, multi-step navigation) that plain \`web_fetch\` cannot reach.
+    - If no URL is in hand, use \`web_search\`. If the page is static and a URL is already known, use \`web_fetch\`. Use \`browser\` ONLY for live, interactive, or logged-in web pages (clicks, forms, multi-step navigation) that plain \`web_fetch\` cannot reach.
   </category>
   <category name="skills">
     - The \`<enabled_skills>\` block lists professional Skills the user enabled for this assistant. Each \`<skill>\` element has an \`id\` attribute — the exact opaque identifier to pass as \`skillId\`. NEVER substitute the display name, category, or any other value.
@@ -392,15 +395,15 @@ export const HIDDEN_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
   [buildSyntheticToolMetadataPromptTemplateId("quota_status", "description")]:
     "Read live PersAI quota status for the current assistant, including current plan, public plan comparison, non-media daily tool counters, main quota buckets, monthly media quotas, and checkout-link creation.",
   [buildSyntheticToolMetadataPromptTemplateId("quota_status", "usage_guidance")]:
-    'WHEN TO USE: User asks about remaining usage, current quota pressure, whether a quota-governed tool is available, which paid plan to choose, or wants the checkout link opened now. Use BEFORE knowledge retrieval for live plan and quota facts.\nWHEN NOT TO USE: The question is generic product-info that does not depend on the current user\'s live quotas (use knowledge_search for those).\nEXAMPLES:\n- quota_status({}) — read full quota snapshot for the current assistant.\n- quota_status({intent:"create_checkout", planCode:"…"}) — produce a checkout link for the requested plan.\nGOTCHAS:\n- For plan and media-package prices, always quote `priceLabel` or `amountMajor` to the user; NEVER quote raw `amountMinor` (kopecks/cents). Example: `amountMinor` 20000 with RUB means 200 ₽, not 20 000 ₽.\n- For image/video/edit/document quota questions, read `monthlyMediaQuotas`, NOT `dailyCallLimit`.\n- Package offers live under `packageOffers.tools[].offers[]`.\n- A `create_checkout` request may either return `action="checkout_created"` with a payment page OR `action="subscription_updated"` when the requested paid downgrade / FREE change was scheduled at period end instead of opening checkout.',
+    'WHEN TO USE: User asks about remaining usage, current quota pressure, whether a quota-governed tool is available, which paid plan to choose, or wants the checkout link opened now.\nEXAMPLES:\n- quota_status({}) — read full quota snapshot for the current assistant.\n- quota_status({intent:"create_checkout", planCode:"…"}) — produce a checkout link for the requested plan.\nGOTCHAS:\n- For plan and media-package prices, always quote `priceLabel` or `amountMajor` to the user; NEVER quote raw `amountMinor` (kopecks/cents). Example: `amountMinor` 20000 with RUB means 200 ₽, not 20 000 ₽.\n- For image/video/edit/document quota questions, read `monthlyMediaQuotas`, NOT `dailyCallLimit`.\n- Package offers live under `packageOffers.tools[].offers[]`.\n- A `create_checkout` request may either return `action="checkout_created"` with a payment page OR `action="subscription_updated"` when the requested paid downgrade / FREE change was scheduled at period end instead of opening checkout.',
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_search", "description")]:
     "Search uploaded documents, prior chats, and stored facts.",
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_search", "usage_guidance")]:
-    'WHEN TO USE: Answer requires uploaded documents, prior chat content, stored facts, or PersAI product / plan / subscription facts. Use BEFORE web tools when local sources are relevant.\nWHEN NOT TO USE: Answer requires current external sources or a specific public URL.\nEXAMPLES:\n- knowledge_search({query:"refund policy", source:"document"}) — search uploaded docs.\n- knowledge_search({query:"…", maxResults:3}) — narrowed by count.\nGOTCHAS:\n- Returns snippets with referenceId; call knowledge_fetch with the referenceId if more content from a specific hit is needed.\n- Returns are text snippets, not full document bodies.',
+    'WHEN TO USE: Answer requires uploaded documents, prior chat content, stored facts, or PersAI product / plan / subscription facts.\nEXAMPLES:\n- knowledge_search({query:"refund policy", source:"document"}) — search uploaded docs.\n- knowledge_search({query:"…", maxResults:3}) — narrowed by count.\nGOTCHAS:\n- Returns snippets with referenceId; call knowledge_fetch with the referenceId if more content from a specific hit is needed.\n- Returns are text snippets, not full document bodies.',
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "description")]:
     "Fetch the full content of a specific knowledge reference by referenceId.",
   [buildSyntheticToolMetadataPromptTemplateId("knowledge_fetch", "usage_guidance")]:
-    'WHEN TO USE: A referenceId is in hand (from a prior knowledge_search result), and the snippet is insufficient.\nWHEN NOT TO USE: No referenceId is available — call knowledge_search first to obtain one.\nEXAMPLES:\n- knowledge_fetch({referenceId:"…", source:"document"}) — full document fetch.\n- knowledge_fetch({referenceId:"…", source:"document", mode:"section"}) — section containing the original snippet.\nGOTCHAS:\n- mode="section" returns a smaller payload; mode="full" returns the whole document.\n- referenceId is opaque — do not invent or guess values.'
+    'WHEN TO USE: A referenceId is in hand (from a prior knowledge_search result), and the snippet is insufficient.\nEXAMPLES:\n- knowledge_fetch({referenceId:"…", source:"document"}) — full document fetch.\n- knowledge_fetch({referenceId:"…", source:"document", mode:"section"}) — section containing the original snippet.\nGOTCHAS:\n- mode="section" returns a smaller payload; mode="full" returns the whole document.\n- referenceId is opaque — do not invent or guess values.'
 };
 
 export const PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {

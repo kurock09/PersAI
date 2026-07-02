@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-130 follow-through Slices 7, 8, and 10 landed locally; full gate green; ready for batched commit
+
+Status: **ADR-130 remains open, but the follow-through cleanup slices below are now implemented locally, verified, and ready for the next batched commit.** Nothing pushed. Slice 9 was explicitly skipped by founder direction.
+
+**What landed locally.**
+
+- **Slice 7 / D1 descriptor dedup.** Cross-tool routing guidance now has a single owner in `<tool_usage_policy>`. Unique routing rules were moved into the guide, duplicate sibling-routing prose was deleted from `tool-catalog-data.ts` and synthetic prompt templates, and the ADR-119 golden prompt snapshot plus guard tests were updated.
+- **Slice 8 / §6 cleanup.** Dead per-tool fallback description literals were removed from `native-tool-projection.ts` in favor of the live policy description path; the shadow alias/remap catalog rows `memory_search`, `memory_get`, and `persai_tool_quota_status` no longer carry dead model-facing prompt prose; redundant pending-delivery honesty lines were removed where a stronger live owner already existed. Parent audit caught and corrected one regression: `presentation` now carries its live pending-delivery hint on the projection path, matching the other async media tools.
+- **Slice 10 / prompt-constructor admin registry.** `apps/web/app/admin/presets/page.tsx` now matches backend truth: the system assembly palette advertises only the live blocks, the missing `reminders_protocol` / `memory_protocol` / `response_contract` sections are editable in Compiled Sections, the stale local ordinary-preview fallback was removed, and the page now trusts API tool ordering instead of duplicating a stale client-side registry.
+
+**Verification gate (all green on the local tree).**
+
+- `corepack pnpm -r --if-present run lint` ✅
+- `corepack pnpm run format:check` ✅
+- `corepack pnpm --filter @persai/api run typecheck` ✅
+- `corepack pnpm --filter @persai/web run typecheck` ✅
+- `corepack pnpm --filter @persai/runtime run typecheck` ✅
+- `corepack pnpm --filter @persai/api test` ✅
+- `corepack pnpm --filter @persai/runtime test` ✅
+- `corepack pnpm --filter @persai/web exec vitest run app/admin/presets/page.test.tsx --config vitest.config.ts` ✅
+
+**Next recommended step.**
+
+- Commit this local ADR-130 follow-through batch, then do the closure sweep: update ADR-130 acceptance status and the system docs (`ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`) to reflect the landed single-owner prompt/tool truth before any push/deploy decision.
+
 ## 2026-07-02 — CORRECTION: ADR-130 is NOT complete — landed slices pushed, but table-decided work remains open
 
 **Correction to the entry below.** A prior handoff line called ADR-130 "complete"; that was wrong. The 8 landed slices are gate-green and pushed, but ADR-130 is **still `Open`** and several Slice-0-table decisions were never executed. Do not treat ADR-130 as closed.

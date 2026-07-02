@@ -307,4 +307,89 @@ describe("AdminPresetsPage tool prompt defaults", () => {
       "Welcome says: Your voice is **Magnetic Strategist** — warm, concise, confident, and slightly playful."
     );
   });
+
+  it("advertises only the live system assembly blocks in the system palette", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/admin/prompt-templates")) {
+        return jsonResponse({
+          presets: [
+            {
+              id: "system",
+              template:
+                "{{soul_block}}\n\n{{reminders_protocol_block}}\n\n{{response_contract_block}}",
+              updatedAt: "2026-01-01T00:00:00.000Z"
+            }
+          ]
+        });
+      }
+      if (url.endsWith("/api/v1/admin/tools/metadata")) {
+        return jsonResponse({ tools: [] });
+      }
+      if (url.endsWith("/api/v1/admin/persona-archetypes")) {
+        return jsonResponse({ archetypes: [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(<AdminPresetsPage />);
+
+    await screen.findByRole("heading", { name: "System Prompt Assembly", level: 2 });
+    expect(screen.getByRole("button", { name: "soul_block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "user_block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "identity_block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "enabled_skills_block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "reminders_protocol_block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "memory_protocol_block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "response_contract_block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "tools_block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "agents_block" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "assistant_identity_block" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "user_identity_block" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "locale_block" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "timezone_block" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "persona_instructions_block" })
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "heartbeat_block" })).not.toBeInTheDocument();
+  });
+
+  it("leaves the ordinary preview empty when the API does not return a system template", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/admin/prompt-templates")) {
+        return jsonResponse({
+          presets: [
+            {
+              id: "reminders_protocol",
+              template: "API reminders protocol section",
+              updatedAt: "2026-01-01T00:00:00.000Z"
+            },
+            {
+              id: "response_contract",
+              template: "API response contract section",
+              updatedAt: "2026-01-01T00:00:00.000Z"
+            }
+          ]
+        });
+      }
+      if (url.endsWith("/api/v1/admin/tools/metadata")) {
+        return jsonResponse({ tools: [] });
+      }
+      if (url.endsWith("/api/v1/admin/persona-archetypes")) {
+        return jsonResponse({ archetypes: [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    render(<AdminPresetsPage />);
+
+    await screen.findByText("Compiled Preview");
+    const preview = screen.getByText((_, element) => element?.tagName === "PRE");
+    expect(preview).toBeEmptyDOMElement();
+  });
 });

@@ -71,6 +71,9 @@ const ORDINARY_TEMPLATE_IDS = [
   "user",
   "identity",
   "enabled_skills",
+  "reminders_protocol",
+  "memory_protocol",
+  "response_contract",
   "tools",
   "agents",
   "heartbeat",
@@ -78,32 +81,6 @@ const ORDINARY_TEMPLATE_IDS = [
 ] as const;
 const ROUTER_TEMPLATE_IDS = ["router_classifier"] as const;
 const ONBOARDING_TEMPLATE_IDS = ["preview_bootstrap", "welcome_bootstrap"] as const;
-const PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER = [
-  "summarize_context",
-  "compact_context",
-  "memory_write",
-  "todo_write",
-  "quota_status",
-  "knowledge_search",
-  "knowledge_fetch",
-  "web_search",
-  "web_fetch",
-  "browser",
-  "image_generate",
-  "image_edit",
-  "video_generate",
-  "document",
-  "presentation",
-  "tts",
-  "scheduled_action",
-  "background_task",
-  "files",
-  "grep",
-  "glob",
-  "exec",
-  "shell"
-] as const;
-const PROMPT_CONSTRUCTOR_MODEL_TOOL_SET = new Set<string>(PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER);
 
 const SOUL_VOICE_DNA_BLOCK = `{{archetype_label_line}}
 
@@ -139,20 +116,26 @@ const PRESET_META: Record<
   system: {
     label: "System Prompt Assembly",
     description:
-      "The real ordinary-turn assembly order. Reorder, remove, or repeat blocks here to control the compiled system prompt directly.",
+      "The backend ordinary-turn assembly order. Edit the fetched system template directly; reset-to-default restores the API-owned default.",
     variables: [
-      { key: "assistant_identity_block", hint: "Assistant display-name line" },
-      { key: "user_identity_block", hint: "User display-name line" },
-      { key: "locale_block", hint: "User locale line" },
-      { key: "timezone_block", hint: "User timezone line" },
-      { key: "persona_instructions_block", hint: "Published assistant instructions block" },
-      { key: "soul_block", hint: "Compiled soul prompt block" },
-      { key: "user_block", hint: "Compiled user-context block" },
-      { key: "identity_block", hint: "Compiled identity block" },
-      { key: "enabled_skills_block", hint: "Compiled enabled Skills instruction cards" },
-      { key: "tools_block", hint: "Compiled native tool runtime block" },
-      { key: "agents_block", hint: "Compiled memory policy block" },
-      { key: "heartbeat_block", hint: "Compiled task heartbeat block" }
+      { key: "soul_block", hint: "Core persona block with voice + character notes" },
+      { key: "user_block", hint: "Structured user context block" },
+      { key: "identity_block", hint: "Assistant identity metadata block" },
+      { key: "enabled_skills_block", hint: "Compiled enabled Skills catalog block" },
+      {
+        key: "reminders_protocol_block",
+        hint: "Declares how runtime <system-reminder> blocks should be interpreted"
+      },
+      {
+        key: "memory_protocol_block",
+        hint: "Long-term memory read/write rules for ordinary turns"
+      },
+      {
+        key: "response_contract_block",
+        hint: "Reply-formatting and delivery-honesty contract"
+      },
+      { key: "tools_block", hint: "Native Tool Runtime selection guide block" },
+      { key: "agents_block", hint: "Optional trailing stable system block" }
     ]
   },
   soul: {
@@ -204,6 +187,24 @@ const PRESET_META: Record<
       "Prompt Constructor block for user-enabled professional Skill instruction cards. Empty when no active Skill is enabled or the assignment is disabled, archived, or over the plan limit.",
     variables: [{ key: "skill_cards_block", hint: "Rendered enabled Skill cards" }]
   },
+  reminders_protocol: {
+    label: "Reminders Protocol",
+    description:
+      "Declares that runtime <system-reminder> blocks are system directives injected mid-conversation under recency bias.",
+    variables: []
+  },
+  memory_protocol: {
+    label: "Memory Protocol",
+    description:
+      "Defines pull-first long-term memory recall and the rules for immediate memory_write on durable facts, preferences, and open loops.",
+    variables: []
+  },
+  response_contract: {
+    label: "Response Contract",
+    description:
+      "Sets reply-formatting, code-block preservation, and delivery honesty rules for ordinary turns.",
+    variables: []
+  },
   tools: {
     label: "Native Tool Runtime — Selection Guide",
     description:
@@ -211,9 +212,9 @@ const PRESET_META: Record<
     variables: []
   },
   agents: {
-    label: "Memory Policy",
+    label: "Trailing System Notes",
     description:
-      "Directly editable memory hygiene instructions for the assistant. Task selection rules (scheduled_action vs background_task) have moved to the Native Tool Runtime selection guide.",
+      "Optional trailing stable system block after the tool selection guide. Empty by default; use only for extra always-on system instructions that do not belong in another owned section.",
     variables: []
   },
   heartbeat: {
@@ -327,23 +328,8 @@ function interpolateTemplate(template: string, variables: Record<string, string>
 }
 
 function buildPreviewToolCatalogBlock(toolStates: ToolPromptState[]): string {
-  const orderedTools = [...toolStates].sort((left, right) => {
-    const leftIndex = PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER.indexOf(
-      left.toolCode as (typeof PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER)[number]
-    );
-    const rightIndex = PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER.indexOf(
-      right.toolCode as (typeof PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER)[number]
-    );
-    if (leftIndex !== -1 || rightIndex !== -1) {
-      return (
-        (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
-        (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex)
-      );
-    }
-    return left.toolCode.localeCompare(right.toolCode);
-  });
   const blocks: string[] = [];
-  for (const tool of orderedTools) {
+  for (const tool of toolStates) {
     const description = tool.modelDescription?.trim() || tool.description?.trim() || null;
     const guidance = tool.modelUsageGuidance?.trim() || null;
     const instruction =
@@ -387,37 +373,16 @@ function buildOrdinaryPreview(
       interpolateTemplate(templateById.get(id) ?? "", sectionVariables).trim()
     ])
   ) as Record<(typeof ORDINARY_TEMPLATE_IDS)[number], string>;
-  const systemTemplate =
-    templateById.get("system") ??
-    `{{assistant_identity_block}}
-
-{{user_identity_block}}
-
-{{locale_block}}
-
-{{timezone_block}}
-
-{{persona_instructions_block}}
-
-{{soul_block}}
-
-{{user_block}}
-
-{{identity_block}}
-
-{{enabled_skills_block}}
-
-{{tools_block}}
-
-{{agents_block}}
-
-{{heartbeat_block}}`;
+  const systemTemplate = templateById.get("system") ?? "";
   return interpolateTemplate(systemTemplate, {
     ...SAMPLE_VARIABLES,
     soul_block: sectionById.soul,
     user_block: sectionById.user,
     identity_block: sectionById.identity,
     enabled_skills_block: sectionById.enabled_skills,
+    reminders_protocol_block: sectionById.reminders_protocol,
+    memory_protocol_block: sectionById.memory_protocol,
+    response_contract_block: sectionById.response_contract,
     tools_block: sectionById.tools,
     agents_block: sectionById.agents,
     heartbeat_block: sectionById.heartbeat
@@ -1128,9 +1093,7 @@ export default function AdminPresetsPage() {
         archetypes: PersonaArchetypeAdminState[];
       };
       setTemplates(templateData.presets);
-      setTools(
-        toolData.tools.filter((tool) => PROMPT_CONSTRUCTOR_MODEL_TOOL_SET.has(tool.toolCode))
-      );
+      setTools(toolData.tools);
       setArchetypes(
         [...archetypeData.archetypes].sort((left, right) => left.displayOrder - right.displayOrder)
       );

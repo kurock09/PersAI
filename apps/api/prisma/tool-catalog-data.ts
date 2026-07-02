@@ -23,7 +23,6 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     description: "Provider-backed external web lookup tool.",
     modelDescription: "Search the public web for sources or links related to a query.",
     modelUsageGuidance: `WHEN TO USE: Need external sources, recent news, or facts not in uploaded knowledge. No exact URL is known.
-WHEN NOT TO USE: Exact URL is known (call web_fetch). Local or uploaded sources are available.
 EXAMPLES:
 - web_search({query:"GPT-5.4 release date"}) — find sources.
 - web_search({query:"…", count:5}) — narrowed.
@@ -42,12 +41,10 @@ GOTCHAS:
     description: "Structured webpage content extraction via Firecrawl or fallback fetch.",
     modelDescription: "Fetch and extract the main content of a public webpage by exact URL.",
     modelUsageGuidance: `WHEN TO USE: Exact URL is known and you need the page content.
-WHEN NOT TO USE: URL is unknown — call web_search first.
 EXAMPLES:
 - web_fetch({url:"https://example.com/article"}) — direct fetch.
 GOTCHAS:
-- Returns extracted main text, not raw HTML.
-- For live, interactive, logged-in, or multi-step pages (forms, clicks), use the browser tool instead — web_fetch cannot drive sessions.`,
+- Returns extracted main text, not raw HTML.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_web_fetch",
@@ -60,12 +57,11 @@ GOTCHAS:
     description: "AI image generation via DALL-E or other supported providers.",
     modelDescription: "Generate a brand-new image from a text prompt (no source image).",
     modelUsageGuidance: `WHEN TO USE: User wants a new image and no source image is provided. Text prompt fully describes the desired output.
-WHEN NOT TO USE: A source image is present and the user wants to modify it.
 EXAMPLES:
 - image_generate({prompt:"…"}) — one new image (default, no outputMode needed).
 GOTCHAS:
 - For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent".
-- Never claim the image is delivered unless this turn produced a successful image_generate result.`,
+`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -80,13 +76,11 @@ GOTCHAS:
     modelDescription:
       "Edit an existing image with prompt-guided changes (replace, remove, add, recolor, restyle, insert, draw on top).",
     modelUsageGuidance: `WHEN TO USE: User explicitly asks to visually modify an image AND a source image is available (current attachment or reusable chat image already in context).
-WHEN NOT TO USE: No source image exists. User wants a brand-new image from text only. User wants OCR, analysis, text extraction, a report, PDF, Word/DOCX, Excel/XLSX, table, or file deliverable from an image/file (answer from vision or use the dedicated file-creation tool).
 EXAMPLES:
 - image_edit({sourceImageAlias:"…", prompt:"…"}) — one edited variant (default).
 GOTCHAS:
 - With multiple available images, set sourceImageAlias to the image being edited; you may pass extras via referenceImageAliases (those only guide).
 - For transparent background, cutout, sticker, icon, logo, or PNG with alpha, set background="transparent".
-- Never claim the edit is done unless this turn produced a successful image_edit result.
 - If roles like "the second photo" are unclear, ask before calling.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
@@ -101,7 +95,6 @@ GOTCHAS:
       "Generate a short video clip from a text prompt, optionally guided by one current or recent chat reference image.",
     modelDescription: "Generate a short brand-new video clip from a text prompt.",
     modelUsageGuidance: `WHEN TO USE: User wants a short animated clip, talking-avatar, or cinematic motion from a text prompt.
-WHEN NOT TO USE: User wants a still image (use image_generate or image_edit). User wants only audio (use tts).
 EXAMPLES:
 - video_generate({prompt:"…"}) — text-only short clip.
 - video_generate({prompt:"…", referenceImageAlias:"…"}) — clip guided by one current or recent chat image.
@@ -109,7 +102,7 @@ GOTCHAS:
 - For talking-avatar rules, saved characters, or available voices, first call video_generate with action:"describe_avatar_mode", action:"list_personas", or action:"list_voices"; these lookups are read-only.
 - Never guess personaId or voiceKey; load them from those read-only actions first.
 - Single source-image guidance only; do not pass multiple reference aliases.
-- Output may arrive asynchronously; do not claim the clip is delivered until the tool result confirms success.`,
+`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_image_generate",
@@ -122,8 +115,7 @@ GOTCHAS:
     description: "Inspect, render, or convert user-ready PDF/DOCX/XLSX files.",
     modelDescription:
       "Use exactly three document verbs for ordinary document work: inspect an existing file, render a new file from Markdown, or convert an existing file between PDF/DOCX/XLSX.",
-    modelUsageGuidance: `WHEN TO USE: User asks for a PDF document, DOCX/Word file, XLSX/spreadsheet, report, manual, instruction, table, or other ordinary document output. Use \`document\`, not \`presentation\`.
-WHEN NOT TO USE: User asks for slides, a deck, or a presentation (use \`presentation\`). User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (use \`files.attach\`; do not regenerate just to resend).
+    modelUsageGuidance: `WHEN TO USE: User asks for a PDF document, DOCX/Word file, XLSX/spreadsheet, report, manual, instruction, table, or other ordinary document output.
 EXAMPLES:
 - document({action:"inspect", path:"/workspace/source.docx"}) — inspect an existing PDF/DOCX/XLSX source and get a bounded structured view.
 - document({action:"render", outputPath:"/workspace/reports/q2.pdf", format:"pdf", content:"# Q2 Report\n\nSummary..."}) — render a new PDF directly from inline Markdown.
@@ -133,10 +125,8 @@ EXAMPLES:
 GOTCHAS:
 - The document surface is exactly three verbs: \`inspect\`, \`render\`, and \`convert\`.
 - \`document.render\` persists the Markdown source as a visible sibling \`.md\` file next to the output, registers the output, and delivers it in one call.
-- Case A revision flow for a file previously created by \`document.render\`: \`files.read(<siblingMarkdownPath>)\` to read the persisted Markdown source that lives next to the rendered output; edit the Markdown text; \`files.write(<siblingMarkdownPath>, newContent, replace: true)\` to overwrite that sibling in place (do not create a new sibling); then \`document.render({ contentPath: <siblingMarkdownPath>, format: <same>, outputPath: <same as before> })\` to re-render at the exact previous outputPath, which auto-registers \`v+1\` of the same document identity.
 - \`document.convert\` is deterministic format conversion only; it does not rewrite content semantically.
-- For anything these verbs cannot express — complex XLSX with formulas/charts/multi-sheet logic, targeted edits of uploaded documents, custom layouts, or data-driven docs — write Python in \`shell\` using \`openpyxl\`, \`python-docx\`, or \`weasyprint\`, then call \`files.attach(path)\`.
-- Use \`files.attach\` only for existing files you already created outside \`document.render\` / \`document.convert\`.`,
+`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -150,16 +140,14 @@ GOTCHAS:
     modelDescription:
       "Create or revise slide decks and export editable PPTX when explicitly requested. Chat delivery for new/revised decks is PDF.",
     modelUsageGuidance: `WHEN TO USE: User explicitly asks for a presentation, slide deck, slides, pitch deck, or PPTX/PowerPoint export/redelivery of an existing PersAI presentation.
-WHEN NOT TO USE: User asks for an ordinary PDF document, manual, report, instruction, DOCX, or XLSX file (use \`document\` + visible workspace workflow). User just wants an inline text answer.
 EXAMPLES:
 - presentation({descriptorMode:"create_presentation", prompt:"…"}) — create a new slide deck.
 - presentation({descriptorMode:"revise_document", docId:"…", prompt:"…"}) — revise an existing PersAI presentation.
 - presentation({descriptorMode:"export_or_redeliver", docId:"…", outputFormat:"pptx", prompt:"…"}) — prepare editable PPTX only when the user explicitly asked for PowerPoint.
 GOTCHAS:
 - Chat delivery for create_presentation and presentation revise_document is always PDF. outputFormat=pptx is only for export_or_redeliver when the user explicitly asked for PPTX/PowerPoint.
-- Do not use presentation for PDF manuals, instructions, or document-style reports.
 - Fill visualStyle, imagePolicy, and visualDensity only when visual intent is clear.
-- Runs async. Never claim delivery until the file actually arrives.`,
+`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_document_gamma",
@@ -173,7 +161,6 @@ GOTCHAS:
       "Text-to-speech synthesis via provider-specific TTS credentials with native provider fallback.",
     modelDescription: "Generate spoken audio for the current assistant persona.",
     modelUsageGuidance: `WHEN TO USE: User explicitly asks for a voice note, spoken reply, narration, or audio version of text.
-WHEN NOT TO USE: User only wants a text reply. Quiet background context with no audio output requested.
 EXAMPLES:
 - tts({text:"…"}) — synthesize spoken audio using the assistant persona voice.
 GOTCHAS:
@@ -191,7 +178,7 @@ GOTCHAS:
     modelDescription:
       "Use a real browser for JavaScript-rendered or interactive pages when web_search or web_fetch are insufficient.",
     modelUsageGuidance: `WHEN TO USE: Live, interactive, JavaScript-rendered, or logged-in web pages where plain web_fetch cannot reach the needed state.
-WHEN NOT TO USE: Static page content (use web_fetch). No URL in hand (use web_search). The user only wants a textual description of a page.
+WHEN NOT TO USE: The user only wants a textual description of a page.
 EXAMPLES:
 - browser({action:"snapshot", url:"…"}) — inspect a live page's current state.
 - browser({action:"act", url:"…", task:"…"}) — drive a multi-step interaction.
@@ -209,15 +196,6 @@ GOTCHAS:
     displayName: "Knowledge Search",
     description:
       "Search assistant memory and indexed knowledge with lexical retrieval, bounded hybrid rerank, and optional helper-model follow-through when configured.",
-    modelDescription: "Search uploaded documents, prior chats, and stored facts.",
-    modelUsageGuidance: `WHEN TO USE: Answer requires uploaded documents, prior chat content, stored facts, or PersAI product / plan / subscription facts. Use BEFORE web tools when local sources are relevant.
-WHEN NOT TO USE: Answer requires current external sources or a specific public URL.
-EXAMPLES:
-- knowledge_search({query:"refund policy"}) — broad search across all sources.
-- knowledge_search({query:"…", maxResults:3}) — narrowed by count.
-GOTCHAS:
-- Returns snippets with referenceId; call knowledge_fetch with the referenceId if more content from a specific hit is needed.
-- Returns are text snippets, not full source bodies.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     requiredCredentialId: "tool_memory_search",
@@ -228,15 +206,6 @@ GOTCHAS:
     code: "memory_get",
     displayName: "Knowledge Fetch",
     description: "Safe snippet read from memory files with optional offset/lines.",
-    modelDescription: "Fetch the full content of a specific knowledge reference by referenceId.",
-    modelUsageGuidance: `WHEN TO USE: A referenceId is in hand (from a prior knowledge_search result), and the snippet is insufficient.
-WHEN NOT TO USE: No referenceId is available — call knowledge_search first.
-EXAMPLES:
-- knowledge_fetch({referenceId:"…"}) — full-content fetch.
-- knowledge_fetch({referenceId:"…", mode:"section"}) — only the section containing the original snippet.
-GOTCHAS:
-- mode="section" returns a smaller payload; mode="full" returns the whole thing.
-- referenceId is opaque — do not invent or guess values.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -259,7 +228,6 @@ GOTCHAS:
     description: "Schedule simple unconditional user-visible reminders.",
     modelDescription: "Schedule simple unconditional user-visible reminders.",
     modelUsageGuidance: `WHEN TO USE: User asks for an unconditional user-visible reminder ("remind me in 10 minutes", "ping me tomorrow", "daily check-in at 9 AM").
-WHEN NOT TO USE: The task is conditional ("if X then ping me"), needs evaluation logic, or should stay quiet (use background_task). The user wants a one-off chat message right now, not a future ping.
 EXAMPLES:
 - scheduled_action({action:"create", kind:"user_reminder", title:"…", reminderText:"…", delayMs:600000}) — remind in 10 minutes.
 - scheduled_action({action:"create", kind:"user_reminder", title:"…", reminderText:"…", cronExpr:"0 9 * * *"}) — daily 9 AM ping.
@@ -280,7 +248,6 @@ GOTCHAS:
     modelDescription:
       "Create and manage quiet assistant-side background tasks that the platform later evaluates and may push to the user.",
     modelUsageGuidance: `WHEN TO USE: Conditional checks ("if X then ping me"), quiet monitoring ("тихо проверь"), or delayed assistant-side follow-through that may or may not surface to the user.
-WHEN NOT TO USE: Simple unconditional reminder (use scheduled_action). One-off chat-message work that should happen this turn.
 EXAMPLES:
 - background_task({action:"create", title:"…", brief:"Check X later; if condition Y holds, send the user a short summary and a PDF.", delayMs:3600000}) — conditional check + artifact.
 - background_task({action:"create", title:"…", brief:"…", cronExpr:"0 8 * * 1"}) — recurring quiet weekly check.
@@ -311,17 +278,6 @@ GOTCHAS:
     displayName: "Tool Quota Status",
     description:
       "Read live quota and plan state from PersAI control plane for the current assistant, including checkout-link creation from the same bounded surface.",
-    modelDescription:
-      "Read live quota status for the current assistant, including current plan, public plan comparison, non-media daily tool counters, main quota buckets, monthly media quotas, and checkout-link creation from the same tool surface.",
-    modelUsageGuidance: `WHEN TO USE: User asks about remaining usage, current quota pressure, whether a quota-governed tool is available, which paid plan to choose, or wants the checkout link opened now. Use BEFORE knowledge retrieval for live plan and quota facts.
-WHEN NOT TO USE: Generic product-info questions that do not depend on the current user's live quotas (use knowledge_search).
-EXAMPLES:
-- persai_tool_quota_status({}) — read full quota snapshot for the current assistant.
-- persai_tool_quota_status({intent:"create_checkout", planCode:"…"}) — produce a checkout link for the requested plan.
-GOTCHAS:
-- For plan and media-package prices, always quote \`priceLabel\` or \`amountMajor\`; NEVER quote raw \`amountMinor\` (kopecks/cents). Example: \`amountMinor\` 20000 with RUB means 200 ₽, not 20 000 ₽.
-- For image/video/edit/document quota questions, read \`monthlyMediaQuotas\`, NOT \`dailyCallLimit\`.
-- A \`create_checkout\` request may return \`action="checkout_created"\` with a payment page OR \`action="subscription_updated"\` when the requested paid downgrade / FREE change was scheduled at period end.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "platform_managed"
@@ -336,7 +292,6 @@ GOTCHAS:
       "Path-driven file operations on the single flat `/workspace/` namespace. Read/write/delete/attach by exact listed `/workspace/...` path; never reconstruct paths from displayName/filename. Default visibility is current-chat scoped; widen to assistant or workspace_shared only on explicit user need. Writes are collision-safe by default, with `replace: true` as the exact-overwrite opt-in.",
     modelUsageGuidance: `Files in this workspace live under \`/workspace/\`. By default \`files.list\` shows only the current chat scope. Widen only when the user asks: \`scope:"assistant"\` for this assistant's other chats, then \`scope:"workspace_shared"\` for the whole workspace. Read/preview/attach/delete by exact path from the Working Files block, a scoped \`files.list\`, or a prior tool result; if touching a file outside the current chat scope, first surface it via widened list and then pass \`crossScope:true\`. By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` on \`files.write\` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To create a new file, pick a new \`/workspace/...\` path. Use \`/tmp/\` for ephemeral scratch that the user should not see.
 WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace file to chat.
-WHEN NOT TO USE: Real process execution (use exec or shell). Content search in workspace (use grep). Filename discovery (use glob). Producing a NEW structured document (use document).
 EXAMPLES:
 - files({action:"list", path:"/workspace/"}) — see files from the current chat only.
 - files({action:"list", path:"/workspace/", scope:"assistant"}) — widen to this assistant's files from prior chats when the user asks.
@@ -366,14 +321,13 @@ GOTCHAS:
     modelDescription:
       "Run one bounded executable with explicit arguments inside the assistant sandbox workspace.",
     modelUsageGuidance: `WHEN TO USE: A real bounded executable must run with explicit arguments inside the assistant sandbox workspace.
-WHEN NOT TO USE: Plain file IO (use files). Multi-step shell pipelines or shell builtins (use shell).
 EXAMPLES:
 - exec({command:"python", args:["script.py", "input.txt"]}) — run a script in the sandbox.
 - exec({command:"ffmpeg", args:["-i","input.mp4","output.mp4"]}) — bounded transform.
 GOTCHAS:
 - Refer to workspace files by relative path; absolute paths outside the sandbox will be rejected.
 - Stay within sandbox CPU / memory / time limits; the call is killed when limits are exceeded.
-- Do NOT use exec to substitute for the document, image, or web tools; those have dedicated providers.`,
+`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -385,7 +339,6 @@ GOTCHAS:
     description: "Run a bounded shell command inside the isolated sandbox workspace.",
     modelDescription: "Run a bounded shell command inside the assistant sandbox workspace.",
     modelUsageGuidance: `WHEN TO USE: Use shell proactively for multi-step autonomous work — pipelines, shell builtins, process composition, running scripts, build commands, transformations, runtime package installs, Git operations, and any multi-command sequencing inside the sandbox. Shell is the primary autonomous execution surface; do not wait to be asked.
-WHEN NOT TO USE: Content search in the workspace (use grep instead of shell grep/rg). Filename discovery (use glob instead of shell find/fd). Plain file IO (use files). Producing a document, image, or web result (use the dedicated tool).
 SHELL ENVIRONMENT: /bin/bash with brace expansion, [[ … ]], <(…), set -o pipefail. Python 3 with system packages, plus session-scoped pip user-site at /workspace/.local (pip install <pkg> writes there; survives across turns within the session). Node 22 LTS with npm; npm install -g lands in /workspace/.npm-global, npm install (no -g) lands in /workspace/node_modules. Egress over HTTPS is allowlisted for github.com, *.github.com, *.githubusercontent.com, pypi.org, files.pythonhosted.org, registry.npmjs.org, *.npmjs.com — other hosts are denied.
 EXAMPLES:
 - shell({command:"pip install --quiet rich && python3 -c 'import rich; rich.print({\\"ok\\": True})'"}) — install a Python package (session-scoped) and use it.
@@ -399,8 +352,7 @@ GOTCHAS:
 - pip install / npm install land under /workspace/ (session-scoped); they do not leak across assistants or workspaces.
 - git push: PersAI never injects a GitHub token. Either bake credentials into the URL or write your own ~/.gitconfig — without auth GitHub returns 401.
 - Non-allowlisted hosts (gitlab.com, bitbucket.org, custom CDNs) are denied at the egress proxy by SNI — a 1-line allowlist follow-up is the only path to expand.
-- Stay within sandbox CPU / memory / time limits.
-- For content search use grep; for filename find use glob. Shell is for genuine execution, not search shortcuts.`,
+- Stay within sandbox CPU / memory / time limits.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -412,8 +364,7 @@ GOTCHAS:
     description: "Fast content search across workspace files using ripgrep.",
     modelDescription:
       "Search workspace files for a text pattern and return structured matches (file path, line number, matched text).",
-    modelUsageGuidance: `WHEN TO USE: Content search — find code patterns, strings, identifiers, log entries, or any text across the workspace. Prefer grep over shell grep / bash rg for workspace content search.
-WHEN NOT TO USE: Filename discovery (use glob). File reads (use files). Process execution (use shell or exec).
+    modelUsageGuidance: `WHEN TO USE: Content search — find code patterns, strings, identifiers, log entries, or any text across the workspace.
 EXAMPLES:
 - grep({pattern:"TODO"}) — find all TODO comments in the workspace.
 - grep({pattern:"function processPayment", glob:"**/*.ts"}) — search TypeScript files for a function.
@@ -435,8 +386,7 @@ GOTCHAS:
     description: "Fast filename discovery across workspace files using fd.",
     modelDescription:
       "Find workspace files whose names match a glob pattern and return sorted relative paths.",
-    modelUsageGuidance: `WHEN TO USE: Filename discovery — find files by name pattern, extension, or path prefix. Prefer glob over shell find/fd for workspace filename discovery.
-WHEN NOT TO USE: Content search (use grep). File reads (use files). Process execution (use shell or exec).
+    modelUsageGuidance: `WHEN TO USE: Filename discovery — find files by name pattern, extension, or path prefix.
 EXAMPLES:
 - glob({pattern:"*.ts"}) — find all TypeScript files in the workspace.
 - glob({pattern:"*.test.ts", path:"src/"}) — find test files in a specific directory.
