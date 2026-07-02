@@ -1319,16 +1319,11 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
     description: resolveToolDefinitionDescription(
       policy,
       [
-        'Use action="extract" to turn an existing `/workspace/...` source file into a fresh bounded document project under `/workspace/projects/<slug>/` with `project.json`, visible `extract/` sidecars, and an `output/` directory. PDF/text-like imports also get a visible `render/report.html` preview scaffold. The result is compact and points to the project manifest plus sidecar paths to read next with bounded `files.read` or `grep`; never dump large DOCX/XLSX/PDF content through shell stdout. When the extracted source is DOCX or XLSX, the result also contains `suggestedNextActions` with the exact `document.render(format=pdf, projectPath, outputPath)` call to use — follow it directly to convert the source to PDF through document.render. Do not read the source content chunk by chunk when the suggested action already covers the request.',
-        'Use action="inspect" to validate an existing `/workspace/...` PDF/XLSX/DOCX, write a visible `*.inspect.json` sidecar, and return a compact summary of counts/warnings/suggested reads.',
-        'Use action="render" to build a visible `/workspace/...` project into a PDF/XLSX/DOCX output path. Use `presentation`, not `document`, for slide decks. document.render is the single deliverable step: it renders, registers the output as the current assistant document/version (`registration.versionId`), and delivers the file to the user in one call — do NOT follow it with files.attach or document.register_version for the same output. Python/manual render entrypoints must write the final file exactly to `PERSAI_OUTPUT_PATH`. For authored PDF/DOCX work, prefer passing `content` (Markdown) plus optional `template`; the runtime then scaffolds visible `render/content.md` and the project manifest for you, generates the builder in memory, and ignores any model-provided entrypoint for that render. If `content` is omitted, the entrypoint-based workflow is unchanged. Imported DOCX/XLSX → PDF is fixed to the runtime-managed Office export path inside document.render and ignores `content`/`template`. The output path is normalized into the project `output/` directory automatically; if outputPath already exists, render keeps the earlier file and allocates a sibling name like `report (1).pdf` unless you pass `replace: true`.',
-        'Use action="edit" to make surgical, server-side edits over a document project\'s FULL canonical content without holding the whole document: pass `projectPath` and an ordered `edits` array of `{op:"replace", find, replaceWith, all?}` (literal find/replace) and/or `{op:"section", heading, content}` (replace one Markdown section body). The runtime edits `render/content.md` for authored projects, else `extract/extracted.md`, preserving all untouched text byte-for-byte. It is all-or-nothing — if any op has zero/ambiguous matches the whole edit is reported failed and nothing is written. Locate passages with `grep`/`files.read` first. Set `rerender:true` (with `format`+`outputPath`) to chain straight into the single render+register+deliver door.',
-        'Use action="register_version" ONLY for advanced cases: revising an existing document by `docId` (`descriptorMode="revise_document"`), or attaching non-default `sourceManifestPath`/`inspectionPath`. The standard render flow already registers and delivers, so it does not need this action.',
-        "For DOCX/PDF conversion from an attached source, call document.extract first — it creates a fresh project and returns `suggestedNextActions` with the exact next document.render call for DOCX→PDF or XLSX→PDF. Call that action verbatim. Do not hand-build HTML from partial files.read chunks, do not dump large documents through shell stdout, and do not render or attach outputs from unrelated workspace projects.",
-        "For ordinary PDF/DOCX/XLSX work, stay in the visible workspace loop: extract into a document project when helpful, edit real source files under `/workspace`, then render the output — render registers and delivers it, so do not add a separate files.attach.",
-        "For a simple new PDF or DOCX document/manual/report, prefer a single document.render call with `projectPath`, `outputPath`, `format`, `content`, and optional `template`. The runtime scaffolds the visible authored source and delivers the result; do not pre-write HTML/build.py unless you are intentionally using the legacy entrypoint workflow.",
-        "If you omit `content`, the legacy entrypoint workflow still applies: write visible HTML for PDF or, for an explicit advanced/manual case, a visible Python build script for DOCX/XLSX and pass `entrypoint`. Default imported/authored paths do not require or expect a visible Python script.",
-        "For Python-based document.render, write the final file exactly to the provided PERSAI_OUTPUT_PATH environment variable. The runtime executes the Python entrypoint from projectPath; do not chdir into /workspace yourself and do not construct paths like /workspace/workspace/....",
+        'Use action="inspect" to inspect an existing `/workspace/...` PDF, DOCX, or XLSX and return a compact structured view for the model. The runtime handles extraction/OCR/project mechanics internally; do not manage document projects yourself.',
+        'Use action="render" to create a new PDF, DOCX, or XLSX from Markdown content. Pass either inline `content` or `contentPath`, plus `format`, optional `style`, optional DOCX `template`, and `outputPath`. The runtime persists the Markdown source as a visible sibling `.md` file next to the output, renders the document, registers it, and delivers it in one call.',
+        'Use action="convert" to convert an existing `/workspace/...` document between PDF, DOCX, and XLSX without changing its semantic content. Pass `source`, `targetFormat`, and optional `outputPath`; if `outputPath` is omitted, the runtime derives it from the source basename.',
+        "For ordinary PDF/DOCX/XLSX work, use only these three verbs: `inspect`, `render`, and `convert`. Slides and decks belong in `presentation`, not here.",
+        "For anything these verbs cannot express — complex XLSX with formulas/charts/multi-sheet logic, targeted edits of uploaded documents, custom layouts, or data-driven document assembly — write Python in `shell` with `openpyxl`, `python-docx`, or `weasyprint`, then deliver the result with `files.attach(path)`.",
         "Do not use the presentation tool for PDF manuals, instructions, reports, or other ordinary document output. Slides and decks belong in `presentation`, not here.",
         "Never invent placeholder, generic-template, or test/demo content when the user has attached a source file."
       ].join(" ")
@@ -1340,193 +1335,75 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         {
           required: ["action", "path"],
           properties: {
-            action: { enum: ["extract", "inspect"] }
+            action: { enum: ["inspect"] }
           }
         },
         {
-          required: ["action", "projectPath", "outputPath", "format"],
+          required: ["action", "outputPath", "format"],
           properties: {
             action: { enum: ["render"] }
           }
         },
         {
-          required: ["action", "projectPath", "edits"],
+          required: ["action", "source", "targetFormat"],
           properties: {
-            action: { enum: ["edit"] }
-          }
-        },
-        {
-          required: ["action", "outputPath"],
-          properties: {
-            action: { enum: ["register_version"] }
+            action: { enum: ["convert"] }
           }
         }
       ],
       properties: {
         action: {
           type: "string",
-          enum: ["extract", "inspect", "render", "edit", "register_version"],
+          enum: ["inspect", "render", "convert"],
           description:
-            'Explicit workspace-visible document action. Use `action="extract"` for visible extraction sidecars, `action="inspect"` for visible inspect sidecars, `action="render"` for deterministic render from visible `/workspace/...` project files (render also registers and delivers the output), `action="edit"` for surgical server-side edits over a project\'s full canonical content (with optional rerender), and `action="register_version"` only for advanced manual version registration (revising an existing docId or non-default source/inspection paths).'
+            'Explicit document action. Use `action="inspect"` to inspect an existing source, `action="render"` to author a new document from Markdown, and `action="convert"` to convert an existing document between PDF/DOCX/XLSX.'
         },
         path: {
           type: "string",
           description:
-            'Source file path for `action="extract"` or `action="inspect"`. Must be an existing `/workspace/...` file in the flat workspace namespace.'
-        },
-        mode: {
-          type: "string",
-          enum: ["auto", "text", "ocr", "layout"],
-          description:
-            'Optional extraction mode for `action="extract"`. Use auto by default, text to prefer local text-layer extraction, ocr to force the default OCR/provider path, and layout to prefer the high-quality layout-preserving path.'
-        },
-        depth: {
-          type: "string",
-          enum: ["quick", "standard", "deep"],
-          description:
-            'Optional inspection depth for `action="inspect"`. Quick keeps the sidecar compact, standard is the default, and deep returns richer sample rows/paragraphs while still keeping the tool result compact.'
-        },
-        projectPath: {
-          type: "string",
-          description:
-            'Project directory for `action="render"` and `action="edit"`. Must be a `/workspace/...` folder (e.g. `/workspace/projects/<slug>/`) containing visible source files such as HTML/CSS/assets, a Python build script, or the canonical editable content.'
+            'Required for `action="inspect"`. Must be an existing `/workspace/...` PDF, DOCX, or XLSX file.'
         },
         format: {
           type: "string",
           enum: ["pdf", "xlsx", "docx"],
-          description:
-            'Required for `action="render"` (and for `action="edit"` when `rerender:true`). PDF renders from visible HTML or a runtime-managed native export path; DOCX/XLSX may render through a runtime-managed native builder or an explicit Python entrypoint. When `content` is provided, authored render currently supports `pdf` and `docx`.'
-        },
-        entrypoint: {
-          type: "string",
-          description:
-            'Optional render entrypoint for `action="render"`. Use a project-relative path like `render/report.html` or `render/build.py`, or an absolute `/workspace/...` path. If omitted, runtime prefers `index.html` / `report.html` for PDF; imported DOCX/XLSX same-format revision and imported DOCX/XLSX -> PDF use runtime-managed native builders/exporters even when no visible Python script exists. Ignored when authored `content` is provided, and ignored for imported DOCX/XLSX -> PDF.'
+          description: 'Required for `action="render"`. Output format for the authored document.'
         },
         content: {
           type: "string",
           description:
-            'Optional authored Markdown body for `action="render"`. Provide either inline Markdown text or an absolute `/workspace/...` path to a `.md` / `.markdown` file. When present on a non-imported project, runtime deterministically scaffolds visible authored content under `render/`, generates the builder in memory, and ignores any model-provided `entrypoint` for that render.'
+            'Optional inline Markdown body for `action="render"`. Provide either `content` or `contentPath`, but not both.'
+        },
+        contentPath: {
+          type: "string",
+          description:
+            'Optional `/workspace/...` Markdown source path for `action="render"`. Provide either `contentPath` or inline `content`, but not both.'
+        },
+        style: {
+          type: "string",
+          enum: ["default", "report", "minimal"],
+          description:
+            'Optional style preset for `action="render"`. Use it for ordinary authored layout choices; for highly custom layout use `shell` + Python instead.'
         },
         template: {
-          type: "object",
-          additionalProperties: false,
+          type: "string",
           description:
-            'Optional authored design object for `action="render"` when paired with `content`. All fields are optional.',
-          properties: {
-            title: {
-              type: "string",
-              description: "Optional authored document title used in the seeded render scaffold."
-            },
-            theme: {
-              type: "string",
-              enum: ["default", "report", "minimal"],
-              description: "Optional seeded authored theme preset."
-            },
-            css: {
-              type: "string",
-              description: "Optional extra CSS appended to the seeded authored HTML template."
-            },
-            pageSize: {
-              type: "string",
-              enum: ["A4", "Letter"],
-              description: "Optional authored page size for the seeded render scaffold."
-            },
-            runningHeader: {
-              type: "string",
-              description: "Optional running header text for authored PDF/DOCX renders."
-            },
-            runningFooter: {
-              type: "string",
-              description: "Optional running footer text for authored PDF/DOCX renders."
-            }
-          }
-        },
-        edits: {
-          type: "array",
-          description:
-            'Required for `action="edit"`. Ordered, non-empty list of surgical operations applied server-side over the project\'s FULL canonical content (authored `render/content.md`, else extracted `extract/extracted.md`). All-or-nothing: every op must resolve or nothing is written. Locate passages first with `grep`/targeted `files.read`; never paste the whole document.',
-          items: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              op: {
-                type: "string",
-                enum: ["replace", "section"],
-                description:
-                  'Operation kind. Use "replace" for a literal (non-regex) find/replace and "section" to replace the body under a Markdown heading.'
-              },
-              find: {
-                type: "string",
-                description:
-                  'For op="replace": the literal text to find. With all omitted/false it must be unambiguous (exactly one occurrence); zero or multiple matches fail the whole edit honestly.'
-              },
-              replaceWith: {
-                type: "string",
-                description:
-                  'For op="replace": the literal replacement text (may be empty to delete).'
-              },
-              all: {
-                type: "boolean",
-                description:
-                  'For op="replace": when true, replace every occurrence of find; when omitted/false, replace the single unambiguous occurrence.'
-              },
-              heading: {
-                type: "string",
-                description:
-                  'For op="section": the Markdown heading whose body to replace, e.g. "## Overview" or "Overview". Zero or ambiguous heading matches fail the whole edit.'
-              },
-              content: {
-                type: "string",
-                description:
-                  'For op="section": the new Markdown body for that heading; every other section is preserved byte-for-byte.'
-              }
-            }
-          }
-        },
-        rerender: {
-          type: "boolean",
-          description:
-            'Optional for `action="edit"`. When true, after all edits apply the runtime chains into the single-door `document.render` (register + deliver once) — you must also pass `format` and `outputPath`. When false/omitted, the edit only updates the visible content and you can call `document.render` next.'
+            'Optional `/workspace/...` DOCX template path for `action="render"` when `format="docx"`. For complex layout beyond the built-in render door, use `shell` + Python.'
         },
         outputPath: {
           type: "string",
           description:
-            'Optional sidecar/output path depending on action. For `action="inspect"`, writes the JSON sidecar there (default: sibling `<basename>.inspect.json`). For `action="render"` (and `action="edit"` with `rerender:true`), this is the required final `/workspace/...` output file path; if that path already exists, PersAI preserves it by default and writes a sibling ` (N)` filename unless you pass `replace: true`. For `action="register_version"`, this is the already rendered `/workspace/...` output file that should become the registered current document version.'
+            'Required for `action="render"` and optional for `action="convert"`. Final `/workspace/...` output document path. Render writes exactly to this path; convert derives a sibling output name automatically when omitted.'
         },
-        replace: {
-          type: "boolean",
-          description:
-            'Optional exact-overwrite flag for `action="render"` (and `action="edit"` rerender). By default an occupied outputPath resolves to a sibling ` (N)` filename so earlier deliveries stay intact. Pass `replace: true` only when the user explicitly asked to overwrite that same file.'
-        },
-        requestedName: {
-          type: "string",
-          description: "Optional filename/title hint for the generated document."
-        },
-        workspaceProjectPath: {
+        source: {
           type: "string",
           description:
-            'Optional project directory for `action="register_version"`. Use the same visible `/workspace/...` folder you rendered from so the registered version keeps a stable workspace project pointer.'
+            'Required for `action="convert"`. Existing `/workspace/...` source file to convert.'
         },
-        sourceManifestPath: {
+        targetFormat: {
           type: "string",
+          enum: ["pdf", "xlsx", "docx"],
           description:
-            'Optional workspace manifest path for `action="register_version"`, for example a visible `/workspace/.../manifest.json` created by your workflow.'
-        },
-        inspectionPath: {
-          type: "string",
-          description:
-            'Optional visible `*.inspect.json` sidecar path for `action="register_version"`. When provided, PersAI snapshots the compact inspection summary onto the registered version/documentLink metadata.'
-        },
-        descriptorMode: {
-          type: "string",
-          enum: ["create_document", "revise_document"],
-          description:
-            "Optional register_version metadata only. Do not use descriptorMode on document for presentation work; use the presentation tool instead."
-        },
-        docId: {
-          type: "string",
-          description:
-            "Optional existing document UUID for register_version when revising registered workspace document metadata."
+            'Required for `action="convert"`. Target document format for the converted output.'
         }
       }
     }

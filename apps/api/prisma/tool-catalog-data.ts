@@ -117,33 +117,23 @@ GOTCHAS:
     id: "18181818-1818-1818-1818-181818181818",
     code: "document",
     displayName: "Document",
-    description:
-      "Create, inspect, render, and register user-ready PDF/DOCX/XLSX files through a visible workspace workflow.",
+    description: "Inspect, render, or convert user-ready PDF/DOCX/XLSX files.",
     modelDescription:
-      "Build or revise user-ready PDF, DOCX, and XLSX files through visible workspace source files; document.render is the single deliverable step that renders, registers a version, and delivers the output to the user, and document.edit makes surgical server-side edits over a project's full canonical content.",
-    modelUsageGuidance: `WHEN TO USE: User asks for a PDF document, DOCX/Word file, XLSX/spreadsheet, report, manual, instruction, table, or other ordinary document output — including from uploaded source files. Use the visible workspace loop, not presentation.
+      "Use exactly three document verbs for ordinary document work: inspect an existing file, render a new file from Markdown, or convert an existing file between PDF/DOCX/XLSX.",
+    modelUsageGuidance: `WHEN TO USE: User asks for a PDF document, DOCX/Word file, XLSX/spreadsheet, report, manual, instruction, table, or other ordinary document output. Use \`document\`, not \`presentation\`.
 WHEN NOT TO USE: User asks for slides, a deck, or a presentation (use \`presentation\`). User just wants an inline text answer (reply directly). User wants to redeliver an existing already-generated file (use \`files.attach\`; do not regenerate just to resend).
 EXAMPLES:
-- document({action:"extract", path:"/workspace/source.pdf"}) — create a bounded document project under \`/workspace/projects/<slug>/\` with extract sidecars and a seeded render scaffold.
-- document({action:"render", projectPath:"/workspace/projects/report", outputPath:"/workspace/projects/report/output/report.pdf", format:"pdf"}) — build a visible PDF from the active document project; if outputPath exists, render preserves it by default and writes a sibling like \`report (1).pdf\`.
-- document({action:"render", projectPath:"/workspace/projects/report", outputPath:"/workspace/projects/report/output/report.pdf", format:"pdf", content:"# Q2 Report\n\nSummary...", template:{title:"Q2 Report", theme:"report"}}) — create a brand-new authored PDF in one call; runtime scaffolds the visible render sources under \`render/\`.
-- document({action:"render", projectPath:"/workspace/projects/report", outputPath:"/workspace/projects/report/output/report.xlsx", format:"xlsx"}) — build a visible spreadsheet from workspace source files.
-- document({action:"inspect", path:"/workspace/projects/report/output/report.xlsx"}) — inspect the rendered XLSX/DOCX/PDF before delivery.
-- document({action:"edit", projectPath:"/workspace/projects/report", edits:[{op:"replace", find:"Q1 revenue was flat", replaceWith:"Q1 revenue grew 12%"}]}) — surgical literal edit over the project's full canonical content (authored \`render/content.md\`, else \`extract/extracted.md\`); untouched text is preserved byte-for-byte and nothing is written unless every op resolves.
-- document({action:"edit", projectPath:"/workspace/projects/report", edits:[{op:"section", heading:"## Summary", content:"Updated summary body..."}], rerender:true, format:"pdf", outputPath:"/workspace/projects/report/output/report.pdf"}) — replace one section body then chain into the single render+register+deliver door.
-- document({action:"render", projectPath:"/workspace/projects/report", outputPath:"/workspace/projects/report/output/report.pdf", format:"pdf", replace:true}) — exact overwrite only when the user explicitly asked to replace that file.
-- document({action:"register_version", outputPath:"/workspace/projects/report/output/report.xlsx", workspaceProjectPath:"/workspace/projects/report", inspectionPath:"/workspace/projects/report/output/report.inspect.json"}) — advanced-only manual version registration when revising an existing docId or using non-default source/inspection paths; standard render already registers.
+- document({action:"inspect", path:"/workspace/source.docx"}) — inspect an existing PDF/DOCX/XLSX source and get a bounded structured view.
+- document({action:"render", outputPath:"/workspace/reports/q2.pdf", format:"pdf", content:"# Q2 Report\n\nSummary..."}) — render a new PDF directly from inline Markdown.
+- document({action:"render", outputPath:"/workspace/reports/q2.docx", format:"docx", contentPath:"/workspace/reports/q2.md", style:"report"}) — render a DOCX from an existing Markdown file.
+- document({action:"render", outputPath:"/workspace/reports/table.xlsx", format:"xlsx", content:"# Revenue\n\n| Month | Revenue |\n| --- | --- |\n| Jan | 10 |"}) — render a trivial data-only XLSX from Markdown tables.
+- document({action:"convert", source:"/workspace/source.docx", targetFormat:"pdf"}) — convert an existing document to a different document format and deliver it.
 GOTCHAS:
-- document.extract no longer accepts outputDir; do not write flat \`*.extract\` sidecars manually.
-- document.render is the single deliverable step: it renders, registers the version, and delivers the file to the user. Do NOT call files.attach for a render output, and do NOT call document.register_version after a normal render — that would double-deliver the same file.
-- document.edit is all-or-nothing over the FULL content: a \`replace\` op needs an unambiguous \`find\` (zero or multiple matches fail the whole edit unless you pass \`all:true\`), and a \`section\` op needs a unique heading. Locate passages with \`grep\`/\`files.read\` first; do not paste the whole document. Use \`rerender:true\` with \`format\`+\`outputPath\` to deliver through the single render door in the same call.
-- The render output path is normalized into the project's \`output/\` directory automatically; if you accidentally target a path outside the project it is relocated there rather than silently failing to register.
-- When document.extract returns suggestedNextActions, follow them verbatim. Do not dump large DOCX/XLSX/PDF content through shell stdout, do not hand-build HTML from partial reads for imported Office→PDF, and do not attach outputs from unrelated/stale document projects.
-- For a simple new PDF or DOCX, prefer a single \`document.render\` call with \`projectPath\`, \`outputPath\`, \`format\`, \`content\`, and optional \`template\`. Runtime scaffolds visible \`render/content.md\` and the project manifest as needed, while generating the builder in memory; do not pre-write HTML/build.py unless you intentionally want the legacy entrypoint workflow.
-- If \`content\` is omitted, the legacy entrypoint workflow is unchanged: write visible HTML for PDF or, for an explicit advanced/manual case, a visible Python build script for DOCX/XLSX and pass \`entrypoint\`. Default imported/authored paths do not require or expect a visible Python script.
-- If outputPath is already occupied, document.render preserves earlier deliveries by default and allocates a sibling name like \`report (1).pdf\`; pass \`replace: true\` only when the user explicitly asked to overwrite that exact file.
-- PDF render uses an HTML entrypoint by default. When authored \`content\` is provided on a non-imported project, runtime owns the entrypoint generation and ignores model \`entrypoint\` for that render. For an imported DOCX/XLSX → PDF the engine is fixed to the runtime-managed Office export path inside \`document.render\` and ignores \`content\`/\`template\`; you cannot choose a different engine or entrypoint for that conversion.
-- For Python-based \`document.render\`, write the final file exactly to \`PERSAI_OUTPUT_PATH\`. Do not chdir into \`/workspace\` yourself and do not construct paths like \`/workspace/workspace/...\`.`,
+- The document surface is exactly three verbs: \`inspect\`, \`render\`, and \`convert\`.
+- \`document.render\` persists the Markdown source as a visible sibling \`.md\` file next to the output, registers the output, and delivers it in one call.
+- \`document.convert\` is deterministic format conversion only; it does not rewrite content semantically.
+- For anything these verbs cannot express — complex XLSX with formulas/charts/multi-sheet logic, targeted edits of uploaded documents, custom layouts, or data-driven docs — write Python in \`shell\` using \`openpyxl\`, \`python-docx\`, or \`weasyprint\`, then call \`files.attach(path)\`.
+- Use \`files.attach\` only for existing files you already created outside \`document.render\` / \`document.convert\`.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     policyClass: "plan_managed"

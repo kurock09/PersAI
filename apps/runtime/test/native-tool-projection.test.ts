@@ -348,9 +348,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         {
           toolCode: "document",
           displayName: "Document",
-          description: "Create and revise assistant documents through the visible workspace loop.",
+          description: "Inspect, render, or convert ordinary PDF/DOCX/XLSX files.",
           usageGuidance:
-            "Use document.extract/render/inspect/register_version for PDF/DOCX/XLSX work. document.extract creates bounded projects under /workspace/projects/<slug>/ and no longer accepts outputDir. document.render is the single deliverable step. For a simple new PDF or DOCX request, prefer one document.render call with projectPath, outputPath, format, content, and optional template so runtime scaffolds visible authored sources for you and keeps the builder in memory. If content is omitted, the legacy visible-entrypoint workflow still applies. Imported DOCX/XLSX -> PDF stays on the runtime-managed Office export path inside document.render and ignores content/template. If outputPath is already occupied, document.render preserves earlier deliveries by default and allocates a sibling name like `report (1).pdf`; pass `replace: true` only when the user explicitly asked to overwrite that exact file. Python render entrypoints must write exactly to PERSAI_OUTPUT_PATH. Slide decks belong in presentation.",
+            "Use exactly three document verbs: inspect(path), render({ content | contentPath, format, style?, template?, outputPath }), and convert({ source, targetFormat, outputPath? }). document.render persists a visible sibling Markdown source, registers the output, and delivers it. For anything these verbs cannot express - complex XLSX with formulas/charts, targeted edits of uploaded files, custom layouts, or data-driven docs - write Python in shell with openpyxl/python-docx/weasyprint and then call files.attach(path). Slide decks belong in presentation.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -894,17 +894,10 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         format?: { enum?: unknown[]; description?: string };
         entrypoint?: { description?: string };
         content?: { description?: string };
-        template?: {
-          description?: string;
-          properties?: {
-            title?: { description?: string };
-            theme?: { enum?: unknown[] };
-            css?: { description?: string };
-            pageSize?: { enum?: unknown[] };
-            runningHeader?: { description?: string };
-            runningFooter?: { description?: string };
-          };
-        };
+        contentPath?: { description?: string };
+        style?: { enum?: unknown[] };
+        template?: { description?: string; properties?: Record<string, unknown> };
+        targetFormat?: { enum?: unknown[] };
         edits?: {
           description?: string;
           items?: { properties?: { op?: { enum?: unknown[] } } };
@@ -917,97 +910,43 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       };
     }
   )?.properties;
-  assert.deepEqual(documentProperties?.action?.enum, [
-    "extract",
-    "inspect",
-    "render",
-    "edit",
-    "register_version"
-  ]);
-  assert.match(
-    documentProperties?.edits?.description ?? "",
-    /ordered.*surgical operations|full canonical content|all-or-nothing/i,
-    "document edits property must document the surgical full-content edit contract"
-  );
-  assert.deepEqual(documentProperties?.edits?.items?.properties?.op?.enum, ["replace", "section"]);
-  assert.equal(documentProperties?.rerender?.type, "boolean");
-  assert.match(
-    documentProperties?.rerender?.description ?? "",
-    /single-door.*document\.render|register \+ deliver once/i,
-    "document rerender property must document the single-door chain"
-  );
-  assert.match(
-    documentProperties?.action?.description ?? "",
-    /visible extraction sidecars|visible inspect sidecars|deterministic render|register_version/i
-  );
-  assert.match(documentProperties?.path?.description ?? "", /extract|inspect/i);
-  assert.deepEqual(documentProperties?.mode?.enum, ["auto", "text", "ocr", "layout"]);
+  assert.deepEqual(documentProperties?.action?.enum, ["inspect", "render", "convert"]);
+  assert.match(documentProperties?.action?.description ?? "", /inspect|render|convert/i);
+  assert.match(documentProperties?.path?.description ?? "", /inspect/i);
+  assert.equal(documentProperties?.mode, undefined);
   assert.equal(documentProperties?.outputDir, undefined);
-  assert.match(document?.description ?? "", /\/workspace\/projects\//);
-  assert.deepEqual(documentProperties?.depth?.enum, ["quick", "standard", "deep"]);
-  assert.match(documentProperties?.projectPath?.description ?? "", /project directory/i);
+  assert.doesNotMatch(document?.description ?? "", /\/workspace\/projects\//);
+  assert.equal(documentProperties?.depth, undefined);
+  assert.equal(documentProperties?.projectPath, undefined);
   assert.deepEqual(documentProperties?.format?.enum, ["pdf", "xlsx", "docx"]);
-  assert.match(
-    documentProperties?.entrypoint?.description ?? "",
-    /render\/report\.html|render\/build\.py|ignored when authored `content` is provided/i
-  );
-  assert.match(
-    documentProperties?.content?.description ?? "",
-    /Markdown|render\/|ignores any model-provided `entrypoint`/i
-  );
-  assert.match(documentProperties?.template?.description ?? "", /authored design object/i);
-  assert.deepEqual(documentProperties?.template?.properties?.theme?.enum, [
-    "default",
-    "report",
-    "minimal"
-  ]);
-  assert.deepEqual(documentProperties?.template?.properties?.pageSize?.enum, ["A4", "Letter"]);
-  assert.match(
-    documentProperties?.outputPath?.description ?? "",
-    /inspect|render|register_version/i
-  );
-  assert.equal(documentProperties?.replace?.type, "boolean");
-  assert.match(
-    documentProperties?.replace?.description ?? "",
-    /occupied outputPath resolves to a sibling ` \(N\)` filename/i
-  );
-  assert.deepEqual(documentProperties?.descriptorMode?.enum, [
-    "create_document",
-    "revise_document"
-  ]);
+  assert.equal(documentProperties?.entrypoint, undefined);
+  assert.match(documentProperties?.content?.description ?? "", /Markdown|contentPath/i);
+  assert.match(documentProperties?.contentPath?.description ?? "", /Markdown source path/i);
+  assert.match(documentProperties?.template?.description ?? "", /DOCX template/i);
+  assert.equal(documentProperties?.template?.properties, undefined);
+  assert.deepEqual(documentProperties?.style?.enum, ["default", "report", "minimal"]);
+  assert.deepEqual(documentProperties?.targetFormat?.enum, ["pdf", "xlsx", "docx"]);
+  assert.match(documentProperties?.outputPath?.description ?? "", /render|convert/i);
+  assert.equal(documentProperties?.replace, undefined);
+  assert.equal(documentProperties?.descriptorMode, undefined);
   assert.match(
     document?.description ?? "",
-    /document\.extract|document\.render.*xlsx|document\.inspect.*files\.attach|visible workspace loop/i
+    /action="inspect"|action="render"|action="convert"|files\.attach/i
   );
   assert.match(
     document?.description ?? "",
-    /simple new PDF or DOCX request.*document\.render.*content.*template/s,
-    "document guidance must teach the one-call authored render workflow"
+    /sibling `\.md` file next to the output|outputPath/s,
+    "document guidance must teach authored render plus source-markdown collocation"
   );
   assert.match(
     document?.description ?? "",
-    /If content is omitted.*legacy.*entrypoint workflow/i,
-    "document guidance must preserve the legacy entrypoint fallback when content is omitted"
-  );
-  assert.match(
-    `${document?.description ?? ""}\n${documentProperties?.entrypoint?.description ?? ""}`,
-    /PERSAI_O(?:UTPUT_PATH)?/i,
-    "document guidance must mention the provided render output path"
+    /complex XLSX|python-docx|openpyxl|weasyprint/i,
+    "document guidance must teach the shell+python escape hatch"
   );
   assert.match(
     document?.description ?? "",
-    /Imported DOCX\/XLSX -> PDF.*ignores content\/template/i,
-    "document guidance must preserve imported Office PDF precedence over authored content/template"
-  );
-  assert.match(
-    document?.description ?? "",
-    /allocates a sibling name like `report \(1\)\.pdf`/i,
-    "document guidance must teach collision-safe render output"
-  );
-  assert.match(
-    document?.description ?? "",
-    /pass `replace: true` only when the user explicitly asked to overwrite that exact file/i,
-    "document guidance must teach explicit overwrite semantics"
+    /targetFormat|derive it from the source basename/i,
+    "document guidance must teach convert defaults"
   );
   assert.match(
     `${document?.description ?? ""}\n${presentation?.description ?? ""}`,
@@ -1018,6 +957,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     document?.description ?? "",
     /create_pdf_document|create_data_document|create_presentation|descriptorMode=create_presentation/i,
     "document description must not advertise presentation modes"
+  );
+  assert.doesNotMatch(
+    document?.description ?? "",
+    /document\.extract|document\.edit|document\.register_version|\bentrypoint\b|render\/content\.md|build\.py|export_pdf\.py|visible workspace loop/i,
+    "document description must not advertise retired document workflow terms"
   );
   assert.doesNotMatch(
     document?.description ?? "",

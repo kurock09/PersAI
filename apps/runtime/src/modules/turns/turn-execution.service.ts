@@ -5075,9 +5075,6 @@ export class TurnExecutionService {
       !Array.isArray(outcome.payload)
     ) {
       const documentPayload = outcome.payload as RuntimeDocumentToolResult;
-      if (documentPayload.action === "extracted" && documentPayload.extraction?.projectPath) {
-        turnState.activeDocumentProjectPath = documentPayload.extraction.projectPath;
-      }
       if (documentPayload.action === "rendered" && documentPayload.render != null) {
         const renderedHandle = buildRuntimeFileHandleFromDocumentRender({
           render: documentPayload.render,

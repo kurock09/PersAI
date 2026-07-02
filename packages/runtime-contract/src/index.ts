@@ -2035,7 +2035,7 @@ export interface RuntimeVideoGenerateToolResult {
 export interface RuntimeDocumentToolResult {
   toolCode: "document";
   executionMode: "worker" | "inline";
-  requestedAction?: "extract" | "inspect" | "render" | "register_version" | "edit" | null;
+  requestedAction?: "inspect" | "render" | "convert" | null;
   descriptorMode:
     | "create_document"
     | "create_presentation"
@@ -2050,15 +2050,7 @@ export interface RuntimeDocumentToolResult {
   requestedName: string | null;
   artifacts: RuntimeOutputArtifact[];
   usage: RuntimeUsageSnapshot | null;
-  action:
-    | "generated"
-    | "skipped"
-    | "pending_delivery"
-    | "extracted"
-    | "inspected"
-    | "rendered"
-    | "registered"
-    | "edited";
+  action: "generated" | "skipped" | "pending_delivery" | "inspected" | "rendered" | "converted";
   reason: string | null;
   warning: string | null;
   guidance?: string | null;
@@ -2066,81 +2058,10 @@ export interface RuntimeDocumentToolResult {
   versionId?: string | null;
   canSendFileNow?: boolean;
   messageToUser?: string | null;
-  extraction?: RuntimeDocumentExtractionSummary | null;
   inspection?: RuntimeDocumentInspectionSummary | null;
-  edit?: RuntimeDocumentEditSummary | null;
   render?: RuntimeDocumentRenderSummary | null;
+  convert?: RuntimeDocumentConvertSummary | null;
   registration?: RuntimeDocumentVersionRegistrationSummary | null;
-}
-
-/**
- * ADR-129 Addendum III (P-3): result of a single `document.edit` operation applied
- * server-side over the FULL canonical content. `applied` ops resolved successfully
- * against the in-progress content; when any op fails the whole edit is aborted
- * (all-or-nothing) so `RuntimeDocumentEditSummary.applied` is false and nothing is
- * written to the visible source.
- */
-export interface RuntimeDocumentEditOpResult {
-  op: "replace" | "section";
-  status: "applied" | "failed" | "skipped";
-  /** Number of substitutions this op made (replace: occurrences; section: 1). */
-  replacements: number;
-  failureReason?: "no_match" | "ambiguous_match" | "heading_not_found" | null;
-  detail?: string | null;
-}
-
-/**
- * ADR-129 Addendum III (P-3): compact honest summary of a `document.edit` call.
- * `applied` is true only when every op resolved and the updated content was written
- * back to the same visible canonical source (`contentPath`).
- */
-export interface RuntimeDocumentEditSummary {
-  projectPath: string;
-  contentPath: string;
-  contentKind: "authored" | "extracted";
-  applied: boolean;
-  opCount: number;
-  results: RuntimeDocumentEditOpResult[];
-  bytesBefore: number;
-  bytesAfter: number;
-}
-
-export interface RuntimeDocumentExtractionSummary {
-  sourcePath: string;
-  outputDir: string;
-  manifestPath: string;
-  projectPath: string | null;
-  projectManifestPath: string | null;
-  projectSourcePath: string | null;
-  defaultRenderEntrypoint: string | null;
-  defaultPdfOutputPath: string | null;
-  outputPaths: string[];
-  suggestedReadPaths: string[];
-  counts: {
-    documentCount: number | null;
-    pageCount: number | null;
-    sheetCount: number | null;
-  };
-  provider?: {
-    providerKey: "local" | "mistral" | "llamaparse";
-    processorMode: "auto" | "local" | "default_provider" | "high_quality_fallback";
-    attemptedProviderKeys: Array<"local" | "mistral" | "llamaparse">;
-  } | null;
-  quality?: RuntimeFilesReadExtractionQuality | null;
-  warnings?: string[];
-  suggestedNextActions?: RuntimeDocumentSuggestedNextAction[] | null;
-}
-
-export interface RuntimeDocumentSuggestedNextAction {
-  tool: "document";
-  action: "render";
-  args: {
-    action: "render";
-    projectPath: string;
-    outputPath: string;
-    format: "pdf" | "xlsx" | "docx";
-  };
-  reason: string;
 }
 
 export interface RuntimeDocumentInspectionSummary {
@@ -2172,10 +2093,17 @@ export interface RuntimeDocumentInspectionComparisonSummary {
 }
 
 export interface RuntimeDocumentRenderSummary {
-  projectPath: string;
   outputPath: string;
   format: "pdf" | "xlsx" | "docx";
-  entrypointPath: string;
+  sourceMarkdownPath: string;
+  sizeBytes: number;
+  mimeType: string;
+}
+
+export interface RuntimeDocumentConvertSummary {
+  sourcePath: string;
+  outputPath: string;
+  targetFormat: "pdf" | "xlsx" | "docx";
   sizeBytes: number;
   mimeType: string;
 }

@@ -76,68 +76,47 @@ function testSkillCatalogRowMentionsPlanIntake(): void {
   );
 }
 
-function testDocumentCatalogRowTeachesVisibleWorkflow(): void {
+function testDocumentCatalogRowTeachesThreeVerbSurface(): void {
   const rows = TOOL_CATALOG.filter((t) => t.code === "document");
   assert.strictEqual(rows.length, 1, "TOOL_CATALOG must contain exactly one document row");
   const row = rows[0];
   assert.ok(
-    row.description.includes("visible workspace workflow"),
-    "document description must teach the visible workspace workflow"
+    row.description.includes("Inspect, render, or convert"),
+    "document description must describe the three document verbs"
   );
   assert.ok(
-    row.modelUsageGuidance.includes('document({action:"extract"'),
-    "document guidance must include document.extract"
+    row.modelUsageGuidance.includes('document({action:"inspect"') &&
+      row.modelUsageGuidance.includes('document({action:"render"') &&
+      row.modelUsageGuidance.includes('document({action:"convert"'),
+    "document guidance must include inspect, render, and convert examples"
   );
   assert.ok(
-    row.modelUsageGuidance.includes("/workspace/projects/"),
-    "document guidance must teach bounded document projects under /workspace/projects/"
+    row.modelUsageGuidance.includes("shell") &&
+      row.modelUsageGuidance.includes("openpyxl") &&
+      row.modelUsageGuidance.includes("python-docx") &&
+      row.modelUsageGuidance.includes("weasyprint") &&
+      row.modelUsageGuidance.includes("files.attach"),
+    "document guidance must teach the shell+python escape hatch"
   );
   assert.ok(
-    row.modelUsageGuidance.includes("no longer accepts outputDir"),
-    "document guidance must reject legacy outputDir extract paths"
+    row.modelUsageGuidance.includes("sibling `.md` file next to the output"),
+    "document guidance must teach source-markdown collocation"
   );
   assert.ok(
-    row.modelUsageGuidance.includes("single deliverable step") &&
-      row.modelUsageGuidance.includes("Do NOT call files.attach for a render output"),
-    "document guidance must teach that render itself registers and delivers (no separate files.attach)"
+    row.modelUsageGuidance.includes("registers the output") &&
+      row.modelUsageGuidance.includes("delivers it in one call"),
+    "document guidance must teach the single render door"
   );
   assert.ok(
-    row.modelUsageGuidance.includes(
-      "projectPath`, `outputPath`, `format`, `content`, and optional `template`"
-    ) &&
-      row.modelUsageGuidance.includes("render/content.md") &&
-      row.modelUsageGuidance.includes("project manifest") &&
-      row.modelUsageGuidance.includes("builder in memory"),
-    "document guidance must teach the one-call authored content/template render workflow"
+    row.modelUsageGuidance.includes('document({action:"convert"') &&
+      row.modelUsageGuidance.includes('targetFormat:"pdf"'),
+    "document guidance must include a concrete convert example"
   );
   assert.ok(
-    row.modelUsageGuidance.includes("allocates a sibling name like `report (1).pdf`") &&
-      row.modelUsageGuidance.includes("replace: true"),
-    "document guidance must teach collision-safe render output and explicit overwrite"
-  );
-  assert.ok(
-    row.modelUsageGuidance.includes(
-      "do NOT call document.register_version after a normal render"
-    ) && row.modelUsageGuidance.includes("advanced-only manual version registration"),
-    "document guidance must keep register_version advanced-only"
-  );
-  assert.ok(
-    row.modelUsageGuidance.includes('document({action:"edit"') &&
-      row.modelUsageGuidance.includes("all-or-nothing over the FULL content"),
-    "document guidance must teach the surgical all-or-nothing document.edit workflow"
-  );
-  assert.ok(
-    row.modelUsageGuidance.includes("PERSAI_OUTPUT_PATH") &&
-      row.modelUsageGuidance.includes("/workspace/workspace"),
-    "document guidance must prevent double-workspace build.py output paths"
-  );
-  assert.ok(
-    row.modelUsageGuidance.includes("PDF render uses an HTML entrypoint by default") &&
-      row.modelUsageGuidance.includes(
-        "runtime-managed Office export path inside `document.render`"
-      ) &&
-      row.modelUsageGuidance.includes("ignores `content`/`template`"),
-    "document guidance must default PDF to HTML and keep imported Office->PDF on the fixed LibreOffice path"
+    !/document\.extract|document\.edit|document\.register_version|render\/content\.md|build\.py|export_pdf\.py|entrypoint|visible workspace workflow|visible workspace loop|legacy entrypoint/i.test(
+      `${row.description}\n${row.modelDescription}\n${row.modelUsageGuidance}`
+    ),
+    "document catalog wording must not contain retired document workflow language"
   );
   assert.ok(
     !/async document providers|PDFMonkey|fileRef|AssistantFile|\/workspace\/input|\/workspace\/outbound/i.test(
@@ -256,7 +235,7 @@ function testStarterTrialPolicyTodoWrite(): void {
 export async function runToolCatalogDataTest(): Promise<void> {
   testTodoWriteCatalogRow();
   testSkillCatalogRowMentionsPlanIntake();
-  testDocumentCatalogRowTeachesVisibleWorkflow();
+  testDocumentCatalogRowTeachesThreeVerbSurface();
   testPresentationCatalogRowIsDeckSpecific();
   testDocumentCatalogRowSteersAwayFromPresentation();
   testFilesCatalogRowUsesExactListedPaths();
