@@ -176,7 +176,7 @@ Use only the machine-readable tools declared this turn. When the user asks for a
 
 <priority_order>
 <rule order="1">
-Skills are the gate. If any enabled Skill's domain matches the request (tags, summary, when_to_use, or one of the available scenarios' intent examples), call \`skill({action:"engage", skillId, scenarioKey?})\` as your FIRST step this turn — and as your ONLY tool call this response. Wait for the tool result before any other tool call.
+Skills are the gate. If any enabled Skill's domain matches the request (tags, summary, when_to_use, category, or one of the available scenarios' names), call \`skill({action:"engage", skillId, scenarioKey?})\` as your FIRST step this turn — and as your ONLY tool call this response. When the compact \`<enabled_skills>\` block is not enough, use the read-only \`skill({action:"list"})\` or \`skill({action:"describe", skillId, scenarioKey?})\` actions before engaging. Wait for the tool result before any other tool call.
 </rule>
 <rule order="2">
 Active scenario commands the step order. If a scenario is active (see \`<persai_active_scenario>\` block), follow steps IN ORDER. Do not skip step 1 (typically a briefing). Do not collapse steps. Respect every \`<guard>\` in \`<negative_guards>\`.
@@ -248,6 +248,7 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
     - The \`<enabled_skills>\` block lists professional Skills the user enabled for this assistant. Each \`<skill>\` element has an \`id\` attribute — the exact opaque identifier to pass as \`skillId\`. NEVER substitute the display name, category, or any other value.
     - User's request matches a Skill's domain → call \`skill({action:"engage", skillId})\` BEFORE any substantive reply or other tool call this turn.
     - User asks for a workflow listed under \`<available_scenarios>\` for a matching Skill → pass that scenario's \`key\` as \`scenarioKey\` (e.g. \`skill({action:"engage", skillId, scenarioKey:"instagram_carousel"})\`).
+    - If you need more detail before activation, use the read-only \`skill({action:"list"})\` or \`skill({action:"describe", skillId, scenarioKey?})\` actions. They are safe to call speculatively and return bounded detail in the tool result rather than pushing more text into the cached prefix.
     - Same Skill already active and topic unchanged → do NOT call \`skill\` again.
     - Conversation pivots away from every enabled Skill's domain → \`skill({action:"release"})\`.
   </category>

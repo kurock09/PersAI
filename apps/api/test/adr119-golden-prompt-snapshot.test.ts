@@ -215,6 +215,15 @@ async function runAdr119GoldenPromptSnapshotTest(): Promise<void> {
     rendered.includes("instagram_carousel"),
     "rendered prompt must contain instagram_carousel scenario key"
   );
+  assert.doesNotMatch(
+    rendered,
+    /<one_line>|<first_step_preview>|<recommended_tools>/,
+    "enabled_skills snapshot must keep scenario rows compact (key + name only)"
+  );
+  assert.ok(
+    rendered.includes('skill({action:"list"})') && rendered.includes('skill({action:"describe"'),
+    "rendered prompt must point to read-only skill.list / skill.describe detail lookup"
+  );
   assert.ok(
     rendered.includes("<memory_protocol>"),
     "rendered prompt must contain <memory_protocol>"

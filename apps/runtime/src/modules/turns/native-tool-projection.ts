@@ -2029,7 +2029,7 @@ function createSkillToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
     name: "skill",
     description: resolveToolDefinitionDescription(
       policy,
-      'Engage or release an enabled Skill for the current chat. Call skill({ action: "engage", skillId }) when the conversation enters a Skill domain. Call skill({ action: "release" }) when leaving. Do not re-engage if the Skill is already active with the same skillId.'
+      'Read enabled Skill details, engage a matching Skill, or release the active Skill. Use skill({ action: "list" }) or skill({ action: "describe", skillId, scenarioKey? }) for read-only detail. Use skill({ action: "engage", skillId, scenarioKey? }) only when you are ready to activate that Skill.'
     ),
     inputSchema: {
       type: "object",
@@ -2038,19 +2038,24 @@ function createSkillToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
       properties: {
         action: {
           type: "string",
-          enum: ["engage", "release"],
+          enum: ["list", "describe", "engage", "release"],
           description:
-            '"engage" activates a Skill (and optionally a scenario workflow). "release" deactivates the current Skill.'
+            '"list" and "describe" are read-only and safe to call speculatively. "engage" activates a Skill (and optionally a scenario workflow). "release" deactivates the current Skill.'
+        },
+        category: {
+          type: "string",
+          description:
+            'Optional when action is "list". Filters the enabled Skill catalog by category (for example "work" or "engineering"). Omit to list all enabled Skills.'
         },
         skillId: {
           type: "string",
           description:
-            'Required when action is "engage". The id of the enabled Skill to activate. Must be one of the Skill ids listed in the Enabled Skills block.'
+            'Required when action is "describe" or "engage". The id of the enabled Skill to inspect or activate. Must be one of the Skill ids listed in the Enabled Skills block.'
         },
         scenarioKey: {
           type: "string",
           description:
-            'Optional when action is "engage". The key of a specific scenario workflow to run within the Skill (e.g. "instagram_carousel"). If provided and the scenario exists, the tool result includes the structured steps. Omit for free-form domain discussion.'
+            'Optional when action is "describe" or "engage". The key of a specific scenario workflow within the Skill (for example "instagram_carousel"). With action="describe" it returns read-only scenario detail. With action="engage" it returns the structured active steps.'
         }
       }
     }

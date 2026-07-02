@@ -12,6 +12,7 @@ import { runSessionStoreServiceTest } from "./session-store.service.test";
 import { runIdempotencyServiceTest } from "./idempotency.service.test";
 import { runTurnAcceptanceServiceTest } from "./turn-acceptance.service.test";
 import { runPromptCacheStableBlocksTest } from "./prompt-cache-stable-blocks.test";
+import { runPromptCacheStablePrefixGuardTest } from "./prompt-cache-stable-prefix-guard.test";
 import { runCrossSessionCarryOverRendererTest } from "./cross-session-carry-over-renderer.test";
 import { runPresenceRendererTest } from "./presence-renderer.test";
 import { runRelativeTimeFormatterTest } from "./relative-time-formatter.test";
@@ -62,6 +63,7 @@ async function run(): Promise<void> {
   await runIdempotencyServiceTest();
   await runTurnAcceptanceServiceTest();
   await runPromptCacheStableBlocksTest();
+  await runPromptCacheStablePrefixGuardTest();
   await runCrossSessionCarryOverRendererTest();
   await runRelativeTimeFormatterTest();
   await runPresenceRendererTest();

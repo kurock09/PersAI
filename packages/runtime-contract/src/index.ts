@@ -1,3 +1,5 @@
+export * from "./prompt-budget";
+
 export const PERSAI_RUNTIME_CONTRACT_SCHEMA = "persai.runtime.contract.v1" as const;
 
 export const PERSAI_RUNTIME_TIERS = [
@@ -3240,6 +3242,10 @@ export interface RuntimeBundleSkillScenario {
   steps: RuntimeBundleSkillScenarioStep[];
   recommendedTools: string[];
   exitCondition: string;
+  /** ADR-130 Slice 1 — lazy `skill.describe` detail kept out of the stable prefix. */
+  guardrails?: string[];
+  /** ADR-130 Slice 1 — lazy `skill.describe` detail kept out of the stable prefix. */
+  examples?: string[];
   /** ADR-119 Slice 10 — override for the catalog <first_step_preview> tag; null = auto-derive from steps[0].directive. */
   firstStepPreview?: string | null;
 }

@@ -62,6 +62,7 @@ export interface AssistantRuntimeEnabledSkillSummary {
   id: string;
   name: string;
   description: string | null;
+  whenToUse?: string | null;
   category: string;
   tags: string[];
   iconEmoji?: string | null;

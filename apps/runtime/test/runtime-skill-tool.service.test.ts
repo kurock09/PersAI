@@ -24,13 +24,20 @@ const INSTAGRAM_CAROUSEL_SCENARIO: RuntimeBundleSkillScenario = {
     }
   ],
   recommendedTools: ["image_generate"],
-  exitCondition: "All 8 slides are confirmed and the user is satisfied."
+  exitCondition: "All 8 slides are confirmed and the user is satisfied.",
+  guardrails: ["Keep the claims supportable."],
+  examples: ["Create an 8-slide launch carousel."],
+  firstStepPreview: "Collect the brief before generating assets."
 };
 
 function createBundle(opts?: {
   enabledSkills?: Array<{
     id: string;
     name: string;
+    description?: string | null;
+    whenToUse?: string | null;
+    category?: string;
+    tags?: string[];
     body?: string;
     guardrails?: string[];
     examples?: string[];
@@ -40,9 +47,10 @@ function createBundle(opts?: {
   const enabledSkills = (opts?.enabledSkills ?? []).map((s) => ({
     id: s.id,
     name: s.name,
-    description: null,
-    category: "general",
-    tags: [],
+    description: s.description ?? null,
+    whenToUse: s.whenToUse ?? null,
+    category: s.category ?? "general",
+    tags: s.tags ?? [],
     body: s.body ?? "",
     guardrails: s.guardrails ?? [],
     examples: s.examples ?? [],
@@ -256,6 +264,10 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
       {
         id: "skill-marketer",
         name: "Marketer",
+        description: "Marketing strategy and campaign planning.",
+        whenToUse: "Use for campaigns, launches, and social posts.",
+        category: "work",
+        tags: ["marketing", "campaigns"],
         body: "Marketer body content.",
         guardrails: ["No unsupported claims."],
         examples: ["Describe the campaign."],
@@ -264,6 +276,145 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
     ]
   });
   const bundleEmpty = createBundle({ enabledSkills: [] });
+
+  // (a0) Read-only list action exposes bounded enabled-skill catalog detail without side effects.
+  {
+    const api = new FakeInternalApi();
+    const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle: bundleWithSkillAndScenarios,
+      toolCall: createToolCall({ action: "list" }),
+      conversation: webConversation,
+      requestId: "req-list"
+    });
+    const payload = result.payload as {
+      action: "listed";
+      category: string | null;
+      skills: Array<{
+        id: string;
+        displayName: string;
+        summary: string | null;
+        whenToUse: string | null;
+        category: string;
+        tags: string[];
+        scenarios: Array<{ key: string; name: string }>;
+      }>;
+      truncated: boolean;
+    };
+    assert.equal(payload.action, "listed");
+    assert.equal(payload.category, null);
+    assert.equal(payload.skills.length, 1);
+    assert.equal(payload.skills[0]?.id, "skill-marketer");
+    assert.equal(payload.skills[0]?.summary, "Marketing strategy and campaign planning.");
+    assert.equal(payload.skills[0]?.whenToUse, "Use for campaigns, launches, and social posts.");
+    assert.equal(payload.skills[0]?.category, "work");
+    assert.deepEqual(payload.skills[0]?.tags, ["marketing", "campaigns"]);
+    assert.deepEqual(payload.skills[0]?.scenarios, [
+      { key: "instagram_carousel", name: "Instagram Carousel" }
+    ]);
+    assert.equal(payload.truncated, false);
+    assert.equal(result.isError, false);
+    assert.equal(api.skillStateCalls.length, 0, "list must be read-only");
+  }
+
+  // (a0b) list category filter is read-only and returns no side effects.
+  {
+    const api = new FakeInternalApi();
+    const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle: bundleWithSkillAndScenarios,
+      toolCall: createToolCall({ action: "list", category: "work" }),
+      conversation: webConversation,
+      requestId: "req-list-category"
+    });
+    const payload = result.payload as { action: "listed"; skills: unknown[] };
+    assert.equal(payload.action, "listed");
+    assert.equal(payload.skills.length, 1);
+    assert.equal(api.skillStateCalls.length, 0, "list(category) must be read-only");
+  }
+
+  // (a0c) Read-only describe action exposes the moved-out detail without engaging the skill.
+  {
+    const api = new FakeInternalApi();
+    const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle: bundleWithSkillAndScenarios,
+      toolCall: createToolCall({ action: "describe", skillId: "skill-marketer" }),
+      conversation: webConversation,
+      requestId: "req-describe"
+    });
+    const payload = result.payload as {
+      action: "described";
+      skillId: string;
+      skillDisplayName: string;
+      summary: string | null;
+      whenToUse: string | null;
+      category: string;
+      tags: string[];
+      body: string;
+      guardrails: string[];
+      examples: string[];
+      scenarios: Array<{
+        key: string;
+        oneLine: string;
+        firstStepPreview: string | null;
+        recommendedTools: string[];
+        guardrails: string[];
+        examples: string[];
+        intentExamples: string[];
+      }>;
+      scenario: null;
+      truncated: boolean;
+    };
+    assert.equal(payload.action, "described");
+    assert.equal(payload.skillId, "skill-marketer");
+    assert.equal(payload.skillDisplayName, "Marketer");
+    assert.equal(payload.summary, "Marketing strategy and campaign planning.");
+    assert.equal(payload.whenToUse, "Use for campaigns, launches, and social posts.");
+    assert.equal(payload.category, "work");
+    assert.deepEqual(payload.tags, ["marketing", "campaigns"]);
+    assert.equal(payload.body, "Marketer body content.");
+    assert.deepEqual(payload.guardrails, ["No unsupported claims."]);
+    assert.deepEqual(payload.examples, ["Describe the campaign."]);
+    assert.equal(payload.scenario, null);
+    assert.equal(payload.scenarios[0]?.key, "instagram_carousel");
+    assert.equal(payload.scenarios[0]?.oneLine, "Create an Instagram carousel post.");
+    assert.equal(
+      payload.scenarios[0]?.firstStepPreview,
+      "Collect the brief before generating assets."
+    );
+    assert.deepEqual(payload.scenarios[0]?.recommendedTools, ["image_generate"]);
+    assert.deepEqual(payload.scenarios[0]?.guardrails, ["Keep the claims supportable."]);
+    assert.deepEqual(payload.scenarios[0]?.examples, ["Create an 8-slide launch carousel."]);
+    assert.deepEqual(payload.scenarios[0]?.intentExamples, ["carousel", "instagram post"]);
+    assert.equal(payload.truncated, false);
+    assert.equal(result.isError, false);
+    assert.equal(api.skillStateCalls.length, 0, "describe must be read-only");
+  }
+
+  // (a0d) describe with scenarioKey returns the selected scenario detail and stays read-only.
+  {
+    const api = new FakeInternalApi();
+    const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle: bundleWithSkillAndScenarios,
+      toolCall: createToolCall({
+        action: "describe",
+        skillId: "skill-marketer",
+        scenarioKey: "instagram_carousel"
+      }),
+      conversation: webConversation,
+      requestId: "req-describe-scenario"
+    });
+    const payload = result.payload as {
+      action: "described";
+      scenario: { key: string; recommendedTools: string[] } | null;
+    };
+    assert.equal(payload.action, "described");
+    assert.equal(payload.scenario?.key, "instagram_carousel");
+    assert.deepEqual(payload.scenario?.recommendedTools, ["image_generate"]);
+    assert.equal(api.skillStateCalls.length, 0, "describe(scenario) must be read-only");
+  }
 
   // (a) Happy path: engage without scenarioKey — includes instruction, scenario:null
   {

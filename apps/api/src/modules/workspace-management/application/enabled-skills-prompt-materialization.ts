@@ -1,4 +1,10 @@
-import type { RuntimeBundleSkillScenario } from "@persai/runtime-contract";
+import {
+  ENABLED_SKILLS_BUDGET_CHARS,
+  ENABLED_SKILLS_SCENARIO_ROW_CAP,
+  SKILL_SUMMARY_CAP,
+  SKILL_WHEN_TO_USE_CAP,
+  type RuntimeBundleSkillScenario
+} from "@persai/runtime-contract";
 
 export type EnabledSkillPromptAssignmentStatus =
   | "active"
@@ -57,20 +63,19 @@ export type EnabledSkillScenarioCandidate = {
   steps: RuntimeBundleSkillScenario["steps"];
   recommendedTools: string[];
   exitCondition: string;
+  guardrails?: string[];
+  examples?: string[];
   /** ADR-119 Slice 10 — optional override for the catalog <first_step_preview> tag; null = auto-derive. */
   firstStepPreview?: string | null;
 };
 
-/** ADR-118 Slice 4 — maximum scenarios rendered per skill in the cached prefix. */
-export const SCENARIO_CATALOG_RENDER_LIMIT = 8;
-
-const MAX_RENDERED_TAGS = 6;
+const MAX_RENDERED_TAGS = 4;
 const MAX_RENDERED_GUARDRAILS = 6;
 const MAX_RENDERED_EXAMPLES = 3;
-const MAX_RENDERED_BODY_CHARS = 1_200;
 const MAX_RENDERED_ITEM_CHARS = 240;
-/** ADR-119 Slice 3 — first_step_preview maximum chars per scenario step 1 directive. */
-const MAX_FIRST_STEP_PREVIEW_CHARS = 200;
+const MAX_RENDERED_TAG_CHARS = 40;
+const ENABLED_SKILLS_TAIL_LINE =
+  "  <catalog_note>More skills or scenarios available via skill.list / skill.describe.</catalog_note>";
 
 export function resolveEnabledSkillPromptCards(params: {
   candidates: EnabledSkillPromptCandidate[];
@@ -86,18 +91,21 @@ export function resolveEnabledSkillPromptCards(params: {
   return withinLimit.map((candidate) => ({
     id: candidate.id,
     name: localize(candidate.name, params.locale) ?? "Skill",
-    description: localize(candidate.description, params.locale),
+    description: truncateOptionalSingleLine(
+      localize(candidate.description, params.locale),
+      SKILL_SUMMARY_CAP
+    ),
     category: normalizeSingleLine(candidate.category),
     tags: candidate.tags
-      .map((tag) => normalizeSingleLine(tag))
+      .map((tag) => truncateSingleLine(tag, MAX_RENDERED_TAG_CHARS))
       .filter((tag) => tag.length > 0)
       .slice(0, MAX_RENDERED_TAGS),
     iconEmoji: normalizeSingleLine(candidate.iconEmoji ?? "") || null,
     title: normalizeSingleLine(candidate.instructionCard.title) || "Skill instructions",
-    body: truncateText(candidate.instructionCard.body, MAX_RENDERED_BODY_CHARS),
+    body: normalizeMultiline(candidate.instructionCard.body),
     guardrails: normalizeBoundedList(candidate.instructionCard.guardrails, MAX_RENDERED_GUARDRAILS),
     examples: normalizeBoundedList(candidate.instructionCard.examples, MAX_RENDERED_EXAMPLES),
-    whenToUse: normalizeSingleLine(candidate.instructionCard.whenToUse ?? ""),
+    whenToUse: truncateSingleLine(candidate.instructionCard.whenToUse ?? "", SKILL_WHEN_TO_USE_CAP),
     scenarios: candidate.scenarios ?? []
   }));
 }
@@ -107,14 +115,46 @@ export function renderEnabledSkillsPromptBlock(cards: EnabledSkillPromptCard[]):
     return "";
   }
 
-  const cardXml = cards.flatMap((card) => renderSkillCard(card)).join("\n");
-  return [
-    '<!-- Enabled Skills catalog. Pass <skill id="..."> value verbatim as skillId to skill({action:"engage"}) to activate. -->',
-    cardXml
-  ].join("\n");
+  const header =
+    '<!-- Enabled Skills catalog. Pass <skill id="..."> verbatim as skillId to skill({action:"engage"}). Read extra Skill detail with skill({action:"list"}) or skill({action:"describe"}). -->';
+  const renderedBlocks: string[][] = [];
+  let remainingScenarioRows = ENABLED_SKILLS_SCENARIO_ROW_CAP;
+  let truncated = false;
+
+  for (const card of cards) {
+    const rendered = renderSkillCard(card, remainingScenarioRows);
+    const candidateText = buildEnabledSkillsPromptText(
+      header,
+      [...renderedBlocks, rendered.lines],
+      truncated || rendered.truncated
+    );
+    if (candidateText.length > ENABLED_SKILLS_BUDGET_CHARS) {
+      truncated = true;
+      break;
+    }
+    renderedBlocks.push(rendered.lines);
+    remainingScenarioRows -= rendered.scenarioRowsUsed;
+    truncated ||= rendered.truncated;
+  }
+
+  if (renderedBlocks.length < cards.length) {
+    truncated = true;
+  }
+
+  let renderedText = buildEnabledSkillsPromptText(header, renderedBlocks, truncated);
+  while (renderedText.length > ENABLED_SKILLS_BUDGET_CHARS && renderedBlocks.length > 0) {
+    renderedBlocks.pop();
+    truncated = true;
+    renderedText = buildEnabledSkillsPromptText(header, renderedBlocks, truncated);
+  }
+
+  return renderedText.length <= ENABLED_SKILLS_BUDGET_CHARS ? renderedText : header;
 }
 
-function renderSkillCard(card: EnabledSkillPromptCard): string[] {
+function renderSkillCard(
+  card: EnabledSkillPromptCard,
+  remainingScenarioRows: number
+): { lines: string[]; scenarioRowsUsed: number; truncated: boolean } {
   const lines: string[] = [];
   // key attribute: no slug on Skill model, fall back to id
   lines.push(`<skill id="${escapeXml(card.id)}" key="${escapeXml(card.id)}">`);
@@ -134,36 +174,25 @@ function renderSkillCard(card: EnabledSkillPromptCard): string[] {
   }
 
   const scenarios = card.scenarios ?? [];
+  let scenarioRowsUsed = 0;
+  let truncated = false;
   if (scenarios.length > 0) {
     lines.push("  <available_scenarios>");
-    const rendered = scenarios.slice(0, SCENARIO_CATALOG_RENDER_LIMIT);
+    const rendered = scenarios.slice(0, Math.max(0, remainingScenarioRows));
     for (const scenario of rendered) {
       lines.push(`    <scenario key="${escapeXml(scenario.key)}">`);
       lines.push(`      <name>${escapeXml(scenario.displayName)}</name>`);
-      const oneLine = truncateSingleLine(scenario.description, MAX_FIRST_STEP_PREVIEW_CHARS);
-      lines.push(`      <one_line>${escapeXml(oneLine)}</one_line>`);
-      const firstStep = scenario.steps[0] ?? null;
-      if (firstStep !== null) {
-        const preview =
-          scenario.firstStepPreview != null && scenario.firstStepPreview.trim().length > 0
-            ? scenario.firstStepPreview.trim()
-            : buildFirstStepPreview(firstStep.directive);
-        lines.push(`      <first_step_preview>${escapeXml(preview)}</first_step_preview>`);
-      }
-      if (scenario.recommendedTools.length > 0) {
-        lines.push(
-          `      <recommended_tools>${escapeXml(scenario.recommendedTools.join(", "))}</recommended_tools>`
-        );
-      }
       lines.push("    </scenario>");
     }
+    scenarioRowsUsed = rendered.length;
+    truncated = scenarios.length > rendered.length;
     lines.push("  </available_scenarios>");
   } else {
     lines.push("  <available_scenarios />");
   }
 
   lines.push("</skill>");
-  return lines;
+  return { lines, scenarioRowsUsed, truncated };
 }
 
 /**
@@ -187,6 +216,8 @@ export function resolveEnabledSkillScenariosForBundle(params: {
       steps: candidate.steps,
       recommendedTools: candidate.recommendedTools,
       exitCondition: candidate.exitCondition,
+      guardrails: normalizeBoundedList(candidate.guardrails ?? [], MAX_RENDERED_GUARDRAILS),
+      examples: normalizeBoundedList(candidate.examples ?? [], MAX_RENDERED_EXAMPLES),
       firstStepPreview: candidate.firstStepPreview ?? null
     };
     const existing = result.get(candidate.skillId) ?? [];
@@ -258,17 +289,21 @@ function normalizeBoundedList(items: string[], maxItems: number): string[] {
     .slice(0, maxItems);
 }
 
-function normalizeSingleLine(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function truncateText(value: string, maxChars: number): string {
-  const normalized = value
+function normalizeMultiline(value: string): string {
+  return value
     .split("\n")
     .map((line) => normalizeSingleLine(line))
     .filter((line) => line.length > 0)
     .join("\n")
     .trim();
+}
+
+function normalizeSingleLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function truncateText(value: string, maxChars: number): string {
+  const normalized = normalizeMultiline(value);
   if (normalized.length <= maxChars) {
     return normalized;
   }
@@ -284,12 +319,24 @@ function truncateSingleLine(value: string, maxChars: number): string {
   return `${flat.slice(0, Math.max(0, maxChars - 1)).trimEnd()}\u2026`;
 }
 
-/**
- * ADR-119 Slice 3 — derive first_step_preview from steps[0].directive:
- * strip newlines, truncate to ≤200 chars, append … if truncated.
- */
-function buildFirstStepPreview(directive: string): string {
-  return truncateSingleLine(directive, MAX_FIRST_STEP_PREVIEW_CHARS);
+function truncateOptionalSingleLine(value: string | null, maxChars: number): string | null {
+  if (value === null) {
+    return null;
+  }
+  const truncated = truncateSingleLine(value, maxChars);
+  return truncated.length > 0 ? truncated : null;
+}
+
+function buildEnabledSkillsPromptText(
+  header: string,
+  renderedBlocks: string[][],
+  truncated: boolean
+): string {
+  const lines = [header, ...renderedBlocks.flat()];
+  if (truncated) {
+    lines.push(ENABLED_SKILLS_TAIL_LINE);
+  }
+  return lines.join("\n");
 }
 
 /** Escape XML special characters for attribute values and text content. */

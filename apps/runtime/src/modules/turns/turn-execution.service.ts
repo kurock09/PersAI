@@ -1238,7 +1238,7 @@ export class TurnExecutionService {
                         toolHistory.push(result.outcome.exchange);
                         this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
                         this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
-                        if (this.toolMutatesVolatilePrefix(result.outcome.exchange.toolCall.name)) {
+                        if (this.toolMutatesVolatilePrefix(result.outcome)) {
                           volatileRefreshNeeded = true;
                         }
                         durableCompactionExecuted =
@@ -1303,7 +1303,7 @@ export class TurnExecutionService {
                     toolHistory.push(outcome.exchange);
                     this.applyToolExecutionOutcome(turnState, outcome, iteration);
                     this.maybeApplySkillStateMutationFromTool(execution, outcome);
-                    if (this.toolMutatesVolatilePrefix(outcome.exchange.toolCall.name)) {
+                    if (this.toolMutatesVolatilePrefix(outcome)) {
                       volatileRefreshNeeded = true;
                     }
                     durableCompactionExecuted =
@@ -2881,7 +2881,7 @@ export class TurnExecutionService {
               toolHistory.push(result.outcome.exchange);
               this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
               this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
-              if (this.toolMutatesVolatilePrefix(result.outcome.exchange.toolCall.name)) {
+              if (this.toolMutatesVolatilePrefix(result.outcome)) {
                 volatileRefreshNeeded = true;
               }
               durableCompactionExecuted =
@@ -2921,7 +2921,7 @@ export class TurnExecutionService {
           toolHistory.push(outcome.exchange);
           this.applyToolExecutionOutcome(turnState, outcome, iteration);
           this.maybeApplySkillStateMutationFromTool(execution, outcome);
-          if (this.toolMutatesVolatilePrefix(outcome.exchange.toolCall.name)) {
+          if (this.toolMutatesVolatilePrefix(outcome)) {
             volatileRefreshNeeded = true;
           }
           durableCompactionExecuted =
@@ -5830,6 +5830,9 @@ export class TurnExecutionService {
     if ("error" in payload) {
       return false;
     }
+    if (payload.action === "listed" || payload.action === "described") {
+      return false;
+    }
     if (payload.action === "released") {
       execution.currentSkillDecisionState = null;
       return true;
@@ -5851,8 +5854,16 @@ export class TurnExecutionService {
    * feeds the volatile prefix (skill decision state OR chat plan), and therefore
    * justifies a mid-loop volatile-prefix refresh on the next iteration.
    */
-  private toolMutatesVolatilePrefix(toolName: string): boolean {
-    return toolName === SKILL_TOOL_CODE || toolName === TODO_WRITE_TOOL_CODE;
+  private toolMutatesVolatilePrefix(outcome: ToolExecutionOutcome): boolean {
+    const toolName = outcome.exchange.toolCall.name;
+    if (toolName === TODO_WRITE_TOOL_CODE) {
+      return true;
+    }
+    if (toolName !== SKILL_TOOL_CODE) {
+      return false;
+    }
+    const payload = outcome.payload as RuntimeSkillToolResult;
+    return !("error" in payload) && (payload.action === "engaged" || payload.action === "released");
   }
 
   private createTurnProviderRequestMetadata(input: {

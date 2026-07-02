@@ -99,6 +99,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runPromptCacheStableBlocksTest"
   },
   {
+    modulePath: "./prompt-cache-stable-prefix-guard.test.ts",
+    exportName: "runPromptCacheStablePrefixGuardTest"
+  },
+  {
     modulePath: "./cross-session-carry-over-renderer.test.ts",
     exportName: "runCrossSessionCarryOverRendererTest"
   },

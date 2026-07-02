@@ -183,7 +183,7 @@ const BROWSER_CONFIG = {
   confirmationRequiredActions: ["act"]
 } satisfies RuntimeBrowserConfig;
 
-function createRuntimeTurnRequest(): RuntimeTurnRequest {
+export function createRuntimeTurnRequest(): RuntimeTurnRequest {
   return {
     requestId: "request-1",
     idempotencyKey: "turn-1",
@@ -717,7 +717,7 @@ function createAcceptedTurn(): AcceptedRuntimeTurn {
   };
 }
 
-class FakeRuntimeBundleRegistryService {
+export class FakeRuntimeBundleRegistryService {
   entry: RuntimeBundleCacheEntry | null = createBundleEntry();
   fallbackEntry: RuntimeBundleCacheEntry | null = null;
 
@@ -760,7 +760,7 @@ class FakeRuntimeBundleRegistryService {
   }
 }
 
-class FakeProviderGatewayClientService {
+export class FakeProviderGatewayClientService {
   calls: ProviderGatewayTextGenerateRequest[] = [];
   streamCalls: ProviderGatewayTextGenerateRequest[] = [];
   imageEditCalls: ProviderGatewayImageEditRequest[] = [];
@@ -1091,7 +1091,7 @@ class FakeProviderGatewayClientService {
   }
 }
 
-class FakeTurnAcceptanceService {
+export class FakeTurnAcceptanceService {
   result: TurnAcceptanceResult = createAcceptedTurn();
 
   async acceptTurn(): Promise<TurnAcceptanceResult> {
@@ -1099,7 +1099,7 @@ class FakeTurnAcceptanceService {
   }
 }
 
-class FakeTurnContextHydrationService {
+export class FakeTurnContextHydrationService {
   messages: ProviderGatewayTextGenerateRequest["messages"] = [
     {
       role: "user",
@@ -8373,6 +8373,148 @@ type DeveloperSectionsAccessor = {
     openDocumentJobs: undefined;
   }): Array<{ key: string; content: string }>;
 };
+
+/**
+ * ADR-130 Slice 1 (D7) — reusable real-assembly harness for cache-guard tests.
+ *
+ * Wires a real `TurnExecutionService` (real `buildProviderRequest` /
+ * `buildSystemPrompt` / volatile-splicing path) over the same fakes the main
+ * suite uses, so guards can build genuine provider requests across turns rather
+ * than hand-building synthetic prompt strings. Returns the handles a guard needs
+ * to vary volatile inputs (hydration + skill state) and inspect the captured
+ * provider request.
+ */
+export interface TurnExecutionHarness {
+  service: TurnExecutionService;
+  bundleRegistry: FakeRuntimeBundleRegistryService;
+  providerGatewayClient: FakeProviderGatewayClientService;
+  turnContextHydrationService: FakeTurnContextHydrationService;
+  turnAcceptanceService: FakeTurnAcceptanceService;
+}
+
+export function buildTurnExecutionHarness(): TurnExecutionHarness {
+  const bundleRegistry = new FakeRuntimeBundleRegistryService();
+  const providerGatewayClient = new FakeProviderGatewayClientService();
+  const turnContextHydrationService = new FakeTurnContextHydrationService();
+  const turnAcceptanceService = new FakeTurnAcceptanceService();
+  const turnFinalizationService = new FakeTurnFinalizationService();
+  const sessionCompactionService = new FakeSessionCompactionService();
+  const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
+  const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
+  const sandboxClient = {
+    async writeWorkspaceFile(input: { contentBase64: string }) {
+      return {
+        workspaceRelPath: "/workspace/test-artefact.bin",
+        sizeBytes: Buffer.from(input.contentBase64, "base64").length
+      };
+    }
+  };
+  const runtimeBrowserToolService = new RuntimeBrowserToolService(
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  const runtimeImageEditToolService = new RuntimeImageEditToolService(
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    mediaObjectStorage as never,
+    sandboxClient as never
+  );
+  const runtimeImageGenerateToolService = new RuntimeImageGenerateToolService(
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    sandboxClient as never
+  );
+  const runtimeDocumentToolService = new RuntimeDocumentToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  const runtimeKnowledgeToolService = new RuntimeKnowledgeToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  const runtimeMemoryWriteToolService = new RuntimeMemoryWriteToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  const runtimeTodoWriteToolService = new RuntimeTodoWriteToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  const runtimeSkillToolService = new RuntimeSkillToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  const runtimeQuotaStatusToolService = new RuntimeQuotaStatusToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  const runtimeVideoGenerateToolService = new RuntimeVideoGenerateToolService(
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    mediaObjectStorage as never,
+    sandboxClient as never
+  );
+  const runtimeScheduledActionToolService = new RuntimeScheduledActionToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  const runtimeBackgroundTaskToolService = new RuntimeBackgroundTaskToolService(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
+  const runtimeTtsToolService = new RuntimeTtsToolService(
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    sandboxClient as never
+  );
+  const runtimeFilesToolService = new FakeRuntimeFilesToolService();
+  const runtimeSandboxToolService = new FakeRuntimeSandboxToolService();
+  const runtimeGrepGlobToolService = new FakeRuntimeGrepGlobToolService();
+  const runtimeObservabilityService = new RuntimeObservabilityService();
+  const runtimeExecutionAdmissionService = new RuntimeExecutionAdmissionService(
+    runtimeObservabilityService
+  );
+  const turnRoutingService = new TurnRoutingService(
+    providerGatewayClient as unknown as ProviderGatewayClientService
+  );
+  const service = new TurnExecutionService(
+    bundleRegistry as unknown as RuntimeBundleRegistryService,
+    providerGatewayClient as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    {
+      async ensureRequestedBundle() {
+        return false;
+      }
+    } as Pick<
+      RuntimeBundleAutoRefreshService,
+      "ensureRequestedBundle"
+    > as RuntimeBundleAutoRefreshService,
+    turnContextHydrationService as unknown as TurnContextHydrationService,
+    turnAcceptanceService as unknown as TurnAcceptanceService,
+    turnRoutingService,
+    turnFinalizationService as unknown as TurnFinalizationService,
+    sessionCompactionService as never,
+    runtimeBrowserToolService,
+    runtimeDocumentToolService,
+    runtimeFilesToolService as never,
+    runtimeImageEditToolService,
+    runtimeImageGenerateToolService,
+    runtimeKnowledgeToolService,
+    runtimeMemoryWriteToolService,
+    runtimeTodoWriteToolService,
+    runtimeQuotaStatusToolService,
+    runtimeSandboxToolService as never,
+    runtimeGrepGlobToolService as never,
+    runtimeBackgroundTaskToolService,
+    runtimeScheduledActionToolService,
+    runtimeTtsToolService,
+    runtimeVideoGenerateToolService,
+    runtimeSkillToolService,
+    new BuildActiveScenarioBlockService(),
+    new BuildSystemReminderBlocksService(),
+    runtimeObservabilityService,
+    runtimeExecutionAdmissionService
+  );
+  return {
+    service,
+    bundleRegistry,
+    providerGatewayClient,
+    turnContextHydrationService,
+    turnAcceptanceService
+  };
+}
 
 function buildMinimalTurnExecutionService(): TurnExecutionService {
   return new TurnExecutionService(

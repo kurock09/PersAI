@@ -1805,16 +1805,24 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     // Schema has the action property with engage/release enum
     const schema = skillTool?.inputSchema as {
       properties?: {
-        action?: { enum?: unknown[] };
+        action?: { enum?: unknown[]; description?: string };
+        category?: { type?: string; description?: string };
         skillId?: { type?: string };
         scenarioKey?: { type?: string };
       };
     };
     assert.ok(
       Array.isArray(schema?.properties?.action?.enum) &&
+        schema.properties.action.enum.includes("list") &&
+        schema.properties.action.enum.includes("describe") &&
         schema.properties.action.enum.includes("engage") &&
         schema.properties.action.enum.includes("release"),
-      "skill tool schema must have action enum with engage and release"
+      "skill tool schema must have action enum with list/describe/engage/release"
+    );
+    assert.equal(
+      schema?.properties?.category?.type,
+      "string",
+      "skill tool schema must have category of type string for action=list"
     );
     assert.equal(
       schema?.properties?.skillId?.type,
@@ -1830,6 +1838,25 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     assert.ok(
       skillTool?.description && skillTool.description.length > 0,
       "skill tool must have a non-empty description"
+    );
+    // The read-only list/describe signal is projection-owned and lives on the
+    // schema's action enum + its description (the top-level description is
+    // policy/catalog-owned and stubbed in this projection test), so assert it
+    // where projection actually writes it and it is byte-stable regardless of policy.
+    assert.match(
+      schema?.properties?.action?.description ?? "",
+      /read-only/i,
+      "skill tool action schema must document that list/describe are read-only"
+    );
+    assert.match(
+      schema?.properties?.action?.description ?? "",
+      /list/i,
+      "skill tool action schema description must name the read-only list action"
+    );
+    assert.match(
+      schema?.properties?.action?.description ?? "",
+      /describe/i,
+      "skill tool action schema description must name the read-only describe action"
     );
     // Schema must be byte-stable: no per-turn mutation (additionalProperties: false)
     assert.equal(

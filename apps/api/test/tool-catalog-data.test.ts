@@ -50,6 +50,23 @@ function testSkillCatalogRowMentionsPlanIntake(): void {
   assert.strictEqual(rows.length, 1, "TOOL_CATALOG must contain exactly one skill row");
   const row = rows[0];
   assert.ok(
+    typeof row.description === "string" && row.description.includes("Read-only detail"),
+    "skill description must advertise the read-only lazy-detail surface"
+  );
+  assert.ok(
+    typeof row.modelUsageGuidance === "string" && row.modelUsageGuidance.includes('action:"list"'),
+    "skill modelUsageGuidance must mention skill.list"
+  );
+  assert.ok(
+    typeof row.modelUsageGuidance === "string" &&
+      row.modelUsageGuidance.includes('action:"describe"'),
+    "skill modelUsageGuidance must mention skill.describe"
+  );
+  assert.ok(
+    typeof row.modelUsageGuidance === "string" && row.modelUsageGuidance.includes("read-only"),
+    "skill modelUsageGuidance must say the lazy detail actions are read-only"
+  );
+  assert.ok(
     typeof row.modelUsageGuidance === "string" && row.modelUsageGuidance.includes("PLAN INTAKE"),
     "skill modelUsageGuidance must tell the model to call todo_write after engage-with-scenario"
   );

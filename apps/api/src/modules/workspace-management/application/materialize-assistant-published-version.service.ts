@@ -1067,6 +1067,7 @@ export class MaterializeAssistantPublishedVersionService {
           id: card.id,
           name: card.name,
           description: card.description,
+          whenToUse: card.whenToUse,
           category: card.category,
           tags: card.tags.slice(0, 2),
           iconEmoji: card.iconEmoji,

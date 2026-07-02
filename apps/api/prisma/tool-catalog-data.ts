@@ -463,18 +463,22 @@ GOTCHAS:
     code: "skill",
     displayName: "Skill",
     description:
-      "Engage or release an enabled Skill for the current chat. Used by the model to activate domain-specific retrieval priority and, optionally, a structured scenario workflow.",
+      "List, inspect, engage, or release an enabled Skill for the current chat. Read-only detail stays on the skill tool surface; engage activates domain-specific guidance and, optionally, a structured scenario workflow.",
     modelDescription:
-      "Engage a Skill (and optionally a scenario) to activate domain-specific guidance, OR release the active Skill.",
-    modelUsageGuidance: `WHEN TO USE: User's request matches the domain of any Skill listed in <enabled_skills> (Tags, Summary, when_to_use, or scenario intent examples). Call with action="engage", skillId, and optionally scenarioKey if the request matches a specific scenario.
+      "Read enabled Skill details, engage a matching Skill (and optionally a scenario), OR release the active Skill.",
+    modelUsageGuidance: `WHEN TO USE: User's request matches the domain of any Skill listed in <enabled_skills> (summary, when_to_use, category, tags, or scenario names). Use action="list" or action="describe" for read-only detail before activation when needed. Use action="engage" with skillId, and optionally scenarioKey, only when you are ready to activate the Skill.
 WHEN NOT TO USE: Conversation is chitchat unrelated to any enabled Skill's domain. Same Skill is already active and the topic is unchanged. To clear an active Skill when the conversation pivots away, call action="release" (no skillId needed).
 EXAMPLES:
+- skill({action:"list"}) — inspect enabled Skills without side effects.
+- skill({action:"describe", skillId:"skl_marketing_demo"}) — inspect one Skill's detail card.
+- skill({action:"describe", skillId:"skl_marketing_demo", scenarioKey:"instagram_carousel"}) — inspect a specific scenario before activation.
 - skill({action:"engage", skillId:"skl_marketing_demo"}) — match on Skill domain without specific scenario.
 - skill({action:"engage", skillId:"skl_marketing_demo", scenarioKey:"instagram_carousel"}) — match on a listed scenario.
 - skill({action:"release"}) — conversation pivoted away.
 GOTCHAS:
 - skillId is the exact <skill id="..."> value from <enabled_skills>; never substitute the display name, category, or any other field.
 - scenarioKey is the exact <scenario key="..."> value from <available_scenarios>; opaque slug, must match verbatim.
+- action="list" and action="describe" are read-only: no side effects, safe to call speculatively, and they return bounded detail as a normal tool result.
 - After action="engage", the engage result returns instruction.body + the active scenario's full structure — read those before any other action.
 PLAN INTAKE: When the engage result includes a scenario (scenario.steps is a non-empty array), IMMEDIATELY follow up with a single todo_write({action:"add", items:[...]}) call whose items mirror the scenario's steps in order — one row per step, content set to a short title derived from each step's directive, status:"in_progress" on the first item and status:"pending" on the rest. This makes the plan model-authored from the very first move so subsequent in_progress/complete transitions are natural. Do not skip this step even if the user has not asked for a plan — the scenario is the plan.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
