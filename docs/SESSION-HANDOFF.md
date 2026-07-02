@@ -1,5 +1,35 @@
 # SESSION-HANDOFF
 
+## 2026-07-02 — ADR-132 Slice 1 landed locally (atomic cutover to inspect / render / convert); Slice 2 pending
+
+Status: **ADR-132 (document — single door mechanics and honest delivery) is progressing under parent orchestration.** Program opened `d086c530`; Slice 0 read-only ledger committed `99e58c67`; **Slice 1 atomic cutover committed `2ce5ab88` locally, not pushed** (push=deploy is batched behind ADR-130 completion, per founder instruction).
+
+**What Slice 1 landed.**
+- Model-facing `document` verbs = exactly three: `inspect(path)`, `render({content|contentPath, format:"pdf"|"xlsx"|"docx", style?, template?, outputPath})`, `convert({source, targetFormat, outputPath?})`.
+- Deleted (no aliases, no compat): `extract`, `edit`, `register_version` verbs and their entire private implementation surface (dispatch, parser, methods, edit helpers, `DocumentEditOp`/`EditableDocumentContentSource` types).
+- Contract cleanup in `packages/runtime-contract/src/index.ts`: retired `"extract"|"edit"|"register_version"` from `requestedAction`, `"extracted"|"edited"|"registered"` from `action`, dropped `extraction?:` / `edit?:` payload fields, deleted interfaces `RuntimeDocumentEditOpResult` / `RuntimeDocumentEditSummary` / `RuntimeDocumentExtractionSummary` / `RuntimeDocumentSuggestedNextAction`. Added `RuntimeDocumentConvertSummary` and reshaped `RuntimeDocumentRenderSummary` around the new contract (`sourceMarkdownPath` D5 collocation instead of `projectPath`/`entrypointPath`).
+- `render` now authors XLSX from Markdown tables (in addition to PDF/DOCX) and always persists a sibling Markdown source next to the output (D5 collocation, collision-safe write). Old `render/content.md` convention retired.
+- `convert` is a new verb — pure LibreOffice-managed format conversion, `outputPath` auto-derived from `source` when omitted.
+- `inspect` calls the new API-side `inspectDocumentInWorkspace` endpoint and returns structured `RuntimeDocumentInspectionSummary`.
+- Purged legacy prompt guidance in `native-tool-projection.ts` / `tool-catalog-data.ts` / `bootstrap-preset-data.ts` (no more mentions of `extract`/`edit`/`register_version`/`render/build.py`/`export_pdf.py`/visible-script metadata pointers). ADR-119 golden snapshot regenerated.
+- Retired dead runtime code: legacy `.py` entrypoint fallback, extracted-project activation seam (`turnState.activeDocumentProjectPath` setter on `"extracted"`), `DocumentProjectManifestFacts` type + its 13 helper methods (`resolveRenderEntrypoint`, `renderEntrypointMissingWarning`, `resolvePdfHtmlSourceForRender`, `readDocumentProjectManifestFactsOptional`, `resolveImportedNativeRenderWarning`, `resolveImportedOfficePdfExportEntrypoint`, `normalizeRenderOutputPath`, `deriveRenderOutputBasename`, `sanitizeOutputStem`, `isGenericOutputStem`, `readDocumentProjectSourcePath`, `buildRenderProgramSource`, `buildPythonRenderProgramSource`), unused imports (`validateDocumentProjectRenderPaths`, `buildDocumentProjectPdfExportEntrypoint`, `buildDocumentProjectPythonRenderEntrypoint`, `buildDocumentProjectRenderScaffoldHtml`, `buildImportedOfficePdfExportScaffold`, `buildImportedOfficeRenderScaffold`, `isWorkspacePathUnderPrefix`).
+
+**Verification.** Full AGENTS gate green locally on the committed state:
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- Full `@persai/runtime` test suite (incl. 5 new document tests: rejects removed `extract`; inspect via path; render PDF with sibling markdown; render authored XLSX from Markdown tables; convert with derived `outputPath`).
+- Full `@persai/api` test suite.
+
+**Explicit non-scope of Slice 1.** Delivery-wall removal (block on registration, manual `register_version` nudge in `RegisterChatAttachmentService`, deliverable gating, provenance walls) is **deferred to Slice 2 by ADR-132 design**. The API-side `assistant-document-job.service.ts` and delivery gating remain untouched in this commit.
+
+**Next.**
+1. **Do not push.** Push=deploy; per founder instruction the whole batch waits until the neighbor closes ADR-130.
+2. Founder go → Slice 2 (delivery walls removal + API-side idempotent register on `render`; scoped strictly to document-owned outputs per user instruction — no sandbox/session-file barrier changes).
+3. Slice 3+ (if needed) for D5 source-markdown residuals and end-to-end live regression.
+
 ## 2026-07-02 — ADR-130 prompt-layering: Slices 1/2/4 + D6 landed locally; Slice 3 paused, Slice 6 pending (push=deploy batched at finish)
 
 Status: ADR-130 (prompt layering, cache discipline, lazy context lookup) is progressing slice-by-slice with the parent agent as orchestrator/auditor. All work is **committed locally, not pushed** (push=deploy is batched for the session finish after the full AGENTS gate). Baseline before this run: timeout raise `6b7aa9fd`, Slice 0 inventory `1c42ede8`.
