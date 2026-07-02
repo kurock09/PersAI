@@ -1,8 +1,20 @@
 # SESSION-HANDOFF
 
+## 2026-07-02 — CORRECTION: ADR-130 is NOT complete — landed slices pushed, but table-decided work remains open
+
+**Correction to the entry below.** A prior handoff line called ADR-130 "complete"; that was wrong. The 8 landed slices are gate-green and pushed, but ADR-130 is **still `Open`** and several Slice-0-table decisions were never executed. Do not treat ADR-130 as closed.
+
+**Open against the ADR's own acceptance criteria (verified in code 2026-07-02):**
+
+- **Criterion 7 / D1 — NOT done.** Cross-tool "which/when-not" routing is still triplicated: selection guide `<tool_usage_policy>` (`bootstrap-preset-data.ts` L177 knowledge-before-web, L213 glob/grep-over-shell, L235-236 browser-only) already owns it, yet the same prose is duplicated in catalog descriptors (`tool-catalog-data.ts` web_fetch L45/L50, browser L199, knowledge_search L213, knowledge_fetch L233, quota L316, shell L388, grep L415, glob L438) AND again in synthetic per-tool templates (`bootstrap-preset-data.ts` L395-403). Must collapse to single owner = selection guide.
+- **Criterion 2 — PARTIAL.** `video_generate` + `skill` lazy actions landed; `document.describe_workflow` and `shell.describe_environment` were decided in the inventory (§1d) but do **not** exist in code.
+- **§6 cross-cutting — NOT done.** Dead projection fallback descriptions still present in `native-tool-projection.ts` (per-tool `fallback` strings shadowed by non-null `policy.description` — maintenance debt, not live tokens); shadow-source owner drift (`memory_search`/`memory_get`/`persai_tool_quota_status` vs `knowledge_search`/`knowledge_fetch`/`quota_status`) unresolved; pending-delivery honesty still duplicated across 5 tools.
+
+**Recommended next step:** run a dedicated D1/§6 cleanup slice (start with D1 dedup: delete duplicate sibling-routing from catalog descriptors + synthetic templates, keep the selection guide as sole owner; regenerate the golden snapshot; re-run the prompt-cache guard). Then add the `document.describe_workflow` / `shell.describe_environment` lazy actions, resolve shadow sources, and dedup pending-delivery. Only after that is ADR-130 closure-eligible.
+
 ## 2026-07-02 — ADR-130 full program (Slices 0–6b) verified + pushed/deployed; cache-prefix rollout SHA = `f1a7ca44`
 
-Status: **ADR-130 is complete, gate-green, and pushed to `origin/main`.** Rollout/deploy SHA (cache-prefix rollout note for ADR-130 Slice 5 and the ADR-117 residual) = `f1a7ca44c545dd7a957e908e7c8107cc64df2fcd`. Local `main` was rebased onto `origin/main` (absorbing the GitOps bot commit `f31a61d7`) with no conflicts, then fast-forward pushed `f31a61d7..f1a7ca44`.
+Status: **8 ADR-130 slices are gate-green and pushed to `origin/main`; the ADR itself is NOT complete (see correction above).** Rollout/deploy SHA (cache-prefix rollout note for ADR-130 Slice 5 and the ADR-117 residual) = `f1a7ca44c545dd7a957e908e7c8107cc64df2fcd`. Local `main` was rebased onto `origin/main` (absorbing the GitOps bot commit `f31a61d7`) with no conflicts, then fast-forward pushed `f31a61d7..f1a7ca44`.
 
 **What shipped in this push (19 commits).**
 
