@@ -523,6 +523,171 @@ describe("register-chat-attachment.service", () => {
     );
   });
 
+  test("Case B: shell rewrites file bytes and files.attach records a new version", async () => {
+    const createdInputs: Record<string, unknown>[] = [];
+    const registerInputs: Record<string, unknown>[] = [];
+    const links = [
+      { status: "none" as const },
+      {
+        status: "ready" as const,
+        link: createDocumentLink({
+          path: "/workspace/report.xlsx",
+          format: "xlsx",
+          versionNumber: 1
+        })
+      },
+      {
+        status: "ready" as const,
+        link: createDocumentLink({
+          path: "/workspace/report.xlsx",
+          format: "xlsx",
+          versionNumber: 1
+        })
+      },
+      {
+        status: "ready" as const,
+        link: createDocumentLink({
+          path: "/workspace/report.xlsx",
+          format: "xlsx",
+          versionNumber: 2
+        })
+      }
+    ];
+
+    const service = new RegisterChatAttachmentService(
+      {
+        assistantChat: {
+          findFirst: async () => ({
+            id: "chat-1",
+            surface: "web",
+            surfaceThreadKey: "web-thread-1"
+          })
+        },
+        assistantDocument: {
+          findFirst: async () => null
+        }
+      } as never,
+      createAttachmentRepository(createdInputs) as never,
+      {
+        async get(input: { path: string }) {
+          return input.path === "/workspace/report.xlsx"
+            ? createWorkspaceMetadata(
+                "/workspace/report.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              )
+            : null;
+        },
+        upsert: async () => {}
+      } as never,
+      {
+        async findCurrentDocumentLinkByOutputPath() {
+          const next = links.shift();
+          if (next === undefined) {
+            throw new Error("unexpected link lookup");
+          }
+          return next;
+        }
+      } as never,
+      {
+        async execute() {
+          return {
+            accepted: true,
+            sourcePath: "/workspace/report.xlsx",
+            inspectPath: "/workspace/report.inspect.json",
+            format: "xlsx" as const,
+            counts: {
+              pageCount: null,
+              sheetCount: 1,
+              formulaCount: 3,
+              blankSheetCount: 0,
+              paragraphCount: null,
+              headingCount: null,
+              tableCount: null,
+              textCharCount: null
+            },
+            warnings: [],
+            suggestedReadPaths: [],
+            comparison: null
+          };
+        }
+      } as never,
+      {
+        async execute(input: Record<string, unknown>) {
+          registerInputs.push(input);
+          const versionNumber = registerInputs.length;
+          return {
+            accepted: true,
+            docId: "doc-auto-xlsx-1",
+            versionId: `version-auto-xlsx-${versionNumber}`,
+            versionNumber,
+            descriptorMode:
+              versionNumber === 1 ? ("create_document" as const) : ("revise_document" as const),
+            documentType: "workspace_document" as const,
+            outputFormat: "xlsx" as const,
+            outputPath: "/workspace/report.xlsx",
+            workspaceProjectPath: "/workspace",
+            sourceManifestPath: null,
+            inspectionPath: "/workspace/report.inspect.json"
+          };
+        }
+      } as never
+    );
+
+    const input = {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      chatId: "chat-1",
+      storagePath: "/workspace/report.xlsx",
+      attachmentType: "document" as const,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      sizeBytes: 512,
+      originalFilename: "report.xlsx",
+      kind: "files.attach" as const
+    };
+
+    const first = await service.execute({
+      ...input,
+      messageId: "message-case-b-1"
+    });
+    const second = await service.execute({
+      ...input,
+      messageId: "message-case-b-2"
+    });
+
+    assert.equal(first.attachmentId, "attachment-1");
+    assert.equal(second.attachmentId, "attachment-2");
+    assert.equal(first.storagePath, "/workspace/report.xlsx");
+    assert.equal(second.storagePath, "/workspace/report.xlsx");
+    assert.equal(registerInputs.length, 2);
+    assert.equal(registerInputs[0]?.docId, null);
+    assert.equal(registerInputs[1]?.docId, "doc-auto-1");
+    assert.equal(registerInputs[1]?.descriptorMode, "revise_document");
+    assert.equal(
+      (
+        createdInputs[1]?.metadata as {
+          documentLink?: { versionNumber?: number; descriptorMode?: string; outputPath?: string };
+        }
+      )?.documentLink?.versionNumber,
+      2
+    );
+    assert.equal(
+      (
+        createdInputs[1]?.metadata as {
+          documentLink?: { versionNumber?: number; descriptorMode?: string; outputPath?: string };
+        }
+      )?.documentLink?.descriptorMode,
+      "revise_document"
+    );
+    assert.equal(
+      (
+        createdInputs[1]?.metadata as {
+          documentLink?: { versionNumber?: number; descriptorMode?: string; outputPath?: string };
+        }
+      )?.documentLink?.outputPath,
+      "/workspace/report.xlsx"
+    );
+  });
+
   test("missing workspace document output fails honestly without provenance-wall wording", async () => {
     const service = new RegisterChatAttachmentService(
       {

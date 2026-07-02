@@ -131,6 +131,7 @@ EXAMPLES:
 GOTCHAS:
 - The document surface is exactly three verbs: \`inspect\`, \`render\`, and \`convert\`.
 - \`document.render\` persists the Markdown source as a visible sibling \`.md\` file next to the output, registers the output, and delivers it in one call.
+- Case A revision flow for a file previously created by \`document.render\`: \`files.read(<siblingMarkdownPath>)\` to read the persisted Markdown source that lives next to the rendered output; edit the Markdown text; \`files.write(<siblingMarkdownPath>, newContent, replace: true)\` to overwrite that sibling in place (do not create a new sibling); then \`document.render({ contentPath: <siblingMarkdownPath>, format: <same>, outputPath: <same as before> })\` to re-render at the exact previous outputPath, which auto-registers \`v+1\` of the same document identity.
 - \`document.convert\` is deterministic format conversion only; it does not rewrite content semantically.
 - For anything these verbs cannot express — complex XLSX with formulas/charts/multi-sheet logic, targeted edits of uploaded documents, custom layouts, or data-driven docs — write Python in \`shell\` using \`openpyxl\`, \`python-docx\`, or \`weasyprint\`, then call \`files.attach(path)\`.
 - Use \`files.attach\` only for existing files you already created outside \`document.render\` / \`document.convert\`.`,
