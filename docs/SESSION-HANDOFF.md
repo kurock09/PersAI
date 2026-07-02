@@ -1,6 +1,41 @@
 # SESSION-HANDOFF
 
-## 2026-07-02 — ADR-132 Slice 1 landed locally (atomic cutover to inspect / render / convert); Slice 2 pending
+## 2026-07-02 — ADR-132 Slice 2 landed locally (document identity registry + honest delivery, walls removed); Slice 3 next
+
+Status: **ADR-132 Slice 2 committed `0bc56ca2` locally, not pushed** (push=deploy still batched behind ADR-130 completion, per founder instruction). Docs follow-through (this section + CHANGELOG entry) landed by the parent orchestrator as promised in the Slice 2 commit message.
+
+**What Slice 2 landed (scope strictly document-owned code paths — ADR-131 workspace-scope guards intentionally untouched).**
+
+- **D4 Trigger 1 — `document.render` / `document.convert`:** on successful persist the runtime auto-registers the output path in the document identity registry. Repeat calls at the same `outputPath` bump the same identity to `v+1`; historical bytes stay immutable in GCS keyed on `(path, version)`; the workspace path always serves the latest bytes.
+- **D4 Trigger 2 — `files.attach(path)` on a doc-extension file (pdf/docx/xlsx):** `RegisterChatAttachmentService` now auto-runs the server-side inspect → `register_version` chain (as `revise_document` when a prior docId exists) instead of hard-rejecting on the previously `blocked` outcome. Delivered exactly once via the existing chat-link resolver.
+- **Honest delivery on partial failure:** if the file wrote successfully but inspect or register failed, the tool result stays `rendered` / `converted` with a `warning` starting `auto_register_skipped:<code>` or `inspect_skipped:<code>` — no more collapsing a valid delivery to `skipped`.
+- **Removed document-scoped walls (D6):** the `blocked` outcome and the whole `validateVisibleWorkspaceDocumentDeliverable` gate (project_path_required / project_output_mismatch / project_manifest_missing / provenance_missing / inspect_missing / inspect_output_mismatch / inspect_format_mismatch / unsupported_output_format) are deleted; the manual `document.register_version` nudge is replaced with an honest `InternalServerErrorException` on genuine internal failure (the verb no longer exists after Slice 1, so telling the model to call it was actively wrong); a parent-dir `fallbackWorkspaceProjectPath` is used when workspace-facts lookup returns null so project-owned outputs still auto-register.
+- **New runtime seam** in `turn-delivery-facts.ts` + `turn-execution.service.ts` records document-render/convert deliveries so the exactly-once dedup keeps holding across the new auto-register path.
+
+**Files touched.**
+- `apps/api/src/modules/workspace-management/application/{assistant-document-job.service.ts, document-workspace-deliverable-gating.ts, document-workspace-version-registration.service.ts, register-chat-attachment.service.ts}`
+- `apps/api/test/{document-workspace-version-registration.service.test.ts, register-chat-attachment.service.test.ts}`
+- `apps/runtime/src/modules/turns/{runtime-document-tool.service.ts, turn-delivery-facts.ts, turn-execution.service.ts}`
+- `apps/runtime/test/runtime-document-tool.service.test.ts` (+304 lines of new coverage)
+
+**Verification.** Full AGENTS gate green: `pnpm -r --if-present run lint`, `pnpm run format:check`, `pnpm --filter @persai/api|web|runtime run typecheck`. Full `@persai/api` + `@persai/runtime` suites green (per Slice 2 subagent report + orchestrator audit; will re-verify on the current HEAD before Slice 3 commit).
+
+**Explicitly out of Slice 2 scope (owned by ADR-131 addendum, not this ADR).**
+- Sandbox / `files.*` cross-scope semantics.
+- `hardDeleteChat` orphaning.
+- Schema changes.
+
+**Next (still ADR-132).**
+1. **Slice 3 — editing paths (Case A + Case B) clean:**
+   - Case A: model edits the persisted Markdown source via `files.read` + `files.write(replace: true)`, then re-calls `document.render` with the same `outputPath`; registry drives `v+1`.
+   - Case B: model writes new Python via `shell` (openpyxl/python-docx) to mutate the file at the same path, then `files.attach(path)`; registry drives `v+1`.
+   - Slice tests must lock: (a) Case A byte-preserving untouched output content, (b) Case B byte-preserving untouched structure at object-model level, (c) any attempt to edit via the removed legacy `edit` verb returns a hard error, not a fallback.
+2. **Slice 4 — docs closure + ADR closure:** update `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`; mark **ADR-129 closed** and **ADR-131 document-scoped items closed**; ADR-131 workspace-scope items (current-turn attach walls, `hardDeleteChat` orphaning) stay tracked in ADR-131's addendum.
+3. Then live acceptance per ADR-132 acceptance criteria 1–11 (net-new PDF/DOCX/XLSX, Case A/B edits, convert, multi-source combine, exactly-once delivery, no legacy verbs, no seeded scripts, no document walls, `shell` ungated, docs match code).
+
+**Coordination reminder.** ADR-130 Slice 3 (heavy-descriptor re-layering) still owns the **`video_generate`** re-layering. The **document** part of that Slice 3 is folded into ADR-132's Slices 1 and 4 (see ADR-132 § "Coordination with ADR-130"). ADR-130 Slice 6 (D8 cross-turn tool memory) is the shared platform fix consumed here for reliable multi-turn edits.
+
+## 2026-07-02 — ADR-132 Slice 1 landed locally (atomic cutover to inspect / render / convert); superseded by Slice 2 section above
 
 Status: **ADR-132 (document — single door mechanics and honest delivery) is progressing under parent orchestration.** Program opened `d086c530`; Slice 0 read-only ledger committed `99e58c67`; **Slice 1 atomic cutover committed `2ce5ab88` locally, not pushed** (push=deploy is batched behind ADR-130 completion, per founder instruction).
 
