@@ -186,6 +186,68 @@ async function run(): Promise<void> {
       { name: "web_search", iteration: 0, ok: true }
     ]);
   }
+
+  {
+    const createdMessages: Array<Record<string, unknown>> = [];
+    await persistAssistantMessage({
+      chatRepository: {
+        async createMessage(input) {
+          createdMessages.push(input as unknown as Record<string, unknown>);
+          return {
+            id: "assistant-message-6",
+            chatId: input.chatId,
+            assistantId: input.assistantId,
+            author: input.author,
+            content: input.content,
+            metadata: input.metadata ?? null,
+            createdAt: new Date("2026-07-02T18:00:00.000Z")
+          };
+        }
+      },
+      chatId: "chat-6",
+      assistantId: "assistant-6",
+      content: "Persist exchanges.",
+      toolExchanges: [
+        {
+          toolCall: {
+            id: "tool-call-1",
+            name: "web_fetch",
+            arguments: { url: "https://example.com" }
+          },
+          toolResult: {
+            toolCallId: "tool-call-1",
+            name: "web_fetch",
+            content: '{"title":"Example Domain"}',
+            isError: false
+          }
+        }
+      ]
+    });
+
+    assert.deepEqual(createdMessages, [
+      {
+        chatId: "chat-6",
+        assistantId: "assistant-6",
+        author: "assistant",
+        content: "Persist exchanges.",
+        toolExchanges: [
+          {
+            toolCall: {
+              id: "tool-call-1",
+              name: "web_fetch",
+              arguments: { url: "https://example.com" }
+            },
+            toolResult: {
+              toolCallId: "tool-call-1",
+              name: "web_fetch",
+              content: '{"title":"Example Domain"}',
+              isError: false
+            }
+          }
+        ]
+      }
+    ]);
+  }
 }
 
 void run();

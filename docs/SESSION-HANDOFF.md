@@ -1,5 +1,36 @@
 # SESSION-HANDOFF
 
+## 2026-07-02 — ADR-130 Slice 6a (D8 persistence layer only) landed locally; next = Slice 6b runtime replay/read path
+
+Status: **ADR-130 Slice 6a is implemented locally, not committed, not pushed.** Baseline before this slice: `a0531a80`. Scope was strictly the dormant persistence foundation for D8: add a dedicated server-only `assistant_chat_messages.tool_exchanges` JSONB column, thread runtime `ProviderGatewayToolExchange[]` through the internal runtime -> API persist path, and keep all client-facing entities/DTOs/stream payloads unchanged.
+
+**What landed.**
+- Prisma `AssistantChatMessage` now has nullable `toolExchanges Json? @map("tool_exchanges") @db.JsonB`, with additive migration `apps/api/prisma/migrations/20260702210000_adr130_message_tool_exchanges/migration.sql` containing exactly: `ALTER TABLE "assistant_chat_messages" ADD COLUMN "tool_exchanges" JSONB;`
+- `RuntimeTurnResult` additively gained optional `toolExchanges?: ProviderGatewayToolExchange[]` beside `toolInvocations`, and runtime now populates it from the per-turn accumulated `toolHistory` on both the streamed and sync turn paths by copying executed exchanges into `turnState.toolExchanges`.
+- API internal relay now threads `toolExchanges` through `assistant-runtime.facade.ts`, the sync/stream/Telegram runtime clients, and `persistAssistantMessage(...)`, which passes the exchanges directly to `chatRepository.createMessage(...)`. They are **not** written into `metadata`.
+- Repository persistence now writes `toolExchanges` to the dedicated Prisma column only when non-empty. The client-facing domain entity remains unchanged (`assistant-chat-message.entity.ts` still exposes only `id/chatId/assistantId/author/content/metadata/createdAt`), so browser reads remain structurally unable to receive the column.
+- Client read/list path remains no-leak by construction: `ManageWebChatListService` still maps messages via `mapAssistantChatMessageToWebState({ message, attachments })`, and that mapper only reads `metadata` plus attachments and only extracts `workingNotes` / `toolInvocations` from `metadata`.
+
+**Files touched.**
+- Prisma/data model: `apps/api/prisma/schema.prisma`, `apps/api/prisma/migrations/20260702210000_adr130_message_tool_exchanges/migration.sql`, `docs/DATA-MODEL.md`
+- Runtime contract/execution: `packages/runtime-contract/src/index.ts`, `apps/runtime/src/modules/turns/turn-execution.service.ts`
+- API persistence/relay: `apps/api/src/modules/workspace-management/domain/assistant-chat.repository.ts`, `apps/api/src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository.ts`, `apps/api/src/modules/workspace-management/application/{assistant-runtime.facade.ts,persist-assistant-message.ts,web-runtime-turn-client.service.ts,web-runtime-stream-client.service.ts,send-web-chat-turn.service.ts,stream-web-chat-turn.service.ts,handle-internal-telegram-turn.service.ts,send-native-telegram-turn.service.ts}`
+- Tests/docs: `apps/api/test/{persist-assistant-message.test.ts,manage-web-chat-list.service.test.ts}`, `docs/CHANGELOG.md`
+
+**Verification.**
+- `corepack pnpm --filter @persai/api run prisma:generate` ✅
+- `corepack pnpm --filter @persai/runtime run typecheck` ✅
+- `corepack pnpm --filter @persai/api run typecheck` ✅
+- `corepack pnpm --filter @persai/runtime run test` ✅
+- `corepack pnpm --filter @persai/api run test` ✅
+- `corepack pnpm -r --if-present run lint` ✅
+- `corepack pnpm run format:check` ✅
+- Extra AGENTS gate: `corepack pnpm --filter @persai/web run typecheck` ✅
+
+**Residuals / next.**
+- This slice is intentionally dormant storage only: nothing replays or reads `tool_exchanges` yet, and no client-visible behavior changed.
+- Next recommended step: **ADR-130 Slice 6b** — add the runtime-side direct Prisma read + bounded cross-turn replay builder that consumes `assistant_chat_messages.tool_exchanges` as volatile tail context without touching the stable prefix.
+
 ## 2026-07-02 — ADR-130 Slice 3 landed locally for `video_generate` lazy descriptor lookups; next = founder audit/commit, then ADR-130 Slice 6 + batched push/deploy
 
 Status: **ADR-130 Slice 3 is implemented locally, not committed, not pushed.** Baseline before this slice: `51a3bc2f`. Scope was strictly `video_generate` heavy-descriptor re-layering; `document` remained untouched per ADR-132 ownership.

@@ -13,6 +13,7 @@ PersAI is the source of truth for:
 - runtime bundle materialization
 - durable materialization rollout control-plane state through `materialization_rollouts` and `materialization_rollout_items`
 - canonical chats and messages
+- `assistant_chat_messages.tool_exchanges` as a server-only nullable JSONB seam for full per-turn tool exchanges (`tool_use` + `tool_result`, including result content) captured from the runtime turn result for later D8 replay work; it is written only on the repository path and intentionally never projected through the client-facing message entity/DTO surfaces
 - canonical assistant chat attachments and media metadata
 - persisted app-user identity/profile state, including `app_users.preferred_locale` as the primary user language truth and `app_users.country_code` as separate regional metadata
 - `platform_site_pages` as the platform-owned persisted source for `/terms`, `/privacy`, `/requisites`, and `/contacts`, keyed by `slug + market + locale + status`

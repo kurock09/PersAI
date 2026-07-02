@@ -6,6 +6,7 @@ import type {
   AssistantChatSkillRetrievalState,
   AssistantChatSurface
 } from "./assistant-chat.entity";
+import type { ProviderGatewayToolExchange } from "@persai/runtime-contract";
 
 export const ASSISTANT_CHAT_REPOSITORY = Symbol("ASSISTANT_CHAT_REPOSITORY");
 
@@ -36,6 +37,7 @@ export type CreateAssistantChatMessageInput = {
   content: string;
   /** ADR-100 Piece 1 — optional JSONB metadata written to the message row. */
   metadata?: Record<string, unknown>;
+  toolExchanges?: readonly ProviderGatewayToolExchange[];
 };
 
 export type AssistantChatListMetadata = {

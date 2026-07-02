@@ -617,6 +617,50 @@ describe("ManageWebChatListService", () => {
     ]);
   });
 
+  test("does not expose server-only tool exchanges on client message reads", async () => {
+    const { service } = createService({
+      messages: [
+        {
+          id: "msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "Done.",
+          metadata: {
+            toolInvocations: [{ name: "knowledge_search", iteration: 0, ok: true }]
+          },
+          toolExchanges: [
+            {
+              toolCall: {
+                id: "tool-call-1",
+                name: "knowledge_search",
+                arguments: { query: "private" }
+              },
+              toolResult: {
+                toolCallId: "tool-call-1",
+                name: "knowledge_search",
+                content: "private tool result body",
+                isError: false
+              }
+            }
+          ],
+          createdAt: new Date("2026-07-02T18:30:00.000Z")
+        } as never
+      ]
+    });
+
+    const result = await service.listChatMessages("user-1", "chat-1", {
+      cursor: null,
+      limit: 20
+    });
+
+    assert.deepEqual(result.messages[0]?.toolInvocations, [
+      { name: "knowledge_search", iteration: 0, ok: true }
+    ]);
+    assert.equal("toolExchanges" in (result.messages[0] ?? {}), false);
+    assert.equal(JSON.stringify(result.messages[0]).includes("private tool result body"), false);
+  });
+
   test("hard-deletes a chat after removing runtime/media state", async () => {
     const { service, callOrder, releasedBytes } = createService();
 

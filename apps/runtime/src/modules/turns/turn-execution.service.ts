@@ -260,6 +260,7 @@ type TurnExecutionState = {
   fileHandles: RuntimeFileHandle[];
   usageEntries: RuntimeUsageAccountingEntry[];
   toolInvocations: RuntimeTurnToolInvocation[];
+  toolExchanges: ProviderGatewayToolExchange[];
   deferredMediaJobs: RuntimeDeferredMediaJobSummary[];
   deferredDocumentJobs: RuntimeDeferredDocumentJobSummary[];
   closedOpenLoopRefs: string[];
@@ -1240,6 +1241,7 @@ export class TurnExecutionService {
                         result.outcome.exchange.reasoningContent =
                           event.result.reasoningContent ?? null;
                         toolHistory.push(result.outcome.exchange);
+                        turnState.toolExchanges.push(result.outcome.exchange);
                         this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
                         this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
                         if (this.toolMutatesVolatilePrefix(result.outcome)) {
@@ -1305,6 +1307,7 @@ export class TurnExecutionService {
                     );
                     outcome.exchange.reasoningContent = event.result.reasoningContent ?? null;
                     toolHistory.push(outcome.exchange);
+                    turnState.toolExchanges.push(outcome.exchange);
                     this.applyToolExecutionOutcome(turnState, outcome, iteration);
                     this.maybeApplySkillStateMutationFromTool(execution, outcome);
                     if (this.toolMutatesVolatilePrefix(outcome)) {
@@ -1807,6 +1810,9 @@ export class TurnExecutionService {
       ...(turnState.toolInvocations.length === 0
         ? {}
         : { toolInvocations: [...turnState.toolInvocations] }),
+      ...(turnState.toolExchanges.length === 0
+        ? {}
+        : { toolExchanges: [...turnState.toolExchanges] }),
       ...(turnState.deferredMediaJobs.length === 0
         ? {}
         : { deferredMediaJobs: [...turnState.deferredMediaJobs] }),
@@ -2883,6 +2889,7 @@ export class TurnExecutionService {
               );
               result.outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
               toolHistory.push(result.outcome.exchange);
+              turnState.toolExchanges.push(result.outcome.exchange);
               this.applyToolExecutionOutcome(turnState, result.outcome, iteration);
               this.maybeApplySkillStateMutationFromTool(execution, result.outcome);
               if (this.toolMutatesVolatilePrefix(result.outcome)) {
@@ -2923,6 +2930,7 @@ export class TurnExecutionService {
           this.maybeRefundToolRequestRejectionReservation(toolBudgetPolicy, entry, outcome);
           outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
           toolHistory.push(outcome.exchange);
+          turnState.toolExchanges.push(outcome.exchange);
           this.applyToolExecutionOutcome(turnState, outcome, iteration);
           this.maybeApplySkillStateMutationFromTool(execution, outcome);
           if (this.toolMutatesVolatilePrefix(outcome)) {
@@ -4900,6 +4908,7 @@ export class TurnExecutionService {
       fileHandles: [],
       usageEntries: [],
       toolInvocations: [],
+      toolExchanges: [],
       deferredMediaJobs: [],
       deferredDocumentJobs: [],
       closedOpenLoopRefs: [],

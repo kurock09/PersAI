@@ -3115,6 +3115,7 @@ export interface RuntimeTurnResult {
   trace?: RuntimeTrace;
   autoCompaction?: RuntimeTurnAutoCompactionState;
   toolInvocations?: RuntimeTurnToolInvocation[];
+  toolExchanges?: ProviderGatewayToolExchange[];
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
   deferredDocumentJobs?: RuntimeDeferredDocumentJobSummary[];
   /**

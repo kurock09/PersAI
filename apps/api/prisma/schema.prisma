@@ -2197,6 +2197,7 @@ model AssistantChatMessage {
   author      AssistantChatMessageAuthor
   content     String                           @db.Text
   metadata    Json?                            @db.JsonB
+  toolExchanges Json?                          @map("tool_exchanges") @db.JsonB
   createdAt   DateTime                         @default(now()) @map("created_at") @db.Timestamptz(6)
   chat        AssistantChat                    @relation(fields: [chatId, assistantId], references: [id, assistantId], onDelete: Restrict, onUpdate: Cascade)
   assistant   Assistant                        @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)

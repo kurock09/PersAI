@@ -1,5 +1,6 @@
 import type { RuntimeTier } from "./runtime-assignment";
 import type {
+  ProviderGatewayToolExchange,
   RuntimeDeferredMediaJobSummary,
   RuntimeBillingFacts,
   RuntimeOutputArtifact,
@@ -130,6 +131,7 @@ export interface AssistantRuntimeWebChatTurnResult {
   media: RuntimeMediaArtifact[];
   usageAccounting?: RuntimeUsageAccounting;
   toolInvocations?: RuntimeTurnToolInvocation[];
+  toolExchanges?: ProviderGatewayToolExchange[];
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   autoCompaction?: RuntimeTurnAutoCompactionState;
@@ -176,6 +178,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   respondedAt?: string;
   usageAccounting?: RuntimeUsageAccounting;
   toolInvocations?: RuntimeTurnToolInvocation[];
+  toolExchanges?: ProviderGatewayToolExchange[];
   deferredMediaJobs?: RuntimeDeferredMediaJobSummary[];
   turnRouting?: AssistantRuntimeTurnRoutingSnapshot | null;
   /** ADR-100 Piece 1 — carried on the `done` chunk only. */

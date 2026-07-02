@@ -173,6 +173,9 @@ export class WebRuntimeTurnClientService {
       ...(response.body.toolInvocations === undefined
         ? {}
         : { toolInvocations: response.body.toolInvocations }),
+      ...(response.body.toolExchanges === undefined
+        ? {}
+        : { toolExchanges: response.body.toolExchanges }),
       ...(response.body.deferredMediaJobs === undefined
         ? {}
         : { deferredMediaJobs: response.body.deferredMediaJobs }),

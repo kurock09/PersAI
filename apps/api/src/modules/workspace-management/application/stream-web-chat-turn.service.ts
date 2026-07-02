@@ -358,6 +358,7 @@ export class StreamWebChatTurnService {
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
     let toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"] = undefined;
+    let toolExchanges: AssistantRuntimeWebChatTurnStreamChunk["toolExchanges"] = undefined;
     let discoveredFilePaths: string[] | undefined = undefined;
     /** The authoritative final answer from the runtime `completed` event. null until the `done` chunk arrives. */
     let runtimeFinalAnswer: string | null = null;
@@ -510,6 +511,7 @@ export class StreamWebChatTurnService {
         turnRouting = result.turnRouting;
         deferredMediaJobs = result.deferredMediaJobs;
         toolInvocations = result.toolInvocations;
+        toolExchanges = result.toolExchanges;
         discoveredFilePaths = result.discoveredFilePaths;
         if (result.finalAnswer !== null) {
           runtimeFinalAnswer = result.finalAnswer;
@@ -707,6 +709,8 @@ export class StreamWebChatTurnService {
         deferredMediaJobCount: deferredMediaJobs?.length,
         sourceUserMessageId: prepared.userMessage.id,
         workingNotes: runtimeWorkingNotes.length > 0 ? runtimeWorkingNotes : undefined,
+        toolExchanges:
+          toolExchanges !== undefined && toolExchanges.length > 0 ? toolExchanges : undefined,
         toolInvocations:
           toolInvocations !== undefined && toolInvocations.length > 0
             ? stripToolInvocationsForClient(toolInvocations)
@@ -1109,6 +1113,7 @@ export class StreamWebChatTurnService {
     turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"];
     deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"];
     toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"];
+    toolExchanges: AssistantRuntimeWebChatTurnStreamChunk["toolExchanges"];
     discoveredFilePaths: string[] | undefined;
     collectedMedia: RuntimeMediaArtifact[];
     primaryFirstDeltaMs: number | null;
@@ -1126,6 +1131,7 @@ export class StreamWebChatTurnService {
     let turnRouting: AssistantRuntimeWebChatTurnStreamChunk["turnRouting"] = null;
     let deferredMediaJobs: AssistantRuntimeWebChatTurnStreamChunk["deferredMediaJobs"] = undefined;
     let toolInvocations: AssistantRuntimeWebChatTurnStreamChunk["toolInvocations"] = undefined;
+    let toolExchanges: AssistantRuntimeWebChatTurnStreamChunk["toolExchanges"] = undefined;
     let discoveredFilePaths: string[] | undefined = undefined;
     const collectedMedia: RuntimeMediaArtifact[] = [];
     let primaryFirstDeltaMs = input.primaryFirstDeltaMs;
@@ -1176,6 +1182,7 @@ export class StreamWebChatTurnService {
             turnRouting,
             deferredMediaJobs,
             toolInvocations,
+            toolExchanges,
             discoveredFilePaths,
             collectedMedia,
             primaryFirstDeltaMs,
@@ -1318,6 +1325,7 @@ export class StreamWebChatTurnService {
           turnRouting = chunk.turnRouting ?? null;
           deferredMediaJobs = chunk.deferredMediaJobs;
           toolInvocations = chunk.toolInvocations;
+          toolExchanges = chunk.toolExchanges;
           discoveredFilePaths = chunk.discoveredFilePaths;
           // Capture the authoritative final answer and working notes from the runtime.
           if (typeof chunk.finalAnswer === "string") {
@@ -1357,6 +1365,7 @@ export class StreamWebChatTurnService {
           turnRouting,
           deferredMediaJobs,
           toolInvocations,
+          toolExchanges,
           discoveredFilePaths,
           collectedMedia,
           primaryFirstDeltaMs,
@@ -1388,6 +1397,7 @@ export class StreamWebChatTurnService {
           turnRouting,
           deferredMediaJobs,
           toolInvocations,
+          toolExchanges,
           discoveredFilePaths,
           collectedMedia,
           primaryFirstDeltaMs,
@@ -1412,6 +1422,7 @@ export class StreamWebChatTurnService {
         turnRouting,
         deferredMediaJobs,
         toolInvocations,
+        toolExchanges,
         discoveredFilePaths,
         collectedMedia,
         primaryFirstDeltaMs,
@@ -1434,6 +1445,7 @@ export class StreamWebChatTurnService {
         turnRouting,
         deferredMediaJobs,
         toolInvocations,
+        toolExchanges,
         discoveredFilePaths,
         collectedMedia,
         primaryFirstDeltaMs,
@@ -1453,6 +1465,7 @@ export class StreamWebChatTurnService {
       turnRouting,
       deferredMediaJobs,
       toolInvocations,
+      toolExchanges,
       discoveredFilePaths,
       collectedMedia,
       primaryFirstDeltaMs,

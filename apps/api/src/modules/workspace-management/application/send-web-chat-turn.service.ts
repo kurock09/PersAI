@@ -434,6 +434,10 @@ export class SendWebChatTurnService {
         discoveredFilePaths: runtimeResponse.discoveredFilePaths,
         deferredMediaJobCount: runtimeResponse.deferredMediaJobs?.length,
         sourceUserMessageId: prepared.userMessage.id,
+        toolExchanges:
+          runtimeResponse.toolExchanges !== undefined && runtimeResponse.toolExchanges.length > 0
+            ? runtimeResponse.toolExchanges
+            : undefined,
         toolInvocations:
           runtimeResponse.toolInvocations !== undefined &&
           runtimeResponse.toolInvocations.length > 0

@@ -1,6 +1,7 @@
 import type { AssistantChatMessage } from "../domain/assistant-chat-message.entity";
 import type { AssistantChatRepository } from "../domain/assistant-chat.repository";
 import type { AssistantMediaJobService } from "./workspace-media-job.service";
+import type { ProviderGatewayToolExchange } from "@persai/runtime-contract";
 import {
   stripToolInvocationsForClient,
   type ClientRuntimeTurnToolInvocation
@@ -17,6 +18,7 @@ type PersistAssistantMessageInput = {
   sourceUserMessageId?: string | null | undefined;
   workingNotes?: string[] | undefined;
   toolInvocations?: readonly ClientRuntimeTurnToolInvocation[] | undefined;
+  toolExchanges?: readonly ProviderGatewayToolExchange[] | undefined;
   /** "partial" when the turn was aborted / stalled before a completed event arrived. */
   partialStatus?: "partial" | undefined;
   /** ADR-122 Slice 3: "truncated" when the provider stopped due to the output-token ceiling. */
@@ -50,7 +52,10 @@ export async function persistAssistantMessage(
     assistantId: input.assistantId,
     author: "assistant",
     content: input.content,
-    ...(metadata !== undefined ? { metadata } : {})
+    ...(metadata !== undefined ? { metadata } : {}),
+    ...(input.toolExchanges !== undefined && input.toolExchanges.length > 0
+      ? { toolExchanges: input.toolExchanges }
+      : {})
   });
 
   if (

@@ -435,6 +435,9 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
           ...(input.metadata !== undefined
             ? { metadata: input.metadata as Prisma.InputJsonValue }
             : {}),
+          ...(input.toolExchanges !== undefined && input.toolExchanges.length > 0
+            ? { toolExchanges: input.toolExchanges as unknown as Prisma.InputJsonValue }
+            : {}),
           createdAt
         }
       }),
