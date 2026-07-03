@@ -113,6 +113,7 @@ function baseInput(
     assistantId: "assistant-1",
     sourceUserMessageId: "message-1",
     sourceUserMessageText: "Create a board deck",
+    runtimeSessionId: "runtime-session-1",
     directToolExecution: {
       toolCode: "document" as const,
       descriptorMode,
@@ -163,6 +164,7 @@ function runRetiredDescriptorRejectedInParse(): void {
         assistantId: "assistant-1",
         sourceUserMessageId: "message-1",
         sourceUserMessageText: "Make a workbook",
+        runtimeSessionId: "runtime-session-1",
         directToolExecution: {
           toolCode: "document",
           descriptorMode: "create_data_document",
