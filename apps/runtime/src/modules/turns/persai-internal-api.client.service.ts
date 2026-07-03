@@ -368,6 +368,7 @@ export type InternalEnqueueDeferredMediaJobInput = {
   assistantId: string;
   sourceUserMessageId: string;
   sourceUserMessageText: string;
+  runtimeSessionId: string;
   attachments: RuntimeAttachmentRef[];
   directToolExecution:
     | {
@@ -388,6 +389,7 @@ export type InternalEnqueueDeferredDocumentJobInput = {
   assistantId: string;
   sourceUserMessageId: string;
   sourceUserMessageText: string;
+  runtimeSessionId: string;
   // Attachments from the user turn that triggered this document tool call.
   // Mirrors the deferred media path. The API persists them on the job so the
   // runtime worker (`RuntimeDocumentProviderAdapterService`) can inline

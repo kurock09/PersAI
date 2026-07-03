@@ -46,6 +46,7 @@ export type EnqueueRuntimeDeferredMediaJobInput = {
   assistantId: string;
   sourceUserMessageId: string;
   sourceUserMessageText: string;
+  runtimeSessionId: string;
   attachments: RuntimeAttachmentRef[];
   directToolExecution: DirectToolExecutionPayload;
 };
@@ -101,6 +102,7 @@ export class EnqueueRuntimeDeferredMediaJobService {
         row.sourceUserMessageText,
         "sourceUserMessageText"
       ),
+      runtimeSessionId: this.requiredString(row.runtimeSessionId, "runtimeSessionId"),
       attachments: this.attachments(row.attachments),
       directToolExecution: this.directToolExecution(row.directToolExecution)
     };
@@ -238,6 +240,7 @@ export class EnqueueRuntimeDeferredMediaJobService {
       attachments: input.attachments,
       sourceUserMessageText: input.sourceUserMessageText,
       sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
+      runtimeSessionId: input.runtimeSessionId,
       directToolExecution: input.directToolExecution
     };
     let created: { id: string };

@@ -47,6 +47,7 @@ export class SandboxControlPlaneClientService {
     assistantId: string;
     workspaceId: string;
     basename: string;
+    runtimeSessionId?: string | null;
     path?: string | null;
     storagePath?: string | null;
     contents?: Buffer | null;
@@ -70,6 +71,7 @@ export class SandboxControlPlaneClientService {
           assistantId: input.assistantId,
           workspaceId: input.workspaceId,
           basename: input.basename,
+          ...(input.runtimeSessionId ? { runtimeSessionId: input.runtimeSessionId } : {}),
           ...(input.path ? { path: input.path } : {}),
           ...(input.storagePath
             ? { storagePath: input.storagePath }

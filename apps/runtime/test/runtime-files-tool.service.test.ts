@@ -676,6 +676,215 @@ test("files.write session-root path upserts manifest", async () => {
   assert.equal(upsertInput?.sizeBytes, 42);
 });
 
+test("files.write requestedName resolves under the real current session root", async () => {
+  let sandboxArgs: Record<string, unknown> | undefined;
+  let upsertInput: Record<string, unknown> | undefined;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion(input: { args: Record<string, unknown> }) {
+        sandboxArgs = input.args;
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({ sizeBytes: 4 })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      },
+      async upsertWorkspaceFileMetadata(input: Record<string, unknown>) {
+        upsertInput = input;
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-write-requested-name",
+      name: "files",
+      arguments: {
+        action: "write",
+        requestedName: "test.txt",
+        content: "test"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: "chat-1",
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.path, wp("test.txt"));
+  assert.deepEqual(sandboxArgs, {
+    action: "write",
+    path: wp("test.txt"),
+    content: "test"
+  });
+  assert.equal(upsertInput?.path, wp("test.txt"));
+});
+
+test("files.write relative path resolves under the real current session root", async () => {
+  let sandboxArgs: Record<string, unknown> | undefined;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion(input: { args: Record<string, unknown> }) {
+        sandboxArgs = input.args;
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({ sizeBytes: 4 })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      },
+      async upsertWorkspaceFileMetadata() {
+        return undefined;
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-write-relative-path",
+      name: "files",
+      arguments: {
+        action: "write",
+        path: "reports/test.txt",
+        content: "test"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: "chat-1",
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.path, wp("reports/test.txt"));
+  assert.equal(sandboxArgs?.path, wp("reports/test.txt"));
+});
+
+test("files.write canonicalizes current/current placeholder to the real session root", async () => {
+  let sandboxArgs: Record<string, unknown> | undefined;
+  let upsertInput: Record<string, unknown> | undefined;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion(input: { args: Record<string, unknown> }) {
+        sandboxArgs = input.args;
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({ sizeBytes: 4 })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      },
+      async upsertWorkspaceFileMetadata(input: Record<string, unknown>) {
+        upsertInput = input;
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-write-current-placeholder",
+      name: "files",
+      arguments: {
+        action: "write",
+        path: "/workspace/assistants/current/sessions/current/test.txt",
+        content: "test"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: "chat-1",
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.path, wp("test.txt"));
+  assert.equal(sandboxArgs?.path, wp("test.txt"));
+  assert.equal(upsertInput?.path, wp("test.txt"));
+});
+
+test("files.write rejects model-authored foreign session roots", async () => {
+  let sandboxCalled = false;
+  const service = new RuntimeFilesToolService(
+    {
+      isConfigured: () => true,
+      async waitForCompletion() {
+        sandboxCalled = true;
+        return {
+          status: "completed",
+          reason: null,
+          warning: null,
+          violationMessage: null,
+          content: JSON.stringify({ sizeBytes: 4 })
+        };
+      }
+    } as never,
+    {
+      async consumeToolDailyLimit() {
+        return { allowed: true, code: null, message: null };
+      }
+    } as never
+  );
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-write-foreign-session",
+      name: "files",
+      arguments: {
+        action: "write",
+        path: "/workspace/assistants/other-bot/sessions/session-2/test.txt",
+        content: "test"
+      }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: "chat-1",
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, true);
+  assert.equal(result.payload.reason, "invalid_arguments");
+  assert.match(
+    result.payload.warning ?? "",
+    /cannot create files by spelling assistant\/session IDs/
+  );
+  assert.equal(sandboxCalled, false);
+});
+
 test("files.write default collision returns resolved sibling path and upserts manifest there", async () => {
   let sandboxArgs: Record<string, unknown> | undefined;
   let upsertInput: Record<string, unknown> | undefined;

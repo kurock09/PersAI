@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { DocumentWorkspaceVersionRegistrationService } from "../src/modules/workspace-management/application/document-workspace-version-registration.service";
 
 describe("DocumentWorkspaceVersionRegistrationService", () => {
-  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
   const importedProjectRoot = `${sessionRoot}/projects/source`;
   const importedReportProjectRoot = `${sessionRoot}/projects/report`;
 
@@ -87,7 +87,10 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
         },
         async downloadObject(objectKey: string) {
-          if (objectKey === "gcs:assistants/assistant-1/sessions/chat-1/output.inspect.json") {
+          if (
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/output.inspect.json"
+          ) {
             return {
               buffer: Buffer.from(JSON.stringify(inspection), "utf8"),
               contentType: "application/json"
@@ -253,7 +256,8 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
         },
         async downloadObject(objectKey: string) {
           if (
-            objectKey === "gcs:assistants/assistant-1/sessions/chat-1/projects/source/project.json"
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/source/project.json"
           ) {
             return {
               buffer: Buffer.from(JSON.stringify(projectManifest), "utf8"),
@@ -262,7 +266,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           }
           if (
             objectKey ===
-            "gcs:assistants/assistant-1/sessions/chat-1/projects/source/extract/manifest.json"
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/source/extract/manifest.json"
           ) {
             return {
               buffer: Buffer.from(JSON.stringify(extractManifest), "utf8"),
@@ -271,7 +275,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           }
           if (
             objectKey ===
-            "gcs:assistants/assistant-1/sessions/chat-1/projects/source/output/report.inspect.json"
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/source/output/report.inspect.json"
           ) {
             return {
               buffer: Buffer.from(JSON.stringify(inspection), "utf8"),
@@ -459,7 +463,8 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
         },
         async downloadObject(objectKey: string) {
           if (
-            objectKey === "gcs:assistants/assistant-1/sessions/chat-1/projects/report/project.json"
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/report/project.json"
           ) {
             return {
               buffer: Buffer.from(
@@ -611,7 +616,10 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
         },
         async downloadObject(objectKey: string) {
-          if (objectKey === "gcs:assistants/assistant-1/sessions/chat-1/output.inspect.json") {
+          if (
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/output.inspect.json"
+          ) {
             return {
               buffer: Buffer.from(JSON.stringify(inspection), "utf8"),
               contentType: "application/json"

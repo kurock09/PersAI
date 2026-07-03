@@ -4,7 +4,7 @@ import { BadRequestException } from "@nestjs/common";
 import { ListWorkspaceFilesFromManifestService } from "../src/modules/workspace-management/application/list-workspace-files-from-manifest.service";
 
 describe("ListWorkspaceFilesFromManifestService", () => {
-  const sessionRoot = "/workspace/assistants/alice/sessions/chat-1";
+  const sessionRoot = "/workspace/assistants/alice/sessions/runtime-session-1";
   const assistantSharedRoot = "/workspace/assistants/alice/shared";
   const baseRows = [
     {
@@ -197,7 +197,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
       },
       {
         ...baseRows[1]!,
-        path: "/workspace/assistants/alice/sessions/chat-other/other.md",
+        path: "/workspace/assistants/alice/sessions/runtime-session-other/other.md",
         originChatId: "chat-other",
         originAssistantId: "assistant-1"
       }

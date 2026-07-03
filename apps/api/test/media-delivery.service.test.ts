@@ -6,10 +6,23 @@ const noopRecordModelCostLedgerService = {
     return 0;
   }
 } as never;
+const fakeResolveAssistantInboundRuntimeContextService = {
+  async resolveByAssistantId() {
+    return { runtimeTier: "paid_shared_restricted" };
+  }
+} as never;
+const fakeWebRuntimeSessionStateClientService = {
+  async ensure() {
+    return {
+      created: true,
+      session: { sessionId: "runtime-session-1" }
+    };
+  }
+} as never;
 import { MediaDeliveryService } from "../src/modules/workspace-management/application/media/media-delivery.service";
 import type { AssistantChatMessageAttachment } from "../src/modules/workspace-management/domain/assistant-chat-message-attachment.entity";
 
-const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 function createAttachment(
   overrides: Partial<AssistantChatMessageAttachment>
@@ -144,7 +157,9 @@ async function run(): Promise<void> {
     noopRecordModelCostLedgerService,
     {} as never,
     {} as never,
-    {} as never
+    {} as never,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   globalThis.fetch = async () =>
@@ -224,7 +239,9 @@ async function run(): Promise<void> {
     noopRecordModelCostLedgerService,
     {} as never,
     {} as never,
-    {} as never
+    {} as never,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   globalThis.fetch = async () =>
@@ -281,7 +298,9 @@ async function run(): Promise<void> {
     noopRecordModelCostLedgerService,
     {} as never,
     {} as never,
-    {} as never
+    {} as never,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   const legacyObjectKeyDelivered = await legacyObjectKeyService.deliver({
@@ -350,7 +369,9 @@ async function run(): Promise<void> {
     noopRecordModelCostLedgerService,
     {} as never,
     {} as never,
-    {} as never
+    {} as never,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   await billingFactsService.deliver({
@@ -429,7 +450,9 @@ async function run(): Promise<void> {
     noopRecordModelCostLedgerService,
     {} as never,
     {} as never,
-    {} as never
+    {} as never,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   const existingWorkspacePathDelivered = await existingWorkspacePathService.deliver({
@@ -493,7 +516,9 @@ async function run(): Promise<void> {
     noopRecordModelCostLedgerService,
     {} as never,
     {} as never,
-    {} as never
+    {} as never,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   await adapterService.deliver({
@@ -584,7 +609,9 @@ async function run(): Promise<void> {
     noopRecordModelCostLedgerService,
     {} as never,
     {} as never,
-    {} as never
+    {} as never,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
   await deliveredSettlementService.deliver({
     artifacts: [
@@ -627,7 +654,9 @@ async function run(): Promise<void> {
     noopRecordModelCostLedgerService,
     {} as never,
     {} as never,
-    {} as never
+    {} as never,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
   await failedSettlementService.deliver({
     artifacts: [
@@ -740,7 +769,9 @@ async function run(): Promise<void> {
     noopRecordModelCostLedgerService,
     {} as never,
     {} as never,
-    {} as never
+    {} as never,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
   const oversizedVideoBuffer = Buffer.alloc(51 * 1024 * 1024, 0);
   globalThis.fetch = async () =>

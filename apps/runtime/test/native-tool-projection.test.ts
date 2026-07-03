@@ -350,7 +350,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           displayName: "Document",
           description: "Inspect, render, or convert ordinary PDF/DOCX/XLSX files.",
           usageGuidance:
-            "Use exactly three document verbs: inspect(path), render({ content | contentPath, format, style?, template?, outputPath }), and convert({ source, targetFormat, outputPath? }). document.render persists a visible sibling Markdown source, registers the output, and delivers it. For anything these verbs cannot express - complex XLSX with formulas/charts, targeted edits of uploaded files, custom layouts, or data-driven docs - write Python in shell with openpyxl/python-docx/weasyprint and then call files.attach(path). Slide decks belong in presentation.",
+            "Use exactly three document verbs: inspect(path), render({ content | contentPath, format, style?, template?, requestedName }), and convert({ source, targetFormat, requestedName? }). document.render persists a visible sibling Markdown source, registers the output, and delivers it. For anything these verbs cannot express - complex XLSX with formulas/charts, targeted edits of uploaded files, custom layouts, or data-driven docs - write Python in shell with openpyxl/python-docx/weasyprint and then call files.attach(path). Slide decks belong in presentation.",
           kind: "plan",
           executionMode: "worker",
           usageRule: "allowed",
@@ -921,7 +921,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           items?: { properties?: { op?: { enum?: unknown[] } } };
         };
         rerender?: { type?: string; description?: string };
-        outputPath?: { description?: string };
+        requestedName?: { description?: string };
         replace?: { type?: string; description?: string };
         descriptorMode?: { enum?: unknown[]; description?: string };
         docId?: { description?: string };
@@ -944,7 +944,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.equal(documentProperties?.template?.properties, undefined);
   assert.deepEqual(documentProperties?.style?.enum, ["default", "report", "minimal"]);
   assert.deepEqual(documentProperties?.targetFormat?.enum, ["pdf", "xlsx", "docx"]);
-  assert.match(documentProperties?.outputPath?.description ?? "", /render|convert/i);
+  assert.match(documentProperties?.requestedName?.description ?? "", /filename|render|convert/i);
   assert.equal(documentProperties?.replace, undefined);
   assert.equal(documentProperties?.descriptorMode, undefined);
   assert.match(
@@ -953,7 +953,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     document?.description ?? "",
-    /sibling `\.md` file next to the output|outputPath/s,
+    /sibling `\.md` file next to the output|requestedName/s,
     "document guidance must teach authored render plus source-markdown collocation"
   );
   assert.match(

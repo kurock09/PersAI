@@ -66,6 +66,7 @@ export class InternalRuntimeDocumentJobsController {
     return {
       assistantId: this.requiredString(row.assistantId, "assistantId"),
       workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
+      runtimeSessionId: this.requiredString(row.runtimeSessionId, "runtimeSessionId"),
       runtimeTier: this.runtimeTier(row.runtimeTier),
       runtimeBundleDocument: this.requiredString(
         row.runtimeBundleDocument,

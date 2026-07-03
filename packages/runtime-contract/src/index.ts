@@ -2708,6 +2708,7 @@ export interface RuntimeBackgroundTaskToolResult {
 export interface RuntimeBackgroundTaskEvaluationRequest {
   assistantId: string;
   workspaceId: string;
+  runtimeSessionId?: string;
   runtimeTier: PersaiRuntimeTier;
   runtimeBundleDocument: string;
   evaluationKind?: "background_task" | "quota_advisory";
@@ -2742,6 +2743,7 @@ export interface RuntimeBackgroundTaskEvaluationResult {
 export interface RuntimeMediaJobRunRequest {
   assistantId: string;
   workspaceId: string;
+  runtimeSessionId: string;
   runtimeTier: PersaiRuntimeTier;
   runtimeBundleDocument: string;
   job: {
@@ -2781,6 +2783,7 @@ export interface RuntimeMediaJobRunResult {
 export interface RuntimeDocumentJobRunRequest {
   assistantId: string;
   workspaceId: string;
+  runtimeSessionId: string;
   runtimeTier: PersaiRuntimeTier;
   runtimeBundleDocument: string;
   // ADR-129 hard cutover: deferred document jobs are presentation-only.
@@ -4001,6 +4004,17 @@ export interface RuntimeSessionSummary {
 export interface RuntimeSessionResolveResult {
   found: boolean;
   session: RuntimeSessionSummary | null;
+  trace?: RuntimeTrace;
+}
+
+export interface RuntimeSessionEnsureInput {
+  runtimeTier: PersaiRuntimeTier;
+  conversation: RuntimeConversationAddress;
+}
+
+export interface RuntimeSessionEnsureResult {
+  created: boolean;
+  session: RuntimeSessionSummary;
   trace?: RuntimeTrace;
 }
 

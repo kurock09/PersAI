@@ -782,6 +782,34 @@ test("SandboxService: control-plane workspace write can hydrate bytes from works
   assert.equal(write.contents.toString("utf8"), "csv-bytes");
 });
 
+test("SandboxService: runtime-origin workspace write fails closed without runtimeSessionId", async () => {
+  const service = new SandboxService(
+    {} as never,
+    {} as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never,
+    {} as never
+  );
+
+  const result = await service.writeWorkspaceFile({
+    assistantId: "assistant-write-missing-session",
+    workspaceId: "workspace-write-missing-session",
+    assistantHandle: "writer",
+    siblingHandles: [],
+    runtimeSessionId: null,
+    basename: "report.txt",
+    contents: Buffer.from("hello", "utf8"),
+    mimeType: "text/plain"
+  });
+
+  assert.deepEqual(result, {
+    ok: false,
+    reason: "runtime_session_id_required",
+    message: "workspace_write_runtime_session_id_required"
+  });
+});
+
 test("SandboxService: control-plane workspace write forwards replace for explicit paths", async () => {
   const assistantSharedDocPath = "/workspace/assistants/writer/docs/report.pdf";
   let capturedWrite: {

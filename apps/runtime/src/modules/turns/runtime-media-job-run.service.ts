@@ -145,7 +145,7 @@ export class RuntimeMediaJobRunService {
         const result = await this.runtimeImageGenerateToolService.executeToolCall({
           bundle,
           toolCall,
-          sessionId: `media-job:${input.job.id}`,
+          sessionId: input.runtimeSessionId,
           requestId: toolRunKey
         });
         this.assertImageToolResultAccepted(
@@ -174,7 +174,7 @@ export class RuntimeMediaJobRunService {
           bundle,
           toolCall,
           availableAttachments: input.attachments,
-          sessionId: `media-job:${input.job.id}`,
+          sessionId: input.runtimeSessionId,
           requestId: toolRunKey
         });
         this.assertImageToolResultAccepted(
@@ -203,7 +203,8 @@ export class RuntimeMediaJobRunService {
           bundle,
           toolCall,
           availableAttachments: input.attachments,
-          sessionId: `media-job:${input.job.id}`,
+          sessionId: input.runtimeSessionId,
+          mediaJobId: input.job.id,
           requestId: toolRunKey
         });
         if (isRuntimeVideoGenerateReadOnlyPayload(result.payload)) {

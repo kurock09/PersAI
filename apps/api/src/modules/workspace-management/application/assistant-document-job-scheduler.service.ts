@@ -36,6 +36,7 @@ const DOCUMENT_JOB_SCHEDULER_KEY = "document_job";
 type DocumentJobRequestPayload = {
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
+  runtimeSessionId: string;
   descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
   sourceJson: {
     prompt: string;
@@ -422,6 +423,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
       const outcome = await this.internalRuntimeDocumentJobClientService.run({
         assistantId: job.assistantId,
         workspaceId: job.workspaceId,
+        runtimeSessionId: requestPayload.runtimeSessionId,
         runtimeTier: resolvedRuntimeContext.runtimeTier,
         runtimeBundleDocument: spec.runtimeBundleDocument,
         job: {
@@ -689,6 +691,8 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
     if (
       typeof row.sourceUserMessageText !== "string" ||
       typeof row.sourceUserMessageCreatedAt !== "string" ||
+      typeof row.runtimeSessionId !== "string" ||
+      row.runtimeSessionId.trim().length === 0 ||
       sourceJson === null ||
       typeof sourceJson.prompt !== "string"
     ) {
@@ -706,6 +710,7 @@ export class AssistantDocumentJobSchedulerService implements OnModuleInit, OnMod
     return {
       sourceUserMessageText: row.sourceUserMessageText,
       sourceUserMessageCreatedAt: row.sourceUserMessageCreatedAt,
+      runtimeSessionId: row.runtimeSessionId,
       descriptorMode,
       sourceJson: {
         prompt: sourceJson.prompt,

@@ -200,6 +200,44 @@ describe("RuntimeDocumentToolService", () => {
     );
   });
 
+  test("rejects nested path in document.requestedName", async () => {
+    const service = new RuntimeDocumentToolService(
+      {} as never,
+      {
+        isConfigured() {
+          return true;
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-render-bad-name",
+        name: "document",
+        arguments: {
+          action: "render",
+          requestedName: "/workspace/assistants/current/sessions/current/test.pdf",
+          format: "pdf",
+          content: "# Bad"
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-render-bad-name",
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-bad-name",
+        sourceUserMessageText: "Make a PDF",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, true);
+    assert.equal(result.payload.action, "skipped");
+    assert.equal(result.payload.reason, "invalid_arguments");
+    assert.match(result.payload.warning ?? "", /filename only|requestedName/i);
+  });
+
   test("inspects a document using only path", async () => {
     const inspectCalls: Array<Record<string, unknown>> = [];
     const service = new RuntimeDocumentToolService({
@@ -263,7 +301,7 @@ describe("RuntimeDocumentToolService", () => {
   test("renders authored PDF and persists collision-safe sibling markdown", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
     const metadataPaths: string[] = [];
-    const resolvedMarkdownPath = wp("reports/monthly (1).md");
+    const resolvedMarkdownPath = wp("monthly (1).md");
     const markdownContent = "# Monthly\n\nSummary body.";
     const service = new RuntimeDocumentToolService(
       {
@@ -311,11 +349,7 @@ describe("RuntimeDocumentToolService", () => {
             return createCompletedDocumentJob();
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(
-              wp("reports/monthly.pdf"),
-              "application/pdf",
-              321
-            );
+            return createAttachedWorkspaceFileJob(wp("monthly.pdf"), "application/pdf", 321);
           }
           throw new Error(
             `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
@@ -331,7 +365,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "render",
-          outputPath: wp("reports/monthly.pdf"),
+          requestedName: "monthly.pdf",
           format: "pdf",
           content: markdownContent,
           style: "report"
@@ -353,7 +387,7 @@ describe("RuntimeDocumentToolService", () => {
 
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "rendered");
-    assert.equal(result.payload.render?.outputPath, wp("reports/monthly.pdf"));
+    assert.equal(result.payload.render?.outputPath, wp("monthly.pdf"));
     assert.equal(result.payload.render?.sourceMarkdownPath, resolvedMarkdownPath);
     assert.equal(result.payload.render?.mimeType, "application/pdf");
     assert.equal(result.payload.descriptorMode, null);
@@ -364,7 +398,7 @@ describe("RuntimeDocumentToolService", () => {
       sandboxCalls.map((call) => `${call.toolCode}:${String(call.args.action ?? "")}`),
       ["files:resolve_write_path", "files:write", "execute_document_code:", "files:attach"]
     );
-    assert.equal(sandboxCalls[0]?.args.path, wp("reports/monthly.md"));
+    assert.equal(sandboxCalls[0]?.args.path, wp("monthly.md"));
     assert.equal(sandboxCalls[0]?.args.replace, false);
     assert.equal(sandboxCalls[1]?.args.path, resolvedMarkdownPath);
     assert.equal(sandboxCalls[1]?.args.replace, false);
@@ -376,17 +410,17 @@ describe("RuntimeDocumentToolService", () => {
     assert.match(
       programSource,
       new RegExp(
-        `OUTPUT_PATH = Path\\("${wp("reports/monthly.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
+        `OUTPUT_PATH = Path\\("${wp("monthly.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
       )
     );
     assert.doesNotMatch(programSource, /PERSAI_OUTPUT_PATH/);
     assert.match(programSource, /HTML\(string=build_html_document\(\)/);
-    assert.deepEqual(metadataPaths, [resolvedMarkdownPath, wp("reports/monthly.pdf")]);
+    assert.deepEqual(metadataPaths, [resolvedMarkdownPath, wp("monthly.pdf")]);
   });
 
   test("renders authored XLSX from Markdown tables and writes sibling markdown", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
-    const markdownPath = wp("tables/revenue.md");
+    const markdownPath = wp("revenue.md");
     const service = new RuntimeDocumentToolService(
       {
         async upsertWorkspaceFileMetadata() {
@@ -449,7 +483,7 @@ describe("RuntimeDocumentToolService", () => {
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
             return createAttachedWorkspaceFileJob(
-              wp("tables/revenue.xlsx"),
+              wp("revenue.xlsx"),
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
               512
             );
@@ -468,7 +502,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "render",
-          outputPath: wp("tables/revenue.xlsx"),
+          requestedName: "revenue.xlsx",
           format: "xlsx",
           content: "# Revenue\n\n| Month | Revenue |\n| --- | --- |\n| Jan | 10 |"
         }
@@ -499,7 +533,7 @@ describe("RuntimeDocumentToolService", () => {
     assert.match(
       programSource,
       new RegExp(
-        `OUTPUT_PATH = Path\\("${wp("tables/revenue.xlsx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
+        `OUTPUT_PATH = Path\\("${wp("revenue.xlsx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
       )
     );
     assert.doesNotMatch(programSource, /PERSAI_OUTPUT_PATH/);
@@ -634,7 +668,7 @@ describe("RuntimeDocumentToolService", () => {
         },
         async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
           if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
-            return createResolvedWritePathJob(wp("reports/monthly.md"));
+            return createResolvedWritePathJob(wp("monthly.md"));
           }
           if (input.toolCode === "files" && input.args.action === "write") {
             return createWrittenWorkspaceFileJob(
@@ -646,11 +680,7 @@ describe("RuntimeDocumentToolService", () => {
             return createCompletedDocumentJob();
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(
-              wp("reports/monthly.pdf"),
-              "application/pdf",
-              321
-            );
+            return createAttachedWorkspaceFileJob(wp("monthly.pdf"), "application/pdf", 321);
           }
           throw new Error(
             `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
@@ -666,7 +696,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "render",
-          outputPath: wp("reports/monthly.pdf"),
+          requestedName: "monthly.pdf",
           format: "pdf",
           content: "# Monthly\n\nSummary body."
         }
@@ -687,7 +717,7 @@ describe("RuntimeDocumentToolService", () => {
 
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "rendered");
-    assert.equal(result.payload.render?.outputPath, wp("reports/monthly.pdf"));
+    assert.equal(result.payload.render?.outputPath, wp("monthly.pdf"));
     assert.equal(result.payload.warning, null);
     assert.equal(result.payload.registration, undefined);
   });
@@ -774,7 +804,7 @@ describe("RuntimeDocumentToolService", () => {
         },
         async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
           if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
-            return createResolvedWritePathJob(wp("reports/monthly.md"));
+            return createResolvedWritePathJob(wp("monthly.md"));
           }
           if (input.toolCode === "files" && input.args.action === "write") {
             return createWrittenWorkspaceFileJob(
@@ -786,11 +816,7 @@ describe("RuntimeDocumentToolService", () => {
             return createCompletedDocumentJob();
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(
-              wp("reports/monthly.pdf"),
-              "application/pdf",
-              321
-            );
+            return createAttachedWorkspaceFileJob(wp("monthly.pdf"), "application/pdf", 321);
           }
           throw new Error(
             `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
@@ -806,7 +832,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "render",
-          outputPath: wp("reports/monthly.pdf"),
+          requestedName: "monthly.pdf",
           format: "pdf",
           content: "# Monthly\n\nSummary body."
         }
@@ -827,7 +853,7 @@ describe("RuntimeDocumentToolService", () => {
 
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "rendered");
-    assert.equal(result.payload.render?.outputPath, wp("reports/monthly.pdf"));
+    assert.equal(result.payload.render?.outputPath, wp("monthly.pdf"));
     assert.match(result.payload.warning ?? "", /registration unavailable/);
     assert.equal(result.payload.registration, undefined);
   });
@@ -903,7 +929,7 @@ describe("RuntimeDocumentToolService", () => {
     const documentUpsertCalls: Array<Record<string, unknown>> = [];
     const initialMarkdown = "# Report\n\nOriginal body.\n";
     const editedMarkdown = "# Report\n\nEdited body with exact spacing.\n";
-    const sourceMarkdownPath = wp("report.md");
+    const sourceMarkdownPath = "/workspace/assistants/a-test/sessions/session-case-a/report.md";
     const service = new RuntimeDocumentToolService(
       {
         async upsertWorkspaceFileMetadata(args: Record<string, unknown>) {
@@ -956,7 +982,11 @@ describe("RuntimeDocumentToolService", () => {
             return createCompletedDocumentJob();
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(wp("report.pdf"), "application/pdf", 2048);
+            return createAttachedWorkspaceFileJob(
+              "/workspace/assistants/a-test/sessions/session-case-a/report.pdf",
+              "application/pdf",
+              2048
+            );
           }
           throw new Error(
             `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
@@ -991,13 +1021,13 @@ describe("RuntimeDocumentToolService", () => {
       action: "render",
       content: initialMarkdown,
       format: "pdf",
-      outputPath: wp("report.pdf")
+      requestedName: "report.pdf"
     });
     const second = await executeRender("case-a-render-v2", {
       action: "render",
       contentPath: sourceMarkdownPath,
       format: "pdf",
-      outputPath: wp("report.pdf")
+      requestedName: "report.pdf"
     });
 
     assert.equal(first.isError, false);
@@ -1005,10 +1035,19 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(first.payload.render?.sourceMarkdownPath, sourceMarkdownPath);
     assert.equal(second.isError, false);
     assert.equal(second.payload.action, "rendered");
-    assert.equal(second.payload.render?.outputPath, wp("report.pdf"));
+    assert.equal(
+      second.payload.render?.outputPath,
+      "/workspace/assistants/a-test/sessions/session-case-a/report.pdf"
+    );
     assert.equal(documentUpsertCalls.length, 2);
-    assert.equal(documentUpsertCalls[0]?.path, wp("report.pdf"));
-    assert.equal(documentUpsertCalls[1]?.path, wp("report.pdf"));
+    assert.equal(
+      documentUpsertCalls[0]?.path,
+      "/workspace/assistants/a-test/sessions/session-case-a/report.pdf"
+    );
+    assert.equal(
+      documentUpsertCalls[1]?.path,
+      "/workspace/assistants/a-test/sessions/session-case-a/report.pdf"
+    );
     assert.equal(documentUpsertCalls[0]?.replace, true);
     assert.equal(documentUpsertCalls[1]?.replace, true);
     assert.equal(first.payload.registration, undefined);
@@ -1045,7 +1084,7 @@ describe("RuntimeDocumentToolService", () => {
     assert.match(
       secondProgramSource,
       new RegExp(
-        `CONTENT_PATH = Path\\("${wp("report.md").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
+        `CONTENT_PATH = Path\\("${"/workspace/assistants/a-test/sessions/session-case-a/report.md".replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
       )
     );
   });
@@ -1087,7 +1126,7 @@ describe("RuntimeDocumentToolService", () => {
         },
         async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
           if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
-            return createResolvedWritePathJob(wp("reports/monthly.md"));
+            return createResolvedWritePathJob(wp("monthly.md"));
           }
           if (input.toolCode === "files" && input.args.action === "write") {
             return createWrittenWorkspaceFileJob(
@@ -1099,11 +1138,7 @@ describe("RuntimeDocumentToolService", () => {
             return createCompletedDocumentJob();
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(
-              wp("reports/monthly.pdf"),
-              "application/pdf",
-              321
-            );
+            return createAttachedWorkspaceFileJob(wp("monthly.pdf"), "application/pdf", 321);
           }
           throw new Error(
             `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
@@ -1120,7 +1155,7 @@ describe("RuntimeDocumentToolService", () => {
           name: "document",
           arguments: {
             action: "render",
-            outputPath: wp("reports/monthly.pdf"),
+            requestedName: "monthly.pdf",
             format: "pdf",
             content
           }
@@ -1147,8 +1182,8 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(first.payload.registration, undefined);
     assert.equal(second.payload.registration, undefined);
     assert.equal(documentUpsertCalls.length, 2);
-    assert.equal(documentUpsertCalls[0]?.path, wp("reports/monthly.pdf"));
-    assert.equal(documentUpsertCalls[1]?.path, wp("reports/monthly.pdf"));
+    assert.equal(documentUpsertCalls[0]?.path, wp("monthly.pdf"));
+    assert.equal(documentUpsertCalls[1]?.path, wp("monthly.pdf"));
   });
 });
 

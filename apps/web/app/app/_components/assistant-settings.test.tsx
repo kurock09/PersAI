@@ -655,9 +655,9 @@ describe("AssistantSettings Files", () => {
     assistantApiMocks.listChatWorkspaceFiles.mockResolvedValue({
       files: [
         {
-          storagePath: "/workspace/assistants/assistant-1/sessions/chat-1/photo.png",
+          storagePath: "/workspace/assistants/assistant-1/sessions/runtime-session-1/photo.png",
           thumbnailStoragePath:
-            "/workspace/assistants/assistant-1/sessions/chat-1/photo.png.thumb.webp",
+            "/workspace/assistants/assistant-1/sessions/runtime-session-1/photo.png.thumb.webp",
           posterStoragePath: null,
           originalFilename: "photo.png",
           mimeType: "image/png",

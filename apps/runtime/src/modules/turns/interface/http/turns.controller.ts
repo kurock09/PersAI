@@ -3,6 +3,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type {
   RuntimeCompactionRequest,
   RuntimeCompactionResult,
+  RuntimeSessionEnsureInput,
+  RuntimeSessionEnsureResult,
   RuntimeSessionResolveInput,
   RuntimeSessionResolveResult,
   RuntimeTurnRequest,
@@ -123,6 +125,17 @@ export class TurnsController {
     return {
       found: resolved.found,
       session: resolved.session
+    };
+  }
+
+  @Post("session/ensure")
+  async ensureSession(
+    @Body() body: RuntimeSessionEnsureInput
+  ): Promise<RuntimeSessionEnsureResult> {
+    const ensured = await this.sessionStoreService.ensureSession(body);
+    return {
+      created: ensured.created,
+      session: ensured.session
     };
   }
 

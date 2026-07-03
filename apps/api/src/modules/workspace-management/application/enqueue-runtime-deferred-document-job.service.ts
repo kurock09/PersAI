@@ -30,6 +30,7 @@ export type EnqueueRuntimeDeferredDocumentJobInput = {
   assistantId: string;
   sourceUserMessageId: string;
   sourceUserMessageText: string;
+  runtimeSessionId: string;
   // Attachments captured from the triggering user message. The runtime
   // worker uses them to inline text-extractable source-file content into
   // the HTML generation prompt instead of forcing the model to invent
@@ -64,6 +65,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         row.sourceUserMessageText,
         "sourceUserMessageText"
       ),
+      runtimeSessionId: this.requiredString(row.runtimeSessionId, "runtimeSessionId"),
       ...(attachments === null ? {} : { sourceUserMessageAttachments: attachments }),
       directToolExecution: this.directToolExecution(row.directToolExecution)
     };
@@ -222,6 +224,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
           request: {
             sourceUserMessageText: input.sourceUserMessageText,
             sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
+            runtimeSessionId: input.runtimeSessionId,
             descriptorMode: "revise_document",
             sourceJson: input.directToolExecution.request,
             sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
@@ -240,6 +243,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         request: {
           sourceUserMessageText: input.sourceUserMessageText,
           sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
+          runtimeSessionId: input.runtimeSessionId,
           descriptorMode: "revise_document",
           sourceJson: input.directToolExecution.request,
           sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
@@ -259,6 +263,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
         request: {
           sourceUserMessageText: input.sourceUserMessageText,
           sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
+          runtimeSessionId: input.runtimeSessionId,
           descriptorMode: "export_or_redeliver",
           sourceJson: input.directToolExecution.request,
           sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
@@ -294,6 +299,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
       request: {
         sourceUserMessageText: input.sourceUserMessageText,
         sourceUserMessageCreatedAt: sourceMessage.createdAt.toISOString(),
+        runtimeSessionId: input.runtimeSessionId,
         descriptorMode,
         sourceJson: persistedSourceJson,
         sourceUserMessageAttachments: sourceUserMessageAttachmentsForPayload
@@ -438,6 +444,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     request: {
       sourceUserMessageText: string;
       sourceUserMessageCreatedAt: string;
+      runtimeSessionId: string;
       descriptorMode: "revise_document";
       sourceJson: AssistantDocumentSourcePayload;
       sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
@@ -571,6 +578,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     request: {
       sourceUserMessageText: string;
       sourceUserMessageCreatedAt: string;
+      runtimeSessionId: string;
       descriptorMode: "revise_document";
       sourceJson: AssistantDocumentSourcePayload;
       sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;
@@ -656,6 +664,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     request: {
       sourceUserMessageText: string;
       sourceUserMessageCreatedAt: string;
+      runtimeSessionId: string;
       descriptorMode: "export_or_redeliver";
       sourceJson: AssistantDocumentSourcePayload;
       sourceUserMessageAttachments?: RuntimeAttachmentRef[] | null;

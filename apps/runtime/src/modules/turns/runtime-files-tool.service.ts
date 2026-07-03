@@ -4,6 +4,7 @@ import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   buildAssistantSessionRoot,
   buildAssistantWorkspaceRoot,
+  classifyVisibleWorkspacePath,
   type ProviderGatewayToolCall,
   type RuntimeFileHandle,
   type RuntimeOutputArtifact,
@@ -43,7 +44,8 @@ type FilesPreviewRequest = {
 
 type FilesWriteRequest = {
   action: "write";
-  path: string;
+  path: string | null;
+  requestedName: string | null;
   content: string;
   mode?: "create_only";
   replace?: boolean;
@@ -486,9 +488,18 @@ export class RuntimeFilesToolService {
     },
     request: FilesWriteRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
+    const targetPath = this.resolveWriteTargetPath(params, request);
+    if (targetPath instanceof Error) {
+      return this.skipped({
+        requestedAction: "write",
+        reason: "invalid_arguments",
+        warning: targetPath.message,
+        path: request.path ?? request.requestedName
+      });
+    }
     const job = await this.runSandboxJob(params, {
       action: "write",
-      path: request.path,
+      path: targetPath,
       content: request.content,
       ...(request.mode === undefined ? {} : { mode: request.mode }),
       ...(request.replace === undefined ? {} : { replace: request.replace })
@@ -502,7 +513,7 @@ export class RuntimeFilesToolService {
           action: "skipped",
           reason: job.reason ?? "files_failed",
           warning: job.warning ?? job.violationMessage,
-          path: request.path
+          path: targetPath
         },
         isError: true
       };
@@ -516,13 +527,13 @@ export class RuntimeFilesToolService {
           action: "skipped",
           reason: job.reason,
           warning: job.warning,
-          path: request.path
+          path: targetPath
         },
         isError: true
       };
     }
     const writeOutcome = this.parseWriteContent(job.content);
-    const resolvedPath = writeOutcome.resolvedPath ?? request.path;
+    const resolvedPath = writeOutcome.resolvedPath ?? targetPath;
     // ADR-128 Slice 4 — every successful write under `/workspace/` mirrors to
     // the authoritative manifest. The upsert is best-effort: failure is logged
     // at warn and the write outcome is still surfaced to the model.
@@ -532,7 +543,7 @@ export class RuntimeFilesToolService {
         await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
           workspaceId: params.bundle.metadata.workspaceId,
           path: resolvedPath,
-          mimeType: this.inferMimeForWrite(request.path, request.content),
+          mimeType: this.inferMimeForWrite(resolvedPath, request.content),
           sizeBytes,
           contentHash: createHash("sha256").update(request.content, "utf8").digest("hex"),
           replace: request.replace === true,
@@ -569,6 +580,101 @@ export class RuntimeFilesToolService {
       },
       isError: false
     };
+  }
+
+  private resolveWriteTargetPath(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      sessionId: string;
+    },
+    request: FilesWriteRequest
+  ): string | Error {
+    const assistantHandle = params.bundle.metadata.assistantHandle?.trim() ?? "";
+    if (assistantHandle.length === 0) {
+      return new Error("files.write requires a runtime assistant handle.");
+    }
+    const sessionRoot = buildAssistantSessionRoot(assistantHandle, params.sessionId);
+    const rawPath = request.path?.trim() ?? null;
+    const requestedName = request.requestedName?.trim() ?? null;
+    if (rawPath !== null && requestedName !== null) {
+      return new Error("files.write accepts either path or requestedName, not both.");
+    }
+    const candidate = rawPath ?? requestedName;
+    if (candidate === null || candidate.length === 0) {
+      return new Error(
+        "files.write requires requestedName for new files or path for an existing file."
+      );
+    }
+    if (candidate.startsWith("/tmp/")) {
+      return candidate;
+    }
+    if (!candidate.startsWith("/")) {
+      return this.resolveSessionRelativeWritePath(sessionRoot, candidate);
+    }
+    const placeholderRoot = "/workspace/assistants/current/sessions/current";
+    if (candidate === placeholderRoot || candidate.startsWith(`${placeholderRoot}/`)) {
+      return this.resolveSessionRelativeWritePath(
+        sessionRoot,
+        candidate.slice(placeholderRoot.length).replace(/^\/+/, "")
+      );
+    }
+    const currentSessionPlaceholderRoot = `/workspace/assistants/${assistantHandle}/sessions/current`;
+    if (
+      candidate === currentSessionPlaceholderRoot ||
+      candidate.startsWith(`${currentSessionPlaceholderRoot}/`)
+    ) {
+      return this.resolveSessionRelativeWritePath(
+        sessionRoot,
+        candidate.slice(currentSessionPlaceholderRoot.length).replace(/^\/+/, "")
+      );
+    }
+    const currentAssistantPlaceholderRoot = `/workspace/assistants/current/sessions/${params.sessionId}`;
+    if (
+      candidate === currentAssistantPlaceholderRoot ||
+      candidate.startsWith(`${currentAssistantPlaceholderRoot}/`)
+    ) {
+      return this.resolveSessionRelativeWritePath(
+        sessionRoot,
+        candidate.slice(currentAssistantPlaceholderRoot.length).replace(/^\/+/, "")
+      );
+    }
+    const pathInfo = classifyVisibleWorkspacePath(candidate);
+    if (
+      (pathInfo.kind === "sessionRoot" || pathInfo.kind === "sessionDescendant") &&
+      (pathInfo.assistantStableKey !== assistantHandle || pathInfo.sessionId !== params.sessionId)
+    ) {
+      return new Error(
+        "files.write cannot create files by spelling assistant/session IDs; use requestedName or a relative path for the current session."
+      );
+    }
+    return candidate;
+  }
+
+  private resolveSessionRelativeWritePath(
+    sessionRoot: string,
+    relativePath: string
+  ): string | Error {
+    const normalizedRelative = relativePath.trim().replace(/^\.\/+/, "");
+    if (
+      normalizedRelative.length === 0 ||
+      normalizedRelative.startsWith("/") ||
+      normalizedRelative.includes("\\") ||
+      Array.from(normalizedRelative).some((char) => char.charCodeAt(0) < 32)
+    ) {
+      return new Error("files.write requestedName/path must be a relative file path.");
+    }
+    const segments = normalizedRelative.split("/");
+    if (
+      segments.some(
+        (segment) =>
+          segment.length === 0 || segment === "." || segment === ".." || segment === "..."
+      )
+    ) {
+      return new Error(
+        "files.write relative paths must not contain empty, dot, or parent segments."
+      );
+    }
+    return `${sessionRoot}/${segments.join("/")}`;
   }
 
   private isPersistedWorkspaceWritePath(path: string): boolean {
@@ -879,15 +985,17 @@ export class RuntimeFilesToolService {
       }
       case "write": {
         const path = this.readNonEmptyString(row.path);
+        const requestedName = this.readNonEmptyString(row.requestedName);
         const content = this.readString(row.content);
-        if (path === null || content === null) {
-          return new Error("files.write requires a non-empty path and string content.");
+        if ((path === null && requestedName === null) || content === null) {
+          return new Error("files.write requires requestedName or path plus string content.");
         }
         const mode = row.mode === "create_only" ? row.mode : undefined;
         const replace = row.replace === true ? true : undefined;
         return {
           action: "write",
           path,
+          requestedName,
           content,
           ...(mode === undefined ? {} : { mode }),
           ...(replace === undefined ? {} : { replace })

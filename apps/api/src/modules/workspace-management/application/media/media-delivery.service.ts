@@ -62,6 +62,8 @@ import {
 import { computeVideoVcoinCost } from "../vcoin/compute-video-vcoin-cost";
 import type { MediaChannel } from "./media.types";
 import { readPersistedDocumentLinkMetadata } from "../read-attachment-document-link";
+import { ResolveAssistantInboundRuntimeContextService } from "../resolve-assistant-inbound-runtime-context.service";
+import { WebRuntimeSessionStateClientService } from "../web-runtime-session-state-client.service";
 
 @Injectable()
 export class MediaDeliveryService {
@@ -90,7 +92,9 @@ export class MediaDeliveryService {
     private readonly resolvePlatformRuntimeProviderSettingsService: ResolvePlatformRuntimeProviderSettingsService,
     @Inject(WORKSPACE_VCOIN_BALANCE_REPOSITORY)
     private readonly workspaceVcoinBalanceRepository: WorkspaceVcoinBalanceRepository,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
+    private readonly webRuntimeSessionStateClientService: WebRuntimeSessionStateClientService
   ) {
     this.adapterMap = new Map(adapters.map((a) => [a.channel, a]));
   }
@@ -695,8 +699,10 @@ export class MediaDeliveryService {
   private resolvePersistedStoragePath(input: {
     artifact: MediaArtifact;
     workspaceId: string;
+    assistantId: string;
     assistantStableKey: string;
     chatId: string;
+    runtimeSessionId: string | null;
     messageId: string;
     filename: string;
     mimeType: string;
@@ -707,18 +713,7 @@ export class MediaDeliveryService {
     ) {
       return Promise.resolve(input.artifact.objectKey);
     }
-    return resolveUniqueWorkspaceStoragePath({
-      workspaceId: input.workspaceId,
-      assistantStableKey: input.assistantStableKey,
-      // Runtime-delivered artifacts reach the API after the chat already
-      // exists. Use the canonical chat id as the ADR-133 session-root fallback
-      // when this boundary does not carry a runtime session id.
-      sessionId: input.chatId,
-      filename: input.filename,
-      mimeType: input.mimeType,
-      referenceId: input.messageId,
-      workspaceFileMetadataService: this.workspaceFileMetadataService
-    });
+    return this.resolveUniqueSessionStoragePath(input);
   }
 
   private async ensureBytesAtStoragePath(input: {
@@ -864,8 +859,10 @@ export class MediaDeliveryService {
     const storagePath = await this.resolvePersistedStoragePath({
       artifact,
       workspaceId: params.workspaceId,
+      assistantId: params.assistantId,
       assistantStableKey,
       chatId: params.chatId,
+      runtimeSessionId: params.runtimeSessionId ?? null,
       messageId: params.messageId,
       filename,
       mimeType: validated.effectiveMimeType
@@ -988,6 +985,57 @@ export class MediaDeliveryService {
       );
     }
     return handle;
+  }
+
+  private async resolveUniqueSessionStoragePath(input: {
+    workspaceId: string;
+    assistantId: string;
+    assistantStableKey: string;
+    chatId: string;
+    runtimeSessionId: string | null;
+    messageId: string;
+    filename: string;
+    mimeType: string;
+  }): Promise<string> {
+    const runtimeSessionId =
+      input.runtimeSessionId ??
+      (await this.ensureChatRuntimeSessionId(input.assistantId, input.chatId));
+    return resolveUniqueWorkspaceStoragePath({
+      workspaceId: input.workspaceId,
+      assistantStableKey: input.assistantStableKey,
+      sessionId: runtimeSessionId,
+      filename: input.filename,
+      mimeType: input.mimeType,
+      referenceId: input.messageId,
+      workspaceFileMetadataService: this.workspaceFileMetadataService
+    });
+  }
+
+  private async ensureChatRuntimeSessionId(assistantId: string, chatId: string): Promise<string> {
+    const chat = await this.prisma.assistantChat.findUnique({
+      where: { id: chatId },
+      select: {
+        workspaceId: true,
+        userId: true,
+        surface: true,
+        surfaceThreadKey: true
+      }
+    });
+    if (chat === null) {
+      throw new NotFoundException("Chat not found for media delivery.");
+    }
+    const runtimeContext =
+      await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(assistantId);
+    const ensured = await this.webRuntimeSessionStateClientService.ensure({
+      assistantId,
+      workspaceId: chat.workspaceId,
+      runtimeTier: runtimeContext.runtimeTier,
+      channel: chat.surface === "telegram" ? "telegram" : "web",
+      externalThreadKey: chat.surfaceThreadKey,
+      externalUserKey: chat.surface === "web" ? chat.userId : null,
+      mode: "direct"
+    });
+    return ensured.session.sessionId;
   }
 
   private async sendViaAdapter(

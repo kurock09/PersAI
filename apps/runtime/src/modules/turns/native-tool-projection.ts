@@ -1123,7 +1123,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           }
         },
         {
-          required: ["action", "outputPath", "format"],
+          required: ["action", "requestedName", "format"],
           properties: {
             action: { enum: ["render"] }
           }
@@ -1145,7 +1145,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         path: {
           type: "string",
           description:
-            'Required for `action="inspect"`. Must be an existing `/workspace/...` PDF, DOCX, or XLSX file. New session documents usually live under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`.'
+            'Required for `action="inspect"`. Must be an existing exact `/workspace/...` PDF, DOCX, or XLSX path copied from Working Files, files.list, or a prior tool result. For new outputs use `requestedName`; the runtime owns the current-session directory.'
         },
         format: {
           type: "string",
@@ -1173,10 +1173,10 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           description:
             'Optional `/workspace/...` DOCX template path for `action="render"` when `format="docx"`. For complex layout beyond the built-in render door, use `shell` + Python.'
         },
-        outputPath: {
+        requestedName: {
           type: "string",
           description:
-            'Required for `action="render"` and optional for `action="convert"`. Final `/workspace/...` output document path. Default new outputs belong under the current session root; render writes exactly to this path, and convert derives a sibling output name automatically when omitted.'
+            'Required for `action="render"` and optional for `action="convert"`. Filename only, not a path. The runtime places the output under the real current session root automatically and returns the final `/workspace/...` outputPath in the tool result. If omitted for `action="convert"`, the runtime derives a same-basename filename in the current session root.'
         },
         source: {
           type: "string",
@@ -1481,12 +1481,17 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
           description:
-            'One files action: "list", "read", "preview", "write", "delete", or "attach". Address files by exact pod-absolute `/workspace/...` path. New work normally stays in the current session root `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`; widen only by intentionally choosing `/workspace/assistants/<assistantStableKey>/...` or `/workspace/...`. `attach` delivers an existing workspace file to the current chat as a user-visible attachment.'
+            'One files action: "list", "read", "preview", "write", "delete", or "attach". For new files use action="write" with requestedName or a relative path; the runtime resolves it under the real current session root. Use exact `/workspace/...` paths only for listed/existing files or intentional wider reads. `attach` delivers an existing workspace file to the current chat as a user-visible attachment.'
         },
         path: {
           type: "string",
           description:
-            "Pod-absolute path under `/workspace/...`. Session files normally live under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`. Use `/workspace/assistants/<assistantStableKey>/...` to widen to this assistant or `/workspace/...` to widen to the whole workspace. Use `/tmp/` only for ephemeral scratch that should never reach the user. Required for read, preview, write, delete, and attach; optional for list."
+            "Path for existing/listed files, or a relative current-session path for write. Do not construct assistant/session IDs. For new visible files prefer requestedName. Use exact `/workspace/...` paths from Working Files, files.list, or prior tool results for read, preview, delete, attach, or exact overwrite. Use `/tmp/` only for ephemeral scratch that should never reach the user. Optional for list."
+        },
+        requestedName: {
+          type: "string",
+          description:
+            'Filename or relative path for action="write" when creating a new visible file in the current session. The runtime prepends the real current session root; never include `/workspace/`, assistant IDs, or session IDs here.'
         },
         dir: {
           type: "string",

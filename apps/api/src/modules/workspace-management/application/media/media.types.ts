@@ -56,6 +56,7 @@ export interface InboundMediaResolveParams {
   channel: MediaChannel;
   assistantId: string;
   assistantHandle: string;
+  runtimeSessionId: string;
   userId: string;
   chatId: string;
   messageId: string;
@@ -71,6 +72,7 @@ export interface OutboundMediaDeliverParams {
   chatId: string;
   messageId: string;
   workspaceId: string;
+  runtimeSessionId?: string | null;
   channelTarget?: ChannelTarget;
 }
 

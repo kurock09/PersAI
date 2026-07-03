@@ -9,6 +9,7 @@ export async function writeRuntimeOutboundArtifact(input: {
   workspaceId: string;
   handle: string;
   siblingHandles: readonly string[];
+  sessionId: string;
   buffer: Buffer;
   mimeType: string;
   slugSourceText: string;
@@ -32,6 +33,7 @@ export async function writeRuntimeOutboundArtifact(input: {
     workspaceId: input.workspaceId,
     handle: input.handle,
     siblingHandles: input.siblingHandles,
+    runtimeSessionId: input.sessionId,
     basename,
     contentBase64: input.buffer.toString("base64"),
     mimeType: input.mimeType,

@@ -18,6 +18,7 @@ export type AssistantMediaJobRequestPayload = {
   attachments: RuntimeAttachmentRef[];
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
+  runtimeSessionId: string;
   directToolExecution:
     | {
         toolCode: "image_generate";

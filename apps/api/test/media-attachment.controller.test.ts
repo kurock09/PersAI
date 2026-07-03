@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { MediaAttachmentController } from "../src/modules/workspace-management/interface/http/media-attachment.controller";
 
-const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 class FakeResponse {
   statusCode = 200;

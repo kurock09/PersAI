@@ -179,6 +179,7 @@ export class RuntimeTtsToolService {
           workspaceId: params.bundle.metadata.workspaceId,
           handle: params.bundle.metadata.assistantHandle,
           siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+          sessionId: params.sessionId,
           workspaceQuotaBytes: params.bundle.governance.quota?.workspaceQuotaBytes ?? null,
           sharedQuotaBytes: params.bundle.governance.quota?.sharedQuotaBytes ?? null,
           requestText: request.text,
@@ -312,6 +313,7 @@ export class RuntimeTtsToolService {
     workspaceId: string;
     handle: string;
     siblingHandles: readonly string[];
+    sessionId: string;
     workspaceQuotaBytes: number | null;
     sharedQuotaBytes: number | null;
     requestText: string;
@@ -338,6 +340,7 @@ export class RuntimeTtsToolService {
       workspaceId: input.workspaceId,
       handle: input.handle,
       siblingHandles: input.siblingHandles,
+      sessionId: input.sessionId,
       workspaceQuotaBytes: input.workspaceQuotaBytes,
       sharedQuotaBytes: input.sharedQuotaBytes,
       buffer,

@@ -89,6 +89,10 @@ export class SandboxController {
       row.collisionStrategy === "overwrite" ? "overwrite" : "numeric_suffix";
     const assistantHandle =
       typeof row.handle === "string" && row.handle.trim().length > 0 ? row.handle.trim() : null;
+    const runtimeSessionId =
+      typeof row.runtimeSessionId === "string" && row.runtimeSessionId.trim().length > 0
+        ? row.runtimeSessionId.trim()
+        : null;
     const siblingHandles = Array.isArray(row.siblingHandles)
       ? row.siblingHandles.filter(
           (value): value is string => typeof value === "string" && value.trim().length > 0
@@ -102,6 +106,7 @@ export class SandboxController {
       workspaceId,
       assistantHandle,
       siblingHandles,
+      runtimeSessionId,
       basename,
       contents,
       mimeType,
@@ -164,6 +169,10 @@ export class SandboxController {
         : "application/octet-stream";
     const assistantHandle =
       typeof row.handle === "string" && row.handle.trim().length > 0 ? row.handle.trim() : null;
+    const runtimeSessionId =
+      typeof row.runtimeSessionId === "string" && row.runtimeSessionId.trim().length > 0
+        ? row.runtimeSessionId.trim()
+        : null;
     const siblingHandles = Array.isArray(row.siblingHandles)
       ? row.siblingHandles.filter(
           (value): value is string => typeof value === "string" && value.trim().length > 0
@@ -174,6 +183,7 @@ export class SandboxController {
       workspaceId,
       assistantHandle,
       siblingHandles,
+      runtimeSessionId,
       basename,
       path,
       replace,

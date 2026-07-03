@@ -5,9 +5,9 @@ import type { WorkspaceFileMetadataService } from "./workspace-file-metadata.ser
  * ADR-133 Slice 3 — API-owned uploads and persisted media now default to the
  * current assistant session root.
  *
- * The API does not mint a new persisted "session" concept for uploads. When a
- * route does not carry a runtime session id, callers must pass the existing
- * canonical chat id for that thread as the session-root fallback.
+ * Callers must pass the real runtime session id for the current conversation.
+ * `chat.id` is provenance only and must never be used as the session path
+ * segment.
  */
 
 export function sanitizeWorkspaceFilename(filename: string): string {

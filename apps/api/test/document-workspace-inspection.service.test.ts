@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { DocumentWorkspaceInspectionService } from "../src/modules/workspace-management/application/document-workspace-inspection.service";
 
 describe("DocumentWorkspaceInspectionService", () => {
-  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
   const revenueProjectRoot = `${sessionRoot}/projects/revenue`;
   const briefProjectRoot = `${sessionRoot}/projects/brief`;
 
@@ -100,7 +100,7 @@ describe("DocumentWorkspaceInspectionService", () => {
       [`${sessionRoot}/revenue.inspect.json`]
     );
     const inspectBuffer = savedObjects.get(
-      "gcs:assistants/assistant-1/sessions/chat-1/revenue.inspect.json"
+      "gcs:assistants/assistant-1/sessions/runtime-session-1/revenue.inspect.json"
     );
     assert.ok(inspectBuffer);
     const inspectJson = JSON.parse(inspectBuffer!.toString("utf8")) as Record<string, unknown>;
@@ -181,7 +181,7 @@ describe("DocumentWorkspaceInspectionService", () => {
         async downloadObject(objectKey: string) {
           if (
             objectKey ===
-            "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/output/revenue.xlsx"
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/revenue/output/revenue.xlsx"
           ) {
             return {
               buffer: outputBuffer,
@@ -189,7 +189,8 @@ describe("DocumentWorkspaceInspectionService", () => {
             };
           }
           if (
-            objectKey === "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/project.json"
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/revenue/project.json"
           ) {
             return {
               buffer: Buffer.from(JSON.stringify(projectManifest), "utf8"),
@@ -198,7 +199,7 @@ describe("DocumentWorkspaceInspectionService", () => {
           }
           if (
             objectKey ===
-            "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/source/revenue.xlsx"
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/revenue/source/revenue.xlsx"
           ) {
             return {
               buffer: sourceBuffer,
@@ -242,7 +243,7 @@ describe("DocumentWorkspaceInspectionService", () => {
       "inspect should surface comparison-derived XLSX warnings"
     );
     const inspectBuffer = savedObjects.get(
-      "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/output/revenue.inspect.json"
+      "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/revenue/output/revenue.inspect.json"
     );
     assert.ok(inspectBuffer);
     const inspectJson = JSON.parse(inspectBuffer!.toString("utf8")) as {
@@ -314,7 +315,7 @@ describe("DocumentWorkspaceInspectionService", () => {
         async downloadObject(objectKey: string) {
           if (
             objectKey ===
-            "gcs:assistants/assistant-1/sessions/chat-1/projects/brief/output/brief.docx"
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/brief/output/brief.docx"
           ) {
             return {
               buffer: outputBuffer,
@@ -322,7 +323,8 @@ describe("DocumentWorkspaceInspectionService", () => {
             };
           }
           if (
-            objectKey === "gcs:assistants/assistant-1/sessions/chat-1/projects/brief/project.json"
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/brief/project.json"
           ) {
             return {
               buffer: Buffer.from(JSON.stringify(projectManifest), "utf8"),
@@ -331,7 +333,7 @@ describe("DocumentWorkspaceInspectionService", () => {
           }
           if (
             objectKey ===
-            "gcs:assistants/assistant-1/sessions/chat-1/projects/brief/source/brief.docx"
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/brief/source/brief.docx"
           ) {
             return {
               buffer: sourceBuffer,
@@ -375,7 +377,7 @@ describe("DocumentWorkspaceInspectionService", () => {
       "inspect should surface comparison-derived DOCX warnings"
     );
     const inspectBuffer = savedObjects.get(
-      "gcs:assistants/assistant-1/sessions/chat-1/projects/brief/output/brief.inspect.json"
+      "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/brief/output/brief.inspect.json"
     );
     assert.ok(inspectBuffer);
     const inspectJson = JSON.parse(inspectBuffer!.toString("utf8")) as {
@@ -427,7 +429,7 @@ describe("DocumentWorkspaceInspectionService", () => {
         },
         async saveObject() {
           return {
-            objectKey: "gcs:assistants/assistant-1/sessions/chat-1/output.inspect.json",
+            objectKey: "gcs:assistants/assistant-1/sessions/runtime-session-1/output.inspect.json",
             sizeBytes: 1,
             mimeType: "application/json"
           };

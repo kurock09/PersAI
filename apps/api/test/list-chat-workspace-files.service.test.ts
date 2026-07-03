@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { ListChatWorkspaceFilesService } from "../src/modules/workspace-management/application/list-chat-workspace-files.service";
 
 async function run(): Promise<void> {
-  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
-  const otherSessionRoot = "/workspace/assistants/assistant-1/sessions/chat-2";
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
+  const otherSessionRoot = "/workspace/assistants/assistant-1/sessions/runtime-session-2";
 
   const attachments = [
     {

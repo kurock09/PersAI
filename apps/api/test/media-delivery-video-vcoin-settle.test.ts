@@ -5,7 +5,7 @@ import { MediaDeliveryService } from "../src/modules/workspace-management/applic
 import type { AssistantChatMessageAttachment } from "../src/modules/workspace-management/domain/assistant-chat-message-attachment.entity";
 import type { RuntimeProviderModelCatalogByProvider } from "../src/modules/workspace-management/application/runtime-provider-profile";
 
-const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 /**
  * ADR-108 Slice 2 — `MediaDeliveryService` video-only success-delivery
@@ -171,7 +171,7 @@ function buildVideoSettleService(opts?: {
       return `workspaces/${scope.workspaceId}${scope.workspaceRelPath}`;
     },
     buildChatMessageObjectKey() {
-      return "workspaces/workspace-1/assistants/assistant-1/sessions/chat-1/clip.mp4";
+      return "workspaces/workspace-1/assistants/assistant-1/sessions/runtime-session-1/clip.mp4";
     },
     async downloadObject() {
       return {
@@ -181,7 +181,8 @@ function buildVideoSettleService(opts?: {
     },
     async saveObject() {
       return {
-        objectKey: "workspaces/workspace-1/assistants/assistant-1/sessions/chat-1/clip.mp4",
+        objectKey:
+          "workspaces/workspace-1/assistants/assistant-1/sessions/runtime-session-1/clip.mp4",
         sizeBytes: 8,
         mimeType: "video/mp4"
       };

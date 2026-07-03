@@ -3388,6 +3388,7 @@ export class TurnExecutionService {
         const result = await this.runtimeDocumentToolService.executePresentationToolCall({
           bundle: execution.bundle,
           toolCall,
+          sessionId: acceptedTurn.session.sessionId,
           deferToAsyncDocumentJob: {
             sourceUserMessageId: input.idempotencyKey,
             sourceUserMessageText: input.message.text,

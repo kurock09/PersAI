@@ -5,6 +5,8 @@ import {
   type EnqueueRuntimeDeferredDocumentJobInput
 } from "./enqueue-runtime-deferred-document-job.service";
 import type { AssistantDocumentSourcePayload } from "./assistant-document-job.service";
+import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
+import { WebRuntimeSessionStateClientService } from "./web-runtime-session-state-client.service";
 
 const PPTX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const OPEN_DOCUMENT_JOB_STATUSES = [
@@ -45,7 +47,9 @@ export type PrepareAssistantDocumentPptxResult =
 export class PrepareAssistantDocumentPptxService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly enqueueRuntimeDeferredDocumentJobService: EnqueueRuntimeDeferredDocumentJobService
+    private readonly enqueueRuntimeDeferredDocumentJobService: EnqueueRuntimeDeferredDocumentJobService,
+    private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
+    private readonly webRuntimeSessionStateClientService: WebRuntimeSessionStateClientService
   ) {}
 
   async execute(input: {
@@ -117,6 +121,39 @@ export class PrepareAssistantDocumentPptxService {
         guidance: "Create a fresh presentation, then prepare the PPTX from that result."
       };
     }
+    const sourceMessage = await this.prisma.assistantChatMessage.findUnique({
+      where: { id: sourceUserMessageId },
+      select: {
+        chat: {
+          select: {
+            surface: true,
+            surfaceThreadKey: true,
+            userId: true
+          }
+        }
+      }
+    });
+    if (sourceMessage?.chat === null || sourceMessage?.chat === undefined) {
+      return {
+        status: "rejected",
+        code: "presentation_source_message_missing",
+        message: "The source presentation request is no longer available.",
+        guidance: "Create a fresh presentation, then prepare the PPTX from that result."
+      };
+    }
+    const runtimeContext =
+      await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
+        input.assistantId
+      );
+    const ensuredSession = await this.webRuntimeSessionStateClientService.ensure({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      runtimeTier: runtimeContext.runtimeTier,
+      channel: sourceMessage.chat.surface === "telegram" ? "telegram" : "web",
+      externalThreadKey: sourceMessage.chat.surfaceThreadKey,
+      externalUserKey: sourceMessage.chat.surface === "web" ? sourceMessage.chat.userId : null,
+      mode: "direct"
+    });
 
     const sourceJson = normalizeSourcePayload(version.sourceJson);
     const requestedName = toPptxRequestedName(sourceJson.requestedName);
@@ -127,6 +164,7 @@ export class PrepareAssistantDocumentPptxService {
         typeof version.sourceSummaryText === "string" && version.sourceSummaryText.trim().length > 0
           ? version.sourceSummaryText
           : sourceJson.prompt,
+      runtimeSessionId: ensuredSession.session.sessionId,
       directToolExecution: {
         toolCode: "document",
         descriptorMode: "export_or_redeliver",

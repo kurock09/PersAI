@@ -253,6 +253,7 @@ export class SandboxService {
     workspaceId: string;
     assistantHandle?: string | null;
     siblingHandles?: readonly string[] | null;
+    runtimeSessionId?: string | null;
     basename: string;
     path?: string | null;
     replace?: boolean;
@@ -292,8 +293,11 @@ export class SandboxService {
         assistantHandle,
         siblingHandles,
         workspaceId: input.workspaceId,
-        runtimeSessionId: null,
-        defaultVisibleRoot: buildDefaultVisibleWorkspaceRoot(assistantHandle, null),
+        runtimeSessionId: input.runtimeSessionId ?? null,
+        defaultVisibleRoot: buildDefaultVisibleWorkspaceRoot(
+          assistantHandle,
+          input.runtimeSessionId ?? null
+        ),
         policy,
         workspaceQuotaBytes: null,
         sharedQuotaBytes: null
@@ -363,6 +367,7 @@ export class SandboxService {
     workspaceId: string;
     assistantHandle?: string | null;
     siblingHandles?: readonly string[] | null;
+    runtimeSessionId?: string | null;
     basename: string;
     contents: Buffer;
     mimeType: string;
@@ -375,6 +380,13 @@ export class SandboxService {
     | { ok: false; reason: string; message: string }
   > {
     const policy = input.policy ?? DEFAULT_RUNTIME_SANDBOX_POLICY;
+    if (input.runtimeSessionId === null || input.runtimeSessionId === undefined) {
+      return {
+        ok: false,
+        reason: "runtime_session_id_required",
+        message: "workspace_write_runtime_session_id_required"
+      };
+    }
     const jobId = randomUUID();
     let leaseGuard: WorkspaceLeaseGuard | null = null;
     try {
@@ -418,8 +430,11 @@ export class SandboxService {
         assistantHandle,
         siblingHandles,
         workspaceId: input.workspaceId,
-        runtimeSessionId: null,
-        defaultVisibleRoot: buildDefaultVisibleWorkspaceRoot(assistantHandle, null),
+        runtimeSessionId: input.runtimeSessionId ?? null,
+        defaultVisibleRoot: buildDefaultVisibleWorkspaceRoot(
+          assistantHandle,
+          input.runtimeSessionId ?? null
+        ),
         policy,
         workspaceQuotaBytes: input.workspaceQuotaBytes ?? null,
         sharedQuotaBytes: input.sharedQuotaBytes ?? null

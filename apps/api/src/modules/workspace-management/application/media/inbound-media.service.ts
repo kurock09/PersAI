@@ -77,10 +77,7 @@ export class InboundMediaService {
         const storagePath = await resolveUniqueWorkspaceStoragePath({
           workspaceId: params.workspaceId,
           assistantStableKey: params.assistantHandle,
-          // Telegram/VK/WhatsApp inbound media does not carry a runtime session
-          // id at this boundary; use the canonical chat id for the current
-          // thread as the ADR-133 session-root fallback.
-          sessionId: params.chatId,
+          sessionId: params.runtimeSessionId,
           filename: raw.originalFilename,
           mimeType: processed.normalizedMime,
           referenceId: params.messageId,

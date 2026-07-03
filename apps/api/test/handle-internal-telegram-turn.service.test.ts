@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { HandleInternalTelegramTurnService } from "../src/modules/workspace-management/application/handle-internal-telegram-turn.service";
 import { createAssistantInboundConflict } from "../src/modules/workspace-management/application/assistant-inbound-error";
 
-const TELEGRAM_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-telegram-upload-1";
+const TELEGRAM_SESSION_ROOT =
+  "/workspace/assistants/assistant-1/sessions/runtime-session-telegram-upload-1";
 
 const noopRecordModelCostLedgerService = {
   async recordChatMainReplyEvents() {

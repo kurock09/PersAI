@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { SendWebChatTurnService } from "../src/modules/workspace-management/application/send-web-chat-turn.service";
 import { createAssistantInboundConflict } from "../src/modules/workspace-management/application/assistant-inbound-error";
 
-const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 const noopRecordToolPathLedgerFromToolInvocationsService = {
   async recordFromToolInvocations() {

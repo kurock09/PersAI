@@ -35,6 +35,22 @@ const noopPrisma = {
     }
   }
 } as never;
+
+const fakeResolveAssistantInboundRuntimeContextService = {
+  async resolveByAssistantId() {
+    return { runtimeTier: "paid_shared_restricted" };
+  }
+} as never;
+
+const fakeWebRuntimeSessionStateClientService = {
+  async ensure(input: { externalThreadKey: string }) {
+    const suffix = input.externalThreadKey.replace(/^thread-/, "");
+    return {
+      created: true,
+      session: { sessionId: `runtime-session-${suffix}` }
+    };
+  }
+} as never;
 import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { ManageChatMediaService } from "../src/modules/workspace-management/application/manage-chat-media.service";
 import type { Assistant } from "../src/modules/workspace-management/domain/assistant.entity";
@@ -92,7 +108,8 @@ function buildAttachmentFromRegisterInput(
     assistantId: input.assistantId ?? assistant.id,
     workspaceId: input.workspaceId ?? assistant.workspaceId,
     attachmentType: input.attachmentType ?? "document",
-    storagePath: input.storagePath ?? "/workspace/assistants/assistant-1/sessions/chat-1/note.txt",
+    storagePath:
+      input.storagePath ?? "/workspace/assistants/assistant-1/sessions/runtime-session-1/note.txt",
     originalFilename: input.originalFilename ?? "note.txt",
     mimeType: input.mimeType ?? "text/plain",
     sizeBytes: BigInt(Number(input.sizeBytes ?? 0)),
@@ -235,7 +252,9 @@ async function run(): Promise<void> {
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
     noopSandboxControlPlaneClient,
-    noopPrisma
+    noopPrisma,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   const directUpload = await directUploadService.uploadAttachment({
@@ -253,7 +272,7 @@ async function run(): Promise<void> {
   assert.equal(directUpload.storagePath, lastRegisterChatAttachmentInput?.storagePath);
   assert.equal(
     directUpload.storagePath,
-    "/workspace/assistants/assistant-1/sessions/chat-1/note.txt"
+    "/workspace/assistants/assistant-1/sessions/runtime-session-1/note.txt"
   );
   assert.deepEqual(lastRegisterChatAttachmentInput?.metadata, {
     source: "chat_upload",
@@ -392,7 +411,9 @@ async function run(): Promise<void> {
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
     noopSandboxControlPlaneClient,
-    noopPrisma
+    noopPrisma,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   await videoUploadService.uploadAttachment({
@@ -579,7 +600,9 @@ async function run(): Promise<void> {
     metrics,
     noopRecordModelCostLedgerService,
     spySandboxControlPlaneClient,
-    noopPrisma
+    noopPrisma,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   const staged = await service.stageForWebThread({
@@ -597,11 +620,12 @@ async function run(): Promise<void> {
   assert.equal(staged.attachment.storagePath, lastRegisterChatAttachmentInput?.storagePath);
   assert.equal(
     staged.attachment.storagePath,
-    "/workspace/assistants/assistant-1/sessions/chat-1/image.png"
+    "/workspace/assistants/assistant-1/sessions/runtime-session-1/image.png"
   );
   assert.equal(hotPushInputs.length, 1);
   assert.equal(hotPushInputs[0]?.storagePath, staged.attachment.storagePath);
   assert.equal(hotPushInputs[0]?.basename, "image.png");
+  assert.equal(hotPushInputs[0]?.runtimeSessionId, "runtime-session-1");
   assert.equal(Object.hasOwn(hotPushInputs[0] ?? {}, "contents"), false);
   assert.deepEqual(deletedStagingMessageIds, []);
   assert.deepEqual(deletedStoragePaths, []);
@@ -727,7 +751,9 @@ async function run(): Promise<void> {
     new PlatformHttpMetricsService(),
     noopRecordModelCostLedgerService,
     noopSandboxControlPlaneClient,
-    noopPrisma
+    noopPrisma,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   const stagedProject = await existingProjectStageService.stageForWebThread({
@@ -742,7 +768,7 @@ async function run(): Promise<void> {
   assert.equal(stagedProject.attachment.storagePath, lastRegisterChatAttachmentInput?.storagePath);
   assert.equal(
     stagedProject.attachment.storagePath,
-    "/workspace/assistants/assistant-1/sessions/chat-project-1/spec.txt"
+    "/workspace/assistants/assistant-1/sessions/runtime-session-project-1/spec.txt"
   );
 
   const failureMetrics = new PlatformHttpMetricsService();
@@ -881,7 +907,9 @@ async function run(): Promise<void> {
     failureMetrics,
     noopRecordModelCostLedgerService,
     noopSandboxControlPlaneClient,
-    noopPrisma
+    noopPrisma,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   await assert.rejects(
@@ -1028,7 +1056,9 @@ async function run(): Promise<void> {
     storageFailureMetrics,
     noopRecordModelCostLedgerService,
     noopSandboxControlPlaneClient,
-    noopPrisma
+    noopPrisma,
+    fakeResolveAssistantInboundRuntimeContextService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   await assert.rejects(
@@ -1088,7 +1118,9 @@ async function run(): Promise<void> {
         new PlatformHttpMetricsService(),
         noopRecordModelCostLedgerService,
         noopSandboxControlPlaneClient,
-        noopPrisma
+        noopPrisma,
+        fakeResolveAssistantInboundRuntimeContextService,
+        fakeWebRuntimeSessionStateClientService
       ).stageForWebThread({
         userId: "user-1",
         surfaceThreadKey: "thread-cap",
@@ -1142,7 +1174,9 @@ async function run(): Promise<void> {
         new PlatformHttpMetricsService(),
         noopRecordModelCostLedgerService,
         noopSandboxControlPlaneClient,
-        noopPrisma
+        noopPrisma,
+        fakeResolveAssistantInboundRuntimeContextService,
+        fakeWebRuntimeSessionStateClientService
       ).uploadAttachment({
         userId: "user-1",
         chatId: "chat-b",

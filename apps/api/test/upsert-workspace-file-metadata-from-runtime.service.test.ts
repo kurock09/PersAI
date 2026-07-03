@@ -4,7 +4,7 @@ import { BadRequestException } from "@nestjs/common";
 import { UpsertWorkspaceFileMetadataFromRuntimeService } from "../src/modules/workspace-management/application/upsert-workspace-file-metadata-from-runtime.service";
 
 describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
-  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
   function buildService() {
     const calls: Array<{

@@ -56,6 +56,7 @@ describe("RuntimeDocumentJobRunService", () => {
     const result = await service.run({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
+      runtimeSessionId: "runtime-session-1",
       runtimeTier: "paid_shared_restricted",
       runtimeBundleDocument: JSON.stringify({
         metadata: {

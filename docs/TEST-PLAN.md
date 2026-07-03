@@ -62,7 +62,7 @@ corepack pnpm --filter @persai/web run typecheck
 
 Interpretation rules:
 
-1. Active runtime/model-facing guidance must teach the session root `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...` as the default working area, with assistant/workspace widening only by ordinary path choice.
+1. Active runtime behavior must use the real session root as the default working area, but model-facing write guidance must not ask the model to construct assistant/session IDs. New files use `requestedName`, basename, or relative paths; the runtime owns the actual session-root path.
 2. Positive fixtures and prompt text must not preserve flat `/workspace/<file>` examples, `workspace_shared`, `crossScope:true`, or `Current chat / this session` wording except as explicit negative guards.
 3. Working Files must describe current session files while preserving sticky aliases, micro-descriptions, and exact-path addressing rules.
 4. `files.write` exact overwrite stays boolean `replace: true`; Slice 4 must not preserve active runtime/model-facing `mode:"overwrite"` compatibility teaching.
@@ -102,7 +102,7 @@ corepack pnpm --filter @persai/runtime run typecheck
 Interpretation rules:
 
 1. `files.attach` for an existing allowed PDF/DOCX/XLSX workspace file must create the chat attachment row before best-effort inspect/register/documentLink metadata enrichment; enrichment failure must log a warning and must not drop delivery.
-2. Active document outputs and attachment paths must live under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`; root-flat `/workspace/*.pdf|docx|xlsx` outputs are rejected for active ingress, while document metadata facts remain nullable and must not block chat delivery.
+2. Active document outputs and attachment paths must live under the real current runtime session root; root-flat `/workspace/*.pdf|docx|xlsx` outputs are rejected for active ingress, while document metadata facts remain nullable and must not block chat delivery. Model-facing document creation uses `requestedName`, not a model-authored absolute session path.
 3. `document.render` and `document.convert` must not recreate the old active `project.json` workflow for ordinary authored/convert outputs. Authored revisions use the sibling `.md` file and re-render at the same `outputPath`.
 4. Removed model-facing verbs (`document.extract`, `document.edit`, `document.register_version`) remain hard-rejected. Internal extraction/OCR code may keep extraction naming only behind `document.inspect`.
 5. After deploy, live validation must prove real chat delivery and download links for net-new render, convert, Case A source edit/re-render, and Case B shell-produced document attach.

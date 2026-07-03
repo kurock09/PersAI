@@ -156,19 +156,20 @@ function testFilesCatalogRowUsesExactListedPaths(): void {
   const row = rows[0];
   const text = `${row.modelDescription}\n${row.modelUsageGuidance}`;
   assert.ok(
-    text.includes(
-      "current session root `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`"
-    ),
-    "files guidance must teach the current session root"
+    text.includes("the runtime prepends the real current session root"),
+    "files guidance must teach runtime-owned current session root resolution"
   );
   assert.ok(
-    text.includes("`/workspace/assistants/<assistantStableKey>/`") &&
-      text.includes("`/workspace/`"),
-    "files guidance must teach explicit assistant/workspace widens by path"
+    /never (construct|spell).*assistant\/session IDs/i.test(text),
+    "files guidance must forbid model-authored assistant/session IDs"
   );
   assert.ok(
     text.includes('files({action:"list"})'),
     "files guidance must teach the default current-session listing call"
+  );
+  assert.ok(
+    text.includes('files({action:"write", requestedName:"draft.txt"'),
+    "files guidance must teach requestedName for new writes"
   );
   assert.ok(
     /Six actions only: list, read, preview, write, delete, attach/i.test(text),

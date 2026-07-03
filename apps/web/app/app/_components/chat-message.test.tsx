@@ -4,7 +4,7 @@ import { forwardRef } from "react";
 import { ChatMessageBubble, resolveInternalChatCta } from "./chat-message";
 import type { ChatMessage } from "./use-chat";
 
-const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 const imageLightboxMock = vi.hoisted(() => vi.fn());
 
@@ -562,20 +562,20 @@ describe("ChatMessageBubble — canonical file attachments", () => {
     const lightbox = screen.getByTestId("mock-image-lightbox");
     expect(lightbox).toHaveAttribute(
       "data-src",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto-1.jpg"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fphoto-1.jpg"
     );
     expect(lightbox).toHaveAttribute("data-gallery-count", "2");
     expect(lightbox).toHaveAttribute("data-current-index", "0");
     expect(imageLightboxMock).toHaveBeenCalledWith(
       expect.objectContaining({
         open: true,
-        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto-1.jpg",
+        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fphoto-1.jpg",
         galleryItems: [
           expect.objectContaining({
-            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto-1.jpg"
+            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fphoto-1.jpg"
           }),
           expect.objectContaining({
-            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto-2.jpg"
+            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fphoto-2.jpg"
           })
         ],
         currentIndex: 0,
@@ -606,7 +606,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /spec\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fspec.pdf&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fspec.pdf&download=1"
     );
   });
 
@@ -635,7 +635,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /after-refresh\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fafter-refresh.pdf&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fafter-refresh.pdf&download=1"
     );
   });
 
@@ -675,7 +675,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /board-deck\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fboard-deck.pdf&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fboard-deck.pdf&download=1"
     );
     const pptxButton = screen.getByRole("button", {
       name: /presentationDownloadPptxAction|Download PPTX|Скачать PPTX/i
@@ -811,18 +811,18 @@ describe("ChatMessageBubble — video attachment preview", () => {
     const lightbox = screen.getByTestId("mock-image-lightbox");
     expect(lightbox).toHaveAttribute(
       "data-src",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fclip.mp4"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fclip.mp4"
     );
     expect(lightbox).toHaveAttribute(
       "data-download-url",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fclip.mp4&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fclip.mp4&download=1"
     );
     expect(lightbox).toHaveAttribute("data-filename", "clip.mp4");
     expect(lightbox).toHaveAttribute("data-media-type", "video");
     expect(imageLightboxMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         open: true,
-        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fclip.mp4",
+        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fclip.mp4",
         mediaType: "video"
       })
     );

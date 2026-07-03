@@ -123,6 +123,7 @@ export class RuntimeDocumentProviderAdapterService {
       workspaceId: input.bundle.metadata.workspaceId,
       handle: input.bundle.metadata.assistantHandle,
       siblingHandles: input.bundle.metadata.siblingAssistantHandles,
+      sessionId: input.request.runtimeSessionId,
       workspaceQuotaBytes: input.bundle.governance.quota?.workspaceQuotaBytes ?? null,
       sharedQuotaBytes: input.bundle.governance.quota?.sharedQuotaBytes ?? null,
       filename,
@@ -625,6 +626,7 @@ export class RuntimeDocumentProviderAdapterService {
     workspaceId: string;
     handle: string;
     siblingHandles: readonly string[];
+    sessionId: string;
     workspaceQuotaBytes: number | null;
     sharedQuotaBytes: number | null;
     filename: string;
@@ -650,6 +652,7 @@ export class RuntimeDocumentProviderAdapterService {
       workspaceId: input.workspaceId,
       handle: input.handle,
       siblingHandles: input.siblingHandles,
+      sessionId: input.sessionId,
       workspaceQuotaBytes: input.workspaceQuotaBytes,
       sharedQuotaBytes: input.sharedQuotaBytes,
       buffer: input.buffer,

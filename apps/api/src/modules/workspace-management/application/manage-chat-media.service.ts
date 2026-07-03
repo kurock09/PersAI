@@ -37,7 +37,9 @@ import {
 } from "./record-model-cost-ledger.service";
 import type { RuntimeBillingFacts } from "@persai/runtime-contract";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
+import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
 import { lastWorkspacePathSegment } from "./workspace-visible-paths";
+import { WebRuntimeSessionStateClientService } from "./web-runtime-session-state-client.service";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/webm",
@@ -72,7 +74,9 @@ export class ManageChatMediaService {
     private readonly platformHttpMetricsService: PlatformHttpMetricsService,
     private readonly recordModelCostLedgerService: RecordModelCostLedgerService,
     private readonly sandboxControlPlaneClient: SandboxControlPlaneClientService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly resolveAssistantInboundRuntimeContextService: ResolveAssistantInboundRuntimeContextService,
+    private readonly webRuntimeSessionStateClientService: WebRuntimeSessionStateClientService
   ) {}
 
   private resolveLedgerSurface(surface: string): ModelCostLedgerSurface | null {
@@ -149,12 +153,17 @@ export class ManageChatMediaService {
     });
     const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
     const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
+    const runtimeSessionId = await this.ensureChatRuntimeSession({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      userId: assistant.userId,
+      surface: chat.surface,
+      surfaceThreadKey: chat.surfaceThreadKey
+    });
     const storagePath = await resolveUniqueWorkspaceStoragePath({
       workspaceId: assistant.workspaceId,
       assistantStableKey: assistant.handle,
-      // API-owned direct uploads do not carry a runtime session id; use the
-      // existing canonical chat id as the ADR-133 session-root fallback.
-      sessionId: chat.id,
+      sessionId: runtimeSessionId,
       filename: validated.originalFilename,
       mimeType,
       referenceId: message.id,
@@ -306,12 +315,17 @@ export class ManageChatMediaService {
 
       const fileBuffer = processed?.normalizedBuffer ?? params.file.buffer;
       const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
+      const runtimeSessionId = await this.ensureChatRuntimeSession({
+        assistantId: assistant.id,
+        workspaceId: assistant.workspaceId,
+        userId: assistant.userId,
+        surface: chat.surface,
+        surfaceThreadKey: chat.surfaceThreadKey
+      });
       const storagePath = await resolveUniqueWorkspaceStoragePath({
         workspaceId: assistant.workspaceId,
         assistantStableKey: assistant.handle,
-        // API-owned staged uploads do not carry a runtime session id; use the
-        // existing canonical chat id as the ADR-133 session-root fallback.
-        sessionId: chat.id,
+        sessionId: runtimeSessionId,
         filename: validated.originalFilename,
         mimeType,
         referenceId: stagingMessage.id,
@@ -392,6 +406,7 @@ export class ManageChatMediaService {
           assistantId: assistant.id,
           workspaceId: assistant.workspaceId,
           basename: workspaceBasename,
+          runtimeSessionId,
           storagePath,
           mimeType
         });
@@ -770,5 +785,28 @@ export class ManageChatMediaService {
       );
       return null;
     }
+  }
+
+  private async ensureChatRuntimeSession(input: {
+    assistantId: string;
+    workspaceId: string;
+    userId: string;
+    surface: string;
+    surfaceThreadKey: string;
+  }): Promise<string> {
+    const runtimeContext =
+      await this.resolveAssistantInboundRuntimeContextService.resolveByAssistantId(
+        input.assistantId
+      );
+    const ensured = await this.webRuntimeSessionStateClientService.ensure({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      runtimeTier: runtimeContext.runtimeTier,
+      channel: input.surface === "telegram" ? "telegram" : "web",
+      externalThreadKey: input.surfaceThreadKey,
+      externalUserKey: input.surface === "web" ? input.userId : null,
+      mode: "direct"
+    });
+    return ensured.session.sessionId;
   }
 }

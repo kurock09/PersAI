@@ -10,7 +10,7 @@ describe("inbound-media.service", () => {
     const releasedBytes: bigint[] = [];
     let registerCalls = 0;
     const metrics = new PlatformHttpMetricsService();
-    const storagePath = "/workspace/assistants/assistant-1/sessions/chat-1/photo.jpg";
+    const storagePath = "/workspace/assistants/assistant-1/sessions/runtime-session-1/photo.jpg";
     const sharedObjectKey = `workspaces/workspace-1${storagePath}`;
 
     const service = new InboundMediaService(
@@ -118,6 +118,7 @@ describe("inbound-media.service", () => {
       assistantHandle: "assistant-1",
       userId: "user-1",
       chatId: "chat-1",
+      runtimeSessionId: "runtime-session-1",
       messageId: "msg-1",
       workspaceId: "workspace-1",
       userMessage: "hello",
@@ -152,7 +153,7 @@ describe("inbound-media.service", () => {
   test("generates image thumbnail path and saves derivative after primary upload", async () => {
     const savedObjectKeys: string[] = [];
     let registerInput: Record<string, unknown> | null = null;
-    const storagePath = "/workspace/assistants/assistant-1/sessions/chat-1/photo.jpg";
+    const storagePath = "/workspace/assistants/assistant-1/sessions/runtime-session-1/photo.jpg";
     const thumbBuffer = Buffer.from("thumb");
 
     const attachment: AssistantChatMessageAttachment = {
@@ -274,6 +275,7 @@ describe("inbound-media.service", () => {
       assistantHandle: "assistant-1",
       userId: "user-1",
       chatId: "chat-1",
+      runtimeSessionId: "runtime-session-1",
       messageId: "msg-1",
       workspaceId: "workspace-1",
       userMessage: "photo",

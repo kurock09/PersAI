@@ -4,7 +4,7 @@ import { EnqueueRuntimeDeferredDocumentJobService } from "../src/modules/workspa
 
 const PRESENTATION_DOC_ID = "12345678-1234-4234-9234-1234567890ab";
 const PRESENTATION_VERSION_ID = "22345678-1234-4234-9234-1234567890ab";
-const PRESENTATION_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const PRESENTATION_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 function noopGammaThemePickerMock() {
   return {
@@ -265,7 +265,7 @@ async function runRevisionByStoragePathSteersBackToVisibleWorkflow(): Promise<vo
     ...baseInput("revise_document"),
     directToolExecution: {
       ...baseInput("revise_document").directToolExecution,
-      path: "/workspace/assistants/assistant-1/sessions/chat-1/Карнаух_Федор_Отчет (1).docx",
+      path: "/workspace/assistants/assistant-1/sessions/runtime-session-1/Карнаух_Федор_Отчет (1).docx",
       request: {
         prompt: "Rebuild this DOCX in a premium style",
         outputFormat: "pdf" as const,

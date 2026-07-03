@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — current-session file/document path ownership cutover ready to commit
+
+Status: **implemented locally, focused verification green, push/deploy pending.** Follow-up investigation against the live cluster showed the prior file/document contract was still wrong even after the registration/path cleanup: ordinary `files.write` and older `document.render` paths pushed the model toward authoring absolute `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...` destinations, while prompt owners only showed template placeholders. In the live cluster this let the model invent placeholder roots such as `/workspace/assistants/current/sessions/current/...`, which became real directories in the session pod. This slice removes that contract bug instead of trying to “teach the model better”.
+
+What changed:
+
+- `apps/runtime/src/modules/turns/runtime-document-tool.service.ts` now accepts `requestedName` (filename only) for `document.render` and optional `requestedName` for `document.convert`; the runtime resolves the actual output path under the real current session root using `buildAssistantSessionRoot(assistantHandle, sessionId)`.
+- The runtime now rejects nested/absolute `requestedName` values immediately (`/workspace/...`, `foo/bar.pdf`, `..\x`, control chars), so a model-authored placeholder path cannot become a live document destination anymore.
+- `document.convert` no longer derives output next to the source file path; when `requestedName` is omitted it derives only the basename and still writes into the current session root.
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` now supports `files.write({ requestedName, content })` and relative write paths for new current-session files; runtime resolves them under the real current session root before sandbox execution.
+- Stale placeholder absolute writes like `/workspace/assistants/current/sessions/current/test.txt` and `/workspace/assistants/<realHandle>/sessions/current/test.txt` are canonicalized to the real current session root, while foreign model-authored session roots are rejected before sandbox execution.
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`, `apps/api/prisma/tool-catalog-data.ts`, and `apps/api/prisma/bootstrap-preset-data.ts` now teach the active truth: the model provides only a filename hint and the runtime owns the real session-root address.
+- Runtime tests were updated for the new output-location semantics (session-root file placement, sibling Markdown in the same session root, and a direct guard against nested path input), and the ADR-119 golden prompt fixture was regenerated.
+
+Focused verification green:
+
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-document-tool.service.test.ts test/native-tool-projection.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx --test test/adr119-golden-prompt-snapshot.test.ts test/tool-catalog-data.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+
+Residuals / next step:
+
+- Commit this cutover together with the earlier document registration/path cleanup.
+- Deploy to dev and re-check the exact founder repro to confirm new `document.render` / `document.convert` calls no longer create `assistants/current/sessions/current/...` in session pods.
+
 ## 2026-07-03 — ADR-133 document pipeline cleanup ready to commit
 
 Status: **implemented locally, focused verification green, push/deploy pending.** Baseline SHA: `ea05445f13e83a43b86c250411beb88d95a74a45`. This slice cleans the remaining document-versioning/runtime seams that were still mixing ADR-133 active paths with older runtime-side registration logic.

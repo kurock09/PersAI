@@ -1,6 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { loadApiConfig } from "@persai/config";
 import type {
+  RuntimeConversationAddress,
+  RuntimeSessionEnsureInput,
+  RuntimeSessionEnsureResult,
   RuntimeSessionResolveInput,
   RuntimeSessionResolveResult
 } from "@persai/runtime-contract";
@@ -21,45 +24,71 @@ interface JsonResponse {
   body: unknown;
 }
 
+export interface RuntimeSessionStateConversationInput {
+  assistantId: string;
+  workspaceId: string;
+  runtimeTier: RuntimeTier;
+  channel: RuntimeConversationAddress["channel"];
+  externalThreadKey: string;
+  externalUserKey: string | null;
+  mode: RuntimeConversationAddress["mode"];
+}
+
 @Injectable()
 export class WebRuntimeSessionStateClientService {
-  async execute(input: WebRuntimeSessionStateClientInput): Promise<RuntimeSessionResolveResult> {
-    const config = loadApiConfig(process.env);
-    const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
-    if (!baseUrl) {
-      throw new AssistantRuntimeError(
-        "runtime_degraded",
-        "Internal web runtime session-state client requires PERSAI_RUNTIME_BASE_URL."
-      );
-    }
-
+  async resolve(input: RuntimeSessionStateConversationInput): Promise<RuntimeSessionResolveResult> {
     const request: RuntimeSessionResolveInput = {
       runtimeTier: input.runtimeTier,
       conversation: {
         assistantId: input.assistantId,
         workspaceId: input.workspaceId,
-        channel: "web",
-        externalThreadKey: input.surfaceThreadKey,
-        externalUserKey: input.userId,
-        mode: "direct"
+        channel: input.channel,
+        externalThreadKey: input.externalThreadKey,
+        externalUserKey: input.externalUserKey,
+        mode: input.mode
       }
     };
 
-    const response = await this.postJson(
-      new URL("/api/v1/turns/session/resolve", baseUrl).toString(),
+    const response = await this.postRuntimeSessionJson<RuntimeSessionResolveResult>(
+      "/api/v1/turns/session/resolve",
       request,
-      config.PERSAI_RUNTIME_TURN_TIMEOUT_MS
+      this.isRuntimeSessionResolveResult,
+      "resolve"
     );
-    if (!response.ok) {
-      this.throwForFailedResponse(response);
-    }
-    if (!this.isRuntimeSessionResolveResult(response.body)) {
-      throw new AssistantRuntimeError(
-        "invalid_response",
-        "Internal web runtime session-state client returned an invalid response."
-      );
-    }
-    return response.body;
+    return response;
+  }
+
+  async ensure(input: RuntimeSessionStateConversationInput): Promise<RuntimeSessionEnsureResult> {
+    const request: RuntimeSessionEnsureInput = {
+      runtimeTier: input.runtimeTier,
+      conversation: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        channel: input.channel,
+        externalThreadKey: input.externalThreadKey,
+        externalUserKey: input.externalUserKey,
+        mode: input.mode
+      }
+    };
+
+    return this.postRuntimeSessionJson<RuntimeSessionEnsureResult>(
+      "/api/v1/turns/session/ensure",
+      request,
+      this.isRuntimeSessionEnsureResult,
+      "ensure"
+    );
+  }
+
+  async execute(input: WebRuntimeSessionStateClientInput): Promise<RuntimeSessionResolveResult> {
+    return this.resolve({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      runtimeTier: input.runtimeTier,
+      channel: "web",
+      externalThreadKey: input.surfaceThreadKey,
+      externalUserKey: input.userId,
+      mode: "direct"
+    });
   }
 
   private async postJson(url: string, body: unknown, timeoutMs: number): Promise<JsonResponse> {
@@ -128,6 +157,37 @@ export class WebRuntimeSessionStateClientService {
     throw new AssistantRuntimeError("invalid_response", message);
   }
 
+  private async postRuntimeSessionJson<T>(
+    path: string,
+    body: unknown,
+    guard: (value: unknown) => value is T,
+    action: "resolve" | "ensure"
+  ): Promise<T> {
+    const config = loadApiConfig(process.env);
+    const baseUrl = config.PERSAI_RUNTIME_BASE_URL?.trim();
+    if (!baseUrl) {
+      throw new AssistantRuntimeError(
+        "runtime_degraded",
+        "Internal web runtime session-state client requires PERSAI_RUNTIME_BASE_URL."
+      );
+    }
+    const response = await this.postJson(
+      new URL(path, baseUrl).toString(),
+      body,
+      config.PERSAI_RUNTIME_TURN_TIMEOUT_MS
+    );
+    if (!response.ok) {
+      this.throwForFailedResponse(response);
+    }
+    if (!guard.call(this, response.body)) {
+      throw new AssistantRuntimeError(
+        "invalid_response",
+        `Internal web runtime session-state client returned an invalid ${action} response.`
+      );
+    }
+    return response.body as T;
+  }
+
   private extractErrorMessage(body: unknown): string | null {
     if (typeof body === "string" && body.trim().length > 0) {
       return body.trim();
@@ -166,5 +226,10 @@ export class WebRuntimeSessionStateClientService {
       typeof row?.found === "boolean" &&
       (row.session === null || this.asObject(row.session) !== null)
     );
+  }
+
+  private isRuntimeSessionEnsureResult(value: unknown): value is RuntimeSessionEnsureResult {
+    const row = this.asObject(value);
+    return typeof row?.created === "boolean" && this.asObject(row?.session) !== null;
   }
 }

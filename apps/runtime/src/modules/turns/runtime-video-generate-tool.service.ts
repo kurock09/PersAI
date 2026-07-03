@@ -222,6 +222,7 @@ export class RuntimeVideoGenerateToolService {
     toolCall: ProviderGatewayToolCall;
     availableAttachments: RuntimeAttachmentRef[];
     sessionId: string;
+    mediaJobId?: string | null;
     requestId: string;
     deferToAsyncMediaJob?: {
       sourceUserMessageId: string;
@@ -416,6 +417,7 @@ export class RuntimeVideoGenerateToolService {
             assistantId: params.bundle.metadata.assistantId,
             sourceUserMessageId: params.deferToAsyncMediaJob.sourceUserMessageId,
             sourceUserMessageText: params.deferToAsyncMediaJob.sourceUserMessageText,
+            runtimeSessionId: params.sessionId,
             attachments: params.availableAttachments,
             directToolExecution: {
               toolCode: VIDEO_GENERATE_TOOL_CODE,
@@ -694,6 +696,7 @@ export class RuntimeVideoGenerateToolService {
           assistantId: params.bundle.metadata.assistantId,
           sourceUserMessageId: params.deferToAsyncMediaJob.sourceUserMessageId,
           sourceUserMessageText: params.deferToAsyncMediaJob.sourceUserMessageText,
+          runtimeSessionId: params.sessionId,
           attachments: params.availableAttachments,
           directToolExecution: {
             toolCode: VIDEO_GENERATE_TOOL_CODE,
@@ -861,7 +864,7 @@ export class RuntimeVideoGenerateToolService {
                 : null,
             voiceIds: resolvedVoiceIds.length > 0 ? resolvedVoiceIds : null,
             acceptedTask: this.readAcceptedTaskHint(request, attempt),
-            mediaJobId: this.resolveMediaJobIdFromSession(params.sessionId),
+            mediaJobId: params.mediaJobId ?? this.resolveMediaJobIdFromSession(params.sessionId),
             credential: {
               toolCode: VIDEO_GENERATE_TOOL_CODE,
               secretId: attempt.credential.secretRef.id,
@@ -884,6 +887,7 @@ export class RuntimeVideoGenerateToolService {
           workspaceId: params.bundle.metadata.workspaceId,
           handle: params.bundle.metadata.assistantHandle,
           siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+          sessionId: params.sessionId,
           workspaceQuotaBytes: params.bundle.governance.quota?.workspaceQuotaBytes ?? null,
           sharedQuotaBytes: params.bundle.governance.quota?.sharedQuotaBytes ?? null,
           filenameHint: request.filename,
@@ -2509,6 +2513,7 @@ export class RuntimeVideoGenerateToolService {
     workspaceId: string;
     handle: string;
     siblingHandles: readonly string[];
+    sessionId: string;
     workspaceQuotaBytes: number | null;
     sharedQuotaBytes: number | null;
     filenameHint: string | null;
@@ -2537,6 +2542,7 @@ export class RuntimeVideoGenerateToolService {
       workspaceId: input.workspaceId,
       handle: input.handle,
       siblingHandles: input.siblingHandles,
+      sessionId: input.sessionId,
       workspaceQuotaBytes: input.workspaceQuotaBytes,
       sharedQuotaBytes: input.sharedQuotaBytes,
       buffer,
@@ -3132,6 +3138,7 @@ export class RuntimeVideoGenerateToolService {
         workspaceId: bundle.metadata.workspaceId,
         handle: bundle.metadata.assistantHandle,
         siblingHandles: bundle.metadata.siblingAssistantHandles,
+        sessionId,
         workspaceQuotaBytes: bundle.governance.quota?.workspaceQuotaBytes ?? null,
         sharedQuotaBytes: bundle.governance.quota?.sharedQuotaBytes ?? null,
         filenameHint: request.filename,

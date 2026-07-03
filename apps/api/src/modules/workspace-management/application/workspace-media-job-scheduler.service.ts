@@ -68,6 +68,7 @@ type MediaJobRequestPayload = {
   attachments: RuntimeAttachmentRef[];
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
+  runtimeSessionId: string;
   directToolExecution: DirectToolExecutionPayload;
 };
 
@@ -415,6 +416,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
     const outcome = await this.internalRuntimeMediaJobClientService.run({
       assistantId: job.assistantId,
       workspaceId: job.workspaceId,
+      runtimeSessionId: requestPayload.runtimeSessionId,
       runtimeTier: resolvedRuntimeContext.runtimeTier,
       runtimeBundleDocument: spec.runtimeBundleDocument,
       job: {
@@ -1015,6 +1017,8 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       typeof row.sourceUserMessageText !== "string" ||
       row.sourceUserMessageText.trim().length === 0 ||
       typeof row.sourceUserMessageCreatedAt !== "string" ||
+      typeof row.runtimeSessionId !== "string" ||
+      row.runtimeSessionId.trim().length === 0 ||
       !Array.isArray(row.attachments)
     ) {
       return null;
@@ -1031,6 +1035,7 @@ export class AssistantMediaJobSchedulerService implements OnModuleInit, OnModule
       attachments,
       sourceUserMessageText: row.sourceUserMessageText,
       sourceUserMessageCreatedAt: row.sourceUserMessageCreatedAt,
+      runtimeSessionId: row.runtimeSessionId,
       directToolExecution
     };
   }

@@ -171,7 +171,7 @@ async function runEnqueueRevisionRetriesUniqueVersionConflict(): Promise<void> {
 }
 
 async function runFindCurrentDocumentLinkPreservesVisibleProjectProvenance(): Promise<void> {
-  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
   const revenueProjectRoot = `${sessionRoot}/projects/revenue`;
   const service = new AssistantDocumentJobService({
     assistantDocument: {

@@ -3,6 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   DEFAULT_RUNTIME_SANDBOX_POLICY,
+  buildAssistantSessionRoot,
   type PersaiRuntimePresentationImagePolicy,
   type PersaiRuntimePresentationVisualDensity,
   type PersaiRuntimePresentationVisualStyle,
@@ -126,6 +127,7 @@ export class RuntimeDocumentToolService {
   async executePresentationToolCall(params: {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
+    sessionId: string;
     deferToAsyncDocumentJob: {
       sourceUserMessageId: string;
       sourceUserMessageText: string;
@@ -166,6 +168,7 @@ export class RuntimeDocumentToolService {
       request: parsed.request,
       sourceUserMessageId: params.deferToAsyncDocumentJob.sourceUserMessageId,
       sourceUserMessageText: params.deferToAsyncDocumentJob.sourceUserMessageText,
+      runtimeSessionId: params.sessionId,
       currentAttachments: params.deferToAsyncDocumentJob.currentAttachments,
       availableAttachments: params.deferToAsyncDocumentJob.availableAttachments
     });
@@ -215,6 +218,7 @@ export class RuntimeDocumentToolService {
     };
     sourceUserMessageId: string;
     sourceUserMessageText: string;
+    runtimeSessionId: string;
     currentAttachments: RuntimeAttachmentRef[];
     availableAttachments: RuntimeAttachmentRef[];
   }): Promise<RuntimeDocumentToolExecutionResult> {
@@ -236,6 +240,7 @@ export class RuntimeDocumentToolService {
         assistantId: params.bundle.metadata.assistantId,
         sourceUserMessageId: params.sourceUserMessageId,
         sourceUserMessageText: params.sourceUserMessageText,
+        runtimeSessionId: params.runtimeSessionId,
         attachments: sourceAttachments,
         directToolExecution: {
           toolCode: "document",
@@ -414,15 +419,12 @@ export class RuntimeDocumentToolService {
   private async executeRenderToolCall(params: {
     bundle: AssistantRuntimeBundle;
     request: {
-      outputPath: string;
       format: "pdf" | "xlsx" | "docx";
-      requestedName?: string | null;
-      replace?: boolean;
+      requestedName: string;
       content: string | null;
-      contentPath?: string | null;
-      style?: DocumentRenderTemplateTheme | null;
-      templatePath?: string | null;
-      template?: NormalizedDocumentRenderTemplate | null;
+      contentPath: string | null;
+      style: DocumentRenderTemplateTheme | null;
+      templatePath: string | null;
     };
     sessionId: string | null;
     requestId: string | null;
@@ -434,20 +436,21 @@ export class RuntimeDocumentToolService {
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
   }): Promise<RuntimeDocumentToolExecutionResult> {
-    const outputPath = this.normalizeWorkspacePath(params.request.outputPath);
-    if (outputPath === null) {
+    if (params.sessionId === null || params.requestId === null) {
       return this.renderSkipped(
         params.request.format,
-        "invalid_arguments",
-        "document.outputPath must be a valid /workspace/... file path."
+        "runtime_degraded",
+        "Document render requires an active runtime session."
       );
     }
-    if (!this.outputPathMatchesFormat(outputPath, params.request.format)) {
-      return this.renderSkipped(
-        params.request.format,
-        "invalid_arguments",
-        "document.outputPath extension must match document.format."
-      );
+    const outputPath = this.resolveRequestedDocumentOutputPath({
+      bundle: params.bundle,
+      sessionId: params.sessionId,
+      requestedName: params.request.requestedName,
+      format: params.request.format
+    });
+    if (outputPath instanceof Error) {
+      return this.renderSkipped(params.request.format, "invalid_arguments", outputPath.message);
     }
     if (
       (params.request.content === null && (params.request.contentPath ?? null) === null) ||
@@ -457,13 +460,6 @@ export class RuntimeDocumentToolService {
         params.request.format,
         "invalid_arguments",
         "document.render requires exactly one of document.content or document.contentPath."
-      );
-    }
-    if (params.sessionId === null || params.requestId === null) {
-      return this.renderSkipped(
-        params.request.format,
-        "runtime_degraded",
-        "Document render requires an active runtime session."
       );
     }
     if (this.sandboxClientService?.isConfigured() !== true) {
@@ -617,7 +613,7 @@ export class RuntimeDocumentToolService {
     request: {
       source: string;
       targetFormat: "pdf" | "xlsx" | "docx";
-      outputPath: string | null;
+      requestedName: string | null;
     };
     sessionId: string | null;
     requestId: string | null;
@@ -652,21 +648,16 @@ export class RuntimeDocumentToolService {
         "document.convert source must be a PDF, DOCX, or XLSX file."
       );
     }
-    const outputPath = this.normalizeWorkspacePath(
-      params.request.outputPath ??
-        this.deriveConvertedOutputPath(sourcePath, params.request.targetFormat)
-    );
-    if (outputPath === null) {
-      return this.convertSkipped(
-        "invalid_arguments",
-        "document.outputPath must be a valid /workspace/... file path."
-      );
-    }
-    if (!this.outputPathMatchesFormat(outputPath, params.request.targetFormat)) {
-      return this.convertSkipped(
-        "invalid_arguments",
-        "document.outputPath extension must match document.targetFormat."
-      );
+    const outputPath = this.resolveRequestedDocumentOutputPath({
+      bundle: params.bundle,
+      sessionId: params.sessionId,
+      requestedName:
+        params.request.requestedName ??
+        `${this.stemOf(this.basename(sourcePath))}.${params.request.targetFormat}`,
+      format: params.request.targetFormat
+    });
+    if (outputPath instanceof Error) {
+      return this.convertSkipped("invalid_arguments", outputPath.message);
     }
     let job: RuntimeSandboxJobResult;
     try {
@@ -785,7 +776,7 @@ export class RuntimeDocumentToolService {
     | {
         kind: "render";
         request: {
-          outputPath: string;
+          requestedName: string;
           format: "pdf" | "xlsx" | "docx";
           content: string | null;
           contentPath: string | null;
@@ -798,7 +789,7 @@ export class RuntimeDocumentToolService {
         request: {
           source: string;
           targetFormat: "pdf" | "xlsx" | "docx";
-          outputPath: string | null;
+          requestedName: string | null;
         };
       }
     | Error {
@@ -817,9 +808,9 @@ export class RuntimeDocumentToolService {
       };
     }
     if (row.action === "render") {
-      const outputPath = this.readNonEmptyString(row.outputPath);
-      if (outputPath === null) {
-        return new Error("document.outputPath must be a non-empty string.");
+      const requestedName = this.readNonEmptyString(row.requestedName);
+      if (requestedName === null) {
+        return new Error("document.requestedName must be a non-empty string.");
       }
       const format = row.format;
       if (format !== "pdf" && format !== "xlsx" && format !== "docx") {
@@ -829,7 +820,7 @@ export class RuntimeDocumentToolService {
         return {
           kind: "render",
           request: {
-            outputPath,
+            requestedName,
             format,
             content: this.readDocumentRenderContent(row.content),
             contentPath: this.readDocumentRenderContentPath(row.contentPath),
@@ -863,7 +854,7 @@ export class RuntimeDocumentToolService {
         request: {
           source,
           targetFormat: row.targetFormat,
-          outputPath: this.readNonEmptyString(row.outputPath)
+          requestedName: this.readNonEmptyString(row.requestedName)
         }
       };
     }
@@ -1680,11 +1671,53 @@ export class RuntimeDocumentToolService {
     ].join("\n");
   }
 
-  private deriveConvertedOutputPath(
-    sourcePath: string,
-    targetFormat: "pdf" | "xlsx" | "docx"
-  ): string {
-    return `${this.dirname(sourcePath)}/${this.stemOf(this.basename(sourcePath))}.${targetFormat}`;
+  private resolveRequestedDocumentOutputPath(input: {
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+    requestedName: string;
+    format: "pdf" | "xlsx" | "docx";
+  }): string | Error {
+    const assistantHandle = input.bundle.metadata.assistantHandle?.trim() ?? "";
+    if (assistantHandle.length === 0) {
+      return new Error("Document output path resolution requires a runtime assistant handle.");
+    }
+    const requestedName = input.requestedName.trim();
+    if (requestedName.length === 0) {
+      return new Error("document.requestedName must be a non-empty string.");
+    }
+    if (
+      requestedName.startsWith("/") ||
+      requestedName.includes("/") ||
+      requestedName.includes("\\") ||
+      requestedName === "." ||
+      requestedName === ".." ||
+      Array.from(requestedName).some((char) => char.charCodeAt(0) < 32)
+    ) {
+      return new Error(
+        "document.requestedName must be a filename only, not an absolute or nested path."
+      );
+    }
+    const resolvedName = this.ensureRequestedNameMatchesFormat(requestedName, input.format);
+    if (resolvedName instanceof Error) {
+      return resolvedName;
+    }
+    return `${buildAssistantSessionRoot(assistantHandle, input.sessionId)}/${resolvedName}`;
+  }
+
+  private ensureRequestedNameMatchesFormat(
+    requestedName: string,
+    format: "pdf" | "xlsx" | "docx"
+  ): string | Error {
+    const lowered = requestedName.toLowerCase();
+    const expectedSuffix = `.${format}`;
+    const extensionMatch = /\.([a-z0-9]+)$/i.exec(requestedName);
+    if (extensionMatch === null) {
+      return `${requestedName}${expectedSuffix}`;
+    }
+    if (lowered.endsWith(expectedSuffix)) {
+      return requestedName;
+    }
+    return new Error(`document.requestedName extension must match document format ${format}.`);
   }
 
   private deriveSiblingMarkdownPath(outputPath: string): string {
@@ -2063,10 +2096,6 @@ export class RuntimeDocumentToolService {
 
   private toWorkspaceRelativePath(path: string): string {
     return path.replace(/^\/workspace\//, "");
-  }
-
-  private outputPathMatchesFormat(path: string, format: "pdf" | "xlsx" | "docx"): boolean {
-    return path.toLowerCase().endsWith(`.${format}`);
   }
 
   private basename(path: string): string {

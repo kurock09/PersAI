@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { DocumentWorkspaceExtractionService } from "../src/modules/workspace-management/application/document-workspace-extraction.service";
 
 describe("DocumentWorkspaceExtractionService", () => {
-  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
   const sourcePdfPath = `${sessionRoot}/source.pdf`;
   const sourceDocxPath = `${sessionRoot}/source.docx`;
   const revenueXlsxPath = `${sessionRoot}/revenue.xlsx`;
@@ -129,7 +129,7 @@ describe("DocumentWorkspaceExtractionService", () => {
       ]
     );
     const projectManifestBuffer = savedObjects.get(
-      "gcs:assistants/assistant-1/sessions/chat-1/projects/source/project.json"
+      "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/source/project.json"
     );
     assert.ok(projectManifestBuffer);
     const projectManifest = JSON.parse(projectManifestBuffer!.toString("utf8")) as Record<
@@ -144,7 +144,7 @@ describe("DocumentWorkspaceExtractionService", () => {
     assert.equal(projectManifest.sourceFormat, "pdf");
     assert.equal(projectManifest.sourceMimeType, "application/pdf");
     const manifestBuffer = savedObjects.get(
-      "gcs:assistants/assistant-1/sessions/chat-1/projects/source/extract/manifest.json"
+      "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/source/extract/manifest.json"
     );
     assert.ok(manifestBuffer);
     const manifest = JSON.parse(manifestBuffer!.toString("utf8")) as Record<string, unknown>;
@@ -257,19 +257,19 @@ describe("DocumentWorkspaceExtractionService", () => {
     assert.ok(outcome.outputPaths.includes(`${revenueProjectRoot}/source/revenue.xlsx`));
     assert.ok(
       savedKeys.includes(
-        "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/extract/manifest.json"
+        "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/revenue/extract/manifest.json"
       )
     );
     assert.ok(!outcome.outputPaths.includes(`${revenueProjectRoot}/render/build.py`));
     assert.ok(!outcome.outputPaths.includes(`${revenueProjectRoot}/render/export_pdf.py`));
     assert.ok(
       !savedKeys.includes(
-        "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/render/build.py"
+        "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/revenue/render/build.py"
       )
     );
     assert.ok(
       !savedKeys.includes(
-        "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/render/export_pdf.py"
+        "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/revenue/render/export_pdf.py"
       )
     );
     assert.ok(Array.isArray(outcome.suggestedNextActions));
@@ -563,7 +563,7 @@ describe("DocumentWorkspaceExtractionService", () => {
     assert.ok(!outcome.outputPaths.includes(`${sourceProjectRoot}/render/report.html`));
 
     const projectManifestBuffer = savedObjects.get(
-      "gcs:assistants/assistant-1/sessions/chat-1/projects/source/project.json"
+      "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/source/project.json"
     );
     assert.ok(projectManifestBuffer);
     const projectManifest = JSON.parse(projectManifestBuffer!.toString("utf8")) as Record<
@@ -577,13 +577,13 @@ describe("DocumentWorkspaceExtractionService", () => {
     );
     assert.equal(
       savedObjects.has(
-        "gcs:assistants/assistant-1/sessions/chat-1/projects/source/render/build.py"
+        "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/source/render/build.py"
       ),
       false
     );
     assert.equal(
       savedObjects.has(
-        "gcs:assistants/assistant-1/sessions/chat-1/projects/source/render/export_pdf.py"
+        "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/source/render/export_pdf.py"
       ),
       false
     );
@@ -818,7 +818,9 @@ describe("DocumentWorkspaceExtractionService", () => {
     }
     assert.equal(outcome.sourcePath, `${contractsRoot}/brief (6).docx`);
     assert.ok(
-      downloadedKeys.includes("gcs:assistants/assistant-1/sessions/chat-1/contracts/brief (6).docx")
+      downloadedKeys.includes(
+        "gcs:assistants/assistant-1/sessions/runtime-session-1/contracts/brief (6).docx"
+      )
     );
     assert.match(outcome.warnings.join("\n"), /resolved to the newest sibling version/i);
   });
@@ -887,7 +889,8 @@ describe("DocumentWorkspaceExtractionService", () => {
         },
         async downloadObject(objectKey: string) {
           if (
-            objectKey === "gcs:assistants/assistant-1/sessions/chat-1/projects/source/project.json"
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/source/project.json"
           ) {
             return {
               buffer: Buffer.from(JSON.stringify(existingProjectManifest, null, 2), "utf8"),
@@ -958,7 +961,9 @@ describe("DocumentWorkspaceExtractionService", () => {
     assert.equal(second.projectPath, sourceProjectRoot);
     assert.equal(second.projectManifestPath, `${sourceProjectRoot}/project.json`);
     assert.ok(
-      savedObjects.has("gcs:assistants/assistant-1/sessions/chat-1/projects/source/project.json")
+      savedObjects.has(
+        "gcs:assistants/assistant-1/sessions/runtime-session-1/projects/source/project.json"
+      )
     );
   });
 });

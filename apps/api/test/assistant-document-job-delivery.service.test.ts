@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { AssistantDocumentJobDeliveryService } from "../src/modules/workspace-management/application/assistant-document-job-delivery.service";
 
-const WEB_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const WEB_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 const noopRecordModelCostLedgerService = {
   async recordCompletionFramingUsageEvent() {

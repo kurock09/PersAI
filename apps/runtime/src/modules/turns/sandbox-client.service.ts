@@ -63,6 +63,7 @@ export class SandboxClientService {
     workspaceId: string;
     handle: string;
     siblingHandles: readonly string[];
+    runtimeSessionId?: string | null;
     basename: string;
     contentBase64: string;
     mimeType: string;
@@ -78,6 +79,9 @@ export class SandboxClientService {
         workspaceId: input.workspaceId,
         handle: input.handle,
         siblingHandles: [...input.siblingHandles],
+        ...(input.runtimeSessionId === undefined
+          ? {}
+          : { runtimeSessionId: input.runtimeSessionId }),
         basename: input.basename,
         contentBase64: input.contentBase64,
         mimeType: input.mimeType,

@@ -3,7 +3,7 @@ import { SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE } from "../src/modules/wo
 import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { PrepareAssistantInboundTurnService } from "../src/modules/workspace-management/application/prepare-assistant-inbound-turn.service";
 
-const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 function createNoopSafetyGate() {
   return {

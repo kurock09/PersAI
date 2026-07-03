@@ -263,12 +263,12 @@ async function run(): Promise<void> {
   const cronPolicy = toolPolicies.find((tool) => tool.toolCode === "cron");
   assert.equal(cronPolicy?.perTurnCap, null, "hidden-internal policies have null perTurnCap");
   const filesPolicy = toolPolicies.find((tool) => tool.toolCode === "files");
-  // ADR-133 Slice 4 — session-first hierarchical workspace. The
-  // description/usage guidance must teach session-root defaults and path-based
-  // widens without reviving stale scope flags or flat-root guidance.
+  // ADR-133 follow-up — session-first hierarchical workspace. The
+  // description/usage guidance must teach runtime-owned current-session write
+  // resolution so the model never has to spell assistant/session IDs.
   assert.match(
     filesPolicy?.description ?? "",
-    /New work normally stays in the current session root `\/workspace\/assistants\/<assistantStableKey>\/sessions\/<sessionId>\/\.\.\.`/
+    /New visible files are created from `requestedName` or a relative path/
   );
   assert.equal(
     filesPolicy?.description ?? "",
@@ -278,11 +278,11 @@ async function run(): Promise<void> {
   assert.match(filesPolicy?.description ?? "", /exact listed path/);
   assert.match(
     filesPolicy?.description ?? "",
-    /never reconstruct paths from displayName\/filename/
+    /never reconstruct paths from displayName\/filename or spell assistant\/session IDs/
   );
   assert.match(
     filesPolicy?.description ?? "",
-    /widen by path to `\/workspace\/assistants\/<assistantStableKey>\/` or `\/workspace\/` only when needed/
+    /runtime places them under the real current session root/
   );
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/input/);
@@ -306,7 +306,7 @@ async function run(): Promise<void> {
   );
   assert.match(
     filesPolicy?.usageGuidance ?? "",
-    /Call `files\.list` with no path \(or list that session-root path\) to see current-session files/
+    /Call `files\.list` with no path to see current-session files/
   );
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(

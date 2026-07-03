@@ -14,12 +14,14 @@ import { RuntimeMediaJobRunService } from "../src/modules/turns/runtime-media-jo
 describe("RuntimeMediaJobRunService", () => {
   test("executes direct media tool requests without a second LLM run", async () => {
     let capturedToolCall: ProviderGatewayToolCall | null = null;
+    let capturedSessionId: string | null = null;
     let acceptedRequest: RuntimeTurnRequest | null = null;
     let finalizedResult: RuntimeTurnResult | null = null;
     const service = new RuntimeMediaJobRunService(
       {
         executeToolCall: async (input: Record<string, unknown>) => {
           capturedToolCall = input.toolCall as ProviderGatewayToolCall;
+          capturedSessionId = input.sessionId as string;
           return {
             payload: {
               toolCode: "image_generate",
@@ -73,6 +75,7 @@ describe("RuntimeMediaJobRunService", () => {
     assert.ok(capturedToolCall);
     const recordedToolCall = capturedToolCall as ProviderGatewayToolCall;
     assert.equal(recordedToolCall.name, "image_generate");
+    assert.equal(capturedSessionId, "runtime-session-1");
     assert.ok(finalizedResult);
     const recordedFinalizedResult = finalizedResult as RuntimeTurnResult;
     assert.deepEqual(recordedFinalizedResult.artifacts, [
@@ -565,6 +568,7 @@ function createRunRequest(prompt: string): RuntimeMediaJobRunRequest {
   return {
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
+    runtimeSessionId: "runtime-session-1",
     runtimeTier: "paid_shared_restricted",
     runtimeBundleDocument: JSON.stringify({
       metadata: {

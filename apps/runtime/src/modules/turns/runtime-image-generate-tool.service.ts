@@ -235,6 +235,7 @@ export class RuntimeImageGenerateToolService {
           assistantId: params.bundle.metadata.assistantId,
           sourceUserMessageId: params.deferToAsyncMediaJob.sourceUserMessageId,
           sourceUserMessageText: params.deferToAsyncMediaJob.sourceUserMessageText,
+          runtimeSessionId: params.sessionId,
           attachments: [],
           directToolExecution: {
             toolCode: IMAGE_GENERATE_TOOL_CODE,
@@ -473,6 +474,7 @@ export class RuntimeImageGenerateToolService {
               workspaceId: params.bundle.metadata.workspaceId,
               handle: params.bundle.metadata.assistantHandle,
               siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+              sessionId: params.sessionId,
               workspaceQuotaBytes: params.bundle.governance.quota?.workspaceQuotaBytes ?? null,
               sharedQuotaBytes: params.bundle.governance.quota?.sharedQuotaBytes ?? null,
               filenameHint: request.filename,
@@ -534,6 +536,7 @@ export class RuntimeImageGenerateToolService {
                 workspaceId: params.bundle.metadata.workspaceId,
                 handle: params.bundle.metadata.assistantHandle,
                 siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+                sessionId: params.sessionId,
                 workspaceQuotaBytes: params.bundle.governance.quota?.workspaceQuotaBytes ?? null,
                 sharedQuotaBytes: params.bundle.governance.quota?.sharedQuotaBytes ?? null,
                 filenameHint: request.filename,
@@ -762,6 +765,7 @@ export class RuntimeImageGenerateToolService {
     workspaceId: string;
     handle: string;
     siblingHandles: readonly string[];
+    sessionId: string;
     workspaceQuotaBytes: number | null;
     sharedQuotaBytes: number | null;
     filenameHint: string | null;
@@ -791,6 +795,7 @@ export class RuntimeImageGenerateToolService {
       workspaceId: input.workspaceId,
       handle: input.handle,
       siblingHandles: input.siblingHandles,
+      sessionId: input.sessionId,
       workspaceQuotaBytes: input.workspaceQuotaBytes,
       sharedQuotaBytes: input.sharedQuotaBytes,
       buffer,

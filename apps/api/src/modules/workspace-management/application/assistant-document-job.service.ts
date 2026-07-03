@@ -49,6 +49,7 @@ export type AssistantDocumentSourcePayload = {
 export type AssistantDocumentRequestPayload = {
   sourceUserMessageText: string;
   sourceUserMessageCreatedAt: string;
+  runtimeSessionId: string;
   descriptorMode: "create_presentation" | "revise_document" | "export_or_redeliver";
   sourceJson: AssistantDocumentSourcePayload;
   // Attachments from the triggering user message. Presentation workers can use

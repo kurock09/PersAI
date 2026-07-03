@@ -222,7 +222,7 @@ Make API-owned file creation and delivery use the hierarchy:
 
 Landed locally 2026-07-03:
 
-- API-owned upload/stage/inbound/delivery/document storage paths now resolve under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`, and active ingress rejects retired flat root file paths.
+- API-owned upload/stage/inbound/delivery/document storage paths now resolve under the real runtime session root, and active ingress rejects retired flat root file paths. `chat.id` is provenance only and must not be used as the session path segment.
 - Active API listing/download/delete/document guards now use hierarchical path validation, and the public gallery/list surface is closed on `session | assistant | workspace` semantics instead of the retired public `chat | workspace` split.
 - Document extraction/inspection/version-registration tests and link metadata now use hierarchical session-root project layouts; default project derivation no longer falls back to a global `/workspace/projects` root for active sources.
 - Prisma/API/sandbox GC lease vocabulary is synchronized on `session_subtree | assistant_subtree | workspace_subtree`, with migration `20260703132500_adr133_slice3_gc_lease_kind_rename`.
@@ -243,7 +243,7 @@ This slice must remove the old scope vocabulary from active model-facing surface
 
 Landed locally 2026-07-03:
 
-- Runtime `files` / `document` path defaults, tool wording, and active result/developer surfaces now teach the session-root hierarchy `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`, with assistant/workspace widening only by ordinary path choice.
+- Runtime `files` / `document` path defaults and active result/developer surfaces use the session-root hierarchy, while model-facing write contracts use `requestedName`, basename, or relative paths so the model never authors assistant/session IDs. Assistant/workspace widening remains ordinary path choice from listed paths.
 - The Working Files developer block now reports current session files, preserves sticky labels and micro-descriptions, and no longer teaches the retired `Current chat / this session` framing.
 - `apps/api/prisma/bootstrap-preset-data.ts`, `apps/api/prisma/tool-catalog-data.ts`, and `apps/runtime/src/modules/turns/native-tool-projection.ts` now agree on the hierarchical prompt truth and carry negative guard tests against stale `workspace_shared` / `crossScope:true` / flat-path wording.
 - Runtime contracts/tests were updated so positive fixtures use hierarchical session-root or explicit widen paths only, and active runtime `files.write` compatibility for legacy `mode:"overwrite"` was removed instead of preserved as a model-visible shim.

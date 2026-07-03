@@ -65,6 +65,7 @@ function buildRequest(overrides?: {
   return {
     assistantId: "00000000-0000-0000-0000-000000000001",
     workspaceId: "00000000-0000-0000-0000-000000000002",
+    runtimeSessionId: "runtime-session-1",
     runtimeTier: "paid_shared_restricted",
     runtimeBundleDocument: '{"metadata":{"locale":"en"}}',
     job: {

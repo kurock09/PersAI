@@ -49,7 +49,7 @@ vi.mock("../assistant-api-client", async () => {
   };
 });
 
-const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 describe("useChat", () => {
   const rafCallbacks = new Map<number, FrameRequestCallback>();

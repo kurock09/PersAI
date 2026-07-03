@@ -11,6 +11,8 @@ import {
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX } from "./media/media.types";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
+import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
+import { WebRuntimeSessionStateClientService } from "./web-runtime-session-state-client.service";
 
 export type WorkspaceFilesGalleryTypeFilter = "image" | "video" | "document";
 
@@ -108,7 +110,9 @@ export class ListChatWorkspaceFilesService {
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     @Inject(ASSISTANT_CHAT_REPOSITORY)
     private readonly chatRepository: AssistantChatRepository,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    private readonly resolveAssistantRuntimeTierService: ResolveAssistantRuntimeTierService,
+    private readonly webRuntimeSessionStateClientService: WebRuntimeSessionStateClientService
   ) {}
 
   async execute(input: {
@@ -130,7 +134,20 @@ export class ListChatWorkspaceFilesService {
     const scope = this.parseScopeFilter(input.scope);
     const limit = this.parseLimit(input.limit);
     const assistantRoot = buildAssistantWorkspaceRoot(assistant.handle);
-    const sessionRoot = buildAssistantSessionRoot(assistant.handle, chat.id);
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
+    const runtimeSessionState = await this.webRuntimeSessionStateClientService.execute({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      runtimeTier,
+      surfaceThreadKey: chat.surfaceThreadKey,
+      userId: assistant.userId
+    });
+    const sessionRoot =
+      runtimeSessionState.session === null
+        ? null
+        : buildAssistantSessionRoot(assistant.handle, runtimeSessionState.session.sessionId);
     const [manifestRowsRaw, attachmentRowsRaw] = await Promise.all([
       this.prisma.workspaceFileMetadata.findMany({
         where: { workspaceId: chat.workspaceId },
@@ -236,12 +253,14 @@ export class ListChatWorkspaceFilesService {
     const scopedTiles =
       scope === "workspace"
         ? tiles
-        : tiles.filter((tile) =>
-            this.isPathAtOrUnderRoot(
-              tile.storagePath,
-              scope === "assistant" ? assistantRoot : sessionRoot
-            )
-          );
+        : sessionRoot === null && scope === "session"
+          ? []
+          : tiles.filter((tile) =>
+              this.isPathAtOrUnderRoot(
+                tile.storagePath,
+                scope === "assistant" ? assistantRoot : sessionRoot!
+              )
+            );
 
     scopedTiles.sort((left, right) => {
       const leftMs = Date.parse(left.createdAt);

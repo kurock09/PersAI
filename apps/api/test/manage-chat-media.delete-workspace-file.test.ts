@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { NotFoundException } from "@nestjs/common";
 import { ManageChatMediaService } from "../src/modules/workspace-management/application/manage-chat-media.service";
 
-const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 const assistant = {
   id: "assistant-1",

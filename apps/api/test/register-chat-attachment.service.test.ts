@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { RegisterChatAttachmentService } from "../src/modules/workspace-management/application/register-chat-attachment.service";
 
-const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 function createWorkspaceMetadata(
   path: string,

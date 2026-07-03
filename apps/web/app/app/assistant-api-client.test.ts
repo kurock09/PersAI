@@ -35,7 +35,7 @@ import {
   setWorkspaceVideoClonedVoiceDefault
 } from "./assistant-api-client";
 
-const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
 const contractMocks = vi.hoisted(() => {
   return {
@@ -478,7 +478,7 @@ describe("assistant files client", () => {
         storagePath: `${SESSION_ROOT}/photo.jpg`
       })
     ).toBe(
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto.jpg"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fphoto.jpg"
     );
   });
 
@@ -490,7 +490,7 @@ describe("assistant files client", () => {
         download: true
       })
     ).toBe(
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto.jpg&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fphoto.jpg&download=1"
     );
   });
 

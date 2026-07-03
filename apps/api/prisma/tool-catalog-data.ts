@@ -117,14 +117,14 @@ GOTCHAS:
       "Use exactly three document verbs for ordinary document work: inspect an existing file, render a new file from Markdown, or convert an existing file between PDF/DOCX/XLSX.",
     modelUsageGuidance: `WHEN TO USE: User asks for a PDF document, DOCX/Word file, XLSX/spreadsheet, report, manual, instruction, table, or other ordinary document output.
 EXAMPLES:
-- document({action:"inspect", path:"/workspace/assistants/lyra/sessions/session-123/source.docx"}) — inspect an existing PDF/DOCX/XLSX source and get a bounded structured view.
-- document({action:"render", outputPath:"/workspace/assistants/lyra/sessions/session-123/reports/q2.pdf", format:"pdf", content:"# Q2 Report\n\nSummary..."}) — render a new PDF directly from inline Markdown.
-- document({action:"render", outputPath:"/workspace/assistants/lyra/sessions/session-123/reports/q2.docx", format:"docx", contentPath:"/workspace/assistants/lyra/sessions/session-123/reports/q2.md", style:"report"}) — render a DOCX from an existing Markdown file.
-- document({action:"render", outputPath:"/workspace/assistants/lyra/sessions/session-123/reports/table.xlsx", format:"xlsx", content:"# Revenue\n\n| Month | Revenue |\n| --- | --- |\n| Jan | 10 |"}) — render a trivial data-only XLSX from Markdown tables.
-- document({action:"convert", source:"/workspace/assistants/lyra/sessions/session-123/source.docx", targetFormat:"pdf"}) — convert an existing document to a different document format and deliver it.
+- document({action:"inspect", path:"/workspace/.../source.docx"}) — inspect an existing PDF/DOCX/XLSX source by exact path copied from Working Files or files.list.
+- document({action:"render", requestedName:"q2.pdf", format:"pdf", content:"# Q2 Report\n\nSummary..."}) — render a new PDF directly from inline Markdown into the current session root.
+- document({action:"render", requestedName:"q2.docx", format:"docx", contentPath:"/workspace/.../reports/q2.md", style:"report"}) — render a DOCX from an existing Markdown file path copied from tools into the current session root.
+- document({action:"render", requestedName:"table.xlsx", format:"xlsx", content:"# Revenue\n\n| Month | Revenue |\n| --- | --- |\n| Jan | 10 |"}) — render a trivial data-only XLSX from Markdown tables into the current session root.
+- document({action:"convert", source:"/workspace/.../source.docx", targetFormat:"pdf", requestedName:"source.pdf"}) — convert an existing document path copied from tools and deliver the output in the current session root.
 GOTCHAS:
 - The document surface is exactly three verbs: \`inspect\`, \`render\`, and \`convert\`.
-- New outputs normally belong under the current session root \`/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...\`; widen only when the user explicitly wants a broader path.
+- The model should provide only \`requestedName\` for new render/convert outputs, never an absolute workspace path. The runtime owns the real current-session output directory and returns the final \`outputPath\`.
 - \`document.render\` persists the Markdown source as a visible sibling \`.md\` file next to the output, registers the output, and delivers it in one call.
 - \`document.convert\` is deterministic format conversion only; it does not rewrite content semantically.
 `,
@@ -290,24 +290,24 @@ GOTCHAS:
     description:
       "Path-driven workspace file operations: list, read, preview, write, delete, attach.",
     modelDescription:
-      "Path-driven file operations on hierarchical `/workspace/...` paths. New work normally stays in the current session root `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`; widen by path to `/workspace/assistants/<assistantStableKey>/` or `/workspace/` only when needed. Read/write/delete/attach by exact listed path; never reconstruct paths from displayName/filename. Writes are collision-safe by default, with `replace: true` as the exact-overwrite opt-in.",
-    modelUsageGuidance: `Files in this workspace use hierarchical \`/workspace/...\` paths. Start in the current session root \`/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...\`. Call \`files.list\` with no path (or list that session-root path) to see current-session files, then widen only by ordinary parent paths: \`/workspace/assistants/<assistantStableKey>/\` for this assistant's broader files, then \`/workspace/\` for the whole workspace. Read/preview/attach/delete by exact path from the Working Files block, a \`files.list\`, or a prior tool result. By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` on \`files.write\` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To create a new file, pick a new \`/workspace/...\` path under the right root. Use \`/tmp/\` for ephemeral scratch that the user should not see.
+      "Path-driven file operations on hierarchical `/workspace/...` paths. New visible files are created from `requestedName` or a relative path and the runtime places them under the real current session root. Widen by exact listed parent paths only when needed. Read/preview/delete/attach by exact listed path; never reconstruct paths from displayName/filename or spell assistant/session IDs. Writes are collision-safe by default, with `replace: true` as the exact-overwrite opt-in.",
+    modelUsageGuidance: `Files in this workspace use hierarchical \`/workspace/...\` paths, but the model must not construct assistant/session IDs. Call \`files.list\` with no path to see current-session files. To create a new visible file, use \`files.write\` with \`requestedName\` (or a relative path) and string \`content\`; the runtime prepends the real current session root and returns the final \`path\`. Read/preview/attach/delete by exact path from the Working Files block, a \`files.list\`, or a prior tool result. Widen only by choosing an exact listed parent path when the user needs broader files. By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` on \`files.write\` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. Use \`/tmp/\` for ephemeral scratch that the user should not see.
 WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace file to chat.
 EXAMPLES:
 - files({action:"list"}) — list the current session root.
-- files({action:"list", path:"/workspace/assistants/lyra/"}) — widen to this assistant's broader files when the user asks.
+- files({action:"list", path:"/workspace/assistants/..."}) — widen to this assistant's broader files only by exact parent path copied from tools.
 - files({action:"list", path:"/workspace/"}) — widen to the whole workspace only when needed.
-- files({action:"read", path:"/workspace/assistants/lyra/sessions/session-123/report.csv"}) — read a current-session file by exact path.
-- files({action:"preview", path:"/workspace/assistants/lyra/sessions/session-123/notes.md", maxBytes:4096}) — peek at the head of a large file.
-- files({action:"write", path:"/workspace/assistants/lyra/sessions/session-123/draft.txt", content:"hello"}) — create a new file or allocate a sibling \` (N)\` filename when that exact path is already occupied.
-- files({action:"delete", path:"/workspace/assistants/lyra/sessions/session-123/tmp.bin"}) — remove an unneeded file.
-- files({action:"attach", path:"/workspace/assistants/lyra/sessions/session-123/draft.txt"}) — deliver a file to the user as a chat attachment.
+- files({action:"read", path:"/workspace/.../report.csv"}) — read a current-session file by exact path copied from Working Files or files.list.
+- files({action:"preview", path:"/workspace/.../notes.md", maxBytes:4096}) — peek at the head of a large file by exact copied path.
+- files({action:"write", requestedName:"draft.txt", content:"hello"}) — create a new current-session file; runtime returns the final path.
+- files({action:"delete", path:"/workspace/.../tmp.bin"}) — remove an unneeded file by exact copied path.
+- files({action:"attach", path:"/workspace/.../draft.txt"}) — deliver an existing file by exact copied path.
 GOTCHAS:
 - Six actions only: list, read, preview, write, delete, attach. There is no legacy file-id selector and no search/send/edit action here.
-- Paths must be pod-absolute and under /workspace/. Current-session work normally stays under \`/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...\`. Use /tmp/ for ephemeral scratch.
-- For list supply the directory path; for read/preview/write/delete/attach supply the file path.
+- Never spell assistant/session IDs for new files. Use \`requestedName\` or a relative write path; runtime owns the current-session root. Use /tmp/ for ephemeral scratch.
+- For list supply the directory path; for read/preview/delete/attach supply the file path; for new writes prefer \`requestedName\`.
 - For read/preview you may pass \`maxBytes\` to cap returned bytes; for list you may pass \`maxDepth\` to bound recursion. Server-side limits still apply.
-- The active widen model is path-based: start in the current session root, widen to \`/workspace/assistants/<assistantStableKey>/\` for this assistant, then to \`/workspace/\` for the whole workspace only when the user needs that broader view.
+- The active widen model is path-based: start by omitting path, then widen only to exact parent paths returned by tools or Working Files when the user needs that broader view.
 - By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` only when the user explicitly asked to overwrite that exact file.
 - attach delivers an EXISTING file; it does not regenerate. If the file is not yet written, write it first.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
@@ -340,7 +340,7 @@ GOTCHAS:
     description: "Run a bounded shell command inside the isolated sandbox workspace.",
     modelDescription: "Run a bounded shell command inside the assistant sandbox workspace.",
     modelUsageGuidance: `WHEN TO USE: Use shell proactively for multi-step autonomous work — pipelines, shell builtins, process composition, running scripts, build commands, transformations, runtime package installs, Git operations, and any multi-command sequencing inside the sandbox. Shell is the primary autonomous execution surface; do not wait to be asked.
-SHELL ENVIRONMENT: /bin/bash with brace expansion, [[ … ]], <(…), set -o pipefail. The default cwd is the current session root \`/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/\`. Python 3 with system packages, plus session-scoped pip user-site under that session root (for example \`.local\`). Node 22 LTS with npm; session-local installs stay under the current session root (for example \`node_modules\` or \`.npm-global\`). Egress over HTTPS is allowlisted for github.com, *.github.com, *.githubusercontent.com, pypi.org, files.pythonhosted.org, registry.npmjs.org, *.npmjs.com — other hosts are denied.
+SHELL ENVIRONMENT: /bin/bash with brace expansion, [[ … ]], <(…), set -o pipefail. The default cwd is the real current session root chosen by the runtime; do not construct assistant/session IDs yourself. Python 3 with system packages, plus session-scoped pip user-site under that session root (for example \`.local\`). Node 22 LTS with npm; session-local installs stay under the current session root (for example \`node_modules\` or \`.npm-global\`). Egress over HTTPS is allowlisted for github.com, *.github.com, *.githubusercontent.com, pypi.org, files.pythonhosted.org, registry.npmjs.org, *.npmjs.com — other hosts are denied.
 EXAMPLES:
 - shell({command:"pip install --quiet rich && python3 -c 'import rich; rich.print({\\"ok\\": True})'"}) — install a Python package (session-scoped) and use it.
 - shell({command:"npm install left-pad && node -e 'console.log(require(\\"left-pad\\")(\\"42\\", 5, \\"0\\"))'"}) — install a Node package locally.
