@@ -40,8 +40,8 @@ function createBundle(): AssistantRuntimeBundle {
 
 test("AC11: read shared-outbound artefact then attach workspace edit", async () => {
   const artefactPath =
-    "/workspace/assistants/my-bot/sessions/session-1/2026-06-23T22-00-00-marketing-poster.png";
-  const editedPath = "/workspace/assistants/my-bot/sessions/session-1/edited.png";
+    "/workspace/assistants/assistant-1/sessions/session-1/2026-06-23T22-00-00-marketing-poster.png";
+  const editedPath = "/workspace/assistants/assistant-1/sessions/session-1/edited.png";
   const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
 
   const sandboxClientService = {

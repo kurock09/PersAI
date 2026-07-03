@@ -219,7 +219,7 @@ test("WorkspaceGcService: assistant_subtree lease future-dated → no purge on t
     id: "lease-ao-future",
     kind: "assistant_subtree",
     targetId: "ao-target",
-    metadata: { workspaceId: WS_ID, handle: HANDLE },
+    metadata: { workspaceId: WS_ID, assistantId: ASST_ID },
     scheduledAt: futureDate(), // NOT due yet
     purgedAt: null
   };
@@ -238,7 +238,7 @@ test("WorkspaceGcService: assistant_subtree lease past-due → assistant subtree
     id: "lease-ao-1",
     kind: "assistant_subtree",
     targetId: "ao-target",
-    metadata: { workspaceId: WS_ID, handle: HANDLE },
+    metadata: { workspaceId: WS_ID, assistantId: ASST_ID },
     scheduledAt: pastDate(),
     purgedAt: null
   };
@@ -247,11 +247,11 @@ test("WorkspaceGcService: assistant_subtree lease past-due → assistant subtree
 
   await gc.runDuePurgesNow();
 
-  const assistantRoot = buildAssistantWorkspaceRoot(HANDLE);
+  const assistantRoot = buildAssistantWorkspaceRoot(ASST_ID);
   assert.equal(exec.shellCalls.length, 1);
   assert.ok(exec.shellCalls[0]?.shellCommand.includes(assistantRoot));
   assert.equal(storage.deletedPrefixes.length, 1);
-  assert.ok(storage.deletedPrefixes[0]?.includes(`${WS_ID}/workspace/assistants/${HANDLE}/`));
+  assert.ok(storage.deletedPrefixes[0]?.includes(`${WS_ID}/workspace/assistants/${ASST_ID}/`));
   assert.deepEqual(prisma.updatedLeases, ["lease-ao-1"]);
   assert.equal(audit.purgedEvents[0]?.kind, "assistant_subtree");
 });

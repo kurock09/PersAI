@@ -953,7 +953,7 @@ export class PersaiInternalApiClientService {
   async listWorkspaceFilesFromManifest(input: {
     workspaceId: string;
     pathPrefix: string;
-    assistantHandle: string;
+    assistantId: string;
     scope: "chat" | "assistant" | "workspace";
     currentChatId: string | null;
     currentAssistantId: string;
@@ -964,7 +964,7 @@ export class PersaiInternalApiClientService {
     const url =
       `/api/v1/internal/workspaces/${encodeURIComponent(input.workspaceId)}/files/list` +
       `?pathPrefix=${encodeURIComponent(input.pathPrefix)}` +
-      `&assistantHandle=${encodeURIComponent(input.assistantHandle)}` +
+      `&assistantId=${encodeURIComponent(input.assistantId)}` +
       `&scope=${encodeURIComponent(input.scope)}` +
       `&currentAssistantId=${encodeURIComponent(input.currentAssistantId)}` +
       (input.currentChatId === null

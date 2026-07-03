@@ -71,7 +71,7 @@ async function run(): Promise<void> {
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
-        'Вот он. Скинул в чат.\n\nAssistant sent an attachment: document "recommendations.md", storagePath: "/workspace/assistants/alice/sessions/session-1/recommendations.md".',
+        'Вот он. Скинул в чат.\n\nAssistant sent an attachment: document "recommendations.md", storagePath: "/workspace/assistants/assistant-1/sessions/session-1/recommendations.md".',
       attemptedArtifactCount: 1,
       deliveredAttachmentCount: 1,
       deliveredAttachmentFilenames: ["recommendations.md"],
@@ -84,7 +84,7 @@ async function run(): Promise<void> {
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
-        'Assistant sent an attachment: document "recommendations.md", storagePath: "/workspace/assistants/alice/sessions/session-1/recommendations.md".',
+        'Assistant sent an attachment: document "recommendations.md", storagePath: "/workspace/assistants/assistant-1/sessions/session-1/recommendations.md".',
       attemptedArtifactCount: 1,
       deliveredAttachmentCount: 1,
       deliveredAttachmentFilenames: ["recommendations.md"],
@@ -97,7 +97,7 @@ async function run(): Promise<void> {
   assert.equal(
     applyFinalDeliveryHonestyCorrection({
       assistantText:
-        'Вот этот. Отправила в чат:\n\nAssistant sent an attachment: document "recommendations.md", storagePath: "/workspace/assistants/alice/sessions/session-1/recommendations.md".',
+        'Вот этот. Отправила в чат:\n\nAssistant sent an attachment: document "recommendations.md", storagePath: "/workspace/assistants/assistant-1/sessions/session-1/recommendations.md".',
       attemptedArtifactCount: 0,
       deliveredAttachmentCount: 0,
       deliveredAttachmentFilenames: [],

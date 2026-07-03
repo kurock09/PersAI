@@ -1007,11 +1007,12 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
   ]);
 
   const assistantHandle = "assistant-code";
+  const assistantId = "assistant-code-1";
   const runtimeSessionId = "session-code";
-  const sessionRoot = buildAssistantSessionRoot(assistantHandle, runtimeSessionId);
+  const sessionRoot = buildAssistantSessionRoot(assistantId, runtimeSessionId);
   const workspaceId = "workspace-code-1";
   const sourceStoragePath = `${sessionRoot}/source.pdf`;
-  const workspaceObjectKey = `assistant-media/workspaces/${workspaceId}/workspace/assistants/assistant-code/sessions/session-code/source.pdf`;
+  const workspaceObjectKey = `assistant-media/workspaces/${workspaceId}/workspace/assistants/${assistantId}/sessions/${runtimeSessionId}/source.pdf`;
   const storedObjects = new Map<string, Buffer>([[workspaceObjectKey, sourcePdfBytes]]);
 
   const service = new SandboxService(
@@ -1072,20 +1073,25 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
         args: string[];
         workspaceRoot: string;
         absoluteCwd: string;
+        stagingFiles?: Array<{ absolutePath: string; contents: Buffer }>;
       }) {
         capturedRunInPodCalls.push({ command: input.command, args: input.args });
-        sourcesAtRunTime.sourcePdf = await fs
-          .readFile(join(input.absoluteCwd, "sources", "source.pdf"))
-          .then((b) => b.toString("utf8"))
-          .catch(() => null);
-        sourcesAtRunTime.ocrSidecar = await fs
-          .readFile(join(input.absoluteCwd, "sources", "source.pdf.ocr.txt"), "utf8")
-          .catch(() => null);
-        sourcesAtRunTime.program = await fs
-          .readFile(join(input.absoluteCwd, ".document-code.py"), "utf8")
-          .catch(() => null);
+        for (const file of input.stagingFiles ?? []) {
+          if (file.absolutePath.endsWith("sources/source.pdf")) {
+            sourcesAtRunTime.sourcePdf = file.contents.toString("utf8");
+          }
+          if (file.absolutePath.endsWith("sources/source.pdf.ocr.txt")) {
+            sourcesAtRunTime.ocrSidecar = file.contents.toString("utf8");
+          }
+          if (file.absolutePath.endsWith(".document-code.py")) {
+            sourcesAtRunTime.program = file.contents.toString("utf8");
+          }
+        }
         await fs.writeFile(join(input.absoluteCwd, "report.xlsx"), fakeXlsxBytes);
         return { exitCode: 0, stdout: null, stderr: null, durationMs: 50, execPodName: null };
+      },
+      async execShellInSessionPod() {
+        return { exitCode: 0, stdout: "", stderr: "", durationMs: 1, execPodName: "ses-code" };
       }
     } as never,
     {} as never
@@ -1094,7 +1100,7 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
   const access = service as unknown as SandboxServiceTestAccess;
 
   await access.executeQueuedJob("code-job-1", {
-    assistantId: "assistant-code-1",
+    assistantId,
     workspaceId,
     runtimeRequestId: "request-code-1",
     runtimeSessionId,
@@ -1213,7 +1219,7 @@ function buildGrepGlobService(
 test("SandboxService: grep runs rg via pod exec and returns structured matches", async () => {
   const capturedJobUpdates: Array<Record<string, unknown>> = [];
   const capturedShellCalls: Array<{ shellCommand: string }> = [];
-  const sessionRoot = buildAssistantSessionRoot("grep-handle", "session-grep-1");
+  const sessionRoot = buildAssistantSessionRoot("assistant-grep-1", "session-grep-1");
   const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
     exitCode: 0,
     stdout: `${sessionRoot}/src/app.ts:12:const token = 1;\n${sessionRoot}/src/app.ts:40:const token2 = 2;\n`,
@@ -1462,7 +1468,7 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
 test("SandboxService: glob runs fd via pod exec and returns sorted relative paths", async () => {
   const capturedJobUpdates: Array<Record<string, unknown>> = [];
   const capturedShellCalls: Array<{ shellCommand: string }> = [];
-  const sessionRoot = buildAssistantSessionRoot("glob-handle", "session-glob-1");
+  const sessionRoot = buildAssistantSessionRoot("assistant-glob-1", "session-glob-1");
   const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
     exitCode: 0,
     stdout: `${sessionRoot}/src/index.ts\n${sessionRoot}/src/app.ts\n`,

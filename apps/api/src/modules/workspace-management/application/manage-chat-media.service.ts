@@ -162,7 +162,7 @@ export class ManageChatMediaService {
     });
     const storagePath = await resolveUniqueWorkspaceStoragePath({
       workspaceId: assistant.workspaceId,
-      assistantStableKey: assistant.handle,
+      assistantId: assistant.id,
       sessionId: runtimeSessionId,
       filename: validated.originalFilename,
       mimeType,
@@ -324,7 +324,7 @@ export class ManageChatMediaService {
       });
       const storagePath = await resolveUniqueWorkspaceStoragePath({
         workspaceId: assistant.workspaceId,
-        assistantStableKey: assistant.handle,
+        assistantId: assistant.id,
         sessionId: runtimeSessionId,
         filename: validated.originalFilename,
         mimeType,

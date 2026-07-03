@@ -17,7 +17,7 @@ function createBundle(): AssistantRuntimeBundle {
   } as unknown as AssistantRuntimeBundle;
 }
 
-const TEST_SESSION_ROOT = "/workspace/assistants/a-test/sessions/session-1";
+const TEST_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
 
 function wp(relativePath: string): string {
   return `${TEST_SESSION_ROOT}/${relativePath.replace(/^\/+/, "")}`;
@@ -929,7 +929,8 @@ describe("RuntimeDocumentToolService", () => {
     const documentUpsertCalls: Array<Record<string, unknown>> = [];
     const initialMarkdown = "# Report\n\nOriginal body.\n";
     const editedMarkdown = "# Report\n\nEdited body with exact spacing.\n";
-    const sourceMarkdownPath = "/workspace/assistants/a-test/sessions/session-case-a/report.md";
+    const sourceMarkdownPath =
+      "/workspace/assistants/assistant-1/sessions/session-case-a/report.md";
     const service = new RuntimeDocumentToolService(
       {
         async upsertWorkspaceFileMetadata(args: Record<string, unknown>) {
@@ -983,7 +984,7 @@ describe("RuntimeDocumentToolService", () => {
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
             return createAttachedWorkspaceFileJob(
-              "/workspace/assistants/a-test/sessions/session-case-a/report.pdf",
+              "/workspace/assistants/assistant-1/sessions/session-case-a/report.pdf",
               "application/pdf",
               2048
             );
@@ -1037,16 +1038,16 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(second.payload.action, "rendered");
     assert.equal(
       second.payload.render?.outputPath,
-      "/workspace/assistants/a-test/sessions/session-case-a/report.pdf"
+      "/workspace/assistants/assistant-1/sessions/session-case-a/report.pdf"
     );
     assert.equal(documentUpsertCalls.length, 2);
     assert.equal(
       documentUpsertCalls[0]?.path,
-      "/workspace/assistants/a-test/sessions/session-case-a/report.pdf"
+      "/workspace/assistants/assistant-1/sessions/session-case-a/report.pdf"
     );
     assert.equal(
       documentUpsertCalls[1]?.path,
-      "/workspace/assistants/a-test/sessions/session-case-a/report.pdf"
+      "/workspace/assistants/assistant-1/sessions/session-case-a/report.pdf"
     );
     assert.equal(documentUpsertCalls[0]?.replace, true);
     assert.equal(documentUpsertCalls[1]?.replace, true);
@@ -1084,7 +1085,7 @@ describe("RuntimeDocumentToolService", () => {
     assert.match(
       secondProgramSource,
       new RegExp(
-        `CONTENT_PATH = Path\\("${"/workspace/assistants/a-test/sessions/session-case-a/report.md".replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
+        `CONTENT_PATH = Path\\("${"/workspace/assistants/assistant-1/sessions/session-case-a/report.md".replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
       )
     );
   });

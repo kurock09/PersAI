@@ -84,7 +84,7 @@ export class AdminDeleteUserService {
               scheduledAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               metadata: {
                 workspaceId: assistant.workspaceId,
-                handle: assistant.handle
+                assistantId: aid
               }
             }
           });

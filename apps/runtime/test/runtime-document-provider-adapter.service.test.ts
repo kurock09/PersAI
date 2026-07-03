@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BadRequestException } from "@nestjs/common";
 import type {
@@ -11,7 +11,7 @@ import { RuntimeDocumentProviderAdapterService } from "../src/modules/turns/runt
 const stubArtifact: RuntimeOutputArtifact = {
   artifactId: "artifact-1",
   kind: "file",
-  storagePath: "/workspace/assistants/alice/sessions/session-1/deck.pptx",
+  storagePath: "/workspace/assistants/assistant-1/sessions/session-1/deck.pptx",
   mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   sizeBytes: 1024,
   filename: "deck.pptx",

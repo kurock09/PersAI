@@ -115,7 +115,6 @@ describe("inbound-media.service", () => {
     const result = await service.resolve({
       channel: "telegram",
       assistantId: "assistant-1",
-      assistantHandle: "assistant-1",
       userId: "user-1",
       chatId: "chat-1",
       runtimeSessionId: "runtime-session-1",
@@ -272,7 +271,6 @@ describe("inbound-media.service", () => {
     const result = await service.resolve({
       channel: "web",
       assistantId: "assistant-1",
-      assistantHandle: "assistant-1",
       userId: "user-1",
       chatId: "chat-1",
       runtimeSessionId: "runtime-session-1",

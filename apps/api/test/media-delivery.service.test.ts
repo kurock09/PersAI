@@ -23,6 +23,7 @@ import { MediaDeliveryService } from "../src/modules/workspace-management/applic
 import type { AssistantChatMessageAttachment } from "../src/modules/workspace-management/domain/assistant-chat-message-attachment.entity";
 
 const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
+const RUNTIME_SESSION_ID = "runtime-session-1";
 
 function createAttachment(
   overrides: Partial<AssistantChatMessageAttachment>
@@ -179,7 +180,8 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     chatId: "chat-1",
     messageId: "msg-1",
-    workspaceId: "workspace-1"
+    workspaceId: "workspace-1",
+    runtimeSessionId: RUNTIME_SESSION_ID
   });
 
   assert.deepEqual(sourceUpload.attachments, [
@@ -261,7 +263,8 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     chatId: "chat-1",
     messageId: "msg-1",
-    workspaceId: "workspace-1"
+    workspaceId: "workspace-1",
+    runtimeSessionId: RUNTIME_SESSION_ID
   });
 
   assert.equal(uploadedMime, "image/png");
@@ -318,7 +321,8 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     chatId: "chat-1",
     messageId: "msg-1",
-    workspaceId: "workspace-1"
+    workspaceId: "workspace-1",
+    runtimeSessionId: RUNTIME_SESSION_ID
   });
 
   assert.equal(legacyObjectKeyRegisterCalls, 0);
@@ -423,7 +427,8 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     chatId: "chat-1",
     messageId: "msg-1",
-    workspaceId: "workspace-1"
+    workspaceId: "workspace-1",
+    runtimeSessionId: RUNTIME_SESSION_ID
   });
 
   assert.equal(deliveredImageBillingFacts, null);
@@ -470,7 +475,8 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     chatId: "chat-1",
     messageId: "msg-1",
-    workspaceId: "workspace-1"
+    workspaceId: "workspace-1",
+    runtimeSessionId: RUNTIME_SESSION_ID
   });
 
   assert.equal(
@@ -538,6 +544,7 @@ async function run(): Promise<void> {
     chatId: "chat-1",
     messageId: "msg-1",
     workspaceId: "workspace-1",
+    runtimeSessionId: RUNTIME_SESSION_ID,
     channelTarget: {
       channel: "telegram",
       chatId: "tg-chat-1",
@@ -629,7 +636,8 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     chatId: "chat-1",
     messageId: "msg-1",
-    workspaceId: "workspace-1"
+    workspaceId: "workspace-1",
+    runtimeSessionId: RUNTIME_SESSION_ID
   });
   const failedSettlementService = new MediaDeliveryService(
     settlementAwareAttachmentRepository as never,
@@ -675,6 +683,7 @@ async function run(): Promise<void> {
     chatId: "chat-1",
     messageId: "msg-1",
     workspaceId: "workspace-1",
+    runtimeSessionId: RUNTIME_SESSION_ID,
     channelTarget: {
       channel: "telegram",
       chatId: "tg-chat-1"
@@ -793,7 +802,8 @@ async function run(): Promise<void> {
     assistantId: "assistant-1",
     chatId: "chat-1",
     messageId: "msg-oversized-video",
-    workspaceId: "workspace-1"
+    workspaceId: "workspace-1",
+    runtimeSessionId: RUNTIME_SESSION_ID
   });
   assert.equal(oversizedVideoAttachmentCreates, 1);
   assert.equal(oversizedVideoDelivered.attachments.length, 1);

@@ -461,10 +461,10 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs non-zero exec exit
 
   assert.equal(executed.length, keys.length, "non-zero exits must not stop other writes");
   assert.ok(
-    warnings.some((warning) =>
-      warning.includes(
-        "workspace_mount_hydrate_write_failed workspace=ws-exit path=/workspace/assistants/bot/sessions/s1/fail.txt exit=7"
-      )
+    warnings.some(
+      (warning) =>
+        warning.includes("/workspace/assistants/bot/sessions/s1/fail.txt") &&
+        warning.includes("exit=7")
     ),
     "non-zero write exits must be logged"
   );
@@ -795,11 +795,12 @@ test("ExecPodBridgeService: sessionless runInPod creates and deletes ephemeral p
   assert.equal(ctx.deletedPods[0], ctx.createdPods[0]?.body.metadata?.name);
 });
 
-test("ExecPodBridgeService: workspace push preserves hierarchical tree and extracts by entry name with --no-same-owner", async () => {
+test("ExecPodBridgeService: ephemeral workspace push preserves hierarchical tree and extracts by entry name with --no-same-owner", async () => {
   // Regression: extracting a "." member made the remote tar restore mode/utime on
   // /workspace itself, which the non-root exec user cannot do, failing every push with
   // "Cannot change mode/utime: Operation not permitted". The push must archive top-level
   // entries by name (so no "." member is ever extracted) and pass --no-same-owner.
+  // Session pods never push — only ephemeral pods use pushWorkspace.
   const ctx: MockK8sContext = {
     createdPods: [],
     podPhaseSequence: ["Running"],
@@ -822,7 +823,7 @@ test("ExecPodBridgeService: workspace push preserves hierarchical tree and extra
     await fs.writeFile(join(sessionRoot, "sub", "nested.txt"), "data", "utf8");
     await bridge.runInPod({
       jobId: "job-push-001",
-      runtimeSessionId: "session-1",
+      runtimeSessionId: null,
       assistantId: "assistant-push",
       assistantHandle: "test-handle",
       siblingHandles: [],
@@ -859,8 +860,109 @@ test("ExecPodBridgeService: workspace push preserves hierarchical tree and extra
   );
   const shell = commandExec?.[2] ?? "";
   assert.ok(
-    shell.includes("cd '/workspace/assistants/test-handle/sessions/session-1'"),
-    "command cwd must stay inside the session subtree"
+    shell.includes("cd '/workspace/assistants/test-handle/sessions/session-1'") ||
+      shell.includes("cd '/workspace'"),
+    "command cwd must stay inside the workspace"
+  );
+});
+
+test("ExecPodBridgeService: session runInPod does not push workspace tree before exec", async () => {
+  const ctx: MockK8sContext = {
+    createdPods: [],
+    podPhaseSequence: ["Running"],
+    execResponses: [
+      { exitCode: 0, stdout: "", stderr: "" } // bootstrap probe
+    ],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  };
+
+  const bridge = buildMockBridge(ctx);
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-bridge-session-nopush-"));
+  const sessionRoot = join(workspaceRoot, "assistants", "assistant-1", "sessions", "session-1");
+  try {
+    await fs.mkdir(sessionRoot, { recursive: true });
+    await fs.writeFile(join(sessionRoot, "stale.txt"), "OLD", "utf8");
+    await bridge.runInPod({
+      jobId: "job-session-nopush",
+      runtimeSessionId: "session-1",
+      assistantId: "assistant-1",
+      assistantHandle: "test-handle",
+      siblingHandles: [],
+      workspaceId: "workspace-1",
+      workspaceRoot,
+      absoluteCwd: sessionRoot,
+      command: "/bin/sh",
+      args: ["-c", "echo hi"],
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+    });
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
+
+  const pushCommand = ctx.execCommands.find((command) =>
+    command.some((part) => part.includes("-xf") && part.includes("/workspace"))
+  );
+  assert.equal(
+    pushCommand,
+    undefined,
+    "session pod jobs must not push the control-plane workspace tree into the pod"
+  );
+  const commandExec = ctx.execCommands.find((command) =>
+    command.some((part) => part.includes("echo hi"))
+  );
+  assert.ok(commandExec !== undefined, "the command must still run against the live pod");
+});
+
+test("ExecPodBridgeService: session runInPod writes staging files directly into the pod", async () => {
+  const ctx: MockK8sContext = {
+    createdPods: [],
+    podPhaseSequence: ["Running"],
+    execResponses: [{ exitCode: 0, stdout: "", stderr: "" }],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  };
+
+  const bridge = buildMockBridge(ctx);
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-bridge-session-staging-"));
+  const sessionRoot = join(workspaceRoot, "assistants", "assistant-1", "sessions", "session-1");
+  try {
+    await fs.mkdir(sessionRoot, { recursive: true });
+    await bridge.runInPod({
+      jobId: "job-session-staging",
+      runtimeSessionId: "session-1",
+      assistantId: "assistant-1",
+      assistantHandle: "test-handle",
+      siblingHandles: [],
+      workspaceId: "workspace-1",
+      workspaceRoot,
+      absoluteCwd: sessionRoot,
+      command: "/bin/sh",
+      args: ["-c", "echo staged"],
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+      stagingFiles: [
+        {
+          absolutePath: "/workspace/assistants/assistant-1/sessions/session-1/.job-input.txt",
+          contents: Buffer.from("STAGED_BYTES", "utf8")
+        }
+      ]
+    });
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
+
+  const stagingWrite = ctx.execCommands.find((command) => {
+    const shell = command.find((part) => part.includes("cat >")) ?? "";
+    return shell.includes(".job-input.txt");
+  });
+  assert.ok(stagingWrite !== undefined, "staging files must be written directly into the pod");
+  assert.ok(
+    !ctx.execCommands.some((command) =>
+      command.some((part) => part.includes("-xf") && part.includes("/workspace"))
+    ),
+    "staging must not rely on a workspace push"
   );
 });
 

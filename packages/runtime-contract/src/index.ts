@@ -271,7 +271,7 @@ export interface RuntimeSandboxJobRequest {
   assistantId: string;
   /**
    * Workspace-unique assistant path key carried in the shared runtime contract.
-   * ADR-133 uses this key for `/workspace/assistants/<assistantStableKey>/...`.
+   * ADR-133 uses this key for `/workspace/assistants/<assistantId>/...`.
    */
   assistantHandle: string;
   /**
@@ -305,7 +305,7 @@ export interface RuntimeSandboxToolResult {
  * appear on this contract. Chat delivery is a separate explicit action and
  * does not piggyback on `files.write`. ADR-133 path truth is now active:
  * current-session paths live under
- * `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`, and
+ * `/workspace/assistants/<assistantId>/sessions/<sessionId>/...`, and
  * wider assistant/workspace access is expressed by choosing wider parent paths,
  * not by a second model-facing scope vocabulary.
  */
@@ -4238,7 +4238,7 @@ export type WorkspaceVisiblePathKind =
 export interface WorkspaceVisiblePathInfo {
   kind: WorkspaceVisiblePathKind;
   normalizedPath: string;
-  assistantStableKey: string | null;
+  assistantId: string | null;
   sessionId: string | null;
 }
 
@@ -4289,25 +4289,22 @@ export function assertValidWorkspacePathSegment(
   return segment;
 }
 
-export function buildAssistantWorkspaceRoot(assistantStableKey: string): string {
-  const safeAssistantStableKey = assertValidWorkspacePathSegment(
-    assistantStableKey,
-    "assistantStableKey"
-  );
+export function buildAssistantWorkspaceRoot(assistantId: string): string {
+  const safeAssistantStableKey = assertValidWorkspacePathSegment(assistantId, "assistantId");
   return `${WORKSPACE_ASSISTANTS_ROOT}/${safeAssistantStableKey}`;
 }
 
-export function buildAssistantSessionsRoot(assistantStableKey: string): string {
-  return `${buildAssistantWorkspaceRoot(assistantStableKey)}/sessions`;
+export function buildAssistantSessionsRoot(assistantId: string): string {
+  return `${buildAssistantWorkspaceRoot(assistantId)}/sessions`;
 }
 
-export function buildAssistantSessionRoot(assistantStableKey: string, sessionId: string): string {
+export function buildAssistantSessionRoot(assistantId: string, sessionId: string): string {
   const safeSessionId = assertValidWorkspacePathSegment(sessionId, "sessionId");
-  return `${buildAssistantSessionsRoot(assistantStableKey)}/${safeSessionId}`;
+  return `${buildAssistantSessionsRoot(assistantId)}/${safeSessionId}`;
 }
 
-export function buildAssistantSharedRoot(assistantStableKey: string): string {
-  return `${buildAssistantWorkspaceRoot(assistantStableKey)}/shared`;
+export function buildAssistantSharedRoot(assistantId: string): string {
+  return `${buildAssistantWorkspaceRoot(assistantId)}/shared`;
 }
 
 export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePathInfo {
@@ -4316,7 +4313,7 @@ export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePath
     return {
       kind: "invalid",
       normalizedPath,
-      assistantStableKey: null,
+      assistantId: null,
       sessionId: null
     };
   }
@@ -4324,7 +4321,7 @@ export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePath
     return {
       kind: "workspaceRoot",
       normalizedPath,
-      assistantStableKey: null,
+      assistantId: null,
       sessionId: null
     };
   }
@@ -4332,7 +4329,7 @@ export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePath
     return {
       kind: "outsideWorkspace",
       normalizedPath,
-      assistantStableKey: null,
+      assistantId: null,
       sessionId: null
     };
   }
@@ -4345,7 +4342,7 @@ export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePath
     return {
       kind: "staleChatsPath",
       normalizedPath,
-      assistantStableKey: null,
+      assistantId: null,
       sessionId: null
     };
   }
@@ -4354,7 +4351,7 @@ export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePath
     return {
       kind: "staleProjectsPath",
       normalizedPath,
-      assistantStableKey: null,
+      assistantId: null,
       sessionId: null
     };
   }
@@ -4363,26 +4360,26 @@ export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePath
     return {
       kind: segments.length === 1 ? "workspaceSharedRoot" : "workspaceSharedDescendant",
       normalizedPath,
-      assistantStableKey: null,
+      assistantId: null,
       sessionId: null
     };
   }
 
   if (first === "assistants") {
-    const assistantStableKey = second ?? null;
+    const assistantId = second ?? null;
     if (segments.length === 1) {
       return {
         kind: "assistantsRoot",
         normalizedPath,
-        assistantStableKey: null,
+        assistantId: null,
         sessionId: null
       };
     }
-    if (!isValidWorkspacePathSegment(assistantStableKey ?? "")) {
+    if (!isValidWorkspacePathSegment(assistantId ?? "")) {
       return {
         kind: "invalid",
         normalizedPath,
-        assistantStableKey: null,
+        assistantId: null,
         sessionId: null
       };
     }
@@ -4390,7 +4387,7 @@ export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePath
       return {
         kind: "assistantRoot",
         normalizedPath,
-        assistantStableKey,
+        assistantId,
         sessionId: null
       };
     }
@@ -4399,7 +4396,7 @@ export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePath
         return {
           kind: "assistantSessionsRoot",
           normalizedPath,
-          assistantStableKey,
+          assistantId,
           sessionId: null
         };
       }
@@ -4408,14 +4405,14 @@ export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePath
         return {
           kind: "invalid",
           normalizedPath,
-          assistantStableKey,
+          assistantId,
           sessionId: null
         };
       }
       return {
         kind: segments.length === 4 ? "sessionRoot" : "sessionDescendant",
         normalizedPath,
-        assistantStableKey,
+        assistantId,
         sessionId
       };
     }
@@ -4423,14 +4420,14 @@ export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePath
       return {
         kind: segments.length === 3 ? "assistantSharedRoot" : "assistantSharedDescendant",
         normalizedPath,
-        assistantStableKey,
+        assistantId,
         sessionId: null
       };
     }
     return {
       kind: "unknownWorkspacePath",
       normalizedPath,
-      assistantStableKey,
+      assistantId,
       sessionId: null
     };
   }
@@ -4438,7 +4435,7 @@ export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePath
   return {
     kind: segments.length === 1 ? "rootFlatFile" : "unknownWorkspacePath",
     normalizedPath,
-    assistantStableKey: null,
+    assistantId: null,
     sessionId: null
   };
 }
@@ -4547,7 +4544,7 @@ export function deriveDefaultDocumentProjectPath(sourcePath: string): string | n
   const visiblePath = classifyVisibleWorkspacePath(sourcePath);
   if (visiblePath.kind === "sessionRoot" || visiblePath.kind === "sessionDescendant") {
     return `${buildAssistantSessionRoot(
-      visiblePath.assistantStableKey ?? "",
+      visiblePath.assistantId ?? "",
       visiblePath.sessionId ?? ""
     )}/projects/${slug}`;
   }
@@ -4555,7 +4552,7 @@ export function deriveDefaultDocumentProjectPath(sourcePath: string): string | n
     visiblePath.kind === "assistantSharedRoot" ||
     visiblePath.kind === "assistantSharedDescendant"
   ) {
-    return `${buildAssistantSharedRoot(visiblePath.assistantStableKey ?? "")}/projects/${slug}`;
+    return `${buildAssistantSharedRoot(visiblePath.assistantId ?? "")}/projects/${slug}`;
   }
   if (
     visiblePath.kind === "workspaceSharedRoot" ||

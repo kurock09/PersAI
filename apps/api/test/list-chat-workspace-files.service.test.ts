@@ -141,7 +141,8 @@ async function run(): Promise<void> {
           id: "chat-1",
           assistantId: "assistant-1",
           workspaceId: "workspace-1",
-          surface: "web"
+          surface: "web",
+          surfaceThreadKey: "web-thread-1"
         };
       }
     } as never,
@@ -151,6 +152,19 @@ async function run(): Promise<void> {
       },
       assistantChatMessageAttachment: {
         findMany: async () => attachments
+      }
+    } as never,
+    {
+      async resolveByAssistantId(assistantId: string) {
+        assert.equal(assistantId, "assistant-1");
+        return "standard";
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          session: { sessionId: "runtime-session-1" }
+        };
       }
     } as never
   );

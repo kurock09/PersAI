@@ -174,8 +174,8 @@ Current active config expectations:
 
 ADR-081 plus ADR-133 define the active Files target state. ADR-126/127/128 remain historical migration steps, not the active model-facing filesystem shape:
 
-- file identity is the tuple `(workspaceId, path)` with model-visible paths rooted under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...` by default
-- assistants widen intentionally to `/workspace/assistants/<assistantStableKey>/...`, and then to `/workspace/...`, by ordinary path choice only
+- file identity is the tuple `(workspaceId, path)` with model-visible paths rooted under `/workspace/assistants/<assistantId>/sessions/<sessionId>/...` by default
+- assistants widen intentionally to `/workspace/assistants/<assistantId>/...`, and then to `/workspace/...`, by ordinary path choice only
 - `workspace_file_metadata` is the authoritative persisted index for reusable workspace files, while chat attachments and `documentLink` are projections over that path truth
 - chat `attachmentId`, runtime `artifactId`, object-storage keys, raw sandbox paths, knowledge source ids, and retrieval references are not primary model-facing file selectors
 - product open/download links use the canonical workspace-path file routes; the old attachment download route is not active target-state UI/API truth

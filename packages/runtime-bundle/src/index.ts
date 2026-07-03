@@ -22,10 +22,9 @@ export const PERSAI_RUNTIME_BUNDLE_SCHEMA = "persai.runtime.bundle.v1" as const;
 export interface AssistantRuntimeBundleMetadata {
   assistantId: string;
   /**
-   * Workspace-unique assistant path key assigned at assistant creation.
-   * ADR-133 Slice 1 uses it for `/workspace/assistants/<assistantStableKey>/...`;
-   * older outbound-directory wording is historical only until behavior layers
-   * migrate.
+   * Workspace-unique assistant handle assigned at assistant creation.
+   * Used for bash hints and audit labels only; visible `/workspace/...` paths
+   * use `assistantId`, not this handle.
    */
   assistantHandle: string;
   /**

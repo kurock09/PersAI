@@ -150,10 +150,10 @@ export function buildWorkspaceRoot(): string {
  * session id is unavailable at this layer.
  */
 export function buildDefaultVisibleWorkspaceRoot(
-  assistantStableKey: string,
+  assistantId: string,
   runtimeSessionId: string | null
 ): string {
   return runtimeSessionId === null
-    ? buildAssistantSharedRoot(assistantStableKey)
-    : buildAssistantSessionRoot(assistantStableKey, runtimeSessionId);
+    ? buildAssistantSharedRoot(assistantId)
+    : buildAssistantSessionRoot(assistantId, runtimeSessionId);
 }

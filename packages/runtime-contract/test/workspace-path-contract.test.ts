@@ -40,25 +40,25 @@ describe("workspace path contract", () => {
     assert.deepEqual(classifyVisibleWorkspacePath("/workspace"), {
       kind: "workspaceRoot",
       normalizedPath: "/workspace",
-      assistantStableKey: null,
+      assistantId: null,
       sessionId: null
     });
     assert.deepEqual(classifyVisibleWorkspacePath("/workspace/assistants/a"), {
       kind: "assistantRoot",
       normalizedPath: "/workspace/assistants/a",
-      assistantStableKey: "a",
+      assistantId: "a",
       sessionId: null
     });
     assert.deepEqual(classifyVisibleWorkspacePath("/workspace/assistants/a/sessions"), {
       kind: "assistantSessionsRoot",
       normalizedPath: "/workspace/assistants/a/sessions",
-      assistantStableKey: "a",
+      assistantId: "a",
       sessionId: null
     });
     assert.deepEqual(classifyVisibleWorkspacePath("/workspace/assistants/a/sessions/s"), {
       kind: "sessionRoot",
       normalizedPath: "/workspace/assistants/a/sessions/s",
-      assistantStableKey: "a",
+      assistantId: "a",
       sessionId: "s"
     });
     assert.deepEqual(
@@ -66,20 +66,20 @@ describe("workspace path contract", () => {
       {
         kind: "sessionDescendant",
         normalizedPath: "/workspace/assistants/a/sessions/s/report.pdf",
-        assistantStableKey: "a",
+        assistantId: "a",
         sessionId: "s"
       }
     );
     assert.deepEqual(classifyVisibleWorkspacePath("/workspace/assistants/a/shared"), {
       kind: "assistantSharedRoot",
       normalizedPath: "/workspace/assistants/a/shared",
-      assistantStableKey: "a",
+      assistantId: "a",
       sessionId: null
     });
     assert.deepEqual(classifyVisibleWorkspacePath("/workspace/shared"), {
       kind: "workspaceSharedRoot",
       normalizedPath: "/workspace/shared",
-      assistantStableKey: null,
+      assistantId: null,
       sessionId: null
     });
 
@@ -100,19 +100,19 @@ describe("workspace path contract", () => {
     assert.deepEqual(classifyVisibleWorkspacePath("/workspace/report.pdf"), {
       kind: "rootFlatFile",
       normalizedPath: "/workspace/report.pdf",
-      assistantStableKey: null,
+      assistantId: null,
       sessionId: null
     });
     assert.deepEqual(classifyVisibleWorkspacePath(staleChatPath), {
       kind: "staleChatsPath",
       normalizedPath: staleChatPath,
-      assistantStableKey: null,
+      assistantId: null,
       sessionId: null
     });
     assert.deepEqual(classifyVisibleWorkspacePath(staleProjectPath), {
       kind: "staleProjectsPath",
       normalizedPath: staleProjectPath,
-      assistantStableKey: null,
+      assistantId: null,
       sessionId: null
     });
 
@@ -134,7 +134,7 @@ describe("workspace path contract", () => {
   });
 
   test("rejects unsafe builder segments", () => {
-    assert.throws(() => buildAssistantWorkspaceRoot("bad/name"), /assistantStableKey/);
+    assert.throws(() => buildAssistantWorkspaceRoot("bad/name"), /assistantId/);
     assert.throws(() => buildAssistantSessionRoot("assistant-1", "../session"), /sessionId/);
   });
 });

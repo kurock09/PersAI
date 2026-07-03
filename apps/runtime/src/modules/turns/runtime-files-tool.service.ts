@@ -236,15 +236,15 @@ export class RuntimeFilesToolService {
     },
     request: FilesListRequest & { path: string }
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const assistantHandle = params.bundle.metadata.assistantHandle ?? "";
+    const assistantId = params.bundle.metadata.assistantId;
     try {
       const result = await this.persaiInternalApiClientService.listWorkspaceFilesFromManifest({
         workspaceId: params.bundle.metadata.workspaceId,
         pathPrefix: request.path,
-        assistantHandle,
+        assistantId,
         scope: this.resolveManifestListScope({
           path: request.path,
-          assistantHandle,
+          assistantId,
           sessionId: params.sessionId
         }),
         currentChatId: params.chatId,
@@ -288,26 +288,26 @@ export class RuntimeFilesToolService {
     bundle: AssistantRuntimeBundle;
     sessionId: string;
   }): string {
-    const assistantHandle = params.bundle.metadata.assistantHandle ?? "";
-    if (assistantHandle.length === 0) {
+    const assistantId = params.bundle.metadata.assistantId;
+    if (assistantId.length === 0) {
       return "/workspace";
     }
-    return buildAssistantSessionRoot(assistantHandle, params.sessionId);
+    return buildAssistantSessionRoot(assistantId, params.sessionId);
   }
 
   private resolveManifestListScope(input: {
     path: string;
-    assistantHandle: string;
+    assistantId: string;
     sessionId: string;
   }): FilesScope {
-    if (input.assistantHandle.length === 0) {
+    if (input.assistantId.length === 0) {
       return "workspace";
     }
-    const sessionRoot = buildAssistantSessionRoot(input.assistantHandle, input.sessionId);
+    const sessionRoot = buildAssistantSessionRoot(input.assistantId, input.sessionId);
     if (input.path === sessionRoot || input.path.startsWith(`${sessionRoot}/`)) {
       return "chat";
     }
-    const assistantRoot = buildAssistantWorkspaceRoot(input.assistantHandle);
+    const assistantRoot = buildAssistantWorkspaceRoot(input.assistantId);
     if (input.path === assistantRoot || input.path.startsWith(`${assistantRoot}/`)) {
       return "assistant";
     }
@@ -589,11 +589,11 @@ export class RuntimeFilesToolService {
     },
     request: FilesWriteRequest
   ): string | Error {
-    const assistantHandle = params.bundle.metadata.assistantHandle?.trim() ?? "";
-    if (assistantHandle.length === 0) {
-      return new Error("files.write requires a runtime assistant handle.");
+    const assistantId = params.bundle.metadata.assistantId?.trim() ?? "";
+    if (assistantId.length === 0) {
+      return new Error("files.write requires a runtime assistant id.");
     }
-    const sessionRoot = buildAssistantSessionRoot(assistantHandle, params.sessionId);
+    const sessionRoot = buildAssistantSessionRoot(assistantId, params.sessionId);
     const rawPath = request.path?.trim() ?? null;
     const requestedName = request.requestedName?.trim() ?? null;
     if (rawPath !== null && requestedName !== null) {
@@ -618,7 +618,7 @@ export class RuntimeFilesToolService {
         candidate.slice(placeholderRoot.length).replace(/^\/+/, "")
       );
     }
-    const currentSessionPlaceholderRoot = `/workspace/assistants/${assistantHandle}/sessions/current`;
+    const currentSessionPlaceholderRoot = `/workspace/assistants/${assistantId}/sessions/current`;
     if (
       candidate === currentSessionPlaceholderRoot ||
       candidate.startsWith(`${currentSessionPlaceholderRoot}/`)
@@ -641,7 +641,7 @@ export class RuntimeFilesToolService {
     const pathInfo = classifyVisibleWorkspacePath(candidate);
     if (
       (pathInfo.kind === "sessionRoot" || pathInfo.kind === "sessionDescendant") &&
-      (pathInfo.assistantStableKey !== assistantHandle || pathInfo.sessionId !== params.sessionId)
+      (pathInfo.assistantId !== assistantId || pathInfo.sessionId !== params.sessionId)
     ) {
       return new Error(
         "files.write cannot create files by spelling assistant/session IDs; use requestedName or a relative path for the current session."
@@ -881,8 +881,8 @@ export class RuntimeFilesToolService {
       throw new Error("Sandbox policy is unavailable for files tool execution.");
     }
     const assistantHandle = params.bundle.metadata.assistantHandle ?? "";
-    if (assistantHandle.length === 0) {
-      throw new Error("Assistant handle is missing from the runtime bundle.");
+    if (params.bundle.metadata.assistantId.length === 0) {
+      throw new Error("Assistant id is missing from the runtime bundle.");
     }
     const siblingHandles: readonly string[] = params.bundle.metadata.siblingAssistantHandles ?? [];
     const quota = params.bundle.governance.quota;

@@ -133,7 +133,7 @@ export class ListChatWorkspaceFilesService {
     const typeFilter = this.parseTypeFilter(input.type);
     const scope = this.parseScopeFilter(input.scope);
     const limit = this.parseLimit(input.limit);
-    const assistantRoot = buildAssistantWorkspaceRoot(assistant.handle);
+    const assistantRoot = buildAssistantWorkspaceRoot(assistant.id);
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
@@ -147,7 +147,7 @@ export class ListChatWorkspaceFilesService {
     const sessionRoot =
       runtimeSessionState.session === null
         ? null
-        : buildAssistantSessionRoot(assistant.handle, runtimeSessionState.session.sessionId);
+        : buildAssistantSessionRoot(assistant.id, runtimeSessionState.session.sessionId);
     const [manifestRowsRaw, attachmentRowsRaw] = await Promise.all([
       this.prisma.workspaceFileMetadata.findMany({
         where: { workspaceId: chat.workspaceId },

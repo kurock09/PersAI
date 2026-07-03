@@ -1677,9 +1677,9 @@ export class RuntimeDocumentToolService {
     requestedName: string;
     format: "pdf" | "xlsx" | "docx";
   }): string | Error {
-    const assistantHandle = input.bundle.metadata.assistantHandle?.trim() ?? "";
-    if (assistantHandle.length === 0) {
-      return new Error("Document output path resolution requires a runtime assistant handle.");
+    const assistantId = input.bundle.metadata.assistantId?.trim() ?? "";
+    if (assistantId.length === 0) {
+      return new Error("Document output path resolution requires a runtime assistant id.");
     }
     const requestedName = input.requestedName.trim();
     if (requestedName.length === 0) {
@@ -1701,7 +1701,7 @@ export class RuntimeDocumentToolService {
     if (resolvedName instanceof Error) {
       return resolvedName;
     }
-    return `${buildAssistantSessionRoot(assistantHandle, input.sessionId)}/${resolvedName}`;
+    return `${buildAssistantSessionRoot(assistantId, input.sessionId)}/${resolvedName}`;
   }
 
   private ensureRequestedNameMatchesFormat(

@@ -324,11 +324,11 @@ async function run(): Promise<void> {
 
   assert.equal(sandboxGcLeaseCreates.length, 1, "expected one assistant_subtree GC lease");
   const lease = sandboxGcLeaseCreates[0] as {
-    data: { kind: string; targetId: string; metadata: { handle: string } };
+    data: { kind: string; targetId: string; metadata: { assistantId: string } };
   };
   assert.equal(lease.data.kind, "assistant_subtree");
   assert.equal(lease.data.targetId, "assistant-1");
-  assert.equal(lease.data.metadata.handle, "test-handle");
+  assert.equal(lease.data.metadata.assistantId, "assistant-1");
   assert.ok(
     deleted.indexOf("sandboxWorkspaceGcLease.create") < deleted.indexOf("assistant"),
     "GC lease must be written before assistant row is deleted"

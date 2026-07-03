@@ -5,7 +5,7 @@ import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import { RuntimeFilesToolService } from "../src/modules/turns/runtime-files-tool.service";
 import { stringifyToolResultPayloadForModel } from "../src/modules/turns/sanitize-tool-result-for-model";
 
-const TEST_SESSION_ROOT = "/workspace/assistants/my-bot/sessions/session-1";
+const TEST_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
 
 function wp(relativePath: string): string {
   return `${TEST_SESSION_ROOT}/${relativePath.replace(/^\/+/, "")}`;
@@ -340,7 +340,7 @@ test("files.list workspace-root widen reads from manifest API and skips sandbox"
         manifestCalled = true;
         assert.equal(input.workspaceId, "workspace-1");
         assert.equal(input.pathPrefix, "/workspace");
-        assert.equal(input.assistantHandle, "my-bot");
+        assert.equal(input.assistantId, "assistant-1");
         assert.equal(input.scope, "workspace");
         assert.equal(input.currentChatId, null);
         assert.equal(input.currentAssistantId, "assistant-1");
@@ -411,7 +411,7 @@ test("files.list assistant-root path widens manifest request explicitly", async 
     toolCall: {
       id: "tc-list-assistant",
       name: "files",
-      arguments: { action: "list", path: "/workspace/assistants/my-bot" }
+      arguments: { action: "list", path: "/workspace/assistants/assistant-1" }
     },
     sessionId: "session-1",
     requestId: "request-1",
@@ -507,7 +507,7 @@ test("files.list defaults to the current session root when path is omitted", asy
   assert.notEqual(capturedManifestInput, null);
   assert.equal(
     capturedManifestInput?.pathPrefix,
-    "/workspace/assistants/my-bot/sessions/session-1"
+    "/workspace/assistants/assistant-1/sessions/session-1"
   );
   assert.equal(capturedManifestInput?.scope, "chat");
 });
@@ -541,7 +541,7 @@ test("files.read allows an exact widened path without cross-scope flags", async 
     toolCall: {
       id: "tc-read-widened",
       name: "files",
-      arguments: { action: "read", path: "/workspace/assistants/my-bot/old-report.txt" }
+      arguments: { action: "read", path: "/workspace/assistants/assistant-1/old-report.txt" }
     },
     sessionId: "session-1",
     requestId: "request-1",

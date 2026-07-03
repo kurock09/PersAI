@@ -53,7 +53,7 @@ The canonical visible workspace path hierarchy is:
 ```text
 /workspace/
   assistants/
-    <assistantStableKey>/
+    <assistantId>/
       sessions/
         <sessionId>/
           ...
@@ -65,7 +65,7 @@ The canonical visible workspace path hierarchy is:
 
 Definitions:
 
-- `assistantStableKey` is a stable system-owned assistant path key. It must not be a user-facing display name. The implementation slice decides between `Assistant.handle` and an id-derived key, but the chosen key must be stable, path-safe, and unique inside the workspace.
+- `assistantId` is the stable assistant UUID (`Assistant.id`). It is the only allowed assistant path segment. `Assistant.handle` / display name / slug must never appear in visible workspace paths.
 - `sessionId` is the existing runtime/session identifier for the working session. It is not a UI label.
 - The session root is the default working directory and default write target.
 - The assistant root is the first intentional widen level.
@@ -86,7 +86,7 @@ Default behavior after cutover:
 The assistant widens by ordinary path choice, not by a separate model-facing scope vocabulary:
 
 ```text
-/workspace/assistants/<assistantStableKey>/          # this assistant
+/workspace/assistants/<assistantId>/          # this assistant
 /workspace/                                         # whole workspace
 ```
 
@@ -269,7 +269,7 @@ Landed locally 2026-07-03:
 
 This ADR is not closure-ready until all are true:
 
-1. A new upload in a live web chat lands under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`.
+1. A new upload in a live web chat lands under `/workspace/assistants/<assistantId>/sessions/<sessionId>/...`.
 2. `files.write`, generated media outputs, shell-produced files, and document outputs land under the same session root by default.
 3. `shell`, `exec`, `grep`, and `glob` default to the session root.
 4. The assistant can intentionally widen to its assistant root and then to `/workspace/` with ordinary file paths.

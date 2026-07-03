@@ -28,7 +28,7 @@ import { WorkspaceAuditService } from "./workspace-audit.service";
  * - `session_subtree` cleanup drops the assistant's session-snapshot GCS
  *   subtree. Current producer metadata still lacks a runtime session id, so this
  *   slice cannot yet target one concrete session directory on warm pods.
- * - `assistant_subtree` cleanup purges `/workspace/assistants/<assistantStableKey>/...`.
+ * - `assistant_subtree` cleanup purges `/workspace/assistants/<assistantId>/...`.
  * - `workspace_subtree` cleanup purges the whole visible workspace tree.
  *
  * On any failure the lease stays open; the next tick retries. Successful
@@ -43,7 +43,7 @@ const SESSION_SUBTREE_METADATA = z.object({
 
 const ASSISTANT_SUBTREE_METADATA = z.object({
   workspaceId: z.string().uuid(),
-  handle: z.string().min(1).max(64)
+  assistantId: z.string().uuid()
 });
 
 const WORKSPACE_SUBTREE_METADATA = z.object({}).passthrough();
@@ -205,7 +205,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
   }): Promise<void> {
     const startedAt = Date.now();
     const meta = ASSISTANT_SUBTREE_METADATA.parse(lease.metadata);
-    const assistantRoot = buildAssistantWorkspaceRoot(meta.handle);
+    const assistantRoot = buildAssistantWorkspaceRoot(meta.assistantId);
     try {
       const prefix = this.sandboxObjectStorageService.buildWorkspacePrefix({
         workspaceId: meta.workspaceId,
@@ -214,7 +214,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
       await this.sandboxObjectStorageService.deletePrefix(prefix);
     } catch (error) {
       this.logger.warn(
-        `workspace_gc_assistant_subtree_gcs_purge_failed workspace=${meta.workspaceId} handle=${meta.handle} reason=${error instanceof Error ? error.message : String(error)}`
+        `workspace_gc_assistant_subtree_gcs_purge_failed workspace=${meta.workspaceId} assistantId=${meta.assistantId} reason=${error instanceof Error ? error.message : String(error)}`
       );
     }
     const pods = await this.execPodBridgeService.listWarmSessionPodsForWorkspace(meta.workspaceId);
@@ -233,7 +233,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
         podsTouched += 1;
       } catch (error) {
         this.logger.warn(
-          `workspace_gc_assistant_subtree_pod_purge_failed pod=${pod.podName} workspace=${meta.workspaceId} handle=${meta.handle} reason=${error instanceof Error ? error.message : String(error)}`
+          `workspace_gc_assistant_subtree_pod_purge_failed pod=${pod.podName} workspace=${meta.workspaceId} assistantId=${meta.assistantId} reason=${error instanceof Error ? error.message : String(error)}`
         );
       }
     }

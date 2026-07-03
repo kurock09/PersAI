@@ -76,7 +76,7 @@ export class InboundMediaService {
 
         const storagePath = await resolveUniqueWorkspaceStoragePath({
           workspaceId: params.workspaceId,
-          assistantStableKey: params.assistantHandle,
+          assistantId: params.assistantId,
           sessionId: params.runtimeSessionId,
           filename: raw.originalFilename,
           mimeType: processed.normalizedMime,

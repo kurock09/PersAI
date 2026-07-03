@@ -68,10 +68,10 @@ test("normalizeAndClampPath: exact match of mount root returns empty relativePat
 test("normalizeAndClampPath: nested subdirectory resolves correctly", () => {
   const { absolutePath, relativePath } = normalizeAndClampPath(
     "/workspace",
-    "/workspace/assistants/my-bot/sessions/session-1/out.csv"
+    "/workspace/assistants/assistant-1/sessions/session-1/out.csv"
   );
-  assert.equal(absolutePath, "/workspace/assistants/my-bot/sessions/session-1/out.csv");
-  assert.equal(relativePath, "assistants/my-bot/sessions/session-1/out.csv");
+  assert.equal(absolutePath, "/workspace/assistants/assistant-1/sessions/session-1/out.csv");
+  assert.equal(relativePath, "assistants/assistant-1/sessions/session-1/out.csv");
 });
 
 test("normalizeAndClampPath: throws outside_mount_root when path escapes", () => {
@@ -98,13 +98,16 @@ test("assertAllowedMountPrefix: root-level /workspace file path still normalizes
 
 test("assertAllowedMountPrefix: nested subdirectory under /workspace/ is allowed", () => {
   const result = assertAllowedMountPrefix(
-    "/workspace/assistants/my-bot/sessions/session-1/notes/2026/today.md"
+    "/workspace/assistants/assistant-1/sessions/session-1/notes/2026/today.md"
   );
   assert.equal(
     result.absolutePath,
-    "/workspace/assistants/my-bot/sessions/session-1/notes/2026/today.md"
+    "/workspace/assistants/assistant-1/sessions/session-1/notes/2026/today.md"
   );
-  assert.equal(result.relativePath, "assistants/my-bot/sessions/session-1/notes/2026/today.md");
+  assert.equal(
+    result.relativePath,
+    "assistants/assistant-1/sessions/session-1/notes/2026/today.md"
+  );
 });
 
 test("assertAllowedMountPrefix: bare /workspace returns empty relative path", () => {

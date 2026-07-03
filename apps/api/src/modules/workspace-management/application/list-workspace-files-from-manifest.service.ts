@@ -6,7 +6,7 @@ import { normalizeActiveWorkspaceDirectoryPath } from "./workspace-visible-paths
 export type ListWorkspaceFilesFromManifestInput = {
   workspaceId: string;
   pathPrefix: string;
-  assistantHandle: string;
+  assistantId: string;
   scope: "chat" | "assistant" | "workspace";
   currentChatId: string | null;
   currentAssistantId: string;
@@ -37,7 +37,7 @@ export class ListWorkspaceFilesFromManifestService {
     return {
       workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
       pathPrefix: this.requiredString(row.pathPrefix, "pathPrefix"),
-      assistantHandle: this.requiredString(row.assistantHandle, "assistantHandle"),
+      assistantId: this.requiredString(row.assistantId, "assistantId"),
       scope: this.readScope(row.scope),
       currentChatId: this.readNullableString(row.currentChatId),
       currentAssistantId: this.requiredString(row.currentAssistantId, "currentAssistantId")

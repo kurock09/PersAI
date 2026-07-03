@@ -1,5 +1,62 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — session pod filesystem sync fix (pod + GCS source of truth)
+
+Status: **implemented locally, sandbox tests + typecheck green, commit/push/deploy pending.**
+
+What changed:
+
+- `apps/sandbox/src/exec-pod-bridge.service.ts` — session `runInSessionPod` no longer calls `pushWorkspace` before exec. Added `SessionPodStagingFile` + `stagingFiles` on `runInPod`; transient inputs are written directly into the pod via `writePodFileBytes`. Post-job `pullWorkspace` remains for artifact staging. Ephemeral pods unchanged (push → optional staging → exec → pull).
+- `apps/sandbox/src/sandbox.service.ts` — `render_html_to_pdf` and `execute_document_code` no longer materialize transients on control-plane disk for session jobs; they pass `stagingFiles` and clean up transients on the pod via `removeSessionPodPaths`.
+- Tests updated/added: session pod must not push; staging writes; document code reads `stagingFiles`; grep/glob fixtures use `assistantId` paths.
+
+Root cause fixed:
+
+- `files.write` → pod + GCS (no push).
+- Old `shell`/`document.*` → push stale local tree → overwrote pod.
+- Now all session jobs read/write the same pod truth.
+
+Verification:
+
+- `corepack pnpm --filter @persai/sandbox exec tsx --test test/exec-pod-bridge.service.test.ts test/sandbox.service.test.ts` — 48/48 pass
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+
+Next step:
+
+- Commit + deploy sandbox to dev.
+- Live acceptance: reproduce browser clobber test (`files.write` then `shell` on existing file) and PDF re-render (`files.write` md → `document.render`) — both must see fresh bytes.
+
+## 2026-07-03 — ADR-133 assistant path segment = `assistantId` (UUID), not handle
+
+Status: **implemented locally, full verification gate green, commit/push/deploy pending.** Baseline SHA on `main`: `4f79642dc7fd834c5dc60e33cc382a0ef858c566`. This slice closes the founder-reported filesystem identity bug: visible workspace paths must use the assistant's stable UUID (`Assistant.id`), not `Assistant.handle` / display name / slug (`persai`, Cyrillic names, etc.).
+
+What changed:
+
+- `packages/runtime-contract/src/index.ts` — path builders and `classifyVisibleWorkspacePath` now name the assistant segment `assistantId`; `assistantStableKey` removed from active contract API.
+- API ingress/list/delivery/upload paths (`resolve-workspace-storage-path`, `manage-chat-media`, inbound media, media delivery, manifest list, chat file gallery widen root) now pass `assistant.id` into `buildAssistantWorkspaceRoot` / `buildAssistantSessionRoot`.
+- Runtime `files` / `document` tools and internal manifest list client use `bundle.metadata.assistantId`.
+- Sandbox default visible root, workspace-path helpers, and `assistant_subtree` GC lease metadata now key on `assistantId`; `AdminDeleteUserService` GC producer updated accordingly.
+- `assistantHandle` remains only for bash/exec pod hints and audit logs — not filesystem path segments.
+- Tests/docs fixtures updated from handle-shaped segments (`persai`, `alice`, `my-bot`) to `assistant-1` / UUID fixtures.
+
+Focused + gate verification green:
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm --filter @persai/runtime-contract exec tsx --test test/workspace-path-contract.test.ts`
+- focused API/runtime/sandbox tests for manifest, inbound media, files tools, document tools, GC, workspace-path
+
+Residuals / next step:
+
+- Commit + push this slice; deploy to dev.
+- Live acceptance: one chat → upload + `files.write` → files land only under `/workspace/assistants/<real-assistant-uuid>/sessions/<real-runtimeSessionId>/...` (no `persai`/handle segment).
+- **GCS split-brain:** existing objects under `assistants/<handle>/...` are not auto-migrated; new writes go to `assistants/<uuid>/...`. Plan explicit migration or accept fresh-dev-only until backfill.
+- ADR-133 formal closure gate still pending deploy + live acceptance.
+
 ## 2026-07-03 — current-session file/document path ownership cutover ready to commit
 
 Status: **implemented locally, focused verification green, push/deploy pending.** Follow-up investigation against the live cluster showed the prior file/document contract was still wrong even after the registration/path cleanup: ordinary `files.write` and older `document.render` paths pushed the model toward authoring absolute `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...` destinations, while prompt owners only showed template placeholders. In the live cluster this let the model invent placeholder roots such as `/workspace/assistants/current/sessions/current/...`, which became real directories in the session pod. This slice removes that contract bug instead of trying to “teach the model better”.

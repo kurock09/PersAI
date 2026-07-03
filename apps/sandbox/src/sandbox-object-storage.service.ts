@@ -41,14 +41,14 @@ export class SandboxObjectStorageService {
    *
    * ADR-133 Slice 2 keeps the workspace-scoped storage namespace but preserves
    * the full visible subtree under it, so hierarchical session paths persist as
-   * `.../workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`
+   * `.../workspace/assistants/<assistantId>/sessions/<sessionId>/...`
    * instead of flattening to a basename-only key.
    */
   buildWorkspaceObjectKey(input: {
     workspaceId: string;
     /**
      * Absolute pod path like
-     * `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/<basename>`.
+     * `/workspace/assistants/<assistantId>/sessions/<sessionId>/<basename>`.
      */
     workspaceRelPath: string;
   }): string {

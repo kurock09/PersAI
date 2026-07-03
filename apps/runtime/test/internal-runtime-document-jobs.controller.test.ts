@@ -13,6 +13,7 @@ function buildValidBody(overrides: Record<string, unknown> = {}): Record<string,
   return {
     assistantId: "11111111-1111-1111-1111-111111111111",
     workspaceId: "22222222-2222-2222-2222-222222222222",
+    runtimeSessionId: "88888888-8888-8888-8888-888888888888",
     runtimeTier: "paid_shared_restricted",
     runtimeBundleDocument: "{}",
     job: {

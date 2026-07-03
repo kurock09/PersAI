@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { join, dirname, extname, basename, isAbsolute, relative, resolve, sep } from "node:path";
+import { join, extname, basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { posix as pathPosix } from "node:path";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { SandboxConfig } from "@persai/config";
@@ -15,7 +15,7 @@ import type {
 import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import { Prisma } from "@prisma/client";
 import { SANDBOX_CONFIG } from "./sandbox-config";
-import { ExecPodBridgeService } from "./exec-pod-bridge.service";
+import { ExecPodBridgeService, type SessionPodStagingFile } from "./exec-pod-bridge.service";
 import { SandboxObservabilityService } from "./sandbox-observability.service";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
 import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
@@ -295,7 +295,7 @@ export class SandboxService {
         workspaceId: input.workspaceId,
         runtimeSessionId: input.runtimeSessionId ?? null,
         defaultVisibleRoot: buildDefaultVisibleWorkspaceRoot(
-          assistantHandle,
+          input.assistantId,
           input.runtimeSessionId ?? null
         ),
         policy,
@@ -432,7 +432,7 @@ export class SandboxService {
         workspaceId: input.workspaceId,
         runtimeSessionId: input.runtimeSessionId ?? null,
         defaultVisibleRoot: buildDefaultVisibleWorkspaceRoot(
-          assistantHandle,
+          input.assistantId,
           input.runtimeSessionId ?? null
         ),
         policy,
@@ -844,7 +844,7 @@ export class SandboxService {
         request.assistantHandle ?? null
       );
       const defaultVisibleRoot = buildDefaultVisibleWorkspaceRoot(
-        assistantHandle,
+        request.assistantId,
         request.runtimeSessionId ?? null
       );
       workspaceRoot = this.resolveWorkspaceRoot(request.workspaceId);
@@ -1774,9 +1774,11 @@ export class SandboxService {
       currentRoot,
       outputFileName
     );
-    await fs.writeFile(inputAbsolutePath, htmlContent, "utf8");
     const podInputPath = this.toVisibleWorkspaceAbsolutePath(workspaceRoot, inputAbsolutePath);
     const podOutputPath = this.toVisibleWorkspaceAbsolutePath(workspaceRoot, outputAbsolutePath);
+    const stagingFiles: SessionPodStagingFile[] = [
+      { absolutePath: podInputPath, contents: Buffer.from(htmlContent, "utf8") }
+    ];
 
     try {
       const result = await this.execPodBridgeService.runInPod({
@@ -1790,7 +1792,8 @@ export class SandboxService {
         absoluteCwd: currentRoot,
         command: "weasyprint",
         args: [podInputPath, podOutputPath],
-        policy
+        policy,
+        stagingFiles
       });
       if (result.exitCode !== 0) {
         return {
@@ -1827,8 +1830,18 @@ export class SandboxService {
         producedFiles
       };
     } finally {
-      // Drop the transient HTML input so it never becomes a produced artifact.
-      await fs.rm(inputAbsolutePath, { force: true });
+      if (runtimeSessionId !== null) {
+        await this.removeSessionPodPaths({
+          assistantId,
+          assistantHandle,
+          siblingHandles,
+          workspaceId,
+          policy,
+          paths: [podInputPath]
+        });
+      } else {
+        await fs.rm(inputAbsolutePath, { force: true });
+      }
     }
   }
 
@@ -1888,30 +1901,37 @@ export class SandboxService {
     const programRelativePath = ".document-code.py";
     const programAbsolutePath = this.resolveWorkspacePath(currentRoot, programRelativePath);
     const sourcesDirAbsolute = this.resolveWorkspacePath(currentRoot, "sources");
+    const podProgramPath = this.toVisibleWorkspaceAbsolutePath(workspaceRoot, programAbsolutePath);
+    const podSourcesDirPath = this.toVisibleWorkspaceAbsolutePath(
+      workspaceRoot,
+      sourcesDirAbsolute
+    );
+    const stagingFiles: SessionPodStagingFile[] = [];
 
     try {
-      // Materialize Tier 1 source copies into deterministic mount paths.
       const sourceMounts = this.readDocumentCodeSourceMounts(args.sourceMounts);
       for (const mount of sourceMounts) {
         const buffer = await this.downloadWorkspaceStoragePathBytes(workspaceId, mount.storagePath);
         const targetAbsolute = this.resolveWorkspacePath(currentRoot, mount.mountPath);
-        await fs.mkdir(dirname(targetAbsolute), { recursive: true });
-        await fs.writeFile(targetAbsolute, buffer);
+        stagingFiles.push({
+          absolutePath: this.toVisibleWorkspaceAbsolutePath(workspaceRoot, targetAbsolute),
+          contents: buffer
+        });
       }
 
-      // Materialize Tier 2 OCR/extracted-text sidecars.
       const textSidecars = this.readDocumentCodeTextSidecars(args.textSidecars);
       for (const sidecar of textSidecars) {
         const targetAbsolute = this.resolveWorkspacePath(currentRoot, sidecar.mountPath);
-        await fs.mkdir(dirname(targetAbsolute), { recursive: true });
-        await fs.writeFile(targetAbsolute, sidecar.text, "utf8");
+        stagingFiles.push({
+          absolutePath: this.toVisibleWorkspaceAbsolutePath(workspaceRoot, targetAbsolute),
+          contents: Buffer.from(sidecar.text, "utf8")
+        });
       }
 
-      await fs.writeFile(programAbsolutePath, programSource, "utf8");
-      const podProgramPath = this.toVisibleWorkspaceAbsolutePath(
-        workspaceRoot,
-        programAbsolutePath
-      );
+      stagingFiles.push({
+        absolutePath: podProgramPath,
+        contents: Buffer.from(programSource, "utf8")
+      });
 
       const outputAbsolutePath = this.resolveDocumentToolTargetPath(
         workspaceRoot,
@@ -1929,7 +1949,8 @@ export class SandboxService {
         absoluteCwd: currentRoot,
         command: "python3",
         args: [podProgramPath],
-        policy
+        policy,
+        stagingFiles
       });
       if (result.exitCode !== 0) {
         return {
@@ -1966,12 +1987,44 @@ export class SandboxService {
         producedFiles
       };
     } finally {
-      // Remove the program and all transient source copies/sidecars so only the
-      // produced output file is collected. The whole sources/ dir is removed in
-      // case the program created extra files under it.
-      await fs.rm(programAbsolutePath, { force: true });
-      await fs.rm(sourcesDirAbsolute, { recursive: true, force: true });
+      if (runtimeSessionId !== null) {
+        await this.removeSessionPodPaths({
+          assistantId,
+          assistantHandle,
+          siblingHandles,
+          workspaceId,
+          policy,
+          paths: [podProgramPath, podSourcesDirPath]
+        });
+      } else {
+        await fs.rm(programAbsolutePath, { force: true });
+        await fs.rm(sourcesDirAbsolute, { recursive: true, force: true });
+      }
     }
+  }
+
+  private async removeSessionPodPaths(input: {
+    assistantId: string;
+    assistantHandle: string;
+    siblingHandles: readonly string[];
+    workspaceId: string;
+    policy: RuntimeSandboxPolicy;
+    paths: readonly string[];
+  }): Promise<void> {
+    if (input.paths.length === 0) {
+      return;
+    }
+    const shellCommand = input.paths
+      .map((path) => `rm -rf ${sandboxPosixSingleQuote(path)}`)
+      .join(" && ");
+    await this.execPodBridgeService.execShellInSessionPod({
+      assistantId: input.assistantId,
+      assistantHandle: input.assistantHandle,
+      siblingHandles: input.siblingHandles,
+      workspaceId: input.workspaceId,
+      policy: input.policy,
+      shellCommand
+    });
   }
 
   private readDocumentCodeSourceMounts(

@@ -5,7 +5,7 @@ import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import { RuntimeFilesToolService } from "../src/modules/turns/runtime-files-tool.service";
 import { stringifyToolResultPayloadForModel } from "../src/modules/turns/sanitize-tool-result-for-model";
 
-const TEST_SESSION_ROOT = "/workspace/assistants/my-bot/sessions/session-1";
+const TEST_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
 
 function wp(relativePath: string): string {
   return `${TEST_SESSION_ROOT}/${relativePath.replace(/^\/+/, "")}`;

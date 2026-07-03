@@ -101,6 +101,7 @@ function createService(overrides?: {
                 attachments: [],
                 sourceUserMessageText: "draw a sunset",
                 sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+                runtimeSessionId: "session-1",
                 directToolExecution: {
                   toolCode: "image_generate",
                   request: {
@@ -274,6 +275,7 @@ describe("AssistantMediaJobSchedulerService", () => {
             attachments: [],
             sourceUserMessageText: "make a storm clip with natural audio",
             sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            runtimeSessionId: "session-1",
             directToolExecution: {
               toolCode: "video_generate",
               request: {
@@ -374,6 +376,7 @@ describe("AssistantMediaJobSchedulerService", () => {
             attachments: [],
             sourceUserMessageText: "make a clip",
             sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            runtimeSessionId: "session-1",
             directToolExecution: {
               toolCode: "video_generate",
               request: {
@@ -453,6 +456,7 @@ describe("AssistantMediaJobSchedulerService", () => {
             attachments: [],
             sourceUserMessageText: "make a talking avatar clip",
             sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            runtimeSessionId: "session-1",
             directToolExecution: {
               toolCode: "video_generate",
               request: {
@@ -687,6 +691,7 @@ describe("AssistantMediaJobSchedulerService", () => {
             attachments: [],
             sourceUserMessageText: "make a clip",
             sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            runtimeSessionId: "session-1",
             directToolExecution: {
               toolCode: "video_generate",
               request: {
@@ -738,6 +743,7 @@ describe("AssistantMediaJobSchedulerService", () => {
             attachments: [],
             sourceUserMessageText: "make a narrated teaser with built-in speech",
             sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            runtimeSessionId: "session-1",
             directToolExecution: {
               toolCode: "video_generate",
               request: {
@@ -794,6 +800,7 @@ describe("AssistantMediaJobSchedulerService", () => {
             attachments: [],
             sourceUserMessageText: "draw a sunset",
             sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            runtimeSessionId: "session-1",
             directToolExecution: {
               toolCode: "image_generate",
               request: { prompt: "sunset" }
@@ -829,6 +836,7 @@ describe("AssistantMediaJobSchedulerService", () => {
             attachments: [],
             sourceUserMessageText: "draw a sunset",
             sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            runtimeSessionId: "session-1",
             directToolExecution: {
               toolCode: "image_generate",
               request: {
@@ -966,7 +974,7 @@ describe("AssistantMediaJobSchedulerService", () => {
               {
                 attachmentId: "att-sp-1",
                 kind: "image",
-                storagePath: "/workspace/assistants/alice/sessions/session-1/photo.jpg",
+                storagePath: "/workspace/assistants/assistant-1/sessions/session-1/photo.jpg",
                 mimeType: "image/jpeg",
                 displayName: "photo.jpg",
                 sizeBytes: 1024
@@ -974,6 +982,7 @@ describe("AssistantMediaJobSchedulerService", () => {
             ],
             sourceUserMessageText: "edit this photo",
             sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            runtimeSessionId: "session-1",
             directToolExecution: {
               toolCode: "image_generate",
               request: {
@@ -1028,6 +1037,7 @@ describe("AssistantMediaJobSchedulerService", () => {
             ],
             sourceUserMessageText: "edit this photo",
             sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            runtimeSessionId: "session-1",
             directToolExecution: {
               toolCode: "image_generate",
               request: {
@@ -1075,7 +1085,7 @@ describe("AssistantMediaJobSchedulerService", () => {
               {
                 attachmentId: "att-mixed-good",
                 kind: "image",
-                storagePath: "/workspace/assistants/alice/sessions/session-1/good.jpg",
+                storagePath: "/workspace/assistants/assistant-1/sessions/session-1/good.jpg",
                 mimeType: "image/jpeg",
                 displayName: "good.jpg",
                 sizeBytes: 1024
@@ -1091,6 +1101,7 @@ describe("AssistantMediaJobSchedulerService", () => {
             ],
             sourceUserMessageText: "combine these",
             sourceUserMessageCreatedAt: "2026-05-05T09:00:00.000Z",
+            runtimeSessionId: "session-1",
             directToolExecution: {
               toolCode: "image_generate",
               request: {
@@ -1136,6 +1147,7 @@ describe("AssistantMediaJobSchedulerService", () => {
             attachments: [],
             sourceUserMessageText: "сделай talking avatar",
             sourceUserMessageCreatedAt: "2026-06-13T09:00:00.000Z",
+            runtimeSessionId: "session-1",
             directToolExecution: {
               toolCode: "video_generate",
               request: {

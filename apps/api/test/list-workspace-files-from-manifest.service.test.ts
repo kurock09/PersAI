@@ -4,8 +4,8 @@ import { BadRequestException } from "@nestjs/common";
 import { ListWorkspaceFilesFromManifestService } from "../src/modules/workspace-management/application/list-workspace-files-from-manifest.service";
 
 describe("ListWorkspaceFilesFromManifestService", () => {
-  const sessionRoot = "/workspace/assistants/alice/sessions/runtime-session-1";
-  const assistantSharedRoot = "/workspace/assistants/alice/shared";
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
+  const assistantSharedRoot = "/workspace/assistants/assistant-1/shared";
   const baseRows = [
     {
       workspaceId: "workspace-1",
@@ -103,7 +103,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
       service.execute({
         workspaceId: "workspace-1",
         pathPrefix: "/tmp/scratch",
-        assistantHandle: "alice",
+        assistantId: "alice",
         currentAssistantId: "assistant-1"
       }),
       BadRequestException
@@ -116,7 +116,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
       service.execute({
         workspaceId: "workspace-1",
         pathPrefix: "/workspace/../etc",
-        assistantHandle: "alice",
+        assistantId: "alice",
         currentAssistantId: "assistant-1"
       }),
       BadRequestException
@@ -129,7 +129,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
       service.execute({
         workspaceId: "workspace-1",
         pathPrefix: "/workspace/report.pdf",
-        assistantHandle: "alice",
+        assistantId: "alice",
         currentAssistantId: "assistant-1"
       }),
       BadRequestException
@@ -141,7 +141,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const out = await service.execute({
       workspaceId: "workspace-1",
       pathPrefix: "/workspace",
-      assistantHandle: "alice",
+      assistantId: "alice",
       scope: "workspace",
       currentChatId: "chat-1",
       currentAssistantId: "assistant-1"
@@ -159,7 +159,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const out = await service.execute({
       workspaceId: "workspace-1",
       pathPrefix: `${sessionRoot}/notes`,
-      assistantHandle: "alice",
+      assistantId: "alice",
       scope: "workspace",
       currentChatId: "chat-1",
       currentAssistantId: "assistant-1"
@@ -179,7 +179,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const out = await service.execute({
       workspaceId: "workspace-1",
       pathPrefix: `${sessionRoot}/does-not-exist`,
-      assistantHandle: "alice",
+      assistantId: "alice",
       scope: "workspace",
       currentChatId: "chat-1",
       currentAssistantId: "assistant-1"
@@ -197,7 +197,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
       },
       {
         ...baseRows[1]!,
-        path: "/workspace/assistants/alice/sessions/runtime-session-other/other.md",
+        path: "/workspace/assistants/assistant-1/sessions/runtime-session-other/other.md",
         originChatId: "chat-other",
         originAssistantId: "assistant-1"
       }
@@ -205,7 +205,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const out = await service.execute({
       workspaceId: "workspace-1",
       pathPrefix: sessionRoot,
-      assistantHandle: "alice",
+      assistantId: "alice",
       scope: "chat",
       currentChatId: "chat-current",
       currentAssistantId: "assistant-1"
@@ -241,7 +241,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const out = await service.execute({
       workspaceId: "workspace-1",
       pathPrefix: assistantSharedRoot,
-      assistantHandle: "alice",
+      assistantId: "alice",
       scope: "assistant",
       currentChatId: "chat-current",
       currentAssistantId: "assistant-1"
@@ -258,18 +258,18 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const parsed = service.parseInput({
       workspaceId: "  workspace-1 ",
       pathPrefix: "/workspace",
-      assistantHandle: " alice ",
+      assistantId: " alice ",
       currentAssistantId: " assistant-1 "
     });
     assert.equal(parsed.workspaceId, "workspace-1");
     assert.equal(parsed.pathPrefix, "/workspace");
-    assert.equal(parsed.assistantHandle, "alice");
+    assert.equal(parsed.assistantId, "alice");
     assert.throws(
       () =>
         service.parseInput({
           workspaceId: "workspace-1",
           pathPrefix: "",
-          assistantHandle: "alice",
+          assistantId: "alice",
           currentAssistantId: "assistant-1"
         }),
       BadRequestException

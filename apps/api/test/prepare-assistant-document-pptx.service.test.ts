@@ -1,6 +1,26 @@
 import assert from "node:assert/strict";
 import { PrepareAssistantDocumentPptxService } from "../src/modules/workspace-management/application/prepare-assistant-document-pptx.service";
 
+function buildPreparePptxService(
+  prisma: object,
+  enqueue: { execute: (input: unknown) => Promise<unknown> }
+): PrepareAssistantDocumentPptxService {
+  return new PrepareAssistantDocumentPptxService(
+    prisma as never,
+    enqueue as never,
+    {
+      async resolveByAssistantId() {
+        return { runtimeTier: "paid_shared_restricted" };
+      }
+    } as never,
+    {
+      async ensure() {
+        return { created: true, session: { sessionId: "session-1" } };
+      }
+    } as never
+  );
+}
+
 async function run(): Promise<void> {
   const versionRow = {
     id: "version-1",
@@ -16,7 +36,7 @@ async function run(): Promise<void> {
 
   {
     const enqueueCalls: unknown[] = [];
-    const service = new PrepareAssistantDocumentPptxService(
+    const service = buildPreparePptxService(
       {
         assistantDocument: {
           findFirst: async () => ({ currentVersionId: "version-1" })
@@ -32,13 +52,13 @@ async function run(): Promise<void> {
         assistantDocumentRenderJob: {
           findFirst: async () => null
         }
-      } as never,
+      },
       {
         execute: async (input: unknown) => {
           enqueueCalls.push(input);
           throw new Error("enqueue should not run when a PPTX is already delivered");
         }
-      } as never
+      }
     );
 
     const result = await service.execute({
@@ -57,7 +77,7 @@ async function run(): Promise<void> {
   }
 
   {
-    const service = new PrepareAssistantDocumentPptxService(
+    const service = buildPreparePptxService(
       {
         assistantDocument: {
           findFirst: async () => ({ currentVersionId: "version-1" })
@@ -71,12 +91,12 @@ async function run(): Promise<void> {
         assistantDocumentRenderJob: {
           findFirst: async () => ({ id: "job-running-1" })
         }
-      } as never,
+      },
       {
         execute: async () => {
           throw new Error("enqueue should not run when a PPTX job is already active");
         }
-      } as never
+      }
     );
 
     const result = await service.execute({
@@ -105,7 +125,7 @@ async function run(): Promise<void> {
       sourceUserMessageId: string;
       sourceUserMessageText: string;
     }> = [];
-    const service = new PrepareAssistantDocumentPptxService(
+    const service = buildPreparePptxService(
       {
         assistantDocument: {
           findFirst: async () => ({ currentVersionId: "version-1" })
@@ -118,8 +138,17 @@ async function run(): Promise<void> {
         },
         assistantDocumentRenderJob: {
           findFirst: async () => null
+        },
+        assistantChatMessage: {
+          findUnique: async () => ({
+            chat: {
+              surface: "web",
+              surfaceThreadKey: "web-thread-1",
+              userId: "user-1"
+            }
+          })
         }
-      } as never,
+      },
       {
         execute: async (input: (typeof enqueueCalls)[number]) => {
           enqueueCalls.push(input);
@@ -131,7 +160,7 @@ async function run(): Promise<void> {
             documentType: "presentation"
           };
         }
-      } as never
+      }
     );
 
     const result = await service.execute({
@@ -156,13 +185,13 @@ async function run(): Promise<void> {
   }
 
   {
-    const service = new PrepareAssistantDocumentPptxService(
+    const service = buildPreparePptxService(
       {
         assistantDocument: {
           findFirst: async () => ({ currentVersionId: "version-current" })
         }
-      } as never,
-      {} as never
+      },
+      { execute: async () => ({ accepted: false }) }
     );
 
     const result = await service.execute({

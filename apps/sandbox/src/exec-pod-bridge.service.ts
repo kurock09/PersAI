@@ -26,8 +26,8 @@ import { SandboxPrismaService } from "./sandbox-prisma.service";
 // The exec pod is keyed by (assistantId, workspaceId), NOT by chat session, so all
 // chats of one assistant+workspace reuse a single warm pod (the workspace lease —
 // assistantId+workspaceId Postgres mutex — serializes jobs, so there is never
-// concurrent use; the pod's /workspace is re-pushed from the control plane on every
-// job, so pod identity is purely a warmth optimization). The idle reaper reads these
+// concurrent use; the pod's /workspace is the source of truth and is mirrored to
+// GCS by files-bridge writes and post-job pulls). The idle reaper reads these
 // back from cluster truth to derive last-activity from the sandboxJob table, so
 // eviction survives control-plane restarts and works across replicas.
 const ASSISTANT_ID_ANNOTATION = "persai.io/assistant-id";
@@ -86,6 +86,12 @@ export type PodFileReadResult = {
   bytes: Buffer;
   durationMs: number;
   execPodName: string;
+};
+
+/** Transient job inputs written directly into the session pod before exec (never via push). */
+export type SessionPodStagingFile = {
+  absolutePath: string;
+  contents: Buffer;
 };
 
 type BridgeError = Error & { code: string; blocked: boolean };
@@ -242,6 +248,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     command: string;
     args: string[];
     policy: RuntimeSandboxPolicy;
+    stagingFiles?: ReadonlyArray<SessionPodStagingFile>;
   }): Promise<PodExecResult> {
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const startedAt = Date.now();
@@ -264,9 +271,9 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
    * Idempotently ensures the pod exists and the `/workspace` mount has been
    * bootstrapped.
    *
-   * Unlike {@link runInPod}, this path:
-   *   * does NOT push or pull the visible workspace tree — the bridge is meant for the
-   *     persisted workspace which is mirrored directly to GCS by the caller;
+   * Unlike {@link runInPod} on session pods, this path:
+   *   * does NOT push or pull the visible workspace tree — pod + GCS are the source of
+   *     truth; files-bridge writes go directly to the pod and mirror to GCS;
    *   * does NOT take the workspace lease — the bridge is invoked outside of
    *     a sandbox-job lifecycle (e.g. during upload hydration) and operates
    *     on persisted workspace paths outside the normal lease.
@@ -446,6 +453,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     command: string;
     args: string[];
     policy: RuntimeSandboxPolicy;
+    stagingFiles?: ReadonlyArray<SessionPodStagingFile>;
     namespace: string;
     startedAt: number;
   }): Promise<PodExecResult> {
@@ -456,8 +464,6 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       `exec_pod_session job=${options.jobId} pod=${podName} assistant=${assistantId} workspace=${workspaceId} handle=${assistantHandle}`
     );
 
-    // Idle activity is derived by the reaper from the sandboxJob table keyed by the
-    // assistant+workspace annotations stamped on the pod — no in-memory tracking needed.
     await this.ensureSessionPodRunning(
       podName,
       namespace,
@@ -473,7 +479,17 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       assistantHandle,
       siblingHandles
     );
-    await this.pushWorkspace(podName, namespace, options.workspaceRoot);
+    if (options.stagingFiles !== undefined) {
+      for (const file of options.stagingFiles) {
+        await this.writePodFileBytes(
+          podName,
+          namespace,
+          file.absolutePath,
+          file.contents,
+          options.policy
+        );
+      }
+    }
     const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
     const result = await this.execCommand(podName, namespace, {
       command: options.command,
@@ -504,6 +520,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     command: string;
     args: string[];
     policy: RuntimeSandboxPolicy;
+    stagingFiles?: ReadonlyArray<SessionPodStagingFile>;
     namespace: string;
     startedAt: number;
   }): Promise<PodExecResult> {
@@ -527,6 +544,17 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         options.siblingHandles
       );
       await this.pushWorkspace(podName, namespace, options.workspaceRoot);
+      if (options.stagingFiles !== undefined) {
+        for (const file of options.stagingFiles) {
+          await this.writePodFileBytes(
+            podName,
+            namespace,
+            file.absolutePath,
+            file.contents,
+            options.policy
+          );
+        }
+      }
       const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
       const result = await this.execCommand(podName, namespace, {
         command: options.command,
@@ -1240,25 +1268,47 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
-    const parentDir = absolutePath.slice(0, absolutePath.lastIndexOf("/"));
-    const writeShell = `mkdir -p ${posixSingleQuote(parentDir)} && cat > ${posixSingleQuote(absolutePath)}`;
     try {
-      const result = await this.execCommand(podName, namespace, {
-        command: "/bin/bash",
-        args: ["-lc", writeShell],
-        podCwd: "/",
-        policy: BOOTSTRAP_HYDRATE_POLICY,
-        stdin: buffer
-      });
-      if (result.exitCode !== 0) {
-        this.logger.warn(
-          `workspace_mount_hydrate_write_failed workspace=${workspaceId} path=${absolutePath} exit=${String(result.exitCode)}`
-        );
-      }
+      await this.writePodFileBytes(
+        podName,
+        namespace,
+        absolutePath,
+        buffer,
+        BOOTSTRAP_HYDRATE_POLICY,
+        "log"
+      );
     } catch (error) {
       this.logger.warn(
         `workspace_mount_hydrate_write_failed workspace=${workspaceId} path=${absolutePath} error=${describeUnknownError(error)}`
       );
+    }
+  }
+
+  private async writePodFileBytes(
+    podName: string,
+    namespace: string,
+    absolutePath: string,
+    contents: Buffer,
+    policy: RuntimeSandboxPolicy,
+    failureMode: "throw" | "log" = "throw"
+  ): Promise<void> {
+    const parentDir = absolutePath.slice(0, absolutePath.lastIndexOf("/"));
+    const writeShell = `mkdir -p ${posixSingleQuote(parentDir)} && cat > ${posixSingleQuote(absolutePath)}`;
+    const result = await this.execCommand(podName, namespace, {
+      command: "/bin/bash",
+      args: ["-lc", writeShell],
+      podCwd: "/",
+      policy,
+      stdin: contents
+    });
+    if (result.exitCode !== 0) {
+      const stderr = (result.stderr ?? "").trim();
+      const message = `Failed to write file to pod path ${absolutePath}: ${stderr || "non-zero exit"}`;
+      if (failureMode === "log") {
+        this.logger.warn(`${message} exit=${String(result.exitCode ?? "null")}`);
+        return;
+      }
+      throw createBridgeError("process_spawn_failed", message);
     }
   }
 

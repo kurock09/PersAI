@@ -38,19 +38,19 @@ export function deriveFilenameFromMime(referenceId: string, mimeType: string): s
 /**
  * Build the pod-absolute storage path for a workspace file. Under ADR-133 the
  * default visible write root is the current assistant session subtree:
- * `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/<basename>`.
+ * `/workspace/assistants/<assistantId>/sessions/<sessionId>/<basename>`.
  */
 export function buildWorkspaceStoragePath(
   filename: string | null,
   mimeType: string,
   referenceId: string,
-  assistantStableKey: string,
+  assistantId: string,
   sessionId: string
 ): string {
   const basename = sanitizeWorkspaceFilename(
     filename ?? deriveFilenameFromMime(referenceId, mimeType)
   );
-  return `${buildAssistantSessionRoot(assistantStableKey, sessionId)}/${basename}`;
+  return `${buildAssistantSessionRoot(assistantId, sessionId)}/${basename}`;
 }
 
 function applyNumericSuffix(basename: string, index: number): string {
@@ -70,7 +70,7 @@ function applyNumericSuffix(basename: string, index: number): string {
  */
 export async function resolveUniqueWorkspaceStoragePath(input: {
   workspaceId: string;
-  assistantStableKey: string;
+  assistantId: string;
   sessionId: string;
   filename: string | null;
   mimeType: string;
@@ -80,7 +80,7 @@ export async function resolveUniqueWorkspaceStoragePath(input: {
   const preferredBasename = sanitizeWorkspaceFilename(
     input.filename ?? deriveFilenameFromMime(input.referenceId, input.mimeType)
   );
-  const sessionRoot = buildAssistantSessionRoot(input.assistantStableKey, input.sessionId);
+  const sessionRoot = buildAssistantSessionRoot(input.assistantId, input.sessionId);
   let candidate = `${sessionRoot}/${preferredBasename}`;
   let suffix = 2;
   while (

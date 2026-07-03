@@ -39,7 +39,7 @@ export class InternalWorkspaceFilesController {
     @Req() req: InternalRequestLike,
     @Param("workspaceId") workspaceId: string,
     @Query("pathPrefix") pathPrefix: string | undefined,
-    @Query("assistantHandle") assistantHandle: string | undefined,
+    @Query("assistantId") assistantId: string | undefined,
     @Query("scope") scope: string | undefined,
     @Query("currentChatId") currentChatId: string | undefined,
     @Query("currentAssistantId") currentAssistantId: string | undefined
@@ -48,7 +48,7 @@ export class InternalWorkspaceFilesController {
     const input = this.listWorkspaceFilesFromManifestService.parseInput({
       workspaceId,
       pathPrefix,
-      assistantHandle,
+      assistantId,
       scope,
       currentChatId,
       currentAssistantId

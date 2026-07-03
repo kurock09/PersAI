@@ -700,7 +700,6 @@ export class MediaDeliveryService {
     artifact: MediaArtifact;
     workspaceId: string;
     assistantId: string;
-    assistantStableKey: string;
     chatId: string;
     runtimeSessionId: string | null;
     messageId: string;
@@ -854,13 +853,10 @@ export class MediaDeliveryService {
     const filename = validated.originalFilename ?? sourceFilename;
     const persistedBillingFacts =
       artifact.sourceToolCode === "tts" ? (artifact.billingFacts ?? null) : null;
-    const assistantStableKey = await this.resolveAssistantStableKey(params.assistantId);
-
     const storagePath = await this.resolvePersistedStoragePath({
       artifact,
       workspaceId: params.workspaceId,
       assistantId: params.assistantId,
-      assistantStableKey,
       chatId: params.chatId,
       runtimeSessionId: params.runtimeSessionId ?? null,
       messageId: params.messageId,
@@ -971,26 +967,9 @@ export class MediaDeliveryService {
     );
   }
 
-  private async resolveAssistantStableKey(assistantId: string): Promise<string> {
-    const assistant =
-      (await this.assistantRepository.findById(assistantId)) ??
-      (await this.prisma.assistant.findUnique({
-        where: { id: assistantId },
-        select: { handle: true }
-      }));
-    const handle = assistant?.handle?.trim();
-    if (!handle) {
-      throw new NotFoundException(
-        `Assistant ${assistantId} could not be resolved for hierarchical workspace delivery.`
-      );
-    }
-    return handle;
-  }
-
   private async resolveUniqueSessionStoragePath(input: {
     workspaceId: string;
     assistantId: string;
-    assistantStableKey: string;
     chatId: string;
     runtimeSessionId: string | null;
     messageId: string;
@@ -1002,7 +981,7 @@ export class MediaDeliveryService {
       (await this.ensureChatRuntimeSessionId(input.assistantId, input.chatId));
     return resolveUniqueWorkspaceStoragePath({
       workspaceId: input.workspaceId,
-      assistantStableKey: input.assistantStableKey,
+      assistantId: input.assistantId,
       sessionId: runtimeSessionId,
       filename: input.filename,
       mimeType: input.mimeType,

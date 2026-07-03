@@ -8,7 +8,7 @@ import {
   resolveUndeliveredProducedPaths
 } from "../src/modules/turns/turn-delivery-facts";
 
-const TEST_SESSION_ROOT = "/workspace/assistants/my-bot/sessions/session-1";
+const TEST_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
 
 function wp(relativePath: string): string {
   return `${TEST_SESSION_ROOT}/${relativePath.replace(/^\/+/, "")}`;

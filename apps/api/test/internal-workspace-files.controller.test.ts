@@ -38,14 +38,14 @@ test("internal workspace metadata delete returns 204 semantics for shared paths"
     controller.deleteMetadata(
       { headers: { authorization: `Bearer ${TOKEN}` } },
       "workspace-1",
-      "/workspace/assistants/alice/sessions/runtime-session-1/report.txt"
+      "/workspace/assistants/assistant-1/sessions/runtime-session-1/report.txt"
     )
   );
 
   assert.deepEqual(deletes, [
     {
       workspaceId: "workspace-1",
-      path: "/workspace/assistants/alice/sessions/runtime-session-1/report.txt"
+      path: "/workspace/assistants/assistant-1/sessions/runtime-session-1/report.txt"
     }
   ]);
 });
@@ -58,7 +58,7 @@ test("internal workspace metadata delete is idempotent when row is absent", asyn
     controller.deleteMetadata(
       { headers: { authorization: `Bearer ${TOKEN}` } },
       "workspace-1",
-      "/workspace/assistants/alice/sessions/runtime-session-1/missing.txt"
+      "/workspace/assistants/assistant-1/sessions/runtime-session-1/missing.txt"
     )
   );
 });
@@ -85,7 +85,7 @@ test("internal workspace metadata delete requires the internal token", async () 
     controller.deleteMetadata(
       { headers: {} },
       "workspace-1",
-      "/workspace/assistants/alice/sessions/runtime-session-1/report.txt"
+      "/workspace/assistants/assistant-1/sessions/runtime-session-1/report.txt"
     ),
     UnauthorizedException
   );
@@ -93,7 +93,7 @@ test("internal workspace metadata delete requires the internal token", async () 
     controller.deleteMetadata(
       { headers: { authorization: "Bearer wrong-token" } },
       "workspace-1",
-      "/workspace/assistants/alice/sessions/runtime-session-1/report.txt"
+      "/workspace/assistants/assistant-1/sessions/runtime-session-1/report.txt"
     ),
     UnauthorizedException
   );

@@ -600,11 +600,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     webSearch?.description,
     "Search the public web for current external facts.\nUse this when the answer depends on recent external information or links. May be called in parallel with other independent searches."
   );
-  assert.match(
-    files?.description ?? "",
-    /current session root `\/workspace\/assistants\/<assistantStableKey>\/sessions\/<sessionId>\/\.\.\.`/i
-  );
-  assert.match(files?.description ?? "", /\/workspace\/assistants\/<assistantStableKey>\//);
+  assert.match(files?.description ?? "", /runtime prepends the real current session root/i);
+  assert.match(files?.description ?? "", /must not construct assistant\/session IDs/i);
   assert.match(files?.description ?? "", /exact path from the Working Files block/);
   // ADR-130 Slice 2: the anti-reconstruct rule is owned by the (within-cap)
   // model description; the longer guidance restatement ("Do not reconstruct
@@ -662,7 +659,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       };
     }
   )?.properties;
-  assert.match(filesProperties?.path?.description ?? "", /pod-absolute path/i);
+  assert.match(filesProperties?.path?.description ?? "", /exact `\/workspace\/\.\.\.` paths/i);
   assert.match(filesProperties?.content?.description ?? "", /write/i);
   assert.equal(filesProperties?.replace?.type, "boolean");
   assert.match(filesProperties?.mode?.description ?? "", /create_only/i);
