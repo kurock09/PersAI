@@ -1,5 +1,24 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-132 render hotfix: generated document programs no longer depend on missing `PERSAI_OUTPUT_PATH`
+
+Status: **implemented locally, full gate green, not pushed.**
+
+Live test after the delivery repair exposed a separate runtime bug: `document.render` reached `execute_document_code`, but the generated Python program failed with `NameError: name 'PERSAI_OUTPUT_PATH' is not defined`. This was not a delivery/attachment issue. The ADR-132 generated render/convert scripts expected a sandbox global/env value that the `execute_document_code` runner does not provide.
+
+Fix: `RuntimeDocumentToolService` now embeds the already-normalized workspace `outputPath` directly into generated PDF/DOCX/XLSX/convert programs as `OUTPUT_PATH = Path("/workspace/...")`. The PDF/DOCX authored-render builder signature now receives `outputPath` explicitly; workbook and convert builders use the same direct path pattern. Runtime document tests assert that generated programs contain the requested output path and do not contain `PERSAI_OUTPUT_PATH`.
+
+Verification:
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+Next: commit this hotfix locally, then do not push until founder approval.
+
 ## 2026-07-03 — ADR-130 closure docs landed locally after full gate; branch ready for rebase + push
 
 Status: **ADR-130 code + closure docs are implemented locally and gate-green.** Since the earlier local ADR-130 follow-through batch, the closure sweep has now landed too: the ADR itself is marked **Closed locally 2026-07-03**, the system docs (`ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`) reflect the final prompt-owner truth, and the only remaining branch work is remote sync (`main` is behind `origin/main` by one commit) plus founder-authorized push/deploy.

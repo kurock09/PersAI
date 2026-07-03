@@ -1353,6 +1353,7 @@ export class RuntimeDocumentToolService {
             })
           : this.buildAuthoredRenderScript({
               contentPath: contentSource.markdownPath,
+              outputPath: input.outputPath,
               template: authoredTemplate,
               documentTitleFallback: this.stemOf(this.basename(input.outputPath)),
               format: input.format,
@@ -1478,6 +1479,7 @@ export class RuntimeDocumentToolService {
 
   private buildAuthoredRenderScript(input: {
     contentPath: string;
+    outputPath: string;
     template: NormalizedDocumentRenderTemplate;
     documentTitleFallback: string;
     format: "pdf" | "docx";
@@ -1498,7 +1500,7 @@ export class RuntimeDocumentToolService {
       "import markdown",
       "",
       `CONTENT_PATH = Path(${JSON.stringify(input.contentPath)})`,
-      `OUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)`,
+      `OUTPUT_PATH = Path(${JSON.stringify(input.outputPath)})`,
       `TEMPLATE_PATH = ${input.templatePath === null ? "None" : `Path(${JSON.stringify(input.templatePath)})`}`,
       `TITLE = ${this.toPythonLiteral(input.template.title)}`,
       `TITLE_FALLBACK = ${JSON.stringify(title)}`,
@@ -1655,7 +1657,7 @@ export class RuntimeDocumentToolService {
       "from openpyxl import Workbook",
       "",
       `CONTENT_PATH = Path(${JSON.stringify(input.contentPath)})`,
-      "OUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)",
+      `OUTPUT_PATH = Path(${JSON.stringify(input.outputPath)})`,
       "",
       "def clean_cell(value: str) -> str:",
       "    return value.strip()",
@@ -1736,7 +1738,7 @@ export class RuntimeDocumentToolService {
         "import shutil",
         "",
         `SOURCE_PATH = Path(${JSON.stringify(input.sourcePath)})`,
-        "OUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)",
+        `OUTPUT_PATH = Path(${JSON.stringify(input.outputPath)})`,
         "",
         "def build() -> None:",
         "    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)",
@@ -1756,7 +1758,7 @@ export class RuntimeDocumentToolService {
       "",
       `SOURCE_PATH = Path(${JSON.stringify(input.sourcePath)})`,
       `TARGET_FORMAT = ${JSON.stringify(input.targetFormat)}`,
-      "OUTPUT_PATH = Path(PERSAI_OUTPUT_PATH)",
+      `OUTPUT_PATH = Path(${JSON.stringify(input.outputPath)})`,
       "",
       "def convert() -> None:",
       "    with tempfile.TemporaryDirectory(prefix='persai-office-convert-', dir='/tmp') as tmp_dir:",

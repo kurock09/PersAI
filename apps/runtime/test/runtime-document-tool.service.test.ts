@@ -382,6 +382,8 @@ describe("RuntimeDocumentToolService", () => {
         ""
     );
     assert.match(programSource, /CONTENT_PATH = Path\(".*monthly \(1\)\.md"\)/);
+    assert.match(programSource, /OUTPUT_PATH = Path\("\/workspace\/reports\/monthly\.pdf"\)/);
+    assert.doesNotMatch(programSource, /PERSAI_OUTPUT_PATH/);
     assert.match(programSource, /HTML\(string=build_html_document\(\)/);
     assert.deepEqual(metadataPaths, [resolvedMarkdownPath, "/workspace/reports/monthly.pdf"]);
   });
@@ -498,6 +500,8 @@ describe("RuntimeDocumentToolService", () => {
         ""
     );
     assert.match(programSource, /from openpyxl import Workbook/);
+    assert.match(programSource, /OUTPUT_PATH = Path\("\/workspace\/tables\/revenue\.xlsx"\)/);
+    assert.doesNotMatch(programSource, /PERSAI_OUTPUT_PATH/);
     assert.match(programSource, /requires at least one Markdown table/);
     assert.match(programSource, /sheet\.append/);
   });
@@ -612,6 +616,8 @@ describe("RuntimeDocumentToolService", () => {
     );
     assert.match(programSource, /soffice/);
     assert.match(programSource, /SOURCE_PATH = Path\("\/workspace\/source\.docx"\)/);
+    assert.match(programSource, /OUTPUT_PATH = Path\("\/workspace\/source\.pdf"\)/);
+    assert.doesNotMatch(programSource, /PERSAI_OUTPUT_PATH/);
     assert.match(programSource, /TARGET_FORMAT = "pdf"/);
   });
 
