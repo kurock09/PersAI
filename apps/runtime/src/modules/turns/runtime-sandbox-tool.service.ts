@@ -1,11 +1,12 @@
 import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
-import type {
-  ProviderGatewayToolCall,
-  RuntimeSandboxJobRequest,
-  RuntimeSandboxToolResult,
-  RuntimeToolPolicy,
-  RuntimeSandboxProducedFile
+import {
+  classifyVisibleWorkspacePath,
+  type ProviderGatewayToolCall,
+  type RuntimeSandboxJobRequest,
+  type RuntimeSandboxToolResult,
+  type RuntimeToolPolicy,
+  type RuntimeSandboxProducedFile
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { SandboxClientService } from "./sandbox-client.service";
@@ -218,10 +219,16 @@ export class RuntimeSandboxToolService {
   }
 
   private isVisibleWorkspaceDocumentOutput(path: string): boolean {
-    const lowered = path.trim().toLowerCase();
-    return (
-      lowered.startsWith("/workspace/") &&
-      (lowered.endsWith(".pdf") || lowered.endsWith(".xlsx") || lowered.endsWith(".docx"))
-    );
+    const normalizedPath = path.trim();
+    const info = classifyVisibleWorkspacePath(normalizedPath);
+    const isActiveFilePath =
+      info.kind === "sessionDescendant" ||
+      info.kind === "assistantSharedDescendant" ||
+      info.kind === "workspaceSharedDescendant";
+    if (!isActiveFilePath) {
+      return false;
+    }
+    const lowered = normalizedPath.toLowerCase();
+    return lowered.endsWith(".pdf") || lowered.endsWith(".xlsx") || lowered.endsWith(".docx");
   }
 }

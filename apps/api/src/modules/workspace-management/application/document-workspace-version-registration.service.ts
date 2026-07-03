@@ -8,8 +8,6 @@ import { AssistantDocumentJobService } from "./assistant-document-job.service";
 import type { AssistantDocumentWorkspaceFacts } from "./assistant-document-link-metadata";
 import {
   inferProjectPathFromOutputPath,
-  normalizeWorkspaceDirectory,
-  normalizeWorkspacePath,
   resolveVisibleWorkspaceOutputFormatFromPath,
   type DocumentWorkspaceInspectionFacts,
   type VisibleWorkspaceDocumentOutputFormat
@@ -17,6 +15,10 @@ import {
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import {
+  normalizeActiveWorkspaceDirectoryPath,
+  normalizeActiveWorkspaceFilePath
+} from "./workspace-visible-paths";
 
 type WorkspaceDocumentRegisterVersionInput = {
   assistantId: string;
@@ -105,42 +107,47 @@ export class DocumentWorkspaceVersionRegistrationService {
   async execute(
     input: WorkspaceDocumentRegisterVersionInput
   ): Promise<WorkspaceDocumentRegisterVersionAccepted | WorkspaceDocumentRegisterVersionRejected> {
-    const outputPath = normalizeWorkspacePath(input.outputPath);
+    const outputPath = normalizeActiveWorkspaceFilePath(input.outputPath);
     if (outputPath === null) {
       return {
         accepted: false,
         code: "invalid_output_path",
         message:
-          "Automatic document version registration requires a valid /workspace/... outputPath."
+          "Automatic document version registration requires a valid active hierarchical /workspace/... outputPath."
       };
     }
     const requestedWorkspaceProjectPath =
       input.workspaceProjectPath === null
         ? null
-        : normalizeWorkspaceDirectory(input.workspaceProjectPath);
+        : normalizeActiveWorkspaceDirectoryPath(input.workspaceProjectPath);
     if (input.workspaceProjectPath !== null && requestedWorkspaceProjectPath === null) {
       return {
         accepted: false,
         code: "invalid_project_path",
-        message: "workspaceProjectPath must be a valid /workspace/... directory when provided."
+        message:
+          "workspaceProjectPath must be a valid active hierarchical /workspace/... directory when provided."
       };
     }
     const requestedSourceManifestPath =
-      input.sourceManifestPath === null ? null : normalizeWorkspacePath(input.sourceManifestPath);
+      input.sourceManifestPath === null
+        ? null
+        : normalizeActiveWorkspaceFilePath(input.sourceManifestPath);
     if (input.sourceManifestPath !== null && requestedSourceManifestPath === null) {
       return {
         accepted: false,
         code: "invalid_source_manifest_path",
-        message: "sourceManifestPath must be a valid /workspace/... file path when provided."
+        message:
+          "sourceManifestPath must be a valid active hierarchical /workspace/... file path when provided."
       };
     }
     const inspectionPath =
-      input.inspectionPath === null ? null : normalizeWorkspacePath(input.inspectionPath);
+      input.inspectionPath === null ? null : normalizeActiveWorkspaceFilePath(input.inspectionPath);
     if (input.inspectionPath !== null && inspectionPath === null) {
       return {
         accepted: false,
         code: "invalid_inspection_path",
-        message: "inspectionPath must be a valid /workspace/... file path when provided."
+        message:
+          "inspectionPath must be a valid active hierarchical /workspace/... file path when provided."
       };
     }
 

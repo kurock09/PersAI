@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   DEFAULT_RUNTIME_SANDBOX_POLICY,
@@ -9,7 +9,6 @@ import {
   type ProviderGatewayToolCall,
   type RuntimeAttachmentRef,
   type RuntimeDocumentToolResult,
-  type RuntimeDocumentVersionRegistrationSummary,
   type RuntimeOutputArtifact,
   type RuntimeSandboxJobRequest,
   type RuntimeSandboxJobResult,
@@ -52,6 +51,8 @@ export interface RuntimeDocumentToolExecutionResult {
 
 @Injectable()
 export class RuntimeDocumentToolService {
+  private readonly logger = new Logger(RuntimeDocumentToolService.name);
+
   constructor(
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
     private readonly sandboxClientService?: SandboxClientService
@@ -526,7 +527,12 @@ export class RuntimeDocumentToolService {
       );
     }
 
-    let persisted: { sizeBytes: number; mimeType: string; resolvedPath: string };
+    let persisted: {
+      sizeBytes: number;
+      mimeType: string;
+      resolvedPath: string;
+      metadataWarning: string | null;
+    };
     try {
       persisted = await this.persistRenderedWorkspaceFile({
         bundle: params.bundle,
@@ -534,7 +540,9 @@ export class RuntimeDocumentToolService {
         requestId: params.requestId,
         outputPath,
         replace: true,
-        originChatId: params.originChatId
+        originChatId: params.originChatId,
+        sourceUserMessageText: params.sourceUserMessageText,
+        sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt
       });
     } catch (error) {
       return this.renderSkipped(
@@ -546,154 +554,34 @@ export class RuntimeDocumentToolService {
       );
     }
 
-    const finalize = await this.finalizeRenderedDocument({
-      bundle: params.bundle,
-      conversation: params.conversation,
-      operation: "render",
-      sourceUserMessageText: params.sourceUserMessageText,
-      sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
-      workspaceProjectPath: null,
-      outputPath: persisted.resolvedPath,
-      sourceMarkdownPath: authoredRenderArtifacts!.sourceMarkdownPath
-    });
-
     return {
       payload: {
         toolCode: "document",
         executionMode: "inline",
         requestedAction: "render",
-        descriptorMode: finalize.registration?.descriptorMode ?? null,
+        descriptorMode: null,
         documentType: "workspace_document",
         provider: "sandbox",
         prompt: null,
         outputFormat: params.request.format,
-        docId: finalize.registration?.docId ?? null,
+        docId: null,
         requestedName: this.basename(persisted.resolvedPath),
         artifacts: [],
         usage: null,
         action: "rendered",
         reason: null,
-        warning: finalize.warning,
+        warning: persisted.metadataWarning,
         render: {
           outputPath: persisted.resolvedPath,
           format: params.request.format,
           sourceMarkdownPath: authoredRenderArtifacts!.sourceMarkdownPath,
           sizeBytes: persisted.sizeBytes,
           mimeType: persisted.mimeType
-        },
-        ...(finalize.registration === null
-          ? {}
-          : {
-              versionId: finalize.registration.versionId,
-              registration: finalize.registration
-            })
+        }
       },
       artifacts: [],
       isError: false
     };
-  }
-
-  /**
-   * `document.render` / `document.convert` persist bytes first, then attempt
-   * inspect + version metadata as best-effort enrichment. Metadata failure never
-   * gates current-turn file delivery.
-   */
-  private async finalizeRenderedDocument(input: {
-    bundle: AssistantRuntimeBundle;
-    conversation: {
-      channel: "web" | "telegram";
-      externalThreadKey: string;
-    } | null;
-    operation: "render" | "convert";
-    sourceUserMessageText: string;
-    sourceUserMessageCreatedAt: string;
-    workspaceProjectPath: string | null;
-    outputPath: string;
-    sourceMarkdownPath: string | null;
-  }): Promise<{
-    registration: RuntimeDocumentVersionRegistrationSummary | null;
-    warning: string | null;
-  }> {
-    if (input.conversation === null) {
-      // Genuinely no chat context to register/deliver against. Keep the historical
-      // behavior: the render itself is valid, but no version/metadata was recorded.
-      return {
-        registration: null,
-        warning:
-          "auto_register_skipped:no_conversation_context: version was not registered automatically because no chat conversation was resolved for this document. Delivery still works, but document/version metadata is missing."
-      };
-    }
-
-    let inspectionPath: string | null = null;
-    let inspectDetail: string | null = null;
-    try {
-      const inspect = await this.persaiInternalApiClientService.inspectDocumentInWorkspace({
-        assistantId: input.bundle.metadata.assistantId,
-        workspaceId: input.bundle.metadata.workspaceId,
-        path: input.outputPath,
-        depth: "standard",
-        outputPath: null
-      });
-      if (inspect.accepted) {
-        inspectionPath = inspect.inspectPath;
-      } else {
-        inspectDetail = `inspect_rejected:${inspect.code}: ${inspect.message}`;
-      }
-    } catch (error) {
-      inspectDetail = `inspect_failed: ${
-        error instanceof Error ? error.message : "Document inspect is temporarily unavailable."
-      }`;
-    }
-
-    try {
-      const outcome = await this.persaiInternalApiClientService.registerDocumentVersion({
-        assistantId: input.bundle.metadata.assistantId,
-        workspaceId: input.bundle.metadata.workspaceId,
-        channel: input.conversation.channel,
-        externalThreadKey: input.conversation.externalThreadKey,
-        sourceUserMessageText: input.sourceUserMessageText,
-        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
-        descriptorMode: null,
-        docId: null,
-        requestedName: null,
-        workspaceProjectPath: input.workspaceProjectPath,
-        outputPath: input.outputPath,
-        sourceManifestPath: null,
-        inspectionPath
-      });
-      if (!outcome.accepted) {
-        return {
-          registration: null,
-          warning: `document.${input.operation} produced ${input.outputPath} but could not enrich document metadata (${outcome.code}): ${outcome.message}${
-            inspectDetail === null ? "" : ` [${inspectDetail}]`
-          }`
-        };
-      }
-      return {
-        registration: {
-          docId: outcome.docId,
-          versionId: outcome.versionId,
-          versionNumber: outcome.versionNumber,
-          descriptorMode: outcome.descriptorMode,
-          documentType: outcome.documentType,
-          outputFormat: outcome.outputFormat,
-          outputPath: outcome.outputPath,
-          workspaceProjectPath: outcome.workspaceProjectPath,
-          sourceManifestPath: outcome.sourceManifestPath,
-          inspectionPath: outcome.inspectionPath
-        },
-        warning: null
-      };
-    } catch (error) {
-      return {
-        registration: null,
-        warning: `document.${input.operation} produced ${input.outputPath} but document metadata enrichment failed: ${
-          error instanceof Error
-            ? error.message
-            : "Document version registration is temporarily unavailable."
-        }${inspectDetail === null ? "" : ` [${inspectDetail}]`}`
-      };
-    }
   }
 
   private renderSkipped(
@@ -807,7 +695,12 @@ export class RuntimeDocumentToolService {
       );
     }
 
-    let persisted: { mimeType: string; sizeBytes: number; resolvedPath: string };
+    let persisted: {
+      mimeType: string;
+      sizeBytes: number;
+      resolvedPath: string;
+      metadataWarning: string | null;
+    };
     try {
       persisted = await this.persistRenderedWorkspaceFile({
         bundle: params.bundle,
@@ -815,7 +708,9 @@ export class RuntimeDocumentToolService {
         requestId: params.requestId,
         outputPath,
         replace: true,
-        originChatId: params.originChatId
+        originChatId: params.originChatId,
+        sourceUserMessageText: params.sourceUserMessageText,
+        sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt
       });
     } catch (error) {
       return this.convertSkipped(
@@ -826,47 +721,30 @@ export class RuntimeDocumentToolService {
       );
     }
 
-    const finalize = await this.finalizeRenderedDocument({
-      bundle: params.bundle,
-      conversation: params.conversation,
-      operation: "convert",
-      sourceUserMessageText: params.sourceUserMessageText,
-      sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
-      workspaceProjectPath: null,
-      outputPath: persisted.resolvedPath,
-      sourceMarkdownPath: null
-    });
-
     return {
       payload: {
         toolCode: "document",
         executionMode: "inline",
         requestedAction: "convert",
-        descriptorMode: finalize.registration?.descriptorMode ?? null,
+        descriptorMode: null,
         documentType: "workspace_document",
         provider: "sandbox",
         prompt: null,
         outputFormat: params.request.targetFormat,
-        docId: finalize.registration?.docId ?? null,
+        docId: null,
         requestedName: this.basename(persisted.resolvedPath),
         artifacts: [],
         usage: null,
         action: "converted",
         reason: null,
-        warning: finalize.warning,
+        warning: persisted.metadataWarning,
         convert: {
           sourcePath,
           outputPath: persisted.resolvedPath,
           targetFormat: params.request.targetFormat,
           sizeBytes: persisted.sizeBytes,
           mimeType: persisted.mimeType
-        },
-        ...(finalize.registration === null
-          ? {}
-          : {
-              versionId: finalize.registration.versionId,
-              registration: finalize.registration
-            })
+        }
       },
       artifacts: [],
       isError: false
@@ -1976,7 +1854,14 @@ export class RuntimeDocumentToolService {
     outputPath: string;
     replace: boolean;
     originChatId: string | null;
-  }): Promise<{ mimeType: string; sizeBytes: number; resolvedPath: string }> {
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+  }): Promise<{
+    mimeType: string;
+    sizeBytes: number;
+    resolvedPath: string;
+    metadataWarning: string | null;
+  }> {
     const job = await this.sandboxClientService!.waitForCompletion({
       assistantId: input.bundle.metadata.assistantId,
       assistantHandle: input.bundle.metadata.assistantHandle,
@@ -2003,23 +1888,38 @@ export class RuntimeDocumentToolService {
     if (attach === null) {
       throw new Error("Sandbox attach completed without a valid persistence payload.");
     }
-    await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
-      workspaceId: input.bundle.metadata.workspaceId,
-      path: attach.workspaceRelPath,
-      mimeType: attach.mimeType,
-      sizeBytes: attach.sizeBytes,
-      replace: input.replace,
-      ...(input.originChatId === null
-        ? {}
-        : {
-            originChatId: input.originChatId,
-            originAssistantId: input.bundle.metadata.assistantId
-          })
-    });
+    let metadataWarning: string | null = null;
+    try {
+      await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
+        workspaceId: input.bundle.metadata.workspaceId,
+        path: attach.workspaceRelPath,
+        mimeType: attach.mimeType,
+        sizeBytes: attach.sizeBytes,
+        replace: input.replace,
+        sourceUserMessageText: input.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
+        ...(input.originChatId === null
+          ? {}
+          : {
+              originChatId: input.originChatId,
+              originAssistantId: input.bundle.metadata.assistantId
+            })
+      });
+    } catch (error) {
+      const detail =
+        error instanceof Error
+          ? error.message
+          : "Document metadata registration is temporarily unavailable.";
+      this.logger.warn(
+        `document_metadata_upsert_failed path=${attach.workspaceRelPath} reason=${detail}`
+      );
+      metadataWarning = `document metadata registration failed after persisting ${attach.workspaceRelPath}: ${detail}`;
+    }
     return {
       resolvedPath: attach.workspaceRelPath,
       mimeType: attach.mimeType,
-      sizeBytes: attach.sizeBytes
+      sizeBytes: attach.sizeBytes,
+      metadataWarning
     };
   }
 

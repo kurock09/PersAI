@@ -346,7 +346,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
     );
   });
 
-  test("rejects non-active hierarchical output paths", async () => {
+  test("rejects retired flat-root and non-active hierarchical output paths", async () => {
     const service = new DocumentWorkspaceVersionRegistrationService(
       {} as never,
       {} as never,
@@ -354,7 +354,29 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       {} as never
     );
 
-    const outcome = await service.execute({
+    const flatRootOutcome = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "thread-1",
+      sourceUserMessageText: "register workbook",
+      sourceUserMessageCreatedAt: "2026-06-29T12:00:00.000Z",
+      descriptorMode: null,
+      docId: null,
+      requestedName: null,
+      workspaceProjectPath: null,
+      outputPath: "/workspace/output.xlsx",
+      sourceManifestPath: null,
+      inspectionPath: null
+    });
+
+    assert.equal(flatRootOutcome.accepted, false);
+    if (flatRootOutcome.accepted) {
+      return;
+    }
+    assert.equal(flatRootOutcome.code, "invalid_output_path");
+
+    const nonActiveHierarchyOutcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       channel: "web",
@@ -370,11 +392,11 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       inspectionPath: null
     });
 
-    assert.equal(outcome.accepted, false);
-    if (outcome.accepted) {
+    assert.equal(nonActiveHierarchyOutcome.accepted, false);
+    if (nonActiveHierarchyOutcome.accepted) {
       return;
     }
-    assert.equal(outcome.code, "invalid_output_path");
+    assert.equal(nonActiveHierarchyOutcome.code, "invalid_output_path");
   });
 
   test("rejects project-owned outputs when inspect truth is missing", async () => {

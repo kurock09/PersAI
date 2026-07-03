@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-133 document pipeline cleanup ready to commit
+
+Status: **implemented locally, focused verification green, push/deploy pending.** Baseline SHA: `ea05445f13e83a43b86c250411beb88d95a74a45`. This slice cleans the remaining document-versioning/runtime seams that were still mixing ADR-133 active paths with older runtime-side registration logic.
+
+What changed:
+
+- `apps/runtime/src/modules/turns/runtime-document-tool.service.ts` no longer runs the legacy post-persist inspect + `registerDocumentVersion()` path for `document.render` / `document.convert`. The persisted visible document write is now the only active registration owner for these flows.
+- The same runtime service now threads `sourceUserMessageText` / `sourceUserMessageCreatedAt` into `upsertWorkspaceFileMetadata(...)` for rendered/converted outputs, so the API-owned overwrite seam has the full context it already needs to register visible document versions exactly once.
+- `apps/runtime/src/modules/turns/runtime-sandbox-tool.service.ts` now mirrors shell-produced `pdf` / `xlsx` / `docx` outputs only when the output path is an active ADR-133 hierarchical descendant (`sessionDescendant`, `assistantSharedDescendant`, or `workspaceSharedDescendant`). Retired flat-root or non-descendant assistant paths are ignored instead of being silently registered.
+- `apps/api/src/modules/workspace-management/application/document-workspace-version-registration.service.ts` now validates `outputPath`, `workspaceProjectPath`, `sourceManifestPath`, and `inspectionPath` through `normalizeActiveWorkspaceFilePath` / `normalizeActiveWorkspaceDirectoryPath`, so the registration seam rejects retired flat-root and other non-active paths consistently.
+- Focused tests were updated to assert the new single-owner seam, and a new runtime sandbox-path regression test now guards the shell-produced-output filter.
+
+Focused verification green:
+
+- `corepack pnpm --filter @persai/runtime exec tsx --test test/runtime-document-tool.service.test.ts test/runtime-sandbox-tool.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx --test test/document-workspace-version-registration.service.test.ts`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm exec prettier --check ...` on touched files after formatting fixes
+
+Residuals / next step:
+
+- Commit this narrow cleanup slice.
+- Then do the real end-to-end browser/live regression for the exact failure mode the founder reported: same-session overwrite should version once, new-session same basename should fork by path allocation instead of continuing the old chain.
+
 ## 2026-07-03 — API CrashLoop hotfix ready to push
 
 Status: **implemented locally, focused verification green, push/deploy pending.** Live `persai-dev` showed `api-76586b4cdc-x48k4` in `CrashLoopBackOff` on image `api:6c9505eb589bf89f7cd0ac04427753233c65e82a`; previous/current logs showed Nest `UnknownDependenciesException` for `RegisterChatAttachmentService` dependency index `[4]` with runtime token `Function`.

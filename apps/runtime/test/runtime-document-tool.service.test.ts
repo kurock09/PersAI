@@ -262,7 +262,6 @@ describe("RuntimeDocumentToolService", () => {
 
   test("renders authored PDF and persists collision-safe sibling markdown", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
-    const registerCalls: Array<Record<string, unknown>> = [];
     const metadataPaths: string[] = [];
     const resolvedMarkdownPath = wp("reports/monthly (1).md");
     const markdownContent = "# Monthly\n\nSummary body.";
@@ -290,22 +289,6 @@ describe("RuntimeDocumentToolService", () => {
             warnings: [],
             suggestedReadPaths: [],
             comparison: null
-          };
-        },
-        async registerDocumentVersion(args: Record<string, unknown>) {
-          registerCalls.push(args);
-          return {
-            accepted: true as const,
-            docId: "doc-1",
-            versionId: "version-1",
-            versionNumber: 1,
-            descriptorMode: "create_document" as const,
-            documentType: "workspace_document" as const,
-            outputFormat: "pdf" as const,
-            outputPath: wp("reports/monthly.pdf"),
-            workspaceProjectPath: wp("reports"),
-            sourceManifestPath: null,
-            inspectionPath: wp("reports/monthly.inspect.json")
           };
         }
       } as never,
@@ -373,8 +356,10 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.render?.outputPath, wp("reports/monthly.pdf"));
     assert.equal(result.payload.render?.sourceMarkdownPath, resolvedMarkdownPath);
     assert.equal(result.payload.render?.mimeType, "application/pdf");
-    assert.equal(registerCalls[0]?.workspaceProjectPath, null);
-    assert.equal(registerCalls[0]?.outputPath, wp("reports/monthly.pdf"));
+    assert.equal(result.payload.descriptorMode, null);
+    assert.equal(result.payload.docId, null);
+    assert.equal(result.payload.registration, undefined);
+    assert.equal(result.payload.versionId, undefined);
     assert.deepEqual(
       sandboxCalls.map((call) => `${call.toolCode}:${String(call.args.action ?? "")}`),
       ["files:resolve_write_path", "files:write", "execute_document_code:", "files:attach"]
@@ -524,11 +509,11 @@ describe("RuntimeDocumentToolService", () => {
 
   test("converts an existing document and derives outputPath when omitted", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
-    const registerCalls: Array<Record<string, unknown>> = [];
+    const upsertCalls: Array<Record<string, unknown>> = [];
     const service = new RuntimeDocumentToolService(
       {
-        async upsertWorkspaceFileMetadata() {
-          return;
+        async upsertWorkspaceFileMetadata(args: Record<string, unknown>) {
+          upsertCalls.push(args);
         },
         async inspectDocumentInWorkspace() {
           return {
@@ -549,22 +534,6 @@ describe("RuntimeDocumentToolService", () => {
             warnings: [],
             suggestedReadPaths: [],
             comparison: null
-          };
-        },
-        async registerDocumentVersion(args: Record<string, unknown>) {
-          registerCalls.push(args);
-          return {
-            accepted: true as const,
-            docId: "doc-convert",
-            versionId: "version-convert",
-            versionNumber: 1,
-            descriptorMode: "create_document" as const,
-            documentType: "workspace_document" as const,
-            outputFormat: "pdf" as const,
-            outputPath: wp("source.pdf"),
-            workspaceProjectPath: TEST_SESSION_ROOT,
-            sourceManifestPath: null,
-            inspectionPath: wp("source.inspect.json")
           };
         }
       } as never,
@@ -624,8 +593,10 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.convert?.sourcePath, wp("source.docx"));
     assert.equal(result.payload.convert?.outputPath, wp("source.pdf"));
     assert.equal(result.payload.convert?.targetFormat, "pdf");
-    assert.equal(registerCalls[0]?.workspaceProjectPath, null);
-    assert.equal(registerCalls[0]?.outputPath, wp("source.pdf"));
+    const documentUpsert = upsertCalls.at(-1);
+    assert.equal(documentUpsert?.path, wp("source.pdf"));
+    assert.equal(documentUpsert?.replace, true);
+    assert.equal(documentUpsert?.sourceUserMessageText, "Convert this file");
     const programSource = String(
       sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args.programSource ??
         ""
@@ -647,39 +618,14 @@ describe("RuntimeDocumentToolService", () => {
     assert.match(programSource, /TARGET_FORMAT = "pdf"/);
   });
 
-  test("render stays rendered with warning when auto-register fails after persist", async () => {
+  test("render succeeds without legacy direct register/version payloads", async () => {
     const service = new RuntimeDocumentToolService(
       {
         async upsertWorkspaceFileMetadata() {
           return;
         },
         async inspectDocumentInWorkspace() {
-          return {
-            accepted: true as const,
-            sourcePath: wp("reports/monthly.pdf"),
-            inspectPath: wp("reports/monthly.inspect.json"),
-            format: "pdf" as const,
-            counts: {
-              pageCount: 1,
-              sheetCount: null,
-              formulaCount: null,
-              blankSheetCount: null,
-              paragraphCount: 1,
-              headingCount: 1,
-              tableCount: 0,
-              textCharCount: 22
-            },
-            warnings: [],
-            suggestedReadPaths: [],
-            comparison: null
-          };
-        },
-        async registerDocumentVersion() {
-          return {
-            accepted: false as const,
-            code: "inspection_required",
-            message: "A valid document.inspect sidecar is required to register document metadata."
-          };
+          throw new Error("inspect should not run after single-owner registration cutover");
         }
       } as never,
       {
@@ -742,39 +688,18 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "rendered");
     assert.equal(result.payload.render?.outputPath, wp("reports/monthly.pdf"));
-    assert.match(result.payload.warning ?? "", /inspection_required/);
+    assert.equal(result.payload.warning, null);
     assert.equal(result.payload.registration, undefined);
   });
 
-  test("convert stays converted with warning when auto-register fails after persist", async () => {
+  test("convert succeeds without legacy direct register/version payloads", async () => {
     const service = new RuntimeDocumentToolService(
       {
         async upsertWorkspaceFileMetadata() {
           return;
         },
         async inspectDocumentInWorkspace() {
-          return {
-            accepted: true as const,
-            sourcePath: wp("source.pdf"),
-            inspectPath: wp("source.inspect.json"),
-            format: "pdf" as const,
-            counts: {
-              pageCount: 1,
-              sheetCount: null,
-              formulaCount: null,
-              blankSheetCount: null,
-              paragraphCount: 1,
-              headingCount: 1,
-              tableCount: 0,
-              textCharCount: 40
-            },
-            warnings: [],
-            suggestedReadPaths: [],
-            comparison: null
-          };
-        },
-        async registerDocumentVersion() {
-          throw new Error("registration unavailable");
+          throw new Error("inspect should not run after single-owner registration cutover");
         }
       } as never,
       {
@@ -829,20 +754,162 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "converted");
     assert.equal(result.payload.convert?.outputPath, wp("source.pdf"));
+    assert.equal(result.payload.warning, null);
+    assert.equal(result.payload.registration, undefined);
+  });
+
+  test("render stays rendered when metadata upsert fails after attach", async () => {
+    const service = new RuntimeDocumentToolService(
+      {
+        async upsertWorkspaceFileMetadata() {
+          throw new Error("registration unavailable");
+        },
+        async inspectDocumentInWorkspace() {
+          throw new Error("inspect should not run after single-owner registration cutover");
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
+            return createResolvedWritePathJob(wp("reports/monthly.md"));
+          }
+          if (input.toolCode === "files" && input.args.action === "write") {
+            return createWrittenWorkspaceFileJob(
+              String(input.args.path ?? ""),
+              String(input.args.content ?? "")
+            );
+          }
+          if (input.toolCode === "execute_document_code") {
+            return createCompletedDocumentJob();
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            return createAttachedWorkspaceFileJob(
+              wp("reports/monthly.pdf"),
+              "application/pdf",
+              321
+            );
+          }
+          throw new Error(
+            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
+          );
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-render-upsert-warning",
+        name: "document",
+        arguments: {
+          action: "render",
+          outputPath: wp("reports/monthly.pdf"),
+          format: "pdf",
+          content: "# Monthly\n\nSummary body."
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-render-upsert-warning",
+      conversation: {
+        channel: "web",
+        externalThreadKey: "thread-warning"
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-warning",
+        sourceUserMessageText: "Make the monthly PDF",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "rendered");
+    assert.equal(result.payload.render?.outputPath, wp("reports/monthly.pdf"));
     assert.match(result.payload.warning ?? "", /registration unavailable/);
     assert.equal(result.payload.registration, undefined);
   });
 
-  test("Case A: edit sibling markdown and re-render bumps to v+1 with markdown bytes preserved", async () => {
+  test("convert stays converted when metadata upsert fails after attach", async () => {
+    const service = new RuntimeDocumentToolService(
+      {
+        async upsertWorkspaceFileMetadata() {
+          throw new Error("registration unavailable");
+        },
+        async inspectDocumentInWorkspace() {
+          throw new Error("inspect should not run after single-owner registration cutover");
+        }
+      } as never,
+      {
+        isConfigured() {
+          return true;
+        },
+        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+          if (input.toolCode === "files" && input.args.action === "write") {
+            return createWrittenWorkspaceFileJob(
+              String(input.args.path ?? ""),
+              String(input.args.content ?? "")
+            );
+          }
+          if (input.toolCode === "execute_document_code") {
+            return createCompletedDocumentJob();
+          }
+          if (input.toolCode === "files" && input.args.action === "attach") {
+            return createAttachedWorkspaceFileJob(wp("source.pdf"), "application/pdf", 2048);
+          }
+          throw new Error(
+            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
+          );
+        }
+      } as never
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-convert-upsert-warning",
+        name: "document",
+        arguments: {
+          action: "convert",
+          source: wp("source.docx"),
+          targetFormat: "pdf"
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-convert-upsert-warning",
+      conversation: {
+        channel: "web",
+        externalThreadKey: "thread-convert-warning"
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-convert-warning",
+        sourceUserMessageText: "Convert this file",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(result.payload.action, "converted");
+    assert.equal(result.payload.convert?.outputPath, wp("source.pdf"));
+    assert.match(result.payload.warning ?? "", /registration unavailable/);
+    assert.equal(result.payload.registration, undefined);
+  });
+
+  test("Case A: edit sibling markdown and re-render persists the same output path through the single-owner seam", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
-    const registerCalls: Array<Record<string, unknown>> = [];
+    const documentUpsertCalls: Array<Record<string, unknown>> = [];
     const initialMarkdown = "# Report\n\nOriginal body.\n";
     const editedMarkdown = "# Report\n\nEdited body with exact spacing.\n";
     const sourceMarkdownPath = wp("report.md");
     const service = new RuntimeDocumentToolService(
       {
-        async upsertWorkspaceFileMetadata() {
-          return;
+        async upsertWorkspaceFileMetadata(args: Record<string, unknown>) {
+          if (String(args.path ?? "").endsWith(".pdf")) {
+            documentUpsertCalls.push(args);
+          }
         },
         async inspectDocumentInWorkspace() {
           return {
@@ -863,24 +930,6 @@ describe("RuntimeDocumentToolService", () => {
             warnings: [],
             suggestedReadPaths: [],
             comparison: null
-          };
-        },
-        async registerDocumentVersion(args: Record<string, unknown>) {
-          registerCalls.push(args);
-          const versionNumber = registerCalls.length;
-          return {
-            accepted: true as const,
-            docId: "doc-case-a-1",
-            versionId: `version-case-a-${versionNumber}`,
-            versionNumber,
-            descriptorMode:
-              versionNumber === 1 ? ("create_document" as const) : ("revise_document" as const),
-            documentType: "workspace_document" as const,
-            outputFormat: "pdf" as const,
-            outputPath: wp("report.pdf"),
-            workspaceProjectPath: TEST_SESSION_ROOT,
-            sourceManifestPath: null,
-            inspectionPath: wp("report.inspect.json")
           };
         }
       } as never,
@@ -957,17 +1006,13 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(second.isError, false);
     assert.equal(second.payload.action, "rendered");
     assert.equal(second.payload.render?.outputPath, wp("report.pdf"));
-    assert.equal(registerCalls.length, 2);
-    assert.equal(registerCalls[0]?.descriptorMode, null);
-    assert.equal(registerCalls[0]?.docId, null);
-    assert.equal(registerCalls[0]?.versionNumber, undefined);
-    assert.equal(registerCalls[1]?.descriptorMode, null);
-    assert.equal(registerCalls[1]?.docId, null);
-    assert.equal(first.payload.registration?.descriptorMode, "create_document");
-    assert.equal(first.payload.registration?.versionNumber, 1);
-    assert.equal(second.payload.registration?.descriptorMode, "revise_document");
-    assert.equal(second.payload.registration?.versionNumber, 2);
-    assert.equal(second.payload.registration?.docId, "doc-case-a-1");
+    assert.equal(documentUpsertCalls.length, 2);
+    assert.equal(documentUpsertCalls[0]?.path, wp("report.pdf"));
+    assert.equal(documentUpsertCalls[1]?.path, wp("report.pdf"));
+    assert.equal(documentUpsertCalls[0]?.replace, true);
+    assert.equal(documentUpsertCalls[1]?.replace, true);
+    assert.equal(first.payload.registration, undefined);
+    assert.equal(second.payload.registration, undefined);
     assert.deepEqual(
       sandboxCalls.map((call) => `${call.toolCode}:${String(call.args.action ?? "")}`),
       [
@@ -1005,12 +1050,14 @@ describe("RuntimeDocumentToolService", () => {
     );
   });
 
-  test("rendering the same output path twice records two versions", async () => {
-    const registerCalls: Array<Record<string, unknown>> = [];
+  test("rendering the same output path twice uses the same single-owner persist path twice", async () => {
+    const documentUpsertCalls: Array<Record<string, unknown>> = [];
     const service = new RuntimeDocumentToolService(
       {
-        async upsertWorkspaceFileMetadata() {
-          return;
+        async upsertWorkspaceFileMetadata(args: Record<string, unknown>) {
+          if (String(args.path ?? "").endsWith(".pdf")) {
+            documentUpsertCalls.push(args);
+          }
         },
         async inspectDocumentInWorkspace() {
           return {
@@ -1031,24 +1078,6 @@ describe("RuntimeDocumentToolService", () => {
             warnings: [],
             suggestedReadPaths: [],
             comparison: null
-          };
-        },
-        async registerDocumentVersion(args: Record<string, unknown>) {
-          registerCalls.push(args);
-          const versionNumber = registerCalls.length;
-          return {
-            accepted: true as const,
-            docId: "doc-1",
-            versionId: `version-${versionNumber}`,
-            versionNumber,
-            descriptorMode:
-              versionNumber === 1 ? ("create_document" as const) : ("revise_document" as const),
-            documentType: "workspace_document" as const,
-            outputFormat: "pdf" as const,
-            outputPath: wp("reports/monthly.pdf"),
-            workspaceProjectPath: wp("reports"),
-            sourceManifestPath: null,
-            inspectionPath: wp("reports/monthly.inspect.json")
           };
         }
       } as never,
@@ -1115,11 +1144,11 @@ describe("RuntimeDocumentToolService", () => {
 
     assert.equal(first.payload.action, "rendered");
     assert.equal(second.payload.action, "rendered");
-    assert.equal(first.payload.registration?.versionNumber, 1);
-    assert.equal(second.payload.registration?.versionNumber, 2);
-    assert.equal(registerCalls.length, 2);
-    assert.equal(registerCalls[0]?.outputPath, wp("reports/monthly.pdf"));
-    assert.equal(registerCalls[1]?.outputPath, wp("reports/monthly.pdf"));
+    assert.equal(first.payload.registration, undefined);
+    assert.equal(second.payload.registration, undefined);
+    assert.equal(documentUpsertCalls.length, 2);
+    assert.equal(documentUpsertCalls[0]?.path, wp("reports/monthly.pdf"));
+    assert.equal(documentUpsertCalls[1]?.path, wp("reports/monthly.pdf"));
   });
 });
 
