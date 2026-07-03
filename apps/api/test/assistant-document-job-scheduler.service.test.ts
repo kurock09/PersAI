@@ -27,6 +27,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
     const presentation = access.parseRequestPayload({
       sourceUserMessageText: "make a deck",
       sourceUserMessageCreatedAt: "2026-06-29T10:00:00.000Z",
+      runtimeSessionId: "runtime-session-1",
       descriptorMode: "create_presentation",
       sourceJson: {
         prompt: "Board deck",
