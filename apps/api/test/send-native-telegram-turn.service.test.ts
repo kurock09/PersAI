@@ -5,6 +5,7 @@ import { SendNativeTelegramTurnService } from "../src/modules/workspace-manageme
 import type { AssistantMaterializedSpecRepository } from "../src/modules/workspace-management/domain/assistant-materialized-spec.repository";
 
 const ORIGINAL_ENV = process.env;
+const TELEGRAM_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
 
 function setApiEnv(overrides?: Record<string, string | undefined>): void {
   process.env = {
@@ -96,7 +97,7 @@ describe("SendNativeTelegramTurnService", () => {
             artifact: {
               artifactId: "artifact-1",
               kind: "audio",
-              storagePath: "/workspace/reply.ogg",
+              storagePath: `${TELEGRAM_SESSION_ROOT}/reply.ogg`,
               mimeType: "audio/ogg",
               filename: "reply.ogg",
               sizeBytes: 256,
@@ -113,7 +114,7 @@ describe("SendNativeTelegramTurnService", () => {
                 {
                   artifactId: "artifact-1",
                   kind: "audio",
-                  storagePath: "/workspace/reply.ogg",
+                  storagePath: `${TELEGRAM_SESSION_ROOT}/reply.ogg`,
                   mimeType: "audio/ogg",
                   filename: "reply.ogg",
                   sizeBytes: 256,
@@ -258,7 +259,7 @@ describe("SendNativeTelegramTurnService", () => {
       assert.deepEqual(result.media, [
         {
           source: "persai_object_storage",
-          objectKey: "/workspace/reply.ogg",
+          objectKey: `${TELEGRAM_SESSION_ROOT}/reply.ogg`,
           type: "audio",
           mimeType: "audio/ogg",
           filename: "reply.ogg",
@@ -651,7 +652,7 @@ describe("SendNativeTelegramTurnService", () => {
             artifact: {
               artifactId: "artifact-degraded-1",
               kind: "image",
-              storagePath: "/workspace/degraded.png",
+              storagePath: `${TELEGRAM_SESSION_ROOT}/degraded.png`,
               mimeType: "image/png",
               filename: "degraded.png",
               sizeBytes: 512,
@@ -669,7 +670,7 @@ describe("SendNativeTelegramTurnService", () => {
               {
                 artifactId: "artifact-degraded-1",
                 kind: "image",
-                storagePath: "/workspace/degraded.png",
+                storagePath: `${TELEGRAM_SESSION_ROOT}/degraded.png`,
                 mimeType: "image/png",
                 filename: "degraded.png",
                 sizeBytes: 512,
@@ -709,7 +710,7 @@ describe("SendNativeTelegramTurnService", () => {
       assert.deepEqual(result.media, [
         {
           source: "persai_object_storage",
-          objectKey: "/workspace/degraded.png",
+          objectKey: `${TELEGRAM_SESSION_ROOT}/degraded.png`,
           type: "image",
           mimeType: "image/png",
           filename: "degraded.png",

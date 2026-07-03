@@ -214,8 +214,8 @@ function makeUserMessage(
 function makeImageAttachment(id: string): NonNullable<ChatMessage["attachments"]>[number] {
   return {
     id,
-    path: "/workspace/photo.jpg",
-    thumbnailStoragePath: "/workspace/photo.jpg.thumb.webp",
+    path: `${CHAT_SESSION_ROOT}/photo.jpg`,
+    thumbnailStoragePath: `${CHAT_SESSION_ROOT}/photo.jpg.thumb.webp`,
     posterStoragePath: null,
     attachmentType: "image",
     originalFilename: "photo.jpg",
@@ -229,9 +229,9 @@ function makeImageAttachment(id: string): NonNullable<ChatMessage["attachments"]
 function makeVideoAttachment(id: string): NonNullable<ChatMessage["attachments"]>[number] {
   return {
     id,
-    path: "/workspace/clip.mp4",
+    path: `${CHAT_SESSION_ROOT}/clip.mp4`,
     thumbnailStoragePath: null,
-    posterStoragePath: "/workspace/clip.mp4.poster.jpg",
+    posterStoragePath: `${CHAT_SESSION_ROOT}/clip.mp4.poster.jpg`,
     attachmentType: "video",
     originalFilename: "clip.mp4",
     mimeType: "video/mp4",
@@ -543,13 +543,13 @@ describe("ChatMessageBubble — canonical file attachments", () => {
           attachments: [
             {
               ...makeImageAttachment("att-image-1"),
-              path: "/workspace/photo-1.jpg",
-              thumbnailStoragePath: "/workspace/photo-1.jpg.thumb.webp"
+              path: `${CHAT_SESSION_ROOT}/photo-1.jpg`,
+              thumbnailStoragePath: `${CHAT_SESSION_ROOT}/photo-1.jpg.thumb.webp`
             },
             {
               ...makeImageAttachment("att-image-2"),
-              path: "/workspace/photo-2.jpg",
-              thumbnailStoragePath: "/workspace/photo-2.jpg.thumb.webp"
+              path: `${CHAT_SESSION_ROOT}/photo-2.jpg`,
+              thumbnailStoragePath: `${CHAT_SESSION_ROOT}/photo-2.jpg.thumb.webp`
             }
           ]
         })}
@@ -562,20 +562,20 @@ describe("ChatMessageBubble — canonical file attachments", () => {
     const lightbox = screen.getByTestId("mock-image-lightbox");
     expect(lightbox).toHaveAttribute(
       "data-src",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto-1.jpg"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto-1.jpg"
     );
     expect(lightbox).toHaveAttribute("data-gallery-count", "2");
     expect(lightbox).toHaveAttribute("data-current-index", "0");
     expect(imageLightboxMock).toHaveBeenCalledWith(
       expect.objectContaining({
         open: true,
-        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto-1.jpg",
+        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto-1.jpg",
         galleryItems: [
           expect.objectContaining({
-            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto-1.jpg"
+            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto-1.jpg"
           }),
           expect.objectContaining({
-            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto-2.jpg"
+            src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto-2.jpg"
           })
         ],
         currentIndex: 0,
@@ -811,18 +811,18 @@ describe("ChatMessageBubble — video attachment preview", () => {
     const lightbox = screen.getByTestId("mock-image-lightbox");
     expect(lightbox).toHaveAttribute(
       "data-src",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fclip.mp4"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fclip.mp4"
     );
     expect(lightbox).toHaveAttribute(
       "data-download-url",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fclip.mp4&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fclip.mp4&download=1"
     );
     expect(lightbox).toHaveAttribute("data-filename", "clip.mp4");
     expect(lightbox).toHaveAttribute("data-media-type", "video");
     expect(imageLightboxMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         open: true,
-        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fclip.mp4",
+        src: "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fclip.mp4",
         mediaType: "video"
       })
     );

@@ -3,6 +3,8 @@ import { describe, test } from "node:test";
 import { AttachmentObjectAvailabilityService } from "../src/modules/workspace-management/application/media/attachment-object-availability.service";
 import type { AssistantChatMessageAttachment } from "../src/modules/workspace-management/domain/assistant-chat-message-attachment.entity";
 
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
+
 function createAttachment(
   overrides: Partial<AssistantChatMessageAttachment> = {}
 ): AssistantChatMessageAttachment {
@@ -13,7 +15,7 @@ function createAttachment(
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
     attachmentType: "image",
-    storagePath: "/workspace/image.png",
+    storagePath: `${SESSION_ROOT}/image.png`,
     originalFilename: "image.png",
     mimeType: "image/png",
     sizeBytes: 128n,
@@ -57,7 +59,9 @@ describe("AttachmentObjectAvailabilityService", () => {
       attachments: [createAttachment()]
     });
 
-    assert.deepEqual(checkedKeys, ["workspaces/workspace-1/workspace/image.png"]);
+    assert.deepEqual(checkedKeys, [
+      "workspaces/workspace-1/workspace/assistants/assistant-1/sessions/session-1/image.png"
+    ]);
   });
 
   test("fails before runtime when a ready attachment object is missing", async () => {

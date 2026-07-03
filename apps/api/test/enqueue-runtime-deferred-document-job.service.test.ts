@@ -265,7 +265,7 @@ async function runRevisionByStoragePathSteersBackToVisibleWorkflow(): Promise<vo
     ...baseInput("revise_document"),
     directToolExecution: {
       ...baseInput("revise_document").directToolExecution,
-      path: "/workspace/Карнаух_Федор_Отчет (1).docx",
+      path: "/workspace/assistants/assistant-1/sessions/chat-1/Карнаух_Федор_Отчет (1).docx",
       request: {
         prompt: "Rebuild this DOCX in a premium style",
         outputFormat: "pdf" as const,

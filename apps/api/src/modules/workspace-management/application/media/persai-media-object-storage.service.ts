@@ -38,10 +38,11 @@ export class PersaiMediaObjectStorageService {
   }
 
   /**
-   * ADR-128 Slice 4 — GCS object key for a persisted `/workspace/<basename>`
-   * path on the flat namespace. Mirrors
-   * `SandboxObjectStorageService.buildWorkspaceObjectKey` so api and sandbox
-   * hydrate/delete the same subtree.
+   * ADR-133 — GCS object key for a persisted visible `/workspace/...` path.
+   * The workspace-scoped storage namespace mirrors the full hierarchical
+   * visible subtree, for example
+   * `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/<basename>`,
+   * so api and sandbox hydrate/delete the same path tree.
    */
   buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }): string {
     const relative = input.workspaceRelPath

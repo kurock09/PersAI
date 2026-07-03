@@ -3,12 +3,13 @@ import { Prisma, type Prisma as PrismaTypes } from "@prisma/client";
 /**
  * Handle generation + per-workspace de-duplication.
  *
- * The handle is the stable, URL/path-safe identifier for an assistant.
- * After ADR-128 Slice 4 the flat `/workspace/` namespace no longer uses
- * the handle as a path classifier, but the handle is still kept because
- * downstream surfaces (audit logs, pod annotations, bash env hints, sibling
- * lookups) want a stable per-assistant name. Once written at creation
- * time the handle must remain stable across rename — renaming an
+ * The handle is the stable, URL/path-safe identifier for an assistant. Under
+ * ADR-133 it is the `assistantStableKey` / assistant directory segment used in
+ * hierarchical visible paths such as
+ * `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`.
+ * Downstream surfaces (audit logs, pod annotations, bash env hints, sibling
+ * lookups) also depend on that stable per-assistant name. Once written at
+ * creation time the handle must remain stable across rename — renaming an
  * assistant does NOT re-slug.
  *
  * The slug algorithm matches the migration backfill in

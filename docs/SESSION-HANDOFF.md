@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-133 independent cleanliness audit + final fix slice full gate green
+
+Status: **implemented locally, full gate green, and not committed/pushed.** Independent prompt audit verdict: clean. Broader independent audit verdict: clean after the final targeted fixes listed below; those fixes are now applied.
+
+What this final audit/fix slice changed:
+
+- `docs/ADR/133-session-first-hierarchical-workspace-filesystem.md` now points the next step at the real closeout flow: independent audit, full gate, reconcile with `origin/main`, push/deploy, and live validation.
+- Active API/web product-visible fixtures were cleaned so positive storage-path examples no longer use retired flat-root `/workspace/<file>` paths and instead use hierarchical session-root paths.
+- `apps/sandbox/src/workspace-file-bridge.service.ts` now rejects direct root-flat `workspaceFileWrite` targets such as `/workspace/report.pdf` before quota/pod/GCS work, records the denial audit, and keeps focused sandbox coverage aligned with that guard.
+- Positive sandbox `execute_document_code` and `files.read` forwarding fixtures were made session-rooted, and stale active source comments in API/sandbox were rewritten away from ADR-128 flat-root wording.
+
+Full verification now green:
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm -r --if-present run typecheck`
+- `corepack pnpm -r --if-present run test`
+- `corepack pnpm run test:ci-detect-affected`
+
+Residuals:
+
+- Reconcile with `origin/main` (branch is expected to be both ahead of and behind `origin/main`).
+- Commit/push, deploy, and complete live validation.
+
 ## 2026-07-03 — ADR-133 Slice 5 landed locally: web gallery scopes + docs closure
 
 Status: **implemented locally, not committed/pushed, and complete for Slice 5 scope.** The public assistant-settings Files gallery and its list route now use `session | assistant | workspace` semantics, default to current-session provenance, and widen by the real hierarchical path roots rather than the older `chat | workspace` split. Active web/API fixtures and active docs were updated so positive examples no longer teach flat-root `/workspace/*.pdf|txt|csv|docx|xlsx` behavior.

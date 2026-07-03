@@ -5,6 +5,7 @@ import { WebRuntimeStreamClientService } from "../src/modules/workspace-manageme
 import type { AssistantMaterializedSpecRepository } from "../src/modules/workspace-management/domain/assistant-materialized-spec.repository";
 
 const ORIGINAL_ENV = process.env;
+const WEB_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
 
 function setApiEnv(overrides?: Record<string, string | undefined>): void {
   process.env = {
@@ -104,7 +105,7 @@ describe("WebRuntimeStreamClientService", () => {
             artifact: {
               artifactId: "artifact-1",
               kind: "image",
-              storagePath: "/workspace/stream.png",
+              storagePath: `${WEB_SESSION_ROOT}/stream.png`,
               mimeType: "image/png",
               filename: "stream.png",
               sizeBytes: 64,
@@ -121,7 +122,7 @@ describe("WebRuntimeStreamClientService", () => {
                 {
                   artifactId: "artifact-1",
                   kind: "image",
-                  storagePath: "/workspace/stream.png",
+                  storagePath: `${WEB_SESSION_ROOT}/stream.png`,
                   mimeType: "image/png",
                   filename: "stream.png",
                   sizeBytes: 64,
@@ -226,7 +227,7 @@ describe("WebRuntimeStreamClientService", () => {
           media: [
             {
               source: "persai_object_storage",
-              objectKey: "/workspace/stream.png",
+              objectKey: `${WEB_SESSION_ROOT}/stream.png`,
               type: "image",
               mimeType: "image/png",
               filename: "stream.png",
@@ -644,7 +645,7 @@ describe("WebRuntimeStreamClientService", () => {
             artifact: {
               artifactId: "artifact-degraded-1",
               kind: "image",
-              storagePath: "/workspace/degraded.png",
+              storagePath: `${WEB_SESSION_ROOT}/degraded.png`,
               mimeType: "image/png",
               filename: "degraded.png",
               sizeBytes: 512,
@@ -662,7 +663,7 @@ describe("WebRuntimeStreamClientService", () => {
               {
                 artifactId: "artifact-degraded-1",
                 kind: "image",
-                storagePath: "/workspace/degraded.png",
+                storagePath: `${WEB_SESSION_ROOT}/degraded.png`,
                 mimeType: "image/png",
                 filename: "degraded.png",
                 sizeBytes: 512,
@@ -705,7 +706,7 @@ describe("WebRuntimeStreamClientService", () => {
           media: [
             {
               source: "persai_object_storage",
-              objectKey: "/workspace/degraded.png",
+              objectKey: `${WEB_SESSION_ROOT}/degraded.png`,
               type: "image",
               mimeType: "image/png",
               filename: "degraded.png",

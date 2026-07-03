@@ -46,7 +46,10 @@ export class SandboxObjectStorageService {
    */
   buildWorkspaceObjectKey(input: {
     workspaceId: string;
-    /** Absolute pod path like `/workspace/<basename>`. */
+    /**
+     * Absolute pod path like
+     * `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/<basename>`.
+     */
     workspaceRelPath: string;
   }): string {
     const prefix = this.config.PERSAI_MEDIA_OBJECT_PREFIX.trim().replace(/\/+$/g, "");

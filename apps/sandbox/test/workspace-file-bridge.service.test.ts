@@ -135,37 +135,67 @@ function makeBridge(
 
 // ─── workspaceFileWrite ───────────────────────────────────────────────────────
 
-test("workspaceFileWrite: successful overwrite to /workspace/foo.txt mirrors to GCS", async () => {
+test("workspaceFileWrite: rejects root-flat /workspace/<file> before quota, pod exec, or GCS", async () => {
+  const exec = makeExec();
+  const storage = makeStorage();
+  const audit = makeAudit();
+  const bridge = makeBridge(exec.service, storage.service, makeObs().service, audit.service);
+  const result = await bridge.workspaceFileWrite(makeQuotaCtx({ workspaceQuotaBytes: 1_000 }), {
+    path: "/workspace/foo.txt",
+    contents: Buffer.from("hello world")
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.reason, "write_denied");
+  assert.equal(result.latencyMs, 0);
+  assert.deepEqual(result.data, {
+    resolvedPath: "/workspace/foo.txt",
+    bytes: 0
+  });
+  assert.equal(exec.calls.length, 0);
+  assert.equal(storage.savedObjects.length, 0);
+  assert.equal(audit.ops.length, 1);
+  assert.deepEqual(audit.ops[0], {
+    op: "write",
+    status: "error",
+    reason: "write_denied"
+  });
+});
+
+test("workspaceFileWrite: hierarchical session-root overwrite mirrors to GCS", async () => {
   const exec = makeExec([{ exitCode: 0, stdout: "", stderr: "" }]);
   const storage = makeStorage();
   const audit = makeAudit();
   const bridge = makeBridge(exec.service, storage.service, makeObs().service, audit.service);
   const contents = Buffer.from("hello world");
 
-  const result = await bridge.workspaceFileWrite(CTX, { path: "/workspace/foo.txt", contents });
+  const result = await bridge.workspaceFileWrite(CTX, {
+    path: `${DEFAULT_VISIBLE_ROOT}/foo.txt`,
+    contents
+  });
 
   assert.equal(result.success, true);
   assert.equal(result.reason, null);
   assert.equal(result.data.bytes, contents.length);
   assert.equal(exec.calls.length, 2);
-  assert.ok(exec.calls[1]?.shellCommand.includes("cat > '/workspace/foo.txt'"));
-  assert.ok(exec.calls[1]?.shellCommand.includes("mkdir -p '/workspace'"));
+  assert.ok(exec.calls[1]?.shellCommand.includes(`cat > '${DEFAULT_VISIBLE_ROOT}/foo.txt'`));
+  assert.ok(exec.calls[1]?.shellCommand.includes(`mkdir -p '${DEFAULT_VISIBLE_ROOT}'`));
   assert.equal(exec.calls[1]?.stdin?.toString(), "hello world");
-  // ADR-128 Slice 4: every /workspace/ write mirrors to GCS — no scratch carve-out.
+  // Every accepted visible-workspace write mirrors to GCS — no scratch carve-out.
   assert.equal(storage.savedObjects.length, 1);
   assert.ok(storage.savedObjects[0]?.objectKey.includes(WS_ID));
   assert.equal(audit.ops.length, 2);
   assert.equal(audit.ops[1]?.status, "ok");
 });
 
-test("workspaceFileWrite: nested subdirectory under /workspace/ mirrors to GCS too", async () => {
+test("workspaceFileWrite: nested subdirectory under the session root mirrors to GCS too", async () => {
   const exec = makeExec([{ exitCode: 0, stdout: "", stderr: "" }]);
   const storage = makeStorage();
   const bridge = makeBridge(exec.service, storage.service, makeObs().service, makeAudit().service);
   const contents = Buffer.from("PNG_BYTES");
 
   const result = await bridge.workspaceFileWrite(CTX, {
-    path: "/workspace/charts/foo.png",
+    path: `${DEFAULT_VISIBLE_ROOT}/charts/foo.png`,
     contents
   });
 
@@ -182,7 +212,7 @@ test("workspaceFileWrite: create_only collision (exitCode 64) → reason=create_
   const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
 
   const result = await bridge.workspaceFileWrite(CTX, {
-    path: "/workspace/report.txt",
+    path: `${DEFAULT_VISIBLE_ROOT}/report.txt`,
     contents: Buffer.from("data"),
     mode: "create_only"
   });
@@ -225,7 +255,7 @@ test("writeWorkspaceFileWithCollision: report.pdf exists → report (1).pdf land
   const exec = makeExec([
     {
       exitCode: 0,
-      stdout: `/workspace/report.pdf\tf\t100\t1700000000`,
+      stdout: `${DEFAULT_VISIBLE_ROOT}/report.pdf\tf\t100\t1700000000`,
       stderr: ""
     },
     { exitCode: 0, stdout: "", stderr: "" }
@@ -254,8 +284,8 @@ test("writeWorkspaceFileWithCollision: report.pdf and report (1).pdf exist → r
     {
       exitCode: 0,
       stdout: [
-        `/workspace/report.pdf\tf\t100\t1700000000`,
-        `/workspace/report (1).pdf\tf\t100\t1700000001`
+        `${DEFAULT_VISIBLE_ROOT}/report.pdf\tf\t100\t1700000000`,
+        `${DEFAULT_VISIBLE_ROOT}/report (1).pdf\tf\t100\t1700000001`
       ].join("\n"),
       stderr: ""
     },
@@ -280,12 +310,13 @@ test("writeWorkspaceFileWithCollision: report.pdf and report (1).pdf exist → r
 });
 
 test("workspaceFileWrite: existing explicit path defaults to sibling collision suffix", async () => {
+  const sessionReportPath = `${DEFAULT_VISIBLE_ROOT}/reports/report.pdf`;
   const exec = makeExec([
     {
       exitCode: 0,
       stdout: [
-        `/workspace/reports/report.pdf\tf\t100\t1700000000`,
-        `/workspace/reports/report (1).pdf\tf\t100\t1700000001`
+        `${DEFAULT_VISIBLE_ROOT}/reports/report.pdf\tf\t100\t1700000000`,
+        `${DEFAULT_VISIBLE_ROOT}/reports/report (1).pdf\tf\t100\t1700000001`
       ].join("\n"),
       stderr: ""
     },
@@ -299,16 +330,19 @@ test("workspaceFileWrite: existing explicit path defaults to sibling collision s
   );
 
   const result = await bridge.workspaceFileWrite(CTX, {
-    path: "/workspace/reports/report.pdf",
+    path: sessionReportPath,
     contents: Buffer.from("pdf")
   });
 
   assert.equal(result.success, true);
-  assert.equal(result.data.resolvedPath, "/workspace/reports/report (2).pdf");
-  assert.ok(exec.calls[1]?.shellCommand.includes("cat > '/workspace/reports/report (2).pdf'"));
+  assert.equal(result.data.resolvedPath, `${DEFAULT_VISIBLE_ROOT}/reports/report (2).pdf`);
+  assert.ok(
+    exec.calls[1]?.shellCommand.includes(`cat > '${DEFAULT_VISIBLE_ROOT}/reports/report (2).pdf'`)
+  );
 });
 
 test("workspaceFileWrite: replace=true overwrites exact explicit path", async () => {
+  const sessionReportPath = `${DEFAULT_VISIBLE_ROOT}/reports/report.pdf`;
   const exec = makeExec([{ exitCode: 0, stdout: "", stderr: "" }]);
   const bridge = makeBridge(
     exec.service,
@@ -318,25 +352,26 @@ test("workspaceFileWrite: replace=true overwrites exact explicit path", async ()
   );
 
   const result = await bridge.workspaceFileWrite(CTX, {
-    path: "/workspace/reports/report.pdf",
+    path: sessionReportPath,
     contents: Buffer.from("pdf"),
     replace: true
   });
 
   assert.equal(result.success, true);
-  assert.equal(result.data.resolvedPath, "/workspace/reports/report.pdf");
+  assert.equal(result.data.resolvedPath, sessionReportPath);
   assert.equal(exec.calls.length, 1);
-  assert.ok(exec.calls[0]?.shellCommand.includes("cat > '/workspace/reports/report.pdf'"));
+  assert.ok(exec.calls[0]?.shellCommand.includes(`cat > '${sessionReportPath}'`));
 });
 
 test("workspaceFileWrite: explicit path without extension allocates suffix and respects trailing (N)", async () => {
+  const sessionReportStem = `${DEFAULT_VISIBLE_ROOT}/notes/report`;
   const exec = makeExec([
     {
       exitCode: 0,
       stdout: [
-        `/workspace/notes/report\tf\t100\t1700000000`,
-        `/workspace/notes/report (1)\tf\t100\t1700000001`,
-        `/workspace/notes/report (2)\tf\t100\t1700000002`
+        `${DEFAULT_VISIBLE_ROOT}/notes/report\tf\t100\t1700000000`,
+        `${DEFAULT_VISIBLE_ROOT}/notes/report (1)\tf\t100\t1700000001`,
+        `${DEFAULT_VISIBLE_ROOT}/notes/report (2)\tf\t100\t1700000002`
       ].join("\n"),
       stderr: ""
     },
@@ -350,13 +385,13 @@ test("workspaceFileWrite: explicit path without extension allocates suffix and r
   );
 
   const result = await bridge.workspaceFileWrite(CTX, {
-    path: "/workspace/notes/report (2)",
+    path: `${sessionReportStem} (2)`,
     contents: Buffer.from("note")
   });
 
   assert.equal(result.success, true);
-  assert.equal(result.data.resolvedPath, "/workspace/notes/report (3)");
-  assert.ok(exec.calls[1]?.shellCommand.includes("cat > '/workspace/notes/report (3)'"));
+  assert.equal(result.data.resolvedPath, `${sessionReportStem} (3)`);
+  assert.ok(exec.calls[1]?.shellCommand.includes(`cat > '${sessionReportStem} (3)'`));
 });
 
 // ─── workspaceFileRead ────────────────────────────────────────────────────────
@@ -546,7 +581,7 @@ test("workspaceFileWrite: quota cap exceeded via workspaceQuotaBytes → workspa
   const contents = Buffer.from("x".repeat(100));
 
   const result = await bridge.workspaceFileWrite(makeQuotaCtx({ workspaceQuotaBytes: 1000 }), {
-    path: "/workspace/big.bin",
+    path: `${DEFAULT_VISIBLE_ROOT}/big.bin`,
     contents
   });
 
@@ -565,7 +600,7 @@ test("workspaceFileWrite: quota cap exceeded via sharedQuotaBytes → workspace_
   const contents = Buffer.from("y".repeat(200));
 
   const result = await bridge.workspaceFileWrite(makeQuotaCtx({ sharedQuotaBytes: 1000 }), {
-    path: "/workspace/out.csv",
+    path: `${DEFAULT_VISIBLE_ROOT}/out.csv`,
     contents
   });
 
@@ -586,7 +621,7 @@ test("workspaceFileWrite: cap null → write proceeds without du", async () => {
   );
 
   const result = await bridge.workspaceFileWrite(makeQuotaCtx(), {
-    path: "/workspace/foo.txt",
+    path: `${DEFAULT_VISIBLE_ROOT}/foo.txt`,
     contents: Buffer.from("ok")
   });
 
@@ -608,7 +643,7 @@ test("workspaceFileWrite: current + new under cap → write proceeds", async () 
   );
 
   const result = await bridge.workspaceFileWrite(makeQuotaCtx({ workspaceQuotaBytes: 1000 }), {
-    path: "/workspace/small.txt",
+    path: `${DEFAULT_VISIBLE_ROOT}/small.txt`,
     contents: Buffer.from("fits")
   });
 
@@ -832,6 +867,7 @@ test("writeWorkspaceFileControlPlane: rejects flat /workspace/<file> explicit pa
 });
 
 test("writeWorkspaceFileControlPlane: explicit path uses required workspace writer", async () => {
+  const extractedPath = `${DEFAULT_VISIBLE_ROOT}/source.extract/extracted.md`;
   const exec = makeExec([{ exitCode: 0, stdout: "", stderr: "" }], {
     tryHotPodResponses: [{ exitCode: 1, stdout: "", stderr: "should not be used" }]
   });
@@ -842,35 +878,31 @@ test("writeWorkspaceFileControlPlane: explicit path uses required workspace writ
 
   const result = await bridge.writeWorkspaceFileControlPlane(CTX, {
     basename: "extracted.md",
-    path: "/workspace/source.extract/extracted.md",
+    path: extractedPath,
     contents
   });
 
   assert.equal(result.success, true);
   assert.equal(result.reason, null);
   assert.equal(result.data.mode, "written");
-  assert.equal(result.data.workspaceRelPath, "/workspace/source.extract/extracted.md");
-  assert.equal(result.data.absolutePath, "/workspace/source.extract/extracted.md");
+  assert.equal(result.data.workspaceRelPath, extractedPath);
+  assert.equal(result.data.absolutePath, extractedPath);
   assert.equal(result.data.bytes, contents.length);
   assert.equal(exec.tryCalls.length, 0);
   assert.equal(exec.calls.length, 2);
-  assert.match(
-    exec.calls[1]?.shellCommand ?? "",
-    /cat > '\/workspace\/source\.extract\/extracted\.md'/
-  );
+  assert.ok(exec.calls[1]?.shellCommand.includes(`cat > '${extractedPath}'`));
   assert.equal(exec.calls[1]?.stdin?.toString(), contents.toString());
   assert.equal(audit.ops.at(-1)?.status, "ok");
   assert.equal(storage.savedObjects.length, 1);
-  assert.ok(
-    storage.savedObjects[0]?.objectKey.includes(`${WS_ID}/workspace/source.extract/extracted.md`)
-  );
+  assert.ok(storage.savedObjects[0]?.objectKey.includes(`${WS_ID}${extractedPath}`));
 });
 
 test("writeWorkspaceFileControlPlane: explicit path defaults to sibling collision suffix", async () => {
+  const extractedPath = `${DEFAULT_VISIBLE_ROOT}/source.extract/extracted.md`;
   const exec = makeExec([
     {
       exitCode: 0,
-      stdout: `/workspace/source.extract/extracted.md\tf\t18\t1700000000`,
+      stdout: `${extractedPath}\tf\t18\t1700000000`,
       stderr: ""
     },
     { exitCode: 0, stdout: "", stderr: "" }
@@ -884,18 +916,24 @@ test("writeWorkspaceFileControlPlane: explicit path defaults to sibling collisio
 
   const result = await bridge.writeWorkspaceFileControlPlane(CTX, {
     basename: "extracted.md",
-    path: "/workspace/source.extract/extracted.md",
+    path: extractedPath,
     contents: Buffer.from("# Extracted\n\nBody")
   });
 
   assert.equal(result.success, true);
-  assert.equal(result.data.workspaceRelPath, "/workspace/source.extract/extracted (1).md");
+  assert.equal(
+    result.data.workspaceRelPath,
+    `${DEFAULT_VISIBLE_ROOT}/source.extract/extracted (1).md`
+  );
   assert.ok(
-    exec.calls[1]?.shellCommand.includes("cat > '/workspace/source.extract/extracted (1).md'")
+    exec.calls[1]?.shellCommand.includes(
+      `cat > '${DEFAULT_VISIBLE_ROOT}/source.extract/extracted (1).md'`
+    )
   );
 });
 
 test("writeWorkspaceFileControlPlane: explicit path replace=true keeps exact path", async () => {
+  const extractedPath = `${DEFAULT_VISIBLE_ROOT}/source.extract/extracted.md`;
   const exec = makeExec([{ exitCode: 0, stdout: "", stderr: "" }]);
   const bridge = makeBridge(
     exec.service,
@@ -906,13 +944,13 @@ test("writeWorkspaceFileControlPlane: explicit path replace=true keeps exact pat
 
   const result = await bridge.writeWorkspaceFileControlPlane(CTX, {
     basename: "extracted.md",
-    path: "/workspace/source.extract/extracted.md",
+    path: extractedPath,
     contents: Buffer.from("# Extracted\n\nBody"),
     replace: true
   });
 
   assert.equal(result.success, true);
-  assert.equal(result.data.workspaceRelPath, "/workspace/source.extract/extracted.md");
+  assert.equal(result.data.workspaceRelPath, extractedPath);
   assert.equal(exec.calls.length, 1);
 });
 

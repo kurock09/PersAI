@@ -39,7 +39,7 @@ describe("workspace-file-metadata.service", () => {
     const service = new WorkspaceFileMetadataService(repository as never);
     await service.upsert({
       workspaceId: "workspace-1",
-      path: "/workspace/notes.md",
+      path: "/workspace/assistants/assistant-1/sessions/session-1/notes.md",
       mimeType: "text/markdown",
       sizeBytes: 42,
       shortDescription: "Meeting notes"
@@ -47,7 +47,7 @@ describe("workspace-file-metadata.service", () => {
 
     const row = await service.get({
       workspaceId: "workspace-1",
-      path: "/workspace/notes.md"
+      path: "/workspace/assistants/assistant-1/sessions/session-1/notes.md"
     });
     assert.equal(row?.shortDescription, "Meeting notes");
   });

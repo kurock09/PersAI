@@ -5,6 +5,7 @@ import { WebRuntimeTurnClientService } from "../src/modules/workspace-management
 import type { AssistantMaterializedSpecRepository } from "../src/modules/workspace-management/domain/assistant-materialized-spec.repository";
 
 const ORIGINAL_ENV = process.env;
+const WEB_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
 
 function setApiEnv(overrides?: Record<string, string | undefined>): void {
   process.env = {
@@ -45,7 +46,7 @@ describe("WebRuntimeTurnClientService", () => {
             {
               artifactId: "artifact-1",
               kind: "image",
-              storagePath: "/workspace/one.png",
+              storagePath: `${WEB_SESSION_ROOT}/one.png`,
               mimeType: "image/png",
               filename: "one.png",
               sizeBytes: 128,
@@ -159,7 +160,7 @@ describe("WebRuntimeTurnClientService", () => {
       assert.deepEqual(result.media, [
         {
           source: "persai_object_storage",
-          objectKey: "/workspace/one.png",
+          objectKey: `${WEB_SESSION_ROOT}/one.png`,
           type: "image",
           mimeType: "image/png",
           filename: "one.png",

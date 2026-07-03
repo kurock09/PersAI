@@ -268,7 +268,7 @@ async function run(): Promise<void> {
   // widens without reviving stale scope flags or flat-root guidance.
   assert.match(
     filesPolicy?.description ?? "",
-    /Default new work stays under `\/workspace\/assistants\/<assistantStableKey>\/sessions\/<sessionId>\/\.\.\.`/
+    /New work normally stays in the current session root `\/workspace\/assistants\/<assistantStableKey>\/sessions\/<sessionId>\/\.\.\.`/
   );
   assert.equal(
     filesPolicy?.description ?? "",

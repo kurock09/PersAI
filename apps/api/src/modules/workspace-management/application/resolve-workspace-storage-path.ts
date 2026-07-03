@@ -36,9 +36,9 @@ export function deriveFilenameFromMime(referenceId: string, mimeType: string): s
 }
 
 /**
- * Build the pod-absolute storage path for a workspace file. After ADR-128
- * Slice 4 this is simply `/workspace/<basename>` — there is no role-based
- * subdirectory carve-out.
+ * Build the pod-absolute storage path for a workspace file. Under ADR-133 the
+ * default visible write root is the current assistant session subtree:
+ * `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/<basename>`.
  */
 export function buildWorkspaceStoragePath(
   filename: string | null,

@@ -355,8 +355,8 @@ export class SandboxService {
   }
 
   /**
-   * ADR-128 Slice 4 — synchronous control-plane write of artefact bytes
-   * into `/workspace/<basename>` (collision-aware).
+   * ADR-128 Slice 4 / ADR-133 Slice 2 — synchronous control-plane write of
+   * artifact bytes into the current assistant/session root (collision-aware).
    */
   async writeWorkspaceFile(input: {
     assistantId: string;

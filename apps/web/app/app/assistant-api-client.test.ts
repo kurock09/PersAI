@@ -475,19 +475,23 @@ describe("assistant files client", () => {
     expect(
       buildChatFileUrl({
         chatId: "chat-1",
-        storagePath: "/workspace/photo.jpg"
+        storagePath: `${SESSION_ROOT}/photo.jpg`
       })
-    ).toBe("/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto.jpg");
+    ).toBe(
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto.jpg"
+    );
   });
 
   it("adds explicit chat file download mode when requested", () => {
     expect(
       buildChatFileUrl({
         chatId: "chat-1",
-        storagePath: "/workspace/photo.jpg",
+        storagePath: `${SESSION_ROOT}/photo.jpg`,
         download: true
       })
-    ).toBe("/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fphoto.jpg&download=1");
+    ).toBe(
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fphoto.jpg&download=1"
+    );
   });
 
   it("builds a version-aware original presentation download url", () => {

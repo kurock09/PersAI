@@ -219,25 +219,15 @@ export class WorkspaceFileBridgeService {
       typeof input.path === "string" && input.path.trim().length > 0 ? input.path.trim() : null;
     if (explicitPath !== null) {
       if (classifyVisibleWorkspacePath(explicitPath).kind === "rootFlatFile") {
-        this.workspaceAuditService.recordWorkspaceFileOp("write", {
-          workspaceId: ctx.workspaceId,
-          assistantId: ctx.assistantId,
-          absolutePath: explicitPath,
-          relativePath: explicitPath.replace(/^\/workspace\/?/, ""),
-          status: "error",
-          exitCode: null,
-          bytes: null,
-          latencyMs: 0,
-          reason: "write_denied"
-        });
+        const denied = this.buildRootFlatWriteDeniedResult(ctx, explicitPath);
         return {
-          success: false,
-          reason: "write_denied",
-          latencyMs: 0,
+          success: denied.success,
+          reason: denied.reason,
+          latencyMs: denied.latencyMs,
           data: {
-            workspaceRelPath: explicitPath,
-            absolutePath: explicitPath,
-            bytes: 0,
+            workspaceRelPath: denied.data.resolvedPath,
+            absolutePath: denied.data.resolvedPath,
+            bytes: denied.data.bytes,
             mode: "written"
           }
         };
@@ -375,6 +365,9 @@ export class WorkspaceFileBridgeService {
     }
   ): Promise<WorkspaceFileBridgeResult<{ resolvedPath: string; bytes: number }>> {
     const requested = this.resolveModelPath(ctx, input.path);
+    if (classifyVisibleWorkspacePath(requested.absolutePath).kind === "rootFlatFile") {
+      return this.buildRootFlatWriteDeniedResult(ctx, requested.absolutePath);
+    }
     const quotaExhaustedReason = await this.checkStorageQuotaBeforeWrite(
       ctx,
       input.contents.length
@@ -1052,6 +1045,32 @@ export class WorkspaceFileBridgeService {
   private basename(absolutePath: string): string {
     const idx = absolutePath.lastIndexOf("/");
     return idx >= 0 ? absolutePath.slice(idx + 1) : absolutePath;
+  }
+
+  private buildRootFlatWriteDeniedResult(
+    ctx: WorkspaceBridgeContext,
+    requestedPath: string
+  ): WorkspaceFileBridgeResult<{ resolvedPath: string; bytes: number }> {
+    this.workspaceAuditService.recordWorkspaceFileOp("write", {
+      workspaceId: ctx.workspaceId,
+      assistantId: ctx.assistantId,
+      absolutePath: requestedPath,
+      relativePath: requestedPath.replace(/^\/workspace\/?/, ""),
+      status: "error",
+      exitCode: null,
+      bytes: null,
+      latencyMs: 0,
+      reason: "write_denied"
+    });
+    return {
+      success: false,
+      reason: "write_denied",
+      latencyMs: 0,
+      data: {
+        resolvedPath: requestedPath,
+        bytes: 0
+      }
+    };
   }
 
   private async checkStorageQuotaBeforeWrite(

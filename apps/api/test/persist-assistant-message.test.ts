@@ -29,7 +29,10 @@ async function run(): Promise<void> {
       chatId: "chat-1",
       assistantId: "assistant-1",
       content: "Done.",
-      discoveredFilePaths: ["/workspace/file-1.md", "/workspace/file-2.md"],
+      discoveredFilePaths: [
+        "/workspace/assistants/assistant-1/sessions/session-1/file-1.md",
+        "/workspace/assistants/assistant-1/sessions/session-1/file-2.md"
+      ],
       deferredMediaJobCount: 2,
       sourceUserMessageId: "user-message-1"
     });
@@ -42,7 +45,10 @@ async function run(): Promise<void> {
         author: "assistant",
         content: "Done.",
         metadata: {
-          discoveredFilePaths: ["/workspace/file-1.md", "/workspace/file-2.md"]
+          discoveredFilePaths: [
+            "/workspace/assistants/assistant-1/sessions/session-1/file-1.md",
+            "/workspace/assistants/assistant-1/sessions/session-1/file-2.md"
+          ]
         }
       }
     ]);

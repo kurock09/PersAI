@@ -49,6 +49,8 @@ vi.mock("../assistant-api-client", async () => {
   };
 });
 
+const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+
 describe("useChat", () => {
   const rafCallbacks = new Map<number, FrameRequestCallback>();
   let nextRafId = 1;
@@ -590,8 +592,8 @@ describe("useChat", () => {
         attachments: [
           {
             id: "att-old-image",
-            path: "/workspace/source-collage.png",
-            thumbnailStoragePath: "/workspace/source-collage.thumb.png",
+            path: `${CHAT_SESSION_ROOT}/source-collage.png`,
+            thumbnailStoragePath: `${CHAT_SESSION_ROOT}/source-collage.thumb.png`,
             posterStoragePath: null,
             attachmentType: "image",
             originalFilename: "source-collage.png",
@@ -631,8 +633,8 @@ describe("useChat", () => {
           attachments: [
             {
               id: "att-old-image",
-              path: "/workspace/source-collage.png",
-              thumbnailStoragePath: "/workspace/source-collage.thumb.png",
+              path: `${CHAT_SESSION_ROOT}/source-collage.png`,
+              thumbnailStoragePath: `${CHAT_SESSION_ROOT}/source-collage.thumb.png`,
               posterStoragePath: null,
               attachmentType: "image",
               originalFilename: "source-collage.png",
@@ -656,8 +658,8 @@ describe("useChat", () => {
           attachments: [
             {
               id: "att-old-image",
-              path: "/workspace/source-collage.png",
-              thumbnailStoragePath: "/workspace/source-collage.thumb.png",
+              path: `${CHAT_SESSION_ROOT}/source-collage.png`,
+              thumbnailStoragePath: `${CHAT_SESSION_ROOT}/source-collage.thumb.png`,
               posterStoragePath: null,
               attachmentType: "image",
               originalFilename: "source-collage.png",

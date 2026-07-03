@@ -37,7 +37,7 @@ describe("AssistantDocumentJobSchedulerService", () => {
         {
           attachmentId: "attachment-1",
           kind: "file",
-          storagePath: "/workspace/source.md",
+          storagePath: "/workspace/assistants/assistant-1/sessions/session-1/source.md",
           mimeType: "text/markdown",
           sizeBytes: 100,
           displayName: "source.md"

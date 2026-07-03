@@ -62,9 +62,10 @@ export class SandboxController {
   }
 
   /**
-   * ADR-128 Slice 4 — model-driven workspace write.
-   * Lands artefacts directly at `/workspace/<basename>` with optional macOS-style
-   * collision-suffix resolution.
+   * ADR-133 — model-driven workspace write.
+   * Basename writes land in the current default visible root: the session root
+   * when a runtime session exists, or the assistant shared root for sessionless
+   * control-plane cases, with optional macOS-style collision suffixing.
    */
   @Post("/api/v1/jobs/workspace-write")
   async writeWorkspace(

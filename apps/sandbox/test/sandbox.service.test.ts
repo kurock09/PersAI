@@ -571,6 +571,7 @@ test("SandboxService: session snapshot round-trip — save then restore adds eph
 });
 
 test("SandboxService: files.read forwards model-requested maxBytes to workspace bridge", async () => {
+  const sessionRoot = buildAssistantSessionRoot("reader", "session-read-1");
   let capturedRead: {
     path: string;
     maxBytes?: number;
@@ -617,20 +618,22 @@ test("SandboxService: files.read forwards model-requested maxBytes to workspace 
       assistantHandle: "reader",
       siblingHandles: [],
       workspaceId: "workspace-read-1",
+      runtimeSessionId: "session-read-1",
+      defaultVisibleRoot: sessionRoot,
       policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
       workspaceQuotaBytes: null,
       sharedQuotaBytes: null
     },
     {
       action: "read",
-      path: "/workspace/LOG011 (3).TXT",
+      path: `${sessionRoot}/LOG011 (3).TXT`,
       maxBytes: 10_000
     }
   );
 
   assert.equal(result.reason, null);
   assert.deepEqual(capturedRead, {
-    path: "/workspace/LOG011 (3).TXT",
+    path: `${sessionRoot}/LOG011 (3).TXT`,
     maxBytes: 10_000
   });
   const payload = JSON.parse(result.content!) as { content: string; truncated: boolean };
@@ -639,6 +642,7 @@ test("SandboxService: files.read forwards model-requested maxBytes to workspace 
 });
 
 test("SandboxService: files.write forwards replace and returns resolvedPath", async () => {
+  const sessionRoot = buildAssistantSessionRoot("writer", "session-write-2");
   let capturedWrite: {
     path: string;
     contents: Buffer;
@@ -667,7 +671,7 @@ test("SandboxService: files.write forwards replace and returns resolvedPath", as
           reason: null,
           latencyMs: 1,
           data: {
-            resolvedPath: "/workspace/report (1).txt",
+            resolvedPath: `${sessionRoot}/report (1).txt`,
             bytes: input.contents.length
           }
         };
@@ -688,13 +692,15 @@ test("SandboxService: files.write forwards replace and returns resolvedPath", as
       assistantHandle: "writer",
       siblingHandles: [],
       workspaceId: "workspace-write-2",
+      runtimeSessionId: "session-write-2",
+      defaultVisibleRoot: sessionRoot,
       policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
       workspaceQuotaBytes: null,
       sharedQuotaBytes: null
     },
     {
       action: "write",
-      path: "/workspace/report.txt",
+      path: `${sessionRoot}/report.txt`,
       content: "hello",
       replace: true
     }
@@ -702,16 +708,17 @@ test("SandboxService: files.write forwards replace and returns resolvedPath", as
 
   assert.equal(result.reason, null);
   assert.deepEqual(capturedWrite, {
-    path: "/workspace/report.txt",
+    path: `${sessionRoot}/report.txt`,
     contents: Buffer.from("hello", "utf8"),
     replace: true
   });
   const payload = JSON.parse(result.content!) as { sizeBytes: number; resolvedPath: string };
   assert.equal(payload.sizeBytes, 5);
-  assert.equal(payload.resolvedPath, "/workspace/report (1).txt");
+  assert.equal(payload.resolvedPath, `${sessionRoot}/report (1).txt`);
 });
 
 test("SandboxService: control-plane workspace write can hydrate bytes from workspace storage", async () => {
+  const assistantSharedRoot = "/workspace/assistants/writer";
   let downloadedObjectKey: string | null = null;
   let capturedWrite: { basename: string; contents: Buffer } | null = null;
   const service = new SandboxService(
@@ -739,8 +746,8 @@ test("SandboxService: control-plane workspace write can hydrate bytes from works
           reason: null,
           latencyMs: 1,
           data: {
-            workspaceRelPath: `/workspace/${input.basename}`,
-            absolutePath: `/workspace/${input.basename}`,
+            workspaceRelPath: `${assistantSharedRoot}/${input.basename}`,
+            absolutePath: `${assistantSharedRoot}/${input.basename}`,
             bytes: input.contents.length,
             mode: "written" as const
           }
@@ -755,17 +762,20 @@ test("SandboxService: control-plane workspace write can hydrate bytes from works
     assistantHandle: "writer",
     siblingHandles: [],
     basename: "LOG006.01 (2).csv",
-    storagePath: "/workspace/LOG006.01 (2).csv",
+    storagePath: `${assistantSharedRoot}/LOG006.01 (2).csv`,
     mimeType: "text/csv"
   });
 
   assert.deepEqual(result, {
     ok: true,
     mode: "written",
-    workspaceRelPath: "/workspace/LOG006.01 (2).csv",
+    workspaceRelPath: `${assistantSharedRoot}/LOG006.01 (2).csv`,
     sizeBytes: 9
   });
-  assert.equal(downloadedObjectKey, "fs/workspaces/workspace-write-1/workspace/LOG006.01 (2).csv");
+  assert.equal(
+    downloadedObjectKey,
+    `fs/workspaces/workspace-write-1${assistantSharedRoot}/LOG006.01 (2).csv`
+  );
   assert.notEqual(capturedWrite, null);
   const write = capturedWrite as unknown as { basename: string; contents: Buffer };
   assert.equal(write.basename, "LOG006.01 (2).csv");
@@ -773,6 +783,7 @@ test("SandboxService: control-plane workspace write can hydrate bytes from works
 });
 
 test("SandboxService: control-plane workspace write forwards replace for explicit paths", async () => {
+  const assistantSharedDocPath = "/workspace/assistants/writer/docs/report.pdf";
   let capturedWrite: {
     basename: string;
     path: string | null;
@@ -806,8 +817,8 @@ test("SandboxService: control-plane workspace write forwards replace for explici
           reason: null,
           latencyMs: 1,
           data: {
-            workspaceRelPath: "/workspace/docs/report.pdf",
-            absolutePath: "/workspace/docs/report.pdf",
+            workspaceRelPath: assistantSharedDocPath,
+            absolutePath: assistantSharedDocPath,
             bytes: input.contents.length,
             mode: "written" as const
           }
@@ -822,7 +833,7 @@ test("SandboxService: control-plane workspace write forwards replace for explici
     assistantHandle: "writer",
     siblingHandles: [],
     basename: "report.pdf",
-    path: "/workspace/docs/report.pdf",
+    path: assistantSharedDocPath,
     contents: Buffer.from("pdf"),
     replace: true,
     mimeType: "application/pdf"
@@ -831,12 +842,12 @@ test("SandboxService: control-plane workspace write forwards replace for explici
   assert.deepEqual(result, {
     ok: true,
     mode: "written",
-    workspaceRelPath: "/workspace/docs/report.pdf",
+    workspaceRelPath: assistantSharedDocPath,
     sizeBytes: 3
   });
   assert.deepEqual(capturedWrite, {
     basename: "report.pdf",
-    path: "/workspace/docs/report.pdf",
+    path: assistantSharedDocPath,
     contents: Buffer.from("pdf"),
     replace: true
   });
@@ -967,9 +978,12 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
     Buffer.alloc(1024, 9)
   ]);
 
+  const assistantHandle = "assistant-code";
+  const runtimeSessionId = "session-code";
+  const sessionRoot = buildAssistantSessionRoot(assistantHandle, runtimeSessionId);
   const workspaceId = "workspace-code-1";
-  const sourceStoragePath = "/workspace/source.pdf";
-  const workspaceObjectKey = `assistant-media/workspaces/${workspaceId}/workspace/source.pdf`;
+  const sourceStoragePath = `${sessionRoot}/source.pdf`;
+  const workspaceObjectKey = `assistant-media/workspaces/${workspaceId}/workspace/assistants/assistant-code/sessions/session-code/source.pdf`;
   const storedObjects = new Map<string, Buffer>([[workspaceObjectKey, sourcePdfBytes]]);
 
   const service = new SandboxService(
@@ -1055,21 +1069,23 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
     assistantId: "assistant-code-1",
     workspaceId,
     runtimeRequestId: "request-code-1",
-    runtimeSessionId: null,
+    runtimeSessionId,
     toolCode: "execute_document_code",
     policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
     args: {
-      programSource: "import openpyxl\nopenpyxl.Workbook().save('/workspace/report.xlsx')\n",
+      programSource: `import openpyxl\nopenpyxl.Workbook().save('${sessionRoot}/report.xlsx')\n`,
       outputFileName: "report.xlsx",
       sourceMounts: [{ storagePath: sourceStoragePath, mountPath: "sources/source.pdf" }],
       textSidecars: [{ mountPath: "sources/source.pdf.ocr.txt", text: "OCR TEXT" }]
-    }
+    },
+    assistantHandle
   });
 
   assert.equal(capturedRunInPodCalls.length, 1, "runInPod must be called exactly once");
   assert.equal(capturedRunInPodCalls[0]!.command, "python3");
   assert.equal(sourcesAtRunTime.sourcePdf?.startsWith("%PDF-1.4"), true);
   assert.equal(sourcesAtRunTime.ocrSidecar, "OCR TEXT");
+  assert.equal(sourcesAtRunTime.program?.includes(`${sessionRoot}/report.xlsx`), true);
 
   const workspaceRoot = access.resolveWorkspaceRoot(workspaceId);
   const filesAfter = await listWorkspaceRelativeFiles(workspaceRoot);

@@ -204,7 +204,7 @@ Landed locally 2026-07-03:
 
 - `apps/sandbox/src/workspace-path.ts` now wraps the shared ADR-133 builders and derives the default visible root from `assistantHandle` + `runtimeSessionId`.
 - `apps/sandbox/src/sandbox.service.ts` now resolves a physical workspace tree plus the current visible session root, defaults `shell` / `exec` cwd and `grep` / `glob` pathing to that root, preserves the hierarchical tree through hydrate/push/pull, and stages render/document-code outputs against the session-root model.
-- `apps/sandbox/src/workspace-file-bridge.service.ts` now uses the default visible session root for basename-only writes/control-plane writes and rejects explicit flat root control-plane writes such as `/workspace/report.pdf`.
+- `apps/sandbox/src/workspace-file-bridge.service.ts` now uses the default visible session root for basename-only writes/control-plane writes and rejects explicit flat root control-plane writes such as `/workspace/report.pdf`; the direct `workspaceFileWrite` path now also denies retired root-flat writes instead of silently accepting them.
 - `apps/sandbox/src/sandbox-object-storage.service.ts` now mirrors visible hierarchical workspace paths in persisted GCS object keys.
 - `apps/sandbox/src/workspace-gc.service.ts` and `apps/sandbox/src/workspace-audit.service.ts` now report sandbox cleanup in session/assistant/workspace subtree terms while keeping producer lease rows compatible for this slice.
 - Focused coverage was updated in `apps/sandbox/test/{sandbox.service.test.ts,workspace-file-bridge.service.test.ts,workspace-gc.service.test.ts}` for session-root defaults, hierarchical object-key mirroring, explicit flat-write rejection, and subtree-targeted GC.
@@ -290,4 +290,4 @@ This ADR is not closure-ready until all are true:
 
 ## Next recommended step
 
-Run Slice 0 with a read-only GPT-5.4 subagent, parent-review the ledger, then dispatch Slice 1 only after the parent confirms there is no hidden flat-path owner left unaccounted for.
+Run an independent cleanliness audit, then the full gate, reconcile with `origin/main`, push/deploy, and finish live validation for the locally landed Slices 1-5.

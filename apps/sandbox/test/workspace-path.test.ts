@@ -90,7 +90,7 @@ test("normalizeAndClampPath: .. traversal that would escape root is rejected via
 
 // ─── assertAllowedMountPrefix ─────────────────────────────────────────────────
 
-test("assertAllowedMountPrefix: root-level /workspace file path still normalizes as a valid mount path", () => {
+test("assertAllowedMountPrefix: root-level /workspace file path still normalizes as a valid raw mount path", () => {
   const result = assertAllowedMountPrefix("/workspace/x.txt");
   assert.equal(result.absolutePath, "/workspace/x.txt");
   assert.equal(result.relativePath, "x.txt");

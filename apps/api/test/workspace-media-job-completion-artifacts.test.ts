@@ -5,6 +5,8 @@ import {
   resolveMediaJobCompletionToolCode
 } from "../src/modules/workspace-management/application/workspace-media-job-completion-artifacts";
 
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
+
 describe("workspace-media-job-completion-artifacts", () => {
   test("resolves image tool codes from requestJson", () => {
     assert.equal(
@@ -28,7 +30,7 @@ describe("workspace-media-job-completion-artifacts", () => {
         {
           artifactId: "artifact-1",
           kind: "image",
-          storagePath: "/workspace/out.png",
+          storagePath: `${SESSION_ROOT}/out.png`,
           mimeType: "image/png",
           filename: "out.png",
           sizeBytes: 10,
@@ -39,7 +41,7 @@ describe("workspace-media-job-completion-artifacts", () => {
 
     assert.equal(artifacts.length, 1);
     assert.equal(artifacts[0]?.role, "output");
-    assert.equal(artifacts[0]?.storagePath, "/workspace/out.png");
+    assert.equal(artifacts[0]?.storagePath, `${SESSION_ROOT}/out.png`);
   });
 
   test("ignores non-image outputs", () => {
@@ -48,7 +50,7 @@ describe("workspace-media-job-completion-artifacts", () => {
         {
           artifactId: "artifact-audio",
           kind: "audio",
-          storagePath: "/workspace/out.mp3",
+          storagePath: `${SESSION_ROOT}/out.mp3`,
           mimeType: "audio/mpeg",
           filename: "out.mp3",
           sizeBytes: 10,
@@ -57,7 +59,7 @@ describe("workspace-media-job-completion-artifacts", () => {
         {
           artifactId: "artifact-1",
           kind: "image",
-          storagePath: "/workspace/out.png",
+          storagePath: `${SESSION_ROOT}/out.png`,
           mimeType: "image/png",
           filename: "out.png",
           sizeBytes: 10,
@@ -76,7 +78,7 @@ describe("workspace-media-job-completion-artifacts", () => {
         {
           artifactId: "artifact-1",
           kind: "image",
-          storagePath: "/workspace/out.png",
+          storagePath: `${SESSION_ROOT}/out.png`,
           mimeType: "image/png",
           filename: "out.png",
           sizeBytes: 10,

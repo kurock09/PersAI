@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { DocumentSourceAttachmentExtractionService } from "../src/modules/workspace-management/application/document-source-attachment-extraction.service";
 
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
+
 async function run(): Promise<void> {
   await extractsSupportedSourcesThroughSharedDocumentExtraction();
   await skipsUnsupportedBinaryAttachments();
@@ -56,7 +58,7 @@ async function extractsSupportedSourcesThroughSharedDocumentExtraction(): Promis
       {
         attachmentId: "att-1",
         kind: "file",
-        storagePath: "/workspace/source.md",
+        storagePath: `${SESSION_ROOT}/source.md`,
         mimeType: "text/markdown",
         displayName: "source.md",
         sizeBytes: 128
@@ -64,7 +66,9 @@ async function extractsSupportedSourcesThroughSharedDocumentExtraction(): Promis
     ]
   });
 
-  assert.deepEqual(downloadCalls, ["media/workspaces/workspace-1/workspace/source.md"]);
+  assert.deepEqual(downloadCalls, [
+    "media/workspaces/workspace-1/workspace/assistants/assistant-1/sessions/session-1/source.md"
+  ]);
   assert.equal(extractionCalls.length, 1);
   assert.equal(result.length, 1);
   assert.equal(result[0]!.text, "Real extracted text");
@@ -106,7 +110,7 @@ async function skipsUnsupportedBinaryAttachments(): Promise<void> {
       {
         attachmentId: "att-image",
         kind: "image",
-        storagePath: "/workspace/photo.png",
+        storagePath: `${SESSION_ROOT}/photo.png`,
         mimeType: "image/png",
         displayName: "photo.png",
         sizeBytes: 1024
