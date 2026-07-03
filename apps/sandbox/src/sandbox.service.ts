@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { join, dirname, extname, basename, isAbsolute, resolve } from "node:path";
+import { join, dirname, extname, basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { posix as pathPosix } from "node:path";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { SandboxConfig } from "@persai/config";
@@ -23,7 +23,13 @@ import {
   WorkspaceFileBridgeService,
   type WorkspaceBridgeContext
 } from "./workspace-file-bridge.service";
-import { WorkspacePathError, assertAllowedMountPrefix } from "./workspace-path";
+import {
+  buildDefaultVisibleWorkspaceRoot,
+  normalizeAndClampPath,
+  WORKSPACE_MOUNT_ROOT,
+  WorkspacePathError,
+  assertAllowedMountPrefix
+} from "./workspace-path";
 
 type WorkspaceStats = {
   fileCount: number;
@@ -286,6 +292,8 @@ export class SandboxService {
         assistantHandle,
         siblingHandles,
         workspaceId: input.workspaceId,
+        runtimeSessionId: null,
+        defaultVisibleRoot: buildDefaultVisibleWorkspaceRoot(assistantHandle, null),
         policy,
         workspaceQuotaBytes: null,
         sharedQuotaBytes: null
@@ -369,6 +377,8 @@ export class SandboxService {
     const policy = input.policy ?? DEFAULT_RUNTIME_SANDBOX_POLICY;
     const jobId = randomUUID();
     let leaseGuard: WorkspaceLeaseGuard | null = null;
+    let workspaceRoot: string | null = null;
+    let currentRoot: string | null = null;
     try {
       await this.prisma.sandboxJob.create({
         data: {
@@ -410,6 +420,8 @@ export class SandboxService {
         assistantHandle,
         siblingHandles,
         workspaceId: input.workspaceId,
+        runtimeSessionId: null,
+        defaultVisibleRoot: buildDefaultVisibleWorkspaceRoot(assistantHandle, null),
         policy,
         workspaceQuotaBytes: input.workspaceQuotaBytes ?? null,
         sharedQuotaBytes: input.sharedQuotaBytes ?? null
@@ -771,11 +783,6 @@ export class SandboxService {
   }
 
   private async executeQueuedJob(jobId: string, request: RuntimeSandboxJobRequest): Promise<void> {
-    const workspaceRoot = this.resolveWorkspaceSessionRoot(
-      request.assistantId,
-      request.workspaceId
-    );
-
     if (
       request.runtimeSessionId !== null &&
       this.config.SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT >= 1
@@ -801,6 +808,8 @@ export class SandboxService {
     }
 
     let leaseGuard: WorkspaceLeaseGuard | null = null;
+    let workspaceRoot: string | null = null;
+    let currentRoot: string | null = null;
     try {
       const leaseHandle = await this.waitForWorkspaceLease({
         assistantId: request.assistantId,
@@ -817,8 +826,19 @@ export class SandboxService {
         }
       });
       this.assertWorkspaceLeaseActive(leaseGuard);
+      const assistantHandle = await this.resolveAssistantHandle(
+        request.assistantId,
+        request.assistantHandle ?? null
+      );
+      const defaultVisibleRoot = buildDefaultVisibleWorkspaceRoot(
+        assistantHandle,
+        request.runtimeSessionId ?? null
+      );
+      workspaceRoot = this.resolveWorkspaceRoot(request.workspaceId);
+      currentRoot = this.resolveVisiblePathWithinWorkspaceRoot(workspaceRoot, defaultVisibleRoot);
       await this.ensureWorkspaceSessionReady(
         workspaceRoot,
+        currentRoot,
         request.assistantId,
         request.runtimeSessionId ?? null
       );
@@ -828,10 +848,6 @@ export class SandboxService {
       // ADR-126 Slice 3 — resolve the handle + sibling handles once per job so
       // every downstream pod-exec call (runInPod, render_html_to_pdf, doc-code)
       // can bootstrap the shared-mount subtree deterministically.
-      const assistantHandle = await this.resolveAssistantHandle(
-        request.assistantId,
-        request.assistantHandle ?? null
-      );
       const siblingHandles = await this.resolveSiblingHandles(
         request.workspaceId,
         request.assistantId,
@@ -840,10 +856,12 @@ export class SandboxService {
 
       const result = await this.executeTool({
         workspaceRoot,
+        currentRoot,
         request,
         jobId,
         leaseGuard,
         assistantHandle,
+        defaultVisibleRoot,
         siblingHandles
       });
       this.assertWorkspaceLeaseActive(leaseGuard);
@@ -856,7 +874,7 @@ export class SandboxService {
         await this.saveSessionWorkspaceSnapshot(
           request.assistantId,
           request.runtimeSessionId,
-          workspaceRoot
+          currentRoot
         );
       }
       await this.prisma.sandboxJob.update({
@@ -905,11 +923,14 @@ export class SandboxService {
           ...(resourceUsage === null ? {} : { resourceUsage: this.toJsonValue(resourceUsage) })
         }
       });
-      await this.resetWorkspaceSessionOnFailure(
-        request.assistantId,
-        workspaceRoot,
-        request.runtimeSessionId ?? null
-      );
+      if (workspaceRoot !== null && currentRoot !== null) {
+        await this.resetWorkspaceSessionOnFailure(
+          request.assistantId,
+          workspaceRoot,
+          currentRoot,
+          request.runtimeSessionId ?? null
+        );
+      }
     } finally {
       await this.stopWorkspaceLeaseHeartbeat(leaseGuard);
     }
@@ -917,10 +938,12 @@ export class SandboxService {
 
   private async executeTool(input: {
     workspaceRoot: string;
+    currentRoot: string;
     request: RuntimeSandboxJobRequest;
     jobId: string;
     leaseGuard: WorkspaceLeaseGuard;
     assistantHandle: string;
+    defaultVisibleRoot: string;
     siblingHandles: readonly string[];
   }): Promise<SandboxToolExecutionResult> {
     this.assertWorkspaceLeaseActive(input.leaseGuard);
@@ -929,6 +952,8 @@ export class SandboxService {
       assistantHandle: input.assistantHandle,
       siblingHandles: input.siblingHandles,
       workspaceId: input.request.workspaceId,
+      runtimeSessionId: input.request.runtimeSessionId ?? null,
+      defaultVisibleRoot: input.defaultVisibleRoot,
       policy: input.request.policy,
       workspaceQuotaBytes: input.request.workspaceQuotaBytes ?? null,
       sharedQuotaBytes: input.request.sharedQuotaBytes ?? null
@@ -944,6 +969,7 @@ export class SandboxService {
       case "exec":
         return this.executeExecLike(
           input.workspaceRoot,
+          input.currentRoot,
           input.request.args,
           input.request.policy,
           false,
@@ -958,6 +984,7 @@ export class SandboxService {
       case "shell":
         return this.executeExecLike(
           input.workspaceRoot,
+          input.currentRoot,
           input.request.args,
           input.request.policy,
           true,
@@ -972,6 +999,7 @@ export class SandboxService {
       case "render_html_to_pdf":
         return this.executeRenderHtmlToPdf(
           input.workspaceRoot,
+          input.currentRoot,
           input.request.args,
           input.request.policy,
           input.leaseGuard,
@@ -985,6 +1013,7 @@ export class SandboxService {
       case "execute_document_code":
         return this.executeDocumentCode(
           input.workspaceRoot,
+          input.currentRoot,
           input.request.args,
           input.request.policy,
           input.leaseGuard,
@@ -1045,7 +1074,7 @@ export class SandboxService {
         const path =
           typeof args.path === "string" && args.path.trim().length > 0
             ? args.path.trim()
-            : "/workspace/";
+            : bridgeCtx.defaultVisibleRoot;
         const result = await this.workspaceFileBridgeService.workspaceFileList(bridgeCtx, {
           path
         });
@@ -1230,10 +1259,11 @@ export class SandboxService {
       }
 
       if (action === "attach") {
-        // ADR-128 Slice 4: `files.attach` is a thin wrapper that confirms the
-        // file lives under `/workspace/` and surfaces it to the assistant
-        // message as an attachment. The flat workspace has no role-based
-        // copy step — every file under `/workspace/` is already addressable.
+        // ADR-133 Slice 2: `files.attach` is a thin wrapper that confirms the
+        // file lives under the visible `/workspace/...` tree and surfaces it to
+        // the assistant message as an attachment. The sandbox does not invent a
+        // second delivery root here: if the path is addressable under
+        // `/workspace/...`, attach persists that exact file.
         const path = this.requireString(args.path, "path");
         let sourceResolved;
         try {
@@ -1391,7 +1421,7 @@ export class SandboxService {
     const rawPath =
       typeof args.path === "string" && args.path.trim().length > 0
         ? args.path.trim()
-        : "/workspace/";
+        : bridgeCtx.defaultVisibleRoot;
     let containedPath: string;
     try {
       const resolved = assertAllowedMountPrefix(rawPath);
@@ -1531,7 +1561,7 @@ export class SandboxService {
     const rawPath =
       typeof args.path === "string" && args.path.trim().length > 0
         ? args.path.trim()
-        : "/workspace/";
+        : bridgeCtx.defaultVisibleRoot;
     let containedPath: string;
     try {
       const resolved = assertAllowedMountPrefix(rawPath);
@@ -1609,6 +1639,7 @@ export class SandboxService {
 
   private async executeExecLike(
     workspaceRoot: string,
+    currentRoot: string,
     args: Record<string, unknown>,
     policy: RuntimeSandboxPolicy,
     shellMode: boolean,
@@ -1621,7 +1652,7 @@ export class SandboxService {
     workspaceId: string
   ) {
     const cwd = args.cwd === undefined ? "." : this.requireRelativePath(args.cwd, "cwd");
-    const absoluteCwd = this.resolveWorkspacePath(workspaceRoot, cwd);
+    const absoluteCwd = cwd === "." ? currentRoot : this.resolveWorkspacePath(currentRoot, cwd);
     await fs.mkdir(absoluteCwd, { recursive: true });
 
     this.assertWorkspaceLeaseActive(leaseGuard);
@@ -1691,6 +1722,7 @@ export class SandboxService {
    */
   private async executeRenderHtmlToPdf(
     workspaceRoot: string,
+    currentRoot: string,
     args: Record<string, unknown>,
     policy: RuntimeSandboxPolicy,
     leaseGuard: WorkspaceLeaseGuard,
@@ -1723,8 +1755,15 @@ export class SandboxService {
     this.assertWorkspaceLeaseActive(leaseGuard);
 
     const inputRelativePath = ".render-input.html";
-    const inputAbsolutePath = this.resolveWorkspacePath(workspaceRoot, inputRelativePath);
+    const inputAbsolutePath = this.resolveWorkspacePath(currentRoot, inputRelativePath);
+    const outputAbsolutePath = this.resolveDocumentToolTargetPath(
+      workspaceRoot,
+      currentRoot,
+      outputFileName
+    );
     await fs.writeFile(inputAbsolutePath, htmlContent, "utf8");
+    const podInputPath = this.toVisibleWorkspaceAbsolutePath(workspaceRoot, inputAbsolutePath);
+    const podOutputPath = this.toVisibleWorkspaceAbsolutePath(workspaceRoot, outputAbsolutePath);
 
     try {
       const result = await this.execPodBridgeService.runInPod({
@@ -1735,9 +1774,9 @@ export class SandboxService {
         siblingHandles,
         workspaceId,
         workspaceRoot,
-        absoluteCwd: workspaceRoot,
+        absoluteCwd: currentRoot,
         command: "weasyprint",
-        args: [`/workspace/${inputRelativePath}`, `/workspace/${outputFileName}`],
+        args: [podInputPath, podOutputPath],
         policy
       });
       if (result.exitCode !== 0) {
@@ -1757,6 +1796,8 @@ export class SandboxService {
           assistantId,
           jobId,
           workspaceRoot,
+          currentRoot,
+          absolutePath: outputAbsolutePath,
           relativePath: outputFileName,
           leaseGuard
         })
@@ -1794,6 +1835,7 @@ export class SandboxService {
    */
   private async executeDocumentCode(
     workspaceRoot: string,
+    currentRoot: string,
     args: Record<string, unknown>,
     policy: RuntimeSandboxPolicy,
     leaseGuard: WorkspaceLeaseGuard,
@@ -1831,15 +1873,15 @@ export class SandboxService {
     this.assertWorkspaceLeaseActive(leaseGuard);
 
     const programRelativePath = ".document-code.py";
-    const programAbsolutePath = this.resolveWorkspacePath(workspaceRoot, programRelativePath);
-    const sourcesDirAbsolute = this.resolveWorkspacePath(workspaceRoot, "sources");
+    const programAbsolutePath = this.resolveWorkspacePath(currentRoot, programRelativePath);
+    const sourcesDirAbsolute = this.resolveWorkspacePath(currentRoot, "sources");
 
     try {
       // Materialize Tier 1 source copies into deterministic mount paths.
       const sourceMounts = this.readDocumentCodeSourceMounts(args.sourceMounts);
       for (const mount of sourceMounts) {
         const buffer = await this.downloadWorkspaceStoragePathBytes(workspaceId, mount.storagePath);
-        const targetAbsolute = this.resolveWorkspacePath(workspaceRoot, mount.mountPath);
+        const targetAbsolute = this.resolveWorkspacePath(currentRoot, mount.mountPath);
         await fs.mkdir(dirname(targetAbsolute), { recursive: true });
         await fs.writeFile(targetAbsolute, buffer);
       }
@@ -1847,13 +1889,22 @@ export class SandboxService {
       // Materialize Tier 2 OCR/extracted-text sidecars.
       const textSidecars = this.readDocumentCodeTextSidecars(args.textSidecars);
       for (const sidecar of textSidecars) {
-        const targetAbsolute = this.resolveWorkspacePath(workspaceRoot, sidecar.mountPath);
+        const targetAbsolute = this.resolveWorkspacePath(currentRoot, sidecar.mountPath);
         await fs.mkdir(dirname(targetAbsolute), { recursive: true });
         await fs.writeFile(targetAbsolute, sidecar.text, "utf8");
       }
 
       await fs.writeFile(programAbsolutePath, programSource, "utf8");
+      const podProgramPath = this.toVisibleWorkspaceAbsolutePath(
+        workspaceRoot,
+        programAbsolutePath
+      );
 
+      const outputAbsolutePath = this.resolveDocumentToolTargetPath(
+        workspaceRoot,
+        currentRoot,
+        outputFileName
+      );
       const result = await this.execPodBridgeService.runInPod({
         jobId,
         runtimeSessionId,
@@ -1862,9 +1913,9 @@ export class SandboxService {
         siblingHandles,
         workspaceId,
         workspaceRoot,
-        absoluteCwd: workspaceRoot,
+        absoluteCwd: currentRoot,
         command: "python3",
-        args: [`/workspace/${programRelativePath}`],
+        args: [podProgramPath],
         policy
       });
       if (result.exitCode !== 0) {
@@ -1884,6 +1935,8 @@ export class SandboxService {
           assistantId,
           jobId,
           workspaceRoot,
+          currentRoot,
+          absolutePath: outputAbsolutePath,
           relativePath: outputFileName,
           leaseGuard
         })
@@ -1995,8 +2048,9 @@ export class SandboxService {
   /**
    * Resolve sibling assistant handles. Retained as a passthrough piece of pod
    * context for tools that still want the list (e.g. bash environment hints);
-   * after ADR-128 Slice 4 the flat workspace itself no longer uses sibling
-   * handles for any path classification.
+   * after ADR-133 Slice 2 the visible workspace root/default session root is
+   * derived from `assistantHandle` + `runtimeSessionId`, not from any sibling
+   * classification scheme.
    */
   private async resolveSiblingHandles(
     workspaceId: string,
@@ -2023,8 +2077,33 @@ export class SandboxService {
     }
   }
 
-  private resolveWorkspaceSessionRoot(assistantId: string, workspaceId: string): string {
-    return join(tmpdir(), "persai-sandbox", "assistants", assistantId, workspaceId, "workspace");
+  private resolveWorkspaceRoot(workspaceId: string): string {
+    return join(tmpdir(), "persai-sandbox", "workspaces", workspaceId, "workspace");
+  }
+
+  private resolveVisiblePathWithinWorkspaceRoot(
+    workspaceRoot: string,
+    visiblePath: string
+  ): string {
+    const resolved = normalizeAndClampPath(WORKSPACE_MOUNT_ROOT, visiblePath);
+    const segments = resolved.relativePath.length === 0 ? [] : resolved.relativePath.split("/");
+    return segments.length === 0 ? workspaceRoot : join(workspaceRoot, ...segments);
+  }
+
+  private toVisibleWorkspaceAbsolutePath(workspaceRoot: string, absolutePath: string): string {
+    const workspaceRootResolved = resolve(workspaceRoot);
+    const absoluteResolved = resolve(absolutePath);
+    const relativePath = relative(workspaceRootResolved, absoluteResolved);
+    if (
+      relativePath.length === 0 ||
+      relativePath === "." ||
+      relativePath.startsWith(`..${sep}`) ||
+      relativePath === ".."
+    ) {
+      return WORKSPACE_MOUNT_ROOT;
+    }
+    const normalizedRelative = relativePath.split(sep).join("/");
+    return `${WORKSPACE_MOUNT_ROOT}/${normalizedRelative}`;
   }
 
   private enqueueWorkspaceJob(key: string, job: () => Promise<void>): Promise<void> {
@@ -2236,22 +2315,30 @@ export class SandboxService {
 
   private async ensureWorkspaceSessionReady(
     workspaceRoot: string,
+    currentRoot: string,
     assistantId: string,
     runtimeSessionId: string | null
   ): Promise<void> {
     await fs.mkdir(workspaceRoot, { recursive: true });
+    await fs.mkdir(currentRoot, { recursive: true });
     if (runtimeSessionId !== null) {
-      await this.restoreSessionSnapshotOverlay(assistantId, runtimeSessionId, workspaceRoot);
+      await this.restoreSessionSnapshotOverlay(assistantId, runtimeSessionId, currentRoot);
     }
   }
 
   private async resetWorkspaceSessionOnFailure(
     assistantId: string,
     workspaceRoot: string,
+    currentRoot: string,
     runtimeSessionId: string | null
   ): Promise<void> {
-    await fs.rm(dirname(workspaceRoot), { recursive: true, force: true });
-    await this.ensureWorkspaceSessionReady(workspaceRoot, assistantId, runtimeSessionId);
+    await fs.rm(currentRoot, { recursive: true, force: true });
+    await this.ensureWorkspaceSessionReady(
+      workspaceRoot,
+      currentRoot,
+      assistantId,
+      runtimeSessionId
+    );
   }
 
   private async downloadWorkspaceStoragePathBytes(
@@ -2279,11 +2366,14 @@ export class SandboxService {
     assistantId: string;
     jobId: string;
     workspaceRoot: string;
+    currentRoot: string;
+    absolutePath?: string;
     relativePath: string;
     leaseGuard: WorkspaceLeaseGuard;
   }): Promise<RuntimeSandboxProducedFile> {
     this.assertWorkspaceLeaseActive(input.leaseGuard);
-    const absolutePath = this.resolveWorkspacePath(input.workspaceRoot, input.relativePath);
+    const absolutePath =
+      input.absolutePath ?? this.resolveWorkspacePath(input.currentRoot, input.relativePath);
     const buffer = await fs.readFile(absolutePath);
     const mimeType = this.inferMimeType(input.relativePath);
     if (buffer.length > 0) {
@@ -2538,6 +2628,18 @@ export class SandboxService {
       this.throwPolicy("invalid_path", "Sandbox paths must stay inside the workspace root.");
     }
     return absolutePath;
+  }
+
+  private resolveDocumentToolTargetPath(
+    workspaceRoot: string,
+    currentRoot: string,
+    relativePath: string
+  ): string {
+    const normalized = relativePath.replace(/\\/g, "/").replace(/^\/+/, "");
+    if (normalized.startsWith("assistants/") || normalized.startsWith("shared/")) {
+      return this.resolveWorkspacePath(workspaceRoot, normalized);
+    }
+    return this.resolveWorkspacePath(currentRoot, normalized);
   }
 
   private requireRelativePath(value: unknown, fieldName: string): string {

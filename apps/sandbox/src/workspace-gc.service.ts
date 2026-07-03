@@ -6,6 +6,7 @@ import {
   type OnModuleInit
 } from "@nestjs/common";
 import type { SandboxConfig } from "@persai/config";
+import { buildAssistantWorkspaceRoot } from "@persai/runtime-contract";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { SANDBOX_CONFIG } from "./sandbox-config";
@@ -21,34 +22,56 @@ import { WorkspaceAuditService } from "./workspace-audit.service";
  * `scheduled_at <= now() AND purged_at IS NULL`, validates the kind-specific
  * `metadata` blob against a Zod schema, then performs the matching purge.
  *
- * After ADR-128 Slice 4 the workspace is flat (no input/outbound/handle
- * subdirectories), so the per-chat and per-assistant subtree purges become
- * cleanup of their respective auxiliary state only — session snapshot GCS
- * for `chat_scratch`, lease bookkeeping for `assistant_outbound`. The
- * `workspace_shared` purge still wipes the entire `/workspace/` subtree for
- * the workspace.
+ * ADR-133 Slice 2 keeps the existing producer rows in the database for now, but
+ * maps them to hierarchy-aligned sandbox semantics at the boundary:
+ *
+ * - `session_subtree` cleanup drops the assistant's session-snapshot GCS
+ *   subtree. Current producer metadata still lacks a runtime session id, so this
+ *   slice cannot yet target one concrete session directory on warm pods.
+ * - `assistant_subtree` cleanup purges `/workspace/assistants/<assistantStableKey>/...`.
+ * - `workspace_subtree` cleanup purges the whole visible workspace tree.
  *
  * On any failure the lease stays open; the next tick retries. Successful
  * purges set `purged_at = now()` so the row is no longer returned by the due
  * scan.
  */
 
-const CHAT_SCRATCH_METADATA = z.object({
+const SESSION_SUBTREE_METADATA = z.object({
   workspaceId: z.string().uuid(),
   assistantId: z.string().uuid()
 });
 
-const ASSISTANT_OUTBOUND_METADATA = z.object({
+const ASSISTANT_SUBTREE_METADATA = z.object({
   workspaceId: z.string().uuid(),
   handle: z.string().min(1).max(64)
 });
 
-const WORKSPACE_SHARED_METADATA = z.object({}).passthrough();
+const WORKSPACE_SUBTREE_METADATA = z.object({}).passthrough();
+
+type WorkspaceGcKind = "session_subtree" | "assistant_subtree" | "workspace_subtree";
+type DbWorkspaceGcKind = "chat_scratch" | "assistant_outbound" | "workspace_shared";
+
+const DB_KIND_BY_SANDBOX_KIND: Record<WorkspaceGcKind, DbWorkspaceGcKind> = {
+  session_subtree: "chat_scratch",
+  assistant_subtree: "assistant_outbound",
+  workspace_subtree: "workspace_shared"
+};
+
+const SANDBOX_KIND_BY_DB_KIND: Record<DbWorkspaceGcKind, WorkspaceGcKind> = {
+  chat_scratch: "session_subtree",
+  assistant_outbound: "assistant_subtree",
+  workspace_shared: "workspace_subtree"
+};
 
 type RunDuePurgesNowFilter =
-  | { kind: "chat_scratch"; targetId: string }
-  | { kind: "assistant_outbound"; targetId: string }
-  | { kind: "workspace_shared"; targetId: string };
+  | { kind: "session_subtree"; targetId: string }
+  | { kind: "assistant_subtree"; targetId: string }
+  | { kind: "workspace_subtree"; targetId: string };
+
+type SandboxGcLease =
+  | { id: string; kind: "session_subtree"; targetId: string; metadata: Prisma.JsonValue }
+  | { id: string; kind: "assistant_subtree"; targetId: string; metadata: Prisma.JsonValue }
+  | { id: string; kind: "workspace_subtree"; targetId: string; metadata: Prisma.JsonValue };
 
 @Injectable()
 export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
@@ -108,7 +131,10 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
           scheduledAt: { lte: new Date() },
           ...(input.filter === undefined
             ? {}
-            : { kind: input.filter.kind, targetId: input.filter.targetId })
+            : {
+                kind: DB_KIND_BY_SANDBOX_KIND[input.filter.kind],
+                targetId: input.filter.targetId
+              })
         },
         orderBy: { scheduledAt: "asc" },
         take: 50
@@ -123,62 +149,59 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
 
   private async purgeLease(lease: {
     id: string;
-    kind: "chat_scratch" | "assistant_outbound" | "workspace_shared";
+    kind: DbWorkspaceGcKind;
     targetId: string;
     metadata: Prisma.JsonValue;
   }): Promise<void> {
     const startedAt = Date.now();
+    const sandboxLease = this.fromDbLease(lease);
     try {
-      switch (lease.kind) {
-        case "chat_scratch":
-          await this.purgeChatScratch({ ...lease, kind: "chat_scratch" });
+      switch (sandboxLease.kind) {
+        case "session_subtree":
+          await this.purgeSessionSubtree(sandboxLease);
           break;
-        case "assistant_outbound":
-          await this.purgeAssistantOutbound({ ...lease, kind: "assistant_outbound" });
+        case "assistant_subtree":
+          await this.purgeAssistantSubtree(sandboxLease);
           break;
-        case "workspace_shared":
-          await this.purgeWorkspaceShared({ ...lease, kind: "workspace_shared" });
+        case "workspace_subtree":
+          await this.purgeWorkspaceSubtree(sandboxLease);
           break;
       }
       // purgeXyz handles its own audit emit because it owns the counters.
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       this.workspaceAuditService.recordGcPurgeFailed({
-        leaseId: lease.id,
-        kind: lease.kind,
-        targetId: lease.targetId,
+        leaseId: sandboxLease.id,
+        kind: sandboxLease.kind,
+        targetId: sandboxLease.targetId,
         reason
       });
       this.logger.warn(
-        `workspace_gc_purge_failed lease_id=${lease.id} kind=${lease.kind} target=${lease.targetId} reason=${reason} duration_ms=${(Date.now() - startedAt).toFixed(1)}`
+        `workspace_gc_purge_failed lease_id=${sandboxLease.id} kind=${sandboxLease.kind} target=${sandboxLease.targetId} reason=${reason} duration_ms=${(Date.now() - startedAt).toFixed(1)}`
       );
     }
   }
 
-  private async purgeChatScratch(lease: {
+  private async purgeSessionSubtree(lease: {
     id: string;
-    kind: "chat_scratch";
+    kind: "session_subtree";
     targetId: string;
     metadata: Prisma.JsonValue;
   }): Promise<void> {
     const startedAt = Date.now();
-    const meta = CHAT_SCRATCH_METADATA.parse(lease.metadata);
-    // ADR-128 Slice 4 — the flat workspace has no chat-scoped subtree, so the
-    // only remaining work is to drop the assistant's session-snapshot GCS
-    // subtree (per-session tarballs that are no longer addressable once the
-    // chat is gone).
+    const meta = SESSION_SUBTREE_METADATA.parse(lease.metadata);
     try {
       const snapshotPrefix = `${this.mediaPrefix()}/assistants/${meta.assistantId}/sandbox-sessions/`;
       await this.sandboxObjectStorageService.deletePrefix(snapshotPrefix);
     } catch (error) {
       this.logger.warn(
-        `workspace_gc_chat_scratch_gcs_purge_failed chat=${lease.targetId} reason=${error instanceof Error ? error.message : String(error)}`
+        `workspace_gc_session_subtree_gcs_purge_failed target=${lease.targetId} reason=${error instanceof Error ? error.message : String(error)}`
       );
     }
     await this.markLeasePurged(lease.id);
     this.workspaceAuditService.recordGcPurged({
       leaseId: lease.id,
-      kind: lease.kind,
+      kind: "session_subtree",
       targetId: lease.targetId,
       durationMs: Date.now() - startedAt,
       metadataRowsRemoved: 0,
@@ -186,43 +209,76 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async purgeAssistantOutbound(lease: {
+  private async purgeAssistantSubtree(lease: {
     id: string;
-    kind: "assistant_outbound";
+    kind: "assistant_subtree";
     targetId: string;
     metadata: Prisma.JsonValue;
   }): Promise<void> {
-    // ADR-128 Slice 4 — the flat workspace has no per-assistant subtree, so
-    // this lease has nothing path-shaped to purge anymore. We still validate
-    // the metadata blob and mark the lease purged so producers do not stall.
     const startedAt = Date.now();
-    ASSISTANT_OUTBOUND_METADATA.parse(lease.metadata);
+    const meta = ASSISTANT_SUBTREE_METADATA.parse(lease.metadata);
+    const assistantRoot = buildAssistantWorkspaceRoot(meta.handle);
+    try {
+      const prefix = this.sandboxObjectStorageService.buildWorkspacePrefix({
+        workspaceId: meta.workspaceId,
+        subPath: assistantRoot.replace(/^\/workspace\/?/, "")
+      });
+      await this.sandboxObjectStorageService.deletePrefix(prefix);
+    } catch (error) {
+      this.logger.warn(
+        `workspace_gc_assistant_subtree_gcs_purge_failed workspace=${meta.workspaceId} handle=${meta.handle} reason=${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    const pods = await this.execPodBridgeService.listWarmSessionPodsForWorkspace(meta.workspaceId);
+    let podsTouched = 0;
+    for (const pod of pods) {
+      try {
+        await this.execPodBridgeService.execShellInSessionPod({
+          assistantId: pod.assistantId,
+          assistantHandle: pod.handle,
+          siblingHandles: pods.filter((p) => p.podName !== pod.podName).map((p) => p.handle),
+          workspaceId: meta.workspaceId,
+          policy: this.gcSandboxPolicy(),
+          shellCommand: `rm -rf ${posixSingleQuote(assistantRoot)}`,
+          stdin: null
+        });
+        podsTouched += 1;
+      } catch (error) {
+        this.logger.warn(
+          `workspace_gc_assistant_subtree_pod_purge_failed pod=${pod.podName} workspace=${meta.workspaceId} handle=${meta.handle} reason=${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+    const metadataRowsRemoved = await this.deleteWorkspaceFileMetadataByPathPrefix({
+      workspaceId: meta.workspaceId,
+      relPathPrefix: `${assistantRoot}/`
+    });
     await this.markLeasePurged(lease.id);
     this.workspaceAuditService.recordGcPurged({
       leaseId: lease.id,
-      kind: lease.kind,
+      kind: "assistant_subtree",
       targetId: lease.targetId,
       durationMs: Date.now() - startedAt,
-      metadataRowsRemoved: 0,
-      podsTouched: 0
+      metadataRowsRemoved,
+      podsTouched
     });
   }
 
-  private async purgeWorkspaceShared(lease: {
+  private async purgeWorkspaceSubtree(lease: {
     id: string;
-    kind: "workspace_shared";
+    kind: "workspace_subtree";
     targetId: string;
     metadata: Prisma.JsonValue;
   }): Promise<void> {
     const startedAt = Date.now();
-    WORKSPACE_SHARED_METADATA.parse(lease.metadata);
+    WORKSPACE_SUBTREE_METADATA.parse(lease.metadata);
     const workspaceId = lease.targetId;
     try {
       const prefix = this.sandboxObjectStorageService.buildWorkspacePrefix({ workspaceId });
       await this.sandboxObjectStorageService.deletePrefix(prefix);
     } catch (error) {
       this.logger.warn(
-        `workspace_gc_workspace_shared_gcs_purge_failed workspace=${workspaceId} reason=${error instanceof Error ? error.message : String(error)}`
+        `workspace_gc_workspace_subtree_gcs_purge_failed workspace=${workspaceId} reason=${error instanceof Error ? error.message : String(error)}`
       );
     }
     const pods = await this.execPodBridgeService.listWarmSessionPodsForWorkspace(workspaceId);
@@ -241,7 +297,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
         podsTouched += 1;
       } catch (error) {
         this.logger.warn(
-          `workspace_gc_workspace_shared_pod_purge_failed pod=${pod.podName} workspace=${workspaceId} reason=${error instanceof Error ? error.message : String(error)}`
+          `workspace_gc_workspace_subtree_pod_purge_failed pod=${pod.podName} workspace=${workspaceId} reason=${error instanceof Error ? error.message : String(error)}`
         );
       }
     }
@@ -252,12 +308,28 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
     await this.markLeasePurged(lease.id);
     this.workspaceAuditService.recordGcPurged({
       leaseId: lease.id,
-      kind: lease.kind,
+      kind: "workspace_subtree",
       targetId: lease.targetId,
       durationMs: Date.now() - startedAt,
       metadataRowsRemoved,
       podsTouched
     });
+  }
+
+  private fromDbLease(lease: {
+    id: string;
+    kind: DbWorkspaceGcKind;
+    targetId: string;
+    metadata: Prisma.JsonValue;
+  }): SandboxGcLease {
+    switch (lease.kind) {
+      case "chat_scratch":
+        return { ...lease, kind: SANDBOX_KIND_BY_DB_KIND[lease.kind] };
+      case "assistant_outbound":
+        return { ...lease, kind: SANDBOX_KIND_BY_DB_KIND[lease.kind] };
+      case "workspace_shared":
+        return { ...lease, kind: SANDBOX_KIND_BY_DB_KIND[lease.kind] };
+    }
   }
 
   private async markLeasePurged(leaseId: string): Promise<void> {

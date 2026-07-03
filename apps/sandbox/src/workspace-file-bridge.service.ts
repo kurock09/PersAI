@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { RuntimeSandboxPolicy } from "@persai/runtime-contract";
+import { classifyVisibleWorkspacePath, type RuntimeSandboxPolicy } from "@persai/runtime-contract";
 import { ExecPodBridgeService } from "./exec-pod-bridge.service";
 import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
 import { SandboxObservabilityService } from "./sandbox-observability.service";
@@ -13,15 +13,16 @@ import {
 } from "./workspace-path";
 
 /**
- * ADR-128 Slice 4 — model-facing path primitives (list/read/stat/write/delete/copy)
- * for the `files.*` tool, operating on the single flat `/workspace` namespace
- * via the exec API.
+ * ADR-133 Slice 2 — model-facing path primitives (list/read/stat/write/delete/copy)
+ * for the `files.*` tool over the visible `/workspace/...` tree via the exec API.
  *
  * Every model-supplied path is validated by {@link assertAllowedMountPrefix}
- * before any shell command is composed; every interpolated value is
- * single-quote escaped via {@link posixSingleQuote}. There are no roles,
- * no read-only sub-trees, and no sibling-handle classification — anything
- * under `/workspace/` is read/write/delete for the model.
+ * before any shell command is composed, and every interpolated value is
+ * single-quote escaped via {@link posixSingleQuote}. Basename-only writes and
+ * control-plane defaults resolve through `ctx.defaultVisibleRoot`, which is the
+ * current session root for session-scoped jobs and the assistant shared root for
+ * sessionless control-plane cases. Explicit operations may still intentionally
+ * widen anywhere under `/workspace/...` that later slices keep addressable.
  */
 
 export type WorkspaceBridgeContext = {
@@ -29,6 +30,8 @@ export type WorkspaceBridgeContext = {
   assistantHandle: string;
   siblingHandles: readonly string[];
   workspaceId: string;
+  runtimeSessionId: string | null;
+  defaultVisibleRoot: string;
   policy: RuntimeSandboxPolicy;
   workspaceQuotaBytes: number | null;
   sharedQuotaBytes: number | null;
@@ -125,8 +128,8 @@ export class WorkspaceFileBridgeService {
   }
 
   /**
-   * ADR-128 Slice 4 — control-plane artefact write into
-   * `/workspace/<basename>` with macOS-style collision resolution.
+   * ADR-133 Slice 2 — control-plane artefact write into the current default
+   * visible root with macOS-style collision resolution.
    */
   async writeWorkspaceFileWithCollision(
     ctx: WorkspaceBridgeContext,
@@ -145,7 +148,7 @@ export class WorkspaceFileBridgeService {
   > {
     let resolvedBasename = input.basename;
     if (input.collisionStrategy === "numeric_suffix") {
-      const listResult = await this.workspaceFileList(ctx, { path: WORKSPACE_MOUNT_ROOT });
+      const listResult = await this.workspaceFileList(ctx, { path: ctx.defaultVisibleRoot });
       const existingNames = new Set(
         (listResult.success ? listResult.data : [])
           .filter((entry) => entry.type === "file")
@@ -156,7 +159,7 @@ export class WorkspaceFileBridgeService {
       );
       resolvedBasename = resolveMacOsCollisionBasename(input.basename, existingNames);
     }
-    const targetPath = `${WORKSPACE_MOUNT_ROOT}/${resolvedBasename}`;
+    const targetPath = `${ctx.defaultVisibleRoot}/${resolvedBasename}`;
     const writeResult = await this.workspaceFileWrite(ctx, {
       path: targetPath,
       contents: input.contents,
@@ -178,8 +181,8 @@ export class WorkspaceFileBridgeService {
   /**
    * ADR-128 Slice 4 — control-plane workspace bytes-push.
    *
-   * Writes directly to `/workspace/<basename>` so a web upload becomes
-   * visible to the running pod immediately, not only after the next
+   * Writes directly to the current default visible root so a control-plane file
+   * becomes visible to the running pod immediately, not only after the next
    * cold-pod hydrate. Caller (API `manage-chat-media.stageForWebThread`) is
    * responsible for:
    *   * GCS mirror (already done before this call — single source of truth),
@@ -215,6 +218,30 @@ export class WorkspaceFileBridgeService {
     const explicitPath =
       typeof input.path === "string" && input.path.trim().length > 0 ? input.path.trim() : null;
     if (explicitPath !== null) {
+      if (classifyVisibleWorkspacePath(explicitPath).kind === "rootFlatFile") {
+        this.workspaceAuditService.recordWorkspaceFileOp("write", {
+          workspaceId: ctx.workspaceId,
+          assistantId: ctx.assistantId,
+          absolutePath: explicitPath,
+          relativePath: explicitPath.replace(/^\/workspace\/?/, ""),
+          status: "error",
+          exitCode: null,
+          bytes: null,
+          latencyMs: 0,
+          reason: "write_denied"
+        });
+        return {
+          success: false,
+          reason: "write_denied",
+          latencyMs: 0,
+          data: {
+            workspaceRelPath: explicitPath,
+            absolutePath: explicitPath,
+            bytes: 0,
+            mode: "written"
+          }
+        };
+      }
       const writeResult = await this.workspaceFileWrite(ctx, {
         path: explicitPath,
         contents: input.contents,
@@ -236,13 +263,13 @@ export class WorkspaceFileBridgeService {
 
     const targetPath =
       typeof input.basename === "string" && isValidWorkspaceBasename(input.basename)
-        ? `${WORKSPACE_MOUNT_ROOT}/${input.basename}`
+        ? `${ctx.defaultVisibleRoot}/${input.basename}`
         : null;
     if (targetPath === null) {
       const event: WorkspaceFileBridgeEvent = {
         workspaceId: ctx.workspaceId,
         assistantId: ctx.assistantId,
-        absolutePath: `${WORKSPACE_MOUNT_ROOT}/${input.basename ?? ""}`,
+        absolutePath: `${ctx.defaultVisibleRoot}/${input.basename ?? ""}`,
         relativePath: input.basename ?? "",
         status: "error",
         exitCode: null,
@@ -256,8 +283,8 @@ export class WorkspaceFileBridgeService {
         reason: "write_denied",
         latencyMs: 0,
         data: {
-          workspaceRelPath: `${WORKSPACE_MOUNT_ROOT}/${input.basename ?? ""}`,
-          absolutePath: `${WORKSPACE_MOUNT_ROOT}/${input.basename ?? ""}`,
+          workspaceRelPath: `${ctx.defaultVisibleRoot}/${input.basename ?? ""}`,
+          absolutePath: `${ctx.defaultVisibleRoot}/${input.basename ?? ""}`,
           bytes: 0,
           mode: "written"
         }
@@ -269,7 +296,6 @@ export class WorkspaceFileBridgeService {
       "set -e",
       `mkdir -p ${quotedDir}`,
       `mkdir -p ${posixSingleQuote(this.parentDir(targetPath))}`,
-      `chmod 0755 ${quotedDir}`,
       `cat > ${quotedTarget}`
     ].join(" && ");
 
@@ -1032,10 +1058,10 @@ export class WorkspaceFileBridgeService {
     ctx: WorkspaceBridgeContext,
     newBytes: number
   ): Promise<"workspace_quota_exhausted" | null> {
-    // ADR-128 Slice 4: a single flat workspace has a single quota. We respect
-    // whichever non-null cap the caller supplied (the API books bytes against
-    // `sharedQuotaBytes`; older surfaces still pass `workspaceQuotaBytes`).
-    // Pick the tighter of the two so neither plumbing path can over-consume.
+    // ADR-133 Slice 2: the visible workspace is hierarchical, but persisted
+    // bytes still count against one workspace budget. Respect whichever
+    // non-null cap the caller supplied and pick the tighter of the two so
+    // neither plumbing path can over-consume before bytes hit the pod.
     const candidateCaps = [ctx.sharedQuotaBytes, ctx.workspaceQuotaBytes].filter(
       (value): value is number => typeof value === "number" && Number.isFinite(value)
     );

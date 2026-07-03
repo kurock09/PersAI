@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — founder-directed clean filesystem program opened 2026-07-03. Slice 1 (shared path contract and ADR wiring only) is now landed locally; behavior migration remains pending and must stay orchestrated by the parent agent with GPT-5.4/Sonnet implementation subagents.
+Accepted — founder-directed clean filesystem program opened 2026-07-03. Slice 1 (shared path contract and ADR wiring only) and Slice 2 (sandbox + GCS cutover) are now landed locally; remaining API/runtime/web behavior migration must stay orchestrated by the parent agent with GPT-5.4/Sonnet implementation subagents.
 
 ## Date
 
@@ -199,6 +199,15 @@ Required outcomes:
 - root-level flat file writes are rejected on active paths;
 - session, assistant, and workspace GC target the correct subtrees;
 - no `/workspace/chats`, `/workspace/input`, `/workspace/outbound`, or global `/workspace/projects` active assumptions remain.
+
+Landed locally 2026-07-03:
+
+- `apps/sandbox/src/workspace-path.ts` now wraps the shared ADR-133 builders and derives the default visible root from `assistantHandle` + `runtimeSessionId`.
+- `apps/sandbox/src/sandbox.service.ts` now resolves a physical workspace tree plus the current visible session root, defaults `shell` / `exec` cwd and `grep` / `glob` pathing to that root, preserves the hierarchical tree through hydrate/push/pull, and stages render/document-code outputs against the session-root model.
+- `apps/sandbox/src/workspace-file-bridge.service.ts` now uses the default visible session root for basename-only writes/control-plane writes and rejects explicit flat root control-plane writes such as `/workspace/report.pdf`.
+- `apps/sandbox/src/sandbox-object-storage.service.ts` now mirrors visible hierarchical workspace paths in persisted GCS object keys.
+- `apps/sandbox/src/workspace-gc.service.ts` and `apps/sandbox/src/workspace-audit.service.ts` now report sandbox cleanup in session/assistant/workspace subtree terms while keeping producer lease rows compatible for this slice.
+- Focused coverage was updated in `apps/sandbox/test/{sandbox.service.test.ts,workspace-file-bridge.service.test.ts,workspace-gc.service.test.ts}` for session-root defaults, hierarchical object-key mirroring, explicit flat-write rejection, and subtree-targeted GC.
 
 ### Slice 3 — API manifest, uploads, delivery, and documents
 

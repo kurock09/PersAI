@@ -48,7 +48,7 @@ export type WorkspaceFileBridgeEvent = {
 
 export type WorkspaceGcPurgedEvent = {
   leaseId: string;
-  kind: "chat_scratch" | "assistant_outbound" | "workspace_shared";
+  kind: "session_subtree" | "assistant_subtree" | "workspace_subtree";
   targetId: string;
   durationMs: number;
   /** Number of `workspace_file_metadata` rows removed by the purge. */
@@ -59,7 +59,7 @@ export type WorkspaceGcPurgedEvent = {
 
 export type WorkspaceGcPurgeFailedEvent = {
   leaseId: string;
-  kind: "chat_scratch" | "assistant_outbound" | "workspace_shared";
+  kind: "session_subtree" | "assistant_subtree" | "workspace_subtree";
   targetId: string;
   reason: string;
 };

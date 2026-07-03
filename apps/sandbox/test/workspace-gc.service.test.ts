@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SandboxConfig } from "@persai/config";
+import { buildAssistantWorkspaceRoot } from "@persai/runtime-contract";
 import { WorkspaceGcService } from "../src/workspace-gc.service";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -43,11 +44,18 @@ const POD_NAME = "ses-abc123";
 
 // ─── GcLease factory ──────────────────────────────────────────────────────────
 
-type GcLeaseKind = "chat_scratch" | "assistant_outbound" | "workspace_shared";
+type SandboxGcKind = "session_subtree" | "assistant_subtree" | "workspace_subtree";
+type DbGcLeaseKind = "chat_scratch" | "assistant_outbound" | "workspace_shared";
+
+const DB_KIND_BY_SANDBOX_KIND: Record<SandboxGcKind, DbGcLeaseKind> = {
+  session_subtree: "chat_scratch",
+  assistant_subtree: "assistant_outbound",
+  workspace_subtree: "workspace_shared"
+};
 
 type GcLease = {
   id: string;
-  kind: GcLeaseKind;
+  kind: DbGcLeaseKind;
   targetId: string;
   metadata: Record<string, unknown>;
   scheduledAt: Date;
@@ -164,10 +172,10 @@ function makeGcService(
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test("WorkspaceGcService: chat_scratch lease past-due → rm -rf in pod, GCS prefix deleted, purgedAt set, audit ok", async () => {
+test("WorkspaceGcService: session_subtree lease past-due → session snapshot subtree deleted, purgedAt set, audit ok", async () => {
   const lease: GcLease = {
     id: "lease-cs-1",
-    kind: "chat_scratch",
+    kind: DB_KIND_BY_SANDBOX_KIND["session_subtree"],
     targetId: CHAT_ID,
     metadata: { workspaceId: WS_ID, assistantId: ASST_ID },
     scheduledAt: pastDate(),
@@ -178,10 +186,7 @@ test("WorkspaceGcService: chat_scratch lease past-due → rm -rf in pod, GCS pre
 
   await gc.runDuePurgesNow();
 
-  // Pod exec: rm -rf /workspace/chats/<chatId>
-  assert.equal(exec.shellCalls.length, 1);
-  assert.ok(exec.shellCalls[0]?.shellCommand.includes(`/workspace/chats/${CHAT_ID}`));
-  assert.ok(exec.shellCalls[0]?.shellCommand.startsWith("rm -rf"));
+  assert.equal(exec.shellCalls.length, 0);
   // GCS snapshot subtree deleted
   assert.equal(storage.deletedPrefixes.length, 1);
   assert.ok(storage.deletedPrefixes[0]?.includes(ASST_ID));
@@ -189,14 +194,14 @@ test("WorkspaceGcService: chat_scratch lease past-due → rm -rf in pod, GCS pre
   assert.deepEqual(prisma.updatedLeases, ["lease-cs-1"]);
   // Audit event emitted
   assert.equal(audit.purgedEvents.length, 1);
-  assert.equal(audit.purgedEvents[0]?.kind, "chat_scratch");
+  assert.equal(audit.purgedEvents[0]?.kind, "session_subtree");
   assert.equal(audit.failedEvents.length, 0);
 });
 
-test("WorkspaceGcService: chat_scratch lease filters only matching-assistant pods", async () => {
+test("WorkspaceGcService: session_subtree lease no longer purges pod-local legacy chat trees", async () => {
   const lease: GcLease = {
     id: "lease-cs-filter",
-    kind: "chat_scratch",
+    kind: DB_KIND_BY_SANDBOX_KIND["session_subtree"],
     targetId: CHAT_ID,
     metadata: { workspaceId: WS_ID, assistantId: ASST_ID },
     scheduledAt: pastDate(),
@@ -212,14 +217,13 @@ test("WorkspaceGcService: chat_scratch lease filters only matching-assistant pod
 
   await gc.runDuePurgesNow();
 
-  // Only one exec call for the matching assistant pod
-  assert.equal(exec.shellCalls.length, 1);
+  assert.equal(exec.shellCalls.length, 0);
 });
 
-test("WorkspaceGcService: assistant_outbound lease future-dated → no purge on this tick", async () => {
+test("WorkspaceGcService: assistant_subtree lease future-dated → no purge on this tick", async () => {
   const lease: GcLease = {
     id: "lease-ao-future",
-    kind: "assistant_outbound",
+    kind: DB_KIND_BY_SANDBOX_KIND["assistant_subtree"],
     targetId: "ao-target",
     metadata: { workspaceId: WS_ID, handle: HANDLE },
     scheduledAt: futureDate(), // NOT due yet
@@ -235,10 +239,10 @@ test("WorkspaceGcService: assistant_outbound lease future-dated → no purge on 
   assert.equal(audit.purgedEvents.length, 0);
 });
 
-test("WorkspaceGcService: assistant_outbound lease past-due → purgedAt set (flat workspace has no per-assistant subtree to rm)", async () => {
+test("WorkspaceGcService: assistant_subtree lease past-due → assistant subtree deleted from pods and storage", async () => {
   const lease: GcLease = {
     id: "lease-ao-1",
-    kind: "assistant_outbound",
+    kind: DB_KIND_BY_SANDBOX_KIND["assistant_subtree"],
     targetId: "ao-target",
     metadata: { workspaceId: WS_ID, handle: HANDLE },
     scheduledAt: pastDate(),
@@ -249,18 +253,19 @@ test("WorkspaceGcService: assistant_outbound lease past-due → purgedAt set (fl
 
   await gc.runDuePurgesNow();
 
-  // ADR-128 Slice 4 — flat workspace, no /workspace/outbound/<handle> subtree
-  // to remove. Lease is marked purged so producers do not stall.
-  assert.equal(exec.shellCalls.length, 0);
-  assert.equal(storage.deletedPrefixes.length, 0);
+  const assistantRoot = buildAssistantWorkspaceRoot(HANDLE);
+  assert.equal(exec.shellCalls.length, 1);
+  assert.ok(exec.shellCalls[0]?.shellCommand.includes(assistantRoot));
+  assert.equal(storage.deletedPrefixes.length, 1);
+  assert.ok(storage.deletedPrefixes[0]?.includes(`${WS_ID}/workspace/assistants/${HANDLE}/`));
   assert.deepEqual(prisma.updatedLeases, ["lease-ao-1"]);
-  assert.equal(audit.purgedEvents[0]?.kind, "assistant_outbound");
+  assert.equal(audit.purgedEvents[0]?.kind, "assistant_subtree");
 });
 
-test("WorkspaceGcService: workspace_shared lease past-due → rm persisted workspace dirs, GCS prefix deleted, purgedAt set", async () => {
+test("WorkspaceGcService: workspace_subtree lease past-due → rm persisted workspace dirs, GCS prefix deleted, purgedAt set", async () => {
   const lease: GcLease = {
     id: "lease-ws-1",
-    kind: "workspace_shared",
+    kind: DB_KIND_BY_SANDBOX_KIND["workspace_subtree"],
     targetId: WS_ID,
     metadata: {},
     scheduledAt: pastDate(),
@@ -271,23 +276,21 @@ test("WorkspaceGcService: workspace_shared lease past-due → rm persisted works
 
   await gc.runDuePurgesNow();
 
-  // ADR-128 Slice 4 — flat workspace: wipe every entry under /workspace/ in one shell.
+  // ADR-133 Slice 2 — workspace subtree purge still wipes the whole visible workspace.
   assert.equal(exec.shellCalls.length, 1);
   assert.ok(exec.shellCalls[0]?.shellCommand.includes("/workspace"));
   assert.ok(exec.shellCalls[0]?.shellCommand.includes("rm -rf"));
-  assert.ok(!exec.shellCalls[0]?.shellCommand.includes("/workspace/input"));
-  assert.ok(!exec.shellCalls[0]?.shellCommand.includes("/workspace/outbound"));
   // GCS workspace prefix
   assert.equal(storage.deletedPrefixes.length, 1);
   assert.ok(storage.deletedPrefixes[0]?.includes(WS_ID));
   assert.deepEqual(prisma.updatedLeases, ["lease-ws-1"]);
-  assert.equal(audit.purgedEvents[0]?.kind, "workspace_shared");
+  assert.equal(audit.purgedEvents[0]?.kind, "workspace_subtree");
 });
 
 test("WorkspaceGcService: malformed metadata → purgedAt NOT set, workspace_gc_purge_failed emitted", async () => {
   const lease: GcLease = {
     id: "lease-bad",
-    kind: "chat_scratch",
+    kind: DB_KIND_BY_SANDBOX_KIND["session_subtree"],
     targetId: CHAT_ID,
     // Missing required fields → Zod parse will throw
     metadata: { invalid: true },
@@ -311,7 +314,7 @@ test("WorkspaceGcService: malformed metadata → purgedAt NOT set, workspace_gc_
 test("WorkspaceGcService: exception on first lease does not prevent processing second lease", async () => {
   const badLease: GcLease = {
     id: "lease-fail",
-    kind: "chat_scratch",
+    kind: DB_KIND_BY_SANDBOX_KIND["session_subtree"],
     targetId: "x",
     metadata: { bad: true }, // malformed → throws
     scheduledAt: pastDate(),
@@ -319,7 +322,7 @@ test("WorkspaceGcService: exception on first lease does not prevent processing s
   };
   const goodLease: GcLease = {
     id: "lease-ok",
-    kind: "workspace_shared",
+    kind: DB_KIND_BY_SANDBOX_KIND["workspace_subtree"],
     targetId: WS_ID,
     metadata: {},
     scheduledAt: pastDate(),
@@ -340,7 +343,7 @@ test("WorkspaceGcService: lease with purgedAt set is ignored (filtered by DB lay
   // Simulate the DB correctly filtering out already-purged leases: findMany returns [].
   const alreadyPurgedLease: GcLease = {
     id: "lease-done",
-    kind: "workspace_shared",
+    kind: DB_KIND_BY_SANDBOX_KIND["workspace_subtree"],
     targetId: WS_ID,
     metadata: {},
     scheduledAt: pastDate(),

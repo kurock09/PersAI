@@ -1,17 +1,17 @@
+import {
+  WORKSPACE_ROOT,
+  buildAssistantSessionRoot,
+  buildAssistantSharedRoot
+} from "@persai/runtime-contract";
+
 /**
- * ADR-128 Slice 4 — pod-side path containment for the single `/workspace`
- * namespace.
+ * ADR-133 Slice 2 — pod-side path containment and default-path helpers for the
+ * visible `/workspace/...` hierarchy.
  *
- * Every model-supplied path in the unified files contract is validated here
- * before it reaches the pod. The helpers are intentionally narrow:
- *
- *   * {@link normalizeAndClampPath}: takes a model-supplied path and a
- *     declared mount root, returns the absolute pod path iff the supplied
- *     path resolves strictly inside the mount root.
- *   * {@link assertAllowedMountPrefix}: validates that a model-supplied path
- *     lives inside `/workspace` (or is the root itself). There are no roles,
- *     no input/outbound subdirs, no handle classification — the workspace is
- *     flat by design.
+ * Every model-supplied absolute path still validates against the mounted
+ * `/workspace` tree here before it reaches the pod. Default roots for
+ * session-scoped and assistant-scoped behavior are derived from the shared
+ * runtime-contract builders so sandbox, GCS, and pod cwd mapping stay aligned.
  *
  * The helpers are POSIX-only by construction — they manipulate the
  * forward-slash pod namespace, not the host filesystem. Any backslash in the
@@ -23,7 +23,7 @@ const POSIX_SEPARATOR = "/";
 const PARENT_SEGMENT = "..";
 const CURRENT_SEGMENT = ".";
 
-export const WORKSPACE_MOUNT_ROOT = "/workspace";
+export const WORKSPACE_MOUNT_ROOT = WORKSPACE_ROOT;
 
 export type ResolvedWorkspacePath = {
   /** Absolute POSIX path inside the pod. */
@@ -139,4 +139,21 @@ export function assertAllowedMountPrefix(input: string): ResolvedWorkspacePath {
 /** The canonical `/workspace` mount root. */
 export function buildWorkspaceRoot(): string {
   return WORKSPACE_MOUNT_ROOT;
+}
+
+/**
+ * Default visible root for the current sandbox context.
+ *
+ * Session-scoped jobs default to the active session directory. Sessionless
+ * control-plane and internal callers fall back to the assistant shared root so
+ * sandbox no longer invents fresh flat `/workspace/<file>` writes when a
+ * session id is unavailable at this layer.
+ */
+export function buildDefaultVisibleWorkspaceRoot(
+  assistantStableKey: string,
+  runtimeSessionId: string | null
+): string {
+  return runtimeSessionId === null
+    ? buildAssistantSharedRoot(assistantStableKey)
+    : buildAssistantSessionRoot(assistantStableKey, runtimeSessionId);
 }

@@ -21,6 +21,24 @@ Interpretation rules:
 3. `/workspace/chats/...` and `/workspace/projects/...` must classify as stale/invalid for the active ADR-133 default model, even if later behavior slices still carry temporary compatibility code elsewhere.
 4. Slice 1 is pure contract wiring only: comments/tests may mark legacy flat/project/outbound surfaces as historical, but no sandbox/API/runtime/web default-path behavior should change in this slice.
 
+## ADR-133 Slice 2 sandbox/GCS focused checks
+
+When a change touches sandbox default cwd/search/list/write behavior, sandbox workspace persistence, or sandbox GC for ADR-133, run:
+
+```bash
+corepack pnpm --filter @persai/sandbox exec tsx --test test/workspace-file-bridge.service.test.ts test/workspace-gc.service.test.ts test/sandbox.service.test.ts
+corepack pnpm --filter @persai/sandbox run typecheck
+corepack pnpm run format:check
+```
+
+Interpretation rules:
+
+1. `shell` / `exec` cwd and `grep` / `glob` default paths must stay under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...` when a runtime session exists.
+2. Basename-only sandbox writes and hot control-plane writes must land under the current session root; explicit flat root writes such as `/workspace/report.pdf` must not silently remain the default creation path.
+3. Persisted sandbox workspace object keys must mirror the visible hierarchical path tree rather than flattening to `/workspace/<file>`.
+4. Session, assistant, and workspace cleanup must target the correct subtrees and expose subtree-oriented audit semantics even if producer lease rows still use historical enum names.
+5. Slice 2 remains sandbox-only: API upload/manifest/delivery/document-path ingress and model-facing prompt/runtime/web teaching are verified in later ADR-133 slices, not here.
+
 ## ADR-132 document surface focused checks
 
 When a change touches `document.inspect`, `document.render`, `document.convert`, document auto-registration, or `files.attach` delivery of `pdf`/`docx`/`xlsx`, run these focused checks before the broad gate:

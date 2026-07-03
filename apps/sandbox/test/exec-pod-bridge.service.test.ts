@@ -308,9 +308,9 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs no-ops when no workspac
 
 test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs executes every file when key count is within concurrency", async () => {
   const keys = [
-    "assistant-media/workspaces/ws-small/workspace/a.txt",
-    "assistant-media/workspaces/ws-small/workspace/b.txt",
-    "assistant-media/workspaces/ws-small/workspace/c.txt"
+    "assistant-media/workspaces/ws-small/workspace/assistants/bot/sessions/s1/a.txt",
+    "assistant-media/workspaces/ws-small/workspace/assistants/bot/sessions/s1/b.txt",
+    "assistant-media/workspaces/ws-small/workspace/assistants/bot/sessions/s1/c.txt"
   ];
   const buffers = new Map<string, Buffer>([
     [keys[0]!, Buffer.from("alpha")],
@@ -337,20 +337,24 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs executes every file whe
   assert.ok(
     writes.some(
       (write) =>
-        write.shell.includes("/workspace/a.txt") && write.stdin.equals(Buffer.from("alpha"))
+        write.shell.includes("/workspace/assistants/bot/sessions/s1/a.txt") &&
+        write.stdin.equals(Buffer.from("alpha"))
     ),
     "a.txt must be written with its downloaded buffer"
   );
   assert.ok(
     writes.some(
-      (write) => write.shell.includes("/workspace/b.txt") && write.stdin.equals(Buffer.from("beta"))
+      (write) =>
+        write.shell.includes("/workspace/assistants/bot/sessions/s1/b.txt") &&
+        write.stdin.equals(Buffer.from("beta"))
     ),
     "b.txt must be written with its downloaded buffer"
   );
   assert.ok(
     writes.some(
       (write) =>
-        write.shell.includes("/workspace/c.txt") && write.stdin.equals(Buffer.from("gamma"))
+        write.shell.includes("/workspace/assistants/bot/sessions/s1/c.txt") &&
+        write.stdin.equals(Buffer.from("gamma"))
     ),
     "third file must be written with its downloaded buffer"
   );
@@ -359,7 +363,7 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs executes every file whe
 test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs caps in-flight work at the concurrency constant", async () => {
   const totalKeys = WORKSPACE_MOUNT_HYDRATE_CONCURRENCY * 2 + 3;
   const keys = Array.from({ length: totalKeys }, (_, index) => {
-    return `assistant-media/workspaces/ws-many/workspace/file-${index}.txt`;
+    return `assistant-media/workspaces/ws-many/workspace/assistants/bot/sessions/s1/file-${index}.txt`;
   });
   let active = 0;
   let peak = 0;
@@ -392,9 +396,9 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs caps in-flight work at 
 
 test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs download failures and continues other blobs", async () => {
   const keys = [
-    "assistant-media/workspaces/ws-download/workspace/good-a.txt",
-    "assistant-media/workspaces/ws-download/workspace/bad.txt",
-    "assistant-media/workspaces/ws-download/workspace/good-b.txt"
+    "assistant-media/workspaces/ws-download/workspace/assistants/bot/sessions/s1/good-a.txt",
+    "assistant-media/workspaces/ws-download/workspace/assistants/bot/sessions/s1/bad.txt",
+    "assistant-media/workspaces/ws-download/workspace/assistants/bot/sessions/s1/good-b.txt"
   ];
   const writtenPaths: string[] = [];
   const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
@@ -421,19 +425,23 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs download failures 
     "download failures must be logged"
   );
   assert.ok(
-    writtenPaths.some((shell) => shell.includes("/workspace/good-a.txt")),
+    writtenPaths.some((shell) =>
+      shell.includes("/workspace/assistants/bot/sessions/s1/good-a.txt")
+    ),
     "good-a must still be written"
   );
   assert.ok(
-    writtenPaths.some((shell) => shell.includes("/workspace/good-b.txt")),
+    writtenPaths.some((shell) =>
+      shell.includes("/workspace/assistants/bot/sessions/s1/good-b.txt")
+    ),
     "good-b must still be written"
   );
 });
 
 test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs non-zero exec exits and still resolves", async () => {
   const keys = [
-    "assistant-media/workspaces/ws-exit/workspace/ok.txt",
-    "assistant-media/workspaces/ws-exit/workspace/fail.txt"
+    "assistant-media/workspaces/ws-exit/workspace/assistants/bot/sessions/s1/ok.txt",
+    "assistant-media/workspaces/ws-exit/workspace/assistants/bot/sessions/s1/fail.txt"
   ];
   const executed: string[] = [];
   const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
@@ -442,7 +450,7 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs non-zero exec exit
     execCommand: async (_podName, _namespace, request) => {
       const shell = request.args[1] ?? "";
       executed.push(shell);
-      if (shell.includes("/workspace/fail.txt")) {
+      if (shell.includes("/workspace/assistants/bot/sessions/s1/fail.txt")) {
         return { exitCode: 7 };
       }
       return { exitCode: 0 };
@@ -455,22 +463,29 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs non-zero exec exit
   assert.ok(
     warnings.some((warning) =>
       warning.includes(
-        "workspace_mount_hydrate_write_failed workspace=ws-exit path=/workspace/fail.txt exit=7"
+        "workspace_mount_hydrate_write_failed workspace=ws-exit path=/workspace/assistants/bot/sessions/s1/fail.txt exit=7"
       )
     ),
     "non-zero write exits must be logged"
   );
 });
 
-test("ExecPodBridgeService: toPodCwd maps workspace root to /workspace", () => {
+test("ExecPodBridgeService: toPodCwd preserves hierarchical session roots", () => {
   const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
   const access = bridge as unknown as {
     toPodCwd(workspaceRoot: string, absoluteCwd: string): string;
   };
 
   assert.equal(access.toPodCwd("/tmp/ws", "/tmp/ws"), "/workspace");
-  assert.equal(access.toPodCwd("/tmp/ws", "/tmp/ws/subdir"), "/workspace/subdir");
-  assert.equal(access.toPodCwd("/tmp/ws", "/tmp/ws/a/b"), "/workspace/a/b");
+  assert.equal(
+    access.toPodCwd("/tmp/ws", "/tmp/ws/assistants/my-bot/sessions/session-1"),
+    "/workspace/assistants/my-bot/sessions/session-1"
+  );
+  assert.equal(
+    access.toPodCwd("/tmp/ws", "/tmp/ws/assistants/my-bot/sessions/session-1/reports/daily"),
+    "/workspace/assistants/my-bot/sessions/session-1/reports/daily"
+  );
+  assert.throws(() => access.toPodCwd("/tmp/ws", "/tmp/other"), /escapes workspace root/);
 });
 
 test("ExecPodBridgeService: createExecPod creates pod with correct spec", async () => {
@@ -780,7 +795,7 @@ test("ExecPodBridgeService: sessionless runInPod creates and deletes ephemeral p
   assert.equal(ctx.deletedPods[0], ctx.createdPods[0]?.body.metadata?.name);
 });
 
-test("ExecPodBridgeService: workspace push extracts by entry name with --no-same-owner (never '.')", async () => {
+test("ExecPodBridgeService: workspace push preserves hierarchical tree and extracts by entry name with --no-same-owner", async () => {
   // Regression: extracting a "." member made the remote tar restore mode/utime on
   // /workspace itself, which the non-root exec user cannot do, failing every push with
   // "Cannot change mode/utime: Operation not permitted". The push must archive top-level
@@ -800,19 +815,20 @@ test("ExecPodBridgeService: workspace push extracts by entry name with --no-same
 
   const bridge = buildMockBridge(ctx);
   const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-bridge-push-"));
+  const sessionRoot = join(workspaceRoot, "assistants", "test-handle", "sessions", "session-1");
   try {
-    await fs.writeFile(join(workspaceRoot, "report.txt"), "hello", "utf8");
-    await fs.mkdir(join(workspaceRoot, "sub"));
-    await fs.writeFile(join(workspaceRoot, "sub", "nested.txt"), "data", "utf8");
+    await fs.mkdir(join(sessionRoot, "sub"), { recursive: true });
+    await fs.writeFile(join(sessionRoot, "report.txt"), "hello", "utf8");
+    await fs.writeFile(join(sessionRoot, "sub", "nested.txt"), "data", "utf8");
     await bridge.runInPod({
       jobId: "job-push-001",
-      runtimeSessionId: null,
+      runtimeSessionId: "session-1",
       assistantId: "assistant-push",
       assistantHandle: "test-handle",
       siblingHandles: [],
       workspaceId: "workspace-push",
       workspaceRoot,
-      absoluteCwd: workspaceRoot,
+      absoluteCwd: sessionRoot,
       command: "/bin/sh",
       args: ["-c", "echo hi"],
       policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
@@ -837,6 +853,14 @@ test("ExecPodBridgeService: workspace push extracts by entry name with --no-same
   assert.ok(
     !/-xf\s+-\s+-C\s+\/workspace\s+\./.test(pushScript),
     "push must never extract a '.' member"
+  );
+  const commandExec = ctx.execCommands.find((command) =>
+    command.some((part) => part.includes("echo hi"))
+  );
+  const shell = commandExec?.[2] ?? "";
+  assert.ok(
+    shell.includes("cd '/workspace/assistants/test-handle/sessions/session-1'"),
+    "command cwd must stay inside the session subtree"
   );
 });
 
@@ -1374,7 +1398,7 @@ test("ExecPodBridgeService: removeWorkspaceFileFromWarmPods returns zero when no
   assert.deepEqual(result.failures, []);
 });
 
-test("ExecPodBridgeService: cold-start runInPod bootstraps workspace dirs", async () => {
+test("ExecPodBridgeService: cold-start runInPod bootstraps only the writable workspace mount", async () => {
   // Phase 1 returns false (exitCode: 1 + no sentinel) so cold bootstrap runs.
   const ctx: MockK8sContext = {
     createdPods: [],
@@ -1420,11 +1444,9 @@ test("ExecPodBridgeService: cold-start runInPod bootstraps workspace dirs", asyn
   const dirsScript = dirsExec?.find((part) => part.includes("test -d")) ?? "";
   assert.ok(dirsScript.includes("test -w '/workspace'"));
   assert.ok(!dirsScript.includes("chmod 0755 '/workspace'"));
-  // ADR-128 Slice 4: flat workspace has no subdirs, no outbound symlink.
-  assert.ok(!dirsScript.includes("ln -sfn"), "no outbound/self symlink on flat workspace");
-  assert.ok(!dirsScript.includes("/workspace/input"), "no /workspace/input on flat workspace");
+  assert.ok(!dirsScript.includes("ln -sfn"), "bootstrap must not create symlink aliases");
   assert.ok(
-    !dirsScript.includes("/workspace/outbound"),
-    "no /workspace/outbound on flat workspace"
+    !dirsScript.includes("/workspace/assistants/"),
+    "bootstrap must not hardcode assistant/session subdirs; hydrate/push materialize the tree"
   );
 });

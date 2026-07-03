@@ -37,9 +37,12 @@ export class SandboxObjectStorageService {
   }
 
   /**
-   * GCS object key for a persisted `/workspace/...` pod path. After ADR-128
-   * Slice 4 the workspace is flat — the relative form is simply the basename
-   * (or any subdirectory the model chose to create).
+   * GCS object key for a persisted visible `/workspace/...` path.
+   *
+   * ADR-133 Slice 2 keeps the workspace-scoped storage namespace but preserves
+   * the full visible subtree under it, so hierarchical session paths persist as
+   * `.../workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`
+   * instead of flattening to a basename-only key.
    */
   buildWorkspaceObjectKey(input: {
     workspaceId: string;
@@ -54,7 +57,7 @@ export class SandboxObjectStorageService {
     return `${prefix}/workspaces/${input.workspaceId}/workspace/${relative}`;
   }
 
-  /** Prefix used by the GC reaper when bulk-deleting persisted workspace state. */
+  /** Prefix used by the GC reaper when bulk-deleting persisted workspace subtrees. */
   buildWorkspacePrefix(input: { workspaceId: string; subPath?: string }): string {
     const prefix = this.config.PERSAI_MEDIA_OBJECT_PREFIX.trim().replace(/\/+$/g, "");
     const tail = input.subPath === undefined ? "" : `${input.subPath.replace(/^\/+|\/+$/g, "")}/`;

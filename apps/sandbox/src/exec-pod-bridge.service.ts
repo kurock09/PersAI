@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { readdir } from "node:fs/promises";
+import { relative, resolve, sep } from "node:path";
 import { Readable, Writable } from "node:stream";
 import {
   Inject,
@@ -31,7 +32,7 @@ import { SandboxPrismaService } from "./sandbox-prisma.service";
 // eviction survives control-plane restarts and works across replicas.
 const ASSISTANT_ID_ANNOTATION = "persai.io/assistant-id";
 const WORKSPACE_ID_ANNOTATION = "persai.io/workspace-id";
-// Handle stamped on the pod so other replicas can derive the canonical outbound directory.
+// Handle stamped on the pod so other replicas can derive the canonical assistant subtree.
 const ASSISTANT_HANDLE_ANNOTATION = "persai.io/assistant-handle";
 // Marker file the workspace-mount bootstrap writes to record completion so we
 // don't re-run mkdir/chmod on every job dispatched at a warm pod.
@@ -259,12 +260,12 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   /**
    * ADR-128 Slice 4 — public, audited control-plane primitive used by
    * {@link WorkspaceFileBridgeService} to run inline `bash -lc` against a
-   * warm session pod (e.g. write a file under `/workspace/`).
-   * Idempotently ensures the pod exists and the single flat `/workspace`
-   * mount has been bootstrapped.
+   * warm session pod (e.g. write a visible workspace file).
+   * Idempotently ensures the pod exists and the `/workspace` mount has been
+   * bootstrapped.
    *
    * Unlike {@link runInPod}, this path:
-   *   * does NOT push or pull `/workspace/` — the bridge is meant for the
+   *   * does NOT push or pull the visible workspace tree — the bridge is meant for the
    *     persisted workspace which is mirrored directly to GCS by the caller;
    *   * does NOT take the workspace lease — the bridge is invoked outside of
    *     a sandbox-job lifecycle (e.g. during upload hydration) and operates
@@ -864,14 +865,25 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   private toPodCwd(workspaceRoot: string, absoluteCwd: string): string {
-    if (absoluteCwd === workspaceRoot) {
+    const workspaceRootResolved = resolve(workspaceRoot);
+    const absoluteCwdResolved = resolve(absoluteCwd);
+    const relativePath = relative(workspaceRootResolved, absoluteCwdResolved);
+    if (relativePath.length === 0 || relativePath === ".") {
       return "/workspace";
     }
-    const relPart = absoluteCwd
-      .substring(workspaceRoot.length)
-      .replace(/\\/g, "/")
-      .replace(/^\/+/, "");
-    return relPart.length > 0 ? `/workspace/${relPart}` : "/workspace";
+    if (
+      relativePath === ".." ||
+      relativePath.startsWith(`..${sep}`) ||
+      relativePath.startsWith("../") ||
+      relativePath.startsWith("..\\")
+    ) {
+      throw createBridgeError(
+        "sandbox_failed",
+        `Absolute cwd escapes workspace root: ${absoluteCwdResolved}`,
+        true
+      );
+    }
+    return `/workspace/${relativePath.split(sep).join("/")}`;
   }
 
   /**
@@ -1067,9 +1079,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * ADR-128 Slice 4 — bootstrap the single flat `/workspace` mount inside a
-   * session or ephemeral pod. No role-based subdirectories, no symlinks. All
-   * files live directly under `/workspace/`.
+   * ADR-133 Slice 2 — bootstrap the writable `/workspace` mount inside a
+   * session or ephemeral pod. Hierarchical assistant/session directories are
+   * then materialized by GCS hydrate and workspace push/pull; bootstrap itself
+   * keeps no role-specific mkdir/symlink behavior.
    */
   private async ensureWorkspaceMountBootstrapped(
     podName: string,
@@ -1140,9 +1153,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Pull every GCS object under the workspace prefix into the corresponding
-   * pod path. Best-effort: a list or download failure is logged at warn but
-   * does not abort the bootstrap.
+   * Pull every persisted workspace object under the workspace prefix into the
+   * corresponding pod path, preserving the full visible hierarchy. Best-effort:
+   * a list or download failure is logged at warn but does not abort the
+   * bootstrap.
    */
   private async hydrateWorkspaceMountFromGcs(
     podName: string,
@@ -1253,10 +1267,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     namespace: string,
     workspaceRoot: string
   ): Promise<void> {
-    // Archive top-level entries by name (never "."). Extracting a "." member makes the
-    // remote tar try to restore mode/utime on /workspace itself, which the non-root
-    // exec user cannot do ("Cannot change mode/utime: Operation not permitted") and
-    // fails the whole push. An empty workspace needs no push at all.
+    // Archive top-level entries by name (never "."). This preserves the full
+    // local subtree while avoiding a remote tar attempt to restore mode/utime on
+    // /workspace itself, which the non-root exec user cannot do. An empty
+    // workspace needs no push at all.
     const entries = await readdir(workspaceRoot);
     if (entries.length === 0) {
       return;

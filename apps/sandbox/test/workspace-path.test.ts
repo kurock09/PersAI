@@ -68,10 +68,10 @@ test("normalizeAndClampPath: exact match of mount root returns empty relativePat
 test("normalizeAndClampPath: nested subdirectory resolves correctly", () => {
   const { absolutePath, relativePath } = normalizeAndClampPath(
     "/workspace",
-    "/workspace/chats/c1/out.csv"
+    "/workspace/assistants/my-bot/sessions/session-1/out.csv"
   );
-  assert.equal(absolutePath, "/workspace/chats/c1/out.csv");
-  assert.equal(relativePath, "chats/c1/out.csv");
+  assert.equal(absolutePath, "/workspace/assistants/my-bot/sessions/session-1/out.csv");
+  assert.equal(relativePath, "assistants/my-bot/sessions/session-1/out.csv");
 });
 
 test("normalizeAndClampPath: throws outside_mount_root when path escapes", () => {
@@ -90,16 +90,21 @@ test("normalizeAndClampPath: .. traversal that would escape root is rejected via
 
 // ─── assertAllowedMountPrefix ─────────────────────────────────────────────────
 
-test("assertAllowedMountPrefix: /workspace/x.txt → flat workspace file", () => {
+test("assertAllowedMountPrefix: root-level /workspace file path still normalizes as a valid mount path", () => {
   const result = assertAllowedMountPrefix("/workspace/x.txt");
   assert.equal(result.absolutePath, "/workspace/x.txt");
   assert.equal(result.relativePath, "x.txt");
 });
 
 test("assertAllowedMountPrefix: nested subdirectory under /workspace/ is allowed", () => {
-  const result = assertAllowedMountPrefix("/workspace/notes/2026/today.md");
-  assert.equal(result.absolutePath, "/workspace/notes/2026/today.md");
-  assert.equal(result.relativePath, "notes/2026/today.md");
+  const result = assertAllowedMountPrefix(
+    "/workspace/assistants/my-bot/sessions/session-1/notes/2026/today.md"
+  );
+  assert.equal(
+    result.absolutePath,
+    "/workspace/assistants/my-bot/sessions/session-1/notes/2026/today.md"
+  );
+  assert.equal(result.relativePath, "assistants/my-bot/sessions/session-1/notes/2026/today.md");
 });
 
 test("assertAllowedMountPrefix: bare /workspace returns empty relative path", () => {

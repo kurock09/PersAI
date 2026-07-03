@@ -5,7 +5,7 @@ import {
   WorkspaceFileBridgeService,
   type WorkspaceBridgeContext
 } from "../src/workspace-file-bridge.service";
-import { WorkspacePathError } from "../src/workspace-path";
+import { buildDefaultVisibleWorkspaceRoot, WorkspacePathError } from "../src/workspace-path";
 
 // ─── Test constants ───────────────────────────────────────────────────────────
 
@@ -13,12 +13,16 @@ const WS_ID = "22222222-2222-4222-a222-222222222222";
 const ASST_ID = "33333333-3333-4333-a333-333333333333";
 const SELF_HANDLE = "my-bot";
 const OTHER_HANDLE = "sibling-bot";
+const SESSION_ID = "session-1";
+const DEFAULT_VISIBLE_ROOT = buildDefaultVisibleWorkspaceRoot(SELF_HANDLE, SESSION_ID);
 
 const CTX: WorkspaceBridgeContext = {
   assistantId: ASST_ID,
   assistantHandle: SELF_HANDLE,
   siblingHandles: [OTHER_HANDLE],
   workspaceId: WS_ID,
+  runtimeSessionId: SESSION_ID,
+  defaultVisibleRoot: DEFAULT_VISIBLE_ROOT,
   policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
   workspaceQuotaBytes: null,
   sharedQuotaBytes: null
@@ -212,7 +216,7 @@ test("writeWorkspaceFileWithCollision: empty workspace dir → exact basename la
 
   assert.equal(result.success, true);
   assert.equal(result.data.resolvedBasename, "report.pdf");
-  assert.equal(result.data.workspaceRelPath, "/workspace/report.pdf");
+  assert.equal(result.data.workspaceRelPath, `${DEFAULT_VISIBLE_ROOT}/report.pdf`);
   assert.equal(exec.calls.length, 2);
   assert.ok(exec.calls[1]?.shellCommand.includes("report.pdf"));
 });
@@ -241,7 +245,7 @@ test("writeWorkspaceFileWithCollision: report.pdf exists → report (1).pdf land
 
   assert.equal(result.success, true);
   assert.equal(result.data.resolvedBasename, "report (1).pdf");
-  assert.equal(result.data.workspaceRelPath, "/workspace/report (1).pdf");
+  assert.equal(result.data.workspaceRelPath, `${DEFAULT_VISIBLE_ROOT}/report (1).pdf`);
   assert.ok(exec.calls[1]?.shellCommand.includes("report (1).pdf"));
 });
 
@@ -272,7 +276,7 @@ test("writeWorkspaceFileWithCollision: report.pdf and report (1).pdf exist → r
 
   assert.equal(result.success, true);
   assert.equal(result.data.resolvedBasename, "report (2).pdf");
-  assert.equal(result.data.workspaceRelPath, "/workspace/report (2).pdf");
+  assert.equal(result.data.workspaceRelPath, `${DEFAULT_VISIBLE_ROOT}/report (2).pdf`);
 });
 
 test("workspaceFileWrite: existing explicit path defaults to sibling collision suffix", async () => {
@@ -493,7 +497,7 @@ test("workspaceFileDelete: successful delete → exec called, removed=true, audi
   assert.equal(audit.ops[0]?.status, "ok");
 });
 
-test("workspaceFileDelete: any /workspace/ path is deletable (flat namespace, no role lock)", async () => {
+test("workspaceFileDelete: visible /workspace path remains deletable when explicitly addressed", async () => {
   const exec = makeExec([{ exitCode: 0, stdout: "", stderr: "" }]);
   const audit = makeAudit();
   const bridge = makeBridge(exec.service, makeStorage().service, makeObs().service, audit.service);
@@ -774,12 +778,12 @@ test("workspaceFilePersist: exec-created /workspace file is mirrored to GCS for 
 
 // ─── writeWorkspaceFileControlPlane ───────────────────────────────────────────
 //
-// Hot-pod inbound bytes-push for the flat workspace. Called by api
+// Hot-pod inbound bytes-push for the session-root workspace. Called by api
 // `manage-chat-media.stageForWebThread` right after the GCS upload so the
 // running pod sees the file immediately instead of only after the next cold
 // hydrate.
 
-test("writeWorkspaceFileControlPlane: pod Running → cat into /workspace/<basename> with mode=written", async () => {
+test("writeWorkspaceFileControlPlane: pod Running → cat into the session root with mode=written", async () => {
   const exec = makeExec([], {
     tryHotPodResponses: [{ exitCode: 0, stdout: "", stderr: "" }]
   });
@@ -795,19 +799,36 @@ test("writeWorkspaceFileControlPlane: pod Running → cat into /workspace/<basen
   assert.equal(result.success, true);
   assert.equal(result.reason, null);
   assert.equal(result.data.mode, "written");
-  assert.equal(result.data.workspaceRelPath, "/workspace/3470.png");
-  assert.equal(result.data.absolutePath, "/workspace/3470.png");
+  assert.equal(result.data.workspaceRelPath, `${DEFAULT_VISIBLE_ROOT}/3470.png`);
+  assert.equal(result.data.absolutePath, `${DEFAULT_VISIBLE_ROOT}/3470.png`);
   assert.equal(result.data.bytes, contents.length);
   assert.equal(exec.tryCalls.length, 1);
   const shell = exec.tryCalls[0]?.shellCommand ?? "";
-  assert.ok(shell.includes("mkdir -p '/workspace'"), shell);
-  assert.ok(shell.includes("chmod 0755 '/workspace'"), shell);
-  assert.ok(shell.includes("cat > '/workspace/3470.png'"), shell);
+  assert.ok(shell.includes(`mkdir -p '${DEFAULT_VISIBLE_ROOT}'`), shell);
+  assert.ok(shell.includes(`cat > '${DEFAULT_VISIBLE_ROOT}/3470.png'`), shell);
   assert.equal(exec.tryCalls[0]?.stdin?.toString(), "upload payload");
   // execShellInSessionPod must NOT have been called: control-plane writes
   // must never trigger cold-pod bootstrap, only push into already-warm pods.
   assert.equal(exec.calls.length, 0);
   assert.equal(audit.ops.at(-1)?.status, "ok");
+});
+
+test("writeWorkspaceFileControlPlane: rejects flat /workspace/<file> explicit paths", async () => {
+  const bridge = makeBridge(
+    makeExec().service,
+    makeStorage().service,
+    makeObs().service,
+    makeAudit().service
+  );
+
+  const result = await bridge.writeWorkspaceFileControlPlane(CTX, {
+    basename: "flat.txt",
+    path: "/workspace/flat.txt",
+    contents: Buffer.from("payload")
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.reason, "write_denied");
 });
 
 test("writeWorkspaceFileControlPlane: explicit path uses required workspace writer", async () => {

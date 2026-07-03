@@ -4,7 +4,10 @@ import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SandboxConfig } from "@persai/config";
-import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
+import {
+  buildAssistantSessionRoot,
+  DEFAULT_RUNTIME_SANDBOX_POLICY
+} from "@persai/runtime-contract";
 import { SandboxObservabilityService } from "../src/sandbox-observability.service";
 import { SandboxService } from "../src/sandbox.service";
 
@@ -23,7 +26,7 @@ type SandboxServiceTestAccess = {
       siblingHandles?: readonly string[] | null;
     }
   ): Promise<void>;
-  resolveWorkspaceSessionRoot(assistantId: string, workspaceId: string): string;
+  resolveWorkspaceRoot(workspaceId: string): string;
   saveSessionWorkspaceSnapshot(
     assistantId: string,
     runtimeSessionId: string,
@@ -930,10 +933,7 @@ test("SandboxService: render_html_to_pdf runs weasyprint command and removes tra
   );
 
   // 2. The transient .render-input.html must not appear as a produced file in the workspace.
-  const workspaceRoot = access.resolveWorkspaceSessionRoot(
-    "assistant-render-1",
-    "workspace-render-1"
-  );
+  const workspaceRoot = access.resolveWorkspaceRoot("workspace-render-1");
   const filesAfter = await listWorkspaceRelativeFiles(workspaceRoot);
   const htmlInputPresent = filesAfter.some((relativePath) =>
     relativePath.includes(".render-input.html")
@@ -1025,19 +1025,24 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
     new SandboxObservabilityService(),
     createSandboxConfig(),
     {
-      async runInPod(input: { command: string; args: string[]; workspaceRoot: string }) {
+      async runInPod(input: {
+        command: string;
+        args: string[];
+        workspaceRoot: string;
+        absoluteCwd: string;
+      }) {
         capturedRunInPodCalls.push({ command: input.command, args: input.args });
         sourcesAtRunTime.sourcePdf = await fs
-          .readFile(join(input.workspaceRoot, "sources", "source.pdf"))
+          .readFile(join(input.absoluteCwd, "sources", "source.pdf"))
           .then((b) => b.toString("utf8"))
           .catch(() => null);
         sourcesAtRunTime.ocrSidecar = await fs
-          .readFile(join(input.workspaceRoot, "sources", "source.pdf.ocr.txt"), "utf8")
+          .readFile(join(input.absoluteCwd, "sources", "source.pdf.ocr.txt"), "utf8")
           .catch(() => null);
         sourcesAtRunTime.program = await fs
-          .readFile(join(input.workspaceRoot, ".document-code.py"), "utf8")
+          .readFile(join(input.absoluteCwd, ".document-code.py"), "utf8")
           .catch(() => null);
-        await fs.writeFile(join(input.workspaceRoot, "report.xlsx"), fakeXlsxBytes);
+        await fs.writeFile(join(input.absoluteCwd, "report.xlsx"), fakeXlsxBytes);
         return { exitCode: 0, stdout: null, stderr: null, durationMs: 50, execPodName: null };
       }
     } as never,
@@ -1066,7 +1071,7 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
   assert.equal(sourcesAtRunTime.sourcePdf?.startsWith("%PDF-1.4"), true);
   assert.equal(sourcesAtRunTime.ocrSidecar, "OCR TEXT");
 
-  const workspaceRoot = access.resolveWorkspaceSessionRoot("assistant-code-1", workspaceId);
+  const workspaceRoot = access.resolveWorkspaceRoot(workspaceId);
   const filesAfter = await listWorkspaceRelativeFiles(workspaceRoot);
   assert.equal(
     filesAfter.some((path) => path.includes(".document-code.py")),
@@ -1164,9 +1169,10 @@ function buildGrepGlobService(
 test("SandboxService: grep runs rg via pod exec and returns structured matches", async () => {
   const capturedJobUpdates: Array<Record<string, unknown>> = [];
   const capturedShellCalls: Array<{ shellCommand: string }> = [];
+  const sessionRoot = buildAssistantSessionRoot("grep-handle", "session-grep-1");
   const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
     exitCode: 0,
-    stdout: "src/app.ts:12:const token = 1;\nsrc/app.ts:40:const token2 = 2;\n",
+    stdout: `${sessionRoot}/src/app.ts:12:const token = 1;\n${sessionRoot}/src/app.ts:40:const token2 = 2;\n`,
     stderr: ""
   });
   const access = service as unknown as SandboxServiceTestAccess;
@@ -1175,10 +1181,11 @@ test("SandboxService: grep runs rg via pod exec and returns structured matches",
     assistantId: "assistant-grep-1",
     workspaceId: "workspace-grep-1",
     runtimeRequestId: "request-grep-1",
-    runtimeSessionId: null,
+    runtimeSessionId: "session-grep-1",
     toolCode: "grep",
     policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
-    args: { pattern: "token", glob: "**/*.ts", caseInsensitive: true }
+    args: { pattern: "token", glob: "**/*.ts", caseInsensitive: true },
+    assistantHandle: "grep-handle"
   });
 
   assert.equal(capturedShellCalls.length, 1, "rg must be invoked exactly once via pod exec");
@@ -1187,6 +1194,10 @@ test("SandboxService: grep runs rg via pod exec and returns structured matches",
   assert.ok(shellCommand.includes(" -- "), "rg command must include pattern terminator");
   assert.ok(shellCommand.includes("'token'"), "model pattern must be shell-quoted in rg command");
   assert.ok(shellCommand.includes("--glob"), "glob filter must be forwarded");
+  assert.ok(
+    shellCommand.includes(sessionRoot),
+    "default grep path must stay under the session root"
+  );
 
   const completed = capturedJobUpdates.find((d) => d.status === "completed");
   assert.ok(completed, "job must complete");
@@ -1197,7 +1208,11 @@ test("SandboxService: grep runs rg via pod exec and returns structured matches",
     truncated: boolean;
   };
   assert.equal(parsed.matchCount, 2);
-  assert.deepEqual(parsed.matches[0], { file: "src/app.ts", line: 12, text: "const token = 1;" });
+  assert.deepEqual(parsed.matches[0], {
+    file: `${sessionRoot}/src/app.ts`,
+    line: 12,
+    text: "const token = 1;"
+  });
   assert.equal(parsed.truncated, false);
 });
 
@@ -1403,9 +1418,10 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
 test("SandboxService: glob runs fd via pod exec and returns sorted relative paths", async () => {
   const capturedJobUpdates: Array<Record<string, unknown>> = [];
   const capturedShellCalls: Array<{ shellCommand: string }> = [];
+  const sessionRoot = buildAssistantSessionRoot("glob-handle", "session-glob-1");
   const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
     exitCode: 0,
-    stdout: "/workspace/src/index.ts\n/workspace/src/app.ts\n",
+    stdout: `${sessionRoot}/src/index.ts\n${sessionRoot}/src/app.ts\n`,
     stderr: ""
   });
   const access = service as unknown as SandboxServiceTestAccess;
@@ -1414,23 +1430,28 @@ test("SandboxService: glob runs fd via pod exec and returns sorted relative path
     assistantId: "assistant-glob-1",
     workspaceId: "workspace-glob-1",
     runtimeRequestId: "request-glob-1",
-    runtimeSessionId: null,
+    runtimeSessionId: "session-glob-1",
     toolCode: "glob",
     policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
-    args: { pattern: "*.ts" }
+    args: { pattern: "*.ts" },
+    assistantHandle: "glob-handle"
   });
 
   assert.equal(capturedShellCalls.length, 1, "fd must be invoked exactly once via pod exec");
   const shellCommand = capturedShellCalls[0]!.shellCommand;
   assert.ok(shellCommand.startsWith("fd "), "pod shell must invoke fd");
   assert.ok(shellCommand.includes(" -- "), "fd command must include pattern terminator");
+  assert.ok(
+    shellCommand.includes(sessionRoot),
+    "default glob path must stay under the session root"
+  );
 
   const completed = capturedJobUpdates.find((d) => d.status === "completed");
   const payload = completed!.resultPayload as { content: string | null };
   const parsed = JSON.parse(payload.content!) as { paths: string[]; truncated: boolean };
   assert.deepEqual(
     parsed.paths,
-    ["/workspace/src/app.ts", "/workspace/src/index.ts"],
+    [`${sessionRoot}/src/app.ts`, `${sessionRoot}/src/index.ts`],
     "paths must be pod-absolute and sorted"
   );
   assert.equal(parsed.truncated, false);

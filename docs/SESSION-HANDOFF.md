@@ -1,5 +1,35 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-133 Slice 2 landed locally: sandbox + GCS session-root cutover
+
+Status: **implemented locally, not committed/pushed, and intentionally limited to sandbox/GCS/default-path behavior plus focused tests/docs. API manifest/upload/delivery/document path migration and model-facing runtime/web prompt rewrites remain out of scope for later slices.**
+
+This slice switches the sandbox’s active default root from flat `/workspace/` behavior to the hierarchical ADR-133 session root derived from the shared contract. `shell` / `exec` cwd, `grep` / `glob` default paths, basename-only sandbox writes, and control-plane hot writes now target `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...` (or the assistant shared root for sessionless control-plane cases). Sandbox workspace persistence now mirrors visible hierarchical paths in GCS object keys, pod/local workspace hydration preserves the full tree instead of flattening session content into the root, and sandbox-side GC/audit semantics now report session/assistant/workspace subtree cleanup rather than the stale `chat_scratch` / `assistant_outbound` / `workspace_shared` vocabulary. Explicit flat root writes such as `/workspace/flat.txt` are now denied at the sandbox control-plane boundary instead of silently reusing the old flat fallback.
+
+Files touched:
+
+- `apps/sandbox/src/sandbox.service.ts`
+- `apps/sandbox/src/sandbox-object-storage.service.ts`
+- `apps/sandbox/src/workspace-file-bridge.service.ts`
+- `apps/sandbox/src/workspace-path.ts`
+- `apps/sandbox/src/workspace-gc.service.ts`
+- `apps/sandbox/src/workspace-audit.service.ts`
+- `apps/sandbox/test/sandbox.service.test.ts`
+- `apps/sandbox/test/workspace-file-bridge.service.test.ts`
+- `apps/sandbox/test/workspace-gc.service.test.ts`
+- `docs/ADR/133-session-first-hierarchical-workspace-filesystem.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+Verification:
+
+- `corepack pnpm --filter @persai/sandbox exec tsx --test test/workspace-file-bridge.service.test.ts test/workspace-gc.service.test.ts test/sandbox.service.test.ts`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm run format:check`
+
+Next: parent review this Slice 2 diff, then dispatch Slice 3 for API-owned upload/manifest/delivery/document-path ingress so active runtime/API producers stop emitting stale flat `/workspace/<file>` document/output paths.
+
 ## 2026-07-03 — ADR-133 Slice 1 landed locally: shared path contract and ADR wiring only
 
 Status: **implemented locally, not committed/pushed, and intentionally limited to shared contract/tests/docs. No sandbox/API/runtime/web behavior migration yet.**
