@@ -156,16 +156,19 @@ function testFilesCatalogRowUsesExactListedPaths(): void {
   const row = rows[0];
   const text = `${row.modelDescription}\n${row.modelUsageGuidance}`;
   assert.ok(
-    text.includes("By default `files.list` shows only the current chat scope"),
-    "files guidance must teach current-chat default scope"
+    text.includes(
+      "The default session root is `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`"
+    ),
+    "files guidance must teach the current session root"
   );
   assert.ok(
-    text.includes('scope:"assistant"') && text.includes('scope:"workspace_shared"'),
-    "files guidance must teach explicit assistant/workspace widens"
+    text.includes("`/workspace/assistants/<assistantStableKey>/`") &&
+      text.includes("`/workspace/`"),
+    "files guidance must teach explicit assistant/workspace widens by path"
   );
   assert.ok(
-    text.includes("crossScope:true"),
-    "files guidance must teach explicit cross-scope operations"
+    text.includes('files({action:"list"})'),
+    "files guidance must teach the default current-session listing call"
   );
   assert.ok(
     /Six actions only: list, read, preview, write, delete, attach/i.test(text),
@@ -182,6 +185,10 @@ function testFilesCatalogRowUsesExactListedPaths(): void {
   assert.ok(
     !text.includes("/workspace/<filename>"),
     "files guidance must not teach the model to guess upload paths from filenames"
+  );
+  assert.ok(
+    !/workspace_shared|crossScope:true|scope:"assistant"|scope:"workspace_shared"/.test(text),
+    "files guidance must not preserve stale scope/cross-scope vocabulary"
   );
 }
 

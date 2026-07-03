@@ -39,6 +39,35 @@ Interpretation rules:
 4. Session, assistant, and workspace cleanup must target the correct subtrees and expose subtree-oriented audit semantics even if producer lease rows still use historical enum names.
 5. Slice 2 remains sandbox-only: API upload/manifest/delivery/document-path ingress and model-facing prompt/runtime/web teaching are verified in later ADR-133 slices, not here.
 
+## ADR-133 Slice 4 runtime/prompt-owner focused checks
+
+When a change touches runtime `files` / `document` behavior, Working Files wording, native tool projection, bootstrap/tool-catalog prompt owners, or ADR-133 stale-string guards, run:
+
+```bash
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.attach.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/working-files-developer-section.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-delivery-facts.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/tool-catalog-data.test.ts test/runtime-tool-policy.test.ts test/adr119-golden-prompt-snapshot.test.ts
+corepack pnpm -r --if-present run lint
+corepack pnpm run format:check
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Interpretation rules:
+
+1. Active runtime/model-facing guidance must teach the session root `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...` as the default working area, with assistant/workspace widening only by ordinary path choice.
+2. Positive fixtures and prompt text must not preserve flat `/workspace/<file>` examples, `workspace_shared`, `crossScope:true`, or `Current chat / this session` wording except as explicit negative guards.
+3. Working Files must describe current session files while preserving sticky aliases, micro-descriptions, and exact-path addressing rules.
+4. `files.write` exact overwrite stays boolean `replace: true`; Slice 4 must not preserve active runtime/model-facing `mode:"overwrite"` compatibility teaching.
+5. Slice 4 remains runtime/prompt-owner scoped: web/UI/OpenAPI/docs closure and final product wording alignment are verified in Slice 5.
+
 ## ADR-132 document surface focused checks
 
 When a change touches `document.inspect`, `document.render`, `document.convert`, document auto-registration, or `files.attach` delivery of `pdf`/`docx`/`xlsx`, run these focused checks before the broad gate:

@@ -143,7 +143,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       reason: null,
       warning: null,
       item: {
-        path: "/workspace/uploads/report.txt",
+        path: "/workspace/assistants/assistant-handle/sessions/session-id/uploads/report.txt",
         type: "file",
         sizeBytes: 42,
         mimeType: "text/plain",
@@ -152,7 +152,7 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       },
       items: [
         {
-          path: "/workspace/uploads/report.txt",
+          path: "/workspace/assistants/assistant-handle/sessions/session-id/uploads/report.txt",
           type: "file",
           sizeBytes: 42,
           mimeType: "text/plain",
@@ -173,9 +173,15 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       job: unknown;
       fileRefs?: string[];
     };
-    assert.equal(parsed.item.path, "/workspace/uploads/report.txt");
+    assert.equal(
+      parsed.item.path,
+      "/workspace/assistants/assistant-handle/sessions/session-id/uploads/report.txt"
+    );
     assert.equal(parsed.item.shortDescription, "Quarterly revenue report for the EMEA region.");
-    assert.equal(parsed.items[0]?.path, "/workspace/uploads/report.txt");
+    assert.equal(
+      parsed.items[0]?.path,
+      "/workspace/assistants/assistant-handle/sessions/session-id/uploads/report.txt"
+    );
     assert.equal(parsed.content, "hello");
     assert.equal(parsed.job, null);
     assert.equal(parsed.fileRefs, undefined);

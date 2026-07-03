@@ -5,6 +5,12 @@ import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import { RuntimeFilesToolService } from "../src/modules/turns/runtime-files-tool.service";
 import { stringifyToolResultPayloadForModel } from "../src/modules/turns/sanitize-tool-result-for-model";
 
+const TEST_SESSION_ROOT = "/workspace/assistants/my-bot/sessions/session-1";
+
+function wp(relativePath: string): string {
+  return `${TEST_SESSION_ROOT}/${relativePath.replace(/^\/+/, "")}`;
+}
+
 function createBundle(): AssistantRuntimeBundle {
   return {
     metadata: {
@@ -52,7 +58,7 @@ function createService(input: {
     async registerChatAttachment() {
       return {
         attachmentId: "attachment-1",
-        storagePath: "/workspace/report.csv"
+        storagePath: wp("report.csv")
       };
     },
     async getWorkspaceFileMetadata() {
@@ -90,8 +96,8 @@ test("files.attach happy path workspace source returns artifact and upserts mani
       content: JSON.stringify({
         action: "attached",
         attachment: {
-          workspaceRelPath: "/workspace/report.csv",
-          sourcePath: "/workspace/report.csv",
+          workspaceRelPath: wp("report.csv"),
+          sourcePath: wp("report.csv"),
           sizeBytes: 12,
           mimeType: "text/csv",
           displayName: "report.csv"
@@ -111,25 +117,25 @@ test("files.attach happy path workspace source returns artifact and upserts mani
     toolCall: {
       id: "tc-1",
       name: "files",
-      arguments: { action: "attach", path: "/workspace/report.csv" }
+      arguments: { action: "attach", path: wp("report.csv") }
     },
     ...attachToolCallParams
   });
 
   assert.equal(upsertCalled, true);
   assert.equal(upsertInput?.workspaceId, "workspace-1");
-  assert.equal(upsertInput?.path, "/workspace/report.csv");
+  assert.equal(upsertInput?.path, wp("report.csv"));
   assert.equal(result.isError, false);
   assert.equal(result.payload.action, "attached");
-  assert.equal(result.payload.path, "/workspace/report.csv");
+  assert.equal(result.payload.path, wp("report.csv"));
   assert.equal(result.payload.sizeBytes, 12);
-  assert.equal(result.artifacts?.[0]?.storagePath, "/workspace/report.csv");
+  assert.equal(result.artifacts?.[0]?.storagePath, wp("report.csv"));
   const modelJson = stringifyToolResultPayloadForModel(result.payload);
   assert.ok(!modelJson.includes("attachment-1"));
   assert.ok(!modelJson.includes('"attachmentId"'));
 });
 
-test("files.attach happy path /workspace/ file still returns artifact", async () => {
+test("files.attach session-root file still returns artifact", async () => {
   const service = createService({
     sandboxJob: {
       status: "completed",
@@ -138,8 +144,8 @@ test("files.attach happy path /workspace/ file still returns artifact", async ()
       violationMessage: null,
       content: JSON.stringify({
         attachment: {
-          workspaceRelPath: "/workspace/report.csv",
-          sourcePath: "/workspace/report.csv",
+          workspaceRelPath: wp("report.csv"),
+          sourcePath: wp("report.csv"),
           sizeBytes: 12,
           mimeType: "text/csv",
           displayName: "report.csv"
@@ -158,13 +164,13 @@ test("files.attach happy path /workspace/ file still returns artifact", async ()
     toolCall: {
       id: "tc-2",
       name: "files",
-      arguments: { action: "attach", path: "/workspace/report.csv" }
+      arguments: { action: "attach", path: wp("report.csv") }
     },
     ...attachToolCallParams
   });
 
   assert.equal(result.payload.action, "attached");
-  assert.equal(result.artifacts?.[0]?.storagePath, "/workspace/report.csv");
+  assert.equal(result.artifacts?.[0]?.storagePath, wp("report.csv"));
 });
 
 test("files.attach sandbox path_not_attachable does not call API", async () => {
@@ -173,14 +179,14 @@ test("files.attach sandbox path_not_attachable does not call API", async () => {
     sandboxJob: {
       status: "completed",
       reason: "path_not_attachable",
-      warning: "files.attach accepts only /workspace/ or /workspace/ paths",
+      warning: "files.attach accepts only active hierarchical /workspace/... paths",
       violationMessage: null,
       content: null
     },
     apiClient: {
       async registerChatAttachment() {
         apiCalled = true;
-        return { attachmentId: "attachment-3", storagePath: "/workspace/report.csv" };
+        return { attachmentId: "attachment-3", storagePath: wp("report.csv") };
       }
     }
   });
@@ -209,8 +215,8 @@ test("files.attach manifest upsert failure is swallowed after artifact creation"
       violationMessage: null,
       content: JSON.stringify({
         attachment: {
-          workspaceRelPath: "/workspace/report.csv",
-          sourcePath: "/workspace/report.csv",
+          workspaceRelPath: wp("report.csv"),
+          sourcePath: wp("report.csv"),
           sizeBytes: 12,
           mimeType: "text/csv",
           displayName: "report.csv"
@@ -229,7 +235,7 @@ test("files.attach manifest upsert failure is swallowed after artifact creation"
     toolCall: {
       id: "tc-4",
       name: "files",
-      arguments: { action: "attach", path: "/workspace/report.csv" }
+      arguments: { action: "attach", path: wp("report.csv") }
     },
     ...attachToolCallParams
   });
@@ -254,7 +260,7 @@ test("files.write workspace_quota_exhausted surfaces stable reason to model", as
     toolCall: {
       id: "tc-write-quota-ws",
       name: "files",
-      arguments: { action: "write", path: "/workspace/big.bin", content: "data" }
+      arguments: { action: "write", path: wp("big.bin"), content: "data" }
     },
     sessionId: "session-1",
     requestId: "request-1",
@@ -288,7 +294,7 @@ test("files.write shared_quota_exhausted surfaces stable reason to model", async
       name: "files",
       arguments: {
         action: "write",
-        path: "/workspace/out.csv",
+        path: wp("out.csv"),
         content: "data"
       }
     },
@@ -309,7 +315,7 @@ test("files.write shared_quota_exhausted surfaces stable reason to model", async
 // ADR-127 W1 — `/workspace/...` listings come from `workspace_file_metadata`,
 // not from the pod FS. The runtime must call the internal API and ignore
 // the sandbox `find` for shared paths.
-test("files.list /workspace/ path reads from manifest API and skips sandbox", async () => {
+test("files.list workspace-root widen reads from manifest API and skips sandbox", async () => {
   let manifestCalled = false;
   let sandboxCalled = false;
   const service = new RuntimeFilesToolService(
@@ -335,18 +341,18 @@ test("files.list /workspace/ path reads from manifest API and skips sandbox", as
         assert.equal(input.workspaceId, "workspace-1");
         assert.equal(input.pathPrefix, "/workspace");
         assert.equal(input.assistantHandle, "my-bot");
-        assert.equal(input.scope, "chat");
+        assert.equal(input.scope, "workspace");
         assert.equal(input.currentChatId, null);
         assert.equal(input.currentAssistantId, "assistant-1");
         return {
           items: [
             {
-              path: "/workspace/photo.jpg",
-              type: "file",
-              sizeBytes: 1200,
-              mimeType: "image/jpeg",
-              modifiedAt: "2026-06-20T10:00:00.000Z",
-              shortDescription: "front-door selfie"
+              path: "/workspace/assistants",
+              type: "directory",
+              sizeBytes: 0,
+              mimeType: null,
+              modifiedAt: null,
+              shortDescription: null
             }
           ]
         };
@@ -378,8 +384,8 @@ test("files.list /workspace/ path reads from manifest API and skips sandbox", as
   assert.ok(Array.isArray(items));
   assert.equal(items.length, 1);
   const first = items[0] as Record<string, unknown>;
-  assert.equal(first.path, "/workspace/photo.jpg");
-  assert.equal(first.shortDescription, "front-door selfie");
+  assert.equal(first.path, "/workspace/assistants");
+  assert.equal(first.type, "directory");
 });
 
 test("files.list assistant scope widens manifest request explicitly", async () => {
@@ -423,7 +429,50 @@ test("files.list assistant scope widens manifest request explicitly", async () =
   assert.equal(capturedManifestInput?.currentAssistantId, "assistant-1");
 });
 
-test("files.read blocks known manifest file outside current chat unless crossScope is explicit", async () => {
+test("files.list defaults to the current session root when path is omitted", async () => {
+  let manifestInput: Record<string, unknown> | null = null;
+  const service = createService({
+    sandboxJob: {
+      status: "completed",
+      reason: null,
+      warning: null,
+      violationMessage: null,
+      content: JSON.stringify({ items: [] })
+    },
+    apiClient: {
+      async listWorkspaceFilesFromManifest(input: Record<string, unknown>) {
+        manifestInput = input;
+        return { items: [] };
+      }
+    }
+  });
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-list-default",
+      name: "files",
+      arguments: { action: "list" }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: "chat-current",
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  const capturedManifestInput = manifestInput as Record<string, unknown> | null;
+  assert.notEqual(capturedManifestInput, null);
+  assert.equal(
+    capturedManifestInput?.pathPrefix,
+    "/workspace/assistants/my-bot/sessions/session-1"
+  );
+  assert.equal(capturedManifestInput?.scope, "chat");
+});
+
+test("files.read allows an exact widened path without cross-scope flags", async () => {
   let sandboxCalled = false;
   const service = createService({
     sandboxJob: {
@@ -432,18 +481,6 @@ test("files.read blocks known manifest file outside current chat unless crossSco
       warning: null,
       violationMessage: null,
       content: JSON.stringify({ content: "secret", sizeBytes: 6, truncated: false })
-    },
-    apiClient: {
-      async getWorkspaceFileMetadata() {
-        return {
-          path: "/workspace/old-report.txt",
-          mimeType: "text/plain",
-          sizeBytes: 6,
-          originChatId: "chat-old",
-          originAssistantId: "assistant-1",
-          updatedAt: "2026-07-01T00:00:00.000Z"
-        };
-      }
     }
   });
   (
@@ -459,12 +496,12 @@ test("files.read blocks known manifest file outside current chat unless crossSco
     };
   };
 
-  const blocked = await service.executeToolCall({
+  const result = await service.executeToolCall({
     bundle: createBundle(),
     toolCall: {
-      id: "tc-read-blocked",
+      id: "tc-read-widened",
       name: "files",
-      arguments: { action: "read", path: "/workspace/old-report.txt" }
+      arguments: { action: "read", path: "/workspace/assistants/my-bot/old-report.txt" }
     },
     sessionId: "session-1",
     requestId: "request-1",
@@ -474,26 +511,7 @@ test("files.read blocks known manifest file outside current chat unless crossSco
     messageId: null
   });
 
-  assert.equal(blocked.isError, true);
-  assert.equal(blocked.payload.reason, "cross_scope_required");
-  assert.equal(sandboxCalled, false);
-
-  const allowed = await service.executeToolCall({
-    bundle: createBundle(),
-    toolCall: {
-      id: "tc-read-cross",
-      name: "files",
-      arguments: { action: "read", path: "/workspace/old-report.txt", crossScope: true }
-    },
-    sessionId: "session-1",
-    requestId: "request-1",
-    channel: "web",
-    chatId: "chat-current",
-    externalThreadKey: null,
-    messageId: null
-  });
-
-  assert.equal(allowed.isError, false);
+  assert.equal(result.isError, false);
   assert.equal(sandboxCalled, true);
 });
 
@@ -513,7 +531,7 @@ test("files.list /tmp path keeps sandbox find behavior", async () => {
           content: JSON.stringify({
             items: [
               {
-                path: "/workspace/scratch.txt",
+                path: wp("scratch.txt"),
                 type: "file",
                 sizeBytes: 4,
                 mimeType: "text/plain",
@@ -559,10 +577,11 @@ test("files.list /tmp path keeps sandbox find behavior", async () => {
   assert.equal(result.payload.action, "listed");
 });
 
-// ADR-127 W1 — after a successful sandbox write on `/workspace/...`, the
+// ADR-127 W1 — after a successful sandbox write on an active visible
+// `/workspace/...` path, the
 // runtime upserts `workspace_file_metadata` via the internal API. A
-// `/workspace/...` write must NOT upsert (scratch stays pod-only).
-test("files.write /workspace/ path upserts manifest", async () => {
+// `/tmp/...` write must NOT upsert (scratch stays pod-only).
+test("files.write session-root path upserts manifest", async () => {
   let upsertCalled = false;
   let upsertInput: Record<string, unknown> | undefined;
   const service = new RuntimeFilesToolService(
@@ -596,7 +615,7 @@ test("files.write /workspace/ path upserts manifest", async () => {
       name: "files",
       arguments: {
         action: "write",
-        path: "/workspace/notes.md",
+        path: wp("notes.md"),
         content: "# notes\nhello"
       }
     },
@@ -612,7 +631,7 @@ test("files.write /workspace/ path upserts manifest", async () => {
   assert.equal(result.payload.action, "written");
   assert.equal(upsertCalled, true);
   assert.equal(upsertInput?.workspaceId, "workspace-1");
-  assert.equal(upsertInput?.path, "/workspace/notes.md");
+  assert.equal(upsertInput?.path, wp("notes.md"));
   assert.equal(upsertInput?.mimeType, "text/markdown");
   assert.equal(upsertInput?.sizeBytes, 42);
 });
@@ -632,7 +651,7 @@ test("files.write default collision returns resolved sibling path and upserts ma
           violationMessage: null,
           content: JSON.stringify({
             sizeBytes: 42,
-            resolvedPath: "/workspace/notes (1).md"
+            resolvedPath: wp("notes (1).md")
           })
         };
       }
@@ -654,7 +673,7 @@ test("files.write default collision returns resolved sibling path and upserts ma
       name: "files",
       arguments: {
         action: "write",
-        path: "/workspace/notes.md",
+        path: wp("notes.md"),
         content: "# notes\nhello"
       }
     },
@@ -668,13 +687,13 @@ test("files.write default collision returns resolved sibling path and upserts ma
 
   assert.equal(result.isError, false);
   assert.equal(result.payload.action, "written");
-  assert.equal(result.payload.path, "/workspace/notes (1).md");
+  assert.equal(result.payload.path, wp("notes (1).md"));
   assert.deepEqual(sandboxArgs, {
     action: "write",
-    path: "/workspace/notes.md",
+    path: wp("notes.md"),
     content: "# notes\nhello"
   });
-  assert.equal(upsertInput?.path, "/workspace/notes (1).md");
+  assert.equal(upsertInput?.path, wp("notes (1).md"));
   assert.equal(upsertInput?.originChatId, "chat-1");
   assert.equal(upsertInput?.originAssistantId, "assistant-1");
 });
@@ -694,7 +713,7 @@ test("files.write replace=true overwrites the exact path", async () => {
           violationMessage: null,
           content: JSON.stringify({
             sizeBytes: 7,
-            resolvedPath: "/workspace/report.txt"
+            resolvedPath: wp("report.txt")
           })
         };
       }
@@ -716,7 +735,7 @@ test("files.write replace=true overwrites the exact path", async () => {
       name: "files",
       arguments: {
         action: "write",
-        path: "/workspace/report.txt",
+        path: wp("report.txt"),
         content: "updated",
         replace: true
       }
@@ -730,73 +749,14 @@ test("files.write replace=true overwrites the exact path", async () => {
   });
 
   assert.equal(result.isError, false);
-  assert.equal(result.payload.path, "/workspace/report.txt");
+  assert.equal(result.payload.path, wp("report.txt"));
   assert.deepEqual(sandboxArgs, {
     action: "write",
-    path: "/workspace/report.txt",
+    path: wp("report.txt"),
     content: "updated",
     replace: true
   });
-  assert.equal(upsertInput?.path, "/workspace/report.txt");
-});
-
-test("files.write legacy overwrite mode is forwarded for compatibility", async () => {
-  let sandboxArgs: Record<string, unknown> | undefined;
-  const service = new RuntimeFilesToolService(
-    {
-      isConfigured: () => true,
-      async waitForCompletion(input: { args: Record<string, unknown> }) {
-        sandboxArgs = input.args;
-        return {
-          status: "completed",
-          reason: null,
-          warning: null,
-          violationMessage: null,
-          content: JSON.stringify({
-            sizeBytes: 4,
-            resolvedPath: "/workspace/report.txt"
-          })
-        };
-      }
-    } as never,
-    {
-      async consumeToolDailyLimit() {
-        return { allowed: true, code: null, message: null };
-      },
-      async upsertWorkspaceFileMetadata() {
-        return;
-      }
-    } as never
-  );
-
-  const result = await service.executeToolCall({
-    bundle: createBundle(),
-    toolCall: {
-      id: "tc-write-overwrite-mode",
-      name: "files",
-      arguments: {
-        action: "write",
-        path: "/workspace/report.txt",
-        content: "data",
-        mode: "overwrite"
-      }
-    },
-    sessionId: "session-1",
-    requestId: "request-1",
-    channel: "web",
-    chatId: null,
-    externalThreadKey: null,
-    messageId: null
-  });
-
-  assert.equal(result.isError, false);
-  assert.deepEqual(sandboxArgs, {
-    action: "write",
-    path: "/workspace/report.txt",
-    content: "data",
-    mode: "overwrite"
-  });
-  assert.equal(result.payload.path, "/workspace/report.txt");
+  assert.equal(upsertInput?.path, wp("report.txt"));
 });
 
 test("files.write create_only collisions still fail honestly", async () => {
@@ -829,7 +789,7 @@ test("files.write create_only collisions still fail honestly", async () => {
       name: "files",
       arguments: {
         action: "write",
-        path: "/workspace/report.txt",
+        path: wp("report.txt"),
         content: "data",
         mode: "create_only"
       }
@@ -844,7 +804,7 @@ test("files.write create_only collisions still fail honestly", async () => {
 
   assert.deepEqual(sandboxArgs, {
     action: "write",
-    path: "/workspace/report.txt",
+    path: wp("report.txt"),
     content: "data",
     mode: "create_only"
   });
@@ -902,7 +862,7 @@ test("files.write /tmp path does NOT upsert manifest", async () => {
   assert.equal(upsertCalled, false);
 });
 
-test("files.write /workspace/ upsert failure is swallowed; write still succeeds", async () => {
+test("files.write session-root upsert failure is swallowed; write still succeeds", async () => {
   const service = new RuntimeFilesToolService(
     {
       isConfigured: () => true,
@@ -933,7 +893,7 @@ test("files.write /workspace/ upsert failure is swallowed; write still succeeds"
       name: "files",
       arguments: {
         action: "write",
-        path: "/workspace/note.txt",
+        path: wp("note.txt"),
         content: "abc"
       }
     },
@@ -949,7 +909,7 @@ test("files.write /workspace/ upsert failure is swallowed; write still succeeds"
   assert.equal(result.payload.action, "written");
 });
 
-test("files.delete /workspace/ path deletes manifest after sandbox rm", async () => {
+test("files.delete session-root path deletes manifest after sandbox rm", async () => {
   let manifestDeleteCalled = false;
   let manifestDeleteInput: Record<string, unknown> | undefined;
   const service = createService({
@@ -975,7 +935,7 @@ test("files.delete /workspace/ path deletes manifest after sandbox rm", async ()
       name: "files",
       arguments: {
         action: "delete",
-        path: "/workspace/note.txt"
+        path: wp("note.txt")
       }
     },
     sessionId: "session-1",
@@ -990,7 +950,7 @@ test("files.delete /workspace/ path deletes manifest after sandbox rm", async ()
   assert.equal(result.payload.action, "deleted");
   assert.equal(manifestDeleteCalled, true);
   assert.equal(manifestDeleteInput?.workspaceId, "workspace-1");
-  assert.equal(manifestDeleteInput?.path, "/workspace/note.txt");
+  assert.equal(manifestDeleteInput?.path, wp("note.txt"));
 });
 
 test("files.delete /tmp path does NOT delete manifest", async () => {

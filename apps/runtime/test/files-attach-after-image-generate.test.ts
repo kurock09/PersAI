@@ -39,7 +39,9 @@ function createBundle(): AssistantRuntimeBundle {
 }
 
 test("AC11: read shared-outbound artefact then attach workspace edit", async () => {
-  const artefactPath = "/workspace/2026-06-23T22-00-00-marketing-poster.png";
+  const artefactPath =
+    "/workspace/assistants/my-bot/sessions/session-1/2026-06-23T22-00-00-marketing-poster.png";
+  const editedPath = "/workspace/assistants/my-bot/sessions/session-1/edited.png";
   const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
 
   const sandboxClientService = {
@@ -71,7 +73,7 @@ test("AC11: read shared-outbound artefact then attach workspace edit", async () 
             action: "attached",
             attachment: {
               workspaceRelPath: artefactPath,
-              sourcePath: "/workspace/edited.png",
+              sourcePath: editedPath,
               sizeBytes: 8,
               mimeType: "image/png",
               displayName: "edited.png"
@@ -129,7 +131,7 @@ test("AC11: read shared-outbound artefact then attach workspace edit", async () 
     toolCall: {
       id: "tc-attach",
       name: "files",
-      arguments: { action: "attach", path: "/workspace/edited.png" }
+      arguments: { action: "attach", path: editedPath }
     },
     sessionId: "session-1",
     requestId: "request-attach",

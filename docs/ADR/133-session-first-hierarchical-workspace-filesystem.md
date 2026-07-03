@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — founder-directed clean filesystem program opened 2026-07-03. Slice 1 (shared path contract and ADR wiring only), Slice 2 (sandbox + GCS cutover), and Slice 3 (API manifest/upload/delivery/document cutover) are landed locally. Slice 3 completed the active API-side move to hierarchical session-root paths, removed stale `/workspace/chats` and active `workspace_shared` API vocabulary, renamed/synchronized the GC lease enum boundary (`session_subtree | assistant_subtree | workspace_subtree`) across Prisma/API/sandbox, and removed the active global `/workspace/projects` default for document project derivation. Remaining runtime/web/model-instruction migration must stay orchestrated by the parent agent with GPT-5.4/Sonnet implementation subagents.
+Accepted — founder-directed clean filesystem program opened 2026-07-03. Slice 1 (shared path contract and ADR wiring only), Slice 2 (sandbox + GCS cutover), Slice 3 (API manifest/upload/delivery/document cutover), and Slice 4 (runtime tools + model-instruction owners) are landed locally. Slice 4 completed the active runtime/prompt-owner move to hierarchical session-root truth for `files` / `document`, the Working Files developer block, native tool projection, bootstrap/tool catalog prompt owners, and golden/prompt guard tests, and removed active model-facing `workspace_shared` / `crossScope:true` / flat `/workspace/<path>` teaching from those layers. The ADR remains open for Slice 5 web/UI/OpenAPI/docs closure and the final end-to-end acceptance gate. Remaining work must stay orchestrated by the parent agent with GPT-5.4/Sonnet implementation subagents.
 
 ## Date
 
@@ -240,6 +240,14 @@ Update runtime behavior and all model-facing instructions together:
 - golden snapshot and prompt guard tests.
 
 This slice must remove the old scope vocabulary from active model-facing surfaces.
+
+Landed locally 2026-07-03:
+
+- Runtime `files` / `document` path defaults, tool wording, and active result/developer surfaces now teach the session-root hierarchy `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`, with assistant/workspace widening only by ordinary path choice.
+- The Working Files developer block now reports current session files, preserves sticky labels and micro-descriptions, and no longer teaches the retired `Current chat / this session` framing.
+- `apps/api/prisma/bootstrap-preset-data.ts`, `apps/api/prisma/tool-catalog-data.ts`, and `apps/runtime/src/modules/turns/native-tool-projection.ts` now agree on the hierarchical prompt truth and carry negative guard tests against stale `workspace_shared` / `crossScope:true` / flat-path wording.
+- Runtime contracts/tests were updated so positive fixtures use hierarchical session-root or explicit widen paths only, and active runtime `files.write` compatibility for legacy `mode:"overwrite"` was removed instead of preserved as a model-visible shim.
+- The ADR batch’s prior sandbox lint blocker in `apps/sandbox/src/sandbox.service.ts` was fixed with the minimal dead-code removal required for acceptance.
 
 ### Slice 5 — Web, OpenAPI, docs, and closure
 

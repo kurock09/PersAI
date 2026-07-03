@@ -117,13 +117,14 @@ GOTCHAS:
       "Use exactly three document verbs for ordinary document work: inspect an existing file, render a new file from Markdown, or convert an existing file between PDF/DOCX/XLSX.",
     modelUsageGuidance: `WHEN TO USE: User asks for a PDF document, DOCX/Word file, XLSX/spreadsheet, report, manual, instruction, table, or other ordinary document output.
 EXAMPLES:
-- document({action:"inspect", path:"/workspace/source.docx"}) — inspect an existing PDF/DOCX/XLSX source and get a bounded structured view.
-- document({action:"render", outputPath:"/workspace/reports/q2.pdf", format:"pdf", content:"# Q2 Report\n\nSummary..."}) — render a new PDF directly from inline Markdown.
-- document({action:"render", outputPath:"/workspace/reports/q2.docx", format:"docx", contentPath:"/workspace/reports/q2.md", style:"report"}) — render a DOCX from an existing Markdown file.
-- document({action:"render", outputPath:"/workspace/reports/table.xlsx", format:"xlsx", content:"# Revenue\n\n| Month | Revenue |\n| --- | --- |\n| Jan | 10 |"}) — render a trivial data-only XLSX from Markdown tables.
-- document({action:"convert", source:"/workspace/source.docx", targetFormat:"pdf"}) — convert an existing document to a different document format and deliver it.
+- document({action:"inspect", path:"/workspace/assistants/lyra/sessions/session-123/source.docx"}) — inspect an existing PDF/DOCX/XLSX source and get a bounded structured view.
+- document({action:"render", outputPath:"/workspace/assistants/lyra/sessions/session-123/reports/q2.pdf", format:"pdf", content:"# Q2 Report\n\nSummary..."}) — render a new PDF directly from inline Markdown.
+- document({action:"render", outputPath:"/workspace/assistants/lyra/sessions/session-123/reports/q2.docx", format:"docx", contentPath:"/workspace/assistants/lyra/sessions/session-123/reports/q2.md", style:"report"}) — render a DOCX from an existing Markdown file.
+- document({action:"render", outputPath:"/workspace/assistants/lyra/sessions/session-123/reports/table.xlsx", format:"xlsx", content:"# Revenue\n\n| Month | Revenue |\n| --- | --- |\n| Jan | 10 |"}) — render a trivial data-only XLSX from Markdown tables.
+- document({action:"convert", source:"/workspace/assistants/lyra/sessions/session-123/source.docx", targetFormat:"pdf"}) — convert an existing document to a different document format and deliver it.
 GOTCHAS:
 - The document surface is exactly three verbs: \`inspect\`, \`render\`, and \`convert\`.
+- New outputs normally belong under the current session root \`/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...\`; widen only when the user explicitly wants a broader path.
 - \`document.render\` persists the Markdown source as a visible sibling \`.md\` file next to the output, registers the output, and delivers it in one call.
 - \`document.convert\` is deterministic format conversion only; it does not rewrite content semantically.
 `,
@@ -289,24 +290,24 @@ GOTCHAS:
     description:
       "Path-driven workspace file operations: list, read, preview, write, delete, attach.",
     modelDescription:
-      "Path-driven file operations on the single flat `/workspace/` namespace. Read/write/delete/attach by exact listed `/workspace/...` path; never reconstruct paths from displayName/filename. Default visibility is current-chat scoped; widen to assistant or workspace_shared only on explicit user need. Writes are collision-safe by default, with `replace: true` as the exact-overwrite opt-in.",
-    modelUsageGuidance: `Files in this workspace live under \`/workspace/\`. By default \`files.list\` shows only the current chat scope. Widen only when the user asks: \`scope:"assistant"\` for this assistant's other chats, then \`scope:"workspace_shared"\` for the whole workspace. Read/preview/attach/delete by exact path from the Working Files block, a scoped \`files.list\`, or a prior tool result; if touching a file outside the current chat scope, first surface it via widened list and then pass \`crossScope:true\`. By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` on \`files.write\` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To create a new file, pick a new \`/workspace/...\` path. Use \`/tmp/\` for ephemeral scratch that the user should not see.
+      "Path-driven file operations on hierarchical `/workspace/...` paths. Default new work stays under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`; widen by path to `/workspace/assistants/<assistantStableKey>/` or `/workspace/` only when needed. Read/write/delete/attach by exact listed path; never reconstruct paths from displayName/filename. Writes are collision-safe by default, with `replace: true` as the exact-overwrite opt-in.",
+    modelUsageGuidance: `Files in this workspace use hierarchical \`/workspace/...\` paths. The default session root is \`/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...\`. Call \`files.list\` with no path (or list that session-root path) to see current-session files, then widen only by ordinary parent paths: \`/workspace/assistants/<assistantStableKey>/\` for this assistant's broader files, then \`/workspace/\` for the whole workspace. Read/preview/attach/delete by exact path from the Working Files block, a \`files.list\`, or a prior tool result. By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` on \`files.write\` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. To create a new file, pick a new \`/workspace/...\` path under the right root. Use \`/tmp/\` for ephemeral scratch that the user should not see.
 WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace file to chat.
 EXAMPLES:
-- files({action:"list", path:"/workspace/"}) — see files from the current chat only.
-- files({action:"list", path:"/workspace/", scope:"assistant"}) — widen to this assistant's files from prior chats when the user asks.
-- files({action:"read", path:"/workspace/report.csv"}) — read a current-chat file under /workspace/.
-- files({action:"read", path:"/workspace/old-report.pdf", crossScope:true}) — read a cross-scope file only after surfacing it through a widened list.
-- files({action:"preview", path:"/workspace/notes.md", maxBytes:4096}) — peek at the head of a large file.
-- files({action:"write", path:"/workspace/draft.txt", content:"hello"}) — create a new file or allocate a sibling \` (N)\` filename when that exact path is already occupied.
-- files({action:"delete", path:"/workspace/tmp.bin"}) — remove an unneeded file.
-- files({action:"attach", path:"/workspace/draft.txt"}) — deliver a file to the user as a chat attachment.
+- files({action:"list"}) — list the current session root.
+- files({action:"list", path:"/workspace/assistants/lyra/"}) — widen to this assistant's broader files when the user asks.
+- files({action:"list", path:"/workspace/"}) — widen to the whole workspace only when needed.
+- files({action:"read", path:"/workspace/assistants/lyra/sessions/session-123/report.csv"}) — read a current-session file by exact path.
+- files({action:"preview", path:"/workspace/assistants/lyra/sessions/session-123/notes.md", maxBytes:4096}) — peek at the head of a large file.
+- files({action:"write", path:"/workspace/assistants/lyra/sessions/session-123/draft.txt", content:"hello"}) — create a new file or allocate a sibling \` (N)\` filename when that exact path is already occupied.
+- files({action:"delete", path:"/workspace/assistants/lyra/sessions/session-123/tmp.bin"}) — remove an unneeded file.
+- files({action:"attach", path:"/workspace/assistants/lyra/sessions/session-123/draft.txt"}) — deliver a file to the user as a chat attachment.
 GOTCHAS:
 - Six actions only: list, read, preview, write, delete, attach. There is no legacy file-id selector and no search/send/edit action here.
-- Paths must be pod-absolute and under /workspace/. Use /tmp/ for ephemeral scratch.
+- Paths must be pod-absolute and under /workspace/. Current-session work normally stays under \`/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...\`. Use /tmp/ for ephemeral scratch.
 - For list supply the directory path; for read/preview/write/delete/attach supply the file path.
 - For read/preview you may pass \`maxBytes\` to cap returned bytes; for list you may pass \`maxDepth\` to bound recursion. Server-side limits still apply.
-- Default scope is the current chat. Cross-chat or cross-assistant files require an explicit widened \`files.list({scope})\` followed by \`crossScope:true\` on the concrete operation.
+- The active widen model is path-based: start in the current session root, widen to \`/workspace/assistants/<assistantStableKey>/\` for this assistant, then to \`/workspace/\` for the whole workspace only when the user needs that broader view.
 - By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` only when the user explicitly asked to overwrite that exact file.
 - attach delivers an EXISTING file; it does not regenerate. If the file is not yet written, write it first.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
@@ -339,7 +340,7 @@ GOTCHAS:
     description: "Run a bounded shell command inside the isolated sandbox workspace.",
     modelDescription: "Run a bounded shell command inside the assistant sandbox workspace.",
     modelUsageGuidance: `WHEN TO USE: Use shell proactively for multi-step autonomous work — pipelines, shell builtins, process composition, running scripts, build commands, transformations, runtime package installs, Git operations, and any multi-command sequencing inside the sandbox. Shell is the primary autonomous execution surface; do not wait to be asked.
-SHELL ENVIRONMENT: /bin/bash with brace expansion, [[ … ]], <(…), set -o pipefail. Python 3 with system packages, plus session-scoped pip user-site at /workspace/.local (pip install <pkg> writes there; survives across turns within the session). Node 22 LTS with npm; npm install -g lands in /workspace/.npm-global, npm install (no -g) lands in /workspace/node_modules. Egress over HTTPS is allowlisted for github.com, *.github.com, *.githubusercontent.com, pypi.org, files.pythonhosted.org, registry.npmjs.org, *.npmjs.com — other hosts are denied.
+SHELL ENVIRONMENT: /bin/bash with brace expansion, [[ … ]], <(…), set -o pipefail. The default cwd is the current session root \`/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/\`. Python 3 with system packages, plus session-scoped pip user-site under that session root (for example \`.local\`). Node 22 LTS with npm; session-local installs stay under the current session root (for example \`node_modules\` or \`.npm-global\`). Egress over HTTPS is allowlisted for github.com, *.github.com, *.githubusercontent.com, pypi.org, files.pythonhosted.org, registry.npmjs.org, *.npmjs.com — other hosts are denied.
 EXAMPLES:
 - shell({command:"pip install --quiet rich && python3 -c 'import rich; rich.print({\\"ok\\": True})'"}) — install a Python package (session-scoped) and use it.
 - shell({command:"npm install left-pad && node -e 'console.log(require(\\"left-pad\\")(\\"42\\", 5, \\"0\\"))'"}) — install a Node package locally.
@@ -348,8 +349,8 @@ EXAMPLES:
 - shell({command:"npm install && npm run build"}) — multi-step build pipeline.
 - shell({command:"python3 script.py --input data.csv --output result.json"}) — run a script with arguments.
 GOTCHAS:
-- Refer to workspace files by pod-absolute path (/workspace/..., /workspace/...) or run with cwd set to your chat-scoped /workspace/chats/<chatId>/.
-- pip install / npm install land under /workspace/ (session-scoped); they do not leak across assistants or workspaces.
+- Refer to workspace files by pod-absolute path (/workspace/...) or by paths relative to the current session root.
+- pip install / npm install stay session-scoped under the current session root; they do not leak across assistants or workspaces.
 - git push: PersAI never injects a GitHub token. Either bake credentials into the URL or write your own ~/.gitconfig — without auth GitHub returns 401.
 - Non-allowlisted hosts (gitlab.com, bitbucket.org, custom CDNs) are denied at the egress proxy by SNI — a 1-line allowlist follow-up is the only path to expand.
 - Stay within sandbox CPU / memory / time limits.`,
@@ -366,13 +367,13 @@ GOTCHAS:
       "Search workspace files for a text pattern and return structured matches (file path, line number, matched text).",
     modelUsageGuidance: `WHEN TO USE: Content search — find code patterns, strings, identifiers, log entries, or any text across the workspace.
 EXAMPLES:
-- grep({pattern:"TODO"}) — find all TODO comments in the workspace.
+- grep({pattern:"TODO"}) — find all TODO comments in the current session root.
 - grep({pattern:"function processPayment", glob:"**/*.ts"}) — search TypeScript files for a function.
 - grep({pattern:"ERROR", path:"logs/", caseInsensitive:true}) — search a specific directory case-insensitively.
 - grep({pattern:"import.*from.*react", type:"ts"}) — grep by file type.
 GOTCHAS:
 - pattern is a regex; escape special chars (e.g. use \\. not . to match a literal dot).
-- path is a workspace-relative directory to scope the search; omit to search the whole workspace.
+- path is a workspace-relative directory to scope the search; omit it to search the current session root, or widen with an assistant-root/workspace-root path explicitly.
 - Use glob or type to narrow by file extension; omit for a broad search.
 - truncated:true means matches were capped; narrow the search with glob, type, or path.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
@@ -388,12 +389,12 @@ GOTCHAS:
       "Find workspace files whose names match a glob pattern and return sorted relative paths.",
     modelUsageGuidance: `WHEN TO USE: Filename discovery — find files by name pattern, extension, or path prefix.
 EXAMPLES:
-- glob({pattern:"*.ts"}) — find all TypeScript files in the workspace.
+- glob({pattern:"*.ts"}) — find all TypeScript files in the current session root.
 - glob({pattern:"*.test.ts", path:"src/"}) — find test files in a specific directory.
 - glob({pattern:"README*"}) — find README files of any extension.
 GOTCHAS:
 - pattern is a glob expression; use * for any characters in a segment, ** for any depth.
-- path scopes the search to a workspace-relative directory; omit to search the whole workspace.
+- path scopes the search to a workspace-relative directory; omit it to search the current session root, or widen with an assistant-root/workspace-root path explicitly.
 - Results are sorted alphabetically; truncated:true means the list was capped.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,

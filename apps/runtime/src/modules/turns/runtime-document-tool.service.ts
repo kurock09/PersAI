@@ -13,7 +13,8 @@ import {
   type RuntimeOutputArtifact,
   type RuntimeSandboxJobRequest,
   type RuntimeSandboxJobResult,
-  type RuntimeSandboxPolicy
+  type RuntimeSandboxPolicy,
+  isValidVisibleWorkspacePath
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { SandboxClientService } from "./sandbox-client.service";
@@ -1296,12 +1297,7 @@ export class RuntimeDocumentToolService {
     if (trimmed.includes("..")) {
       return null;
     }
-    if (
-      trimmed === "/workspace/input" ||
-      trimmed.startsWith("/workspace/input/") ||
-      trimmed === "/workspace/outbound" ||
-      trimmed.startsWith("/workspace/outbound/")
-    ) {
+    if (!isValidVisibleWorkspacePath(trimmed)) {
       return null;
     }
     if (options?.allowDirectory === true) {

@@ -377,8 +377,6 @@ export class SandboxService {
     const policy = input.policy ?? DEFAULT_RUNTIME_SANDBOX_POLICY;
     const jobId = randomUUID();
     let leaseGuard: WorkspaceLeaseGuard | null = null;
-    let workspaceRoot: string | null = null;
-    let currentRoot: string | null = null;
     try {
       await this.prisma.sandboxJob.create({
         data: {

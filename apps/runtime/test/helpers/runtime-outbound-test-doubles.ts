@@ -1,5 +1,5 @@
 export function createFakeSandboxClientForOutboundWrite(
-  workspaceRelPath = "/workspace/test-artefact.bin"
+  workspaceRelPath = "/workspace/assistants/assistant-handle/sessions/session-id/test-artefact.bin"
 ): {
   writeWorkspaceFile(input: {
     contentBase64: string;

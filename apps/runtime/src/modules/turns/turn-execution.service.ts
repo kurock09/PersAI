@@ -47,7 +47,7 @@ import {
   type RuntimeImageEditToolResult,
   type RuntimeImageGenerateToolResult,
   type RuntimeFileHandle,
-  type RuntimeFileScopeTier,
+  type RuntimeFileVisibilityTier,
   type RuntimeOutputArtifact,
   type RuntimeSandboxToolResult,
   type RuntimeScheduledActionToolResult,
@@ -147,7 +147,7 @@ import {
   createEmptyTurnDeliveryFacts,
   finalizeTurnDeliveryFacts,
   recordTurnDeliveryFactsFromToolOutcome,
-  resolveRuntimeFileScopeTier,
+  resolveRuntimeFileVisibilityTier,
   resolveUndeliveredProducedPaths,
   type RuntimeTurnDeliveryFactsTracker
 } from "./turn-delivery-facts";
@@ -2124,33 +2124,34 @@ export class TurnExecutionService {
     const producedPaths = context?.producedPaths ?? new Set<string>();
     const currentChatId = context?.currentChatId ?? null;
     const tieredFiles: RuntimeFileHandle[] = availableWorkingFileHandles.map((file) => {
-      const scopeTier: RuntimeFileScopeTier =
-        file.scopeTier ??
-        resolveRuntimeFileScopeTier({
+      const visibilityTier: RuntimeFileVisibilityTier =
+        file.visibilityTier ??
+        resolveRuntimeFileVisibilityTier({
           storagePath: file.storagePath,
           currentChatId,
           producedPathsThisTurn: producedPaths,
           ...(file.authorLabel === undefined ? {} : { authorLabel: file.authorLabel }),
           ...(file.originChatId === undefined ? {} : { originChatId: file.originChatId })
         });
-      return { ...file, scopeTier };
+      return { ...file, visibilityTier };
     });
-    const chatScopedFiles = this.limitWorkingFilesForTier(
-      tieredFiles.filter((file) => file.scopeTier === "chat"),
-      MAX_WORKING_FILES_CHAT_TIER
-    );
-    if (chatScopedFiles.length === 0) {
+    const allSessionFiles = tieredFiles.filter((file) => file.visibilityTier === "session");
+    if (allSessionFiles.length === 0) {
       return null;
     }
+    const sessionFiles = this.limitWorkingFilesForTier(
+      allSessionFiles,
+      MAX_WORKING_FILES_CHAT_TIER
+    );
 
     const lines = ["## Working Files"];
-    const documentPriorityNote = this.buildWorkingFileDocumentPriorityNote(chatScopedFiles);
+    const documentPriorityNote = this.buildWorkingFileDocumentPriorityNote(allSessionFiles);
     if (documentPriorityNote !== null) {
       lines.push("", ...documentPriorityNote);
     }
 
-    lines.push("", ...this.buildWorkingFileGeneralFileNote(chatScopedFiles), "");
-    this.appendWorkingFilesTierSection(lines, "Current chat / this session", chatScopedFiles);
+    lines.push("", ...this.buildWorkingFileGeneralFileNote(allSessionFiles), "");
+    this.appendWorkingFilesTierSection(lines, "Current session files", sessionFiles);
 
     lines.push(
       "",
@@ -2173,7 +2174,32 @@ export class TurnExecutionService {
     if (sorted.length <= maxCount) {
       return sorted;
     }
-    return sorted.slice(0, maxCount);
+    const { currentSource, lastDelivered } = this.selectWorkingFileDocumentPriorityAnchors(sorted);
+    const requiredFileRefs = new Set(
+      [currentSource, lastDelivered]
+        .filter((file): file is RuntimeFileHandle => file !== null)
+        .map((file) => file.storagePath)
+    );
+    const visible = [...sorted.slice(0, maxCount)];
+    const visibleFileRefs = new Set(visible.map((file) => file.storagePath));
+    for (const file of [currentSource, lastDelivered]) {
+      if (file !== null && !visibleFileRefs.has(file.storagePath)) {
+        visible.push(file);
+        visibleFileRefs.add(file.storagePath);
+      }
+    }
+    const ordered = this.sortWorkingFilesByCreatedAt(visible);
+    while (ordered.length > maxCount) {
+      const removableIndex = [...ordered]
+        .reverse()
+        .findIndex((file) => !requiredFileRefs.has(file.storagePath));
+      if (removableIndex === -1) {
+        break;
+      }
+      const actualIndex = ordered.length - 1 - removableIndex;
+      ordered.splice(actualIndex, 1);
+    }
+    return ordered;
   }
 
   private appendWorkingFilesTierSection(

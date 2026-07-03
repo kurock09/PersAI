@@ -132,7 +132,9 @@ describe("RuntimeImageEditToolService", () => {
       providerGatewayClient as never,
       {} as never,
       createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite("/workspace/image-edit-1.png") as never
+      createFakeSandboxClientForOutboundWrite(
+        "/workspace/assistants/assistant-handle/sessions/session-1/image-edit-1.png"
+      ) as never
     );
 
     const attachments = [
@@ -281,7 +283,9 @@ describe("RuntimeImageEditToolService", () => {
       } as never,
       {} as never,
       createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite("/workspace/image-edit-ref.png") as never
+      createFakeSandboxClientForOutboundWrite(
+        "/workspace/assistants/assistant-handle/sessions/session-ref/image-edit-ref.png"
+      ) as never
     );
 
     const attachments = [
@@ -479,7 +483,9 @@ describe("RuntimeImageEditToolService", () => {
       } as never,
       {} as never,
       createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite("/workspace/edit-series.png") as never
+      createFakeSandboxClientForOutboundWrite(
+        "/workspace/assistants/assistant-handle/sessions/session-series/edit-series.png"
+      ) as never
     );
 
     const attachments = [

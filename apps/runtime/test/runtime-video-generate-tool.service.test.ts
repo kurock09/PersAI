@@ -641,7 +641,7 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   const sandboxClient = {
     async writeWorkspaceFile(input: { contentBase64: string }) {
       return {
-        workspaceRelPath: "/workspace/video.mp4",
+        workspaceRelPath: "/workspace/assistants/assistant-handle/sessions/session-1/video.mp4",
         sizeBytes: Buffer.from(input.contentBase64, "base64").length
       };
     }

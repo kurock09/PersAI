@@ -5,6 +5,12 @@ import { TurnExecutionService } from "../src/modules/turns/turn-execution.servic
 
 type TestWorkingFile = RuntimeFileHandle;
 
+const TEST_SESSION_ROOT = "/workspace/assistants/assistant-handle/sessions/session-id";
+
+function wp(relativePath: string): string {
+  return `${TEST_SESSION_ROOT}/${relativePath.replace(/^\/+/, "")}`;
+}
+
 function workingFile(input: {
   storagePath: string;
   displayName: string;
@@ -15,7 +21,7 @@ function workingFile(input: {
   authorLabel?: "user" | "model" | "sandbox";
   semanticSummaryHint?: string | null;
   sourceToolCode?: string | null;
-  scopeTier?: RuntimeFileHandle["scopeTier"];
+  visibilityTier?: RuntimeFileHandle["visibilityTier"];
 }): TestWorkingFile {
   return {
     storagePath: input.storagePath,
@@ -24,7 +30,7 @@ function workingFile(input: {
     sizeBytes: input.sizeBytes ?? 10,
     workspaceId: "workspace-1",
     aliases: input.aliases,
-    scopeTier: input.scopeTier ?? "chat",
+    visibilityTier: input.visibilityTier ?? "session",
     ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
     ...(input.authorLabel === undefined ? {} : { authorLabel: input.authorLabel }),
     ...(input.semanticSummaryHint === undefined
@@ -112,7 +118,7 @@ describe("TurnExecutionService working files developer section", () => {
       baseSections,
       [
         workingFile({
-          storagePath: "/workspace/photo.jpg",
+          storagePath: wp("photo.jpg"),
           displayName: "photo.jpg",
           mimeType: "image/jpeg",
           sizeBytes: 123,
@@ -140,7 +146,7 @@ describe("TurnExecutionService working files developer section", () => {
   test("renders working files with sticky labels and marker column", () => {
     const section = buildSection([
       workingFile({
-        storagePath: "/workspace/old.txt",
+        storagePath: wp("old.txt"),
         displayName: "old.txt",
         mimeType: "text/plain",
         aliases: ["file #1"],
@@ -149,7 +155,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Older user draft."
       }),
       workingFile({
-        storagePath: "/workspace/portrait.png",
+        storagePath: wp("portrait.png"),
         displayName: "portrait.png",
         mimeType: "image/png",
         aliases: ["image #1", "file #2"],
@@ -159,7 +165,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Makeup strengthened and colors balanced."
       }),
       workingFile({
-        storagePath: "/workspace/assistant-1/workspace-1/outputs/report.md",
+        storagePath: wp("outputs/report.md"),
         displayName: "report.md",
         mimeType: "text/markdown",
         aliases: ["file #3"],
@@ -184,17 +190,21 @@ describe("TurnExecutionService working files developer section", () => {
     );
     assert.equal(
       historyLines[0]?.startsWith(
-        `- ${formatUtcTimestamp("2026-05-26T14:32:00.000Z")} | model | image #1 (file #2) | portrait.png | path=/workspace/portrait.png | - | Makeup strengthened`
+        `- ${formatUtcTimestamp("2026-05-26T14:32:00.000Z")} | model | image #1 (file #2) | portrait.png | path=${wp("portrait.png")} | - | Makeup strengthened`
       ),
       true
     );
     assert.match(
       historyLines[1] ?? "",
-      /\| sandbox \| file #3 \| report\.md \| path=\/workspace\/assistant-1\/workspace-1\/outputs\/report\.md \| - \| Sandbox-generated/
+      new RegExp(
+        `\\| sandbox \\| file #3 \\| report\\.md \\| path=${wp("outputs/report.md").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| - \\| Sandbox-generated`
+      )
     );
     assert.match(
       historyLines[2] ?? "",
-      /\| user \| file #1 \| old\.txt \| path=\/workspace\/old\.txt \| current source \| Older user draft/
+      new RegExp(
+        `\\| user \\| file #1 \\| old\\.txt \\| path=${wp("old.txt").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| current source \\| Older user draft`
+      )
     );
     assert.doesNotMatch(
       section ?? "",
@@ -208,7 +218,7 @@ describe("TurnExecutionService working files developer section", () => {
   test("keeps both same-name files visible and disambiguates them", () => {
     const section = buildSection([
       workingFile({
-        storagePath: "/workspace/foo-1.png",
+        storagePath: wp("foo-1.png"),
         displayName: "foo.png",
         mimeType: "image/png",
         aliases: ["image #1", "file #1"],
@@ -218,7 +228,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Makeup strengthened."
       }),
       workingFile({
-        storagePath: "/workspace/foo-2.png",
+        storagePath: wp("foo-2.png"),
         displayName: "foo.png",
         mimeType: "image/png",
         aliases: ["image #2", "file #2"],
@@ -232,18 +242,22 @@ describe("TurnExecutionService working files developer section", () => {
     assert.ok(section);
     assert.match(
       section ?? "",
-      /foo\.png \[#1\] \| path=\/workspace\/foo-1\.png \| - \| Makeup strengthened\./
+      new RegExp(
+        `foo\\.png \\[#1\\] \\| path=${wp("foo-1.png").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| - \\| Makeup strengthened\\.`
+      )
     );
     assert.match(
       section ?? "",
-      /foo\.png \[#2\] \| path=\/workspace\/foo-2\.png \| - \| Hair color corrected\./
+      new RegExp(
+        `foo\\.png \\[#2\\] \\| path=${wp("foo-2.png").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| - \\| Hair color corrected\\.`
+      )
     );
   });
 
   test("document priority note remains without rendering legacy role sections", () => {
     const section = buildSection([
       workingFile({
-        storagePath: "/workspace/proposal.docx",
+        storagePath: wp("proposal.docx"),
         displayName: "proposal.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
@@ -253,7 +267,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Current source document for the new PDF."
       }),
       workingFile({
-        storagePath: "/workspace/proposal.pdf",
+        storagePath: wp("proposal.pdf"),
         displayName: "proposal.pdf",
         mimeType: "application/pdf",
         sizeBytes: 1024,
@@ -269,11 +283,15 @@ describe("TurnExecutionService working files developer section", () => {
     assert.match(section ?? "", /Document-tool PDF anchors \(not general file recency\):/);
     assert.match(
       section ?? "",
-      /DOC_CURRENT_SOURCE = file #1 \| proposal\.docx \| path=\/workspace\/proposal\.docx/
+      new RegExp(
+        `DOC_CURRENT_SOURCE = file #1 \\| proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+      )
     );
     assert.match(
       section ?? "",
-      /DOC_LAST_DELIVERED_PDF = file #2 \| proposal\.pdf \| path=\/workspace\/proposal\.pdf/
+      new RegExp(
+        `DOC_LAST_DELIVERED_PDF = file #2 \\| proposal\\.pdf \\| path=${wp("proposal.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+      )
     );
     assert.match(
       section ?? "",
@@ -281,7 +299,9 @@ describe("TurnExecutionService working files developer section", () => {
     );
     assert.match(
       section ?? "",
-      /LAST_DELIVERED_FILE = file #1 \| proposal\.docx \| path=\/workspace\/proposal\.docx/
+      new RegExp(
+        `LAST_DELIVERED_FILE = file #1 \\| proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+      )
     );
     assert.match(
       section ?? "",
@@ -296,7 +316,7 @@ describe("TurnExecutionService working files developer section", () => {
   test("shows exact path when displayName is not the workspace path", () => {
     const section = buildSection([
       workingFile({
-        storagePath: "/workspace/report (1).docx",
+        storagePath: wp("report (1).docx"),
         displayName: "report.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
@@ -308,15 +328,20 @@ describe("TurnExecutionService working files developer section", () => {
     ]);
 
     assert.ok(section);
-    assert.match(section ?? "", /\| report\.docx \| path=\/workspace\/report \(1\)\.docx \|/);
+    assert.match(
+      section ?? "",
+      new RegExp(
+        `\\| report\\.docx \\| path=${wp("report (1).docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\|`
+      )
+    );
     assert.match(section ?? "", /Do not reconstruct a path from displayName\/filename/);
-    assert.doesNotMatch(section ?? "", /path=\/workspace\/report\.docx/);
+    assert.doesNotMatch(section ?? "", /path=.*report\.docx \|/);
   });
 
   test("keeps current source and last delivered anchors visible when older files exceed the cap", () => {
     const extraFiles = Array.from({ length: 20 }, (_, index) =>
       workingFile({
-        storagePath: `/workspace/extra-${String(index + 1)}.png`,
+        storagePath: wp(`extra-${String(index + 1)}.png`),
         displayName: `extra-${String(index + 1)}.png`,
         mimeType: "image/png",
         aliases: [`image #${String(index + 1)}`, `file #${String(index + 1 + 2)}`],
@@ -330,7 +355,7 @@ describe("TurnExecutionService working files developer section", () => {
     );
     const section = buildSection([
       workingFile({
-        storagePath: "/workspace/proposal.docx",
+        storagePath: wp("proposal.docx"),
         displayName: "proposal.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
@@ -341,7 +366,7 @@ describe("TurnExecutionService working files developer section", () => {
       }),
       ...extraFiles,
       workingFile({
-        storagePath: "/workspace/proposal.pdf",
+        storagePath: wp("proposal.pdf"),
         displayName: "proposal.pdf",
         mimeType: "application/pdf",
         sizeBytes: 1024,
@@ -358,26 +383,34 @@ describe("TurnExecutionService working files developer section", () => {
     assert.equal(historyLines.length, 10);
     assert.match(
       section ?? "",
-      /DOC_CURRENT_SOURCE = file #1 \| proposal\.docx \| path=\/workspace\/proposal\.docx/
+      new RegExp(
+        `DOC_CURRENT_SOURCE = file #1 \\| proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+      )
     );
     assert.match(
       section ?? "",
-      /DOC_LAST_DELIVERED_PDF = file #2 \| proposal\.pdf \| path=\/workspace\/proposal\.pdf/
+      new RegExp(
+        `DOC_LAST_DELIVERED_PDF = file #2 \\| proposal\\.pdf \\| path=${wp("proposal.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+      )
     );
     assert.match(
       section ?? "",
-      /LAST_DELIVERED_FILE = file #1 \| proposal\.docx \| path=\/workspace\/proposal\.docx/
+      new RegExp(
+        `LAST_DELIVERED_FILE = file #1 \\| proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+      )
     );
     assert.match(
       section ?? "",
-      /- 2026-04-01 10:00 \| model \| file #2 \| proposal\.pdf \| path=\/workspace\/proposal\.pdf \| last delivered result \| Latest delivered PDF result\./
+      new RegExp(
+        `- 2026-04-01 10:00 \\| model \\| file #2 \\| proposal\\.pdf \\| path=${wp("proposal.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| last delivered result \\| Latest delivered PDF result\\.`
+      )
     );
   });
 
   test("always shows microdescriptions when present and keeps recovery instructions", () => {
     const section = buildSection([
       workingFile({
-        storagePath: "/workspace/final-client-brief.docx",
+        storagePath: wp("final-client-brief.docx"),
         displayName: "final-client-brief.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         sizeBytes: 512,
@@ -391,7 +424,9 @@ describe("TurnExecutionService working files developer section", () => {
     assert.ok(section);
     assert.match(
       section ?? "",
-      /\| final-client-brief\.docx \| path=\/workspace\/final-client-brief\.docx \| current source \| Current source document for the new branded PDF\./
+      new RegExp(
+        `\\| final-client-brief\\.docx \\| path=${wp("final-client-brief.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| current source \\| Current source document for the new branded PDF\\.`
+      )
     );
     assert.match(section ?? "", /Recover a forgotten path with `files\.list` or `files\.read`/i);
     assert.match(section ?? "", /Do not send files or claim delivery\/preparation/i);
@@ -406,7 +441,7 @@ describe("TurnExecutionService working files developer section", () => {
       }
     ).mergeAssistantTurnText(
       "",
-      'Here you go.\n\nAssistant sent an attachment: document "plan.md", storagePath: "/workspace/plan.md".'
+      `Here you go.\n\nAssistant sent an attachment: document "plan.md", storagePath: "${wp("plan.md")}".`
     );
 
     assert.equal(merged.trimEnd(), "Here you go.");
@@ -416,7 +451,7 @@ describe("TurnExecutionService working files developer section", () => {
   test("adding a newer file does not renumber existing sticky labels", () => {
     const originalSection = buildSection([
       workingFile({
-        storagePath: "/workspace/older.png",
+        storagePath: wp("older.png"),
         displayName: "older.png",
         mimeType: "image/png",
         aliases: ["image #1", "file #1"],
@@ -426,7 +461,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Older image."
       }),
       workingFile({
-        storagePath: "/workspace/brief.docx",
+        storagePath: wp("brief.docx"),
         displayName: "brief.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         aliases: ["file #2"],
@@ -437,7 +472,7 @@ describe("TurnExecutionService working files developer section", () => {
     ]);
     const expandedSection = buildSection([
       workingFile({
-        storagePath: "/workspace/older.png",
+        storagePath: wp("older.png"),
         displayName: "older.png",
         mimeType: "image/png",
         aliases: ["image #1", "file #1"],
@@ -447,7 +482,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Older image."
       }),
       workingFile({
-        storagePath: "/workspace/brief.docx",
+        storagePath: wp("brief.docx"),
         displayName: "brief.docx",
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         aliases: ["file #2"],
@@ -456,7 +491,7 @@ describe("TurnExecutionService working files developer section", () => {
         semanticSummaryHint: "Older document."
       }),
       workingFile({
-        storagePath: "/workspace/newer.png",
+        storagePath: wp("newer.png"),
         displayName: "newer.png",
         mimeType: "image/png",
         aliases: ["image #2", "file #3"],
@@ -469,23 +504,33 @@ describe("TurnExecutionService working files developer section", () => {
 
     assert.match(
       originalSection ?? "",
-      /\| image #1 \(file #1\) \| older\.png \| path=\/workspace\/older\.png \|/
+      new RegExp(
+        `\\| image #1 \\(file #1\\) \\| older\\.png \\| path=${wp("older.png").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\|`
+      )
     );
     assert.match(
       originalSection ?? "",
-      /\| file #2 \| brief\.docx \| path=\/workspace\/brief\.docx \|/
+      new RegExp(
+        `\\| file #2 \\| brief\\.docx \\| path=${wp("brief.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\|`
+      )
     );
     assert.match(
       expandedSection ?? "",
-      /\| image #1 \(file #1\) \| older\.png \| path=\/workspace\/older\.png \|/
+      new RegExp(
+        `\\| image #1 \\(file #1\\) \\| older\\.png \\| path=${wp("older.png").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\|`
+      )
     );
     assert.match(
       expandedSection ?? "",
-      /\| file #2 \| brief\.docx \| path=\/workspace\/brief\.docx \|/
+      new RegExp(
+        `\\| file #2 \\| brief\\.docx \\| path=${wp("brief.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\|`
+      )
     );
     assert.match(
       expandedSection ?? "",
-      /\| image #2 \(file #3\) \| newer\.png \| path=\/workspace\/newer\.png \|/
+      new RegExp(
+        `\\| image #2 \\(file #3\\) \\| newer\\.png \\| path=${wp("newer.png").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\|`
+      )
     );
   });
 });

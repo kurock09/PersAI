@@ -167,8 +167,8 @@ export interface RuntimeDocumentSourceFile {
   } | null;
 }
 
-/** Visibility tiers for working-files presentation and widened file listing. */
-export type RuntimeFileScopeTier = "chat" | "assistant" | "workspace";
+/** Visibility tiers for Working Files presentation. */
+export type RuntimeFileVisibilityTier = "session" | "assistant" | "workspace";
 
 export interface RuntimeFileHandle {
   storagePath: string;
@@ -182,7 +182,7 @@ export interface RuntimeFileHandle {
   semanticSummaryHint?: string | null;
   sourceToolCode?: string | null;
   /** ADR-129 W9 — visibility tier for Working Files ordering. */
-  scopeTier?: RuntimeFileScopeTier;
+  visibilityTier?: RuntimeFileVisibilityTier;
   /** Persisted manifest origin when known (hydration from API). */
   originChatId?: string | null;
 }
@@ -271,15 +271,12 @@ export interface RuntimeSandboxJobRequest {
   assistantId: string;
   /**
    * Workspace-unique assistant path key carried in the shared runtime contract.
-   * ADR-133 uses this key for `/workspace/assistants/<assistantStableKey>/...`;
-   * older outbound-directory comments are historical only until behavior layers
-   * migrate.
+   * ADR-133 uses this key for `/workspace/assistants/<assistantStableKey>/...`.
    */
   assistantHandle: string;
   /**
-   * Sibling assistant path keys that share this workspace. Legacy outbound
-   * rematerialization comments are historical only until the later ADR-133
-   * sandbox cutover lands. Empty array means no siblings.
+   * Sibling assistant path keys that share this workspace. Empty array means no
+   * siblings.
    */
   siblingHandles: readonly string[];
   workspaceId: string;
@@ -4456,8 +4453,6 @@ export function isStaleVisibleWorkspacePath(path: string): boolean {
 
 export const DOCUMENT_WORKSPACE_PROJECT_SCHEMA = "persai.document.project.v1" as const;
 export const DOCUMENT_WORKSPACE_PROJECTS_SEGMENT = "projects" as const;
-export const DOCUMENT_WORKSPACE_PROJECTS_ROOT =
-  `${WORKSPACE_ROOT}/${DOCUMENT_WORKSPACE_PROJECTS_SEGMENT}` as const;
 
 export const DOCUMENT_WORKSPACE_PROJECT_SOURCE_KINDS = [
   "imported_workspace_file",

@@ -11,7 +11,7 @@ import { RuntimeDocumentProviderAdapterService } from "../src/modules/turns/runt
 const stubArtifact: RuntimeOutputArtifact = {
   artifactId: "artifact-1",
   kind: "file",
-  storagePath: "/workspace/deck.pptx",
+  storagePath: "/workspace/assistants/alice/sessions/session-1/deck.pptx",
   mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   sizeBytes: 1024,
   filename: "deck.pptx",

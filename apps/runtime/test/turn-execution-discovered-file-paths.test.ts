@@ -8,6 +8,12 @@ import type {
 } from "@persai/runtime-contract";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 
+const TEST_SESSION_ROOT = "/workspace/assistants/assistant-handle/sessions/session-id";
+
+function wp(relativePath: string): string {
+  return `${TEST_SESSION_ROOT}/${relativePath.replace(/^\/+/, "")}`;
+}
+
 type TurnExecutionState = {
   artifacts: RuntimeOutputArtifact[];
   fileHandles: RuntimeFileHandle[];
@@ -45,7 +51,7 @@ function createFilesSearchExchange(toolCallId: string): ProviderGatewayToolExcha
   const toolCall: ProviderGatewayToolCall = {
     id: toolCallId,
     name: "files",
-    arguments: { action: "list", path: "/workspace/" }
+    arguments: { action: "list", path: TEST_SESSION_ROOT }
   };
   return {
     toolCall,
@@ -66,7 +72,7 @@ function createSearchPayload(): RuntimeFilesToolResult {
     action: "listed",
     reason: null,
     warning: null,
-    path: "/workspace/",
+    path: TEST_SESSION_ROOT,
     items: []
   };
 }
@@ -113,9 +119,9 @@ async function run(): Promise<void> {
     }
   ).applyToolExecutionOutcome.bind(service);
 
-  const discoveredPath = "/workspace/persai_logo.png";
+  const discoveredPath = wp("persai_logo.png");
   const sharedPath1 = "/workspace.png";
-  const sharedPath2 = "/workspace/report.txt";
+  const sharedPath2 = wp("report.txt");
 
   {
     const turnState = createTurnState();

@@ -952,7 +952,7 @@ export class PersaiInternalApiClientService {
     workspaceId: string;
     pathPrefix: string;
     assistantHandle: string;
-    scope: "chat" | "assistant" | "workspace_shared";
+    scope: "chat" | "assistant" | "workspace";
     currentChatId: string | null;
     currentAssistantId: string;
   }): Promise<{ items: RuntimeFilesToolItem[] }> {

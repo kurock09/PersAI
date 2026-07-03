@@ -215,7 +215,9 @@ describe("RuntimeImageGenerateToolService", () => {
     const service = new RuntimeImageGenerateToolService(
       providerGatewayClient as never,
       {} as never,
-      createFakeSandboxClientForOutboundWrite("/workspace/image-1.png") as never
+      createFakeSandboxClientForOutboundWrite(
+        "/workspace/assistants/assistant-handle/sessions/session-1/image-1.png"
+      ) as never
     );
 
     const result = await service.executeToolCall({
@@ -343,7 +345,9 @@ describe("RuntimeImageGenerateToolService", () => {
         }
       } as never,
       {} as never,
-      createFakeSandboxClientForOutboundWrite("/workspace/image-series.png") as never
+      createFakeSandboxClientForOutboundWrite(
+        "/workspace/assistants/assistant-handle/sessions/session-series/image-series.png"
+      ) as never
     );
 
     const result = await service.executeToolCall({

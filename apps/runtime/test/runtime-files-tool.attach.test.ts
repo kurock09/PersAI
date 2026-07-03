@@ -5,6 +5,12 @@ import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
 import { RuntimeFilesToolService } from "../src/modules/turns/runtime-files-tool.service";
 import { stringifyToolResultPayloadForModel } from "../src/modules/turns/sanitize-tool-result-for-model";
 
+const TEST_SESSION_ROOT = "/workspace/assistants/my-bot/sessions/session-1";
+
+function wp(relativePath: string): string {
+  return `${TEST_SESSION_ROOT}/${relativePath.replace(/^\/+/, "")}`;
+}
+
 function createBundle(): AssistantRuntimeBundle {
   return {
     metadata: {
@@ -77,8 +83,8 @@ test("files.attach happy path workspace source emits assistant artifact", async 
       content: JSON.stringify({
         action: "attached",
         attachment: {
-          workspaceRelPath: "/workspace/report.csv",
-          sourcePath: "/workspace/report.csv",
+          workspaceRelPath: wp("report.csv"),
+          sourcePath: wp("report.csv"),
           sizeBytes: 12,
           mimeType: "text/csv",
           displayName: "report.csv"
@@ -98,7 +104,7 @@ test("files.attach happy path workspace source emits assistant artifact", async 
     toolCall: {
       id: "tc-1",
       name: "files",
-      arguments: { action: "attach", path: "/workspace/report.csv" }
+      arguments: { action: "attach", path: wp("report.csv") }
     },
     ...attachToolCallParams
   });
@@ -106,12 +112,12 @@ test("files.attach happy path workspace source emits assistant artifact", async 
   assert.equal(apiCalled, false);
   assert.equal(result.isError, false);
   assert.equal(result.payload.action, "attached");
-  assert.equal(result.payload.path, "/workspace/report.csv");
+  assert.equal(result.payload.path, wp("report.csv"));
   assert.equal(result.payload.sizeBytes, 12);
   assert.equal(result.discoveredFileHandles, undefined);
   assert.equal(result.artifacts?.length, 1);
   const artifact = result.artifacts?.[0];
-  assert.equal(artifact?.storagePath, "/workspace/report.csv");
+  assert.equal(artifact?.storagePath, wp("report.csv"));
   assert.equal(artifact?.mimeType, "text/csv");
   assert.equal(artifact?.sizeBytes, 12);
   assert.equal(artifact?.kind, "file");
@@ -121,10 +127,10 @@ test("files.attach happy path workspace source emits assistant artifact", async 
   assert.match(artifact?.artifactId ?? "", /^[0-9a-f-]{36}$/);
   const modelJson = stringifyToolResultPayloadForModel(result.payload);
   assert.ok(!modelJson.includes('"attachmentId"'));
-  assert.ok(!modelJson.includes("/workspace/report.csv"));
+  assert.match(modelJson, /"path":".*report\.csv"/);
 });
 
-test("files.attach happy path /workspace/ file emits assistant artifact", async () => {
+test("files.attach session-root image file emits assistant artifact", async () => {
   let apiCalled = false;
   const service = createService({
     sandboxJob: {
@@ -134,8 +140,8 @@ test("files.attach happy path /workspace/ file emits assistant artifact", async 
       violationMessage: null,
       content: JSON.stringify({
         attachment: {
-          workspaceRelPath: "/workspace/report.csv",
-          sourcePath: "/workspace/report.csv",
+          workspaceRelPath: wp("report.csv"),
+          sourcePath: wp("report.csv"),
           sizeBytes: 12,
           mimeType: "image/png",
           displayName: "report.png"
@@ -155,7 +161,7 @@ test("files.attach happy path /workspace/ file emits assistant artifact", async 
     toolCall: {
       id: "tc-2",
       name: "files",
-      arguments: { action: "attach", path: "/workspace/report.csv" }
+      arguments: { action: "attach", path: wp("report.csv") }
     },
     ...attachToolCallParams
   });
@@ -173,14 +179,14 @@ test("files.attach sandbox path_not_attachable does not call API", async () => {
     sandboxJob: {
       status: "completed",
       reason: "path_not_attachable",
-      warning: "files.attach accepts only /workspace/ or /workspace/ paths",
+      warning: "files.attach accepts only active hierarchical /workspace/... paths",
       violationMessage: null,
       content: null
     },
     apiClient: {
       async registerChatAttachment() {
         apiCalled = true;
-        return { attachmentId: "attachment-3", storagePath: "/workspace/report.csv" };
+        return { attachmentId: "attachment-3", storagePath: wp("report.csv") };
       }
     }
   });
@@ -216,7 +222,7 @@ test("files.attach sandbox failed job returns files_failed", async () => {
     toolCall: {
       id: "tc-4",
       name: "files",
-      arguments: { action: "attach", path: "/workspace/report.csv" }
+      arguments: { action: "attach", path: wp("report.csv") }
     },
     ...attachToolCallParams
   });

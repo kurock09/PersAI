@@ -263,25 +263,34 @@ async function run(): Promise<void> {
   const cronPolicy = toolPolicies.find((tool) => tool.toolCode === "cron");
   assert.equal(cronPolicy?.perTurnCap, null, "hidden-internal policies have null perTurnCap");
   const filesPolicy = toolPolicies.find((tool) => tool.toolCode === "files");
-  // ADR-128 Slice 4 — flat workspace. The description/usage guidance no longer
-  // mentions legacy reserved subtrees or role-based regions.
+  // ADR-133 Slice 4 — session-first hierarchical workspace. The
+  // description/usage guidance must teach session-root defaults and path-based
+  // widens without reviving stale scope flags or flat-root guidance.
   assert.match(
     filesPolicy?.description ?? "",
-    /Path-driven file operations on the single flat `\/workspace\/` namespace/
+    /Default new work stays under `\/workspace\/assistants\/<assistantStableKey>\/sessions\/<sessionId>\/\.\.\.`/
   );
   assert.equal(
     filesPolicy?.description ?? "",
     FILES_CATALOG_ROW?.modelDescription ?? "",
     "files description must flow from the catalog owner without a runtime-policy shadow override"
   );
-  assert.match(filesPolicy?.description ?? "", /exact listed `\/workspace\/\.\.\.` path/);
+  assert.match(filesPolicy?.description ?? "", /exact listed path/);
   assert.match(
     filesPolicy?.description ?? "",
     /never reconstruct paths from displayName\/filename/
   );
+  assert.match(
+    filesPolicy?.description ?? "",
+    /widen by path to `\/workspace\/assistants\/<assistantStableKey>\/` or `\/workspace\/` only when needed/
+  );
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/input/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/outbound/);
+  assert.doesNotMatch(
+    filesPolicy?.description ?? "",
+    /single flat `\/workspace\/` namespace|workspace_shared|crossScope:true|scope:"assistant"/
+  );
   assert.doesNotMatch(filesPolicy?.description ?? "", /write-and-send|files\.send|files\.search/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /coming soon/i);
   assert.match(filesPolicy?.usageGuidance ?? "", /^WHEN TO USE:/m);
@@ -295,6 +304,10 @@ async function run(): Promise<void> {
     filesPolicy?.usageGuidance ?? "",
     /Do not reconstruct upload paths from displayName\/filename/
   );
+  assert.match(
+    filesPolicy?.usageGuidance ?? "",
+    /Call `files\.list` with no path \(or list that session-root path\) to see current-session files/
+  );
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(
     filesPolicy?.usageGuidance ?? "",
@@ -302,6 +315,10 @@ async function run(): Promise<void> {
   );
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/input/);
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/outbound/);
+  assert.doesNotMatch(
+    filesPolicy?.usageGuidance ?? "",
+    /workspace_shared|crossScope:true|scope:"assistant"|scope:"workspace_shared"/
+  );
   assert.match(filesPolicy?.usageGuidance ?? "", /^EXAMPLES:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^GOTCHAS:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /six actions|Six actions/i);

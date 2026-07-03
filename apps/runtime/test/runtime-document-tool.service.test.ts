@@ -17,6 +17,12 @@ function createBundle(): AssistantRuntimeBundle {
   } as unknown as AssistantRuntimeBundle;
 }
 
+const TEST_SESSION_ROOT = "/workspace/assistants/a-test/sessions/session-1";
+
+function wp(relativePath: string): string {
+  return `${TEST_SESSION_ROOT}/${relativePath.replace(/^\/+/, "")}`;
+}
+
 function createResolvedWritePathJob(path: string) {
   return {
     status: "completed" as const,
@@ -109,7 +115,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "extract",
-          path: "/workspace/source.pdf"
+          path: wp("source.pdf")
         }
       },
       deferToAsyncDocumentJob: {
@@ -139,7 +145,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "edit",
-          path: "/workspace/source.docx",
+          path: wp("source.docx"),
           edits: [{ op: "replace", target: "Old", value: "New" }],
           rerender: true
         }
@@ -171,8 +177,8 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "register_version",
-          outputPath: "/workspace/source.pdf",
-          inspectionPath: "/workspace/source.inspect.json",
+          outputPath: wp("source.pdf"),
+          inspectionPath: wp("source.inspect.json"),
           descriptorMode: "revise_document",
           docId: "11111111-1111-4111-8111-111111111111"
         }
@@ -201,8 +207,8 @@ describe("RuntimeDocumentToolService", () => {
         inspectCalls.push(args);
         return {
           accepted: true as const,
-          sourcePath: "/workspace/source.pdf",
-          inspectPath: "/workspace/source.inspect.json",
+          sourcePath: wp("source.pdf"),
+          inspectPath: wp("source.inspect.json"),
           format: "pdf" as const,
           counts: {
             pageCount: 2,
@@ -215,7 +221,7 @@ describe("RuntimeDocumentToolService", () => {
             textCharCount: 240
           },
           warnings: [],
-          suggestedReadPaths: ["/workspace/source.inspect.json"],
+          suggestedReadPaths: [wp("source.inspect.json")],
           comparison: null
         };
       }
@@ -228,7 +234,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "inspect",
-          path: "/workspace/source.pdf"
+          path: wp("source.pdf")
         }
       },
       deferToAsyncDocumentJob: {
@@ -242,12 +248,12 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.isError, false);
     assert.equal(result.payload.requestedAction, "inspect");
     assert.equal(result.payload.action, "inspected");
-    assert.equal(result.payload.inspection?.inspectPath, "/workspace/source.inspect.json");
+    assert.equal(result.payload.inspection?.inspectPath, wp("source.inspect.json"));
     assert.deepEqual(inspectCalls, [
       {
         assistantId: "assistant-1",
         workspaceId: "workspace-1",
-        path: "/workspace/source.pdf",
+        path: wp("source.pdf"),
         depth: "standard",
         outputPath: null
       }
@@ -258,7 +264,7 @@ describe("RuntimeDocumentToolService", () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
     const registerCalls: Array<Record<string, unknown>> = [];
     const metadataPaths: string[] = [];
-    const resolvedMarkdownPath = "/workspace/reports/monthly (1).md";
+    const resolvedMarkdownPath = wp("reports/monthly (1).md");
     const markdownContent = "# Monthly\n\nSummary body.";
     const service = new RuntimeDocumentToolService(
       {
@@ -268,8 +274,8 @@ describe("RuntimeDocumentToolService", () => {
         async inspectDocumentInWorkspace() {
           return {
             accepted: true as const,
-            sourcePath: "/workspace/reports/monthly.pdf",
-            inspectPath: "/workspace/reports/monthly.inspect.json",
+            sourcePath: wp("reports/monthly.pdf"),
+            inspectPath: wp("reports/monthly.inspect.json"),
             format: "pdf" as const,
             counts: {
               pageCount: 1,
@@ -296,10 +302,10 @@ describe("RuntimeDocumentToolService", () => {
             descriptorMode: "create_document" as const,
             documentType: "workspace_document" as const,
             outputFormat: "pdf" as const,
-            outputPath: "/workspace/reports/monthly.pdf",
-            workspaceProjectPath: "/workspace/reports",
+            outputPath: wp("reports/monthly.pdf"),
+            workspaceProjectPath: wp("reports"),
             sourceManifestPath: null,
-            inspectionPath: "/workspace/reports/monthly.inspect.json"
+            inspectionPath: wp("reports/monthly.inspect.json")
           };
         }
       } as never,
@@ -323,7 +329,7 @@ describe("RuntimeDocumentToolService", () => {
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
             return createAttachedWorkspaceFileJob(
-              "/workspace/reports/monthly.pdf",
+              wp("reports/monthly.pdf"),
               "application/pdf",
               321
             );
@@ -342,7 +348,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "render",
-          outputPath: "/workspace/reports/monthly.pdf",
+          outputPath: wp("reports/monthly.pdf"),
           format: "pdf",
           content: markdownContent,
           style: "report"
@@ -364,16 +370,16 @@ describe("RuntimeDocumentToolService", () => {
 
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "rendered");
-    assert.equal(result.payload.render?.outputPath, "/workspace/reports/monthly.pdf");
+    assert.equal(result.payload.render?.outputPath, wp("reports/monthly.pdf"));
     assert.equal(result.payload.render?.sourceMarkdownPath, resolvedMarkdownPath);
     assert.equal(result.payload.render?.mimeType, "application/pdf");
     assert.equal(registerCalls[0]?.workspaceProjectPath, null);
-    assert.equal(registerCalls[0]?.outputPath, "/workspace/reports/monthly.pdf");
+    assert.equal(registerCalls[0]?.outputPath, wp("reports/monthly.pdf"));
     assert.deepEqual(
       sandboxCalls.map((call) => `${call.toolCode}:${String(call.args.action ?? "")}`),
       ["files:resolve_write_path", "files:write", "execute_document_code:", "files:attach"]
     );
-    assert.equal(sandboxCalls[0]?.args.path, "/workspace/reports/monthly.md");
+    assert.equal(sandboxCalls[0]?.args.path, wp("reports/monthly.md"));
     assert.equal(sandboxCalls[0]?.args.replace, false);
     assert.equal(sandboxCalls[1]?.args.path, resolvedMarkdownPath);
     assert.equal(sandboxCalls[1]?.args.replace, false);
@@ -382,15 +388,20 @@ describe("RuntimeDocumentToolService", () => {
         ""
     );
     assert.match(programSource, /CONTENT_PATH = Path\(".*monthly \(1\)\.md"\)/);
-    assert.match(programSource, /OUTPUT_PATH = Path\("\/workspace\/reports\/monthly\.pdf"\)/);
+    assert.match(
+      programSource,
+      new RegExp(
+        `OUTPUT_PATH = Path\\("${wp("reports/monthly.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
+      )
+    );
     assert.doesNotMatch(programSource, /PERSAI_OUTPUT_PATH/);
     assert.match(programSource, /HTML\(string=build_html_document\(\)/);
-    assert.deepEqual(metadataPaths, [resolvedMarkdownPath, "/workspace/reports/monthly.pdf"]);
+    assert.deepEqual(metadataPaths, [resolvedMarkdownPath, wp("reports/monthly.pdf")]);
   });
 
   test("renders authored XLSX from Markdown tables and writes sibling markdown", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
-    const markdownPath = "/workspace/tables/revenue.md";
+    const markdownPath = wp("tables/revenue.md");
     const service = new RuntimeDocumentToolService(
       {
         async upsertWorkspaceFileMetadata() {
@@ -399,8 +410,8 @@ describe("RuntimeDocumentToolService", () => {
         async inspectDocumentInWorkspace() {
           return {
             accepted: true as const,
-            sourcePath: "/workspace/tables/revenue.xlsx",
-            inspectPath: "/workspace/tables/revenue.inspect.json",
+            sourcePath: wp("tables/revenue.xlsx"),
+            inspectPath: wp("tables/revenue.inspect.json"),
             format: "xlsx" as const,
             counts: {
               pageCount: null,
@@ -426,10 +437,10 @@ describe("RuntimeDocumentToolService", () => {
             descriptorMode: "create_document" as const,
             documentType: "workspace_document" as const,
             outputFormat: "xlsx" as const,
-            outputPath: "/workspace/tables/revenue.xlsx",
-            workspaceProjectPath: "/workspace/tables",
+            outputPath: wp("tables/revenue.xlsx"),
+            workspaceProjectPath: wp("tables"),
             sourceManifestPath: null,
-            inspectionPath: "/workspace/tables/revenue.inspect.json"
+            inspectionPath: wp("tables/revenue.inspect.json")
           };
         }
       } as never,
@@ -453,7 +464,7 @@ describe("RuntimeDocumentToolService", () => {
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
             return createAttachedWorkspaceFileJob(
-              "/workspace/tables/revenue.xlsx",
+              wp("tables/revenue.xlsx"),
               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
               512
             );
@@ -472,7 +483,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "render",
-          outputPath: "/workspace/tables/revenue.xlsx",
+          outputPath: wp("tables/revenue.xlsx"),
           format: "xlsx",
           content: "# Revenue\n\n| Month | Revenue |\n| --- | --- |\n| Jan | 10 |"
         }
@@ -500,7 +511,12 @@ describe("RuntimeDocumentToolService", () => {
         ""
     );
     assert.match(programSource, /from openpyxl import Workbook/);
-    assert.match(programSource, /OUTPUT_PATH = Path\("\/workspace\/tables\/revenue\.xlsx"\)/);
+    assert.match(
+      programSource,
+      new RegExp(
+        `OUTPUT_PATH = Path\\("${wp("tables/revenue.xlsx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
+      )
+    );
     assert.doesNotMatch(programSource, /PERSAI_OUTPUT_PATH/);
     assert.match(programSource, /requires at least one Markdown table/);
     assert.match(programSource, /sheet\.append/);
@@ -517,8 +533,8 @@ describe("RuntimeDocumentToolService", () => {
         async inspectDocumentInWorkspace() {
           return {
             accepted: true as const,
-            sourcePath: "/workspace/source.pdf",
-            inspectPath: "/workspace/source.inspect.json",
+            sourcePath: wp("source.pdf"),
+            inspectPath: wp("source.inspect.json"),
             format: "pdf" as const,
             counts: {
               pageCount: 1,
@@ -545,10 +561,10 @@ describe("RuntimeDocumentToolService", () => {
             descriptorMode: "create_document" as const,
             documentType: "workspace_document" as const,
             outputFormat: "pdf" as const,
-            outputPath: "/workspace/source.pdf",
-            workspaceProjectPath: "/workspace",
+            outputPath: wp("source.pdf"),
+            workspaceProjectPath: TEST_SESSION_ROOT,
             sourceManifestPath: null,
-            inspectionPath: "/workspace/source.inspect.json"
+            inspectionPath: wp("source.inspect.json")
           };
         }
       } as never,
@@ -568,7 +584,7 @@ describe("RuntimeDocumentToolService", () => {
             return createCompletedDocumentJob();
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob("/workspace/source.pdf", "application/pdf", 2048);
+            return createAttachedWorkspaceFileJob(wp("source.pdf"), "application/pdf", 2048);
           }
           throw new Error(
             `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
@@ -584,7 +600,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "convert",
-          source: "/workspace/source.docx",
+          source: wp("source.docx"),
           targetFormat: "pdf"
         }
       },
@@ -605,18 +621,28 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.isError, false);
     assert.equal(result.payload.requestedAction, "convert");
     assert.equal(result.payload.action, "converted");
-    assert.equal(result.payload.convert?.sourcePath, "/workspace/source.docx");
-    assert.equal(result.payload.convert?.outputPath, "/workspace/source.pdf");
+    assert.equal(result.payload.convert?.sourcePath, wp("source.docx"));
+    assert.equal(result.payload.convert?.outputPath, wp("source.pdf"));
     assert.equal(result.payload.convert?.targetFormat, "pdf");
     assert.equal(registerCalls[0]?.workspaceProjectPath, null);
-    assert.equal(registerCalls[0]?.outputPath, "/workspace/source.pdf");
+    assert.equal(registerCalls[0]?.outputPath, wp("source.pdf"));
     const programSource = String(
       sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args.programSource ??
         ""
     );
     assert.match(programSource, /soffice/);
-    assert.match(programSource, /SOURCE_PATH = Path\("\/workspace\/source\.docx"\)/);
-    assert.match(programSource, /OUTPUT_PATH = Path\("\/workspace\/source\.pdf"\)/);
+    assert.match(
+      programSource,
+      new RegExp(
+        `SOURCE_PATH = Path\\("${wp("source.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
+      )
+    );
+    assert.match(
+      programSource,
+      new RegExp(
+        `OUTPUT_PATH = Path\\("${wp("source.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
+      )
+    );
     assert.doesNotMatch(programSource, /PERSAI_OUTPUT_PATH/);
     assert.match(programSource, /TARGET_FORMAT = "pdf"/);
   });
@@ -630,8 +656,8 @@ describe("RuntimeDocumentToolService", () => {
         async inspectDocumentInWorkspace() {
           return {
             accepted: true as const,
-            sourcePath: "/workspace/reports/monthly.pdf",
-            inspectPath: "/workspace/reports/monthly.inspect.json",
+            sourcePath: wp("reports/monthly.pdf"),
+            inspectPath: wp("reports/monthly.inspect.json"),
             format: "pdf" as const,
             counts: {
               pageCount: 1,
@@ -662,7 +688,7 @@ describe("RuntimeDocumentToolService", () => {
         },
         async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
           if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
-            return createResolvedWritePathJob("/workspace/reports/monthly.md");
+            return createResolvedWritePathJob(wp("reports/monthly.md"));
           }
           if (input.toolCode === "files" && input.args.action === "write") {
             return createWrittenWorkspaceFileJob(
@@ -675,7 +701,7 @@ describe("RuntimeDocumentToolService", () => {
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
             return createAttachedWorkspaceFileJob(
-              "/workspace/reports/monthly.pdf",
+              wp("reports/monthly.pdf"),
               "application/pdf",
               321
             );
@@ -694,7 +720,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "render",
-          outputPath: "/workspace/reports/monthly.pdf",
+          outputPath: wp("reports/monthly.pdf"),
           format: "pdf",
           content: "# Monthly\n\nSummary body."
         }
@@ -715,7 +741,7 @@ describe("RuntimeDocumentToolService", () => {
 
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "rendered");
-    assert.equal(result.payload.render?.outputPath, "/workspace/reports/monthly.pdf");
+    assert.equal(result.payload.render?.outputPath, wp("reports/monthly.pdf"));
     assert.match(result.payload.warning ?? "", /inspection_required/);
     assert.equal(result.payload.registration, undefined);
   });
@@ -729,8 +755,8 @@ describe("RuntimeDocumentToolService", () => {
         async inspectDocumentInWorkspace() {
           return {
             accepted: true as const,
-            sourcePath: "/workspace/source.pdf",
-            inspectPath: "/workspace/source.inspect.json",
+            sourcePath: wp("source.pdf"),
+            inspectPath: wp("source.inspect.json"),
             format: "pdf" as const,
             counts: {
               pageCount: 1,
@@ -766,7 +792,7 @@ describe("RuntimeDocumentToolService", () => {
             return createCompletedDocumentJob();
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob("/workspace/source.pdf", "application/pdf", 2048);
+            return createAttachedWorkspaceFileJob(wp("source.pdf"), "application/pdf", 2048);
           }
           throw new Error(
             `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
@@ -782,7 +808,7 @@ describe("RuntimeDocumentToolService", () => {
         name: "document",
         arguments: {
           action: "convert",
-          source: "/workspace/source.docx",
+          source: wp("source.docx"),
           targetFormat: "pdf"
         }
       },
@@ -802,7 +828,7 @@ describe("RuntimeDocumentToolService", () => {
 
     assert.equal(result.isError, false);
     assert.equal(result.payload.action, "converted");
-    assert.equal(result.payload.convert?.outputPath, "/workspace/source.pdf");
+    assert.equal(result.payload.convert?.outputPath, wp("source.pdf"));
     assert.match(result.payload.warning ?? "", /registration unavailable/);
     assert.equal(result.payload.registration, undefined);
   });
@@ -812,7 +838,7 @@ describe("RuntimeDocumentToolService", () => {
     const registerCalls: Array<Record<string, unknown>> = [];
     const initialMarkdown = "# Report\n\nOriginal body.\n";
     const editedMarkdown = "# Report\n\nEdited body with exact spacing.\n";
-    const sourceMarkdownPath = "/workspace/report.md";
+    const sourceMarkdownPath = wp("report.md");
     const service = new RuntimeDocumentToolService(
       {
         async upsertWorkspaceFileMetadata() {
@@ -821,8 +847,8 @@ describe("RuntimeDocumentToolService", () => {
         async inspectDocumentInWorkspace() {
           return {
             accepted: true as const,
-            sourcePath: "/workspace/report.pdf",
-            inspectPath: "/workspace/report.inspect.json",
+            sourcePath: wp("report.pdf"),
+            inspectPath: wp("report.inspect.json"),
             format: "pdf" as const,
             counts: {
               pageCount: 1,
@@ -851,10 +877,10 @@ describe("RuntimeDocumentToolService", () => {
               versionNumber === 1 ? ("create_document" as const) : ("revise_document" as const),
             documentType: "workspace_document" as const,
             outputFormat: "pdf" as const,
-            outputPath: "/workspace/report.pdf",
-            workspaceProjectPath: "/workspace",
+            outputPath: wp("report.pdf"),
+            workspaceProjectPath: TEST_SESSION_ROOT,
             sourceManifestPath: null,
-            inspectionPath: "/workspace/report.inspect.json"
+            inspectionPath: wp("report.inspect.json")
           };
         }
       } as never,
@@ -881,7 +907,7 @@ describe("RuntimeDocumentToolService", () => {
             return createCompletedDocumentJob();
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob("/workspace/report.pdf", "application/pdf", 2048);
+            return createAttachedWorkspaceFileJob(wp("report.pdf"), "application/pdf", 2048);
           }
           throw new Error(
             `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
@@ -916,13 +942,13 @@ describe("RuntimeDocumentToolService", () => {
       action: "render",
       content: initialMarkdown,
       format: "pdf",
-      outputPath: "/workspace/report.pdf"
+      outputPath: wp("report.pdf")
     });
     const second = await executeRender("case-a-render-v2", {
       action: "render",
       contentPath: sourceMarkdownPath,
       format: "pdf",
-      outputPath: "/workspace/report.pdf"
+      outputPath: wp("report.pdf")
     });
 
     assert.equal(first.isError, false);
@@ -930,7 +956,7 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(first.payload.render?.sourceMarkdownPath, sourceMarkdownPath);
     assert.equal(second.isError, false);
     assert.equal(second.payload.action, "rendered");
-    assert.equal(second.payload.render?.outputPath, "/workspace/report.pdf");
+    assert.equal(second.payload.render?.outputPath, wp("report.pdf"));
     assert.equal(registerCalls.length, 2);
     assert.equal(registerCalls[0]?.descriptorMode, null);
     assert.equal(registerCalls[0]?.docId, null);
@@ -971,7 +997,12 @@ describe("RuntimeDocumentToolService", () => {
       sandboxCalls.filter((call) => call.toolCode === "execute_document_code").at(-1)?.args
         .programSource ?? ""
     );
-    assert.match(secondProgramSource, /CONTENT_PATH = Path\("\/workspace\/report\.md"\)/);
+    assert.match(
+      secondProgramSource,
+      new RegExp(
+        `CONTENT_PATH = Path\\("${wp("report.md").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`
+      )
+    );
   });
 
   test("rendering the same output path twice records two versions", async () => {
@@ -984,8 +1015,8 @@ describe("RuntimeDocumentToolService", () => {
         async inspectDocumentInWorkspace() {
           return {
             accepted: true as const,
-            sourcePath: "/workspace/reports/monthly.pdf",
-            inspectPath: "/workspace/reports/monthly.inspect.json",
+            sourcePath: wp("reports/monthly.pdf"),
+            inspectPath: wp("reports/monthly.inspect.json"),
             format: "pdf" as const,
             counts: {
               pageCount: 1,
@@ -1014,10 +1045,10 @@ describe("RuntimeDocumentToolService", () => {
               versionNumber === 1 ? ("create_document" as const) : ("revise_document" as const),
             documentType: "workspace_document" as const,
             outputFormat: "pdf" as const,
-            outputPath: "/workspace/reports/monthly.pdf",
-            workspaceProjectPath: "/workspace/reports",
+            outputPath: wp("reports/monthly.pdf"),
+            workspaceProjectPath: wp("reports"),
             sourceManifestPath: null,
-            inspectionPath: "/workspace/reports/monthly.inspect.json"
+            inspectionPath: wp("reports/monthly.inspect.json")
           };
         }
       } as never,
@@ -1027,7 +1058,7 @@ describe("RuntimeDocumentToolService", () => {
         },
         async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
           if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
-            return createResolvedWritePathJob("/workspace/reports/monthly.md");
+            return createResolvedWritePathJob(wp("reports/monthly.md"));
           }
           if (input.toolCode === "files" && input.args.action === "write") {
             return createWrittenWorkspaceFileJob(
@@ -1040,7 +1071,7 @@ describe("RuntimeDocumentToolService", () => {
           }
           if (input.toolCode === "files" && input.args.action === "attach") {
             return createAttachedWorkspaceFileJob(
-              "/workspace/reports/monthly.pdf",
+              wp("reports/monthly.pdf"),
               "application/pdf",
               321
             );
@@ -1060,7 +1091,7 @@ describe("RuntimeDocumentToolService", () => {
           name: "document",
           arguments: {
             action: "render",
-            outputPath: "/workspace/reports/monthly.pdf",
+            outputPath: wp("reports/monthly.pdf"),
             format: "pdf",
             content
           }
@@ -1087,8 +1118,8 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(first.payload.registration?.versionNumber, 1);
     assert.equal(second.payload.registration?.versionNumber, 2);
     assert.equal(registerCalls.length, 2);
-    assert.equal(registerCalls[0]?.outputPath, "/workspace/reports/monthly.pdf");
-    assert.equal(registerCalls[1]?.outputPath, "/workspace/reports/monthly.pdf");
+    assert.equal(registerCalls[0]?.outputPath, wp("reports/monthly.pdf"));
+    assert.equal(registerCalls[1]?.outputPath, wp("reports/monthly.pdf"));
   });
 });
 

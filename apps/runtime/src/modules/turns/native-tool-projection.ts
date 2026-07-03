@@ -1145,7 +1145,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         path: {
           type: "string",
           description:
-            'Required for `action="inspect"`. Must be an existing `/workspace/...` PDF, DOCX, or XLSX file.'
+            'Required for `action="inspect"`. Must be an existing `/workspace/...` PDF, DOCX, or XLSX file. New session documents usually live under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`.'
         },
         format: {
           type: "string",
@@ -1160,7 +1160,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         contentPath: {
           type: "string",
           description:
-            'Optional `/workspace/...` Markdown source path for `action="render"`. Provide either `contentPath` or inline `content`, but not both.'
+            'Optional `/workspace/...` Markdown source path for `action="render"`. A sibling Markdown source in the current session root is the normal Case A edit path. Provide either `contentPath` or inline `content`, but not both.'
         },
         style: {
           type: "string",
@@ -1176,7 +1176,7 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         outputPath: {
           type: "string",
           description:
-            'Required for `action="render"` and optional for `action="convert"`. Final `/workspace/...` output document path. Render writes exactly to this path; convert derives a sibling output name automatically when omitted.'
+            'Required for `action="render"` and optional for `action="convert"`. Final `/workspace/...` output document path. Default new outputs belong under the current session root; render writes exactly to this path, and convert derives a sibling output name automatically when omitted.'
         },
         source: {
           type: "string",
@@ -1481,16 +1481,17 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
           description:
-            'One files action: "list", "read", "preview", "write", "delete", or "attach". Address every file by pod-absolute /workspace/... path. attach delivers any file under /workspace/ to the current chat as a user-visible attachment.'
+            'One files action: "list", "read", "preview", "write", "delete", or "attach". Address files by exact pod-absolute `/workspace/...` path. New work normally stays in the current session root `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`; widen only by intentionally choosing `/workspace/assistants/<assistantStableKey>/...` or `/workspace/...`. `attach` delivers an existing workspace file to the current chat as a user-visible attachment.'
         },
         path: {
           type: "string",
           description:
-            'Pod-absolute path under `/workspace/`. Every workspace file — user uploads, your own writes, anything else — lives directly under `/workspace/<path>`. Use `/tmp/` for ephemeral scratch that should never reach the user. Required for read, preview, write, and delete; required as the directory for list (use "dir" as an alias).'
+            "Pod-absolute path under `/workspace/...`. Session files normally live under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`. Use `/workspace/assistants/<assistantStableKey>/...` to widen to this assistant or `/workspace/...` to widen to the whole workspace. Use `/tmp/` only for ephemeral scratch that should never reach the user. Required for read, preview, write, delete, and attach; optional for list."
         },
         dir: {
           type: "string",
-          description: 'Synonym for "path" on action="list" — provide either dir or path, not both.'
+          description:
+            'Synonym for "path" on action="list" — provide either dir or path, not both. Omit both to list the current session root.'
         },
         content: {
           type: "string",
@@ -1499,23 +1500,12 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         mode: {
           type: "string",
           description:
-            'Optional legacy write mode. Use `mode: "create_only"` to fail if the exact path already exists. `mode: "overwrite"` is accepted for compatibility and behaves like `replace: true`, but prefer `replace` for new calls.'
+            'Optional strict create mode for action="write". Use `mode: "create_only"` to fail if the exact path already exists.'
         },
         replace: {
           type: "boolean",
           description:
             'Optional exact-overwrite flag for action="write". By default an occupied path resolves to a sibling ` (N)` filename so earlier deliveries stay intact. Pass `replace: true` only when the user explicitly asked to overwrite that same file.'
-        },
-        scope: {
-          type: "string",
-          enum: ["chat", "assistant", "workspace_shared"],
-          description:
-            'Optional action="list" visibility scope. Default "chat" shows only files from this chat. Use "assistant" only when the user asks for files from this assistant across past chats. Use "workspace_shared" only as a last-resort widen across the whole workspace.'
-        },
-        crossScope: {
-          type: "boolean",
-          description:
-            "Optional flag for read/preview/attach/delete when intentionally touching a manifest file outside the current chat scope after surfacing it with a widened files.list. Do not use for ordinary current-chat files."
         },
         maxBytes: {
           type: "integer",
@@ -1550,7 +1540,7 @@ function createGrepToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
         path: {
           type: "string",
           description:
-            "Optional workspace-relative directory to scope the search. Omit to search the whole workspace."
+            "Optional workspace-relative directory to scope the search. Omit to search the current session root; widen by choosing an assistant-root or workspace-root path explicitly."
         },
         glob: {
           type: "string",
@@ -1593,7 +1583,7 @@ function createGlobToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
         path: {
           type: "string",
           description:
-            "Optional workspace-relative directory to scope the search. Omit to search the whole workspace."
+            "Optional workspace-relative directory to scope the search. Omit to search the current session root; widen by choosing an assistant-root or workspace-root path explicitly."
         }
       }
     }

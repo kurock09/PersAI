@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
+  buildAssistantSessionRoot,
+  buildAssistantWorkspaceRoot,
   type ProviderGatewayToolCall,
   type RuntimeFileHandle,
   type RuntimeOutputArtifact,
@@ -19,47 +21,43 @@ const DEFAULT_READ_MAX_BYTES = 1_048_576;
 const DEFAULT_PREVIEW_MAX_BYTES = 256 * 1024;
 const DEFAULT_LIST_MAX_DEPTH = 1;
 
-type FilesScope = "chat" | "assistant" | "workspace_shared";
+type FilesScope = "chat" | "assistant" | "workspace";
 
 type FilesListRequest = {
   action: "list";
-  path: string;
+  path: string | null;
   maxDepth: number;
-  scope: FilesScope;
+  scope?: FilesScope;
 };
 
 type FilesReadRequest = {
   action: "read";
   path: string;
   maxBytes: number;
-  crossScope?: boolean;
 };
 
 type FilesPreviewRequest = {
   action: "preview";
   path: string;
   maxBytes: number;
-  crossScope?: boolean;
 };
 
 type FilesWriteRequest = {
   action: "write";
   path: string;
   content: string;
-  mode?: "overwrite" | "create_only";
+  mode?: "create_only";
   replace?: boolean;
 };
 
 type FilesDeleteRequest = {
   action: "delete";
   path: string;
-  crossScope?: boolean;
 };
 
 type FilesAttachRequest = {
   action: "attach";
   path: string;
-  crossScope?: boolean;
 };
 
 type ParsedFilesToolRequest =
@@ -181,15 +179,16 @@ export class RuntimeFilesToolService {
     },
     request: FilesListRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    // ADR-128 Slice 4 — the flat workspace is fully manifest-backed; every
-    // path under `/workspace/` lists from `workspace_file_metadata` instead
-    // of a pod `find` because the pod FS is a cache and may be stale.
-    if (this.isPersistedWorkspaceListPath(request.path)) {
-      return this.executeListFromManifest(params, request);
+    const path = request.path ?? this.resolveDefaultListPath(params);
+    // ADR-133 keeps `/workspace/...` manifest-backed: persisted hierarchical
+    // paths list from `workspace_file_metadata` instead of a pod `find`
+    // because the pod FS is a cache and may be stale.
+    if (this.isPersistedWorkspaceListPath(path)) {
+      return this.executeListFromManifest(params, { ...request, path });
     }
     const job = await this.runSandboxJob(params, {
       action: "list",
-      path: request.path,
+      path,
       maxDepth: request.maxDepth
     });
     if (job.status !== "completed") {
@@ -201,7 +200,7 @@ export class RuntimeFilesToolService {
           action: "skipped",
           reason: job.reason ?? "files_failed",
           warning: job.warning ?? job.violationMessage,
-          path: request.path
+          path
         },
         isError: true
       };
@@ -219,7 +218,7 @@ export class RuntimeFilesToolService {
         action: "listed",
         reason: null,
         warning: job.warning,
-        path: request.path,
+        path,
         items: enrichedItems,
         item: enrichedItems[0] ?? null
       },
@@ -234,7 +233,7 @@ export class RuntimeFilesToolService {
       requestId: string;
       chatId: string | null;
     },
-    request: FilesListRequest
+    request: FilesListRequest & { path: string }
   ): Promise<RuntimeFilesToolExecutionResult> {
     const assistantHandle = params.bundle.metadata.assistantHandle ?? "";
     try {
@@ -242,7 +241,12 @@ export class RuntimeFilesToolService {
         workspaceId: params.bundle.metadata.workspaceId,
         pathPrefix: request.path,
         assistantHandle,
-        scope: request.scope,
+        scope: this.resolveManifestListScope({
+          path: request.path,
+          assistantHandle,
+          sessionId: params.sessionId,
+          ...(request.scope === undefined ? {} : { requestedScope: request.scope })
+        }),
         currentChatId: params.chatId,
         currentAssistantId: params.bundle.metadata.assistantId
       });
@@ -280,58 +284,38 @@ export class RuntimeFilesToolService {
     return path === "/workspace" || path === "/workspace/" || path.startsWith("/workspace/");
   }
 
-  private async checkWorkspacePathScope(
-    params: {
-      bundle: AssistantRuntimeBundle;
-      chatId: string | null;
-    },
-    action: RuntimeFilesToolAction,
-    path: string,
-    crossScope: boolean
-  ): Promise<RuntimeFilesToolExecutionResult | null> {
-    if (!path.startsWith("/workspace/") || crossScope) {
-      return null;
+  private resolveDefaultListPath(params: {
+    bundle: AssistantRuntimeBundle;
+    sessionId: string;
+  }): string {
+    const assistantHandle = params.bundle.metadata.assistantHandle ?? "";
+    if (assistantHandle.length === 0) {
+      return "/workspace";
     }
-    try {
-      const metadata = await this.persaiInternalApiClientService.getWorkspaceFileMetadata({
-        workspaceId: params.bundle.metadata.workspaceId,
-        path
-      });
-      // Missing manifest rows are allowed for current-turn shell-created files;
-      // Block 3 later adds freshness guards for document project outputs.
-      if (metadata === null) {
-        return null;
-      }
-      if (params.chatId !== null && metadata.originChatId === params.chatId) {
-        return null;
-      }
-      return {
-        payload: {
-          toolCode: "files",
-          executionMode: "inline",
-          requestedAction: action,
-          action: "skipped",
-          reason: "cross_scope_required",
-          warning:
-            'This file is outside the current chat scope. Run files.list with scope="assistant" or scope="workspace_shared" first, then retry with crossScope:true if the user explicitly wants that file.',
-          path
-        },
-        isError: true
-      };
-    } catch (error) {
-      return {
-        payload: {
-          toolCode: "files",
-          executionMode: "inline",
-          requestedAction: action,
-          action: "skipped",
-          reason: "scope_check_failed",
-          warning: error instanceof Error ? error.message : "Workspace file scope check failed.",
-          path
-        },
-        isError: true
-      };
+    return buildAssistantSessionRoot(assistantHandle, params.sessionId);
+  }
+
+  private resolveManifestListScope(input: {
+    path: string;
+    assistantHandle: string;
+    sessionId: string;
+    requestedScope?: FilesScope;
+  }): FilesScope {
+    if (input.requestedScope !== undefined) {
+      return input.requestedScope;
     }
+    if (input.assistantHandle.length === 0) {
+      return "workspace";
+    }
+    const sessionRoot = buildAssistantSessionRoot(input.assistantHandle, input.sessionId);
+    if (input.path === sessionRoot || input.path.startsWith(`${sessionRoot}/`)) {
+      return "chat";
+    }
+    const assistantRoot = buildAssistantWorkspaceRoot(input.assistantHandle);
+    if (input.path === assistantRoot || input.path.startsWith(`${assistantRoot}/`)) {
+      return "assistant";
+    }
+    return "workspace";
   }
 
   private async executeReadAction(
@@ -343,15 +327,6 @@ export class RuntimeFilesToolService {
     },
     request: FilesReadRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const scopeGuard = await this.checkWorkspacePathScope(
-      params,
-      request.action,
-      request.path,
-      request.crossScope === true
-    );
-    if (scopeGuard !== null) {
-      return scopeGuard;
-    }
     const job = await this.runSandboxJob(params, {
       action: "read",
       path: request.path,
@@ -401,15 +376,6 @@ export class RuntimeFilesToolService {
     },
     request: FilesPreviewRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const scopeGuard = await this.checkWorkspacePathScope(
-      params,
-      request.action,
-      request.path,
-      request.crossScope === true
-    );
-    if (scopeGuard !== null) {
-      return scopeGuard;
-    }
     // Stat the file via the sandbox to classify text vs binary. Text-like MIME
     // types return inline preview content from stat; binary types fall back to
     // sandbox `read` with the caller's bounded `maxBytes`.
@@ -575,7 +541,7 @@ export class RuntimeFilesToolService {
           mimeType: this.inferMimeForWrite(request.path, request.content),
           sizeBytes,
           contentHash: createHash("sha256").update(request.content, "utf8").digest("hex"),
-          replace: request.replace === true || request.mode === "overwrite",
+          replace: request.replace === true,
           ...(params.sourceUserMessageText === undefined || params.sourceUserMessageText === null
             ? {}
             : { sourceUserMessageText: params.sourceUserMessageText }),
@@ -652,15 +618,6 @@ export class RuntimeFilesToolService {
     },
     request: FilesDeleteRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const scopeGuard = await this.checkWorkspacePathScope(
-      params,
-      request.action,
-      request.path,
-      request.crossScope === true
-    );
-    if (scopeGuard !== null) {
-      return scopeGuard;
-    }
     const job = await this.runSandboxJob(params, {
       action: "delete",
       path: request.path
@@ -717,15 +674,6 @@ export class RuntimeFilesToolService {
     },
     request: FilesAttachRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const scopeGuard = await this.checkWorkspacePathScope(
-      params,
-      request.action,
-      request.path,
-      request.crossScope === true
-    );
-    if (scopeGuard !== null) {
-      return scopeGuard;
-    }
     const job = await this.runSandboxJob(params, {
       action: "attach",
       path: request.path
@@ -895,9 +843,6 @@ export class RuntimeFilesToolService {
     switch (action) {
       case "list": {
         const path = this.readNonEmptyString(row.path) ?? this.readNonEmptyString(row.dir);
-        if (path === null) {
-          return new Error("files.list requires a non-empty path or dir.");
-        }
         const maxDepth =
           typeof row.maxDepth === "number" && Number.isInteger(row.maxDepth) && row.maxDepth > 0
             ? Math.min(row.maxDepth, 4)
@@ -906,7 +851,12 @@ export class RuntimeFilesToolService {
         if (scope instanceof Error) {
           return scope;
         }
-        return { action: "list", path, maxDepth, scope };
+        return {
+          action: "list",
+          path,
+          maxDepth,
+          ...(scope === undefined ? {} : { scope })
+        };
       }
       case "read": {
         const path = this.readNonEmptyString(row.path);
@@ -920,8 +870,7 @@ export class RuntimeFilesToolService {
         return {
           action: "read",
           path,
-          maxBytes,
-          ...(row.crossScope === true ? { crossScope: true } : {})
+          maxBytes
         };
       }
       case "preview": {
@@ -936,8 +885,7 @@ export class RuntimeFilesToolService {
         return {
           action: "preview",
           path,
-          maxBytes,
-          ...(row.crossScope === true ? { crossScope: true } : {})
+          maxBytes
         };
       }
       case "write": {
@@ -946,7 +894,7 @@ export class RuntimeFilesToolService {
         if (path === null || content === null) {
           return new Error("files.write requires a non-empty path and string content.");
         }
-        const mode = row.mode === "create_only" || row.mode === "overwrite" ? row.mode : undefined;
+        const mode = row.mode === "create_only" ? row.mode : undefined;
         const replace = row.replace === true ? true : undefined;
         return {
           action: "write",
@@ -963,8 +911,7 @@ export class RuntimeFilesToolService {
         }
         return {
           action: "delete",
-          path,
-          ...(row.crossScope === true ? { crossScope: true } : {})
+          path
         };
       }
       case "attach": {
@@ -974,8 +921,7 @@ export class RuntimeFilesToolService {
         }
         return {
           action: "attach",
-          path,
-          ...(row.crossScope === true ? { crossScope: true } : {})
+          path
         };
       }
     }
@@ -997,14 +943,14 @@ export class RuntimeFilesToolService {
     return policy;
   }
 
-  private readFilesScope(value: unknown): FilesScope | Error {
+  private readFilesScope(value: unknown): FilesScope | undefined | Error {
     if (value === undefined || value === null) {
-      return "chat";
+      return undefined;
     }
-    if (value === "chat" || value === "assistant" || value === "workspace_shared") {
+    if (value === "chat" || value === "assistant" || value === "workspace") {
       return value;
     }
-    return new Error('files.list scope must be "chat", "assistant", or "workspace_shared".');
+    return new Error('files.list scope must be "chat", "assistant", or "workspace".');
   }
 
   private skipped(input: {

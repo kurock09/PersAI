@@ -1,5 +1,40 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-133 Slice 4 landed locally: runtime tools + prompt owners now teach session-root hierarchy
+
+Status: **implemented locally, not committed/pushed, and complete for Slice 4 scope.** Runtime `files` / `document` tool behavior, the Working Files developer block, native tool projection, bootstrap/tool-catalog prompt owners, and golden/prompt guard tests now teach the hierarchical session-first filesystem model instead of the retired flat `/workspace/<path>` plus `workspace_shared` / `crossScope:true` vocabulary. The earlier sandbox lint blocker for this ADR batch was also fixed and revalidated.
+
+What Slice 4 landed:
+
+- Runtime `files` / `document` instruction and result surfaces now default to `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`, preserve assistant/workspace widening only by ordinary path choice, and no longer teach model-facing `workspace_shared` / `crossScope:true` / flat-root fallback behavior.
+- The Working Files developer block now describes current session files, keeps its micro-description and sticky-label behavior, and uses hierarchical exact-path truth in active fixtures and wording.
+- `bootstrap-preset-data.ts`, `tool-catalog-data.ts`, and `native-tool-projection.ts` now align on a single hierarchical prompt truth for runtime tools, including negative guards that prevent stale flat-root guidance from re-entering golden/runtime prompt tests.
+- Runtime contract/runtime test fixtures were cleaned so positive examples use hierarchical session-root paths or explicit widen paths only; legacy `files.write` compatibility for `mode:"overwrite"` was removed from the active runtime layer.
+- The ADR batch’s prior sandbox lint failure in `apps/sandbox/src/sandbox.service.ts` was fixed with the minimal dead-code removal and kept green in the final verification pass.
+
+Focused verification:
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.attach.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-document-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/working-files-developer-section.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-delivery-facts.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/tool-catalog-data.test.ts test/runtime-tool-policy.test.ts test/adr119-golden-prompt-snapshot.test.ts`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/sandbox run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+
+Residuals:
+
+- Slice 5 only: web/UI/OpenAPI/docs closure and final user-facing wording alignment.
+- Final ADR-133 gate still remains open pending Slice 5 closure and the full end-to-end acceptance sweep.
+
 ## 2026-07-03 — ADR-133 Slice 3 landed locally: API manifest/upload/delivery/document cutover complete
 
 Status: **implemented locally, not committed/pushed, and complete for Slice 3 scope.** API-owned upload/stage/inbound/delivery/document path behavior now follows the hierarchical session-first model, the sandbox/API GC lease boundary is synchronized on the renamed subtree enum values, and remaining follow-up work is limited to Slice 4 prompt-owner/runtime instruction surfaces and Slice 5 web/UI/docs closure.

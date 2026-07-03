@@ -1,13 +1,14 @@
 import type {
   RuntimeDocumentToolResult,
   RuntimeFileHandle,
-  RuntimeFileScopeTier,
+  RuntimeFileVisibilityTier,
   RuntimeFilesToolResult,
   RuntimeImageEditToolResult,
   RuntimeImageGenerateToolResult,
   RuntimeTurnDeliveryFacts,
   RuntimeVideoGenerateToolResult
 } from "@persai/runtime-contract";
+import { classifyVisibleWorkspacePath } from "@persai/runtime-contract";
 
 export type RuntimeTurnDeliveryFactsTracker = RuntimeTurnDeliveryFacts;
 
@@ -159,7 +160,7 @@ export function buildRuntimeFileHandleFromDocumentRender(input: {
     workspaceId: input.workspaceId,
     authorLabel: "model",
     sourceToolCode: "document",
-    scopeTier: "chat",
+    visibilityTier: "session",
     createdAt: new Date().toISOString()
   };
 }
@@ -177,20 +178,20 @@ export function buildRuntimeFileHandleFromDocumentConvert(input: {
     workspaceId: input.workspaceId,
     authorLabel: "model",
     sourceToolCode: "document",
-    scopeTier: "chat",
+    visibilityTier: "session",
     createdAt: new Date().toISOString()
   };
 }
 
-export function resolveRuntimeFileScopeTier(input: {
+export function resolveRuntimeFileVisibilityTier(input: {
   storagePath: string;
   currentChatId: string | null;
   producedPathsThisTurn: ReadonlySet<string>;
   authorLabel?: RuntimeFileHandle["authorLabel"];
   originChatId?: string | null;
-}): RuntimeFileScopeTier {
+}): RuntimeFileVisibilityTier {
   if (input.producedPathsThisTurn.has(input.storagePath)) {
-    return "chat";
+    return "session";
   }
   if (
     input.originChatId !== undefined &&
@@ -198,19 +199,30 @@ export function resolveRuntimeFileScopeTier(input: {
     input.currentChatId !== null &&
     input.originChatId === input.currentChatId
   ) {
-    return "chat";
-  }
-  if (input.currentChatId !== null) {
-    const chatScratchPrefix = `/workspace/chats/${input.currentChatId}/`;
-    if (input.storagePath.startsWith(chatScratchPrefix)) {
-      return "chat";
-    }
+    return "session";
   }
   if (input.authorLabel === "user") {
-    return "chat";
+    return "session";
   }
-  if (input.storagePath.startsWith("/shared/")) {
-    return "workspace_shared";
+  const visiblePath = classifyVisibleWorkspacePath(input.storagePath);
+  if (visiblePath.kind === "sessionRoot" || visiblePath.kind === "sessionDescendant") {
+    return "session";
+  }
+  if (
+    visiblePath.kind === "assistantRoot" ||
+    visiblePath.kind === "assistantSessionsRoot" ||
+    visiblePath.kind === "assistantSharedRoot" ||
+    visiblePath.kind === "assistantSharedDescendant"
+  ) {
+    return "assistant";
+  }
+  if (
+    visiblePath.kind === "workspaceRoot" ||
+    visiblePath.kind === "assistantsRoot" ||
+    visiblePath.kind === "workspaceSharedRoot" ||
+    visiblePath.kind === "workspaceSharedDescendant"
+  ) {
+    return "workspace";
   }
   return "assistant";
 }

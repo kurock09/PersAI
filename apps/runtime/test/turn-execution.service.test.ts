@@ -1754,7 +1754,7 @@ class FakeRuntimeSandboxToolService {
               mimeType: "text/plain",
               sizeBytes: 64,
               logicalSizeBytes: 64,
-              storagePath: "/workspace/report.txt"
+              storagePath: "/workspace/assistants/assistant-handle/sessions/session-id/report.txt"
             }
           ]
         }
@@ -1854,7 +1854,7 @@ class FakeRuntimeFilesToolService {
         action: "written" as const,
         reason: null,
         warning: null,
-        path: "/workspace/outputs/report.txt"
+        path: "/workspace/assistants/assistant-handle/sessions/session-id/outputs/report.txt"
       },
       artifacts: [],
       isError: false
@@ -2051,7 +2051,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const sandboxClient = {
     async writeWorkspaceFile(input: { contentBase64: string }) {
       return {
-        workspaceRelPath: "/workspace/test-artefact.bin",
+        workspaceRelPath:
+          "/workspace/assistants/assistant-handle/sessions/session-id/test-artefact.bin",
         sizeBytes: Buffer.from(input.contentBase64, "base64").length
       };
     }
@@ -2914,7 +2915,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     {
       sourceToolCode: null,
       workspaceId: "workspace-1",
-      storagePath: "/workspace/working-image.png",
+      storagePath: "/workspace/assistants/assistant-handle/sessions/session-id/working-image.png",
       displayName: "working-image.png",
       mimeType: "image/png",
       sizeBytes: 64,
@@ -3884,7 +3885,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
           name: "files",
           arguments: {
             action: "write",
-            path: "/workspace/outputs/report.txt",
+            path: "/workspace/assistants/assistant-handle/sessions/session-id/outputs/report.txt",
             content: "sandbox output"
           }
         }
@@ -8438,7 +8439,8 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
   const sandboxClient = {
     async writeWorkspaceFile(input: { contentBase64: string }) {
       return {
-        workspaceRelPath: "/workspace/test-artefact.bin",
+        workspaceRelPath:
+          "/workspace/assistants/assistant-handle/sessions/session-id/test-artefact.bin",
         sizeBytes: Buffer.from(input.contentBase64, "base64").length
       };
     }
@@ -8630,7 +8632,7 @@ export async function runRecentPdfsHintTests(): Promise<void> {
           sizeBytes: 512,
           aliases: ["file #1"],
           authorLabel: "user",
-          scopeTier: "chat",
+          visibilityTier: "session",
           semanticSummaryHint: "Current source document for the new PDF."
         },
         {
@@ -8642,7 +8644,7 @@ export async function runRecentPdfsHintTests(): Promise<void> {
           sizeBytes: 1024,
           aliases: ["file #2"],
           authorLabel: "model",
-          scopeTier: "chat",
+          visibilityTier: "session",
           semanticSummaryHint: "Most recent delivered PDF result."
         }
       ],

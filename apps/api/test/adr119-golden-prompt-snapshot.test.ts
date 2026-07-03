@@ -254,6 +254,11 @@ async function runAdr119GoldenPromptSnapshotTest(): Promise<void> {
     "rendered prompt must contain <tool_usage_policy>"
   );
   assert.ok(rendered.includes("<priority_order>"), "rendered prompt must contain <priority_order>");
+  assert.doesNotMatch(
+    rendered,
+    /single flat \/workspace|\/workspace\/<path>|\/workspace\/chats|\/workspace\/projects|\/workspace\/input|\/workspace\/outbound|workspace_shared|crossScope:true|Current chat \/ this session/,
+    "rendered prompt must not preserve stale ADR-133 filesystem wording"
+  );
 
   // -------------------------------------------------------------------------
   // ADR-120 closure (Slice 7) invariant lock — pull-first retrieval.

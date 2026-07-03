@@ -600,9 +600,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     webSearch?.description,
     "Search the public web for current external facts.\nUse this when the answer depends on recent external information or links. May be called in parallel with other independent searches."
   );
-  assert.match(files?.description ?? "", /single flat `\/workspace\/` namespace/);
-  assert.match(files?.description ?? "", /scope:"assistant"/);
-  assert.match(files?.description ?? "", /crossScope:true/);
+  assert.match(
+    files?.description ?? "",
+    /current session root `\/workspace\/assistants\/<assistantStableKey>\/sessions\/<sessionId>\/\.\.\.`/i
+  );
+  assert.match(files?.description ?? "", /\/workspace\/assistants\/<assistantStableKey>\//);
   assert.match(files?.description ?? "", /exact path from the Working Files block/);
   // ADR-130 Slice 2: the anti-reconstruct rule is owned by the (within-cap)
   // model description; the longer guidance restatement ("Do not reconstruct
@@ -616,6 +618,10 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.doesNotMatch(files?.description ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(files?.description ?? "", /\/workspace\/input/);
   assert.doesNotMatch(files?.description ?? "", /\/workspace\/outbound/);
+  assert.doesNotMatch(
+    files?.description ?? "",
+    /scope:"assistant"|workspace_shared|crossScope:true/
+  );
   // ADR-126 v3 D6 — files surface is six actions: list, read, preview, write, delete, attach.
   assert.doesNotMatch(files?.description ?? "", /write.and.send|files\.send|files\.search/);
   assert.doesNotMatch(files?.description ?? "", /fileRef|alias|relativePath/);

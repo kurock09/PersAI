@@ -4,17 +4,23 @@ import {
   createEmptyTurnDeliveryFacts,
   finalizeTurnDeliveryFacts,
   recordTurnDeliveryFactsFromToolOutcome,
-  resolveRuntimeFileScopeTier,
+  resolveRuntimeFileVisibilityTier,
   resolveUndeliveredProducedPaths
 } from "../src/modules/turns/turn-delivery-facts";
+
+const TEST_SESSION_ROOT = "/workspace/assistants/my-bot/sessions/session-1";
+
+function wp(relativePath: string): string {
+  return `${TEST_SESSION_ROOT}/${relativePath.replace(/^\/+/, "")}`;
+}
 
 describe("turn-delivery-facts", () => {
   test("resolveUndeliveredProducedPaths returns produced minus attached", () => {
     const tracker = createEmptyTurnDeliveryFacts();
-    tracker.producedPaths.push("/workspace/a.pdf", "/workspace/b.pdf");
-    tracker.attachedPaths.push("/workspace/a.pdf");
-    assert.deepEqual(resolveUndeliveredProducedPaths(tracker), ["/workspace/b.pdf"]);
-    assert.deepEqual(finalizeTurnDeliveryFacts(tracker).attachedPaths, ["/workspace/a.pdf"]);
+    tracker.producedPaths.push(wp("a.pdf"), wp("b.pdf"));
+    tracker.attachedPaths.push(wp("a.pdf"));
+    assert.deepEqual(resolveUndeliveredProducedPaths(tracker), [wp("b.pdf")]);
+    assert.deepEqual(finalizeTurnDeliveryFacts(tracker).attachedPaths, [wp("a.pdf")]);
   });
 
   test("recordTurnDeliveryFactsFromToolOutcome tracks render without attach", () => {
@@ -27,45 +33,43 @@ describe("turn-delivery-facts", () => {
         toolCode: "document",
         action: "rendered",
         render: {
-          outputPath: "/workspace/test_pdf_document/output/test_document.pdf",
+          outputPath: wp("test_pdf_document/output/test_document.pdf"),
           mimeType: "application/pdf",
           sizeBytes: 15522
         }
       }
     });
     const facts = finalizeTurnDeliveryFacts(tracker);
-    assert.deepEqual(facts.producedPaths, [
-      "/workspace/test_pdf_document/output/test_document.pdf"
-    ]);
+    assert.deepEqual(facts.producedPaths, [wp("test_pdf_document/output/test_document.pdf")]);
     assert.deepEqual(facts.attachedPaths, []);
   });
 
-  test("resolveRuntimeFileScopeTier prefers produced paths and chat origin", () => {
-    const produced = new Set(["/workspace/out/report.pdf"]);
+  test("resolveRuntimeFileVisibilityTier prefers produced paths and session roots", () => {
+    const produced = new Set([wp("out/report.pdf")]);
     assert.equal(
-      resolveRuntimeFileScopeTier({
-        storagePath: "/workspace/out/report.pdf",
+      resolveRuntimeFileVisibilityTier({
+        storagePath: wp("out/report.pdf"),
         currentChatId: "chat-1",
         producedPathsThisTurn: produced
       }),
-      "chat"
+      "session"
     );
     assert.equal(
-      resolveRuntimeFileScopeTier({
-        storagePath: "/workspace/other.pdf",
+      resolveRuntimeFileVisibilityTier({
+        storagePath: wp("other.pdf"),
         currentChatId: "chat-1",
         producedPathsThisTurn: produced,
         originChatId: "chat-1"
       }),
-      "chat"
+      "session"
     );
     assert.equal(
-      resolveRuntimeFileScopeTier({
-        storagePath: "/shared/outbound/self/old.pdf",
+      resolveRuntimeFileVisibilityTier({
+        storagePath: "/workspace/shared/old.pdf",
         currentChatId: "chat-1",
         producedPathsThisTurn: produced
       }),
-      "workspace_shared"
+      "workspace"
     );
   });
 });
