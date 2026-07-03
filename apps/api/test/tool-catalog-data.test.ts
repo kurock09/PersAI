@@ -157,7 +157,7 @@ function testFilesCatalogRowUsesExactListedPaths(): void {
   const text = `${row.modelDescription}\n${row.modelUsageGuidance}`;
   assert.ok(
     text.includes(
-      "The default session root is `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`"
+      "current session root `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`"
     ),
     "files guidance must teach the current session root"
   );

@@ -611,7 +611,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   // upload paths…") falls past TOOL_DESCRIPTION_CAP after the ownership move and
   // is intentionally not asserted here (descriptor slimming is Slice 3).
   assert.match(files?.description ?? "", /never reconstruct paths from displayName\/filename/);
-  assert.match(files?.description ?? "", /allocates a new sibling name like `report \(1\)\.pdf`/i);
+  // The exact `report (1).pdf` example can fall past TOOL_DESCRIPTION_CAP after
+  // catalog-owner edits, but the within-cap collision guarantee must remain.
+  assert.match(files?.description ?? "", /collision-safe by default/i);
   // Within-cap replace-semantics owner (the guidance restatement "Pass replace:
   // true on files.write" falls past TOOL_DESCRIPTION_CAP after the ownership move).
   assert.match(files?.description ?? "", /`replace: true` as the exact-overwrite opt-in/i);
@@ -663,7 +665,9 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.match(filesProperties?.path?.description ?? "", /pod-absolute path/i);
   assert.match(filesProperties?.content?.description ?? "", /write/i);
   assert.equal(filesProperties?.replace?.type, "boolean");
-  assert.match(filesProperties?.mode?.description ?? "", /legacy write mode/i);
+  assert.match(filesProperties?.mode?.description ?? "", /create_only/i);
+  assert.doesNotMatch(filesProperties?.mode?.description ?? "", /legacy/i);
+  assert.doesNotMatch(filesProperties?.mode?.description ?? "", /overwrite/i);
   assert.match(filesProperties?.replace?.description ?? "", /exact-overwrite flag/i);
   assert.equal(
     filesProperties?.["alias" as keyof typeof filesProperties],
