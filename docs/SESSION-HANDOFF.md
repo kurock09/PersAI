@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-133 opened for session-first hierarchical workspace filesystem; implementation pending Slice 0 ledger
+
+Status: **docs-only program opened; no code implementation yet.**
+
+Founder clarified the target filesystem model: the assistant should work by default inside a real session directory, with an assistant directory above it and the full workspace above that. This is not a metadata-only scope rename and not a local `replace` fix. The clean PROD target is now recorded in `docs/ADR/133-session-first-hierarchical-workspace-filesystem.md`:
+
+- default working root: `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`
+- assistant widen: `/workspace/assistants/<assistantStableKey>/...`
+- workspace widen: `/workspace/...`
+- no flat `/workspace/<file>` active fallback
+- no `/workspace/chats/<chatId>` pseudo-scope
+- no stale `workspace_shared` / `crossScope:true` model-facing vocabulary
+- parent agent acts only as orchestrator/auditor; implementation slices are delegated to GPT-5.4/Sonnet subagents
+
+Read-only audits already identified the main blast radius: sandbox path validation/GCS/hydration/push-pull/GC, runtime `files`/`shell`/`exec`/`grep`/`glob`/`document` defaults and Working Files block, API upload/stage/manifest/attachment/document registration paths, web gallery scopes/file routes, OpenAPI/docs/tests, plus prompt/tool descriptor owners (`bootstrap-preset-data.ts`, `tool-catalog-data.ts`, `native-tool-projection.ts`, runtime result wording, runtime-contract comments/constants, and prompt golden tests).
+
+Docs touched in this opening step:
+
+- `docs/ADR/133-session-first-hierarchical-workspace-filesystem.md`
+- `AGENTS.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+Verification: not run; docs-only ADR opening. Git tree was clean before the ADR was created; local `main` was behind `origin/main` by one commit.
+
+Next: dispatch ADR-133 Slice 0 as a read-only GPT-5.4 ledger task with exact file:line keep/remove/update anchors. Parent reviews that ledger before any implementation slice starts.
+
 ## 2026-07-03 — Document overwrite versioning + active chat file binding landed; full code gate mostly green with two external blockers
 
 Status: **implemented locally; ready to commit/push, with known non-slice blockers in the existing full web suite and local DB migration state.**
