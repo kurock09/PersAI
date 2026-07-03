@@ -12,7 +12,6 @@ import {
 import type { AssistantChatSurface } from "../domain/assistant-chat.entity";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { AssistantDocumentJobService } from "./assistant-document-job.service";
-import type { DocumentWorkspaceInspectionService } from "./document-workspace-inspection.service";
 import { resolveVisibleWorkspaceOutputFormatFromPath } from "./document-workspace-deliverable-gating";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 import { normalizeActiveWorkspaceFilePath } from "./workspace-visible-paths";
@@ -86,9 +85,7 @@ export class RegisterChatAttachmentService {
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
-    private readonly assistantDocumentJobService: AssistantDocumentJobService,
-    _documentWorkspaceInspectionService?: DocumentWorkspaceInspectionService,
-    _documentWorkspaceVersionRegistrationService?: unknown
+    private readonly assistantDocumentJobService: AssistantDocumentJobService
   ) {}
 
   parseRuntimeInput(value: unknown): RegisterChatAttachmentFromRuntimeInput {

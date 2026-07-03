@@ -388,7 +388,7 @@ test("files.list workspace-root widen reads from manifest API and skips sandbox"
   assert.equal(first.type, "directory");
 });
 
-test("files.list assistant scope widens manifest request explicitly", async () => {
+test("files.list assistant-root path widens manifest request explicitly", async () => {
   let manifestInput: Record<string, unknown> | null = null;
   const service = createService({
     sandboxJob: {
@@ -411,7 +411,7 @@ test("files.list assistant scope widens manifest request explicitly", async () =
     toolCall: {
       id: "tc-list-assistant",
       name: "files",
-      arguments: { action: "list", path: "/workspace", scope: "assistant" }
+      arguments: { action: "list", path: "/workspace/assistants/my-bot" }
     },
     sessionId: "session-1",
     requestId: "request-1",
@@ -427,6 +427,46 @@ test("files.list assistant scope widens manifest request explicitly", async () =
   assert.equal(capturedManifestInput?.scope, "assistant");
   assert.equal(capturedManifestInput?.currentChatId, "chat-current");
   assert.equal(capturedManifestInput?.currentAssistantId, "assistant-1");
+});
+
+test("files.list ignores supplied scope and derives widen from path", async () => {
+  let manifestInput: Record<string, unknown> | null = null;
+  const service = createService({
+    sandboxJob: {
+      status: "completed",
+      reason: null,
+      warning: null,
+      violationMessage: null,
+      content: JSON.stringify({ items: [] })
+    },
+    apiClient: {
+      async listWorkspaceFilesFromManifest(input: Record<string, unknown>) {
+        manifestInput = input;
+        return { items: [] };
+      }
+    }
+  });
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-list-ignored-scope",
+      name: "files",
+      arguments: { action: "list", path: "/workspace", scope: "assistant" }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: "chat-current",
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  const capturedManifestInput = manifestInput as Record<string, unknown> | null;
+  assert.notEqual(capturedManifestInput, null);
+  assert.equal(capturedManifestInput?.pathPrefix, "/workspace");
+  assert.equal(capturedManifestInput?.scope, "workspace");
 });
 
 test("files.list defaults to the current session root when path is omitted", async () => {

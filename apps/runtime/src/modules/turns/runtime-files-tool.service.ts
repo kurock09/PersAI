@@ -27,7 +27,6 @@ type FilesListRequest = {
   action: "list";
   path: string | null;
   maxDepth: number;
-  scope?: FilesScope;
 };
 
 type FilesReadRequest = {
@@ -244,8 +243,7 @@ export class RuntimeFilesToolService {
         scope: this.resolveManifestListScope({
           path: request.path,
           assistantHandle,
-          sessionId: params.sessionId,
-          ...(request.scope === undefined ? {} : { requestedScope: request.scope })
+          sessionId: params.sessionId
         }),
         currentChatId: params.chatId,
         currentAssistantId: params.bundle.metadata.assistantId
@@ -299,11 +297,7 @@ export class RuntimeFilesToolService {
     path: string;
     assistantHandle: string;
     sessionId: string;
-    requestedScope?: FilesScope;
   }): FilesScope {
-    if (input.requestedScope !== undefined) {
-      return input.requestedScope;
-    }
     if (input.assistantHandle.length === 0) {
       return "workspace";
     }
@@ -847,15 +841,10 @@ export class RuntimeFilesToolService {
           typeof row.maxDepth === "number" && Number.isInteger(row.maxDepth) && row.maxDepth > 0
             ? Math.min(row.maxDepth, 4)
             : DEFAULT_LIST_MAX_DEPTH;
-        const scope = this.readFilesScope(row.scope);
-        if (scope instanceof Error) {
-          return scope;
-        }
         return {
           action: "list",
           path,
-          maxDepth,
-          ...(scope === undefined ? {} : { scope })
+          maxDepth
         };
       }
       case "read": {
@@ -941,16 +930,6 @@ export class RuntimeFilesToolService {
       return null;
     }
     return policy;
-  }
-
-  private readFilesScope(value: unknown): FilesScope | undefined | Error {
-    if (value === undefined || value === null) {
-      return undefined;
-    }
-    if (value === "chat" || value === "assistant" || value === "workspace") {
-      return value;
-    }
-    return new Error('files.list scope must be "chat", "assistant", or "workspace".');
   }
 
   private skipped(input: {

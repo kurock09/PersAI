@@ -87,7 +87,7 @@ export interface RuntimeConversationAddress extends AssistantScope {
 
 export interface RuntimeTelegramChannelContext {
   schema: "persai.runtime.telegramContext.v1";
-  /** Canonical PersAI assistant_chat.id for scope-aware files.* behavior. */
+  /** Canonical PersAI assistant_chat.id for session-root file visibility and provenance. */
   chatId?: string;
   chat: {
     id: string;
@@ -105,7 +105,7 @@ export interface RuntimeTelegramChannelContext {
 }
 
 export interface RuntimeChannelContext {
-  /** Canonical PersAI assistant_chat.id for scope-aware files.* behavior. */
+  /** Canonical PersAI assistant_chat.id for session-root file visibility and provenance. */
   chatId?: string;
   telegram?: RuntimeTelegramChannelContext;
   /** Web chat UUID for session-scoped file visibility and manifest origin tagging. */
@@ -303,9 +303,11 @@ export interface RuntimeSandboxToolResult {
  * Model-facing `files.*` actions — the canonical, path-driven surface. The
  * model addresses files exclusively by pod-absolute path; `fileRef` does not
  * appear on this contract. Chat delivery is a separate explicit action and
- * does not piggyback on `files.write`. ADR-133 Slice 1 establishes the shared
- * hierarchical path builders and classifiers here; later slices migrate active
- * runtime/API/sandbox behavior to those helpers.
+ * does not piggyback on `files.write`. ADR-133 path truth is now active:
+ * current-session paths live under
+ * `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`, and
+ * wider assistant/workspace access is expressed by choosing wider parent paths,
+ * not by a second model-facing scope vocabulary.
  */
 export const PERSAI_RUNTIME_FILES_TOOL_ACTIONS = [
   "list",
@@ -326,8 +328,9 @@ export type RuntimeFileCapability = (typeof PERSAI_RUNTIME_FILE_CAPABILITIES)[nu
  * The single model-visible item shape returned by `files.list`, `files.read`,
  * `files.preview`, `files.write`, and `files.delete`. There is no `fileRef`
  * field — addressing is by pod-absolute `path` only. The path is rooted at
- * `/workspace/...`; ADR-133 later narrows active defaults from the old flat
- * root to the session-first hierarchy defined below.
+ * `/workspace/...`. Under ADR-133, new work defaults to the current session
+ * root while list/read results may also come from wider assistant/workspace
+ * paths when the chosen `path` intentionally widens there.
  */
 export interface RuntimeFilesToolItem {
   /** Pod-absolute path rooted at `/workspace/...`. */

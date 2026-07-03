@@ -1,28 +1,48 @@
 # SESSION-HANDOFF
 
-## 2026-07-03 — ADR-133 independent cleanliness audit + final fix slice full gate green
+## 2026-07-03 — API CrashLoop hotfix ready to push
 
-Status: **implemented locally, full gate green, and not committed/pushed.** Independent prompt audit verdict: clean. Broader independent audit verdict: clean after the final targeted fixes listed below; those fixes are now applied.
+Status: **implemented locally, focused verification green, push/deploy pending.** Live `persai-dev` showed `api-76586b4cdc-x48k4` in `CrashLoopBackOff` on image `api:6c9505eb589bf89f7cd0ac04427753233c65e82a`; previous/current logs showed Nest `UnknownDependenciesException` for `RegisterChatAttachmentService` dependency index `[4]` with runtime token `Function`.
 
-What this final audit/fix slice changed:
+Root cause and fix:
 
-- `docs/ADR/133-session-first-hierarchical-workspace-filesystem.md` now points the next step at the real closeout flow: independent audit, full gate, reconcile with `origin/main`, push/deploy, and live validation.
-- Active API/web product-visible fixtures were cleaned so positive storage-path examples no longer use retired flat-root `/workspace/<file>` paths and instead use hierarchical session-root paths.
-- `apps/sandbox/src/workspace-file-bridge.service.ts` now rejects direct root-flat `workspaceFileWrite` targets such as `/workspace/report.pdf` before quota/pod/GCS work, records the denial audit, and keeps focused sandbox coverage aligned with that guard.
-- Positive sandbox `execute_document_code` and `files.read` forwarding fixtures were made session-rooted, and stale active source comments in API/sandbox were rewritten away from ADR-128 flat-root wording.
+- `RegisterChatAttachmentService` still had two unused optional constructor parameters (`DocumentWorkspaceInspectionService` type-only and `unknown`), which emitted runtime DI metadata as `Function` / `Object` in the production build.
+- The hotfix removes those unused constructor parameters and the stale type import, leaving only the four real dependencies.
+- Production `tsc` build output was inspected: compiled `design:paramtypes` now contains only `WorkspaceManagementPrismaService`, token-injected attachment repository (`Object` at index `[1]` with `@Inject(...)`), `WorkspaceFileMetadataService`, and `AssistantDocumentJobService`.
 
-Full verification now green:
+Verification:
 
-- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/api exec tsx --test test/register-chat-attachment.service.test.ts test/internal-workspace-files.controller.test.ts`
+- `corepack pnpm --filter @persai/api run build`
+- `corepack pnpm --filter @persai/api run lint`
 - `corepack pnpm run format:check`
-- `corepack pnpm -r --if-present run typecheck`
-- `corepack pnpm -r --if-present run test`
-- `corepack pnpm run test:ci-detect-affected`
 
 Residuals:
 
-- Reconcile with `origin/main` (branch is expected to be both ahead of and behind `origin/main`).
-- Commit/push, deploy, and complete live validation.
+- Commit and push; then watch the dev rollout until the new API pod starts cleanly.
+
+## 2026-07-03 — ADR-133 final audit tail cleanup
+
+Status: **focused verification green; follow-up push/deploy pending.** Baseline SHA: `ca79fd93d8e4a6712981b4337438b6db8927a6ed`. A delayed audit found two active ADR-133 tails after the earlier final cleanup: runtime still accepted a hidden `files.list.scope` argument, and runtime-contract comments still described future migration / scope-aware behavior. This slice closes those tails without broadening scope.
+
+What this audit-tail slice changed:
+
+- `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` no longer parses, validates, or threads a model-supplied `scope` value for `files.list`; `FilesListRequest` now carries only `action`, `path`, and `maxDepth`.
+- Internal manifest list scope still uses `chat | assistant | workspace`, but it is now derived only from the chosen `path` plus the current assistant/session roots via `resolveManifestListScope(...)`.
+- `apps/runtime/test/runtime-files-tool.service.test.ts` now proves assistant/workspace widen by path choice and adds a negative guard showing a supplied `scope` argument is ignored rather than accepted as active behavior.
+- `packages/runtime-contract/src/index.ts` comments around `RuntimeTelegramChannelContext`, `RuntimeChannelContext`, `PERSAI_RUNTIME_FILES_TOOL_ACTIONS`, and `RuntimeFilesToolItem` now describe the active session-first path/visibility truth instead of future slices or scope-aware wording.
+
+Focused verification green:
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts`
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- Focused stale-string sweep on `apps/runtime/src/modules/turns/runtime-files-tool.service.ts` and `packages/runtime-contract/src/index.ts` for `readFilesScope|requestedScope|scope-aware|later slices|later narrows|old flat root|mode:"overwrite"|crossScope|workspace_shared` returned no matches.
+
+Residuals:
+
+- Commit and push this narrow follow-up, then complete deploy/live validation.
 
 ## 2026-07-03 — ADR-133 Slice 5 landed locally: web gallery scopes + docs closure
 
