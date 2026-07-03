@@ -150,6 +150,7 @@ function imageGenerateInput(count: number, messageId: string) {
     assistantId: "assistant-1",
     sourceUserMessageId: messageId,
     sourceUserMessageText: "Generate images",
+    runtimeSessionId: "runtime-session-1",
     attachments: [],
     directToolExecution: {
       toolCode: "image_generate" as const,
@@ -170,6 +171,7 @@ function videoGenerateInput(messageId: string) {
     assistantId: "assistant-1",
     sourceUserMessageId: messageId,
     sourceUserMessageText: "Generate a short video",
+    runtimeSessionId: "runtime-session-1",
     attachments: [],
     directToolExecution: {
       toolCode: "video_generate" as const,
@@ -190,6 +192,7 @@ function imageGenerateSeriesInput(count: number, messageId: string, seriesItems:
     assistantId: "assistant-1",
     sourceUserMessageId: messageId,
     sourceUserMessageText: "Generate carousel",
+    runtimeSessionId: "runtime-session-1",
     attachments: [],
     directToolExecution: {
       toolCode: "image_generate" as const,
@@ -313,6 +316,7 @@ async function run(): Promise<void> {
           assistantId: "assistant-1",
           sourceUserMessageId: "message-6",
           sourceUserMessageText: "Generate images",
+          runtimeSessionId: "runtime-session-1",
           attachments: [],
           directToolExecution: {
             toolCode: "image_generate",
@@ -368,6 +372,7 @@ async function run(): Promise<void> {
           assistantId: "assistant-1",
           sourceUserMessageId: "message-9",
           sourceUserMessageText: "Generate images",
+          runtimeSessionId: "runtime-session-1",
           attachments: [],
           directToolExecution: {
             toolCode: "image_generate",
@@ -441,6 +446,7 @@ async function run(): Promise<void> {
       assistantId: "assistant-1",
       sourceUserMessageId: "message-img-edit",
       sourceUserMessageText: "Edit this photo",
+      runtimeSessionId: "runtime-session-1",
       attachments: [
         {
           attachmentId: "att-1",
@@ -493,6 +499,7 @@ async function run(): Promise<void> {
       assistantId: "assistant-1",
       sourceUserMessageId: "message-w4-sp",
       sourceUserMessageText: "Edit this photo",
+      runtimeSessionId: "runtime-session-1",
       attachments: [
         {
           attachmentId: "att-w4-sp",
@@ -537,6 +544,7 @@ async function run(): Promise<void> {
           assistantId: "assistant-1",
           sourceUserMessageId: "message-w4-ok",
           sourceUserMessageText: "Edit photo",
+          runtimeSessionId: "runtime-session-1",
           attachments: [
             {
               attachmentId: "att-w4-ok",
@@ -576,6 +584,7 @@ async function run(): Promise<void> {
           assistantId: "assistant-1",
           sourceUserMessageId: "message-w4-mixed",
           sourceUserMessageText: "Edit photos",
+          runtimeSessionId: "runtime-session-1",
           attachments: [
             {
               attachmentId: "att-w4-good",
