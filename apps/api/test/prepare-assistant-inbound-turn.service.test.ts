@@ -3,6 +3,8 @@ import { SAFETY_INBOUND_RESTRICTED_PLACEHOLDER_MESSAGE } from "../src/modules/wo
 import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { PrepareAssistantInboundTurnService } from "../src/modules/workspace-management/application/prepare-assistant-inbound-turn.service";
 
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+
 function createNoopSafetyGate() {
   return {
     async enforceActiveSafetyRestriction() {
@@ -175,7 +177,7 @@ async function run(): Promise<void> {
             assistantId: assistant.id,
             workspaceId: assistant.workspaceId,
             attachmentType: "document",
-            storagePath: "/workspace/brief.txt",
+            storagePath: `${SESSION_ROOT}/brief.txt`,
             originalFilename: "brief.txt",
             mimeType: "text/plain",
             sizeBytes: BigInt(12),
@@ -206,7 +208,7 @@ async function run(): Promise<void> {
   assert.equal(createdMessages.length, 1);
   assert.equal(createdMessages[0]?.chatId, "chat-1");
   assert.equal(prepared.userMessage.attachments.length, 1);
-  assert.equal(prepared.userMessage.attachments[0]?.path, "/workspace/brief.txt");
+  assert.equal(prepared.userMessage.attachments[0]?.path, `${SESSION_ROOT}/brief.txt`);
   assert.deepEqual(runtimeDeletes, [
     'receipt:{"where":{"assistantId":"assistant-1","channel":"web","externalThreadKey":"thread-1"}}',
     'compaction:{"where":{"runtimeSessionId":{"in":["stale-runtime-session-1"]},"assistantId":"assistant-1"}}',

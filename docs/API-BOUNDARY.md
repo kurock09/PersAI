@@ -311,13 +311,13 @@ These are internal runtime-to-sandbox boundaries for isolated `files` / `exec` /
 
 ### Files
 
-ADR-081 defines the active target-state file boundary.
+ADR-081 plus ADR-133 define the active target-state file boundary.
 
-The public/product file surface should expose assistant-scoped Files through canonical workspace paths under `/workspace/...`, backed by `workspace_file_metadata` plus chat/document projections. Chat `attachmentId`, runtime `artifactId`, object-storage keys, raw sandbox paths, knowledge source ids, and retrieval references are internal or plane-specific implementation identifiers, not primary model-facing file selectors. Runtime prompt hydration and model-visible tool use must expose reusable chat files through human-readable aliases that resolve to canonical workspace paths server-side, rather than printing raw selectors into conversational history.
+The public/product file surface should expose assistant-scoped Files through canonical hierarchical workspace paths, backed by `workspace_file_metadata` plus chat/document projections. The default visible working area is the current session root `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`; wider assistant/workspace access is expressed by ordinary parent paths, not by a second scope vocabulary. Chat `attachmentId`, runtime `artifactId`, object-storage keys, raw sandbox paths, knowledge source ids, and retrieval references are internal or plane-specific implementation identifiers, not primary model-facing file selectors. Runtime prompt hydration and model-visible tool use must expose reusable chat files through human-readable aliases that resolve to canonical workspace paths server-side, rather than printing raw selectors into conversational history.
 
 Sandbox and media delivery may continue to use their internal endpoints and storage paths, but those details must be hidden behind the single Files product/runtime contract. Knowledge remains a separate API/product plane and must not be folded into Files.
 
-Assistant-scoped Files are now served through the path-based workspace file routes (`/api/v1/assistant/chats/web/:chatId/files`, `/api/v1/assistant/workspaces/:workspaceId/files`, and matching `/preview` variants). These responses expose canonical workspace paths plus product metadata, not storage internals.
+Assistant-scoped Files are now served through the path-based workspace file routes (`/api/v1/assistant/chats/web/:chatId/files`, `/api/v1/assistant/workspaces/:workspaceId/files`, and matching `/preview` variants), plus the assistant-settings gallery list route `GET /api/v1/assistant/chats/web/:chatId/workspace-files`. That gallery route accepts `scope=session|assistant|workspace`, defaults to the current session, and widens truthfully without reviving `/workspace/chats/...` or flat-root defaults. These responses expose canonical workspace paths plus product metadata, not storage internals.
 
 The runtime model-facing contract is alias-first across uploaded chat files, generated outputs, and sandbox-created files. Runtime may still mount files into sandbox by relative path internally, but the model-facing selector passed through prompt/tool usage guidance is a human-readable working-file alias that resolves to a canonical workspace path.
 
@@ -325,7 +325,7 @@ ADR-116 extends the runtime `files` tool with `inspect` (metadata + `capabilitie
 
 `files.read` on PDF/DOCX returns model-visible text plus additive metadata: `charCount`, `truncated`, `readNote`, `extractionQuality`, and `extractionCached` (true when internal extract served from durable `assistant_files.metadata` cache). Tool-result JSON never contains raw binary or `%PDF-` prefixes. `files.preview` returns a short JSON ack (`action: "previewed"`, `alias`, `mimeType`, `visualKind`); pixels/PDF bytes are injected only via ephemeral `toolFollowUpUserContent` on the next provider call inside the tool loop, not persisted as a user chat message.
 
-Assistant Settings consumes the assistant-scoped Files API through canonical workspace-path routes, and chat attachment cards prefer the same canonical path-based routes when `path` exists, so attachment cards and settings rows are projections of the same File instead of separate storage concepts.
+Assistant Settings consumes the assistant-scoped Files API through canonical workspace-path routes. The Files gallery now labels its widens as `Current session`, `This assistant`, and `Workspace`, and chat attachment cards prefer the same canonical path-based routes when `path` exists, so attachment cards and settings rows are projections of the same File instead of separate storage concepts.
 
 The old attachment-download fallback is not active product/API truth. Product open/download links are canonical workspace-path links, and assistant Files API state exposes product metadata without storage-derived object keys or raw storage internals.
 

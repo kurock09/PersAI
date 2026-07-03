@@ -68,6 +68,25 @@ Interpretation rules:
 4. `files.write` exact overwrite stays boolean `replace: true`; Slice 4 must not preserve active runtime/model-facing `mode:"overwrite"` compatibility teaching.
 5. Slice 4 remains runtime/prompt-owner scoped: web/UI/OpenAPI/docs closure and final product wording alignment are verified in Slice 5.
 
+## ADR-133 Slice 5 web/UI/docs focused checks
+
+When a change touches the assistant-settings file gallery, the public workspace-files list route, web/client scope wording, or the ADR-133 docs closure, run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/list-chat-workspace-files.service.test.ts test/media-attachment.controller.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts app/app/_components/assistant-settings.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+corepack pnpm run format:check
+```
+
+Interpretation rules:
+
+1. Public gallery/list request shapes and visible labels must use `session | assistant | workspace` (or the final approved equivalent) and default to current-session provenance when an active web chat is available.
+2. Assistant Settings Files must widen truthfully to `Current session`, `This assistant`, and `Workspace`; it must not fall back to stale `This chat` / `All files` wording.
+3. Positive active web/API/docs fixtures must not keep flat-root `/workspace/*.pdf|txt|csv|docx|xlsx` examples, `/workspace/chats`, `/workspace/projects`, `workspace_shared`, or `crossScope:true` except as explicit negative guards or historical changelog/archive references.
+4. `ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`, `ADR-133`, `CHANGELOG.md`, and `SESSION-HANDOFF.md` must agree that Slice 5 is landed locally while the final full acceptance gate remains pending.
+
 ## ADR-132 document surface focused checks
 
 When a change touches `document.inspect`, `document.render`, `document.convert`, document auto-registration, or `files.attach` delivery of `pdf`/`docx`/`xlsx`, run these focused checks before the broad gate:

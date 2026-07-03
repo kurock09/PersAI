@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — founder-directed clean filesystem program opened 2026-07-03. Slice 1 (shared path contract and ADR wiring only), Slice 2 (sandbox + GCS cutover), Slice 3 (API manifest/upload/delivery/document cutover), and Slice 4 (runtime tools + model-instruction owners) are landed locally. Slice 4 completed the active runtime/prompt-owner move to hierarchical session-root truth for `files` / `document`, the Working Files developer block, native tool projection, bootstrap/tool catalog prompt owners, and golden/prompt guard tests, and removed active model-facing `workspace_shared` / `crossScope:true` / flat `/workspace/<path>` teaching from those layers. The ADR remains open for Slice 5 web/UI/OpenAPI/docs closure and the final end-to-end acceptance gate. Remaining work must stay orchestrated by the parent agent with GPT-5.4/Sonnet implementation subagents.
+Accepted — founder-directed clean filesystem program opened 2026-07-03. Slices 1-5 are landed locally. Slice 5 completed the remaining product-surface closure: the assistant-settings file gallery and public list route now use `session | assistant | workspace` semantics, default to current-session provenance, widen truthfully by hierarchical path roots, and the active web/API/docs fixtures no longer teach flat-root file examples as normal behavior. The ADR remains open only for the parent-orchestrated final end-to-end acceptance gate, deploy, and live validation. Remaining work must stay orchestrated by the parent agent with GPT-5.4/Sonnet implementation subagents.
 
 ## Date
 
@@ -223,7 +223,7 @@ Make API-owned file creation and delivery use the hierarchy:
 Landed locally 2026-07-03:
 
 - API-owned upload/stage/inbound/delivery/document storage paths now resolve under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`, and active ingress rejects retired flat root file paths.
-- Active API listing/download/delete/document guards now use hierarchical path validation, manifest scope uses `chat | assistant | workspace`, and chat gallery filtering no longer depends on `/workspace/chats/...`.
+- Active API listing/download/delete/document guards now use hierarchical path validation, and the public gallery/list surface is closed on `session | assistant | workspace` semantics instead of the retired public `chat | workspace` split.
 - Document extraction/inspection/version-registration tests and link metadata now use hierarchical session-root project layouts; default project derivation no longer falls back to a global `/workspace/projects` root for active sources.
 - Prisma/API/sandbox GC lease vocabulary is synchronized on `session_subtree | assistant_subtree | workspace_subtree`, with migration `20260703132500_adr133_slice3_gc_lease_kind_rename`.
 
@@ -257,6 +257,13 @@ Align product UI and docs:
 - web gallery scopes and translations;
 - web/API/runtime/sandbox fixtures;
 - `ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`, `TEST-PLAN.md`, `CHANGELOG.md`, `SESSION-HANDOFF.md`, and `AGENTS.md`.
+
+Landed locally 2026-07-03:
+
+- Assistant Settings Files now labels the gallery widens as `Current session`, `This assistant`, and `Workspace`, defaults to current-session provenance when an active web chat is open, and falls back to assistant-wide scope instead of a misleading workspace-wide default when only a latest-chat anchor is available.
+- The public web gallery list route now accepts `scope=session|assistant|workspace` and scopes rows by the real hierarchical session/assistant/workspace roots instead of the older `chat | workspace` split.
+- Active web/API test fixtures were updated so positive examples use hierarchical session-root paths for file cards, gallery tiles, delete flows, delivery metadata, and discovered-file facts; remaining flat-root references in active tests/docs are explicit negative guards or historical records only.
+- `ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`, `TEST-PLAN.md`, `CHANGELOG.md`, `SESSION-HANDOFF.md`, and `AGENTS.md` now describe Slice 5 as landed locally while keeping the ADR open until the final full gate and live acceptance complete.
 
 ## Acceptance criteria
 

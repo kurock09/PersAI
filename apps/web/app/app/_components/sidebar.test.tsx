@@ -8,6 +8,7 @@ import { OfflineGate } from "./offline-gate";
 import type { AppData } from "./use-app-data";
 
 const ORIGINAL_USER_AGENT = window.navigator.userAgent;
+const PROJECT_SESSION_ROOT = "/workspace/assistants/asst-1/sessions/project-thread";
 
 const navigationMocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -710,7 +711,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     assistantApiMocks.listChatWorkspaceFiles.mockResolvedValue({
       files: [
         {
-          storagePath: "/workspace/brief.pdf",
+          storagePath: `${PROJECT_SESSION_ROOT}/brief.pdf`,
           thumbnailStoragePath: null,
           posterStoragePath: null,
           originalFilename: "brief.pdf",
@@ -766,7 +767,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
         attachments: [
           {
             id: "att-old",
-            path: "/workspace/report.pdf",
+            path: `${PROJECT_SESSION_ROOT}/report.pdf`,
             thumbnailStoragePath: null,
             posterStoragePath: null,
             attachmentType: "document",
@@ -788,7 +789,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
         attachments: [
           {
             id: "att-new",
-            path: "/workspace/report.pdf",
+            path: `${PROJECT_SESSION_ROOT}/report.pdf`,
             thumbnailStoragePath: null,
             posterStoragePath: null,
             attachmentType: "document",

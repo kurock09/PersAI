@@ -651,12 +651,13 @@ describe("AssistantSettingsApkFooter", () => {
 });
 
 describe("AssistantSettings Files", () => {
-  it("renders the workspace tile gallery with content-type filters", async () => {
+  it("renders the workspace tile gallery with session-first scope controls", async () => {
     assistantApiMocks.listChatWorkspaceFiles.mockResolvedValue({
       files: [
         {
-          storagePath: "/workspace/photo.png",
-          thumbnailStoragePath: "/workspace/photo.png.thumb.webp",
+          storagePath: "/workspace/assistants/assistant-1/sessions/chat-1/photo.png",
+          thumbnailStoragePath:
+            "/workspace/assistants/assistant-1/sessions/chat-1/photo.png.thumb.webp",
           posterStoragePath: null,
           originalFilename: "photo.png",
           mimeType: "image/png",
@@ -699,13 +700,16 @@ describe("AssistantSettings Files", () => {
     await waitFor(() => {
       expect(assistantApiMocks.listChatWorkspaceFiles).toHaveBeenCalledWith("token-1", {
         chatId: "chat-1",
-        scope: "chat",
+        scope: "session",
         type: "all",
         cursor: null,
         limit: 24
       });
     });
     expect(screen.getByTestId("workspace-files-gallery")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Current session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "This assistant" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Workspace" })).toBeInTheDocument();
     expect(screen.getByTestId("workspace-files-filters")).toBeInTheDocument();
     expect(screen.getByText("Images")).toBeInTheDocument();
     expect(screen.queryByTestId("assistant-files-bucket-filters")).toBeNull();

@@ -3,6 +3,8 @@ import { test } from "node:test";
 import { NotFoundException } from "@nestjs/common";
 import { ManageChatMediaService } from "../src/modules/workspace-management/application/manage-chat-media.service";
 
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+
 const assistant = {
   id: "assistant-1",
   userId: "user-1",
@@ -102,8 +104,8 @@ function createService(input?: {
           return (
             input?.attachments ?? [
               {
-                thumbnailStoragePath: "/workspace/report-thumb.png",
-                posterStoragePath: "/workspace/report-poster.png"
+                thumbnailStoragePath: `${SESSION_ROOT}/report-thumb.png`,
+                posterStoragePath: `${SESSION_ROOT}/report-poster.png`
               }
             ]
           );
@@ -131,19 +133,19 @@ test("deleteChatWorkspaceFile removes manifest row and best-effort hot pod copy"
   await harness.service.deleteChatWorkspaceFile({
     userId: "user-1",
     chatId: "chat-1",
-    storagePath: "/workspace/report.txt"
+    storagePath: `${SESSION_ROOT}/report.txt`
   });
 
   assert.deepEqual(harness.deletedObjectKeys, [
-    "gcs:/workspace/report.txt",
-    "gcs:/workspace/report-thumb.png",
-    "gcs:/workspace/report-poster.png"
+    `gcs:${SESSION_ROOT}/report.txt`,
+    `gcs:${SESSION_ROOT}/report-thumb.png`,
+    `gcs:${SESSION_ROOT}/report-poster.png`
   ]);
   assert.deepEqual(harness.manifestDeletes, [
-    { workspaceId: "workspace-1", path: "/workspace/report.txt" }
+    { workspaceId: "workspace-1", path: `${SESSION_ROOT}/report.txt` }
   ]);
   assert.deepEqual(harness.hotPodRemovals, [
-    { workspaceId: "workspace-1", path: "/workspace/report.txt" }
+    { workspaceId: "workspace-1", path: `${SESSION_ROOT}/report.txt` }
   ]);
   assert.equal(harness.attachmentUpdates.length, 1);
 });
@@ -157,7 +159,7 @@ test("deleteChatWorkspaceFile swallows hot pod rm failure after durable delete",
     harness.service.deleteChatWorkspaceFile({
       userId: "user-1",
       chatId: "chat-1",
-      storagePath: "/workspace/report.txt"
+      storagePath: `${SESSION_ROOT}/report.txt`
     })
   );
   assert.equal(harness.manifestDeletes.length, 1);
@@ -172,7 +174,7 @@ test("deleteChatWorkspaceFile surfaces manifest delete failure", async () => {
     harness.service.deleteChatWorkspaceFile({
       userId: "user-1",
       chatId: "chat-1",
-      storagePath: "/workspace/report.txt"
+      storagePath: `${SESSION_ROOT}/report.txt`
     }),
     /db down/
   );
@@ -187,15 +189,15 @@ test("deleteWorkspaceFile deletes GCS + manifest + hot pod copy for orphan tiles
   await harness.service.deleteWorkspaceFile({
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    path: "/workspace/orphan.txt"
+    path: `${SESSION_ROOT}/orphan.txt`
   });
 
-  assert.deepEqual(harness.deletedObjectKeys, ["gcs:/workspace/orphan.txt"]);
+  assert.deepEqual(harness.deletedObjectKeys, [`gcs:${SESSION_ROOT}/orphan.txt`]);
   assert.deepEqual(harness.manifestDeletes, [
-    { workspaceId: "workspace-1", path: "/workspace/orphan.txt" }
+    { workspaceId: "workspace-1", path: `${SESSION_ROOT}/orphan.txt` }
   ]);
   assert.deepEqual(harness.hotPodRemovals, [
-    { workspaceId: "workspace-1", path: "/workspace/orphan.txt" }
+    { workspaceId: "workspace-1", path: `${SESSION_ROOT}/orphan.txt` }
   ]);
   assert.equal(harness.attachmentUpdates.length, 0);
 });
@@ -211,7 +213,7 @@ test("deleteWorkspaceFile returns 404 when manifest row and object are both abse
     harness.service.deleteWorkspaceFile({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/missing.txt"
+      path: `${SESSION_ROOT}/missing.txt`
     }),
     NotFoundException
   );

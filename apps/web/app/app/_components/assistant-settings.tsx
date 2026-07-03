@@ -1390,8 +1390,8 @@ export function AssistantSettings({
             item.chat.surfaceThreadKey === activeWebThreadKey
         )?.chat.id ?? null);
   const galleryChatId = activeGalleryChatId ?? latestWebChatId;
-  const galleryDefaultScope = activeGalleryChatId === null ? "workspace" : "chat";
-  const galleryAllowChatScope = activeGalleryChatId !== null;
+  const galleryDefaultScope = activeGalleryChatId === null ? "assistant" : "session";
+  const galleryAllowSessionScope = activeGalleryChatId !== null;
   const hasAssistantSwitcher = (data.assistantLimit?.maxAssistants ?? 1) > 1;
   const [assistantSwitcherOpen, setAssistantSwitcherOpen] = useState(false);
   const [assistantSwitchBusyId, setAssistantSwitchBusyId] = useState<string | null>(null);
@@ -4202,7 +4202,7 @@ export function AssistantSettings({
             chatId={galleryChatId}
             workspaceId={assistant?.workspaceId ?? null}
             defaultScope={galleryDefaultScope}
-            allowChatScope={galleryAllowChatScope}
+            allowSessionScope={galleryAllowSessionScope}
           />
         </Section>
 

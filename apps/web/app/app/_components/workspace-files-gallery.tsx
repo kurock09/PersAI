@@ -31,7 +31,7 @@ import { AuthenticatedAttachmentImage } from "./authenticated-attachment-image";
 import { ImageLightbox } from "./image-lightbox";
 
 type GalleryFilter = "all" | "image" | "video" | "document";
-type GalleryScope = "chat" | "workspace";
+type GalleryScope = "session" | "assistant" | "workspace";
 
 const FILTER_OPTIONS: GalleryFilter[] = ["all", "image", "video", "document"];
 
@@ -171,13 +171,13 @@ function TileMenu({
 export function WorkspaceFilesGallery({
   chatId,
   workspaceId,
-  defaultScope = "chat",
-  allowChatScope = true
+  defaultScope = "session",
+  allowSessionScope = true
 }: {
   chatId: string | null;
   workspaceId: string | null;
   defaultScope?: GalleryScope;
-  allowChatScope?: boolean;
+  allowSessionScope?: boolean;
 }) {
   const t = useTranslations("settings");
   const { getToken } = useAuth();
@@ -368,16 +368,28 @@ export function WorkspaceFilesGallery({
       <div className="flex flex-wrap gap-2" data-testid="workspace-files-scope">
         <button
           type="button"
-          disabled={!allowChatScope}
-          onClick={() => setScope("chat")}
+          disabled={!allowSessionScope}
+          onClick={() => setScope("session")}
           className={cn(
             "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-            scope === "chat"
+            scope === "session"
               ? "border-accent/40 bg-accent/10 text-text"
               : "border-border/70 bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text"
           )}
         >
-          {t("workspaceFilesScopeChat")}
+          {t("workspaceFilesScopeSession")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setScope("assistant")}
+          className={cn(
+            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+            scope === "assistant"
+              ? "border-accent/40 bg-accent/10 text-text"
+              : "border-border/70 bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text"
+          )}
+        >
+          {t("workspaceFilesScopeAssistant")}
         </button>
         <button
           type="button"
@@ -389,7 +401,7 @@ export function WorkspaceFilesGallery({
               : "border-border/70 bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text"
           )}
         >
-          {t("workspaceFilesScopeAll")}
+          {t("workspaceFilesScopeWorkspace")}
         </button>
       </div>
 

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { HandleInternalTelegramTurnService } from "../src/modules/workspace-management/application/handle-internal-telegram-turn.service";
 import { createAssistantInboundConflict } from "../src/modules/workspace-management/application/assistant-inbound-error";
 
+const TELEGRAM_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-telegram-upload-1";
+
 const noopRecordModelCostLedgerService = {
   async recordChatMainReplyEvents() {
     return 0;
@@ -708,7 +710,7 @@ async function run(): Promise<void> {
             {
               id: "telegram-upload-att-1",
               attachmentType: "image",
-              storagePath: "/workspace/image-1.png",
+              storagePath: `${TELEGRAM_SESSION_ROOT}/image-1.png`,
               mimeType: "image/png",
               originalFilename: "image-1.png",
               sizeBytes: BigInt(10)
@@ -716,7 +718,7 @@ async function run(): Promise<void> {
             {
               id: "telegram-upload-att-2",
               attachmentType: "document",
-              storagePath: "/workspace/brief.pdf",
+              storagePath: `${TELEGRAM_SESSION_ROOT}/brief.pdf`,
               mimeType: "application/pdf",
               originalFilename: "brief.pdf",
               sizeBytes: BigInt(20)

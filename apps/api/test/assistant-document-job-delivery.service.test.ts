@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { AssistantDocumentJobDeliveryService } from "../src/modules/workspace-management/application/assistant-document-job-delivery.service";
 
+const WEB_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+
 const noopRecordModelCostLedgerService = {
   async recordCompletionFramingUsageEvent() {
     return 0;
@@ -90,7 +92,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-1",
-              path: "/workspace/file-1.pdf",
+              path: `${WEB_SESSION_ROOT}/file-1.pdf`,
               mimeType: "application/pdf",
               originalFilename: "brief.pdf"
             }
@@ -213,7 +215,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-presentation-1",
-              path: "/workspace/file-presentation-1.pdf",
+              path: `${WEB_SESSION_ROOT}/file-presentation-1.pdf`,
               mimeType: "application/pdf",
               originalFilename: "board-deck.pdf"
             }
@@ -271,7 +273,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
       documentStatus: "ready",
       versionStatus: "ready",
       renderJobId: "job-presentation-1",
-      outputPath: "/workspace/file-presentation-1.pdf",
+      outputPath: `${WEB_SESSION_ROOT}/file-presentation-1.pdf`,
       workspaceProjectPath: null,
       projectManifestPath: null,
       projectSourcePath: null,
@@ -358,7 +360,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-presentation-2",
-              path: "/workspace/file-presentation-2.pdf",
+              path: `${WEB_SESSION_ROOT}/file-presentation-2.pdf`,
               mimeType: "application/pdf",
               originalFilename: "school-deck.pdf"
             }
@@ -417,7 +419,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
       documentStatus: "ready",
       versionStatus: "ready",
       renderJobId: "job-presentation-2",
-      outputPath: "/workspace/file-presentation-2.pdf",
+      outputPath: `${WEB_SESSION_ROOT}/file-presentation-2.pdf`,
       workspaceProjectPath: null,
       projectManifestPath: null,
       projectSourcePath: null,
@@ -975,7 +977,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         artifacts: [
           {
             kind: "file",
-            path: "/workspace/file-1.pdf",
+            path: `${WEB_SESSION_ROOT}/file-1.pdf`,
             mimeType: "application/pdf",
             filename: "report.pdf"
           }
@@ -1497,7 +1499,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-llm-1",
-              path: "/workspace/file-llm-1.pdf",
+              path: `${WEB_SESSION_ROOT}/file-llm-1.pdf`,
               mimeType: "application/pdf",
               originalFilename: "brief.pdf"
             }
@@ -1540,7 +1542,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         artifacts: [
           {
             kind: "file",
-            objectKey: "/workspace/file-llm-1.pdf",
+            objectKey: `${WEB_SESSION_ROOT}/file-llm-1.pdf`,
             mimeType: "application/pdf",
             filename: "brief.pdf"
           }
@@ -1605,7 +1607,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
         listByMessageId: async () => [
           {
             id: "attachment-cache-1",
-            storagePath: "/workspace/file-cache-1.pdf",
+            storagePath: `${WEB_SESSION_ROOT}/file-cache-1.pdf`,
             mimeType: "application/pdf"
           }
         ]
@@ -1779,7 +1781,7 @@ describe("AssistantDocumentJobDeliveryService", () => {
           attachments: [
             {
               id: "attachment-cache-2",
-              path: "/workspace/file-cache-2.pdf",
+              path: `${WEB_SESSION_ROOT}/file-cache-2.pdf`,
               mimeType: "application/pdf",
               originalFilename: "brief.pdf"
             }

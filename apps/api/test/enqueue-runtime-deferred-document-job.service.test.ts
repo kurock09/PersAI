@@ -4,6 +4,7 @@ import { EnqueueRuntimeDeferredDocumentJobService } from "../src/modules/workspa
 
 const PRESENTATION_DOC_ID = "12345678-1234-4234-9234-1234567890ab";
 const PRESENTATION_VERSION_ID = "22345678-1234-4234-9234-1234567890ab";
+const PRESENTATION_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
 
 function noopGammaThemePickerMock() {
   return {
@@ -303,7 +304,7 @@ async function runExplicitPptxExportQueuesGammaRender(): Promise<void> {
           currentOutputFormat: "pdf" as const,
           latestDeliveredFile: {
             attachmentId: "attachment-1",
-            storagePath: "/workspace/deck.pdf",
+            storagePath: `${PRESENTATION_SESSION_ROOT}/deck.pdf`,
             mimeType: "application/pdf",
             sizeBytes: 1000,
             originalFilename: "deck.pdf"

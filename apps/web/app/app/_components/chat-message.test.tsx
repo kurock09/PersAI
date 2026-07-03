@@ -4,6 +4,8 @@ import { forwardRef } from "react";
 import { ChatMessageBubble, resolveInternalChatCta } from "./chat-message";
 import type { ChatMessage } from "./use-chat";
 
+const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+
 const imageLightboxMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@clerk/nextjs", () => ({
@@ -593,7 +595,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
               attachmentType: "document",
               originalFilename: "spec.pdf",
               mimeType: "application/pdf",
-              path: "/workspace/spec.pdf",
+              path: `${CHAT_SESSION_ROOT}/spec.pdf`,
               thumbnailStoragePath: null,
               posterStoragePath: null
             }
@@ -604,7 +606,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /spec\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fspec.pdf&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fspec.pdf&download=1"
     );
   });
 
@@ -616,7 +618,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
           attachments: [
             {
               id: "persisted-att-1",
-              path: "/workspace/after-refresh.pdf",
+              path: `${CHAT_SESSION_ROOT}/after-refresh.pdf`,
               thumbnailStoragePath: null,
               posterStoragePath: null,
               attachmentType: "document",
@@ -633,7 +635,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /after-refresh\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fafter-refresh.pdf&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fafter-refresh.pdf&download=1"
     );
   });
 
@@ -645,7 +647,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
           attachments: [
             {
               id: "presentation-pdf-1",
-              path: "/workspace/board-deck.pdf",
+              path: `${CHAT_SESSION_ROOT}/board-deck.pdf`,
               thumbnailStoragePath: null,
               posterStoragePath: null,
               attachmentType: "document",
@@ -673,7 +675,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
 
     expect(screen.getByRole("link", { name: /board-deck\.pdf/i })).toHaveAttribute(
       "href",
-      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fboard-deck.pdf&download=1"
+      "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fchat-1%2Fboard-deck.pdf&download=1"
     );
     const pptxButton = screen.getByRole("button", {
       name: /presentationDownloadPptxAction|Download PPTX|Скачать PPTX/i
@@ -689,7 +691,7 @@ describe("ChatMessageBubble — canonical file attachments", () => {
           attachments: [
             {
               id: "presentation-pdf-2",
-              path: "/workspace/school-deck.pdf",
+              path: `${CHAT_SESSION_ROOT}/school-deck.pdf`,
               thumbnailStoragePath: null,
               posterStoragePath: null,
               attachmentType: "document",
@@ -1449,7 +1451,7 @@ describe("ChatMessageBubble — file attachment pill layout", () => {
           attachments: [
             {
               id: "att-word-1",
-              path: "/workspace/report.docx",
+              path: `${CHAT_SESSION_ROOT}/report.docx`,
               thumbnailStoragePath: null,
               posterStoragePath: null,
               attachmentType: "document",

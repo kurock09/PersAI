@@ -35,6 +35,8 @@ import {
   setWorkspaceVideoClonedVoiceDefault
 } from "./assistant-api-client";
 
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+
 const contractMocks = vi.hoisted(() => {
   return {
     postAdminStepUpChallenge: vi.fn(),
@@ -542,13 +544,13 @@ describe("assistant files client", () => {
     });
   });
 
-  it("loads workspace files with type and limit", async () => {
+  it("loads assistant-scoped workspace files with type and limit", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
           files: [
             {
-              storagePath: "/workspace/spec.pdf",
+              storagePath: `${SESSION_ROOT}/spec.pdf`,
               thumbnailStoragePath: null,
               posterStoragePath: null,
               originalFilename: "spec.pdf",
@@ -568,11 +570,16 @@ describe("assistant files client", () => {
     global.fetch = fetchMock;
 
     await expect(
-      listChatWorkspaceFiles("token-1", { chatId: "chat-1", type: "document", limit: 20 })
+      listChatWorkspaceFiles("token-1", {
+        chatId: "chat-1",
+        scope: "assistant",
+        type: "document",
+        limit: 20
+      })
     ).resolves.toEqual({
       files: [
         {
-          storagePath: "/workspace/spec.pdf",
+          storagePath: `${SESSION_ROOT}/spec.pdf`,
           thumbnailStoragePath: null,
           posterStoragePath: null,
           originalFilename: "spec.pdf",
@@ -587,7 +594,7 @@ describe("assistant files client", () => {
       nextCursor: null
     });
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/assistant/chats/web/chat-1/workspace-files?type=document&limit=20",
+      "/api/v1/assistant/chats/web/chat-1/workspace-files?scope=assistant&type=document&limit=20",
       {
         headers: { Authorization: "Bearer token-1" }
       }

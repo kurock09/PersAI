@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-133 Slice 5 landed locally: web gallery scopes + docs closure
+
+Status: **implemented locally, not committed/pushed, and complete for Slice 5 scope.** The public assistant-settings Files gallery and its list route now use `session | assistant | workspace` semantics, default to current-session provenance, and widen by the real hierarchical path roots rather than the older `chat | workspace` split. Active web/API fixtures and active docs were updated so positive examples no longer teach flat-root `/workspace/*.pdf|txt|csv|docx|xlsx` behavior.
+
+What Slice 5 landed:
+
+- `apps/web/app/app/assistant-api-client.ts`, `workspace-files-gallery.tsx`, `assistant-settings.tsx`, and the EN/RU messages now agree on `Current session` / `This assistant` / `Workspace` scope labels and request shapes, with assistant-wide fallback when no active web chat is open.
+- `apps/api/src/modules/workspace-management/application/list-chat-workspace-files.service.ts` now accepts `scope=session|assistant|workspace` and scopes gallery rows by the hierarchical session root and assistant root rather than by the retired public `chat | workspace` split.
+- Active web/API fixtures for gallery tiles, attachment cards, delete flows, discovered file paths, inbound attachments, Telegram upload summaries, deferred presentation exports, and document delivery metadata now use hierarchical session-root examples where they are asserting positive active behavior.
+- `ARCHITECTURE.md`, `API-BOUNDARY.md`, `DATA-MODEL.md`, `TEST-PLAN.md`, `AGENTS.md`, and ADR-133 now describe Slice 5 as landed locally while keeping the final acceptance gate open.
+
+Focused verification:
+
+- `corepack pnpm --filter @persai/api exec tsx test/list-chat-workspace-files.service.test.ts test/media-attachment.controller.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts app/app/_components/assistant-settings.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm run format:check`
+
+Generated-contract/OpenAPI decision:
+
+- The assistant-settings gallery route remains a manual web client surface and is not currently represented in `packages/contracts` generated code. Slice 5 updates the live web/API contract and docs without regenerating unrelated contract artifacts; the parent final gate can decide whether a broader explicit OpenAPI addition is worth the churn.
+
+Residuals:
+
+- ADR-133 remains open only for the parent-run final full gate, deploy, and live acceptance sweep.
+
 ## 2026-07-03 — ADR-133 Slice 4 landed locally: runtime tools + prompt owners now teach session-root hierarchy
 
 Status: **implemented locally, not committed/pushed, and complete for Slice 4 scope.** Runtime `files` / `document` tool behavior, the Working Files developer block, native tool projection, bootstrap/tool-catalog prompt owners, and golden/prompt guard tests now teach the hierarchical session-first filesystem model instead of the retired flat `/workspace/<path>` plus `workspace_shared` / `crossScope:true` vocabulary. The earlier sandbox lint blocker for this ADR batch was also fixed and revalidated.

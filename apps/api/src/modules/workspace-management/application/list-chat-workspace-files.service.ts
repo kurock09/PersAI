@@ -3,6 +3,7 @@
 // the model via files.write have no attachment row → chatId/messageId nullable.
 
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { buildAssistantSessionRoot, buildAssistantWorkspaceRoot } from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -13,7 +14,7 @@ import { ResolveActiveAssistantService } from "./resolve-active-assistant.servic
 
 export type WorkspaceFilesGalleryTypeFilter = "image" | "video" | "document";
 
-export type WorkspaceFilesGalleryScope = "chat" | "workspace";
+export type WorkspaceFilesGalleryScope = "session" | "assistant" | "workspace";
 
 export type ChatWorkspaceFileTile = {
   storagePath: string;
@@ -128,6 +129,8 @@ export class ListChatWorkspaceFilesService {
     const typeFilter = this.parseTypeFilter(input.type);
     const scope = this.parseScopeFilter(input.scope);
     const limit = this.parseLimit(input.limit);
+    const assistantRoot = buildAssistantWorkspaceRoot(assistant.handle);
+    const sessionRoot = buildAssistantSessionRoot(assistant.handle, chat.id);
     const [manifestRowsRaw, attachmentRowsRaw] = await Promise.all([
       this.prisma.workspaceFileMetadata.findMany({
         where: { workspaceId: chat.workspaceId },
@@ -233,13 +236,11 @@ export class ListChatWorkspaceFilesService {
     const scopedTiles =
       scope === "workspace"
         ? tiles
-        : tiles.filter(
-            (tile) =>
-              tile.chatId === input.chatId ||
-              manifestRows.some(
-                (manifest) =>
-                  manifest.path === tile.storagePath && manifest.originChatId === input.chatId
-              )
+        : tiles.filter((tile) =>
+            this.isPathAtOrUnderRoot(
+              tile.storagePath,
+              scope === "assistant" ? assistantRoot : sessionRoot
+            )
           );
 
     scopedTiles.sort((left, right) => {
@@ -273,13 +274,18 @@ export class ListChatWorkspaceFilesService {
   }
 
   private parseScopeFilter(value: string | null | undefined): WorkspaceFilesGalleryScope {
-    if (value === undefined || value === null || value.trim().length === 0 || value === "chat") {
-      return "chat";
+    if (value === undefined || value === null || value.trim().length === 0 || value === "session") {
+      return "session";
+    }
+    if (value === "assistant") {
+      return "assistant";
     }
     if (value === "workspace") {
       return "workspace";
     }
-    throw new BadRequestException('Query param "scope" must be one of: chat, workspace.');
+    throw new BadRequestException(
+      'Query param "scope" must be one of: session, assistant, workspace.'
+    );
   }
 
   private parseTypeFilter(
@@ -379,5 +385,9 @@ export class ListChatWorkspaceFilesService {
       metadata,
       createdAt: row.createdAt
     };
+  }
+
+  private isPathAtOrUnderRoot(path: string, root: string): boolean {
+    return path === root || path.startsWith(`${root}/`);
   }
 }

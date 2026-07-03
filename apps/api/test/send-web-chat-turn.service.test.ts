@@ -3,6 +3,8 @@ import { describe, test } from "node:test";
 import { SendWebChatTurnService } from "../src/modules/workspace-management/application/send-web-chat-turn.service";
 import { createAssistantInboundConflict } from "../src/modules/workspace-management/application/assistant-inbound-error";
 
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+
 const noopRecordToolPathLedgerFromToolInvocationsService = {
   async recordFromToolInvocations() {
     return undefined;
@@ -1370,7 +1372,7 @@ describe("SendWebChatTurnService", () => {
           assistantMessage: "reply with discovered files",
           respondedAt: "2026-04-05T12:00:01.000Z",
           media: [],
-          discoveredFilePaths: ["/workspace/report-a.pdf", "/workspace/report-b.pdf"]
+          discoveredFilePaths: [`${SESSION_ROOT}/report-a.pdf`, `${SESSION_ROOT}/report-b.pdf`]
         })
       } as never,
       {
@@ -1444,7 +1446,7 @@ describe("SendWebChatTurnService", () => {
     assert.deepEqual(
       (capturedCreateMessageInput as Record<string, unknown>).metadata,
       {
-        discoveredFilePaths: ["/workspace/report-a.pdf", "/workspace/report-b.pdf"]
+        discoveredFilePaths: [`${SESSION_ROOT}/report-a.pdf`, `${SESSION_ROOT}/report-b.pdf`]
       },
       "metadata.discoveredFilePaths must match the runtime return value in insertion order"
     );

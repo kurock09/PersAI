@@ -155,36 +155,50 @@ async function run(): Promise<void> {
     } as never
   );
 
-  const chatScoped = await service.execute({ userId: "user-1", chatId: "chat-1" });
-  // chat scope: image + session-origin orphan document (voice filtered, other-chat video excluded).
-  assert.equal(chatScoped.files.length, 2);
-  const orphan = chatScoped.files.find((file) => file.storagePath.endsWith("report.pdf"));
+  const sessionScoped = await service.execute({ userId: "user-1", chatId: "chat-1" });
+  // Session scope: image + same-session orphan document (voice filtered, other-session video excluded).
+  assert.equal(sessionScoped.files.length, 2);
+  const orphan = sessionScoped.files.find((file) => file.storagePath.endsWith("report.pdf"));
   assert.ok(orphan, "expected orphan PDF tile from manifest with no attachment");
   assert.equal(orphan?.chatId, "chat-1");
   assert.equal(orphan?.messageId, null);
   assert.equal(orphan?.attachmentType, "document");
   assert.equal(orphan?.originalFilename, "report.pdf");
 
-  const attached = chatScoped.files.find((file) => file.storagePath === `${sessionRoot}/photo.jpg`);
+  const attached = sessionScoped.files.find(
+    (file) => file.storagePath === `${sessionRoot}/photo.jpg`
+  );
   assert.ok(attached);
   assert.equal(attached?.chatId, "chat-1");
   assert.equal(attached?.messageId, "msg-1");
   assert.equal(attached?.thumbnailStoragePath, `${sessionRoot}/photo.jpg.thumb.webp`);
 
   assert.equal(
-    chatScoped.files.some((file) => file.storagePath.includes("note.webm")),
+    sessionScoped.files.some((file) => file.storagePath.includes("note.webm")),
     false,
     "voice-note attachments must be filtered out"
   );
   assert.equal(
-    chatScoped.files.some((file) => file.storagePath.startsWith("external-download/")),
+    sessionScoped.files.some((file) => file.storagePath.startsWith("external-download/")),
     false,
     "external-download manifest entries must be filtered out"
   );
   assert.equal(
-    chatScoped.files.some((file) => file.storagePath === `${otherSessionRoot}/clip.mp4`),
+    sessionScoped.files.some((file) => file.storagePath === `${otherSessionRoot}/clip.mp4`),
     false,
-    "other-chat attachments must be excluded from chat scope"
+    "other-session attachments must be excluded from session scope"
+  );
+
+  const assistantScoped = await service.execute({
+    userId: "user-1",
+    chatId: "chat-1",
+    scope: "assistant"
+  });
+  assert.equal(assistantScoped.files.length, 3);
+  assert.equal(
+    assistantScoped.files.some((file) => file.storagePath === `${otherSessionRoot}/clip.mp4`),
+    true,
+    "assistant scope must include files from the same assistant across sessions"
   );
 
   const workspaceScoped = await service.execute({
