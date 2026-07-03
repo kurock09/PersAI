@@ -3,6 +3,8 @@ import { describe, test } from "node:test";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { RegisterChatAttachmentService } from "../src/modules/workspace-management/application/register-chat-attachment.service";
 
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+
 function createWorkspaceMetadata(
   path: string,
   mimeType = "application/pdf",
@@ -39,8 +41,8 @@ function createDocumentLink(input: {
     documentStatus: "ready",
     versionStatus: "ready",
     outputPath: input.path,
-    workspaceProjectPath: input.workspaceProjectPath ?? "/workspace",
-    projectManifestPath: `${input.workspaceProjectPath ?? "/workspace"}/project.json`,
+    workspaceProjectPath: input.workspaceProjectPath ?? SESSION_ROOT,
+    projectManifestPath: `${input.workspaceProjectPath ?? SESSION_ROOT}/project.json`,
     projectSourcePath: null,
     sourceKind: "authored_workspace_project",
     sourcePath: `${basePath}.md`,
@@ -102,7 +104,7 @@ function createAttachmentMetadataUpdater(updatedMetadata: Record<string, unknown
 }
 
 describe("register-chat-attachment.service", () => {
-  test("rejects storage paths outside /workspace/ and /workspace/", async () => {
+  test("rejects storage paths outside the active hierarchical workspace roots", async () => {
     const service = new RegisterChatAttachmentService(
       { assistantChat: { findFirst: async () => null } } as never,
       {
@@ -167,7 +169,7 @@ describe("register-chat-attachment.service", () => {
       workspaceId: "workspace-1",
       chatId: "chat-1",
       messageId: "message-1",
-      storagePath: "/workspace/report.csv",
+      storagePath: `${SESSION_ROOT}/report.csv`,
       attachmentType: "document",
       mimeType: "text/csv",
       sizeBytes: 12,
@@ -177,11 +179,11 @@ describe("register-chat-attachment.service", () => {
     });
 
     assert.equal(result.attachmentId, "attachment-1");
-    assert.equal(result.storagePath, "/workspace/report.csv");
-    assert.equal(createdInput?.storagePath, "/workspace/report.csv");
+    assert.equal(result.storagePath, `${SESSION_ROOT}/report.csv`);
+    assert.equal(createdInput?.storagePath, `${SESSION_ROOT}/report.csv`);
     assert.equal(createdInput?.processingStatus, "ready");
     assert.deepEqual((createdInput?.metadata as Record<string, unknown>)?.kind, "user_upload");
-    assert.equal(upsertInput?.path, "/workspace/report.csv");
+    assert.equal(upsertInput?.path, `${SESSION_ROOT}/report.csv`);
     assert.equal(upsertInput?.originChatId, "chat-1");
     assert.equal(upsertInput?.originAssistantId, "assistant-1");
     assert.equal(upsertInput?.shortDescription, "Quarterly report");
@@ -219,18 +221,18 @@ describe("register-chat-attachment.service", () => {
       workspaceId: "workspace-1",
       chatId: "chat-1",
       messageId: "message-1",
-      storagePath: "/workspace/clip.mp4",
+      storagePath: `${SESSION_ROOT}/clip.mp4`,
       attachmentType: "video",
       mimeType: "video/mp4",
       sizeBytes: 1024,
       originalFilename: "clip.mp4",
       kind: "user_upload",
-      thumbnailStoragePath: "/workspace/photo.jpg.thumb.webp",
-      posterStoragePath: "/workspace/clip.mp4.poster.jpg"
+      thumbnailStoragePath: `${SESSION_ROOT}/photo.jpg.thumb.webp`,
+      posterStoragePath: `${SESSION_ROOT}/clip.mp4.poster.jpg`
     });
 
-    assert.equal(createdInput?.thumbnailStoragePath, "/workspace/photo.jpg.thumb.webp");
-    assert.equal(createdInput?.posterStoragePath, "/workspace/clip.mp4.poster.jpg");
+    assert.equal(createdInput?.thumbnailStoragePath, `${SESSION_ROOT}/photo.jpg.thumb.webp`);
+    assert.equal(createdInput?.posterStoragePath, `${SESSION_ROOT}/clip.mp4.poster.jpg`);
   });
   test("runtime attachment with null messageId does not fall back to running attempt userMessageId", async () => {
     const service = new RegisterChatAttachmentService(
@@ -259,7 +261,7 @@ describe("register-chat-attachment.service", () => {
           channel: "web",
           externalThreadKey: "web-thread-1",
           messageId: null,
-          storagePath: "/workspace/report.csv",
+          storagePath: `${SESSION_ROOT}/report.csv`,
           attachmentType: "document",
           mimeType: "text/csv",
           sizeBytes: 12,
@@ -275,17 +277,17 @@ describe("register-chat-attachment.service", () => {
     const cases = [
       {
         format: "pdf" as const,
-        path: "/workspace/report.pdf",
+        path: `${SESSION_ROOT}/report.pdf`,
         mimeType: "application/pdf"
       },
       {
         format: "docx" as const,
-        path: "/workspace/report.docx",
+        path: `${SESSION_ROOT}/report.docx`,
         mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       },
       {
         format: "xlsx" as const,
-        path: "/workspace/report.xlsx",
+        path: `${SESSION_ROOT}/report.xlsx`,
         mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       }
     ];
@@ -363,7 +365,7 @@ describe("register-chat-attachment.service", () => {
       {
         status: "ready" as const,
         link: createDocumentLink({
-          path: "/workspace/report.pdf",
+          path: `${SESSION_ROOT}/report.pdf`,
           format: "pdf",
           versionNumber: 1
         })
@@ -371,7 +373,7 @@ describe("register-chat-attachment.service", () => {
       {
         status: "ready" as const,
         link: createDocumentLink({
-          path: "/workspace/report.pdf",
+          path: `${SESSION_ROOT}/report.pdf`,
           format: "pdf",
           versionNumber: 1
         })
@@ -395,8 +397,8 @@ describe("register-chat-attachment.service", () => {
       createAttachmentRepository(createdInputs) as never,
       {
         async get(input: { path: string }) {
-          return input.path === "/workspace/report.pdf"
-            ? createWorkspaceMetadata("/workspace/report.pdf")
+          return input.path === `${SESSION_ROOT}/report.pdf`
+            ? createWorkspaceMetadata(`${SESSION_ROOT}/report.pdf`)
             : null;
         },
         upsert: async () => {}
@@ -417,7 +419,7 @@ describe("register-chat-attachment.service", () => {
       workspaceId: "workspace-1",
       chatId: "chat-1",
       messageId: "message-1",
-      storagePath: "/workspace/report.pdf",
+      storagePath: `${SESSION_ROOT}/report.pdf`,
       attachmentType: "document" as const,
       mimeType: "application/pdf",
       sizeBytes: 128,
@@ -441,7 +443,7 @@ describe("register-chat-attachment.service", () => {
       {
         status: "ready" as const,
         link: createDocumentLink({
-          path: "/workspace/report.xlsx",
+          path: `${SESSION_ROOT}/report.xlsx`,
           format: "xlsx",
           versionNumber: 1
         })
@@ -449,7 +451,7 @@ describe("register-chat-attachment.service", () => {
       {
         status: "ready" as const,
         link: createDocumentLink({
-          path: "/workspace/report.xlsx",
+          path: `${SESSION_ROOT}/report.xlsx`,
           format: "xlsx",
           versionNumber: 2
         })
@@ -473,9 +475,9 @@ describe("register-chat-attachment.service", () => {
       createAttachmentRepository(createdInputs) as never,
       {
         async get(input: { path: string }) {
-          return input.path === "/workspace/report.xlsx"
+          return input.path === `${SESSION_ROOT}/report.xlsx`
             ? createWorkspaceMetadata(
-                "/workspace/report.xlsx",
+                `${SESSION_ROOT}/report.xlsx`,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               )
             : null;
@@ -497,7 +499,7 @@ describe("register-chat-attachment.service", () => {
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       chatId: "chat-1",
-      storagePath: "/workspace/report.xlsx",
+      storagePath: `${SESSION_ROOT}/report.xlsx`,
       attachmentType: "document" as const,
       mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       sizeBytes: 512,
@@ -516,8 +518,8 @@ describe("register-chat-attachment.service", () => {
 
     assert.equal(first.attachmentId, "attachment-1");
     assert.equal(second.attachmentId, "attachment-2");
-    assert.equal(first.storagePath, "/workspace/report.xlsx");
-    assert.equal(second.storagePath, "/workspace/report.xlsx");
+    assert.equal(first.storagePath, `${SESSION_ROOT}/report.xlsx`);
+    assert.equal(second.storagePath, `${SESSION_ROOT}/report.xlsx`);
     assert.equal(
       (
         updatedMetadata[1] as {
@@ -532,7 +534,7 @@ describe("register-chat-attachment.service", () => {
           documentLink?: { versionNumber?: number; descriptorMode?: string; outputPath?: string };
         }
       )?.documentLink?.outputPath,
-      "/workspace/report.xlsx"
+      `${SESSION_ROOT}/report.xlsx`
     );
   });
 
@@ -561,8 +563,8 @@ describe("register-chat-attachment.service", () => {
       createAttachmentRepository(createdInputs) as never,
       {
         async get(input: { path: string }) {
-          return input.path === "/workspace/test.pdf"
-            ? createWorkspaceMetadata("/workspace/test.pdf")
+          return input.path === `${SESSION_ROOT}/test.pdf`
+            ? createWorkspaceMetadata(`${SESSION_ROOT}/test.pdf`)
             : null;
         },
         upsert: async () => {}
@@ -592,10 +594,10 @@ describe("register-chat-attachment.service", () => {
             descriptorMode: "create_document" as const,
             documentType: "workspace_document" as const,
             outputFormat: "pdf" as const,
-            outputPath: "/workspace/test.pdf",
-            workspaceProjectPath: "/workspace",
+            outputPath: `${SESSION_ROOT}/test.pdf`,
+            workspaceProjectPath: SESSION_ROOT,
             sourceManifestPath: null,
-            inspectionPath: "/workspace/test.inspect.json"
+            inspectionPath: `${SESSION_ROOT}/test.inspect.json`
           };
         }
       } as never
@@ -606,7 +608,7 @@ describe("register-chat-attachment.service", () => {
       workspaceId: "workspace-1",
       chatId: "chat-1",
       messageId: "message-1",
-      storagePath: "/workspace/test.pdf",
+      storagePath: `${SESSION_ROOT}/test.pdf`,
       attachmentType: "document",
       mimeType: "application/pdf",
       sizeBytes: 64,
@@ -668,7 +670,7 @@ describe("register-chat-attachment.service", () => {
           workspaceId: "workspace-1",
           chatId: "chat-1",
           messageId: "message-1",
-          storagePath: "/workspace/missing.pdf",
+          storagePath: `${SESSION_ROOT}/missing.pdf`,
           attachmentType: "document",
           mimeType: "application/pdf",
           sizeBytes: 64,
@@ -684,8 +686,8 @@ describe("register-chat-attachment.service", () => {
 
   test("non-document files pass through files.attach without document registration", async () => {
     const cases = [
-      { path: "/workspace/notes.txt", mimeType: "text/plain" },
-      { path: "/workspace/image.png", mimeType: "image/png" }
+      { path: `${SESSION_ROOT}/notes.txt`, mimeType: "text/plain" },
+      { path: `${SESSION_ROOT}/image.png`, mimeType: "image/png" }
     ];
 
     for (const testCase of cases) {

@@ -1,34 +1,51 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-133 Slice 3 landed locally: API manifest/upload/delivery/document cutover complete
+
+Status: **implemented locally, not committed/pushed, and complete for Slice 3 scope.** API-owned upload/stage/inbound/delivery/document path behavior now follows the hierarchical session-first model, the sandbox/API GC lease boundary is synchronized on the renamed subtree enum values, and remaining follow-up work is limited to Slice 4 prompt-owner/runtime instruction surfaces and Slice 5 web/UI/docs closure.
+
+What Slice 3 landed:
+
+- API-owned storage-path allocation for uploads, staged attachments, inbound media, delivery, metadata upserts, and visible document registration now resolves under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...` using the assistant handle plus the canonical chat/session identifier already present in this layer.
+- Active API ingress for manifest listing, metadata upsert, attachment registration, download/preview/delete, and document registration rejects retired flat root paths such as `/workspace/report.pdf` and stale non-hierarchical document paths.
+- List/gallery behavior no longer uses `/workspace/chats/...` or active `workspace_shared` API vocabulary; manifest scope uses `chat | assistant | workspace`, and chat gallery filtering is based on attachment/manifest provenance rather than the retired path prefix model.
+- Document project defaults no longer silently fall back to global `/workspace/projects/...`; hierarchical sources derive hierarchical project roots, extraction/inspection/version-registration tests now assert session-root project layouts, and project-path suffixing is hardened to stay inside active visible workspace directories.
+- Prisma `SandboxWorkspaceGcLeaseKind` was renamed to `session_subtree | assistant_subtree | workspace_subtree`, API producers were updated, sandbox GC now consumes the renamed DB values directly, and migration `20260703132500_adr133_slice3_gc_lease_kind_rename` records the cutover.
+
+Focused verification:
+
+- `corepack pnpm --filter @persai/api exec tsx --test test/list-workspace-files-from-manifest.service.test.ts test/document-workspace-extraction.service.test.ts test/document-workspace-inspection.service.test.ts test/document-workspace-version-registration.service.test.ts test/register-chat-attachment.service.test.ts test/upsert-workspace-file-metadata-from-runtime.service.test.ts test/media-attachment.controller.test.ts`
+- `corepack pnpm --filter @persai/api exec tsx test/list-chat-workspace-files.service.test.ts test/prisma-assistant-chat.repository.test.ts test/admin-delete-user.service.test.ts test/assistant-document-job.service.test.ts test/media-delivery-video-vcoin-settle.test.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime-contract exec tsx --test test/workspace-path-contract.test.ts test/document-workspace-project.test.ts`
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- `corepack pnpm --filter @persai/sandbox exec tsx --test test/workspace-gc.service.test.ts`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `corepack pnpm --filter @persai/api exec prisma validate --schema prisma/schema.prisma`
+- `corepack pnpm --filter @persai/api run prisma:generate`
+- `corepack pnpm run format:check`
+
+Verification caveats:
+
+- `prisma migrate diff --from-migrations ... --to-schema-datamodel ...` was not runnable in this environment because Prisma requires a configured `--shadow-database-url`.
+- `prisma migrate status` reports the repo’s longstanding local unapplied migration backlog, so local DB status is not a clean signal for this slice.
+
+Residuals:
+
+- Slice 4 only: prompt-owner/runtime instruction surfaces and golden prompt artifacts that still teach old scope vocabulary.
+- Slice 5 only: web/UI/OpenAPI/docs closure and any live product wording alignment.
+
 ## 2026-07-03 — ADR-133 Slice 2 landed locally: sandbox + GCS session-root cutover
 
-Status: **implemented locally, not committed/pushed, and intentionally limited to sandbox/GCS/default-path behavior plus focused tests/docs. API manifest/upload/delivery/document path migration and model-facing runtime/web prompt rewrites remain out of scope for later slices.**
+Status: **implemented locally, not committed/pushed, and intentionally limited to sandbox/GCS/default-path behavior plus focused tests/docs.**
 
-This slice switches the sandbox’s active default root from flat `/workspace/` behavior to the hierarchical ADR-133 session root derived from the shared contract. `shell` / `exec` cwd, `grep` / `glob` default paths, basename-only sandbox writes, and control-plane hot writes now target `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...` (or the assistant shared root for sessionless control-plane cases). Sandbox workspace persistence now mirrors visible hierarchical paths in GCS object keys, pod/local workspace hydration preserves the full tree instead of flattening session content into the root, and sandbox-side GC/audit semantics now report session/assistant/workspace subtree cleanup rather than the stale `chat_scratch` / `assistant_outbound` / `workspace_shared` vocabulary. Explicit flat root writes such as `/workspace/flat.txt` are now denied at the sandbox control-plane boundary instead of silently reusing the old flat fallback.
-
-Files touched:
-
-- `apps/sandbox/src/sandbox.service.ts`
-- `apps/sandbox/src/sandbox-object-storage.service.ts`
-- `apps/sandbox/src/workspace-file-bridge.service.ts`
-- `apps/sandbox/src/workspace-path.ts`
-- `apps/sandbox/src/workspace-gc.service.ts`
-- `apps/sandbox/src/workspace-audit.service.ts`
-- `apps/sandbox/test/sandbox.service.test.ts`
-- `apps/sandbox/test/workspace-file-bridge.service.test.ts`
-- `apps/sandbox/test/workspace-gc.service.test.ts`
-- `docs/ADR/133-session-first-hierarchical-workspace-filesystem.md`
-- `docs/TEST-PLAN.md`
-- `docs/CHANGELOG.md`
-- `docs/SESSION-HANDOFF.md`
+This slice switches the sandbox’s active default root from flat `/workspace/` behavior to the hierarchical ADR-133 session root derived from the shared contract. `shell` / `exec` cwd, `grep` / `glob` default paths, basename-only sandbox writes, and control-plane hot writes now target `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...` (or the assistant shared root for sessionless control-plane cases). Sandbox workspace persistence mirrors visible hierarchical paths in GCS object keys, pod/local workspace hydration preserves the full tree instead of flattening session content into the root, and sandbox-side GC/audit semantics now report session/assistant/workspace subtree cleanup.
 
 Verification:
 
 - `corepack pnpm --filter @persai/sandbox exec tsx --test test/workspace-file-bridge.service.test.ts test/workspace-gc.service.test.ts test/sandbox.service.test.ts`
 - `corepack pnpm --filter @persai/sandbox run typecheck`
 - `corepack pnpm run format:check`
-
-Next: parent review this Slice 2 diff, then dispatch Slice 3 for API-owned upload/manifest/delivery/document-path ingress so active runtime/API producers stop emitting stale flat `/workspace/<file>` document/output paths.
 
 ## 2026-07-03 — ADR-133 Slice 1 landed locally: shared path contract and ADR wiring only
 

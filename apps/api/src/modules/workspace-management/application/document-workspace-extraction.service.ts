@@ -15,6 +15,10 @@ import { DocumentExtractionService } from "./document-extraction.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
+import {
+  normalizeActiveWorkspaceDirectoryPath,
+  normalizeActiveWorkspaceFilePath
+} from "./workspace-visible-paths";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import type {
   KnowledgeDocumentProcessingInput,
@@ -158,7 +162,7 @@ export class DocumentWorkspaceExtractionService {
         accepted: false,
         code: "legacy_output_dir_rejected",
         message:
-          "document.extract no longer accepts outputDir; extraction creates a document project under /workspace/projects/<slug>/."
+          "document.extract no longer accepts outputDir; extraction creates a document project under the active hierarchical workspace path for the source document."
       };
     }
     const requestedSourcePath = normalizeWorkspacePath(input.path);
@@ -736,6 +740,9 @@ export class DocumentWorkspaceExtractionService {
     sourceContentHash: string | null;
   }): Promise<{ projectPath: string; reuseExisting: boolean } | null> {
     const preferred = deriveDefaultDocumentProjectPath(input.sourcePath);
+    if (preferred === null) {
+      return null;
+    }
     const normalizedPreferred = normalizeWorkspaceDirectory(preferred);
     if (normalizedPreferred === null) {
       return null;
@@ -1077,27 +1084,11 @@ export class DocumentWorkspaceExtractionService {
 }
 
 function normalizeWorkspacePath(value: string): string | null {
-  const trimmed = value.trim().replace(/\\/g, "/");
-  if (!trimmed.startsWith("/workspace/") || trimmed.includes("..")) {
-    return null;
-  }
-  if (
-    trimmed === "/workspace/input" ||
-    trimmed.startsWith("/workspace/input/") ||
-    trimmed === "/workspace/outbound" ||
-    trimmed.startsWith("/workspace/outbound/")
-  ) {
-    return null;
-  }
-  return trimmed;
+  return normalizeActiveWorkspaceFilePath(value);
 }
 
 function normalizeWorkspaceDirectory(value: string): string | null {
-  const normalized = normalizeWorkspacePath(value);
-  if (normalized === null) {
-    return null;
-  }
-  return normalized.replace(/\/+$/g, "");
+  return normalizeActiveWorkspaceDirectoryPath(value);
 }
 
 function normalizeMime(mimeType: string | null | undefined): string {

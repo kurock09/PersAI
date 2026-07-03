@@ -171,6 +171,8 @@ async function runEnqueueRevisionRetriesUniqueVersionConflict(): Promise<void> {
 }
 
 async function runFindCurrentDocumentLinkPreservesVisibleProjectProvenance(): Promise<void> {
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
+  const revenueProjectRoot = `${sessionRoot}/projects/revenue`;
   const service = new AssistantDocumentJobService({
     assistantDocument: {
       findFirst: async () => ({
@@ -187,16 +189,16 @@ async function runFindCurrentDocumentLinkPreservesVisibleProjectProvenance(): Pr
             outputFormat: "xlsx",
             metadata: {
               documentWorkspace: {
-                workspaceProjectPath: "/workspace/projects/revenue",
-                projectManifestPath: "/workspace/projects/revenue/project.json",
-                projectSourcePath: "/workspace/projects/revenue/source/source.xlsx",
+                workspaceProjectPath: revenueProjectRoot,
+                projectManifestPath: `${revenueProjectRoot}/project.json`,
+                projectSourcePath: `${revenueProjectRoot}/source/source.xlsx`,
                 sourceKind: "imported_workspace_file",
-                sourcePath: "/workspace/source.xlsx",
+                sourcePath: `${sessionRoot}/source.xlsx`,
                 sourceFormat: "xlsx",
                 sourceMimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                outputPath: "/workspace/projects/revenue/output/report.xlsx",
-                sourceManifestPath: "/workspace/projects/revenue/extract/manifest.json",
-                inspectionPath: "/workspace/projects/revenue/output/report.inspect.json",
+                outputPath: `${revenueProjectRoot}/output/report.xlsx`,
+                sourceManifestPath: `${revenueProjectRoot}/extract/manifest.json`,
+                inspectionPath: `${revenueProjectRoot}/output/report.inspect.json`,
                 inspectionSummary: {
                   format: "xlsx",
                   counts: {
@@ -222,7 +224,7 @@ async function runFindCurrentDocumentLinkPreservesVisibleProjectProvenance(): Pr
   const outcome = await service.findCurrentDocumentLinkByOutputPath({
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    outputPath: "/workspace/projects/revenue/output/report.xlsx"
+    outputPath: `${revenueProjectRoot}/output/report.xlsx`
   });
 
   assert.equal(outcome.status, "ready");
@@ -231,11 +233,11 @@ async function runFindCurrentDocumentLinkPreservesVisibleProjectProvenance(): Pr
   }
   const link = outcome.link;
   assert.equal(link.outputFormat, "xlsx");
-  assert.equal(link.workspaceProjectPath, "/workspace/projects/revenue");
-  assert.equal(link.projectManifestPath, "/workspace/projects/revenue/project.json");
-  assert.equal(link.projectSourcePath, "/workspace/projects/revenue/source/source.xlsx");
+  assert.equal(link.workspaceProjectPath, revenueProjectRoot);
+  assert.equal(link.projectManifestPath, `${revenueProjectRoot}/project.json`);
+  assert.equal(link.projectSourcePath, `${revenueProjectRoot}/source/source.xlsx`);
   assert.equal(link.sourceKind, "imported_workspace_file");
-  assert.equal(link.sourcePath, "/workspace/source.xlsx");
+  assert.equal(link.sourcePath, `${sessionRoot}/source.xlsx`);
   assert.equal(link.sourceFormat, "xlsx");
 }
 

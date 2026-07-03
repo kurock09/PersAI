@@ -73,16 +73,13 @@ export class AdminDeleteUserService {
         let workspaceDeleted = false;
         if (assistant) {
           const aid = assistant.id;
-          // ADR-128 Slice 4 — schedule the assistant for deferred GC. The flat
-          // workspace has no per-assistant subtree to purge, so the lease is
-          // mostly a structural placeholder kept for compatibility with the
-          // existing GC pipeline; we still write it BEFORE the source row is
-          // deleted so the schedule survives the hard-delete even though the
-          // foreign key relationship is intentionally absent from the lease
-          // table (see `sandbox_workspace_gc_lease`).
+          // ADR-133 Slice 3 — schedule the assistant subtree for deferred GC
+          // before deleting the source row so the lease survives the hard-delete
+          // transaction even though the lease table intentionally has no foreign
+          // key back to the assistant row.
           await tx.sandboxWorkspaceGcLease.create({
             data: {
-              kind: "assistant_outbound",
+              kind: "assistant_subtree",
               targetId: aid,
               scheduledAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               metadata: {
@@ -222,13 +219,13 @@ export class AdminDeleteUserService {
 
             workspaceDeleted = true;
 
-            // ADR-126 Slice 3 — schedule the workspace-shared subtree for
-            // deferred GC (GCS prefix + warm pods + workspace file metadata).
+            // ADR-133 Slice 3 — schedule the workspace subtree for deferred GC
+            // (GCS prefix + warm pods + workspace file metadata).
             // Lease lives independently of the workspace row so the GC schedule
             // survives the hard-delete that runs on the next statement.
             await tx.sandboxWorkspaceGcLease.create({
               data: {
-                kind: "workspace_shared",
+                kind: "workspace_subtree",
                 targetId: workspaceId,
                 scheduledAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
                 metadata: {}

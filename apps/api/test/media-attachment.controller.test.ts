@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { MediaAttachmentController } from "../src/modules/workspace-management/interface/http/media-attachment.controller";
 
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+
 class FakeResponse {
   statusCode = 200;
   headers = new Map<string, string | number | readonly string[]>();
@@ -30,7 +32,7 @@ async function run(): Promise<void> {
         versionId?: string | null;
       }) {
         assert.equal(input.chatId, "chat-1");
-        assert.equal(input.path, "/workspace/recommendations.md");
+        assert.equal(input.path, `${SESSION_ROOT}/recommendations.md`);
         assert.equal(input.versionId ?? null, null);
         return {
           buffer: Buffer.from("Привет\n", "utf8"),
@@ -87,7 +89,7 @@ async function run(): Promise<void> {
     req as never,
     downloadResponse as never,
     "chat-1",
-    "/workspace/recommendations.md",
+    `${SESSION_ROOT}/recommendations.md`,
     undefined,
     "1"
   );
@@ -104,7 +106,7 @@ async function run(): Promise<void> {
     req as never,
     inlineResponse as never,
     "chat-1",
-    "/workspace/recommendations.md",
+    `${SESSION_ROOT}/recommendations.md`,
     undefined,
     undefined
   );
@@ -156,23 +158,23 @@ async function run(): Promise<void> {
     req as never,
     octetResponse as never,
     "chat-1",
-    "/workspace/clip.mp4",
+    `${SESSION_ROOT}/clip.mp4`,
     undefined,
     "1"
   );
   assert.equal(octetResponse.headers.get("Content-Type"), "video/mp4");
 
   await assert.doesNotReject(() =>
-    controller.deleteWorkspaceFile(req as never, "workspace-1", "/workspace/orphan.txt")
+    controller.deleteWorkspaceFile(req as never, "workspace-1", `${SESSION_ROOT}/orphan.txt`)
   );
   assert.deepEqual(deletedWorkspaceFileInput, {
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    path: "/workspace/orphan.txt"
+    path: `${SESSION_ROOT}/orphan.txt`
   });
 
   await assert.rejects(
-    controller.deleteWorkspaceFile(req as never, "workspace-2", "/workspace/orphan.txt"),
+    controller.deleteWorkspaceFile(req as never, "workspace-2", `${SESSION_ROOT}/orphan.txt`),
     { name: "ForbiddenException" }
   );
   await assert.rejects(
@@ -180,7 +182,7 @@ async function run(): Promise<void> {
     { name: "BadRequestException" }
   );
   await assert.rejects(
-    controller.deleteWorkspaceFile({} as never, "workspace-1", "/workspace/orphan.txt"),
+    controller.deleteWorkspaceFile({} as never, "workspace-1", `${SESSION_ROOT}/orphan.txt`),
     { name: "UnauthorizedException" }
   );
 

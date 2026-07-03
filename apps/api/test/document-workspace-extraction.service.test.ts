@@ -3,6 +3,16 @@ import { describe, test } from "node:test";
 import { DocumentWorkspaceExtractionService } from "../src/modules/workspace-management/application/document-workspace-extraction.service";
 
 describe("DocumentWorkspaceExtractionService", () => {
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
+  const sourcePdfPath = `${sessionRoot}/source.pdf`;
+  const sourceDocxPath = `${sessionRoot}/source.docx`;
+  const revenueXlsxPath = `${sessionRoot}/revenue.xlsx`;
+  const genericXlsxPath = `${sessionRoot}/generic.xlsx`;
+  const contractsRoot = `${sessionRoot}/contracts`;
+  const sourceProjectRoot = `${sessionRoot}/projects/source`;
+  const revenueProjectRoot = `${sessionRoot}/projects/revenue`;
+  const genericProjectRoot = `${sessionRoot}/projects/generic`;
+
   test("extracts a PDF into visible sidecars under the default output dir", async () => {
     const savedObjects = new Map<string, Buffer>();
     const metadataUpserts: Array<{ path: string; mimeType: string; sizeBytes: number | bigint }> =
@@ -11,12 +21,12 @@ describe("DocumentWorkspaceExtractionService", () => {
     const service = new DocumentWorkspaceExtractionService(
       {
         async get(input: { path: string }) {
-          if (input.path !== "/workspace/source.pdf") {
+          if (input.path !== sourcePdfPath) {
             return null;
           }
           return {
             workspaceId: "workspace-1",
-            path: "/workspace/source.pdf",
+            path: sourcePdfPath,
             mimeType: "application/pdf",
             sizeBytes: BigInt(32),
             contentHash: null,
@@ -87,7 +97,7 @@ describe("DocumentWorkspaceExtractionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/source.pdf",
+      path: sourcePdfPath,
       mode: "auto",
       outputDir: null
     });
@@ -96,50 +106,54 @@ describe("DocumentWorkspaceExtractionService", () => {
     if (!outcome.accepted) {
       return;
     }
-    assert.equal(outcome.projectPath, "/workspace/projects/source");
-    assert.equal(outcome.outputDir, "/workspace/projects/source/extract");
-    assert.equal(outcome.projectManifestPath, "/workspace/projects/source/project.json");
-    assert.equal(outcome.projectSourcePath, "/workspace/projects/source/source/source.pdf");
-    assert.equal(outcome.defaultRenderEntrypoint, "/workspace/projects/source/render/report.html");
-    assert.equal(outcome.defaultPdfOutputPath, "/workspace/projects/source/output/report.pdf");
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/extract/extracted.md"));
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/extract/manifest.json"));
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/project.json"));
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/source/source.pdf"));
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/render/report.html"));
+    assert.equal(outcome.projectPath, sourceProjectRoot);
+    assert.equal(outcome.outputDir, `${sourceProjectRoot}/extract`);
+    assert.equal(outcome.projectManifestPath, `${sourceProjectRoot}/project.json`);
+    assert.equal(outcome.projectSourcePath, `${sourceProjectRoot}/source/source.pdf`);
+    assert.equal(outcome.defaultRenderEntrypoint, `${sourceProjectRoot}/render/report.html`);
+    assert.equal(outcome.defaultPdfOutputPath, `${sourceProjectRoot}/output/report.pdf`);
+    assert.ok(outcome.outputPaths.includes(`${sourceProjectRoot}/extract/extracted.md`));
+    assert.ok(outcome.outputPaths.includes(`${sourceProjectRoot}/extract/manifest.json`));
+    assert.ok(outcome.outputPaths.includes(`${sourceProjectRoot}/project.json`));
+    assert.ok(outcome.outputPaths.includes(`${sourceProjectRoot}/source/source.pdf`));
+    assert.ok(outcome.outputPaths.includes(`${sourceProjectRoot}/render/report.html`));
     assert.equal(metadataUpserts.length, 5);
     assert.deepEqual(
       metadataUpserts.map((entry) => entry.path),
       [
-        "/workspace/projects/source/extract/extracted.md",
-        "/workspace/projects/source/extract/manifest.json",
-        "/workspace/projects/source/project.json",
-        "/workspace/projects/source/source/source.pdf",
-        "/workspace/projects/source/render/report.html"
+        `${sourceProjectRoot}/extract/extracted.md`,
+        `${sourceProjectRoot}/extract/manifest.json`,
+        `${sourceProjectRoot}/project.json`,
+        `${sourceProjectRoot}/source/source.pdf`,
+        `${sourceProjectRoot}/render/report.html`
       ]
     );
-    const projectManifestBuffer = savedObjects.get("gcs:projects/source/project.json");
+    const projectManifestBuffer = savedObjects.get(
+      "gcs:assistants/assistant-1/sessions/chat-1/projects/source/project.json"
+    );
     assert.ok(projectManifestBuffer);
     const projectManifest = JSON.parse(projectManifestBuffer!.toString("utf8")) as Record<
       string,
       unknown
     >;
     assert.equal(projectManifest.schema, "persai.document.project.v1");
-    assert.equal(projectManifest.projectPath, "/workspace/projects/source");
+    assert.equal(projectManifest.projectPath, sourceProjectRoot);
     assert.equal(projectManifest.sourceKind, "imported_workspace_file");
-    assert.equal(projectManifest.sourcePath, "/workspace/source.pdf");
-    assert.equal(projectManifest.projectSourcePath, "/workspace/projects/source/source/source.pdf");
+    assert.equal(projectManifest.sourcePath, sourcePdfPath);
+    assert.equal(projectManifest.projectSourcePath, `${sourceProjectRoot}/source/source.pdf`);
     assert.equal(projectManifest.sourceFormat, "pdf");
     assert.equal(projectManifest.sourceMimeType, "application/pdf");
-    const manifestBuffer = savedObjects.get("gcs:projects/source/extract/manifest.json");
+    const manifestBuffer = savedObjects.get(
+      "gcs:assistants/assistant-1/sessions/chat-1/projects/source/extract/manifest.json"
+    );
     assert.ok(manifestBuffer);
     const manifest = JSON.parse(manifestBuffer!.toString("utf8")) as Record<string, unknown>;
     assert.equal(manifest.kind, "extraction_view");
-    assert.equal(manifest.sourcePath, "/workspace/source.pdf");
-    assert.equal(manifest.projectPath, "/workspace/projects/source");
+    assert.equal(manifest.sourcePath, sourcePdfPath);
+    assert.equal(manifest.projectPath, sourceProjectRoot);
     assert.equal(manifest.sourceFormat, "pdf");
     assert.equal(manifest.sourceMimeType, "application/pdf");
-    assert.equal(manifest.outputDir, "/workspace/projects/source/extract");
+    assert.equal(manifest.outputDir, `${sourceProjectRoot}/extract`);
     assert.equal(outcome.suggestedNextActions, null);
   });
 
@@ -163,12 +177,12 @@ describe("DocumentWorkspaceExtractionService", () => {
     const service = new DocumentWorkspaceExtractionService(
       {
         async get(input: { path: string }) {
-          if (input.path !== "/workspace/revenue.xlsx") {
+          if (input.path !== revenueXlsxPath) {
             return null;
           }
           return {
             workspaceId: "workspace-1",
-            path: "/workspace/revenue.xlsx",
+            path: revenueXlsxPath,
             mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             sizeBytes: BigInt(workbookBuffer.length),
             contentHash: null,
@@ -225,7 +239,7 @@ describe("DocumentWorkspaceExtractionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/revenue.xlsx",
+      path: revenueXlsxPath,
       mode: "auto",
       outputDir: null
     });
@@ -234,26 +248,36 @@ describe("DocumentWorkspaceExtractionService", () => {
     if (!outcome.accepted) {
       return;
     }
-    assert.equal(outcome.projectPath, "/workspace/projects/revenue");
-    assert.equal(outcome.projectSourcePath, "/workspace/projects/revenue/source/revenue.xlsx");
-    assert.equal(outcome.defaultRenderEntrypoint, "/workspace/projects/revenue/render/build.py");
+    assert.equal(outcome.projectPath, revenueProjectRoot);
+    assert.equal(outcome.projectSourcePath, `${revenueProjectRoot}/source/revenue.xlsx`);
+    assert.equal(outcome.defaultRenderEntrypoint, `${revenueProjectRoot}/render/build.py`);
     assert.equal(outcome.counts.sheetCount, 1);
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/revenue/extract/extracted.md"));
+    assert.ok(outcome.outputPaths.includes(`${revenueProjectRoot}/extract/extracted.md`));
+    assert.ok(outcome.outputPaths.includes(`${revenueProjectRoot}/extract/sheets/01-Revenue.csv`));
+    assert.ok(outcome.outputPaths.includes(`${revenueProjectRoot}/source/revenue.xlsx`));
     assert.ok(
-      outcome.outputPaths.includes("/workspace/projects/revenue/extract/sheets/01-Revenue.csv")
+      savedKeys.includes(
+        "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/extract/manifest.json"
+      )
     );
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/revenue/source/revenue.xlsx"));
-    assert.ok(savedKeys.includes("gcs:projects/revenue/extract/manifest.json"));
-    assert.ok(!outcome.outputPaths.includes("/workspace/projects/revenue/render/build.py"));
-    assert.ok(!outcome.outputPaths.includes("/workspace/projects/revenue/render/export_pdf.py"));
-    assert.ok(!savedKeys.includes("gcs:projects/revenue/render/build.py"));
-    assert.ok(!savedKeys.includes("gcs:projects/revenue/render/export_pdf.py"));
+    assert.ok(!outcome.outputPaths.includes(`${revenueProjectRoot}/render/build.py`));
+    assert.ok(!outcome.outputPaths.includes(`${revenueProjectRoot}/render/export_pdf.py`));
+    assert.ok(
+      !savedKeys.includes(
+        "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/render/build.py"
+      )
+    );
+    assert.ok(
+      !savedKeys.includes(
+        "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/render/export_pdf.py"
+      )
+    );
     assert.ok(Array.isArray(outcome.suggestedNextActions));
     assert.equal(outcome.suggestedNextActions?.length, 1);
     assert.deepEqual(outcome.suggestedNextActions?.[0]?.args, {
       action: "render",
-      projectPath: "/workspace/projects/revenue",
-      outputPath: "/workspace/projects/revenue/output/report.pdf",
+      projectPath: revenueProjectRoot,
+      outputPath: `${revenueProjectRoot}/output/report.pdf`,
       format: "pdf"
     });
     assert.match(
@@ -273,12 +297,12 @@ describe("DocumentWorkspaceExtractionService", () => {
     const service = new DocumentWorkspaceExtractionService(
       {
         async get(input: { path: string }) {
-          if (input.path !== "/workspace/generic.xlsx") {
+          if (input.path !== genericXlsxPath) {
             return null;
           }
           return {
             workspaceId: "workspace-1",
-            path: "/workspace/generic.xlsx",
+            path: genericXlsxPath,
             mimeType: "application/octet-stream",
             sizeBytes: BigInt(workbookBuffer.length),
             contentHash: null,
@@ -334,7 +358,7 @@ describe("DocumentWorkspaceExtractionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/generic.xlsx",
+      path: genericXlsxPath,
       mode: "auto",
       outputDir: null
     });
@@ -345,19 +369,17 @@ describe("DocumentWorkspaceExtractionService", () => {
       return;
     }
     assert.equal(outcome.counts.sheetCount, 1);
-    assert.ok(
-      outcome.outputPaths.includes("/workspace/projects/generic/extract/sheets/01-Sheet1.csv")
-    );
+    assert.ok(outcome.outputPaths.includes(`${genericProjectRoot}/extract/sheets/01-Sheet1.csv`));
   });
 
   test("rejects legacy outputDir on extract", async () => {
     const service = new DocumentWorkspaceExtractionService(
       {
         async get(input: { path: string }) {
-          if (input.path === "/workspace/source.pdf") {
+          if (input.path === sourcePdfPath) {
             return {
               workspaceId: "workspace-1",
-              path: "/workspace/source.pdf",
+              path: sourcePdfPath,
               mimeType: "application/pdf",
               sizeBytes: BigInt(32),
               contentHash: null,
@@ -386,9 +408,9 @@ describe("DocumentWorkspaceExtractionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/source.pdf",
+      path: sourcePdfPath,
       mode: "auto",
-      outputDir: "/workspace/source.pdf"
+      outputDir: sourcePdfPath
     });
 
     assert.equal(outcome.accepted, false);
@@ -403,12 +425,12 @@ describe("DocumentWorkspaceExtractionService", () => {
     const service = new DocumentWorkspaceExtractionService(
       {
         async get(input: { path: string }) {
-          if (input.path !== "/workspace/source.pdf") {
+          if (input.path !== sourcePdfPath) {
             return null;
           }
           return {
             workspaceId: "workspace-1",
-            path: "/workspace/source.pdf",
+            path: sourcePdfPath,
             mimeType: "application/pdf",
             sizeBytes: BigInt(32),
             contentHash: null,
@@ -437,9 +459,9 @@ describe("DocumentWorkspaceExtractionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/source.pdf",
+      path: sourcePdfPath,
       mode: "auto",
-      outputDir: "/workspace/source.extract"
+      outputDir: `${sessionRoot}/source.extract`
     });
 
     assert.equal(outcome.accepted, false);
@@ -455,12 +477,12 @@ describe("DocumentWorkspaceExtractionService", () => {
     const service = new DocumentWorkspaceExtractionService(
       {
         async get(input: { path: string }) {
-          if (input.path !== "/workspace/source.docx") {
+          if (input.path !== sourceDocxPath) {
             return null;
           }
           return {
             workspaceId: "workspace-1",
-            path: "/workspace/source.docx",
+            path: sourceDocxPath,
             mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             sizeBytes: BigInt(64),
             contentHash: null,
@@ -524,7 +546,7 @@ describe("DocumentWorkspaceExtractionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/source.docx",
+      path: sourceDocxPath,
       mode: "auto",
       outputDir: null
     });
@@ -533,35 +555,44 @@ describe("DocumentWorkspaceExtractionService", () => {
     if (!outcome.accepted) {
       return;
     }
-    assert.equal(outcome.projectPath, "/workspace/projects/source");
-    assert.equal(outcome.projectSourcePath, "/workspace/projects/source/source/source.docx");
-    assert.equal(outcome.defaultRenderEntrypoint, "/workspace/projects/source/render/build.py");
-    assert.ok(!outcome.outputPaths.includes("/workspace/projects/source/render/build.py"));
-    assert.ok(!outcome.outputPaths.includes("/workspace/projects/source/render/export_pdf.py"));
-    assert.ok(!outcome.outputPaths.includes("/workspace/projects/source/render/report.html"));
+    assert.equal(outcome.projectPath, sourceProjectRoot);
+    assert.equal(outcome.projectSourcePath, `${sourceProjectRoot}/source/source.docx`);
+    assert.equal(outcome.defaultRenderEntrypoint, `${sourceProjectRoot}/render/build.py`);
+    assert.ok(!outcome.outputPaths.includes(`${sourceProjectRoot}/render/build.py`));
+    assert.ok(!outcome.outputPaths.includes(`${sourceProjectRoot}/render/export_pdf.py`));
+    assert.ok(!outcome.outputPaths.includes(`${sourceProjectRoot}/render/report.html`));
 
-    const projectManifestBuffer = savedObjects.get("gcs:projects/source/project.json");
+    const projectManifestBuffer = savedObjects.get(
+      "gcs:assistants/assistant-1/sessions/chat-1/projects/source/project.json"
+    );
     assert.ok(projectManifestBuffer);
     const projectManifest = JSON.parse(projectManifestBuffer!.toString("utf8")) as Record<
       string,
       unknown
     >;
-    assert.equal(
-      projectManifest.defaultRenderEntrypoint,
-      "/workspace/projects/source/render/build.py"
-    );
+    assert.equal(projectManifest.defaultRenderEntrypoint, `${sourceProjectRoot}/render/build.py`);
     assert.equal(
       projectManifest.defaultPdfExportEntrypoint,
-      "/workspace/projects/source/render/export_pdf.py"
+      `${sourceProjectRoot}/render/export_pdf.py`
     );
-    assert.equal(savedObjects.has("gcs:projects/source/render/build.py"), false);
-    assert.equal(savedObjects.has("gcs:projects/source/render/export_pdf.py"), false);
+    assert.equal(
+      savedObjects.has(
+        "gcs:assistants/assistant-1/sessions/chat-1/projects/source/render/build.py"
+      ),
+      false
+    );
+    assert.equal(
+      savedObjects.has(
+        "gcs:assistants/assistant-1/sessions/chat-1/projects/source/render/export_pdf.py"
+      ),
+      false
+    );
     assert.ok(Array.isArray(outcome.suggestedNextActions));
     assert.equal(outcome.suggestedNextActions?.length, 1);
     assert.deepEqual(outcome.suggestedNextActions?.[0]?.args, {
       action: "render",
-      projectPath: "/workspace/projects/source",
-      outputPath: "/workspace/projects/source/output/report.pdf",
+      projectPath: sourceProjectRoot,
+      outputPath: `${sourceProjectRoot}/output/report.pdf`,
       format: "pdf"
     });
     assert.match(
@@ -575,12 +606,12 @@ describe("DocumentWorkspaceExtractionService", () => {
     const service = new DocumentWorkspaceExtractionService(
       {
         async get(input: { path: string }) {
-          if (input.path !== "/workspace/source.pdf") {
+          if (input.path !== sourcePdfPath) {
             return null;
           }
           return {
             workspaceId: "workspace-1",
-            path: "/workspace/source.pdf",
+            path: sourcePdfPath,
             mimeType: "application/pdf",
             sizeBytes: BigInt(64),
             contentHash: null,
@@ -647,7 +678,7 @@ describe("DocumentWorkspaceExtractionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/source.pdf",
+      path: sourcePdfPath,
       mode: "layout",
       outputDir: null
     });
@@ -658,7 +689,7 @@ describe("DocumentWorkspaceExtractionService", () => {
       return;
     }
     assert.match(outcome.warnings.join("\n"), /fell back to text mode/i);
-    assert.ok(outcome.outputPaths.includes("/workspace/projects/source/extract/extracted.md"));
+    assert.ok(outcome.outputPaths.includes(`${sourceProjectRoot}/extract/extracted.md`));
   });
 
   test("resolves a requested older numbered sibling to the newest version deterministically", async () => {
@@ -666,7 +697,7 @@ describe("DocumentWorkspaceExtractionService", () => {
     const service = new DocumentWorkspaceExtractionService(
       {
         async get(input: { path: string }) {
-          if (input.path === "/workspace/contracts/brief (5).docx") {
+          if (input.path === `${contractsRoot}/brief (5).docx`) {
             return {
               workspaceId: "workspace-1",
               path: input.path,
@@ -678,7 +709,7 @@ describe("DocumentWorkspaceExtractionService", () => {
               updatedAt: new Date("2026-06-29T10:00:00.000Z")
             };
           }
-          if (input.path === "/workspace/contracts/brief (6).docx") {
+          if (input.path === `${contractsRoot}/brief (6).docx`) {
             return {
               workspaceId: "workspace-1",
               path: input.path,
@@ -693,11 +724,11 @@ describe("DocumentWorkspaceExtractionService", () => {
           return null;
         },
         async list(input: { pathPrefix?: string }) {
-          if (input.pathPrefix === "/workspace/contracts/") {
+          if (input.pathPrefix === `${contractsRoot}/`) {
             return [
               {
                 workspaceId: "workspace-1",
-                path: "/workspace/contracts/brief (5).docx",
+                path: `${contractsRoot}/brief (5).docx`,
                 mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 sizeBytes: BigInt(50),
                 contentHash: null,
@@ -709,7 +740,7 @@ describe("DocumentWorkspaceExtractionService", () => {
               },
               {
                 workspaceId: "workspace-1",
-                path: "/workspace/contracts/brief (6).docx",
+                path: `${contractsRoot}/brief (6).docx`,
                 mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 sizeBytes: BigInt(60),
                 contentHash: null,
@@ -776,7 +807,7 @@ describe("DocumentWorkspaceExtractionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/contracts/brief (5).docx",
+      path: `${contractsRoot}/brief (5).docx`,
       mode: "auto",
       outputDir: null
     });
@@ -785,8 +816,10 @@ describe("DocumentWorkspaceExtractionService", () => {
     if (!outcome.accepted) {
       return;
     }
-    assert.equal(outcome.sourcePath, "/workspace/contracts/brief (6).docx");
-    assert.ok(downloadedKeys.includes("gcs:contracts/brief (6).docx"));
+    assert.equal(outcome.sourcePath, `${contractsRoot}/brief (6).docx`);
+    assert.ok(
+      downloadedKeys.includes("gcs:assistants/assistant-1/sessions/chat-1/contracts/brief (6).docx")
+    );
     assert.match(outcome.warnings.join("\n"), /resolved to the newest sibling version/i);
   });
 
@@ -795,32 +828,29 @@ describe("DocumentWorkspaceExtractionService", () => {
     const sourceBytes = Buffer.from("fake docx bytes", "utf8");
     const existingProjectManifest = {
       schema: "persai.document.project.v1",
-      projectPath: "/workspace/projects/source",
+      projectPath: sourceProjectRoot,
       sourceKind: "imported_workspace_file",
-      sourcePath: "/workspace/source.docx",
-      projectSourcePath: "/workspace/projects/source/source/source.docx",
+      sourcePath: sourceDocxPath,
+      projectSourcePath: `${sourceProjectRoot}/source/source.docx`,
       sourceFormat: "docx",
       sourceMimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      extractManifestPath: "/workspace/projects/source/extract/manifest.json",
-      defaultRenderEntrypoint: "/workspace/projects/source/render/build.py",
-      defaultPdfExportEntrypoint: "/workspace/projects/source/render/export_pdf.py"
+      extractManifestPath: `${sourceProjectRoot}/extract/manifest.json`,
+      defaultRenderEntrypoint: `${sourceProjectRoot}/render/build.py`,
+      defaultPdfExportEntrypoint: `${sourceProjectRoot}/render/export_pdf.py`
     };
     const service = new DocumentWorkspaceExtractionService(
       {
         async get(input: { path: string }) {
-          if (
-            input.path === "/workspace/source.docx" ||
-            input.path === "/workspace/projects/source/project.json"
-          ) {
+          if (input.path === sourceDocxPath || input.path === `${sourceProjectRoot}/project.json`) {
             return {
               workspaceId: "workspace-1",
               path: input.path,
               mimeType:
-                input.path === "/workspace/source.docx"
+                input.path === sourceDocxPath
                   ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   : "application/json",
               sizeBytes: BigInt(sourceBytes.length),
-              contentHash: input.path === "/workspace/source.docx" ? "hash-source-docx" : null,
+              contentHash: input.path === sourceDocxPath ? "hash-source-docx" : null,
               shortDescription: null,
               createdAt: new Date(),
               updatedAt: new Date()
@@ -829,11 +859,11 @@ describe("DocumentWorkspaceExtractionService", () => {
           return null;
         },
         async list(input: { pathPrefix?: string }) {
-          if (input.pathPrefix === "/workspace/projects/source/") {
+          if (input.pathPrefix === `${sourceProjectRoot}/`) {
             return [
               {
                 workspaceId: "workspace-1",
-                path: "/workspace/projects/source/project.json",
+                path: `${sourceProjectRoot}/project.json`,
                 mimeType: "application/json",
                 sizeBytes: BigInt(128),
                 contentHash: null,
@@ -856,7 +886,9 @@ describe("DocumentWorkspaceExtractionService", () => {
           return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
         },
         async downloadObject(objectKey: string) {
-          if (objectKey === "gcs:projects/source/project.json") {
+          if (
+            objectKey === "gcs:assistants/assistant-1/sessions/chat-1/projects/source/project.json"
+          ) {
             return {
               buffer: Buffer.from(JSON.stringify(existingProjectManifest, null, 2), "utf8"),
               contentType: "application/json"
@@ -905,14 +937,14 @@ describe("DocumentWorkspaceExtractionService", () => {
     const first = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/source.docx",
+      path: sourceDocxPath,
       mode: "auto",
       outputDir: null
     });
     const second = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/source.docx",
+      path: sourceDocxPath,
       mode: "auto",
       outputDir: null
     });
@@ -922,9 +954,11 @@ describe("DocumentWorkspaceExtractionService", () => {
     if (!first.accepted || !second.accepted) {
       return;
     }
-    assert.equal(first.projectPath, "/workspace/projects/source");
-    assert.equal(second.projectPath, "/workspace/projects/source");
-    assert.equal(second.projectManifestPath, "/workspace/projects/source/project.json");
-    assert.ok(savedObjects.has("gcs:projects/source/project.json"));
+    assert.equal(first.projectPath, sourceProjectRoot);
+    assert.equal(second.projectPath, sourceProjectRoot);
+    assert.equal(second.projectManifestPath, `${sourceProjectRoot}/project.json`);
+    assert.ok(
+      savedObjects.has("gcs:assistants/assistant-1/sessions/chat-1/projects/source/project.json")
+    );
   });
 });

@@ -5,6 +5,8 @@ import { MediaDeliveryService } from "../src/modules/workspace-management/applic
 import type { AssistantChatMessageAttachment } from "../src/modules/workspace-management/domain/assistant-chat-message-attachment.entity";
 import type { RuntimeProviderModelCatalogByProvider } from "../src/modules/workspace-management/application/runtime-provider-profile";
 
+const SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+
 /**
  * ADR-108 Slice 2 — `MediaDeliveryService` video-only success-delivery
  * settle path tests.
@@ -91,7 +93,7 @@ function buildAttachment(
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
     attachmentType: "video",
-    storagePath: "/workspace/clip.mp4",
+    storagePath: `${SESSION_ROOT}/clip.mp4`,
     originalFilename: "clip.mp4",
     mimeType: "video/mp4",
     sizeBytes: BigInt(64),
@@ -158,7 +160,8 @@ function buildVideoSettleService(opts?: {
       return {
         id: assistantId,
         workspaceId: "workspace-1",
-        userId: "user-1"
+        userId: "user-1",
+        handle: "assistant-1"
       };
     }
   } as never;
@@ -168,7 +171,7 @@ function buildVideoSettleService(opts?: {
       return `workspaces/${scope.workspaceId}${scope.workspaceRelPath}`;
     },
     buildChatMessageObjectKey() {
-      return "workspaces/workspace-1/workspace/clip.mp4";
+      return "workspaces/workspace-1/assistants/assistant-1/sessions/chat-1/clip.mp4";
     },
     async downloadObject() {
       return {
@@ -178,7 +181,7 @@ function buildVideoSettleService(opts?: {
     },
     async saveObject() {
       return {
-        objectKey: "workspaces/workspace-1/workspace/clip.mp4",
+        objectKey: "workspaces/workspace-1/assistants/assistant-1/sessions/chat-1/clip.mp4",
         sizeBytes: 8,
         mimeType: "video/mp4"
       };
@@ -188,7 +191,7 @@ function buildVideoSettleService(opts?: {
 
   const registerChatAttachment = {
     async execute() {
-      return { attachmentId: "att-vid-1", storagePath: "/workspace/clip.mp4" };
+      return { attachmentId: "att-vid-1", storagePath: `${SESSION_ROOT}/clip.mp4` };
     }
   } as never;
 
@@ -313,7 +316,7 @@ async function runVideoGenerateSettleDebitsInTx(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/clip.mp4",
+        objectKey: `${SESSION_ROOT}/clip.mp4`,
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -356,7 +359,7 @@ async function runKlingVideoSettleDebitsCorrectly(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/kling.mp4",
+        objectKey: `${SESSION_ROOT}/kling.mp4`,
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -398,7 +401,7 @@ async function runOpenAIVideoSettleDebitsCorrectly(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/sora.mp4",
+        objectKey: `${SESSION_ROOT}/sora.mp4`,
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -433,7 +436,7 @@ async function runImageGenerateDoesNotConsultVcoin(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/render.png",
+        objectKey: `${SESSION_ROOT}/render.png`,
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -472,7 +475,7 @@ async function runVideoSettleFailureRollsBackWithoutLegacyReconciliation(): Prom
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/clip.mp4",
+        objectKey: `${SESSION_ROOT}/clip.mp4`,
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",
@@ -522,7 +525,7 @@ async function runVideoSettleMissingBillingFactsSkipsLegacyReconciliation(): Pro
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/clip.mp4",
+        objectKey: `${SESSION_ROOT}/clip.mp4`,
         type: "video",
         sourceToolCode: "video_generate",
         mimeType: "video/mp4",

@@ -264,7 +264,7 @@ async function run(): Promise<void> {
   assert.equal(cronPolicy?.perTurnCap, null, "hidden-internal policies have null perTurnCap");
   const filesPolicy = toolPolicies.find((tool) => tool.toolCode === "files");
   // ADR-128 Slice 4 — flat workspace. The description/usage guidance no longer
-  // mentions /workspace/input/, /workspace/outbound/self/, or role-based regions.
+  // mentions legacy reserved subtrees or role-based regions.
   assert.match(
     filesPolicy?.description ?? "",
     /Path-driven file operations on the single flat `\/workspace\/` namespace/

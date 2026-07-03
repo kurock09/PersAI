@@ -128,8 +128,6 @@ export class ListChatWorkspaceFilesService {
     const typeFilter = this.parseTypeFilter(input.type);
     const scope = this.parseScopeFilter(input.scope);
     const limit = this.parseLimit(input.limit);
-    const chatScratchPrefix = `/workspace/chats/${input.chatId}/`;
-
     const [manifestRowsRaw, attachmentRowsRaw] = await Promise.all([
       this.prisma.workspaceFileMetadata.findMany({
         where: { workspaceId: chat.workspaceId },
@@ -238,7 +236,6 @@ export class ListChatWorkspaceFilesService {
         : tiles.filter(
             (tile) =>
               tile.chatId === input.chatId ||
-              tile.storagePath.startsWith(chatScratchPrefix) ||
               manifestRows.some(
                 (manifest) =>
                   manifest.path === tile.storagePath && manifest.originChatId === input.chatId

@@ -261,6 +261,7 @@ export class HandleInternalTelegramTurnService {
         const resolvedInboundMedia = await this.inboundMediaService.resolve({
           channel: "telegram",
           assistantId: resolved.assistantId,
+          assistantHandle: resolved.assistant.handle,
           userId: resolved.userId,
           chatId: chat.id,
           messageId: userMessage.id,

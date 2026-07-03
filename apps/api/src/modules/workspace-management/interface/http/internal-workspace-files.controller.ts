@@ -13,6 +13,7 @@ import {
 import { ListWorkspaceFilesFromManifestService } from "../../application/list-workspace-files-from-manifest.service";
 import { UpsertWorkspaceFileMetadataFromRuntimeService } from "../../application/upsert-workspace-file-metadata-from-runtime.service";
 import { WorkspaceFileMetadataService } from "../../application/workspace-file-metadata.service";
+import { normalizeActiveWorkspaceFilePath } from "../../application/workspace-visible-paths";
 import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
 
 type InternalRequestLike = {
@@ -63,13 +64,13 @@ export class InternalWorkspaceFilesController {
     @Query("path") path: string | undefined
   ) {
     this.assertAuthorized(req);
-    const trimmedPath = typeof path === "string" ? path.trim() : "";
-    if (!trimmedPath.startsWith("/workspace/")) {
-      throw new BadRequestException('path must start with "/workspace/".');
+    const normalizedPath = normalizeActiveWorkspaceFilePath(typeof path === "string" ? path : "");
+    if (normalizedPath === null) {
+      throw new BadRequestException('path must be an active hierarchical "/workspace/..." file.');
     }
     const row = await this.workspaceFileMetadataService.get({
       workspaceId,
-      path: trimmedPath
+      path: normalizedPath
     });
     return {
       file:
@@ -113,13 +114,13 @@ export class InternalWorkspaceFilesController {
     @Query("path") path: string | undefined
   ): Promise<void> {
     this.assertAuthorized(req);
-    const trimmedPath = typeof path === "string" ? path.trim() : "";
-    if (!trimmedPath.startsWith("/workspace/")) {
-      throw new BadRequestException('path must start with "/workspace/".');
+    const normalizedPath = normalizeActiveWorkspaceFilePath(typeof path === "string" ? path : "");
+    if (normalizedPath === null) {
+      throw new BadRequestException('path must be an active hierarchical "/workspace/..." file.');
     }
     await this.workspaceFileMetadataService.delete({
       workspaceId,
-      path: trimmedPath
+      path: normalizedPath
     });
   }
 

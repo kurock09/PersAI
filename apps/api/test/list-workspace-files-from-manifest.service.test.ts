@@ -4,10 +4,12 @@ import { BadRequestException } from "@nestjs/common";
 import { ListWorkspaceFilesFromManifestService } from "../src/modules/workspace-management/application/list-workspace-files-from-manifest.service";
 
 describe("ListWorkspaceFilesFromManifestService", () => {
+  const sessionRoot = "/workspace/assistants/alice/sessions/chat-1";
+  const assistantSharedRoot = "/workspace/assistants/alice/shared";
   const baseRows = [
     {
       workspaceId: "workspace-1",
-      path: "/workspace/photo.jpg",
+      path: `${sessionRoot}/photo.jpg`,
       mimeType: "image/jpeg",
       sizeBytes: BigInt(1200),
       contentHash: null,
@@ -17,7 +19,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     },
     {
       workspaceId: "workspace-1",
-      path: "/workspace/notes/day1.md",
+      path: `${sessionRoot}/notes/day1.md`,
       mimeType: "text/markdown",
       sizeBytes: BigInt(64),
       contentHash: null,
@@ -27,7 +29,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     },
     {
       workspaceId: "workspace-1",
-      path: "/workspace/notes/day2.md",
+      path: `${sessionRoot}/notes/day2.md`,
       mimeType: "text/markdown",
       sizeBytes: BigInt(70),
       contentHash: null,
@@ -37,7 +39,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     },
     {
       workspaceId: "workspace-1",
-      path: "/workspace/report.pdf",
+      path: `${assistantSharedRoot}/report.pdf`,
       mimeType: "application/pdf",
       sizeBytes: BigInt(2048),
       contentHash: null,
@@ -47,7 +49,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     },
     {
       workspaceId: "workspace-1",
-      path: "/workspace/song.mp3",
+      path: "/workspace/shared/song.mp3",
       mimeType: "audio/mpeg",
       sizeBytes: BigInt(4096),
       contentHash: null,
@@ -121,44 +123,51 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     );
   });
 
+  test("rejects flat root file prefixes from the retired workspace layout", async () => {
+    const { service } = buildService();
+    await assert.rejects(
+      service.execute({
+        workspaceId: "workspace-1",
+        pathPrefix: "/workspace/report.pdf",
+        assistantHandle: "alice",
+        currentAssistantId: "assistant-1"
+      }),
+      BadRequestException
+    );
+  });
+
   test("lists immediate /workspace children: collapses deep entries into top-level directories + files", async () => {
     const { service, calls } = buildService();
     const out = await service.execute({
       workspaceId: "workspace-1",
       pathPrefix: "/workspace",
       assistantHandle: "alice",
-      scope: "workspace_shared",
+      scope: "workspace",
       currentChatId: "chat-1",
       currentAssistantId: "assistant-1"
     });
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.pathPrefix, "/workspace/");
-    // photo.jpg + notes/ + report.pdf + song.mp3 = 4 top-level entries.
-    assert.equal(out.items.length, 4);
+    assert.equal(out.items.length, 2);
     const byPath = new Map(out.items.map((item) => [item.path, item]));
-    const notesDir = byPath.get("/workspace/notes");
-    assert.equal(notesDir?.type, "directory");
-    const photo = byPath.get("/workspace/photo.jpg");
-    assert.equal(photo?.type, "file");
-    assert.equal(photo?.mimeType, "image/jpeg");
-    assert.equal(photo?.sizeBytes, 1200);
-    assert.equal(photo?.shortDescription, "front-door selfie");
+    assert.equal(byPath.get("/workspace/assistants")?.type, "directory");
+    assert.equal(byPath.get("/workspace/shared")?.type, "directory");
   });
 
-  test("lists deep children of a subdirectory", async () => {
+  test("lists deep children of a session subdirectory", async () => {
     const { service } = buildService();
     const out = await service.execute({
       workspaceId: "workspace-1",
-      pathPrefix: "/workspace/notes",
+      pathPrefix: `${sessionRoot}/notes`,
       assistantHandle: "alice",
-      scope: "workspace_shared",
+      scope: "workspace",
       currentChatId: "chat-1",
       currentAssistantId: "assistant-1"
     });
     assert.equal(out.items.length, 2);
     assert.deepEqual(out.items.map((item) => item.path).sort(), [
-      "/workspace/notes/day1.md",
-      "/workspace/notes/day2.md"
+      `${sessionRoot}/notes/day1.md`,
+      `${sessionRoot}/notes/day2.md`
     ]);
     for (const item of out.items) {
       assert.equal(item.type, "file");
@@ -169,9 +178,9 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const { service } = buildService();
     const out = await service.execute({
       workspaceId: "workspace-1",
-      pathPrefix: "/workspace/does-not-exist",
+      pathPrefix: `${sessionRoot}/does-not-exist`,
       assistantHandle: "alice",
-      scope: "workspace_shared",
+      scope: "workspace",
       currentChatId: "chat-1",
       currentAssistantId: "assistant-1"
     });
@@ -182,20 +191,20 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const { service, calls } = buildService([
       {
         ...baseRows[0]!,
-        path: "/workspace/current.md",
+        path: `${sessionRoot}/current.md`,
         originChatId: "chat-current",
         originAssistantId: "assistant-1"
       },
       {
         ...baseRows[1]!,
-        path: "/workspace/other.md",
+        path: "/workspace/assistants/alice/sessions/chat-other/other.md",
         originChatId: "chat-other",
         originAssistantId: "assistant-1"
       }
     ]);
     const out = await service.execute({
       workspaceId: "workspace-1",
-      pathPrefix: "/workspace",
+      pathPrefix: sessionRoot,
       assistantHandle: "alice",
       scope: "chat",
       currentChatId: "chat-current",
@@ -204,7 +213,7 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     assert.equal(calls[0]?.originChatId, "chat-current");
     assert.deepEqual(
       out.items.map((item) => item.path),
-      ["/workspace/current.md"]
+      [`${sessionRoot}/current.md`]
     );
   });
 
@@ -212,26 +221,26 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     const { service, calls } = buildService([
       {
         ...baseRows[0]!,
-        path: "/workspace/current.md",
+        path: `${assistantSharedRoot}/current.md`,
         originChatId: "chat-current",
         originAssistantId: "assistant-1"
       },
       {
         ...baseRows[1]!,
-        path: "/workspace/assistant-past.md",
+        path: `${assistantSharedRoot}/assistant-past.md`,
         originChatId: "chat-past",
         originAssistantId: "assistant-1"
       },
       {
         ...baseRows[2]!,
-        path: "/workspace/other-assistant.md",
+        path: "/workspace/assistants/bob/shared/other-assistant.md",
         originChatId: "chat-other",
         originAssistantId: "assistant-2"
       }
     ]);
     const out = await service.execute({
       workspaceId: "workspace-1",
-      pathPrefix: "/workspace",
+      pathPrefix: assistantSharedRoot,
       assistantHandle: "alice",
       scope: "assistant",
       currentChatId: "chat-current",
@@ -239,8 +248,8 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     });
     assert.equal(calls[0]?.originAssistantId, "assistant-1");
     assert.deepEqual(out.items.map((item) => item.path).sort(), [
-      "/workspace/assistant-past.md",
-      "/workspace/current.md"
+      `${assistantSharedRoot}/assistant-past.md`,
+      `${assistantSharedRoot}/current.md`
     ]);
   });
 

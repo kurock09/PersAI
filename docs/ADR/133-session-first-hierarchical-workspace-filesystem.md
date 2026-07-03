@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — founder-directed clean filesystem program opened 2026-07-03. Slice 1 (shared path contract and ADR wiring only) and Slice 2 (sandbox + GCS cutover) are now landed locally; remaining API/runtime/web behavior migration must stay orchestrated by the parent agent with GPT-5.4/Sonnet implementation subagents.
+Accepted — founder-directed clean filesystem program opened 2026-07-03. Slice 1 (shared path contract and ADR wiring only), Slice 2 (sandbox + GCS cutover), and Slice 3 (API manifest/upload/delivery/document cutover) are landed locally. Slice 3 completed the active API-side move to hierarchical session-root paths, removed stale `/workspace/chats` and active `workspace_shared` API vocabulary, renamed/synchronized the GC lease enum boundary (`session_subtree | assistant_subtree | workspace_subtree`) across Prisma/API/sandbox, and removed the active global `/workspace/projects` default for document project derivation. Remaining runtime/web/model-instruction migration must stay orchestrated by the parent agent with GPT-5.4/Sonnet implementation subagents.
 
 ## Date
 
@@ -219,6 +219,13 @@ Make API-owned file creation and delivery use the hierarchy:
 - attachment `storagePath` length and schema constraints are updated if needed;
 - document inspect/render/convert/version registration paths live under the hierarchy;
 - operational cutover/wipe plan is documented.
+
+Landed locally 2026-07-03:
+
+- API-owned upload/stage/inbound/delivery/document storage paths now resolve under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`, and active ingress rejects retired flat root file paths.
+- Active API listing/download/delete/document guards now use hierarchical path validation, manifest scope uses `chat | assistant | workspace`, and chat gallery filtering no longer depends on `/workspace/chats/...`.
+- Document extraction/inspection/version-registration tests and link metadata now use hierarchical session-root project layouts; default project derivation no longer falls back to a global `/workspace/projects` root for active sources.
+- Prisma/API/sandbox GC lease vocabulary is synchronized on `session_subtree | assistant_subtree | workspace_subtree`, with migration `20260703132500_adr133_slice3_gc_lease_kind_rename`.
 
 ### Slice 4 — Runtime tools and model instructions
 

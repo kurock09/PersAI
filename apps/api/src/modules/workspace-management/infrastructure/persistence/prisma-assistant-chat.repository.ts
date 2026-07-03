@@ -347,14 +347,14 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     const workspaceId = options?.workspaceId ?? existingChat.workspaceId;
 
     await this.prisma.$transaction(async (tx) => {
-      // ADR-126 Slice 3 — schedule a chat-scratch GC lease BEFORE the chat row
+      // ADR-126 Slice 3 — schedule a session-subtree GC lease BEFORE the chat row
       // disappears so the warm-pod and GCS-snapshot purge survives the
       // hard-delete. `scheduledAt = now()` so the reaper (and the in-process
       // eager call from `ManageWebChatListService.hardDeleteChat`) can run
       // the purge immediately on the next tick.
       await tx.sandboxWorkspaceGcLease.create({
         data: {
-          kind: "chat_scratch",
+          kind: "session_subtree",
           targetId: chatId,
           scheduledAt: new Date(),
           metadata: {

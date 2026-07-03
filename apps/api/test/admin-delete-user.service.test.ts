@@ -322,11 +322,11 @@ async function run(): Promise<void> {
   assert.deepEqual(releasedBytes, [BigInt(7)]);
   assert.deepEqual(releasedKnowledgeBytes, [BigInt(11)]);
 
-  assert.equal(sandboxGcLeaseCreates.length, 1, "expected one assistant_outbound GC lease");
+  assert.equal(sandboxGcLeaseCreates.length, 1, "expected one assistant_subtree GC lease");
   const lease = sandboxGcLeaseCreates[0] as {
     data: { kind: string; targetId: string; metadata: { handle: string } };
   };
-  assert.equal(lease.data.kind, "assistant_outbound");
+  assert.equal(lease.data.kind, "assistant_subtree");
   assert.equal(lease.data.targetId, "assistant-1");
   assert.equal(lease.data.metadata.handle, "test-handle");
   assert.ok(

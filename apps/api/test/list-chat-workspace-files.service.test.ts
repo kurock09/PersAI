@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { ListChatWorkspaceFilesService } from "../src/modules/workspace-management/application/list-chat-workspace-files.service";
 
 async function run(): Promise<void> {
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
+  const otherSessionRoot = "/workspace/assistants/assistant-1/sessions/chat-2";
+
   const attachments = [
     {
       id: "att-image",
@@ -10,8 +13,8 @@ async function run(): Promise<void> {
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       attachmentType: "image",
-      storagePath: "/workspace/photo.jpg",
-      thumbnailStoragePath: "/workspace/photo.jpg.thumb.webp",
+      storagePath: `${sessionRoot}/photo.jpg`,
+      thumbnailStoragePath: `${sessionRoot}/photo.jpg.thumb.webp`,
       posterStoragePath: null,
       originalFilename: "photo.jpg",
       mimeType: "image/jpeg",
@@ -34,7 +37,7 @@ async function run(): Promise<void> {
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       attachmentType: "voice",
-      storagePath: "/workspace/note.webm",
+      storagePath: `${sessionRoot}/note.webm`,
       thumbnailStoragePath: null,
       posterStoragePath: null,
       originalFilename: "note.webm",
@@ -58,9 +61,9 @@ async function run(): Promise<void> {
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       attachmentType: "video",
-      storagePath: "/workspace/clip.mp4",
+      storagePath: `${otherSessionRoot}/clip.mp4`,
       thumbnailStoragePath: null,
-      posterStoragePath: "/workspace/clip.mp4.poster.jpg",
+      posterStoragePath: `${otherSessionRoot}/clip.mp4.poster.jpg`,
       originalFilename: "clip.mp4",
       mimeType: "video/mp4",
       sizeBytes: BigInt(5000),
@@ -82,28 +85,28 @@ async function run(): Promise<void> {
   // download that the gallery must skip.
   const manifest = [
     {
-      path: "/workspace/photo.jpg",
+      path: `${sessionRoot}/photo.jpg`,
       mimeType: "image/jpeg",
       sizeBytes: BigInt(1200),
       createdAt: new Date("2026-06-20T10:00:00.000Z"),
       updatedAt: new Date("2026-06-20T10:00:00.000Z")
     },
     {
-      path: "/workspace/note.webm",
+      path: `${sessionRoot}/note.webm`,
       mimeType: "audio/webm",
       sizeBytes: BigInt(900),
       createdAt: new Date("2026-06-21T10:00:00.000Z"),
       updatedAt: new Date("2026-06-21T10:00:00.000Z")
     },
     {
-      path: "/workspace/clip.mp4",
+      path: `${otherSessionRoot}/clip.mp4`,
       mimeType: "video/mp4",
       sizeBytes: BigInt(5000),
       createdAt: new Date("2026-06-22T10:00:00.000Z"),
       updatedAt: new Date("2026-06-22T10:00:00.000Z")
     },
     {
-      path: "/workspace/report.pdf",
+      path: `${sessionRoot}/report.pdf`,
       mimeType: "application/pdf",
       sizeBytes: BigInt(2048),
       createdAt: new Date("2026-06-23T10:00:00.000Z"),
@@ -127,7 +130,7 @@ async function run(): Promise<void> {
       async execute({ userId }: { userId: string }) {
         assert.equal(userId, "user-1");
         return {
-          assistant: { id: "assistant-1", workspaceId: "workspace-1" }
+          assistant: { id: "assistant-1", workspaceId: "workspace-1", handle: "assistant-1" }
         };
       }
     } as never,
@@ -162,11 +165,11 @@ async function run(): Promise<void> {
   assert.equal(orphan?.attachmentType, "document");
   assert.equal(orphan?.originalFilename, "report.pdf");
 
-  const attached = chatScoped.files.find((file) => file.storagePath === "/workspace/photo.jpg");
+  const attached = chatScoped.files.find((file) => file.storagePath === `${sessionRoot}/photo.jpg`);
   assert.ok(attached);
   assert.equal(attached?.chatId, "chat-1");
   assert.equal(attached?.messageId, "msg-1");
-  assert.equal(attached?.thumbnailStoragePath, "/workspace/photo.jpg.thumb.webp");
+  assert.equal(attached?.thumbnailStoragePath, `${sessionRoot}/photo.jpg.thumb.webp`);
 
   assert.equal(
     chatScoped.files.some((file) => file.storagePath.includes("note.webm")),
@@ -179,7 +182,7 @@ async function run(): Promise<void> {
     "external-download manifest entries must be filtered out"
   );
   assert.equal(
-    chatScoped.files.some((file) => file.storagePath === "/workspace/clip.mp4"),
+    chatScoped.files.some((file) => file.storagePath === `${otherSessionRoot}/clip.mp4`),
     false,
     "other-chat attachments must be excluded from chat scope"
   );
@@ -197,7 +200,7 @@ async function run(): Promise<void> {
     type: "image"
   });
   assert.equal(images.files.length, 1);
-  assert.equal(images.files[0]?.thumbnailStoragePath, "/workspace/photo.jpg.thumb.webp");
+  assert.equal(images.files[0]?.thumbnailStoragePath, `${sessionRoot}/photo.jpg.thumb.webp`);
 
   const documents = await service.execute({
     userId: "user-1",
@@ -206,7 +209,7 @@ async function run(): Promise<void> {
   });
   assert.equal(documents.files.length, 1);
   assert.equal(documents.files[0]?.chatId, "chat-1");
-  assert.equal(documents.files[0]?.storagePath, "/workspace/report.pdf");
+  assert.equal(documents.files[0]?.storagePath, `${sessionRoot}/report.pdf`);
 
   const paged = await service.execute({
     userId: "user-1",

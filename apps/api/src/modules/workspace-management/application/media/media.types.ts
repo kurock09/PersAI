@@ -55,6 +55,7 @@ export interface ChannelTarget {
 export interface InboundMediaResolveParams {
   channel: MediaChannel;
   assistantId: string;
+  assistantHandle: string;
   userId: string;
   chatId: string;
   messageId: string;

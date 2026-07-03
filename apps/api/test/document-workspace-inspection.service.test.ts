@@ -3,6 +3,10 @@ import { describe, test } from "node:test";
 import { DocumentWorkspaceInspectionService } from "../src/modules/workspace-management/application/document-workspace-inspection.service";
 
 describe("DocumentWorkspaceInspectionService", () => {
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
+  const revenueProjectRoot = `${sessionRoot}/projects/revenue`;
+  const briefProjectRoot = `${sessionRoot}/projects/brief`;
+
   test("inspects an xlsx workbook and persists a visible inspect sidecar", async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const XLSX = require("xlsx") as typeof import("xlsx");
@@ -25,12 +29,12 @@ describe("DocumentWorkspaceInspectionService", () => {
     const service = new DocumentWorkspaceInspectionService(
       {
         async get(input: { path: string }) {
-          if (input.path !== "/workspace/revenue.xlsx") {
+          if (input.path !== `${sessionRoot}/revenue.xlsx`) {
             return null;
           }
           return {
             workspaceId: "workspace-1",
-            path: "/workspace/revenue.xlsx",
+            path: `${sessionRoot}/revenue.xlsx`,
             mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             sizeBytes: BigInt(workbookBuffer.length),
             contentHash: null,
@@ -73,7 +77,7 @@ describe("DocumentWorkspaceInspectionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/revenue.xlsx",
+      path: `${sessionRoot}/revenue.xlsx`,
       depth: "standard",
       outputPath: null
     });
@@ -82,20 +86,22 @@ describe("DocumentWorkspaceInspectionService", () => {
     if (!outcome.accepted) {
       return;
     }
-    assert.equal(outcome.inspectPath, "/workspace/revenue.inspect.json");
+    assert.equal(outcome.inspectPath, `${sessionRoot}/revenue.inspect.json`);
     assert.equal(outcome.format, "xlsx");
     assert.equal(outcome.counts.sheetCount, 2);
     assert.equal(outcome.counts.formulaCount, 1);
     assert.equal(outcome.counts.blankSheetCount, 1);
     assert.deepEqual(
       metadataUpserts.map((entry) => entry.path),
-      ["/workspace/revenue.inspect.json"]
+      [`${sessionRoot}/revenue.inspect.json`]
     );
     assert.deepEqual(
       pushCalls.map((entry) => entry.path),
-      ["/workspace/revenue.inspect.json"]
+      [`${sessionRoot}/revenue.inspect.json`]
     );
-    const inspectBuffer = savedObjects.get("gcs:revenue.inspect.json");
+    const inspectBuffer = savedObjects.get(
+      "gcs:assistants/assistant-1/sessions/chat-1/revenue.inspect.json"
+    );
     assert.ok(inspectBuffer);
     const inspectJson = JSON.parse(inspectBuffer!.toString("utf8")) as Record<string, unknown>;
     assert.equal(inspectJson.schema, "persai.document.inspect.v1");
@@ -137,7 +143,7 @@ describe("DocumentWorkspaceInspectionService", () => {
       schema: "persai.document.project.v1",
       sourceKind: "imported_workspace_file",
       sourceFormat: "xlsx",
-      projectSourcePath: "/workspace/projects/revenue/source/revenue.xlsx"
+      projectSourcePath: `${revenueProjectRoot}/source/revenue.xlsx`
     };
 
     const savedObjects = new Map<string, Buffer>();
@@ -145,9 +151,9 @@ describe("DocumentWorkspaceInspectionService", () => {
       {
         async get(input: { path: string }) {
           if (
-            input.path === "/workspace/projects/revenue/output/revenue.xlsx" ||
-            input.path === "/workspace/projects/revenue/project.json" ||
-            input.path === "/workspace/projects/revenue/source/revenue.xlsx"
+            input.path === `${revenueProjectRoot}/output/revenue.xlsx` ||
+            input.path === `${revenueProjectRoot}/project.json` ||
+            input.path === `${revenueProjectRoot}/source/revenue.xlsx`
           ) {
             return {
               workspaceId: "workspace-1",
@@ -173,19 +179,27 @@ describe("DocumentWorkspaceInspectionService", () => {
           return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
         },
         async downloadObject(objectKey: string) {
-          if (objectKey === "gcs:projects/revenue/output/revenue.xlsx") {
+          if (
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/output/revenue.xlsx"
+          ) {
             return {
               buffer: outputBuffer,
               contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             };
           }
-          if (objectKey === "gcs:projects/revenue/project.json") {
+          if (
+            objectKey === "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/project.json"
+          ) {
             return {
               buffer: Buffer.from(JSON.stringify(projectManifest), "utf8"),
               contentType: "application/json"
             };
           }
-          if (objectKey === "gcs:projects/revenue/source/revenue.xlsx") {
+          if (
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/source/revenue.xlsx"
+          ) {
             return {
               buffer: sourceBuffer,
               contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -212,7 +226,7 @@ describe("DocumentWorkspaceInspectionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/projects/revenue/output/revenue.xlsx",
+      path: `${revenueProjectRoot}/output/revenue.xlsx`,
       depth: "standard",
       outputPath: null
     });
@@ -227,7 +241,9 @@ describe("DocumentWorkspaceInspectionService", () => {
       outcome.warnings.some((warning) => warning.includes("missing source sheets")),
       "inspect should surface comparison-derived XLSX warnings"
     );
-    const inspectBuffer = savedObjects.get("gcs:projects/revenue/output/revenue.inspect.json");
+    const inspectBuffer = savedObjects.get(
+      "gcs:assistants/assistant-1/sessions/chat-1/projects/revenue/output/revenue.inspect.json"
+    );
     assert.ok(inspectBuffer);
     const inspectJson = JSON.parse(inspectBuffer!.toString("utf8")) as {
       details?: {
@@ -261,16 +277,16 @@ describe("DocumentWorkspaceInspectionService", () => {
       schema: "persai.document.project.v1",
       sourceKind: "imported_workspace_file",
       sourceFormat: "docx",
-      projectSourcePath: "/workspace/projects/brief/source/brief.docx"
+      projectSourcePath: `${briefProjectRoot}/source/brief.docx`
     };
     const savedObjects = new Map<string, Buffer>();
     const service = new DocumentWorkspaceInspectionService(
       {
         async get(input: { path: string }) {
           if (
-            input.path === "/workspace/projects/brief/output/brief.docx" ||
-            input.path === "/workspace/projects/brief/project.json" ||
-            input.path === "/workspace/projects/brief/source/brief.docx"
+            input.path === `${briefProjectRoot}/output/brief.docx` ||
+            input.path === `${briefProjectRoot}/project.json` ||
+            input.path === `${briefProjectRoot}/source/brief.docx`
           ) {
             return {
               workspaceId: "workspace-1",
@@ -296,19 +312,27 @@ describe("DocumentWorkspaceInspectionService", () => {
           return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
         },
         async downloadObject(objectKey: string) {
-          if (objectKey === "gcs:projects/brief/output/brief.docx") {
+          if (
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/chat-1/projects/brief/output/brief.docx"
+          ) {
             return {
               buffer: outputBuffer,
               contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             };
           }
-          if (objectKey === "gcs:projects/brief/project.json") {
+          if (
+            objectKey === "gcs:assistants/assistant-1/sessions/chat-1/projects/brief/project.json"
+          ) {
             return {
               buffer: Buffer.from(JSON.stringify(projectManifest), "utf8"),
               contentType: "application/json"
             };
           }
-          if (objectKey === "gcs:projects/brief/source/brief.docx") {
+          if (
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/chat-1/projects/brief/source/brief.docx"
+          ) {
             return {
               buffer: sourceBuffer,
               contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -335,7 +359,7 @@ describe("DocumentWorkspaceInspectionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/projects/brief/output/brief.docx",
+      path: `${briefProjectRoot}/output/brief.docx`,
       depth: "standard",
       outputPath: null
     });
@@ -350,7 +374,9 @@ describe("DocumentWorkspaceInspectionService", () => {
       outcome.warnings.some((warning) => warning.includes("fewer headings")),
       "inspect should surface comparison-derived DOCX warnings"
     );
-    const inspectBuffer = savedObjects.get("gcs:projects/brief/output/brief.inspect.json");
+    const inspectBuffer = savedObjects.get(
+      "gcs:assistants/assistant-1/sessions/chat-1/projects/brief/output/brief.inspect.json"
+    );
     assert.ok(inspectBuffer);
     const inspectJson = JSON.parse(inspectBuffer!.toString("utf8")) as {
       details?: {
@@ -371,12 +397,12 @@ describe("DocumentWorkspaceInspectionService", () => {
     const service = new DocumentWorkspaceInspectionService(
       {
         async get(input: { path: string }) {
-          if (input.path !== "/workspace/output.pdf") {
+          if (input.path !== `${sessionRoot}/output.pdf`) {
             return null;
           }
           return {
             workspaceId: "workspace-1",
-            path: "/workspace/output.pdf",
+            path: `${sessionRoot}/output.pdf`,
             mimeType: "application/pdf",
             sizeBytes: BigInt(pdfBuffer.length),
             contentHash: null,
@@ -401,7 +427,7 @@ describe("DocumentWorkspaceInspectionService", () => {
         },
         async saveObject() {
           return {
-            objectKey: "gcs:output.inspect.json",
+            objectKey: "gcs:assistants/assistant-1/sessions/chat-1/output.inspect.json",
             sizeBytes: 1,
             mimeType: "application/json"
           };
@@ -417,7 +443,7 @@ describe("DocumentWorkspaceInspectionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/output.pdf",
+      path: `${sessionRoot}/output.pdf`,
       depth: "quick",
       outputPath: null
     });
@@ -427,7 +453,7 @@ describe("DocumentWorkspaceInspectionService", () => {
       return;
     }
     assert.equal(outcome.format, "pdf");
-    assert.equal(outcome.inspectPath, "/workspace/output.inspect.json");
+    assert.equal(outcome.inspectPath, `${sessionRoot}/output.inspect.json`);
     assert.ok(
       outcome.warnings.some((warning) => warning.includes("PDF text extraction failed")),
       "inspect should warn honestly when a fake PDF cannot be parsed"
@@ -458,9 +484,9 @@ describe("DocumentWorkspaceInspectionService", () => {
     const outcome = await service.execute({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      path: "/workspace/output.pdf",
+      path: `${sessionRoot}/output.pdf`,
       depth: "standard",
-      outputPath: "/workspace/output.pdf"
+      outputPath: `${sessionRoot}/output.pdf`
     });
 
     assert.equal(outcome.accepted, false);

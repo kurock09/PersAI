@@ -128,14 +128,14 @@ async function runHardDeleteRemovesWebRuntimeState(): Promise<void> {
   assert.equal(
     calls[0]?.startsWith("gc-lease:"),
     true,
-    "first call must be the chat_scratch GC lease"
+    "first call must be the session_subtree GC lease"
   );
   const leasePayload = JSON.parse((calls[0] ?? "").slice("gc-lease:".length)) as {
     kind: string;
     targetId: string;
     metadata: { workspaceId: string; assistantId: string };
   };
-  assert.equal(leasePayload.kind, "chat_scratch");
+  assert.equal(leasePayload.kind, "session_subtree");
   assert.equal(leasePayload.targetId, "chat-1");
   assert.equal(leasePayload.metadata.assistantId, "assistant-1");
   assert.deepEqual(calls.slice(1), [

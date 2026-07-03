@@ -574,7 +574,7 @@ export class ManageWebChatListService {
     if (!deleted) {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
-    // ADR-126 Slice 3 — the chat_scratch lease persisted inside
+    // ADR-133 Slice 3 — the session_subtree lease persisted inside
     // `hardDeleteChat` is `scheduledAt = now()` so the very next sandbox
     // reaper tick will purge the warm-pod scratch and GCS snapshot subtree
     // for this chat. We do not call across the API → sandbox process

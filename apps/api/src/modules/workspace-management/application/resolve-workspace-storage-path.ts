@@ -1,13 +1,13 @@
+import { buildAssistantSessionRoot } from "@persai/runtime-contract";
 import type { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 
 /**
- * ADR-128 Slice 4 — flat workspace storage paths.
+ * ADR-133 Slice 3 — API-owned uploads and persisted media now default to the
+ * current assistant session root.
  *
- * Every persisted workspace file (user upload, model artefact, anything
- * else) lives directly under `/workspace/<basename>`. This module sanitises
- * the basename and resolves macOS-style numeric collision suffixes against
- * the canonical `workspace_file_metadata` manifest. There is no role-based
- * subdir carve-out.
+ * The API does not mint a new persisted "session" concept for uploads. When a
+ * route does not carry a runtime session id, callers must pass the existing
+ * canonical chat id for that thread as the session-root fallback.
  */
 
 export function sanitizeWorkspaceFilename(filename: string): string {
@@ -43,12 +43,14 @@ export function deriveFilenameFromMime(referenceId: string, mimeType: string): s
 export function buildWorkspaceStoragePath(
   filename: string | null,
   mimeType: string,
-  referenceId: string
+  referenceId: string,
+  assistantStableKey: string,
+  sessionId: string
 ): string {
   const basename = sanitizeWorkspaceFilename(
     filename ?? deriveFilenameFromMime(referenceId, mimeType)
   );
-  return `/workspace/${basename}`;
+  return `${buildAssistantSessionRoot(assistantStableKey, sessionId)}/${basename}`;
 }
 
 function applyNumericSuffix(basename: string, index: number): string {
@@ -62,12 +64,14 @@ function applyNumericSuffix(basename: string, index: number): string {
 }
 
 /**
- * Resolve a unique flat workspace storage path with macOS-style numeric
- * collision suffix. The manifest is the source of truth for "which basenames
- * already exist under `/workspace/`".
+ * Resolve a unique session-root workspace storage path with macOS-style
+ * numeric collision suffix. The manifest is the source of truth for "which
+ * basenames already exist under the current assistant session root".
  */
 export async function resolveUniqueWorkspaceStoragePath(input: {
   workspaceId: string;
+  assistantStableKey: string;
+  sessionId: string;
   filename: string | null;
   mimeType: string;
   referenceId: string;
@@ -76,7 +80,8 @@ export async function resolveUniqueWorkspaceStoragePath(input: {
   const preferredBasename = sanitizeWorkspaceFilename(
     input.filename ?? deriveFilenameFromMime(input.referenceId, input.mimeType)
   );
-  let candidate = `/workspace/${preferredBasename}`;
+  const sessionRoot = buildAssistantSessionRoot(input.assistantStableKey, input.sessionId);
+  let candidate = `${sessionRoot}/${preferredBasename}`;
   let suffix = 2;
   while (
     await input.workspaceFileMetadataService.get({
@@ -84,7 +89,7 @@ export async function resolveUniqueWorkspaceStoragePath(input: {
       path: candidate
     })
   ) {
-    candidate = `/workspace/${applyNumericSuffix(preferredBasename, suffix)}`;
+    candidate = `${sessionRoot}/${applyNumericSuffix(preferredBasename, suffix)}`;
     suffix += 1;
   }
   return candidate;

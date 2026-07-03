@@ -45,13 +45,7 @@ const POD_NAME = "ses-abc123";
 // ─── GcLease factory ──────────────────────────────────────────────────────────
 
 type SandboxGcKind = "session_subtree" | "assistant_subtree" | "workspace_subtree";
-type DbGcLeaseKind = "chat_scratch" | "assistant_outbound" | "workspace_shared";
-
-const DB_KIND_BY_SANDBOX_KIND: Record<SandboxGcKind, DbGcLeaseKind> = {
-  session_subtree: "chat_scratch",
-  assistant_subtree: "assistant_outbound",
-  workspace_subtree: "workspace_shared"
-};
+type DbGcLeaseKind = SandboxGcKind;
 
 type GcLease = {
   id: string;
@@ -175,7 +169,7 @@ function makeGcService(
 test("WorkspaceGcService: session_subtree lease past-due → session snapshot subtree deleted, purgedAt set, audit ok", async () => {
   const lease: GcLease = {
     id: "lease-cs-1",
-    kind: DB_KIND_BY_SANDBOX_KIND["session_subtree"],
+    kind: "session_subtree",
     targetId: CHAT_ID,
     metadata: { workspaceId: WS_ID, assistantId: ASST_ID },
     scheduledAt: pastDate(),
@@ -201,7 +195,7 @@ test("WorkspaceGcService: session_subtree lease past-due → session snapshot su
 test("WorkspaceGcService: session_subtree lease no longer purges pod-local legacy chat trees", async () => {
   const lease: GcLease = {
     id: "lease-cs-filter",
-    kind: DB_KIND_BY_SANDBOX_KIND["session_subtree"],
+    kind: "session_subtree",
     targetId: CHAT_ID,
     metadata: { workspaceId: WS_ID, assistantId: ASST_ID },
     scheduledAt: pastDate(),
@@ -223,7 +217,7 @@ test("WorkspaceGcService: session_subtree lease no longer purges pod-local legac
 test("WorkspaceGcService: assistant_subtree lease future-dated → no purge on this tick", async () => {
   const lease: GcLease = {
     id: "lease-ao-future",
-    kind: DB_KIND_BY_SANDBOX_KIND["assistant_subtree"],
+    kind: "assistant_subtree",
     targetId: "ao-target",
     metadata: { workspaceId: WS_ID, handle: HANDLE },
     scheduledAt: futureDate(), // NOT due yet
@@ -242,7 +236,7 @@ test("WorkspaceGcService: assistant_subtree lease future-dated → no purge on t
 test("WorkspaceGcService: assistant_subtree lease past-due → assistant subtree deleted from pods and storage", async () => {
   const lease: GcLease = {
     id: "lease-ao-1",
-    kind: DB_KIND_BY_SANDBOX_KIND["assistant_subtree"],
+    kind: "assistant_subtree",
     targetId: "ao-target",
     metadata: { workspaceId: WS_ID, handle: HANDLE },
     scheduledAt: pastDate(),
@@ -265,7 +259,7 @@ test("WorkspaceGcService: assistant_subtree lease past-due → assistant subtree
 test("WorkspaceGcService: workspace_subtree lease past-due → rm persisted workspace dirs, GCS prefix deleted, purgedAt set", async () => {
   const lease: GcLease = {
     id: "lease-ws-1",
-    kind: DB_KIND_BY_SANDBOX_KIND["workspace_subtree"],
+    kind: "workspace_subtree",
     targetId: WS_ID,
     metadata: {},
     scheduledAt: pastDate(),
@@ -290,7 +284,7 @@ test("WorkspaceGcService: workspace_subtree lease past-due → rm persisted work
 test("WorkspaceGcService: malformed metadata → purgedAt NOT set, workspace_gc_purge_failed emitted", async () => {
   const lease: GcLease = {
     id: "lease-bad",
-    kind: DB_KIND_BY_SANDBOX_KIND["session_subtree"],
+    kind: "session_subtree",
     targetId: CHAT_ID,
     // Missing required fields → Zod parse will throw
     metadata: { invalid: true },
@@ -314,7 +308,7 @@ test("WorkspaceGcService: malformed metadata → purgedAt NOT set, workspace_gc_
 test("WorkspaceGcService: exception on first lease does not prevent processing second lease", async () => {
   const badLease: GcLease = {
     id: "lease-fail",
-    kind: DB_KIND_BY_SANDBOX_KIND["session_subtree"],
+    kind: "session_subtree",
     targetId: "x",
     metadata: { bad: true }, // malformed → throws
     scheduledAt: pastDate(),
@@ -322,7 +316,7 @@ test("WorkspaceGcService: exception on first lease does not prevent processing s
   };
   const goodLease: GcLease = {
     id: "lease-ok",
-    kind: DB_KIND_BY_SANDBOX_KIND["workspace_subtree"],
+    kind: "workspace_subtree",
     targetId: WS_ID,
     metadata: {},
     scheduledAt: pastDate(),
@@ -343,7 +337,7 @@ test("WorkspaceGcService: lease with purgedAt set is ignored (filtered by DB lay
   // Simulate the DB correctly filtering out already-purged leases: findMany returns [].
   const alreadyPurgedLease: GcLease = {
     id: "lease-done",
-    kind: DB_KIND_BY_SANDBOX_KIND["workspace_subtree"],
+    kind: "workspace_subtree",
     targetId: WS_ID,
     metadata: {},
     scheduledAt: pastDate(),

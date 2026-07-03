@@ -3,7 +3,11 @@ import { describe, test } from "node:test";
 import { DocumentWorkspaceVersionRegistrationService } from "../src/modules/workspace-management/application/document-workspace-version-registration.service";
 
 describe("DocumentWorkspaceVersionRegistrationService", () => {
-  test("registers a root-level authored xlsx output without requiring project.json", async () => {
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
+  const importedProjectRoot = `${sessionRoot}/projects/source`;
+  const importedReportProjectRoot = `${sessionRoot}/projects/report`;
+
+  test("registers a session-root authored xlsx output without requiring project.json", async () => {
     const registeredInputs: unknown[] = [];
     const savedObjects = new Map<string, Buffer>();
     const inspection = {
@@ -55,9 +59,9 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       {
         async get(input: { path: string }) {
           if (
-            input.path === "/workspace/output.xlsx" ||
-            input.path === "/workspace/output.inspect.json" ||
-            input.path === "/workspace/output.md"
+            input.path === `${sessionRoot}/output.xlsx` ||
+            input.path === `${sessionRoot}/output.inspect.json` ||
+            input.path === `${sessionRoot}/output.md`
           ) {
             return {
               workspaceId: "workspace-1",
@@ -83,7 +87,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
         },
         async downloadObject(objectKey: string) {
-          if (objectKey === "gcs:output.inspect.json") {
+          if (objectKey === "gcs:assistants/assistant-1/sessions/chat-1/output.inspect.json") {
             return {
               buffer: Buffer.from(JSON.stringify(inspection), "utf8"),
               contentType: "application/json"
@@ -119,10 +123,10 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       descriptorMode: null,
       docId: null,
       requestedName: "output.xlsx",
-      workspaceProjectPath: "/workspace",
-      outputPath: "/workspace/output.xlsx",
+      workspaceProjectPath: sessionRoot,
+      outputPath: `${sessionRoot}/output.xlsx`,
       sourceManifestPath: null,
-      inspectionPath: "/workspace/output.inspect.json"
+      inspectionPath: `${sessionRoot}/output.inspect.json`
     });
 
     assert.equal(outcome.accepted, true);
@@ -145,11 +149,11 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
         inspectionSummary: { counts: { sheetCount: number | null } } | null;
       };
     };
-    assert.equal(registered.workspaceFacts.workspaceProjectPath, "/workspace");
+    assert.equal(registered.workspaceFacts.workspaceProjectPath, sessionRoot);
     assert.equal(registered.workspaceFacts.projectManifestPath, null);
-    assert.equal(registered.workspaceFacts.projectSourcePath, "/workspace/output.md");
+    assert.equal(registered.workspaceFacts.projectSourcePath, `${sessionRoot}/output.md`);
     assert.equal(registered.workspaceFacts.sourceKind, "authored_workspace_project");
-    assert.equal(registered.workspaceFacts.sourcePath, "/workspace/output.md");
+    assert.equal(registered.workspaceFacts.sourcePath, `${sessionRoot}/output.md`);
     assert.equal(registered.workspaceFacts.sourceFormat, "text");
     assert.equal(registered.workspaceFacts.sourceMimeType, "text/plain");
     assert.equal(registered.workspaceFacts.inspectionSummary?.counts.sheetCount, 2);
@@ -174,18 +178,18 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
     };
     const projectManifest = {
       schema: "persai.document.project.v1",
-      projectPath: "/workspace/projects/source",
+      projectPath: importedProjectRoot,
       sourceKind: "imported_workspace_file",
-      sourcePath: "/workspace/source.docx",
-      projectSourcePath: "/workspace/projects/source/source/source.docx",
+      sourcePath: `${sessionRoot}/source.docx`,
+      projectSourcePath: `${importedProjectRoot}/source/source.docx`,
       sourceFormat: "docx",
       sourceMimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      extractManifestPath: "/workspace/projects/source/extract/manifest.json"
+      extractManifestPath: `${importedProjectRoot}/extract/manifest.json`
     };
     const extractManifest = {
       schema: "persai.document.extract.v1",
       kind: "extraction_view",
-      sourcePath: "/workspace/source.docx"
+      sourcePath: `${sessionRoot}/source.docx`
     };
     const service = new DocumentWorkspaceVersionRegistrationService(
       {
@@ -221,10 +225,10 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       {
         async get(input: { path: string }) {
           if (
-            input.path === "/workspace/projects/source/output/report.pdf" ||
-            input.path === "/workspace/projects/source/output/report.inspect.json" ||
-            input.path === "/workspace/projects/source/project.json" ||
-            input.path === "/workspace/projects/source/extract/manifest.json"
+            input.path === `${importedProjectRoot}/output/report.pdf` ||
+            input.path === `${importedProjectRoot}/output/report.inspect.json` ||
+            input.path === `${importedProjectRoot}/project.json` ||
+            input.path === `${importedProjectRoot}/extract/manifest.json`
           ) {
             return {
               workspaceId: "workspace-1",
@@ -248,19 +252,27 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
         },
         async downloadObject(objectKey: string) {
-          if (objectKey === "gcs:projects/source/project.json") {
+          if (
+            objectKey === "gcs:assistants/assistant-1/sessions/chat-1/projects/source/project.json"
+          ) {
             return {
               buffer: Buffer.from(JSON.stringify(projectManifest), "utf8"),
               contentType: "application/json"
             };
           }
-          if (objectKey === "gcs:projects/source/extract/manifest.json") {
+          if (
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/chat-1/projects/source/extract/manifest.json"
+          ) {
             return {
               buffer: Buffer.from(JSON.stringify(extractManifest), "utf8"),
               contentType: "application/json"
             };
           }
-          if (objectKey === "gcs:projects/source/output/report.inspect.json") {
+          if (
+            objectKey ===
+            "gcs:assistants/assistant-1/sessions/chat-1/projects/source/output/report.inspect.json"
+          ) {
             return {
               buffer: Buffer.from(JSON.stringify(inspection), "utf8"),
               contentType: "application/json"
@@ -289,17 +301,17 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       docId: null,
       requestedName: "report.pdf",
       workspaceProjectPath: null,
-      outputPath: "/workspace/projects/source/output/report.pdf",
+      outputPath: `${importedProjectRoot}/output/report.pdf`,
       sourceManifestPath: null,
-      inspectionPath: "/workspace/projects/source/output/report.inspect.json"
+      inspectionPath: `${importedProjectRoot}/output/report.inspect.json`
     });
 
     assert.equal(outcome.accepted, true);
     if (!outcome.accepted) {
       return;
     }
-    assert.equal(outcome.workspaceProjectPath, "/workspace/projects/source");
-    assert.equal(outcome.sourceManifestPath, "/workspace/projects/source/extract/manifest.json");
+    assert.equal(outcome.workspaceProjectPath, importedProjectRoot);
+    assert.equal(outcome.sourceManifestPath, `${importedProjectRoot}/extract/manifest.json`);
     const registered = registeredInputs[0] as {
       workspaceFacts: {
         workspaceProjectPath: string | null;
@@ -312,17 +324,17 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
         sourceManifestPath: string | null;
       };
     };
-    assert.equal(registered.workspaceFacts.workspaceProjectPath, "/workspace/projects/source");
+    assert.equal(registered.workspaceFacts.workspaceProjectPath, importedProjectRoot);
     assert.equal(
       registered.workspaceFacts.projectManifestPath,
-      "/workspace/projects/source/project.json"
+      `${importedProjectRoot}/project.json`
     );
     assert.equal(
       registered.workspaceFacts.projectSourcePath,
-      "/workspace/projects/source/source/source.docx"
+      `${importedProjectRoot}/source/source.docx`
     );
     assert.equal(registered.workspaceFacts.sourceKind, "imported_workspace_file");
-    assert.equal(registered.workspaceFacts.sourcePath, "/workspace/source.docx");
+    assert.equal(registered.workspaceFacts.sourcePath, `${sessionRoot}/source.docx`);
     assert.equal(registered.workspaceFacts.sourceFormat, "docx");
     assert.equal(
       registered.workspaceFacts.sourceMimeType,
@@ -330,11 +342,11 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
     );
     assert.equal(
       registered.workspaceFacts.sourceManifestPath,
-      "/workspace/projects/source/extract/manifest.json"
+      `${importedProjectRoot}/extract/manifest.json`
     );
   });
 
-  test("rejects old workspace subdirectories", async () => {
+  test("rejects non-active hierarchical output paths", async () => {
     const service = new DocumentWorkspaceVersionRegistrationService(
       {} as never,
       {} as never,
@@ -353,7 +365,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       docId: null,
       requestedName: null,
       workspaceProjectPath: null,
-      outputPath: "/workspace/input/output.xlsx",
+      outputPath: "/workspace/assistants/assistant-1/output.xlsx",
       sourceManifestPath: null,
       inspectionPath: null
     });
@@ -399,8 +411,8 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       {
         async get(input: { path: string }) {
           if (
-            input.path === "/workspace/projects/report/output/report.pdf" ||
-            input.path === "/workspace/projects/report/project.json"
+            input.path === `${importedReportProjectRoot}/output/report.pdf` ||
+            input.path === `${importedReportProjectRoot}/project.json`
           ) {
             return {
               workspaceId: "workspace-1",
@@ -424,15 +436,17 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
         },
         async downloadObject(objectKey: string) {
-          if (objectKey === "gcs:projects/report/project.json") {
+          if (
+            objectKey === "gcs:assistants/assistant-1/sessions/chat-1/projects/report/project.json"
+          ) {
             return {
               buffer: Buffer.from(
                 JSON.stringify({
                   schema: "persai.document.project.v1",
-                  projectPath: "/workspace/projects/report",
+                  projectPath: importedReportProjectRoot,
                   sourceKind: "imported_workspace_file",
-                  sourcePath: "/workspace/source.docx",
-                  projectSourcePath: "/workspace/projects/report/source/source.docx",
+                  sourcePath: `${sessionRoot}/source.docx`,
+                  projectSourcePath: `${importedReportProjectRoot}/source/source.docx`,
                   sourceFormat: "docx",
                   sourceMimeType:
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -465,7 +479,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       docId: null,
       requestedName: "report.pdf",
       workspaceProjectPath: null,
-      outputPath: "/workspace/projects/report/output/report.pdf",
+      outputPath: `${importedReportProjectRoot}/output/report.pdf`,
       sourceManifestPath: null,
       inspectionPath: null
     });
@@ -474,7 +488,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
     if (!outcome.accepted) {
       return;
     }
-    assert.equal(outcome.outputPath, "/workspace/projects/report/output/report.pdf");
+    assert.equal(outcome.outputPath, `${importedReportProjectRoot}/output/report.pdf`);
   });
 
   test("resolves existing docId from outputPath when caller passes docId=null (Case A / render revision)", async () => {
@@ -523,7 +537,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
             if (
               where?.assistantId === "assistant-1" &&
               where?.workspaceId === "workspace-1" &&
-              where?.currentVersion?.is?.sourceJson?.equals === "/workspace/output.xlsx"
+              where?.currentVersion?.is?.sourceJson?.equals === `${sessionRoot}/output.xlsx`
             ) {
               return { id: "doc-existing-1" };
             }
@@ -547,9 +561,9 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       {
         async get(input: { path: string }) {
           if (
-            input.path === "/workspace/output.xlsx" ||
-            input.path === "/workspace/output.inspect.json" ||
-            input.path === "/workspace/output.md"
+            input.path === `${sessionRoot}/output.xlsx` ||
+            input.path === `${sessionRoot}/output.inspect.json` ||
+            input.path === `${sessionRoot}/output.md`
           ) {
             return {
               workspaceId: "workspace-1",
@@ -575,7 +589,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
           return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
         },
         async downloadObject(objectKey: string) {
-          if (objectKey === "gcs:output.inspect.json") {
+          if (objectKey === "gcs:assistants/assistant-1/sessions/chat-1/output.inspect.json") {
             return {
               buffer: Buffer.from(JSON.stringify(inspection), "utf8"),
               contentType: "application/json"
@@ -611,10 +625,10 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       descriptorMode: null,
       docId: null,
       requestedName: "output.xlsx",
-      workspaceProjectPath: "/workspace",
-      outputPath: "/workspace/output.xlsx",
+      workspaceProjectPath: sessionRoot,
+      outputPath: `${sessionRoot}/output.xlsx`,
       sourceManifestPath: null,
-      inspectionPath: "/workspace/output.inspect.json"
+      inspectionPath: `${sessionRoot}/output.inspect.json`
     });
 
     assert.equal(outcome.accepted, true);

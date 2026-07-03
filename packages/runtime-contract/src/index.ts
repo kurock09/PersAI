@@ -167,12 +167,8 @@ export interface RuntimeDocumentSourceFile {
   } | null;
 }
 
-/**
- * Legacy manifest visibility tiers that predate ADR-133. They remain in the
- * shared contract until runtime/API behavior slices remove the old
- * `workspace_shared` vocabulary from active model-facing surfaces.
- */
-export type RuntimeFileScopeTier = "chat" | "assistant" | "workspace_shared";
+/** Visibility tiers for working-files presentation and widened file listing. */
+export type RuntimeFileScopeTier = "chat" | "assistant" | "workspace";
 
 export interface RuntimeFileHandle {
   storagePath: string;
@@ -4459,13 +4455,9 @@ export function isStaleVisibleWorkspacePath(path: string): boolean {
 }
 
 export const DOCUMENT_WORKSPACE_PROJECT_SCHEMA = "persai.document.project.v1" as const;
-/**
- * Legacy/internal document-project root retained for current document mechanics
- * until later ADR-133 behavior slices migrate or delete the active
- * `/workspace/projects` assumptions. Do not treat this as the canonical default
- * model-facing workspace hierarchy.
- */
-export const DOCUMENT_WORKSPACE_PROJECTS_ROOT = `${WORKSPACE_ROOT}/projects`;
+export const DOCUMENT_WORKSPACE_PROJECTS_SEGMENT = "projects" as const;
+export const DOCUMENT_WORKSPACE_PROJECTS_ROOT =
+  `${WORKSPACE_ROOT}/${DOCUMENT_WORKSPACE_PROJECTS_SEGMENT}` as const;
 
 export const DOCUMENT_WORKSPACE_PROJECT_SOURCE_KINDS = [
   "imported_workspace_file",
@@ -4538,8 +4530,28 @@ export function buildDocumentWorkspaceProjectLayout(
   };
 }
 
-export function deriveDefaultDocumentProjectPath(sourcePath: string): string {
-  return `${DOCUMENT_WORKSPACE_PROJECTS_ROOT}/${slugifyDocumentProjectStem(sourcePath)}`;
+export function deriveDefaultDocumentProjectPath(sourcePath: string): string | null {
+  const slug = slugifyDocumentProjectStem(sourcePath);
+  const visiblePath = classifyVisibleWorkspacePath(sourcePath);
+  if (visiblePath.kind === "sessionRoot" || visiblePath.kind === "sessionDescendant") {
+    return `${buildAssistantSessionRoot(
+      visiblePath.assistantStableKey ?? "",
+      visiblePath.sessionId ?? ""
+    )}/projects/${slug}`;
+  }
+  if (
+    visiblePath.kind === "assistantSharedRoot" ||
+    visiblePath.kind === "assistantSharedDescendant"
+  ) {
+    return `${buildAssistantSharedRoot(visiblePath.assistantStableKey ?? "")}/projects/${slug}`;
+  }
+  if (
+    visiblePath.kind === "workspaceSharedRoot" ||
+    visiblePath.kind === "workspaceSharedDescendant"
+  ) {
+    return `${WORKSPACE_ROOT}/shared/projects/${slug}`;
+  }
+  return null;
 }
 
 export function applyDocumentProjectPathSuffix(projectPath: string, suffix: number): string {
@@ -4547,8 +4559,14 @@ export function applyDocumentProjectPathSuffix(projectPath: string, suffix: numb
     return projectPath;
   }
   const normalized = projectPath.replace(/\/+$/g, "");
+  if (!isValidVisibleWorkspacePath(normalized)) {
+    throw new Error(`projectPath must be an active visible workspace directory: ${projectPath}`);
+  }
   const lastSlash = normalized.lastIndexOf("/");
-  const parent = lastSlash >= 0 ? normalized.slice(0, lastSlash) : DOCUMENT_WORKSPACE_PROJECTS_ROOT;
+  if (lastSlash <= 0) {
+    throw new Error(`projectPath must include a parent directory: ${projectPath}`);
+  }
+  const parent = normalized.slice(0, lastSlash);
   const basename = lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
   return `${parent}/${basename}-${String(suffix)}`;
 }

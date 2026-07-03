@@ -49,19 +49,7 @@ const ASSISTANT_SUBTREE_METADATA = z.object({
 const WORKSPACE_SUBTREE_METADATA = z.object({}).passthrough();
 
 type WorkspaceGcKind = "session_subtree" | "assistant_subtree" | "workspace_subtree";
-type DbWorkspaceGcKind = "chat_scratch" | "assistant_outbound" | "workspace_shared";
-
-const DB_KIND_BY_SANDBOX_KIND: Record<WorkspaceGcKind, DbWorkspaceGcKind> = {
-  session_subtree: "chat_scratch",
-  assistant_subtree: "assistant_outbound",
-  workspace_subtree: "workspace_shared"
-};
-
-const SANDBOX_KIND_BY_DB_KIND: Record<DbWorkspaceGcKind, WorkspaceGcKind> = {
-  chat_scratch: "session_subtree",
-  assistant_outbound: "assistant_subtree",
-  workspace_shared: "workspace_subtree"
-};
+type DbWorkspaceGcKind = WorkspaceGcKind;
 
 type RunDuePurgesNowFilter =
   | { kind: "session_subtree"; targetId: string }
@@ -132,7 +120,7 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
           ...(input.filter === undefined
             ? {}
             : {
-                kind: DB_KIND_BY_SANDBOX_KIND[input.filter.kind],
+                kind: input.filter.kind,
                 targetId: input.filter.targetId
               })
         },
@@ -323,12 +311,10 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
     metadata: Prisma.JsonValue;
   }): SandboxGcLease {
     switch (lease.kind) {
-      case "chat_scratch":
-        return { ...lease, kind: SANDBOX_KIND_BY_DB_KIND[lease.kind] };
-      case "assistant_outbound":
-        return { ...lease, kind: SANDBOX_KIND_BY_DB_KIND[lease.kind] };
-      case "workspace_shared":
-        return { ...lease, kind: SANDBOX_KIND_BY_DB_KIND[lease.kind] };
+      case "session_subtree":
+      case "assistant_subtree":
+      case "workspace_subtree":
+        return lease;
     }
   }
 

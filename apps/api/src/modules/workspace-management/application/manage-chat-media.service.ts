@@ -37,6 +37,7 @@ import {
 } from "./record-model-cost-ledger.service";
 import type { RuntimeBillingFacts } from "@persai/runtime-contract";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
+import { lastWorkspacePathSegment } from "./workspace-visible-paths";
 
 const AUDIO_MIMES_NEEDING_CONVERSION = new Set([
   "audio/webm",
@@ -76,25 +77,6 @@ export class ManageChatMediaService {
 
   private resolveLedgerSurface(surface: string): ModelCostLedgerSurface | null {
     return surface === "web" || surface === "telegram" ? surface : null;
-  }
-
-  /**
-   * Strip the canonical `/workspace/` prefix off a model-facing storage path
-   * and return the basename used by `resolveUniqueWorkspaceStoragePath`.
-   * Returns `null` for anything that is not a flat workspace path (defence-
-   * in-depth — the caller already constructed the path through that helper,
-   * so a non-match should never happen in practice).
-   */
-  private extractWorkspaceBasename(storagePath: string): string | null {
-    const prefix = "/workspace/";
-    if (!storagePath.startsWith(prefix)) {
-      return null;
-    }
-    const tail = storagePath.slice(prefix.length);
-    if (tail.length === 0 || tail.includes("/")) {
-      return null;
-    }
-    return tail;
   }
 
   private async appendSttLedgerFromPersistedBillingFacts(input: {
@@ -169,6 +151,10 @@ export class ManageChatMediaService {
     const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
     const storagePath = await resolveUniqueWorkspaceStoragePath({
       workspaceId: assistant.workspaceId,
+      assistantStableKey: assistant.handle,
+      // API-owned direct uploads do not carry a runtime session id; use the
+      // existing canonical chat id as the ADR-133 session-root fallback.
+      sessionId: chat.id,
       filename: validated.originalFilename,
       mimeType,
       referenceId: message.id,
@@ -322,6 +308,10 @@ export class ManageChatMediaService {
       const mimeType = processed?.normalizedMime ?? validated.effectiveMimeType;
       const storagePath = await resolveUniqueWorkspaceStoragePath({
         workspaceId: assistant.workspaceId,
+        assistantStableKey: assistant.handle,
+        // API-owned staged uploads do not carry a runtime session id; use the
+        // existing canonical chat id as the ADR-133 session-root fallback.
+        sessionId: chat.id,
         filename: validated.originalFilename,
         mimeType,
         referenceId: stagingMessage.id,
@@ -396,7 +386,7 @@ export class ManageChatMediaService {
       // (sandbox unreachable, pod cold, write rejected) is logged at warn and
       // never blocks the upload — `hydrateWorkspaceMountFromGcs` is the
       // authoritative recovery path.
-      const workspaceBasename = this.extractWorkspaceBasename(storagePath);
+      const workspaceBasename = lastWorkspacePathSegment(storagePath);
       if (workspaceBasename !== null) {
         await this.sandboxControlPlaneClient.pushWorkspaceFileBytes({
           assistantId: assistant.id,

@@ -9,6 +9,8 @@ const noopRecordModelCostLedgerService = {
 import { MediaDeliveryService } from "../src/modules/workspace-management/application/media/media-delivery.service";
 import type { AssistantChatMessageAttachment } from "../src/modules/workspace-management/domain/assistant-chat-message-attachment.entity";
 
+const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/chat-1";
+
 function createAttachment(
   overrides: Partial<AssistantChatMessageAttachment>
 ): AssistantChatMessageAttachment {
@@ -18,7 +20,7 @@ function createAttachment(
     chatId: "chat-1",
     assistantId: "assistant-1",
     workspaceId: "workspace-1",
-    storagePath: "/workspace/out.bin",
+    storagePath: `${CHAT_SESSION_ROOT}/out.bin`,
     originalFilename: "out.bin",
     mimeType: "application/octet-stream",
     sizeBytes: BigInt(1),
@@ -73,7 +75,12 @@ const fakeWorkspaceFileMetadataService = {
 
 const noopAssistantRepository = {
   async findById() {
-    return null;
+    return {
+      id: "assistant-1",
+      userId: "user-1",
+      workspaceId: "workspace-1",
+      handle: "assistant-1"
+    };
   }
 };
 
@@ -96,12 +103,12 @@ function fakeMediaObjectStorage(
       return `workspaces/${scope.workspaceId}${scope.workspaceRelPath}`;
     },
     buildChatMessageObjectKey() {
-      return input.saveObjectKey ?? "workspaces/workspace-1/workspace/file.bin";
+      return input.saveObjectKey ?? `workspaces/workspace-1${CHAT_SESSION_ROOT}/file.bin`;
     },
     async saveObject(saveInput: { mimeType: string; buffer: Buffer }) {
       input.onSaveMime?.(saveInput.mimeType);
       return {
-        objectKey: input.saveObjectKey ?? "workspaces/workspace-1/workspace/file.bin",
+        objectKey: input.saveObjectKey ?? `workspaces/workspace-1${CHAT_SESSION_ROOT}/file.bin`,
         sizeBytes: saveInput.buffer.length,
         mimeType: saveInput.mimeType
       };
@@ -163,7 +170,7 @@ async function run(): Promise<void> {
   assert.deepEqual(sourceUpload.attachments, [
     {
       id: "att-1",
-      path: "/workspace/payload.js",
+      path: `${CHAT_SESSION_ROOT}/payload.js`,
       thumbnailStoragePath: null,
       posterStoragePath: null,
       attachmentType: "document",
@@ -265,7 +272,7 @@ async function run(): Promise<void> {
     {
       async execute() {
         legacyObjectKeyRegisterCalls += 1;
-        return { attachmentId: "att-legacy", storagePath: "/workspace/ignored.png" };
+        return { attachmentId: "att-legacy", storagePath: `${CHAT_SESSION_ROOT}/ignored.png` };
       }
     } as never,
     fakeWorkspaceFileMetadataService as never,
@@ -350,7 +357,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/generated.png",
+        objectKey: `${CHAT_SESSION_ROOT}/generated.png`,
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -373,7 +380,7 @@ async function run(): Promise<void> {
       },
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/generated.mp3",
+        objectKey: `${CHAT_SESSION_ROOT}/generated.mp3`,
         type: "audio",
         sourceToolCode: "tts",
         mimeType: "audio/mpeg",
@@ -429,7 +436,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/generated-existing.png",
+        objectKey: `${CHAT_SESSION_ROOT}/generated-existing.png`,
         type: "image",
         mimeType: "image/png",
         filename: "generated-existing.png",
@@ -445,7 +452,7 @@ async function run(): Promise<void> {
 
   assert.equal(
     existingWorkspacePathDelivered.attachments[0]?.path,
-    "/workspace/generated-existing.png"
+    `${CHAT_SESSION_ROOT}/generated-existing.png`
   );
 
   let adapterTarget: {
@@ -472,7 +479,7 @@ async function run(): Promise<void> {
     ],
     fakeMediaObjectStorage({
       downloadObject: async (objectKey: string) => {
-        assert.equal(objectKey, "workspaces/workspace-1/workspace/telegram.png");
+        assert.equal(objectKey, `workspaces/workspace-1${CHAT_SESSION_ROOT}/telegram.png`);
         return {
           buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]),
           contentType: "image/png"
@@ -493,7 +500,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/telegram.png",
+        objectKey: `${CHAT_SESSION_ROOT}/telegram.png`,
         type: "image",
         mimeType: "image/png",
         filename: "telegram.png",
@@ -531,8 +538,15 @@ async function run(): Promise<void> {
         id: "assistant-1",
         userId: "user-1",
         workspaceId: "workspace-1",
+        handle: "assistant-1",
         draftDisplayName: null,
         draftInstructions: null,
+        draftTraits: null,
+        draftAvatarEmoji: null,
+        draftAvatarUrl: null,
+        draftAssistantGender: null,
+        draftVoiceProfile: null,
+        draftArchetypeKey: null,
         draftUpdatedAt: null,
         applyStatus: "succeeded",
         applyTargetVersionId: null,
@@ -542,6 +556,7 @@ async function run(): Promise<void> {
         applyFinishedAt: null,
         applyErrorCode: null,
         applyErrorMessage: null,
+        configDirtyAt: null,
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -575,7 +590,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/settled.png",
+        objectKey: `${CHAT_SESSION_ROOT}/settled.png`,
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -618,7 +633,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/reconcile.png",
+        objectKey: `${CHAT_SESSION_ROOT}/reconcile.png`,
         type: "image",
         sourceToolCode: "image_edit",
         mimeType: "image/png",
@@ -646,7 +661,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/not-delivered.png",
+        objectKey: `${CHAT_SESSION_ROOT}/not-delivered.png`,
         type: "image",
         sourceToolCode: "image_generate",
         mimeType: "image/png",
@@ -655,7 +670,7 @@ async function run(): Promise<void> {
       },
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/ignored.png",
+        objectKey: `${CHAT_SESSION_ROOT}/ignored.png`,
         type: "image",
         mimeType: "image/png",
         filename: "ignored.png",
@@ -678,7 +693,7 @@ async function run(): Promise<void> {
     artifacts: [
       {
         source: "persai_object_storage",
-        objectKey: "/workspace/user-stopped.png",
+        objectKey: `${CHAT_SESSION_ROOT}/user-stopped.png`,
         type: "image",
         sourceToolCode: "video_generate",
         mimeType: "image/png",

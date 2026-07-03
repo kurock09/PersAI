@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
+import { normalizeActiveWorkspaceFilePath } from "./workspace-visible-paths";
 
 type WorkspaceDocumentInspectInput = {
   assistantId: string;
@@ -855,19 +856,7 @@ export class DocumentWorkspaceInspectionService {
 }
 
 function normalizeWorkspacePath(value: string): string | null {
-  const trimmed = value.trim().replace(/\\/g, "/");
-  if (!trimmed.startsWith("/workspace/") || trimmed.includes("..")) {
-    return null;
-  }
-  if (
-    trimmed === "/workspace/input" ||
-    trimmed.startsWith("/workspace/input/") ||
-    trimmed === "/workspace/outbound" ||
-    trimmed.startsWith("/workspace/outbound/")
-  ) {
-    return null;
-  }
-  return trimmed;
+  return normalizeActiveWorkspaceFilePath(value);
 }
 
 function deriveDefaultInspectPath(sourcePath: string): string {

@@ -54,7 +54,7 @@ corepack pnpm --filter @persai/runtime run typecheck
 Interpretation rules:
 
 1. `files.attach` for an existing allowed PDF/DOCX/XLSX workspace file must create the chat attachment row before best-effort inspect/register/documentLink metadata enrichment; enrichment failure must log a warning and must not drop delivery.
-2. Root-level `/workspace/*.pdf|docx|xlsx` outputs are valid. `workspaceProjectPath`, `projectManifestPath`, and source-manifest facts are nullable metadata, not delivery gates.
+2. Active document outputs and attachment paths must live under `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...`; root-flat `/workspace/*.pdf|docx|xlsx` outputs are rejected for active ingress, while document metadata facts remain nullable and must not block chat delivery.
 3. `document.render` and `document.convert` must not recreate the old active `project.json` workflow for ordinary authored/convert outputs. Authored revisions use the sibling `.md` file and re-render at the same `outputPath`.
 4. Removed model-facing verbs (`document.extract`, `document.edit`, `document.register_version`) remain hard-rejected. Internal extraction/OCR code may keep extraction naming only behind `document.inspect`.
 5. After deploy, live validation must prove real chat delivery and download links for net-new render, convert, Case A source edit/re-render, and Case B shell-produced document attach.

@@ -38,11 +38,16 @@ test("internal workspace metadata delete returns 204 semantics for shared paths"
     controller.deleteMetadata(
       { headers: { authorization: `Bearer ${TOKEN}` } },
       "workspace-1",
-      "/workspace/report.txt"
+      "/workspace/assistants/alice/sessions/chat-1/report.txt"
     )
   );
 
-  assert.deepEqual(deletes, [{ workspaceId: "workspace-1", path: "/workspace/report.txt" }]);
+  assert.deepEqual(deletes, [
+    {
+      workspaceId: "workspace-1",
+      path: "/workspace/assistants/alice/sessions/chat-1/report.txt"
+    }
+  ]);
 });
 
 test("internal workspace metadata delete is idempotent when row is absent", async () => {
@@ -53,12 +58,12 @@ test("internal workspace metadata delete is idempotent when row is absent", asyn
     controller.deleteMetadata(
       { headers: { authorization: `Bearer ${TOKEN}` } },
       "workspace-1",
-      "/workspace/missing.txt"
+      "/workspace/assistants/alice/sessions/chat-1/missing.txt"
     )
   );
 });
 
-test("internal workspace metadata delete rejects paths outside /workspace/", async () => {
+test("internal workspace metadata delete rejects retired flat root file paths", async () => {
   setApiEnv();
   const { controller } = createController();
 
@@ -66,7 +71,7 @@ test("internal workspace metadata delete rejects paths outside /workspace/", asy
     controller.deleteMetadata(
       { headers: { authorization: `Bearer ${TOKEN}` } },
       "workspace-1",
-      "/tmp/scratch.txt"
+      "/workspace/report.txt"
     ),
     BadRequestException
   );
@@ -77,14 +82,18 @@ test("internal workspace metadata delete requires the internal token", async () 
   const { controller } = createController();
 
   await assert.rejects(
-    controller.deleteMetadata({ headers: {} }, "workspace-1", "/workspace/report.txt"),
+    controller.deleteMetadata(
+      { headers: {} },
+      "workspace-1",
+      "/workspace/assistants/alice/sessions/chat-1/report.txt"
+    ),
     UnauthorizedException
   );
   await assert.rejects(
     controller.deleteMetadata(
       { headers: { authorization: "Bearer wrong-token" } },
       "workspace-1",
-      "/workspace/report.txt"
+      "/workspace/assistants/alice/sessions/chat-1/report.txt"
     ),
     UnauthorizedException
   );

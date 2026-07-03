@@ -7,6 +7,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { resolveVisibleWorkspaceOutputFormatFromPath } from "./document-workspace-deliverable-gating";
 import { DocumentWorkspaceVersionRegistrationService } from "./document-workspace-version-registration.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
+import { normalizeActiveWorkspaceFilePath } from "./workspace-visible-paths";
 
 export type UpsertWorkspaceFileMetadataFromRuntimeInput = {
   workspaceId: string;
@@ -41,14 +42,12 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
       throw new BadRequestException("Request body must be an object.");
     }
     const row = body as Record<string, unknown>;
-    const path = this.requiredString(row.path, "path");
-    if (!this.isPersistedWorkspacePath(path)) {
+    const rawPath = this.requiredString(row.path, "path");
+    const path = normalizeActiveWorkspaceFilePath(rawPath);
+    if (path === null) {
       throw new BadRequestException(
-        'path must start with "/workspace/" — only files inside the workspace mount are tracked in the manifest.'
+        'path must be an active hierarchical "/workspace/..." file path tracked by the manifest.'
       );
-    }
-    if (path.includes("..")) {
-      throw new BadRequestException('path must not contain "..".');
     }
     const mimeType = this.requiredString(row.mimeType, "mimeType");
     const sizeBytes = row.sizeBytes;
@@ -132,11 +131,6 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
     }
     return value.trim();
   }
-
-  private isPersistedWorkspacePath(path: string): boolean {
-    return path.startsWith("/workspace/");
-  }
-
   private async maybeRegisterVisibleWorkspaceDocumentVersion(
     input: UpsertWorkspaceFileMetadataFromRuntimeInput
   ): Promise<void> {

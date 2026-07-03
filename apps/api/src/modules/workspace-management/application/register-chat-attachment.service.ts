@@ -15,6 +15,7 @@ import { AssistantDocumentJobService } from "./assistant-document-job.service";
 import type { DocumentWorkspaceInspectionService } from "./document-workspace-inspection.service";
 import { resolveVisibleWorkspaceOutputFormatFromPath } from "./document-workspace-deliverable-gating";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
+import { normalizeActiveWorkspaceFilePath } from "./workspace-visible-paths";
 
 export type RegisterChatAttachmentKind =
   | "user_upload"
@@ -258,11 +259,10 @@ export class RegisterChatAttachmentService {
   }
 
   private assertStoragePathAllowed(storagePath: string): void {
-    if (!storagePath.startsWith("/workspace/")) {
-      throw new BadRequestException("storagePath must be under /workspace/.");
-    }
-    if (storagePath.includes("..")) {
-      throw new BadRequestException("storagePath must not contain '..'.");
+    if (normalizeActiveWorkspaceFilePath(storagePath) === null) {
+      throw new BadRequestException(
+        'storagePath must be an active hierarchical "/workspace/..." file path.'
+      );
     }
   }
 

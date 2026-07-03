@@ -1,4 +1,8 @@
 import type { AssistantDocumentInspectionSummary } from "./assistant-document-link-metadata";
+import {
+  normalizeActiveWorkspaceDirectoryPath,
+  normalizeActiveWorkspaceFilePath
+} from "./workspace-visible-paths";
 
 export type VisibleWorkspaceDocumentOutputFormat = "pdf" | "xlsx" | "docx";
 
@@ -9,32 +13,11 @@ export type DocumentWorkspaceInspectionFacts = {
 };
 
 export function normalizeWorkspacePath(value: string): string | null {
-  const trimmed = value.trim().replace(/\\/g, "/");
-  if (!trimmed.startsWith("/workspace/") || trimmed.includes("..")) {
-    return null;
-  }
-  if (
-    trimmed === "/workspace/input" ||
-    trimmed.startsWith("/workspace/input/") ||
-    trimmed === "/workspace/outbound" ||
-    trimmed.startsWith("/workspace/outbound/")
-  ) {
-    return null;
-  }
-  return trimmed;
+  return normalizeActiveWorkspaceFilePath(value);
 }
 
 export function normalizeWorkspaceDirectory(value: string): string | null {
-  const trimmed = value.trim().replace(/\\/g, "/");
-  if (trimmed === "/workspace") {
-    return "/workspace";
-  }
-  const path = normalizeWorkspacePath(trimmed);
-  if (path === null) {
-    return null;
-  }
-  const normalized = path.replace(/\/+$/g, "");
-  return normalized.length > 0 ? normalized : null;
+  return normalizeActiveWorkspaceDirectoryPath(value);
 }
 
 export function resolveVisibleWorkspaceOutputFormatFromPath(

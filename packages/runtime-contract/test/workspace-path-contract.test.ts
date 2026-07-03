@@ -94,35 +94,35 @@ describe("workspace path contract", () => {
   });
 
   test("rejects root-flat and stale workspace paths", () => {
+    const staleChatPath = ["/workspace", "chats", "chat-1", "report.pdf"].join("/");
+    const staleProjectPath = ["/workspace", "projects", "source", "output", "report.pdf"].join("/");
+
     assert.deepEqual(classifyVisibleWorkspacePath("/workspace/report.pdf"), {
       kind: "rootFlatFile",
       normalizedPath: "/workspace/report.pdf",
       assistantStableKey: null,
       sessionId: null
     });
-    assert.deepEqual(classifyVisibleWorkspacePath("/workspace/chats/chat-1/report.pdf"), {
+    assert.deepEqual(classifyVisibleWorkspacePath(staleChatPath), {
       kind: "staleChatsPath",
-      normalizedPath: "/workspace/chats/chat-1/report.pdf",
+      normalizedPath: staleChatPath,
       assistantStableKey: null,
       sessionId: null
     });
-    assert.deepEqual(classifyVisibleWorkspacePath("/workspace/projects/source/output/report.pdf"), {
+    assert.deepEqual(classifyVisibleWorkspacePath(staleProjectPath), {
       kind: "staleProjectsPath",
-      normalizedPath: "/workspace/projects/source/output/report.pdf",
+      normalizedPath: staleProjectPath,
       assistantStableKey: null,
       sessionId: null
     });
 
     assert.equal(isRejectedRootFlatWorkspacePath("/workspace/report.pdf"), true);
-    assert.equal(isStaleVisibleWorkspacePath("/workspace/chats/chat-1/report.pdf"), true);
-    assert.equal(isStaleVisibleWorkspacePath("/workspace/projects/source/output/report.pdf"), true);
+    assert.equal(isStaleVisibleWorkspacePath(staleChatPath), true);
+    assert.equal(isStaleVisibleWorkspacePath(staleProjectPath), true);
 
     assert.equal(isValidVisibleWorkspacePath("/workspace/report.pdf"), false);
-    assert.equal(isValidVisibleWorkspacePath("/workspace/chats/chat-1/report.pdf"), false);
-    assert.equal(
-      isValidVisibleWorkspacePath("/workspace/projects/source/output/report.pdf"),
-      false
-    );
+    assert.equal(isValidVisibleWorkspacePath(staleChatPath), false);
+    assert.equal(isValidVisibleWorkspacePath(staleProjectPath), false);
   });
 
   test("validates and sanitizes path segments deterministically", () => {

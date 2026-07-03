@@ -2072,13 +2072,13 @@ model AssistantWorkspaceLease {
 /// hard-delete, so atomicity is: lease exists ↔ source row gone.
 ///
 /// `kind` selects the purge routine and metadata schema:
-///   - `chat_scratch`:        `targetId = chatId`,
+///   - `session_subtree`:     `targetId = chatId`,
 ///                            `metadata = {workspaceId, assistantId}`,
 ///                            `scheduledAt = now()`.
-///   - `assistant_outbound`:  `targetId = assistantId`,
+///   - `assistant_subtree`:   `targetId = assistantId`,
 ///                            `metadata = {workspaceId, handle}`,
 ///                            `scheduledAt = now() + 7 days`.
-///   - `workspace_shared`:    `targetId = workspaceId`,
+///   - `workspace_subtree`:   `targetId = workspaceId`,
 ///                            `metadata = {}`,
 ///                            `scheduledAt = now() + 30 days`.
 ///
@@ -2101,9 +2101,9 @@ model SandboxWorkspaceGcLease {
 }
 
 enum SandboxWorkspaceGcLeaseKind {
-  chat_scratch
-  assistant_outbound
-  workspace_shared
+  session_subtree
+  assistant_subtree
+  workspace_subtree
 }
 
 model WorkspaceFileMetadata {

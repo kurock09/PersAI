@@ -4,6 +4,8 @@ import { BadRequestException } from "@nestjs/common";
 import { UpsertWorkspaceFileMetadataFromRuntimeService } from "../src/modules/workspace-management/application/upsert-workspace-file-metadata-from-runtime.service";
 
 describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
+  const sessionRoot = "/workspace/assistants/assistant-1/sessions/chat-1";
+
   function buildService() {
     const calls: Array<{
       workspaceId: string;
@@ -64,7 +66,7 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
           descriptorMode: "create_document",
           documentType: "workspace_document",
           outputFormat: "pdf",
-          outputPath: String(input.outputPath ?? "/workspace/report.pdf"),
+          outputPath: String(input.outputPath ?? `${sessionRoot}/report.pdf`),
           workspaceProjectPath: null,
           sourceManifestPath: null,
           inspectionPath: null
@@ -80,18 +82,18 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     return { service, calls, refreshCalls, registerCalls };
   }
 
-  test("upserts a /workspace/ row and omits empty shortDescription", async () => {
+  test("upserts a hierarchical session file row and omits empty shortDescription", async () => {
     const { service, calls } = buildService();
     const input = service.parseInput({
       workspaceId: "workspace-1",
-      path: "/workspace/notes.md",
+      path: `${sessionRoot}/notes.md`,
       mimeType: "text/markdown",
       sizeBytes: 128
     });
     await service.execute(input);
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.workspaceId, "workspace-1");
-    assert.equal(calls[0]?.path, "/workspace/notes.md");
+    assert.equal(calls[0]?.path, `${sessionRoot}/notes.md`);
     assert.equal(calls[0]?.mimeType, "text/markdown");
     assert.equal(calls[0]?.sizeBytes, 128);
     assert.equal(calls[0]?.shortDescription, undefined);
@@ -101,7 +103,7 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     const { service, calls } = buildService();
     const input = service.parseInput({
       workspaceId: "workspace-1",
-      path: "/workspace/recipe.md",
+      path: `${sessionRoot}/recipe.md`,
       mimeType: "text/markdown",
       sizeBytes: 256,
       shortDescription: "Mom's pie crust"
@@ -114,7 +116,7 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     const { service, calls, refreshCalls } = buildService();
     const input = service.parseInput({
       workspaceId: "workspace-1",
-      path: "/workspace/report.csv",
+      path: `${sessionRoot}/report.csv`,
       mimeType: "text/csv",
       sizeBytes: 42,
       contentHash: "abc123",
@@ -124,7 +126,7 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     assert.equal(calls[0]?.contentHash, "abc123");
     assert.equal(refreshCalls.length, 1);
     assert.equal(refreshCalls[0]?.workspaceId, "workspace-1");
-    assert.equal(refreshCalls[0]?.storagePath, "/workspace/report.csv");
+    assert.equal(refreshCalls[0]?.storagePath, `${sessionRoot}/report.csv`);
     assert.equal(refreshCalls[0]?.mimeType, "text/csv");
     assert.equal(refreshCalls[0]?.sizeBytes, BigInt(42));
   });
@@ -133,7 +135,7 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     const { service, registerCalls } = buildService();
     const input = service.parseInput({
       workspaceId: "workspace-1",
-      path: "/workspace/report.pdf",
+      path: `${sessionRoot}/report.pdf`,
       mimeType: "application/pdf",
       sizeBytes: 42,
       replace: true,
@@ -147,7 +149,7 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     assert.equal(registerCalls[0]?.assistantId, "assistant-1");
     assert.equal(registerCalls[0]?.channel, "web");
     assert.equal(registerCalls[0]?.externalThreadKey, "thread-1");
-    assert.equal(registerCalls[0]?.outputPath, "/workspace/report.pdf");
+    assert.equal(registerCalls[0]?.outputPath, `${sessionRoot}/report.pdf`);
     assert.equal(registerCalls[0]?.sourceUserMessageText, "Обнови pdf");
   });
 
@@ -185,7 +187,7 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
       () =>
         service.parseInput({
           workspaceId: "workspace-1",
-          path: "/workspace/a.txt",
+          path: `${sessionRoot}/a.txt`,
           mimeType: "text/plain",
           sizeBytes: -1
         }),
@@ -195,7 +197,7 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
       () =>
         service.parseInput({
           workspaceId: "workspace-1",
-          path: "/workspace/a.txt",
+          path: `${sessionRoot}/a.txt`,
           mimeType: "text/plain",
           sizeBytes: Number.NaN
         }),

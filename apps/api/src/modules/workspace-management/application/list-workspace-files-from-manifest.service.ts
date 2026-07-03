@@ -1,12 +1,13 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { RuntimeFilesToolItem } from "@persai/runtime-contract";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
+import { normalizeActiveWorkspaceDirectoryPath } from "./workspace-visible-paths";
 
 export type ListWorkspaceFilesFromManifestInput = {
   workspaceId: string;
   pathPrefix: string;
   assistantHandle: string;
-  scope: "chat" | "assistant" | "workspace_shared";
+  scope: "chat" | "assistant" | "workspace";
   currentChatId: string | null;
   currentAssistantId: string;
 };
@@ -15,12 +16,9 @@ export type ListWorkspaceFilesFromManifestOutcome = {
   items: RuntimeFilesToolItem[];
 };
 
-// ADR-128 Slice 4 — manifest-as-index reader for model-facing `files.list`
-// over the flat `/workspace/` namespace. Returns one-level-deep entries
-// derived from the `workspace_file_metadata` rows whose path falls under
-// `pathPrefix`. Directories are synthesised from path components (no FS
-// access). There is no role classification — every entry is just a file or
-// directory under `/workspace/`.
+// ADR-133 Slice 3 — manifest-as-index reader over the active hierarchical
+// `/workspace/...` namespace. Directories are synthesised from manifest path
+// components (no FS access).
 @Injectable()
 export class ListWorkspaceFilesFromManifestService {
   // Listings cap. The manifest is the authoritative index and a single
@@ -127,22 +125,15 @@ export class ListWorkspaceFilesFromManifestService {
   }
 
   private assertWorkspacePrefix(pathPrefix: string): void {
-    if (!this.isPersistedWorkspacePrefix(pathPrefix)) {
+    if (normalizeActiveWorkspaceDirectoryPath(pathPrefix) === null) {
       throw new BadRequestException(
-        'pathPrefix must start with "/workspace" — the manifest is authoritative for the flat workspace.'
+        'pathPrefix must be an active hierarchical "/workspace/..." directory.'
       );
-    }
-    if (pathPrefix.includes("..")) {
-      throw new BadRequestException('pathPrefix must not contain "..".');
     }
   }
 
   private normalizeDirectoryPrefix(pathPrefix: string): string {
     return pathPrefix.replace(/\/+$/, "") || "/workspace";
-  }
-
-  private isPersistedWorkspacePrefix(pathPrefix: string): boolean {
-    return pathPrefix === "/workspace" || pathPrefix.startsWith("/workspace/");
   }
 
   private resolveScopeFilters(input: ListWorkspaceFilesFromManifestInput): {
@@ -161,7 +152,7 @@ export class ListWorkspaceFilesFromManifestService {
   }
 
   private readScope(value: unknown): ListWorkspaceFilesFromManifestInput["scope"] {
-    if (value === "assistant" || value === "workspace_shared") {
+    if (value === "assistant" || value === "workspace") {
       return value;
     }
     return "chat";

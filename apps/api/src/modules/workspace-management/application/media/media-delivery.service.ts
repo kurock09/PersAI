@@ -695,6 +695,8 @@ export class MediaDeliveryService {
   private resolvePersistedStoragePath(input: {
     artifact: MediaArtifact;
     workspaceId: string;
+    assistantStableKey: string;
+    chatId: string;
     messageId: string;
     filename: string;
     mimeType: string;
@@ -707,6 +709,11 @@ export class MediaDeliveryService {
     }
     return resolveUniqueWorkspaceStoragePath({
       workspaceId: input.workspaceId,
+      assistantStableKey: input.assistantStableKey,
+      // Runtime-delivered artifacts reach the API after the chat already
+      // exists. Use the canonical chat id as the ADR-133 session-root fallback
+      // when this boundary does not carry a runtime session id.
+      sessionId: input.chatId,
       filename: input.filename,
       mimeType: input.mimeType,
       referenceId: input.messageId,
@@ -852,10 +859,13 @@ export class MediaDeliveryService {
     const filename = validated.originalFilename ?? sourceFilename;
     const persistedBillingFacts =
       artifact.sourceToolCode === "tts" ? (artifact.billingFacts ?? null) : null;
+    const assistantStableKey = await this.resolveAssistantStableKey(params.assistantId);
 
     const storagePath = await this.resolvePersistedStoragePath({
       artifact,
       workspaceId: params.workspaceId,
+      assistantStableKey,
+      chatId: params.chatId,
       messageId: params.messageId,
       filename,
       mimeType: validated.effectiveMimeType
@@ -962,6 +972,22 @@ export class MediaDeliveryService {
       (await downloadRuntimeMediaUrl(artifact.url)) ??
       this.mediaObjectStorage.downloadObject(artifact.url)
     );
+  }
+
+  private async resolveAssistantStableKey(assistantId: string): Promise<string> {
+    const assistant =
+      (await this.assistantRepository.findById(assistantId)) ??
+      (await this.prisma.assistant.findUnique({
+        where: { id: assistantId },
+        select: { handle: true }
+      }));
+    const handle = assistant?.handle?.trim();
+    if (!handle) {
+      throw new NotFoundException(
+        `Assistant ${assistantId} could not be resolved for hierarchical workspace delivery.`
+      );
+    }
+    return handle;
   }
 
   private async sendViaAdapter(

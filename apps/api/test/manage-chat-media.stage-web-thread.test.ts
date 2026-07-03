@@ -43,6 +43,7 @@ const assistant: Assistant = {
   id: "assistant-1",
   userId: "user-1",
   workspaceId: "workspace-1",
+  handle: "assistant-1",
   draftDisplayName: null,
   draftInstructions: null,
   draftTraits: null,
@@ -91,7 +92,7 @@ function buildAttachmentFromRegisterInput(
     assistantId: input.assistantId ?? assistant.id,
     workspaceId: input.workspaceId ?? assistant.workspaceId,
     attachmentType: input.attachmentType ?? "document",
-    storagePath: input.storagePath ?? "/workspace/note.txt",
+    storagePath: input.storagePath ?? "/workspace/assistants/assistant-1/sessions/chat-1/note.txt",
     originalFilename: input.originalFilename ?? "note.txt",
     mimeType: input.mimeType ?? "text/plain",
     sizeBytes: BigInt(Number(input.sizeBytes ?? 0)),
@@ -250,6 +251,10 @@ async function run(): Promise<void> {
 
   assert.equal(directUpload.mimeType, "text/plain");
   assert.equal(directUpload.storagePath, lastRegisterChatAttachmentInput?.storagePath);
+  assert.equal(
+    directUpload.storagePath,
+    "/workspace/assistants/assistant-1/sessions/chat-1/note.txt"
+  );
   assert.deepEqual(lastRegisterChatAttachmentInput?.metadata, {
     source: "chat_upload",
     contentPreview: "line one line two",
@@ -590,6 +595,10 @@ async function run(): Promise<void> {
   assert.equal(staged.chatId, "chat-1");
   assert.equal(staged.messageId, "msg-1");
   assert.equal(staged.attachment.storagePath, lastRegisterChatAttachmentInput?.storagePath);
+  assert.equal(
+    staged.attachment.storagePath,
+    "/workspace/assistants/assistant-1/sessions/chat-1/image.png"
+  );
   assert.equal(hotPushInputs.length, 1);
   assert.equal(hotPushInputs[0]?.storagePath, staged.attachment.storagePath);
   assert.equal(hotPushInputs[0]?.basename, "image.png");
@@ -731,6 +740,10 @@ async function run(): Promise<void> {
     }
   });
   assert.equal(stagedProject.attachment.storagePath, lastRegisterChatAttachmentInput?.storagePath);
+  assert.equal(
+    stagedProject.attachment.storagePath,
+    "/workspace/assistants/assistant-1/sessions/chat-project-1/spec.txt"
+  );
 
   const failureMetrics = new PlatformHttpMetricsService();
   const cappedDeletes: string[] = [];

@@ -10,7 +10,8 @@ describe("inbound-media.service", () => {
     const releasedBytes: bigint[] = [];
     let registerCalls = 0;
     const metrics = new PlatformHttpMetricsService();
-    const sharedObjectKey = "workspaces/workspace-1/workspace/photo.jpg";
+    const storagePath = "/workspace/assistants/assistant-1/sessions/chat-1/photo.jpg";
+    const sharedObjectKey = `workspaces/workspace-1${storagePath}`;
 
     const service = new InboundMediaService(
       {
@@ -114,6 +115,7 @@ describe("inbound-media.service", () => {
     const result = await service.resolve({
       channel: "telegram",
       assistantId: "assistant-1",
+      assistantHandle: "assistant-1",
       userId: "user-1",
       chatId: "chat-1",
       messageId: "msg-1",
@@ -150,7 +152,7 @@ describe("inbound-media.service", () => {
   test("generates image thumbnail path and saves derivative after primary upload", async () => {
     const savedObjectKeys: string[] = [];
     let registerInput: Record<string, unknown> | null = null;
-    const storagePath = "/workspace/photo.jpg";
+    const storagePath = "/workspace/assistants/assistant-1/sessions/chat-1/photo.jpg";
     const thumbBuffer = Buffer.from("thumb");
 
     const attachment: AssistantChatMessageAttachment = {
@@ -269,6 +271,7 @@ describe("inbound-media.service", () => {
     const result = await service.resolve({
       channel: "web",
       assistantId: "assistant-1",
+      assistantHandle: "assistant-1",
       userId: "user-1",
       chatId: "chat-1",
       messageId: "msg-1",

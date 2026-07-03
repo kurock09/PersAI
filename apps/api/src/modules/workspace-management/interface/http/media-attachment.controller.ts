@@ -29,6 +29,7 @@ import { ResolveActiveAssistantService } from "../../application/resolve-active-
 import { MAX_MEDIA_FILE_BYTES } from "../../application/media/media-security-policy";
 import { toAssistantWebChatMessageAttachmentState } from "../../application/media/media.types";
 import { ListChatWorkspaceFilesService } from "../../application/list-chat-workspace-files.service";
+import { normalizeActiveWorkspaceFilePath } from "../../application/workspace-visible-paths";
 import { WorkspaceManagementPrismaService } from "../../infrastructure/persistence/workspace-management-prisma.service";
 
 @Controller("api/v1")
@@ -208,10 +209,7 @@ export class MediaAttachmentController {
     @Query("path") path: string | undefined
   ): Promise<void> {
     const userId = this.resolveRequestUserId(req);
-    const storagePath = typeof path === "string" ? path.trim() : "";
-    if (storagePath.length === 0) {
-      throw new BadRequestException("path query parameter is required.");
-    }
+    const storagePath = this.requireActiveWorkspaceFilePath(path);
     await this.manageChatMediaService.deleteChatWorkspaceFile({
       userId,
       chatId,
@@ -230,13 +228,7 @@ export class MediaAttachmentController {
     if (assistant.workspaceId !== workspaceId) {
       throw new ForbiddenException("Workspace does not belong to the active assistant.");
     }
-    const storagePath = typeof path === "string" ? path.trim() : "";
-    if (storagePath.length === 0) {
-      throw new BadRequestException("path query parameter is required.");
-    }
-    if (!storagePath.startsWith("/workspace/")) {
-      throw new BadRequestException('path must start with "/workspace/".');
-    }
+    const storagePath = this.requireActiveWorkspaceFilePath(path);
     await this.manageChatMediaService.deleteWorkspaceFile({
       assistantId: assistant.id,
       workspaceId,
@@ -258,10 +250,7 @@ export class MediaAttachmentController {
     @Query("download") download?: string
   ): Promise<void> {
     const assistant = await this.resolveRequestAssistant(req);
-    const storagePath = typeof path === "string" ? path.trim() : "";
-    if (storagePath.length === 0) {
-      throw new BadRequestException("path query parameter is required.");
-    }
+    const storagePath = this.requireActiveWorkspaceFilePath(path);
     await this.assertOwnedWebChat(assistant.id, chatId);
 
     const result = await this.mediaDeliveryService.downloadChatFileByPath({
@@ -328,10 +317,7 @@ export class MediaAttachmentController {
     @Query("path") path: string | undefined
   ): Promise<void> {
     const assistant = await this.resolveRequestAssistant(req);
-    const storagePath = typeof path === "string" ? path.trim() : "";
-    if (storagePath.length === 0) {
-      throw new BadRequestException("path query parameter is required.");
-    }
+    const storagePath = this.requireActiveWorkspaceFilePath(path);
     await this.assertOwnedWebChat(assistant.id, chatId);
 
     const result = await this.mediaDeliveryService.previewChatFileByPath({
@@ -370,10 +356,7 @@ export class MediaAttachmentController {
     if (assistant.workspaceId !== workspaceId) {
       throw new NotFoundException("Workspace not found for this assistant.");
     }
-    const storagePath = typeof path === "string" ? path.trim() : "";
-    if (storagePath.length === 0) {
-      throw new BadRequestException("path query parameter is required.");
-    }
+    const storagePath = this.requireActiveWorkspaceFilePath(path);
 
     const result = await this.mediaDeliveryService.downloadWorkspaceFileByPath({
       workspaceId,
@@ -439,10 +422,7 @@ export class MediaAttachmentController {
     if (assistant.workspaceId !== workspaceId) {
       throw new NotFoundException("Workspace not found for this assistant.");
     }
-    const storagePath = typeof path === "string" ? path.trim() : "";
-    if (storagePath.length === 0) {
-      throw new BadRequestException("path query parameter is required.");
-    }
+    const storagePath = this.requireActiveWorkspaceFilePath(path);
 
     const result = await this.mediaDeliveryService.previewWorkspaceFileByPath({
       workspaceId,
@@ -669,5 +649,15 @@ export class MediaAttachmentController {
     if (chat === null) {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
+  }
+
+  private requireActiveWorkspaceFilePath(path: string | undefined): string {
+    const normalized = normalizeActiveWorkspaceFilePath(typeof path === "string" ? path : "");
+    if (normalized === null) {
+      throw new BadRequestException(
+        'path query parameter must be an active hierarchical "/workspace/..." file path.'
+      );
+    }
+    return normalized;
   }
 }
