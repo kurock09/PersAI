@@ -23,6 +23,16 @@ const noopRecordToolPathLedgerFromToolInvocationsService = {
   }
 } as never;
 
+const fakeWebRuntimeSessionStateClientService = {
+  async ensure(input: { externalThreadKey: string }) {
+    const suffix = input.externalThreadKey.replace(/^chat-/, "");
+    return {
+      created: true,
+      session: { sessionId: `runtime-session-${suffix}` }
+    };
+  }
+} as never;
+
 type ClaimState = {
   telegramLastHandledUpdateId?: number;
   telegramLastHandledUpdateAt?: string;
@@ -286,7 +296,8 @@ async function run(): Promise<void> {
     } as never,
     noopAssistantDocumentJobReadService,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService
+    noopRecordToolPathLedgerFromToolInvocationsService,
+    fakeWebRuntimeSessionStateClientService
   );
   const first = concurrentService.execute({
     assistantId: "assistant-1",
@@ -394,7 +405,8 @@ async function run(): Promise<void> {
     } as never,
     noopAssistantDocumentJobReadService,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService
+    noopRecordToolPathLedgerFromToolInvocationsService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   await assert.rejects(() =>
@@ -504,7 +516,8 @@ async function run(): Promise<void> {
     } as never,
     noopAssistantDocumentJobReadService,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService
+    noopRecordToolPathLedgerFromToolInvocationsService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   const rewrittenMedia = await mediaRewriteService.execute({
@@ -596,6 +609,7 @@ async function run(): Promise<void> {
     noopAssistantDocumentJobReadService,
     noopRecordModelCostLedgerService,
     noopRecordToolPathLedgerFromToolInvocationsService,
+    fakeWebRuntimeSessionStateClientService,
     { maybeCreateFollowUp: async () => null } as never
   );
 
@@ -754,7 +768,8 @@ async function run(): Promise<void> {
     } as never,
     noopAssistantDocumentJobReadService,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService
+    noopRecordToolPathLedgerFromToolInvocationsService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   await telegramUploadSummaryService.execute({
@@ -854,7 +869,8 @@ async function run(): Promise<void> {
     } as never,
     noopAssistantDocumentJobReadService,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService
+    noopRecordToolPathLedgerFromToolInvocationsService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   const recoveredAfterAssistantSaveFailure = await persistenceFailureService.execute({
@@ -984,6 +1000,7 @@ async function run(): Promise<void> {
       }
     } as never,
     noopRecordToolPathLedgerFromToolInvocationsService,
+    fakeWebRuntimeSessionStateClientService,
     undefined,
     undefined,
     undefined
@@ -1097,7 +1114,8 @@ async function run(): Promise<void> {
         }
         return undefined;
       }
-    } as never
+    } as never,
+    fakeWebRuntimeSessionStateClientService
   );
 
   await toolPathLedgerService.execute({
@@ -1198,7 +1216,8 @@ async function run(): Promise<void> {
     } as never,
     noopAssistantDocumentJobReadService,
     noopRecordModelCostLedgerService,
-    noopRecordToolPathLedgerFromToolInvocationsService
+    noopRecordToolPathLedgerFromToolInvocationsService,
+    fakeWebRuntimeSessionStateClientService
   );
 
   const recoveredAfterCompletionFailure = await completionFailureService.execute({
@@ -1297,6 +1316,7 @@ async function run(): Promise<void> {
     noopAssistantDocumentJobReadService,
     noopRecordModelCostLedgerService,
     noopRecordToolPathLedgerFromToolInvocationsService,
+    fakeWebRuntimeSessionStateClientService,
     undefined,
     undefined,
     {
