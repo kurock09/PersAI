@@ -4,6 +4,23 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-133 Slice 1 path-contract focused checks
+
+When a change touches only the shared hierarchical workspace path contract (constants/builders/classifiers/docs) without migrating sandbox/API/runtime behavior yet, run:
+
+```bash
+corepack pnpm --filter @persai/runtime-contract exec tsx --test test/workspace-path-contract.test.ts
+corepack pnpm --filter @persai/runtime-contract run typecheck
+corepack pnpm run format:check
+```
+
+Interpretation rules:
+
+1. `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>/...` must classify as valid hierarchical session space, and assistant/workspace widen roots must stay valid.
+2. Root-level flat paths such as `/workspace/report.pdf` must be rejected/classified as `rootFlatFile`.
+3. `/workspace/chats/...` and `/workspace/projects/...` must classify as stale/invalid for the active ADR-133 default model, even if later behavior slices still carry temporary compatibility code elsewhere.
+4. Slice 1 is pure contract wiring only: comments/tests may mark legacy flat/project/outbound surfaces as historical, but no sandbox/API/runtime/web default-path behavior should change in this slice.
+
 ## ADR-132 document surface focused checks
 
 When a change touches `document.inspect`, `document.render`, `document.convert`, document auto-registration, or `files.attach` delivery of `pdf`/`docx`/`xlsx`, run these focused checks before the broad gate:

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — founder-directed clean filesystem program opened 2026-07-03. Implementation is pending and must be orchestrated by the parent agent with GPT-5.4/Sonnet implementation subagents.
+Accepted — founder-directed clean filesystem program opened 2026-07-03. Slice 1 (shared path contract and ADR wiring only) is now landed locally; behavior migration remains pending and must stay orchestrated by the parent agent with GPT-5.4/Sonnet implementation subagents.
 
 ## Date
 
@@ -180,6 +180,13 @@ No code changes. Parent reviews and signs off before Slice 1.
 ### Slice 1 — Path contract and ADR wiring
 
 Create the shared path contract and constants for workspace root, assistant root, and session root. Update docs that must agree before behavior changes. This slice may add tests for pure path construction but must not leave behavior half-migrated.
+
+Landed locally 2026-07-03:
+
+- `packages/runtime-contract/src/index.ts` is the shared owner for hierarchical workspace constants, builders, segment validation/sanitization, visible-path classification, and negative helpers for stale flat roots (`/workspace/<file>`, `/workspace/chats/...`, `/workspace/projects/...`).
+- Focused pure tests live in `packages/runtime-contract/test/workspace-path-contract.test.ts`.
+- Shared comments were corrected in `packages/runtime-contract` and `packages/runtime-bundle` so stale flat/outbound/project wording is marked historical-only without migrating runtime/API/sandbox behavior yet.
+- No sandbox/API/runtime/web default-path behavior changes are part of this slice.
 
 ### Slice 2 — Sandbox and GCS cutover
 

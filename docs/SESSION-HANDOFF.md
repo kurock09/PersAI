@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — ADR-133 Slice 1 landed locally: shared path contract and ADR wiring only
+
+Status: **implemented locally, not committed/pushed, and intentionally limited to shared contract/tests/docs. No sandbox/API/runtime/web behavior migration yet.**
+
+This slice adds the first shared owner for the session-first filesystem contract in `packages/runtime-contract/src/index.ts`. The contract now defines canonical constants/builders for `/workspace`, `/workspace/assistants/<assistantStableKey>`, `/workspace/assistants/<assistantStableKey>/sessions/<sessionId>`, assistant shared root, and workspace shared root, plus path-safe segment validation/sanitization and pure visible-path classification helpers. The negative guardrails are explicit: `/workspace/report.pdf` classifies as `rootFlatFile`, while `/workspace/chats/...` and `/workspace/projects/...` classify as stale invalid paths for the ADR-133 target model. Shared comments in `packages/runtime-contract` and `packages/runtime-bundle` were corrected so flat/outbound/project wording is historical-only; no runtime/API/sandbox logic was switched to the new contract yet.
+
+Files touched:
+
+- `packages/runtime-contract/src/index.ts`
+- `packages/runtime-contract/test/workspace-path-contract.test.ts`
+- `packages/runtime-bundle/src/index.ts`
+- `docs/ADR/133-session-first-hierarchical-workspace-filesystem.md`
+- `docs/TEST-PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/SESSION-HANDOFF.md`
+
+Verification:
+
+- `corepack pnpm --filter @persai/runtime-contract exec tsx --test test/workspace-path-contract.test.ts`
+- `corepack pnpm --filter @persai/runtime-contract run typecheck`
+- `corepack pnpm run format:check`
+
+Next: parent review this Slice 1 diff, then dispatch Slice 2 to migrate sandbox/GCS/default cwd behavior onto the shared hierarchical path contract without reintroducing flat-path fallback.
+
 ## 2026-07-03 — ADR-133 opened for session-first hierarchical workspace filesystem; implementation pending Slice 0 ledger
 
 Status: **docs-only program opened; no code implementation yet.**

@@ -22,15 +22,16 @@ export const PERSAI_RUNTIME_BUNDLE_SCHEMA = "persai.runtime.bundle.v1" as const;
 export interface AssistantRuntimeBundleMetadata {
   assistantId: string;
   /**
-   * Workspace-unique handle assigned at assistant creation. Names the
-   * assistant's outbound directory inside session pods
-   * (`/workspace/outbound/<handle>/`) and the corresponding workspace GCS prefix.
+   * Workspace-unique assistant path key assigned at assistant creation.
+   * ADR-133 Slice 1 uses it for `/workspace/assistants/<assistantStableKey>/...`;
+   * older outbound-directory wording is historical only until behavior layers
+   * migrate.
    */
   assistantHandle: string;
   /**
-   * Handles of sibling assistants in the same workspace, surfaced to the
-   * sandbox so it can rematerialise `outbound/<otherHandle>/` directories
-   * on session-pod cold start.
+   * Sibling assistant path keys in the same workspace. Legacy outbound
+   * rematerialization wording is historical only until the later ADR-133
+   * sandbox cutover lands.
    */
   siblingAssistantHandles: readonly string[];
   workspaceId: string;

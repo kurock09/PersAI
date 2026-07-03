@@ -167,6 +167,11 @@ export interface RuntimeDocumentSourceFile {
   } | null;
 }
 
+/**
+ * Legacy manifest visibility tiers that predate ADR-133. They remain in the
+ * shared contract until runtime/API behavior slices remove the old
+ * `workspace_shared` vocabulary from active model-facing surfaces.
+ */
 export type RuntimeFileScopeTier = "chat" | "assistant" | "workspace_shared";
 
 export interface RuntimeFileHandle {
@@ -269,15 +274,16 @@ export interface RuntimeSandboxJobResult {
 export interface RuntimeSandboxJobRequest {
   assistantId: string;
   /**
-   * Workspace-unique handle that names this assistant's outbound directory
-   * inside session pods (`/workspace/outbound/<handle>/`) and the corresponding
-   * workspace GCS prefix.
+   * Workspace-unique assistant path key carried in the shared runtime contract.
+   * ADR-133 uses this key for `/workspace/assistants/<assistantStableKey>/...`;
+   * older outbound-directory comments are historical only until behavior layers
+   * migrate.
    */
   assistantHandle: string;
   /**
-   * Sibling assistant handles that share this workspace, so the sandbox can
-   * rematerialise `outbound/<otherHandle>/` directories on session-pod
-   * start. Empty array means no siblings.
+   * Sibling assistant path keys that share this workspace. Legacy outbound
+   * rematerialization comments are historical only until the later ADR-133
+   * sandbox cutover lands. Empty array means no siblings.
    */
   siblingHandles: readonly string[];
   workspaceId: string;
@@ -304,7 +310,9 @@ export interface RuntimeSandboxToolResult {
  * Model-facing `files.*` actions — the canonical, path-driven surface. The
  * model addresses files exclusively by pod-absolute path; `fileRef` does not
  * appear on this contract. Chat delivery is a separate explicit action and
- * does not piggyback on `files.write`.
+ * does not piggyback on `files.write`. ADR-133 Slice 1 establishes the shared
+ * hierarchical path builders and classifiers here; later slices migrate active
+ * runtime/API/sandbox behavior to those helpers.
  */
 export const PERSAI_RUNTIME_FILES_TOOL_ACTIONS = [
   "list",
@@ -324,11 +332,12 @@ export type RuntimeFileCapability = (typeof PERSAI_RUNTIME_FILE_CAPABILITIES)[nu
 /**
  * The single model-visible item shape returned by `files.list`, `files.read`,
  * `files.preview`, `files.write`, and `files.delete`. There is no `fileRef`
- * field — addressing is by pod-absolute `path` only. After ADR-128 Slice 4
- * the workspace is flat and role-free; the previous `role` field is gone.
+ * field — addressing is by pod-absolute `path` only. The path is rooted at
+ * `/workspace/...`; ADR-133 later narrows active defaults from the old flat
+ * root to the session-first hierarchy defined below.
  */
 export interface RuntimeFilesToolItem {
-  /** Pod-absolute path under the single `/workspace/...` namespace. */
+  /** Pod-absolute path rooted at `/workspace/...`. */
   path: string;
   type: "file" | "directory";
   sizeBytes: number;
@@ -4191,9 +4200,272 @@ export function seriesItemHeaderLine(index: number, total: number): string {
   return `Series item ${String(index + 1)} of ${String(total)}.`;
 }
 
-export const DOCUMENT_WORKSPACE_PROJECT_SCHEMA = "persai.document.project.v1" as const;
+export const WORKSPACE_ROOT = "/workspace" as const;
+export const WORKSPACE_ASSISTANTS_ROOT = `${WORKSPACE_ROOT}/assistants` as const;
+export const WORKSPACE_SHARED_ROOT = `${WORKSPACE_ROOT}/shared` as const;
+export const WORKSPACE_LEGACY_CHATS_ROOT = `${WORKSPACE_ROOT}/chats` as const;
 
-export const DOCUMENT_WORKSPACE_PROJECTS_ROOT = "/workspace/projects";
+export const WORKSPACE_PATH_SEGMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+export type WorkspaceVisiblePathKind =
+  | "workspaceRoot"
+  | "assistantsRoot"
+  | "assistantRoot"
+  | "assistantSessionsRoot"
+  | "sessionRoot"
+  | "sessionDescendant"
+  | "assistantSharedRoot"
+  | "assistantSharedDescendant"
+  | "workspaceSharedRoot"
+  | "workspaceSharedDescendant"
+  | "rootFlatFile"
+  | "staleChatsPath"
+  | "staleProjectsPath"
+  | "unknownWorkspacePath"
+  | "outsideWorkspace"
+  | "invalid";
+
+export interface WorkspaceVisiblePathInfo {
+  kind: WorkspaceVisiblePathKind;
+  normalizedPath: string;
+  assistantStableKey: string | null;
+  sessionId: string | null;
+}
+
+export function normalizeWorkspacePath(path: string): string {
+  const trimmed = path.replace(/\\/g, "/").trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+  const collapsed = trimmed.replace(/\/{2,}/g, "/");
+  return collapsed.length > 1 ? collapsed.replace(/\/+$/g, "") : collapsed;
+}
+
+export function sanitizeWorkspacePathSegment(segment: string): string {
+  const normalized = segment
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 128);
+  return normalized.length > 0 ? normalized : "item";
+}
+
+export function isValidWorkspacePathSegment(segment: string): boolean {
+  if (typeof segment !== "string") {
+    return false;
+  }
+  const normalized = segment.trim();
+  if (normalized.length === 0 || normalized !== segment) {
+    return false;
+  }
+  if (normalized === "." || normalized === "..") {
+    return false;
+  }
+  if (normalized.includes("/") || normalized.includes("\\") || /[\u0000-\u001f]/.test(normalized)) {
+    return false;
+  }
+  return WORKSPACE_PATH_SEGMENT_PATTERN.test(normalized);
+}
+
+export function assertValidWorkspacePathSegment(
+  segment: string,
+  label = "workspace path segment"
+): string {
+  if (!isValidWorkspacePathSegment(segment)) {
+    throw new Error(`${label} must be a path-safe segment.`);
+  }
+  return segment;
+}
+
+export function buildAssistantWorkspaceRoot(assistantStableKey: string): string {
+  const safeAssistantStableKey = assertValidWorkspacePathSegment(
+    assistantStableKey,
+    "assistantStableKey"
+  );
+  return `${WORKSPACE_ASSISTANTS_ROOT}/${safeAssistantStableKey}`;
+}
+
+export function buildAssistantSessionsRoot(assistantStableKey: string): string {
+  return `${buildAssistantWorkspaceRoot(assistantStableKey)}/sessions`;
+}
+
+export function buildAssistantSessionRoot(assistantStableKey: string, sessionId: string): string {
+  const safeSessionId = assertValidWorkspacePathSegment(sessionId, "sessionId");
+  return `${buildAssistantSessionsRoot(assistantStableKey)}/${safeSessionId}`;
+}
+
+export function buildAssistantSharedRoot(assistantStableKey: string): string {
+  return `${buildAssistantWorkspaceRoot(assistantStableKey)}/shared`;
+}
+
+export function classifyVisibleWorkspacePath(path: string): WorkspaceVisiblePathInfo {
+  const normalizedPath = normalizeWorkspacePath(path);
+  if (normalizedPath.length === 0 || !normalizedPath.startsWith("/")) {
+    return {
+      kind: "invalid",
+      normalizedPath,
+      assistantStableKey: null,
+      sessionId: null
+    };
+  }
+  if (normalizedPath === WORKSPACE_ROOT) {
+    return {
+      kind: "workspaceRoot",
+      normalizedPath,
+      assistantStableKey: null,
+      sessionId: null
+    };
+  }
+  if (!isWorkspacePathUnderPrefix(normalizedPath, WORKSPACE_ROOT)) {
+    return {
+      kind: "outsideWorkspace",
+      normalizedPath,
+      assistantStableKey: null,
+      sessionId: null
+    };
+  }
+
+  const relativePath = normalizedPath.slice(WORKSPACE_ROOT.length + 1);
+  const segments = relativePath.split("/").filter((segment) => segment.length > 0);
+  const [first, second, third, fourth] = segments;
+
+  if (first === "chats") {
+    return {
+      kind: "staleChatsPath",
+      normalizedPath,
+      assistantStableKey: null,
+      sessionId: null
+    };
+  }
+
+  if (first === "projects") {
+    return {
+      kind: "staleProjectsPath",
+      normalizedPath,
+      assistantStableKey: null,
+      sessionId: null
+    };
+  }
+
+  if (first === "shared") {
+    return {
+      kind: segments.length === 1 ? "workspaceSharedRoot" : "workspaceSharedDescendant",
+      normalizedPath,
+      assistantStableKey: null,
+      sessionId: null
+    };
+  }
+
+  if (first === "assistants") {
+    const assistantStableKey = second ?? null;
+    if (segments.length === 1) {
+      return {
+        kind: "assistantsRoot",
+        normalizedPath,
+        assistantStableKey: null,
+        sessionId: null
+      };
+    }
+    if (!isValidWorkspacePathSegment(assistantStableKey ?? "")) {
+      return {
+        kind: "invalid",
+        normalizedPath,
+        assistantStableKey: null,
+        sessionId: null
+      };
+    }
+    if (segments.length === 2) {
+      return {
+        kind: "assistantRoot",
+        normalizedPath,
+        assistantStableKey,
+        sessionId: null
+      };
+    }
+    if (third === "sessions") {
+      if (segments.length === 3) {
+        return {
+          kind: "assistantSessionsRoot",
+          normalizedPath,
+          assistantStableKey,
+          sessionId: null
+        };
+      }
+      const sessionId = fourth ?? null;
+      if (!isValidWorkspacePathSegment(sessionId ?? "")) {
+        return {
+          kind: "invalid",
+          normalizedPath,
+          assistantStableKey,
+          sessionId: null
+        };
+      }
+      return {
+        kind: segments.length === 4 ? "sessionRoot" : "sessionDescendant",
+        normalizedPath,
+        assistantStableKey,
+        sessionId
+      };
+    }
+    if (third === "shared") {
+      return {
+        kind: segments.length === 3 ? "assistantSharedRoot" : "assistantSharedDescendant",
+        normalizedPath,
+        assistantStableKey,
+        sessionId: null
+      };
+    }
+    return {
+      kind: "unknownWorkspacePath",
+      normalizedPath,
+      assistantStableKey,
+      sessionId: null
+    };
+  }
+
+  return {
+    kind: segments.length === 1 ? "rootFlatFile" : "unknownWorkspacePath",
+    normalizedPath,
+    assistantStableKey: null,
+    sessionId: null
+  };
+}
+
+export function isValidVisibleWorkspacePath(path: string): boolean {
+  const kind = classifyVisibleWorkspacePath(path).kind;
+  return (
+    kind === "workspaceRoot" ||
+    kind === "assistantsRoot" ||
+    kind === "assistantRoot" ||
+    kind === "assistantSessionsRoot" ||
+    kind === "sessionRoot" ||
+    kind === "sessionDescendant" ||
+    kind === "assistantSharedRoot" ||
+    kind === "assistantSharedDescendant" ||
+    kind === "workspaceSharedRoot" ||
+    kind === "workspaceSharedDescendant"
+  );
+}
+
+export function isRejectedRootFlatWorkspacePath(path: string): boolean {
+  return classifyVisibleWorkspacePath(path).kind === "rootFlatFile";
+}
+
+export function isStaleVisibleWorkspacePath(path: string): boolean {
+  const kind = classifyVisibleWorkspacePath(path).kind;
+  return kind === "staleChatsPath" || kind === "staleProjectsPath";
+}
+
+export const DOCUMENT_WORKSPACE_PROJECT_SCHEMA = "persai.document.project.v1" as const;
+/**
+ * Legacy/internal document-project root retained for current document mechanics
+ * until later ADR-133 behavior slices migrate or delete the active
+ * `/workspace/projects` assumptions. Do not treat this as the canonical default
+ * model-facing workspace hierarchy.
+ */
+export const DOCUMENT_WORKSPACE_PROJECTS_ROOT = `${WORKSPACE_ROOT}/projects`;
 
 export const DOCUMENT_WORKSPACE_PROJECT_SOURCE_KINDS = [
   "imported_workspace_file",
