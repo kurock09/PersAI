@@ -101,6 +101,8 @@ export class RuntimeFilesToolService {
     chatId: string | null;
     externalThreadKey: string | null;
     messageId: string | null;
+    sourceUserMessageText?: string | null;
+    sourceUserMessageCreatedAt?: string | null;
   }): Promise<RuntimeFilesToolExecutionResult> {
     const policy = this.resolveAllowedToolPolicy(params.bundle);
     if (policy === null) {
@@ -519,6 +521,8 @@ export class RuntimeFilesToolService {
       sessionId: string;
       requestId: string;
       chatId: string | null;
+      sourceUserMessageText?: string | null;
+      sourceUserMessageCreatedAt?: string | null;
     },
     request: FilesWriteRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
@@ -572,6 +576,13 @@ export class RuntimeFilesToolService {
           sizeBytes,
           contentHash: createHash("sha256").update(request.content, "utf8").digest("hex"),
           replace: request.replace === true || request.mode === "overwrite",
+          ...(params.sourceUserMessageText === undefined || params.sourceUserMessageText === null
+            ? {}
+            : { sourceUserMessageText: params.sourceUserMessageText }),
+          ...(params.sourceUserMessageCreatedAt === undefined ||
+          params.sourceUserMessageCreatedAt === null
+            ? {}
+            : { sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt }),
           ...(params.chatId === null
             ? {}
             : {

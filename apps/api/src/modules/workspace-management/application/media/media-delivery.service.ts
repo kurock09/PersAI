@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   GoneException,
   Inject,
   Injectable,
@@ -60,6 +61,7 @@ import {
 } from "../runtime-provider-profile";
 import { computeVideoVcoinCost } from "../vcoin/compute-video-vcoin-cost";
 import type { MediaChannel } from "./media.types";
+import { readPersistedDocumentLinkMetadata } from "../read-attachment-document-link";
 
 @Injectable()
 export class MediaDeliveryService {
@@ -456,6 +458,7 @@ export class MediaDeliveryService {
     workspaceId: string;
     chatId: string;
     path: string;
+    versionId?: string | null;
   }): Promise<{
     buffer: Buffer;
     contentType: string;
@@ -476,6 +479,11 @@ export class MediaDeliveryService {
     if (attachment.storagePath === null || attachment.processingStatus === "unavailable") {
       throw new GoneException("(file no longer available)");
     }
+    await this.assertRequestedDocumentVersionAccessible({
+      workspaceId: input.workspaceId,
+      attachment,
+      versionId: input.versionId ?? null
+    });
     const externalUrl = readExternalDownloadUrl(
       attachment.metadata !== null &&
         typeof attachment.metadata === "object" &&
@@ -516,6 +524,7 @@ export class MediaDeliveryService {
     workspaceId: string;
     chatId: string;
     path: string;
+    versionId?: string | null;
   }): Promise<{
     buffer: Buffer;
     contentType: string;
@@ -523,6 +532,93 @@ export class MediaDeliveryService {
     originalFilename: string | null;
   }> {
     return this.downloadChatFileByPath(input);
+  }
+
+  private async assertRequestedDocumentVersionAccessible(input: {
+    workspaceId: string;
+    attachment: {
+      storagePath: string | null;
+      metadata: Record<string, unknown> | null;
+    };
+    versionId: string | null;
+  }): Promise<void> {
+    if (input.versionId === null) {
+      return;
+    }
+    const requestedVersionId = input.versionId.trim();
+    if (requestedVersionId.length === 0 || input.attachment.storagePath === null) {
+      return;
+    }
+    const attachmentLink = readPersistedDocumentLinkMetadata(input.attachment.metadata);
+    if (attachmentLink === null || attachmentLink.versionId !== requestedVersionId) {
+      throw new ConflictException(
+        "The requested document version does not match this attachment anymore."
+      );
+    }
+    const version = await this.prisma.assistantDocumentVersion.findUnique({
+      where: { id: requestedVersionId },
+      select: {
+        docId: true,
+        workspaceId: true,
+        sourceJson: true,
+        document: {
+          select: {
+            currentVersionId: true,
+            currentVersion: {
+              select: {
+                sourceJson: true
+              }
+            }
+          }
+        }
+      }
+    });
+    if (version === null || version.workspaceId !== input.workspaceId) {
+      throw new NotFoundException("Document version not found.");
+    }
+    if (version.docId !== attachmentLink.docId) {
+      throw new NotFoundException("Document version not found.");
+    }
+    const requestedOutputPath = this.readDocumentWorkspaceOutputPath(version.sourceJson);
+    if (requestedOutputPath === null || requestedOutputPath !== input.attachment.storagePath) {
+      throw new ConflictException(
+        "The requested document version is not addressable through this attachment path."
+      );
+    }
+    const currentOutputPath = this.readDocumentWorkspaceOutputPath(
+      version.document.currentVersion?.sourceJson
+    );
+    if (
+      version.document.currentVersionId !== requestedVersionId &&
+      currentOutputPath !== null &&
+      currentOutputPath === requestedOutputPath
+    ) {
+      throw new ConflictException(
+        "This attachment points to a superseded document version whose file was overwritten by a newer current version."
+      );
+    }
+  }
+
+  private readDocumentWorkspaceOutputPath(value: unknown): string | null {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const metadata = (value as Record<string, unknown>).metadata;
+    if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+      return null;
+    }
+    const documentWorkspace = (metadata as Record<string, unknown>).documentWorkspace;
+    if (
+      documentWorkspace === null ||
+      typeof documentWorkspace !== "object" ||
+      Array.isArray(documentWorkspace)
+    ) {
+      return null;
+    }
+    const outputPath = (documentWorkspace as Record<string, unknown>).outputPath;
+    return typeof outputPath === "string" && outputPath.trim().length > 0
+      ? outputPath.trim()
+      : null;
   }
 
   /**

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Route } from "next";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import {
   Sparkles,
@@ -1348,6 +1348,7 @@ export function AssistantSettings({
 }: AssistantSettingsProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { getToken, isLoaded } = useAuth();
   const t = useTranslations("settings");
   const locale = useLocale();
@@ -1363,7 +1364,7 @@ export function AssistantSettings({
   const [disableAutoRenewPending, setDisableAutoRenewPending] = useState(false);
   const [disableAutoRenewConfirmOpen, setDisableAutoRenewConfirmOpen] = useState(false);
   const assistant = data.assistant;
-  const galleryChatId =
+  const latestWebChatId =
     [...data.chats]
       .map((item) => item.chat)
       .filter((chat) => chat.surface === "web" && chat.archivedAt === null)
@@ -1372,6 +1373,25 @@ export function AssistantSettings({
         const rightTs = right.lastMessageAt ? Date.parse(right.lastMessageAt) : 0;
         return rightTs - leftTs;
       })[0]?.id ?? null;
+  const activeWebThreadKey =
+    pathname?.startsWith("/app/chat") === true
+      ? (() => {
+          const value = searchParams.get("thread");
+          return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+        })()
+      : null;
+  const activeGalleryChatId =
+    activeWebThreadKey === null
+      ? null
+      : (data.chats.find(
+          (item) =>
+            item.chat.surface === "web" &&
+            item.chat.archivedAt === null &&
+            item.chat.surfaceThreadKey === activeWebThreadKey
+        )?.chat.id ?? null);
+  const galleryChatId = activeGalleryChatId ?? latestWebChatId;
+  const galleryDefaultScope = activeGalleryChatId === null ? "workspace" : "chat";
+  const galleryAllowChatScope = activeGalleryChatId !== null;
   const hasAssistantSwitcher = (data.assistantLimit?.maxAssistants ?? 1) > 1;
   const [assistantSwitcherOpen, setAssistantSwitcherOpen] = useState(false);
   const [assistantSwitchBusyId, setAssistantSwitchBusyId] = useState<string | null>(null);
@@ -4181,6 +4201,8 @@ export function AssistantSettings({
           <WorkspaceFilesGallery
             chatId={galleryChatId}
             workspaceId={assistant?.workspaceId ?? null}
+            defaultScope={galleryDefaultScope}
+            allowChatScope={galleryAllowChatScope}
           />
         </Section>
 

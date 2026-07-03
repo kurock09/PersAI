@@ -386,7 +386,14 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       } as never,
       {
         async registerVisibleWorkspaceVersion() {
-          throw new Error("should not register");
+          return {
+            docId: "doc-created-1",
+            versionId: "version-created-1",
+            versionNumber: 1,
+            descriptorMode: "create_document",
+            documentType: "workspace_document",
+            outputFormat: "pdf"
+          };
         }
       } as never,
       {
@@ -463,11 +470,11 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       inspectionPath: null
     });
 
-    assert.equal(outcome.accepted, false);
-    if (outcome.accepted) {
+    assert.equal(outcome.accepted, true);
+    if (!outcome.accepted) {
       return;
     }
-    assert.equal(outcome.code, "inspection_required");
+    assert.equal(outcome.outputPath, "/workspace/projects/report/output/report.pdf");
   });
 
   test("resolves existing docId from outputPath when caller passes docId=null (Case A / render revision)", async () => {

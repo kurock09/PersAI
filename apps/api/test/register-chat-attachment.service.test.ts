@@ -3,13 +3,17 @@ import { describe, test } from "node:test";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { RegisterChatAttachmentService } from "../src/modules/workspace-management/application/register-chat-attachment.service";
 
-function createWorkspaceMetadata(path: string, mimeType = "application/pdf") {
+function createWorkspaceMetadata(
+  path: string,
+  mimeType = "application/pdf",
+  contentHash: string | null = null
+) {
   return {
     workspaceId: "workspace-1",
     path,
     mimeType,
     sizeBytes: BigInt(64),
-    contentHash: null,
+    contentHash,
     shortDescription: null,
     createdAt: new Date(),
     updatedAt: new Date()
@@ -267,7 +271,7 @@ describe("register-chat-attachment.service", () => {
     );
   });
 
-  test("auto-registers files.attach for pdf, docx, and xlsx without an existing document row", async () => {
+  test("attaches the current documentLink for visible workspace outputs when one exists", async () => {
     const cases = [
       {
         format: "pdf" as const,
@@ -289,9 +293,6 @@ describe("register-chat-attachment.service", () => {
     for (const testCase of cases) {
       const createdInputs: Record<string, unknown>[] = [];
       const updatedMetadata: Record<string, unknown>[] = [];
-      let inspectInput: Record<string, unknown> | null = null;
-      let registerInput: Record<string, unknown> | null = null;
-      let lookupCount = 0;
       const readyLink = createDocumentLink({
         path: testCase.path,
         format: testCase.format,
@@ -323,52 +324,7 @@ describe("register-chat-attachment.service", () => {
         } as never,
         {
           async findCurrentDocumentLinkByOutputPath() {
-            lookupCount += 1;
-            return lookupCount === 1
-              ? ({ status: "none" as const } as const)
-              : ({ status: "ready" as const, link: readyLink } as const);
-          }
-        } as never,
-        {
-          async execute(input: Record<string, unknown>) {
-            inspectInput = input;
-            return {
-              accepted: true,
-              sourcePath: testCase.path,
-              inspectPath: testCase.path.replace(/\.(pdf|docx|xlsx)$/i, ".inspect.json"),
-              format: testCase.format,
-              counts: {
-                pageCount: testCase.format === "pdf" ? 1 : null,
-                sheetCount: testCase.format === "xlsx" ? 1 : null,
-                formulaCount: testCase.format === "xlsx" ? 0 : null,
-                blankSheetCount: testCase.format === "xlsx" ? 0 : null,
-                paragraphCount: testCase.format === "docx" ? 1 : null,
-                headingCount: testCase.format === "docx" ? 1 : null,
-                tableCount: null,
-                textCharCount: testCase.format === "pdf" || testCase.format === "docx" ? 120 : null
-              },
-              warnings: [],
-              suggestedReadPaths: [],
-              comparison: null
-            };
-          }
-        } as never,
-        {
-          async execute(input: Record<string, unknown>) {
-            registerInput = input;
-            return {
-              accepted: true,
-              docId: "doc-auto-1",
-              versionId: "version-auto-1",
-              versionNumber: 1,
-              descriptorMode: "create_document" as const,
-              documentType: "workspace_document" as const,
-              outputFormat: testCase.format,
-              outputPath: testCase.path,
-              workspaceProjectPath: "/workspace",
-              sourceManifestPath: null,
-              inspectionPath: testCase.path.replace(/\.(pdf|docx|xlsx)$/i, ".inspect.json")
-            };
+            return { status: "ready" as const, link: readyLink } as const;
           }
         } as never
       );
@@ -387,9 +343,6 @@ describe("register-chat-attachment.service", () => {
       });
 
       assert.equal(result.attachmentId, "attachment-1");
-      assert.equal(lookupCount, 2);
-      assert.equal(inspectInput?.path, testCase.path);
-      assert.equal(registerInput?.workspaceProjectPath, null);
       assert.equal(
         (updatedMetadata[0] as { documentLink?: { outputFormat?: string } })?.documentLink
           ?.outputFormat,
@@ -403,12 +356,10 @@ describe("register-chat-attachment.service", () => {
     }
   });
 
-  test("re-attaching the same document path auto-registers a new version", async () => {
+  test("re-attaching the same document path reuses the current version", async () => {
     const createdInputs: Record<string, unknown>[] = [];
     const updatedMetadata: Record<string, unknown>[] = [];
-    const registerInputs: Record<string, unknown>[] = [];
     const links = [
-      { status: "none" as const },
       {
         status: "ready" as const,
         link: createDocumentLink({
@@ -423,14 +374,6 @@ describe("register-chat-attachment.service", () => {
           path: "/workspace/report.pdf",
           format: "pdf",
           versionNumber: 1
-        })
-      },
-      {
-        status: "ready" as const,
-        link: createDocumentLink({
-          path: "/workspace/report.pdf",
-          format: "pdf",
-          versionNumber: 2
         })
       }
     ];
@@ -466,49 +409,6 @@ describe("register-chat-attachment.service", () => {
           }
           return next;
         }
-      } as never,
-      {
-        async execute() {
-          return {
-            accepted: true,
-            sourcePath: "/workspace/report.pdf",
-            inspectPath: "/workspace/report.inspect.json",
-            format: "pdf" as const,
-            counts: {
-              pageCount: 1,
-              sheetCount: null,
-              formulaCount: null,
-              blankSheetCount: null,
-              paragraphCount: null,
-              headingCount: null,
-              tableCount: null,
-              textCharCount: 120
-            },
-            warnings: [],
-            suggestedReadPaths: [],
-            comparison: null
-          };
-        }
-      } as never,
-      {
-        async execute(input: Record<string, unknown>) {
-          registerInputs.push(input);
-          const versionNumber = registerInputs.length;
-          return {
-            accepted: true,
-            docId: "doc-auto-1",
-            versionId: `version-auto-${versionNumber}`,
-            versionNumber,
-            descriptorMode:
-              versionNumber === 1 ? ("create_document" as const) : ("revise_document" as const),
-            documentType: "workspace_document" as const,
-            outputFormat: "pdf" as const,
-            outputPath: "/workspace/report.pdf",
-            workspaceProjectPath: "/workspace",
-            sourceManifestPath: null,
-            inspectionPath: "/workspace/report.inspect.json"
-          };
-        }
       } as never
     );
 
@@ -527,31 +427,17 @@ describe("register-chat-attachment.service", () => {
     await service.execute(input);
     await service.execute({ ...input, messageId: "message-2" });
 
-    assert.equal(registerInputs.length, 2);
-    assert.equal(registerInputs[0]?.docId, null);
-    assert.equal(registerInputs[1]?.docId, "doc-auto-1");
-    assert.equal(registerInputs[1]?.descriptorMode, "revise_document");
     assert.equal(
       (updatedMetadata[1] as { documentLink?: { versionNumber?: number; descriptorMode?: string } })
         ?.documentLink?.versionNumber,
-      2
+      1
     );
   });
 
-  test("Case B: shell rewrites file bytes and files.attach records a new version", async () => {
+  test("files.attach reflects the current version after shell rewrites bytes", async () => {
     const createdInputs: Record<string, unknown>[] = [];
     const updatedMetadata: Record<string, unknown>[] = [];
-    const registerInputs: Record<string, unknown>[] = [];
     const links = [
-      { status: "none" as const },
-      {
-        status: "ready" as const,
-        link: createDocumentLink({
-          path: "/workspace/report.xlsx",
-          format: "xlsx",
-          versionNumber: 1
-        })
-      },
       {
         status: "ready" as const,
         link: createDocumentLink({
@@ -604,49 +490,6 @@ describe("register-chat-attachment.service", () => {
           }
           return next;
         }
-      } as never,
-      {
-        async execute() {
-          return {
-            accepted: true,
-            sourcePath: "/workspace/report.xlsx",
-            inspectPath: "/workspace/report.inspect.json",
-            format: "xlsx" as const,
-            counts: {
-              pageCount: null,
-              sheetCount: 1,
-              formulaCount: 3,
-              blankSheetCount: 0,
-              paragraphCount: null,
-              headingCount: null,
-              tableCount: null,
-              textCharCount: null
-            },
-            warnings: [],
-            suggestedReadPaths: [],
-            comparison: null
-          };
-        }
-      } as never,
-      {
-        async execute(input: Record<string, unknown>) {
-          registerInputs.push(input);
-          const versionNumber = registerInputs.length;
-          return {
-            accepted: true,
-            docId: "doc-auto-xlsx-1",
-            versionId: `version-auto-xlsx-${versionNumber}`,
-            versionNumber,
-            descriptorMode:
-              versionNumber === 1 ? ("create_document" as const) : ("revise_document" as const),
-            documentType: "workspace_document" as const,
-            outputFormat: "xlsx" as const,
-            outputPath: "/workspace/report.xlsx",
-            workspaceProjectPath: "/workspace",
-            sourceManifestPath: null,
-            inspectionPath: "/workspace/report.inspect.json"
-          };
-        }
       } as never
     );
 
@@ -675,10 +518,6 @@ describe("register-chat-attachment.service", () => {
     assert.equal(second.attachmentId, "attachment-2");
     assert.equal(first.storagePath, "/workspace/report.xlsx");
     assert.equal(second.storagePath, "/workspace/report.xlsx");
-    assert.equal(registerInputs.length, 2);
-    assert.equal(registerInputs[0]?.docId, null);
-    assert.equal(registerInputs[1]?.docId, "doc-auto-1");
-    assert.equal(registerInputs[1]?.descriptorMode, "revise_document");
     assert.equal(
       (
         updatedMetadata[1] as {
@@ -686,14 +525,6 @@ describe("register-chat-attachment.service", () => {
         }
       )?.documentLink?.versionNumber,
       2
-    );
-    assert.equal(
-      (
-        updatedMetadata[1] as {
-          documentLink?: { versionNumber?: number; descriptorMode?: string; outputPath?: string };
-        }
-      )?.documentLink?.descriptorMode,
-      "revise_document"
     );
     assert.equal(
       (

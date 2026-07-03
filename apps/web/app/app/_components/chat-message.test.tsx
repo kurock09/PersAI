@@ -127,8 +127,15 @@ vi.mock("../assistant-api-client", () => ({
       ? `/api/v1/assistant/chats/web/${input.chatId}/files?path=${encodeURIComponent(input.path)}`
       : null;
   },
-  buildChatFileUrl: (input: { chatId: string; storagePath: string; download?: boolean }) =>
-    `/api/v1/assistant/chats/web/${input.chatId}/files?path=${encodeURIComponent(input.storagePath)}${input.download ? "&download=1" : ""}`
+  buildChatFileUrl: (input: {
+    chatId: string;
+    storagePath: string;
+    download?: boolean;
+    versionId?: string | null;
+  }) =>
+    `/api/v1/assistant/chats/web/${input.chatId}/files?path=${encodeURIComponent(input.storagePath)}${
+      input.versionId ? `&versionId=${encodeURIComponent(input.versionId)}` : ""
+    }${input.download ? "&download=1" : ""}`
 }));
 
 // react-markdown is heavy and unrelated to the indicator under test —

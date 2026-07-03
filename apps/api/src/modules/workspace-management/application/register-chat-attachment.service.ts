@@ -1,11 +1,4 @@
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-  NotFoundException
-} from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { AttachmentType, Prisma } from "@prisma/client";
 import {
   PERSAI_RUNTIME_CHANNELS,
@@ -19,12 +12,8 @@ import {
 import type { AssistantChatSurface } from "../domain/assistant-chat.entity";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { AssistantDocumentJobService } from "./assistant-document-job.service";
-import { DocumentWorkspaceInspectionService } from "./document-workspace-inspection.service";
-import {
-  inferProjectPathFromOutputPath,
-  resolveVisibleWorkspaceOutputFormatFromPath
-} from "./document-workspace-deliverable-gating";
-import { DocumentWorkspaceVersionRegistrationService } from "./document-workspace-version-registration.service";
+import type { DocumentWorkspaceInspectionService } from "./document-workspace-inspection.service";
+import { resolveVisibleWorkspaceOutputFormatFromPath } from "./document-workspace-deliverable-gating";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 
 export type RegisterChatAttachmentKind =
@@ -68,10 +57,7 @@ export type RegisterChatAttachmentOutcome = {
 type FilesAttachDocumentLinkContext = {
   assistantId: string;
   workspaceId: string;
-  chatId: string;
   storagePath: string;
-  chatSurface: "web" | "telegram";
-  externalThreadKey: string;
 };
 
 export type RegisterChatAttachmentFromRuntimeInput = {
@@ -100,8 +86,8 @@ export class RegisterChatAttachmentService {
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
     private readonly assistantDocumentJobService: AssistantDocumentJobService,
-    private readonly documentWorkspaceInspectionService?: DocumentWorkspaceInspectionService,
-    private readonly documentWorkspaceVersionRegistrationService?: DocumentWorkspaceVersionRegistrationService
+    _documentWorkspaceInspectionService?: DocumentWorkspaceInspectionService,
+    _documentWorkspaceVersionRegistrationService?: unknown
   ) {}
 
   parseRuntimeInput(value: unknown): RegisterChatAttachmentFromRuntimeInput {
@@ -215,7 +201,6 @@ export class RegisterChatAttachmentService {
         ? await this.prepareFilesAttachDocumentLinkContext({
             assistantId: input.assistantId,
             workspaceId: input.workspaceId,
-            chatId: input.chatId,
             storagePath
           })
         : null;
@@ -305,35 +290,9 @@ export class RegisterChatAttachmentService {
     return value.trim();
   }
 
-  private async resolveProjectPathForUnregisteredDocumentOutput(input: {
-    workspaceId: string;
-    storagePath: string;
-  }): Promise<string | null> {
-    const candidates = new Set<string>();
-    const inferredProjectPath = inferProjectPathFromOutputPath(input.storagePath);
-    if (inferredProjectPath !== null) {
-      candidates.add(inferredProjectPath);
-    }
-    const lastSlash = input.storagePath.lastIndexOf("/");
-    if (lastSlash > "/workspace".length) {
-      candidates.add(input.storagePath.slice(0, lastSlash));
-    }
-    for (const candidate of candidates) {
-      const projectManifestMetadata = await this.workspaceFileMetadataService.get({
-        workspaceId: input.workspaceId,
-        path: `${candidate}/project.json`
-      });
-      if (projectManifestMetadata !== null) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-
   private async prepareFilesAttachDocumentLinkContext(input: {
     assistantId: string;
     workspaceId: string;
-    chatId: string;
     storagePath: string;
   }): Promise<FilesAttachDocumentLinkContext | null> {
     const outputFormat = resolveVisibleWorkspaceOutputFormatFromPath(input.storagePath);
@@ -351,57 +310,11 @@ export class RegisterChatAttachmentService {
       );
     }
 
-    const chat = await this.prisma.assistantChat.findFirst({
-      where: {
-        id: input.chatId,
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId
-      },
-      select: {
-        surface: true,
-        surfaceThreadKey: true
-      }
-    });
-    if (chat === null) {
-      throw new NotFoundException("chat_not_found");
-    }
-    if (chat.surface !== "web" && chat.surface !== "telegram") {
-      throw new BadRequestException(
-        `Document auto-registration for files.attach does not support chat surface ${chat.surface}.`
-      );
-    }
-
     return {
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      chatId: input.chatId,
-      storagePath: input.storagePath,
-      chatSurface: chat.surface,
-      externalThreadKey: chat.surfaceThreadKey
+      storagePath: input.storagePath
     };
-  }
-
-  private async resolveCurrentVisibleWorkspaceDocumentIdByOutputPath(input: {
-    assistantId: string;
-    workspaceId: string;
-    outputPath: string;
-  }): Promise<string | null> {
-    const document = await this.prisma.assistantDocument.findFirst({
-      where: {
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        currentVersion: {
-          is: {
-            sourceJson: {
-              path: ["metadata", "documentWorkspace", "outputPath"],
-              equals: input.outputPath
-            }
-          }
-        }
-      },
-      select: { id: true }
-    });
-    return document?.id ?? null;
   }
 
   private async resolveFilesAttachDocumentLink(input: FilesAttachDocumentLinkContext) {
@@ -411,27 +324,7 @@ export class RegisterChatAttachmentService {
         workspaceId: input.workspaceId,
         outputPath: input.storagePath
       });
-    const workspaceProjectPath = await this.resolveProjectPathForUnregisteredDocumentOutput({
-      workspaceId: input.workspaceId,
-      storagePath: input.storagePath
-    });
-    const existingDocId =
-      currentDocumentLink.status === "ready"
-        ? currentDocumentLink.link.docId
-        : await this.resolveCurrentVisibleWorkspaceDocumentIdByOutputPath({
-            assistantId: input.assistantId,
-            workspaceId: input.workspaceId,
-            outputPath: input.storagePath
-          });
-    return this.autoRegisterProjectOwnedDocumentOutputForAttach({
-      assistantId: input.assistantId,
-      workspaceId: input.workspaceId,
-      storagePath: input.storagePath,
-      chatSurface: input.chatSurface,
-      externalThreadKey: input.externalThreadKey,
-      workspaceProjectPath,
-      existingDocId
-    });
+    return currentDocumentLink.status === "ready" ? currentDocumentLink.link : null;
   }
 
   private async attachDocumentLinkBestEffort(input: {
@@ -465,71 +358,5 @@ export class RegisterChatAttachmentService {
         }`
       );
     }
-  }
-
-  private async autoRegisterProjectOwnedDocumentOutputForAttach(input: {
-    assistantId: string;
-    workspaceId: string;
-    storagePath: string;
-    chatSurface: "web" | "telegram";
-    externalThreadKey: string;
-    workspaceProjectPath: string | null;
-    existingDocId: string | null;
-  }) {
-    if (
-      this.documentWorkspaceInspectionService === undefined ||
-      this.documentWorkspaceVersionRegistrationService === undefined
-    ) {
-      throw new InternalServerErrorException(
-        "Document auto-registration for files.attach is unavailable because the inspection or version-registration service is not wired."
-      );
-    }
-
-    const inspect = await this.documentWorkspaceInspectionService.execute({
-      assistantId: input.assistantId,
-      workspaceId: input.workspaceId,
-      path: input.storagePath,
-      depth: "standard",
-      outputPath: null
-    });
-    if (!inspect.accepted) {
-      throw new BadRequestException(
-        `Document output ${input.storagePath} could not be inspected for attach (${inspect.code}): ${inspect.message}`
-      );
-    }
-
-    const registration = await this.documentWorkspaceVersionRegistrationService.execute({
-      assistantId: input.assistantId,
-      workspaceId: input.workspaceId,
-      channel: input.chatSurface,
-      externalThreadKey: input.externalThreadKey,
-      sourceUserMessageText: `Auto-register visible workspace output during files.attach: ${input.storagePath}`,
-      sourceUserMessageCreatedAt: new Date().toISOString(),
-      descriptorMode: input.existingDocId === null ? null : "revise_document",
-      docId: input.existingDocId,
-      requestedName: null,
-      workspaceProjectPath: input.workspaceProjectPath,
-      outputPath: input.storagePath,
-      sourceManifestPath: null,
-      inspectionPath: inspect.inspectPath
-    });
-    if (!registration.accepted) {
-      throw new BadRequestException(
-        `Document output ${input.storagePath} could not be auto-registered for attach (${registration.code}): ${registration.message}`
-      );
-    }
-
-    const refreshedDocumentLink =
-      await this.assistantDocumentJobService.findCurrentDocumentLinkByOutputPath({
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        outputPath: input.storagePath
-      });
-    if (refreshedDocumentLink.status === "ready") {
-      return refreshedDocumentLink.link;
-    }
-    throw new BadRequestException(
-      `Document output ${input.storagePath} was auto-registered during files.attach, but link resolution did not find the current registered output afterwards.`
-    );
   }
 }

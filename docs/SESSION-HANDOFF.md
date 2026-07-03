@@ -1,5 +1,24 @@
 # SESSION-HANDOFF
 
+## 2026-07-03 — Document overwrite versioning + active chat file binding landed; full code gate mostly green with two external blockers
+
+Status: **implemented locally; ready to commit/push, with known non-slice blockers in the existing full web suite and local DB migration state.**
+
+This slice closes the user-reported document/versioning regressions without reintroducing inspect- or attach-owned version decisions. The invariant is now explicit in code: a new visible document version is created only when bytes are written onto an already-occupied `pdf` / `xlsx` / `docx` workspace path. That registration now happens at the internal workspace metadata upsert seam, which receives the originating assistant/chat/user-message context from runtime `files.write`, `document.render`, `document.convert`, and post-sandbox produced-file sync for shell/exec outputs. `RegisterChatAttachmentService` no longer bumps versions and only resolves the current ready document link for the path. Web download URLs for document attachments now include `versionId`, and API delivery rejects superseded historical versions when the same path has since been overwritten by a newer current version. Separately, the Assistant settings `Этот чат` gallery now binds to the active web thread instead of the assistant's latest chat, so switching chats no longer shows a stale file list.
+
+Verification:
+
+- `corepack pnpm run lint` ✅
+- `corepack pnpm run typecheck` ✅
+- `helm lint infra/helm -f infra/helm/values-dev.yaml` ✅
+- `helm template persai-dev infra/helm -f infra/helm/values-dev.yaml` ✅
+- `corepack pnpm run build` ✅
+- Focused green checks already re-run in this slice: API/runtime/web document and chat-binding tests, including version-registration, document delivery, turn execution, and assistant settings/chat-message coverage ✅
+- `corepack pnpm run prisma:migrate:check` ❌ blocked by pre-existing failed local DB migration `20260501120000_adr079_knowledge_skills_foundation`
+- `corepack pnpm run test` / `corepack pnpm run test:step2` ❌ blocked by existing unrelated red `@persai/web` vitest suite (multiple timeout-heavy failures outside touched files); spot re-run of `app/app/_components/home-dashboard.test.tsx` passed, confirming at least one failure is flaky rather than slice-owned
+
+Next: commit this slice with the docs update included, push if the founder still wants branch truth published despite the two known external blockers, and then triage the separate red full-web suite / local DB migration environment outside this document-versioning slice.
+
 ## 2026-07-03 — ADR-132 render hotfix: generated document programs no longer depend on missing `PERSAI_OUTPUT_PATH`
 
 Status: **implemented locally, full gate green, not pushed.**

@@ -1712,6 +1712,9 @@ class FakeRuntimeSandboxToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
+    chatId?: string | null;
+    sourceUserMessageText?: string | null;
+    sourceUserMessageCreatedAt?: string | null;
   }> = [];
 
   async executeToolCall(input: {
@@ -1719,6 +1722,9 @@ class FakeRuntimeSandboxToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
+    chatId?: string | null;
+    sourceUserMessageText?: string | null;
+    sourceUserMessageCreatedAt?: string | null;
   }) {
     this.calls.push({ ...input });
     return {

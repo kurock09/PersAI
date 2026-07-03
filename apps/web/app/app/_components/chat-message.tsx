@@ -1532,13 +1532,18 @@ function AttachmentStrip({
           typeof att.externalDownloadUrl === "string" && att.externalDownloadUrl.trim().length > 0
             ? att.externalDownloadUrl.trim()
             : null;
+        const link = att.documentLink;
         const downloadUrl =
           externalDownloadUrl ??
           (isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
             ? undefined
-            : buildChatFileUrl({ chatId, storagePath: att.path, download: true }));
+            : buildChatFileUrl({
+                chatId,
+                storagePath: att.path,
+                download: true,
+                versionId: link?.documentType === "workspace_document" ? link.versionId : null
+              }));
         const previewUrl = att.localPreviewUrl ?? inlineUrl;
-        const link = att.documentLink;
         const documentLabel = (() => {
           if (!link) return null;
           return typeof link.versionNumber === "number" ? `v${link.versionNumber}` : null;

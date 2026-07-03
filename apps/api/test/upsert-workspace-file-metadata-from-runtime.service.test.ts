@@ -42,11 +42,42 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
         return 1;
       }
     };
+    const registerCalls: Array<Record<string, unknown>> = [];
+    const prisma = {
+      assistantChat: {
+        async findFirst() {
+          return {
+            surface: "web",
+            surfaceThreadKey: "thread-1"
+          };
+        }
+      }
+    };
+    const registrationService = {
+      async execute(input: Record<string, unknown>) {
+        registerCalls.push(input);
+        return {
+          accepted: true,
+          docId: "doc-1",
+          versionId: "version-1",
+          versionNumber: 1,
+          descriptorMode: "create_document",
+          documentType: "workspace_document",
+          outputFormat: "pdf",
+          outputPath: String(input.outputPath ?? "/workspace/report.pdf"),
+          workspaceProjectPath: null,
+          sourceManifestPath: null,
+          inspectionPath: null
+        };
+      }
+    };
     const service = new UpsertWorkspaceFileMetadataFromRuntimeService(
+      prisma as never,
       metadata as never,
-      attachments as never
+      attachments as never,
+      registrationService as never
     );
-    return { service, calls, refreshCalls };
+    return { service, calls, refreshCalls, registerCalls };
   }
 
   test("upserts a /workspace/ row and omits empty shortDescription", async () => {
@@ -96,6 +127,28 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     assert.equal(refreshCalls[0]?.storagePath, "/workspace/report.csv");
     assert.equal(refreshCalls[0]?.mimeType, "text/csv");
     assert.equal(refreshCalls[0]?.sizeBytes, BigInt(42));
+  });
+
+  test("registers visible workspace document writes with chat/user context", async () => {
+    const { service, registerCalls } = buildService();
+    const input = service.parseInput({
+      workspaceId: "workspace-1",
+      path: "/workspace/report.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 42,
+      replace: true,
+      originChatId: "chat-1",
+      originAssistantId: "assistant-1",
+      sourceUserMessageText: "Обнови pdf",
+      sourceUserMessageCreatedAt: "2026-07-03T09:00:00.000Z"
+    });
+    await service.execute(input);
+    assert.equal(registerCalls.length, 1);
+    assert.equal(registerCalls[0]?.assistantId, "assistant-1");
+    assert.equal(registerCalls[0]?.channel, "web");
+    assert.equal(registerCalls[0]?.externalThreadKey, "thread-1");
+    assert.equal(registerCalls[0]?.outputPath, "/workspace/report.pdf");
+    assert.equal(registerCalls[0]?.sourceUserMessageText, "Обнови pdf");
   });
 
   test("rejects paths outside /workspace/ (e.g. /tmp/)", () => {

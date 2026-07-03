@@ -4375,12 +4375,16 @@ export function buildChatFileUrl(input: {
   chatId: string;
   storagePath: string;
   download?: boolean;
+  versionId?: string | null;
 }): string {
   const url = new URL(
     `/api/v1/assistant/chats/web/${encodeURIComponent(input.chatId)}/files`,
     "https://persai.local"
   );
   url.searchParams.set("path", input.storagePath);
+  if (typeof input.versionId === "string" && input.versionId.trim().length > 0) {
+    url.searchParams.set("versionId", input.versionId.trim());
+  }
   if (input.download === true) {
     url.searchParams.set("download", "1");
   }

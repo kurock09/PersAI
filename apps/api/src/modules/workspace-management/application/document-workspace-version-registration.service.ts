@@ -233,35 +233,13 @@ export class DocumentWorkspaceVersionRegistrationService {
       inspectionPath === null
         ? null
         : await this.readInspectionFacts(input.workspaceId, inspectionPath);
-    if (inspectionPath !== null && inspection === null) {
-      return {
-        accepted: false,
-        code: "inspection_not_found",
-        message: `Workspace inspection sidecar not found or invalid JSON: ${inspectionPath}`
-      };
-    }
-    if (inspectionPath === null || inspection === null || inspection.summary === null) {
-      return {
-        accepted: false,
-        code: "inspection_required",
-        message: "A valid document.inspect sidecar is required to register document metadata."
-      };
-    }
-    if (inspection.sourcePath !== null && inspection.sourcePath !== outputPath) {
-      return {
-        accepted: false,
-        code: "inspection_output_mismatch",
-        message: `Inspection sidecar ${inspectionPath} describes ${inspection.sourcePath}, not ${outputPath}.`
-      };
-    }
-    const inspectionFormat = inspection.format ?? inspection.summary.format;
-    if (inspectionFormat !== outputFormat) {
-      return {
-        accepted: false,
-        code: "inspection_format_mismatch",
-        message: `Inspection sidecar ${inspectionPath} is for ${inspectionFormat ?? "unknown"}, not ${outputFormat}.`
-      };
-    }
+    const normalizedInspection =
+      inspection !== null &&
+      inspection.summary !== null &&
+      (inspection.sourcePath === null || inspection.sourcePath === outputPath) &&
+      (inspection.format ?? inspection.summary.format) === outputFormat
+        ? inspection
+        : null;
 
     const effectiveDocId =
       input.docId ??
@@ -299,8 +277,8 @@ export class DocumentWorkspaceVersionRegistrationService {
       sourceMimeType: projectContext.sourceMimeType,
       sourceManifestPath: projectContext.sourceManifestPath,
       sourceManifest,
-      inspectionPath,
-      inspectionSummary: inspection.summary
+      inspectionPath: normalizedInspection === null ? null : inspectionPath,
+      inspectionSummary: normalizedInspection?.summary ?? null
     };
 
     const registered = await this.assistantDocumentJobService.registerVisibleWorkspaceVersion({

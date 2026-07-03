@@ -24,9 +24,14 @@ async function run(): Promise<void> {
       }
     } as never,
     {
-      async downloadChatFileByPath(input: { path: string; chatId: string }) {
+      async downloadChatFileByPath(input: {
+        path: string;
+        chatId: string;
+        versionId?: string | null;
+      }) {
         assert.equal(input.chatId, "chat-1");
         assert.equal(input.path, "/workspace/recommendations.md");
+        assert.equal(input.versionId ?? null, null);
         return {
           buffer: Buffer.from("Привет\n", "utf8"),
           contentType: "text/markdown",
@@ -83,6 +88,7 @@ async function run(): Promise<void> {
     downloadResponse as never,
     "chat-1",
     "/workspace/recommendations.md",
+    undefined,
     "1"
   );
   assert.equal(downloadResponse.headers.get("Content-Type"), "text/markdown; charset=utf-8");
@@ -99,6 +105,7 @@ async function run(): Promise<void> {
     inlineResponse as never,
     "chat-1",
     "/workspace/recommendations.md",
+    undefined,
     undefined
   );
   assert.equal(inlineResponse.headers.get("Content-Type"), "text/markdown; charset=utf-8");
@@ -150,6 +157,7 @@ async function run(): Promise<void> {
     octetResponse as never,
     "chat-1",
     "/workspace/clip.mp4",
+    undefined,
     "1"
   );
   assert.equal(octetResponse.headers.get("Content-Type"), "video/mp4");

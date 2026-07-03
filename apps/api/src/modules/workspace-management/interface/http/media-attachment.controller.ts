@@ -254,6 +254,7 @@ export class MediaAttachmentController {
     @Res() res: ResponseWithPlatformContext,
     @Param("chatId") chatId: string,
     @Query("path") path: string | undefined,
+    @Query("versionId") versionId: string | undefined,
     @Query("download") download?: string
   ): Promise<void> {
     const assistant = await this.resolveRequestAssistant(req);
@@ -267,7 +268,8 @@ export class MediaAttachmentController {
       assistantId: assistant.id,
       workspaceId: assistant.workspaceId,
       chatId,
-      path: storagePath
+      path: storagePath,
+      versionId: typeof versionId === "string" && versionId.trim().length > 0 ? versionId : null
     });
 
     const payload = this.prepareDownloadPayload({

@@ -87,7 +87,8 @@ vi.mock("@clerk/nextjs", () => ({
 
 vi.mock("next/navigation", () => ({
   useRouter: () => routerMocks,
-  usePathname: () => "/app/chat"
+  usePathname: () => "/app/chat",
+  useSearchParams: () => new URLSearchParams("thread=thread-1")
 }));
 
 vi.mock("../assistant-api-client", async () => {

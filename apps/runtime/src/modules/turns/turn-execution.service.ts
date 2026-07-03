@@ -3257,7 +3257,9 @@ export class TurnExecutionService {
           channel: acceptedTurn.session.conversation.channel,
           chatId: this.resolveCurrentChatId(input),
           externalThreadKey: this.resolveSurfaceThreadKey(acceptedTurn.session.conversation),
-          messageId: null
+          messageId: null,
+          sourceUserMessageText: input.message.text,
+          sourceUserMessageCreatedAt: new Date().toISOString()
         });
         return this.createToolExecutionOutcome(
           toolCall,
@@ -3274,7 +3276,10 @@ export class TurnExecutionService {
           bundle: execution.bundle,
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
-          requestId: acceptedTurn.receipt.requestId
+          requestId: acceptedTurn.receipt.requestId,
+          chatId: this.resolveCurrentChatId(input),
+          sourceUserMessageText: input.message.text,
+          sourceUserMessageCreatedAt: new Date().toISOString()
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }

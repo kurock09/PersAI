@@ -3,6 +3,9 @@ import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
 } from "../domain/assistant-chat-message-attachment.repository";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { resolveVisibleWorkspaceOutputFormatFromPath } from "./document-workspace-deliverable-gating";
+import { DocumentWorkspaceVersionRegistrationService } from "./document-workspace-version-registration.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 
 export type UpsertWorkspaceFileMetadataFromRuntimeInput = {
@@ -15,6 +18,8 @@ export type UpsertWorkspaceFileMetadataFromRuntimeInput = {
   shortDescription: string | null;
   originChatId: string | null;
   originAssistantId: string | null;
+  sourceUserMessageText: string | null;
+  sourceUserMessageCreatedAt: string | null;
 };
 
 // ADR-128 Slice 4 — runtime-driven manifest writes after a successful sandbox
@@ -24,9 +29,11 @@ export type UpsertWorkspaceFileMetadataFromRuntimeInput = {
 @Injectable()
 export class UpsertWorkspaceFileMetadataFromRuntimeService {
   constructor(
+    private readonly prisma: WorkspaceManagementPrismaService,
     private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
-    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository
+    private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
+    private readonly documentWorkspaceVersionRegistrationService: DocumentWorkspaceVersionRegistrationService
   ) {}
 
   parseInput(body: unknown): UpsertWorkspaceFileMetadataFromRuntimeInput {
@@ -56,6 +63,8 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
     const originChatId = this.optionalUuid(row.originChatId, "originChatId");
     const originAssistantId = this.optionalUuid(row.originAssistantId, "originAssistantId");
     const contentHash = this.optionalContentHash(row.contentHash);
+    const sourceUserMessageText = this.optionalString(row.sourceUserMessageText);
+    const sourceUserMessageCreatedAt = this.optionalString(row.sourceUserMessageCreatedAt);
     return {
       workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
       path,
@@ -65,7 +74,9 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
       replace: row.replace === true,
       shortDescription,
       originChatId,
-      originAssistantId
+      originAssistantId,
+      sourceUserMessageText,
+      sourceUserMessageCreatedAt
     };
   }
 
@@ -88,6 +99,7 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
         sizeBytes: BigInt(input.sizeBytes)
       });
     }
+    await this.maybeRegisterVisibleWorkspaceDocumentVersion(input);
   }
 
   private optionalContentHash(value: unknown): string | null {
@@ -98,6 +110,10 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
       throw new BadRequestException("contentHash must be a non-empty string when provided.");
     }
     return value.trim();
+  }
+
+  private optionalString(value: unknown): string | null {
+    return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
   }
 
   private optionalUuid(value: unknown, field: string): string | null {
@@ -119,5 +135,54 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
 
   private isPersistedWorkspacePath(path: string): boolean {
     return path.startsWith("/workspace/");
+  }
+
+  private async maybeRegisterVisibleWorkspaceDocumentVersion(
+    input: UpsertWorkspaceFileMetadataFromRuntimeInput
+  ): Promise<void> {
+    const outputFormat = resolveVisibleWorkspaceOutputFormatFromPath(input.path);
+    if (outputFormat !== "pdf" && outputFormat !== "xlsx" && outputFormat !== "docx") {
+      return;
+    }
+    if (input.originAssistantId === null || input.originChatId === null) {
+      return;
+    }
+    if (input.sourceUserMessageText === null) {
+      return;
+    }
+    const chat = await this.prisma.assistantChat.findFirst({
+      where: {
+        id: input.originChatId,
+        assistantId: input.originAssistantId,
+        workspaceId: input.workspaceId
+      },
+      select: {
+        surface: true,
+        surfaceThreadKey: true
+      }
+    });
+    if (chat === null || (chat.surface !== "web" && chat.surface !== "telegram")) {
+      return;
+    }
+    const registration = await this.documentWorkspaceVersionRegistrationService.execute({
+      assistantId: input.originAssistantId,
+      workspaceId: input.workspaceId,
+      channel: chat.surface,
+      externalThreadKey: chat.surfaceThreadKey,
+      sourceUserMessageText: input.sourceUserMessageText,
+      sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt ?? new Date().toISOString(),
+      descriptorMode: null,
+      docId: null,
+      requestedName: null,
+      workspaceProjectPath: null,
+      outputPath: input.path,
+      sourceManifestPath: null,
+      inspectionPath: null
+    });
+    if (!registration.accepted) {
+      throw new BadRequestException(
+        `Workspace document registration failed for ${input.path} (${registration.code}): ${registration.message}`
+      );
+    }
   }
 }

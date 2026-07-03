@@ -1304,6 +1304,8 @@ export class PersaiInternalApiClientService {
     replace?: boolean;
     originChatId?: string | null;
     originAssistantId?: string | null;
+    sourceUserMessageText?: string | null;
+    sourceUserMessageCreatedAt?: string | null;
   }): Promise<void> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
@@ -1328,7 +1330,14 @@ export class PersaiInternalApiClientService {
           : { originChatId: input.originChatId }),
         ...(input.originAssistantId === undefined || input.originAssistantId === null
           ? {}
-          : { originAssistantId: input.originAssistantId })
+          : { originAssistantId: input.originAssistantId }),
+        ...(input.sourceUserMessageText === undefined || input.sourceUserMessageText === null
+          ? {}
+          : { sourceUserMessageText: input.sourceUserMessageText }),
+        ...(input.sourceUserMessageCreatedAt === undefined ||
+        input.sourceUserMessageCreatedAt === null
+          ? {}
+          : { sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt })
       })
     });
     if (response.status === 204 || response.ok) {

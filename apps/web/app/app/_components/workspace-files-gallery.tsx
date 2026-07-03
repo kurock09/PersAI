@@ -170,14 +170,18 @@ function TileMenu({
 // through.
 export function WorkspaceFilesGallery({
   chatId,
-  workspaceId
+  workspaceId,
+  defaultScope = "chat",
+  allowChatScope = true
 }: {
   chatId: string | null;
   workspaceId: string | null;
+  defaultScope?: GalleryScope;
+  allowChatScope?: boolean;
 }) {
   const t = useTranslations("settings");
   const { getToken } = useAuth();
-  const [scope, setScope] = useState<GalleryScope>("chat");
+  const [scope, setScope] = useState<GalleryScope>(defaultScope);
   const [filter, setFilter] = useState<GalleryFilter>("all");
   const [files, setFiles] = useState<ChatWorkspaceFileTile[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -200,6 +204,10 @@ export function WorkspaceFilesGallery({
       files.filter((file) => file.attachmentType === "image" || file.attachmentType === "video"),
     [files]
   );
+
+  useEffect(() => {
+    setScope(defaultScope);
+  }, [defaultScope]);
 
   useEffect(() => {
     let cancelled = false;
@@ -360,9 +368,10 @@ export function WorkspaceFilesGallery({
       <div className="flex flex-wrap gap-2" data-testid="workspace-files-scope">
         <button
           type="button"
+          disabled={!allowChatScope}
           onClick={() => setScope("chat")}
           className={cn(
-            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
             scope === "chat"
               ? "border-accent/40 bg-accent/10 text-text"
               : "border-border/70 bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text"

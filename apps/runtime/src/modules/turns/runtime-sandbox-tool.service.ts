@@ -4,7 +4,8 @@ import type {
   ProviderGatewayToolCall,
   RuntimeSandboxJobRequest,
   RuntimeSandboxToolResult,
-  RuntimeToolPolicy
+  RuntimeToolPolicy,
+  RuntimeSandboxProducedFile
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { SandboxClientService } from "./sandbox-client.service";
@@ -26,6 +27,9 @@ export class RuntimeSandboxToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
+    chatId?: string | null;
+    sourceUserMessageText?: string | null;
+    sourceUserMessageCreatedAt?: string | null;
   }): Promise<RuntimeSandboxToolExecutionResult> {
     const policy = this.resolveAllowedSandboxToolPolicy(params.bundle, params.toolCall.name);
     if (policy === null) {
@@ -109,6 +113,21 @@ export class RuntimeSandboxToolService {
         },
         args: this.asObject(params.toolCall.arguments)
       } satisfies RuntimeSandboxJobRequest);
+      if (
+        job.status === "completed" &&
+        params.chatId !== undefined &&
+        params.chatId !== null &&
+        params.sourceUserMessageText !== undefined &&
+        params.sourceUserMessageText !== null
+      ) {
+        await this.syncVisibleWorkspaceDocumentOutputs({
+          bundle: params.bundle,
+          chatId: params.chatId,
+          files: job.files,
+          sourceUserMessageText: params.sourceUserMessageText,
+          sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt ?? new Date().toISOString()
+        });
+      }
 
       return {
         payload: {
@@ -167,5 +186,42 @@ export class RuntimeSandboxToolService {
       throw new ServiceUnavailableException("Sandbox tool arguments must be a JSON object.");
     }
     return value as Record<string, unknown>;
+  }
+
+  private async syncVisibleWorkspaceDocumentOutputs(input: {
+    bundle: AssistantRuntimeBundle;
+    chatId: string;
+    files: RuntimeSandboxProducedFile[];
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+  }): Promise<void> {
+    for (const file of input.files) {
+      if (!this.isVisibleWorkspaceDocumentOutput(file.storagePath)) {
+        continue;
+      }
+      const existing = await this.persaiInternalApiClientService.getWorkspaceFileMetadata({
+        workspaceId: input.bundle.metadata.workspaceId,
+        path: file.storagePath
+      });
+      await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
+        workspaceId: input.bundle.metadata.workspaceId,
+        path: file.storagePath,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+        replace: existing !== null,
+        originChatId: input.chatId,
+        originAssistantId: input.bundle.metadata.assistantId,
+        sourceUserMessageText: input.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt
+      });
+    }
+  }
+
+  private isVisibleWorkspaceDocumentOutput(path: string): boolean {
+    const lowered = path.trim().toLowerCase();
+    return (
+      lowered.startsWith("/workspace/") &&
+      (lowered.endsWith(".pdf") || lowered.endsWith(".xlsx") || lowered.endsWith(".docx"))
+    );
   }
 }
