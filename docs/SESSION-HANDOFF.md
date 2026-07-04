@@ -2,7 +2,7 @@
 
 ## 2026-07-04 — document inspect Slice 2: shell overwrite → v+1 + honest auto-attach
 
-Status: **implemented locally (Slice 1 + Slice 2 uncommitted), verification gate green.** Baseline SHA on `main`: `3978f3db0ac4f4b299087d08e14d79eefd3b6960`.
+Status: **pushed to `main` (`225c7ac5`) — deploy pending CI/GitOps image publish.** Baseline SHA before slice: `3978f3db0ac4f4b299087d08e14d79eefd3b6960`.
 
 What changed (Slice 2):
 
@@ -28,7 +28,7 @@ Verification:
 Residuals / next step:
 
 - Commit + deploy; live acceptance: upload DOCX → shell overwrite → v+1 + auto-attach; draft+final same turn → only overwrite auto-attaches.
-- Post-audit cleanup landed: dead `registerDocumentVersion` runtime client, unused template parser, stale contract `registration` field, failing legacy inference test fixed, upsert uses `buildDefaultInspectionPath` and returns `registered:false` instead of throw.
+- Pushed `225c7ac5` to `main`; wait for Dev Image Publish + GitOps pin before live acceptance.
 
 ## 2026-07-04 — document inspect Slice 1: project-tree removal + editMethod
 
