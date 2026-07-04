@@ -19,6 +19,8 @@ Additional active orchestration program opened after the startup list above: `do
 
 Additional active orchestration program: `docs/ADR/134-path-based-workspace-file-micro-descriptions.md` (opened 2026-07-04 — restore path-keyed semantic index `workspace_file_metadata.shortDescription` via deterministic → generation_request → background cheap-LLM job; restore `files.search` and Working Files batch join; no `AssistantFile` revival, no attachment.metadata mirror. Slices S1–S7; parent agent orchestrator/auditor, GPT-5.4/Sonnet implementation subagents).
 
+Additional active orchestration program: `docs/ADR/135-catalog-tool-projection-and-per-tool-describe.md` (opened 2026-07-05 — catalog vs full tool projection via per-tool `action:"describe"` (no meta-tool); platform defaults 13 full / 11 catalog; plan `fullProjection` boolean per tool; target ~4k tok tools JSON savings. Slices S1–S6).
+
 ## Repo rules
 
 - ADR-132 has an additional local repair slice landed 2026-07-03: chat delivery for PDF/DOCX/XLSX must be attachment-first and must not wait for best-effort inspect/register/documentLink metadata enrichment; runtime `document.render` / `document.convert` must not recreate the old active `project.json` workflow for ordinary authored/convert outputs.
