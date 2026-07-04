@@ -1,5 +1,39 @@
 # SESSION-HANDOFF
 
+## 2026-07-05 — ADR-135 catalog tool projection (S1–S6 closed locally)
+
+Status: **implemented locally in the dirty working tree; commit/push/deploy pending.** Baseline SHA in ADR-135: `f6e2f23a`.
+
+What landed (S1–S6):
+
+- **S1 — contract + plan boolean:** `defaultModelExposure` on catalog/bootstrap; plan `fullProjection`; materialized `RuntimeToolPolicy.modelExposure`; migration backfill; D2 tests (13 full / 11 catalog / 24 tools).
+- **S2 — catalog stub + describe:** `native-tool-projection` catalog branch; per-tool read-only `{action:"describe"}`; full builder reuse.
+- **S3 — turn loop:** turn-local describe cache; wire expansion next iteration; `tool_contract_not_loaded` guard.
+- **S4 — selection guide:** one `<tool_usage_policy>` catalog-describe rule; golden green.
+- **S5 — admin plan editor:** **Full JSON on wire** checkbox; seed parity; round-trip tests.
+- **S6 — metrics + wire-budget + closure:** per-turn log `[turn-catalog-metrics]` with `tools_json_char_count`, `catalog_describe_calls`, `tool_contract_not_loaded`; wire-budget fixture **~8113 tok** savings on `tools[]` (24-tool power-config, platform-default vs all-full baseline); ADR-135 closed locally; docs updated.
+
+Verification (S6 gate):
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `@persai/runtime` `catalog-tool-wire-budget.test.ts`, `catalog-tool-turn-metrics.test.ts`, `catalog-tool-wire-expansion.test.ts`
+- `@persai/api` `tool-catalog-data.test.ts` (D2 defaults)
+
+Acceptance checklist:
+
+1. D2 defaults + 24-tool power-config tests — **green** (`tool-catalog-data.test.ts`, wire-budget fixture).
+2. ≥3.5k tok tools JSON savings — **green** (~8113 tok fixture-measured).
+3. No meta-tool — **green** (wire-budget + projection tests).
+4. describe → full wire same turn — **green** (`catalog-tool-wire-expansion.test.ts`).
+5. Full-tier unchanged — **green** (wire-budget deep-equal on 13 default-full tools).
+6. Media-job worker unchanged — **covered by existing** `runtime-video-generate-tool.service.test.ts` (directToolExecution / checkpoint paths; projection is model-facing only per D4).
+
+Next step: commit ADR-135 slice cleanly, deploy, live acceptance on dev (files turn no describe; video_generate describe→generate; image_edit full unchanged; media-job smoke).
+
 ## 2026-07-04 — ADR-134 follow-up: WF cleanup + micro-description invalidation + document version markers
 
 Status: **implemented locally; commit/push pending** (builds on the shell document integrity dirty tree).

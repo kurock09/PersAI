@@ -167,6 +167,15 @@ import {
   RuntimeExecutionAdmissionService,
   classifyInteractiveExecutionClass
 } from "./runtime-execution-admission.service";
+import {
+  createEmptyCatalogToolTurnMetrics,
+  formatCatalogToolTurnMetricsLog,
+  measureToolsJsonCharCount,
+  recordCatalogDescribeCall,
+  recordFirstIterationToolsJsonCharCount,
+  recordToolContractNotLoaded,
+  type CatalogToolTurnMetrics
+} from "./catalog-tool-turn-metrics";
 import { resolveModelOutputBudget, APPROX_BYTES_PER_TOKEN } from "./model-output-budget";
 
 type NativeManagedProvider = "openai" | "anthropic" | "deepseek";
@@ -189,7 +198,7 @@ function estimateProviderRequestInputTokens(req: {
   const devLen =
     typeof req.developerInstructions === "string" ? req.developerInstructions.length : 0;
   const messagesLen = JSON.stringify(req.messages).length;
-  const toolsLen = req.tools && req.tools.length > 0 ? JSON.stringify(req.tools).length : 0;
+  const toolsLen = measureToolsJsonCharCount(req.tools);
   return Math.ceil((systemLen + devLen + messagesLen + toolsLen) / APPROX_BYTES_PER_TOKEN);
 }
 
@@ -292,6 +301,8 @@ type TurnExecutionState = {
   pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
   /** ADR-135 S3 — catalog tools described this turn expand to full wire on next iteration. */
   wireExpandedCatalogToolCodes: Set<string>;
+  /** ADR-135 S6 — per-turn catalog projection observability counters. */
+  catalogToolMetrics: CatalogToolTurnMetrics;
 };
 
 type ToolExecutionOutcome = {
@@ -1077,6 +1088,7 @@ export class TurnExecutionService {
               this.resolveCurrentSessionRoot(execution.bundle, acceptedTurn.session.sessionId)
             )
           });
+          this.recordToolLoopToolsJsonCharCount(turnState, iteration, providerRequest.tools);
           let advancedToNextIteration = false;
           let providerOutputSeen = false;
           let streamFallbackAttempted = false;
@@ -1847,6 +1859,12 @@ export class TurnExecutionService {
     if (trace !== undefined) {
       this.runtimeObservabilityService.recordStreamTurn(trace);
     }
+    this.logger.log(
+      formatCatalogToolTurnMetricsLog({
+        requestId: acceptedTurn.receipt.requestId,
+        metrics: turnState.catalogToolMetrics
+      })
+    );
     return result;
   }
 
@@ -2818,6 +2836,7 @@ export class TurnExecutionService {
             this.resolveCurrentSessionRoot(execution.bundle, acceptedTurn.session.sessionId)
           )
         });
+        this.recordToolLoopToolsJsonCharCount(turnState, iteration, request.tools);
         providerResult = await this.generateTextWithRuntimeFallback({
           bundle: execution.bundle,
           request,
@@ -3207,6 +3226,7 @@ export class TurnExecutionService {
         wireExpandedCatalogToolCodes: turnState.wireExpandedCatalogToolCodes
       })
     ) {
+      recordToolContractNotLoaded(turnState.catalogToolMetrics);
       return this.createToolExecutionOutcome(
         toolCall,
         createToolContractNotLoadedPayload(toolCall.name)
@@ -4946,7 +4966,8 @@ export class TurnExecutionService {
       deliveryFacts: createEmptyTurnDeliveryFacts(),
       currentChatId: null,
       workspaceId: "",
-      wireExpandedCatalogToolCodes: new Set<string>()
+      wireExpandedCatalogToolCodes: new Set<string>(),
+      catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
     };
   }
 
@@ -4989,6 +5010,18 @@ export class TurnExecutionService {
       return;
     }
     turnState.wireExpandedCatalogToolCodes.add(toolCode);
+    recordCatalogDescribeCall(turnState.catalogToolMetrics);
+  }
+
+  private recordToolLoopToolsJsonCharCount(
+    turnState: TurnExecutionState,
+    iteration: number,
+    tools: readonly unknown[] | undefined
+  ): void {
+    if (iteration !== 0) {
+      return;
+    }
+    recordFirstIterationToolsJsonCharCount(turnState.catalogToolMetrics, tools);
   }
 
   private initializeTurnDeliveryContext(

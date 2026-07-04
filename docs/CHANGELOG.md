@@ -3,6 +3,10 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-05
+
+- **Change (ADR-135 — catalog tool projection + per-tool describe; S1–S6 closed locally, not pushed).** Plan-visible tools now materialize `modelExposure: "full" | "catalog"` from plan `fullProjection` (platform seed 13 ☑ / 11 ☐). Catalog-tier tools stay in `tools[]` under their own name with stub projection; `{tool}({action:"describe"})` returns the full builder contract read-only; the next tool-loop iteration expands that tool to full wire; guarded real calls without prior describe return `tool_contract_not_loaded`. Selection guide carries one catalog-describe rule. Admin plan editor adds **Full JSON on wire** per tool. S6 adds per-turn runtime metrics (`tools_json_char_count`, `catalog_describe_calls`, `tool_contract_not_loaded`) and a wire-budget fixture asserting **≥3.5k tok** savings on the 24-tool power-config fixture vs all-full baseline (~8.1k tok measured). Deploy + live acceptance pending.
+
 ## 2026-07-04
 
 - **Cleanup (Working Files):** removed the `last delivered result` row marker; `last delivered` remains the single chat-delivery anchor. Future source-input marking deferred.

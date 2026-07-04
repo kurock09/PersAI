@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open** — ADR only; no implementation slices landed yet.
+**Closed locally 2026-07-05** — Slices S1–S6 landed locally; deploy + live acceptance pending the next dev rollout.
 
 ## Date
 

@@ -19,7 +19,7 @@ Additional active orchestration program opened after the startup list above: `do
 
 Additional active orchestration program: `docs/ADR/134-path-based-workspace-file-micro-descriptions.md` (opened 2026-07-04 — restore path-keyed semantic index `workspace_file_metadata.shortDescription` via deterministic → generation_request → background cheap-LLM job; restore `files.search` and Working Files batch join; no `AssistantFile` revival, no attachment.metadata mirror. Slices S1–S7; parent agent orchestrator/auditor, GPT-5.4/Sonnet implementation subagents).
 
-Additional active orchestration program: `docs/ADR/135-catalog-tool-projection-and-per-tool-describe.md` (opened 2026-07-05 — catalog vs full tool projection via per-tool `action:"describe"` (no meta-tool); platform defaults 13 full / 11 catalog; plan `fullProjection` boolean per tool; target ~4k tok tools JSON savings. Slices S1–S6).
+Additional orchestration program **closed locally 2026-07-05:** `docs/ADR/135-catalog-tool-projection-and-per-tool-describe.md` (catalog vs full tool projection via per-tool `action:"describe"` (no meta-tool); platform defaults 13 full / 11 catalog; plan `fullProjection` boolean per tool; wire-budget fixture ~8.1k tok savings on 24-tool power-config; Slices S1–S6 landed locally — deploy + live acceptance pending; do not reopen for new scope).
 
 ## Repo rules
 

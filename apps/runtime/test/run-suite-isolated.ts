@@ -157,6 +157,14 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runCatalogToolWireExpansionTest"
   },
   {
+    modulePath: "./catalog-tool-wire-budget.test.ts",
+    exportName: "runCatalogToolWireBudgetTest"
+  },
+  {
+    modulePath: "./catalog-tool-turn-metrics.test.ts",
+    exportName: "runCatalogToolTurnMetricsTest"
+  },
+  {
     modulePath: "./native-tool-projection.test.ts",
     exportName: "runMediaPromptFragmentsSanityTest"
   },
