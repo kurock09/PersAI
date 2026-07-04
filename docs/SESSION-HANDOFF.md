@@ -7,7 +7,7 @@ Status: **implemented locally; commit/push pending** (builds on the shell docume
 What changed:
 
 - **Micro-description invalidation:** runtime manifest upsert clears `shortDescription` on `replace` or `contentHash` change and force-re-enqueues the background describe job.
-- **Working Files:** removed legacy `DOC_*` and `LAST_DELIVERED_FILE` blocks; markers now live on rows (`last delivered`, `current source`, `last delivered result`, `v{N}`).
+- **Working Files:** removed legacy `DOC_*` and `LAST_DELIVERED_FILE` blocks; row markers are `last delivered`, `current source`, `v{N}`, and `recent` (`last delivered result` removed — overlapped `last delivered` and tagged every model pdf/docx/xlsx).
 - **Manifest hints API:** `short-descriptions` batch lookup now also returns `documentVersionNumber` for registered pdf/docx/xlsx paths.
 
 ## 2026-07-04 — shell document delivery integrity fix (content-hash diff, turn-scoped versioning)

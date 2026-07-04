@@ -247,10 +247,9 @@ Remove legacy developer blocks (`DOC_CURRENT_SOURCE`, `DOC_LAST_DELIVERED_PDF`, 
 
 - `last delivered` — newest user/model file in chat;
 - `current source` — newest user document-source upload (pdf/docx/xlsx/text/*);
-- `last delivered result` — newest model pdf/docx/xlsx output (`document` / `shell` tools included);
 - `v{N}` — current registered document version for pdf/docx/xlsx paths.
 
-Pinned rows with these markers survive Working Files trim.
+Pinned rows with `last delivered`, `current source`, or `v{N}` survive Working Files trim.
 
 ### D10 — Version hint join
 

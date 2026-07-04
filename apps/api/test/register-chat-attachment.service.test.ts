@@ -103,6 +103,37 @@ function createAttachmentMetadataUpdater(updatedMetadata: Record<string, unknown
   };
 }
 
+function createWorkspaceFileMetadataService(
+  overrides: {
+    get?: (input: { workspaceId: string; path: string }) => Promise<unknown>;
+    upsert?: (input: Record<string, unknown>) => Promise<void>;
+  } = {}
+) {
+  return {
+    get: overrides.get ?? (async () => null),
+    upsert: overrides.upsert ?? (async () => {})
+  };
+}
+
+function createMicroDescriptionJobService() {
+  return {
+    enqueueIfNeeded: async () => {}
+  };
+}
+
+function createAssistantDocumentJobService(
+  overrides: {
+    findCurrentDocumentLinkByOutputPath?: () => Promise<
+      { status: "none" } | { status: "ready"; link: unknown }
+    >;
+  } = {}
+) {
+  return {
+    findCurrentDocumentLinkByOutputPath:
+      overrides.findCurrentDocumentLinkByOutputPath ?? (async () => ({ status: "none" as const }))
+  };
+}
+
 describe("register-chat-attachment.service", () => {
   test("rejects storage paths outside the active hierarchical workspace roots", async () => {
     const service = new RegisterChatAttachmentService(
@@ -112,8 +143,9 @@ describe("register-chat-attachment.service", () => {
           throw new Error("should not create");
         }
       } as never,
-      { upsert: async () => {} } as never,
-      { findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const }) } as never
+      createWorkspaceFileMetadataService() as never,
+      createAssistantDocumentJobService() as never,
+      createMicroDescriptionJobService() as never
     );
 
     await assert.rejects(
@@ -156,12 +188,13 @@ describe("register-chat-attachment.service", () => {
           };
         }
       } as never,
-      {
+      createWorkspaceFileMetadataService({
         upsert: async (input: Record<string, unknown>) => {
           upsertInput = input;
         }
-      } as never,
-      { findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const }) } as never
+      }) as never,
+      createAssistantDocumentJobService() as never,
+      createMicroDescriptionJobService() as never
     );
 
     const result = await service.execute({
@@ -212,8 +245,9 @@ describe("register-chat-attachment.service", () => {
           };
         }
       } as never,
-      { upsert: async () => {} } as never,
-      { findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const }) } as never
+      createWorkspaceFileMetadataService() as never,
+      createAssistantDocumentJobService() as never,
+      createMicroDescriptionJobService() as never
     );
 
     await service.execute({
@@ -249,8 +283,9 @@ describe("register-chat-attachment.service", () => {
           throw new Error("should not create");
         }
       } as never,
-      { upsert: async () => {} } as never,
-      { findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const }) } as never
+      createWorkspaceFileMetadataService() as never,
+      createAssistantDocumentJobService() as never,
+      createMicroDescriptionJobService() as never
     );
 
     await assert.rejects(
@@ -316,19 +351,18 @@ describe("register-chat-attachment.service", () => {
           ...createAttachmentMetadataUpdater(updatedMetadata)
         } as never,
         createAttachmentRepository(createdInputs) as never,
-        {
-          async get(input: { path: string }) {
-            return input.path === testCase.path
+        createWorkspaceFileMetadataService({
+          get: async (input: { path: string }) =>
+            input.path === testCase.path
               ? createWorkspaceMetadata(input.path, testCase.mimeType)
-              : null;
-          },
+              : null,
           upsert: async () => {}
-        } as never,
-        {
-          async findCurrentDocumentLinkByOutputPath() {
-            return { status: "ready" as const, link: readyLink } as const;
-          }
-        } as never
+        }) as never,
+        createAssistantDocumentJobService({
+          findCurrentDocumentLinkByOutputPath: async () =>
+            ({ status: "ready" as const, link: readyLink }) as const
+        }) as never,
+        createMicroDescriptionJobService() as never
       );
 
       const result = await service.execute({
@@ -395,23 +429,23 @@ describe("register-chat-attachment.service", () => {
         ...createAttachmentMetadataUpdater(updatedMetadata)
       } as never,
       createAttachmentRepository(createdInputs) as never,
-      {
-        async get(input: { path: string }) {
-          return input.path === `${SESSION_ROOT}/report.pdf`
+      createWorkspaceFileMetadataService({
+        get: async (input: { path: string }) =>
+          input.path === `${SESSION_ROOT}/report.pdf`
             ? createWorkspaceMetadata(`${SESSION_ROOT}/report.pdf`)
-            : null;
-        },
+            : null,
         upsert: async () => {}
-      } as never,
-      {
-        async findCurrentDocumentLinkByOutputPath() {
+      }) as never,
+      createAssistantDocumentJobService({
+        findCurrentDocumentLinkByOutputPath: async () => {
           const next = links.shift();
           if (next === undefined) {
             throw new Error("unexpected link lookup");
           }
           return next;
         }
-      } as never
+      }) as never,
+      createMicroDescriptionJobService() as never
     );
 
     const input = {
@@ -473,26 +507,26 @@ describe("register-chat-attachment.service", () => {
         ...createAttachmentMetadataUpdater(updatedMetadata)
       } as never,
       createAttachmentRepository(createdInputs) as never,
-      {
-        async get(input: { path: string }) {
-          return input.path === `${SESSION_ROOT}/report.xlsx`
+      createWorkspaceFileMetadataService({
+        get: async (input: { path: string }) =>
+          input.path === `${SESSION_ROOT}/report.xlsx`
             ? createWorkspaceMetadata(
                 `${SESSION_ROOT}/report.xlsx`,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               )
-            : null;
-        },
+            : null,
         upsert: async () => {}
-      } as never,
-      {
-        async findCurrentDocumentLinkByOutputPath() {
+      }) as never,
+      createAssistantDocumentJobService({
+        findCurrentDocumentLinkByOutputPath: async () => {
           const next = links.shift();
           if (next === undefined) {
             throw new Error("unexpected link lookup");
           }
           return next;
         }
-      } as never
+      }) as never,
+      createMicroDescriptionJobService() as never
     );
 
     const input = {
@@ -540,7 +574,6 @@ describe("register-chat-attachment.service", () => {
 
   test("files.attach still creates an attachment row when document enrichment fails", async () => {
     const createdInputs: Record<string, unknown>[] = [];
-    let registerCalls = 0;
 
     const service = new RegisterChatAttachmentService(
       {
@@ -561,46 +594,17 @@ describe("register-chat-attachment.service", () => {
         }
       } as never,
       createAttachmentRepository(createdInputs) as never,
-      {
-        async get(input: { path: string }) {
-          return input.path === `${SESSION_ROOT}/test.pdf`
+      createWorkspaceFileMetadataService({
+        get: async (input: { path: string }) =>
+          input.path === `${SESSION_ROOT}/test.pdf`
             ? createWorkspaceMetadata(`${SESSION_ROOT}/test.pdf`)
-            : null;
-        },
+            : null,
         upsert: async () => {}
-      } as never,
-      {
-        async findCurrentDocumentLinkByOutputPath() {
-          return { status: "none" as const };
-        }
-      } as never,
-      {
-        async execute() {
-          return {
-            accepted: false,
-            code: "inspect_failed",
-            message: "inspect unavailable"
-          };
-        }
-      } as never,
-      {
-        async execute() {
-          registerCalls += 1;
-          return {
-            accepted: true,
-            docId: "doc-unreachable",
-            versionId: "version-unreachable",
-            versionNumber: 1,
-            descriptorMode: "create_document" as const,
-            documentType: "workspace_document" as const,
-            outputFormat: "pdf" as const,
-            outputPath: `${SESSION_ROOT}/test.pdf`,
-            workspaceProjectPath: SESSION_ROOT,
-            sourceManifestPath: null,
-            inspectionPath: `${SESSION_ROOT}/test.inspect.json`
-          };
-        }
-      } as never
+      }) as never,
+      createAssistantDocumentJobService({
+        findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const })
+      }) as never,
+      createMicroDescriptionJobService() as never
     );
 
     const result = await service.execute({
@@ -622,7 +626,6 @@ describe("register-chat-attachment.service", () => {
       ((createdInputs[0]?.metadata as Record<string, unknown> | null) ?? {})["documentLink"],
       undefined
     );
-    assert.equal(registerCalls, 0);
   });
 
   test("missing workspace document output fails honestly without provenance-wall wording", async () => {
@@ -640,27 +643,14 @@ describe("register-chat-attachment.service", () => {
         }
       } as never,
       createAttachmentRepository([]) as never,
-      {
-        async get() {
-          return null;
-        },
+      createWorkspaceFileMetadataService({
+        get: async () => null,
         upsert: async () => {}
-      } as never,
-      {
-        async findCurrentDocumentLinkByOutputPath() {
-          return { status: "none" as const };
-        }
-      } as never,
-      {
-        async execute() {
-          throw new Error("inspect should not run");
-        }
-      } as never,
-      {
-        async execute() {
-          throw new Error("register should not run");
-        }
-      } as never
+      }) as never,
+      createAssistantDocumentJobService({
+        findCurrentDocumentLinkByOutputPath: async () => ({ status: "none" as const })
+      }) as never,
+      createMicroDescriptionJobService() as never
     );
 
     await assert.rejects(
@@ -696,13 +686,14 @@ describe("register-chat-attachment.service", () => {
       const service = new RegisterChatAttachmentService(
         { assistantChat: { findFirst: async () => null } } as never,
         createAttachmentRepository(createdInputs) as never,
-        { upsert: async () => {} } as never,
-        {
-          async findCurrentDocumentLinkByOutputPath() {
+        createWorkspaceFileMetadataService() as never,
+        createAssistantDocumentJobService({
+          findCurrentDocumentLinkByOutputPath: async () => {
             lookupCount += 1;
             return { status: "none" as const };
           }
-        } as never
+        }) as never,
+        createMicroDescriptionJobService() as never
       );
 
       const result = await service.execute({

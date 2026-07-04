@@ -193,8 +193,8 @@ describe("TurnExecutionService working files developer section", () => {
       ]
     );
     assert.equal(
-      historyLines[0]?.startsWith(
-        `- ${formatUtcTimestamp("2026-05-26T14:32:00.000Z")} | model | image #1 (file #2) | portrait.png | path=${wp("portrait.png")} | - | Makeup strengthened`
+      historyLines[0]?.includes(
+        `| model | image #1 (file #2) | portrait.png | path=${wp("portrait.png")} | last delivered | Makeup strengthened`
       ),
       true
     );
@@ -250,7 +250,7 @@ describe("TurnExecutionService working files developer section", () => {
     assert.match(
       section ?? "",
       new RegExp(
-        `foo\\.png \\[#1\\] \\| path=${wp("foo-1.png").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| - \\| Makeup strengthened\\.`
+        `foo\\.png \\[#1\\] \\| path=${wp("foo-1.png").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| last delivered \\| Makeup strengthened\\.`
       )
     );
     assert.match(
@@ -339,19 +339,14 @@ describe("TurnExecutionService working files developer section", () => {
     assert.match(
       section ?? "",
       new RegExp(
-        `proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| current source`
+        `proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| .*current source`
       )
     );
+    assert.doesNotMatch(section ?? "", /last delivered result/);
     assert.match(
       section ?? "",
       new RegExp(
-        `proposal\\.pdf \\| path=${wp("proposal.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| last delivered result`
-      )
-    );
-    assert.match(
-      section ?? "",
-      new RegExp(
-        `proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| last delivered`
+        `proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| .*last delivered`
       )
     );
     assert.doesNotMatch(section ?? "", /Document-tool PDF anchors/);
@@ -381,7 +376,7 @@ describe("TurnExecutionService working files developer section", () => {
     assert.match(
       section ?? "",
       new RegExp(
-        `report\\.xlsx \\| path=${wp("report.xlsx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| v3`
+        `report\\.xlsx \\| path=${wp("report.xlsx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| .*v3`
       )
     );
   });
@@ -411,7 +406,7 @@ describe("TurnExecutionService working files developer section", () => {
     assert.doesNotMatch(section ?? "", /path=.*report\.docx \|/);
   });
 
-  test("keeps current source and last delivered anchors visible when older files exceed the cap", () => {
+  test("keeps current source anchor visible when older files exceed the cap", () => {
     const extraFiles = Array.from({ length: 20 }, (_, index) =>
       workingFile({
         storagePath: wp(`extra-${String(index + 1)}.png`),
@@ -457,23 +452,12 @@ describe("TurnExecutionService working files developer section", () => {
     assert.match(
       section ?? "",
       new RegExp(
-        `proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| current source`
+        `proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| .*current source`
       )
     );
-    assert.match(
-      section ?? "",
-      new RegExp(
-        `proposal\\.pdf \\| path=${wp("proposal.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| last delivered result`
-      )
-    );
+    assert.doesNotMatch(section ?? "", /last delivered result/);
     assert.doesNotMatch(section ?? "", /DOC_CURRENT_SOURCE/);
     assert.doesNotMatch(section ?? "", /LAST_DELIVERED_FILE =/);
-    assert.match(
-      section ?? "",
-      new RegExp(
-        `- 2026-04-01 10:00 \\| model \\| file #2 \\| proposal\\.pdf \\| path=${wp("proposal.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| last delivered result \\| Latest delivered PDF result\\.`
-      )
-    );
   });
 
   test("always shows microdescriptions when present and keeps recovery instructions", () => {
@@ -494,7 +478,7 @@ describe("TurnExecutionService working files developer section", () => {
     assert.match(
       section ?? "",
       new RegExp(
-        `\\| final-client-brief\\.docx \\| path=${wp("final-client-brief.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| current source \\| Current source document for the new branded PDF\\.`
+        `\\| final-client-brief\\.docx \\| path=${wp("final-client-brief.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| .*current source \\| Current source document for the new branded PDF\\.`
       )
     );
     assert.match(

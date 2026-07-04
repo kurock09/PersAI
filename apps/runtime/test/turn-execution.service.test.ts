@@ -8668,10 +8668,10 @@ export async function runRecentPdfsHintTests(): Promise<void> {
       /current source/,
       "working files must expose the current source marker on the matching row"
     );
-    assert.match(
+    assert.doesNotMatch(
       workingFiles!,
       /last delivered result/,
-      "working files must expose the last delivered document marker on the matching row"
+      "working files must not expose the removed last delivered result marker"
     );
     assert.match(
       workingFiles!,

@@ -2174,16 +2174,15 @@ export class TurnExecutionService {
       return sorted;
     }
     const lastDeliveredChat = this.selectLastDeliveredWorkingFile(sorted);
-    const { currentSource, lastDelivered: lastDeliveredDocument } =
-      this.selectWorkingFileDocumentPriorityAnchors(sorted);
+    const currentSource = this.selectCurrentSourceWorkingFile(sorted);
     const requiredFileRefs = new Set(
-      [lastDeliveredChat, currentSource, lastDeliveredDocument]
+      [lastDeliveredChat, currentSource]
         .filter((file): file is RuntimeFileHandle => file !== null)
         .map((file) => file.storagePath)
     );
     const visible = [...sorted.slice(0, maxCount)];
     const visibleFileRefs = new Set(visible.map((file) => file.storagePath));
-    for (const file of [lastDeliveredChat, currentSource, lastDeliveredDocument]) {
+    for (const file of [lastDeliveredChat, currentSource]) {
       if (file !== null && !visibleFileRefs.has(file.storagePath)) {
         visible.push(file);
         visibleFileRefs.add(file.storagePath);
@@ -2240,15 +2239,6 @@ export class TurnExecutionService {
     return file.authorLabel === "user" && this.isDocumentSourceWorkingFileMime(file.mimeType);
   }
 
-  private isLastDeliveredDocumentResultWorkingFile(file: RuntimeFileHandle): boolean {
-    return (
-      this.isAssistantGeneratedWorkingFile(file) &&
-      (this.isVisibleWorkspaceDocumentMime(file.mimeType) ||
-        file.sourceToolCode === DOCUMENT_TOOL_CODE ||
-        file.sourceToolCode === "shell")
-    );
-  }
-
   private isDocumentSourceWorkingFileMime(mimeType: string): boolean {
     const normalized = mimeType.trim().toLowerCase();
     return (
@@ -2263,24 +2253,6 @@ export class TurnExecutionService {
       normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
       normalized === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
-  }
-
-  private isVisibleWorkspaceDocumentMime(mimeType: string): boolean {
-    const normalized = mimeType.trim().toLowerCase();
-    return (
-      this.isPdfWorkingFileMime(normalized) ||
-      normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-      normalized === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
-  }
-
-  private isPdfWorkingFileMime(mimeType: string): boolean {
-    const normalized = mimeType.trim().toLowerCase();
-    return normalized === "application/pdf" || normalized === "application/x-pdf";
-  }
-
-  private isAssistantGeneratedWorkingFile(file: RuntimeFileHandle): boolean {
-    return (file.authorLabel ?? "model") !== "user";
   }
 
   private buildOpenMediaJobsDeveloperSection(
@@ -4338,9 +4310,6 @@ export class TurnExecutionService {
     if (this.isCurrentSourceWorkingFile(file)) {
       markers.push("current source");
     }
-    if (this.isLastDeliveredDocumentResultWorkingFile(file)) {
-      markers.push("last delivered result");
-    }
     if (
       typeof file.documentVersionNumber === "number" &&
       Number.isFinite(file.documentVersionNumber) &&
@@ -4416,16 +4385,15 @@ export class TurnExecutionService {
       return sorted;
     }
     const lastDeliveredChat = this.selectLastDeliveredWorkingFile(sorted);
-    const { currentSource, lastDelivered: lastDeliveredDocument } =
-      this.selectWorkingFileDocumentPriorityAnchors(sorted);
+    const currentSource = this.selectCurrentSourceWorkingFile(sorted);
     const requiredFileRefs = new Set(
-      [lastDeliveredChat, currentSource, lastDeliveredDocument]
+      [lastDeliveredChat, currentSource]
         .filter((file): file is RuntimeFileHandle => file !== null)
         .map((file) => file.storagePath)
     );
     const visible = [...sorted.slice(0, MAX_MODEL_VISIBLE_WORKING_FILES)];
     const visibleFileRefs = new Set(visible.map((file) => file.storagePath));
-    for (const file of [lastDeliveredChat, currentSource, lastDeliveredDocument]) {
+    for (const file of [lastDeliveredChat, currentSource]) {
       if (file !== null && !visibleFileRefs.has(file.storagePath)) {
         visible.push(file);
         visibleFileRefs.add(file.storagePath);
@@ -4465,16 +4433,9 @@ export class TurnExecutionService {
     });
   }
 
-  private selectWorkingFileDocumentPriorityAnchors(files: RuntimeFileHandle[]): {
-    currentSource: RuntimeFileHandle | null;
-    lastDelivered: RuntimeFileHandle | null;
-  } {
+  private selectCurrentSourceWorkingFile(files: RuntimeFileHandle[]): RuntimeFileHandle | null {
     const sorted = this.sortWorkingFilesByCreatedAt(files);
-    return {
-      currentSource: sorted.find((file) => this.isCurrentSourceWorkingFile(file)) ?? null,
-      lastDelivered:
-        sorted.find((file) => this.isLastDeliveredDocumentResultWorkingFile(file)) ?? null
-    };
+    return sorted.find((file) => this.isCurrentSourceWorkingFile(file)) ?? null;
   }
 
   private sanitizeLegacyTechnicalAttachmentSummary(assistantText: string | null): string | null {
