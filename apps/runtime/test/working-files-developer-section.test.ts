@@ -46,15 +46,29 @@ function workingFile(input: {
   };
 }
 
-function buildSection(files: TestWorkingFile[]): string | null {
+function buildSection(
+  files: TestWorkingFile[],
+  context?: {
+    currentSessionRoot?: string | null;
+  }
+): string | null {
   const service = Object.create(TurnExecutionService.prototype) as TurnExecutionService;
   return (
     service as unknown as {
       buildWorkingFilesDeveloperSection(
-        availableWorkingFileHandles: RuntimeFileHandle[]
+        availableWorkingFileHandles: RuntimeFileHandle[],
+        context?: {
+          currentChatId: string | null;
+          producedPaths: ReadonlySet<string>;
+          currentSessionRoot?: string | null;
+        }
       ): string | null;
     }
-  ).buildWorkingFilesDeveloperSection(files);
+  ).buildWorkingFilesDeveloperSection(files, {
+    currentChatId: null,
+    producedPaths: new Set<string>(),
+    currentSessionRoot: context?.currentSessionRoot ?? TEST_SESSION_ROOT
+  });
 }
 
 function formatUtcTimestamp(value: string): string {
@@ -182,6 +196,7 @@ describe("TurnExecutionService working files developer section", () => {
 
     assert.ok(section);
     assert.match(section ?? "", /## Working Files/);
+    assert.match(section ?? "", new RegExp(`cwd: ${TEST_SESSION_ROOT}/`));
     assert.doesNotMatch(section ?? "", /Format:/);
     const historyLines = (section ?? "").split("\n").filter((line) => line.startsWith("- 2026-"));
     assert.deepEqual(
@@ -502,6 +517,27 @@ describe("TurnExecutionService working files developer section", () => {
 
     assert.equal(merged.trimEnd(), "Here you go.");
     assert.doesNotMatch(merged, /Assistant sent an attachment|fileRef/i);
+  });
+
+  test("renders cwd when the session has no working files yet", () => {
+    const section = buildSection([], { currentSessionRoot: TEST_SESSION_ROOT });
+
+    assert.ok(section);
+    assert.equal(
+      section,
+      [
+        "## Working Files",
+        `cwd: ${TEST_SESSION_ROOT}/`,
+        "",
+        "Recover a forgotten path with `files.list`, then `files.search` for natural-language lookup, then `files.read` / `files.preview`. If the user refers to a file not listed here, do not assume it is unavailable until you try those tools.",
+        "Do not send files or claim delivery/preparation unless the user explicitly asks and the current turn returns the matching tool result."
+      ].join("\n")
+    );
+  });
+
+  test("returns null when there are no files and no session root", () => {
+    const section = buildSection([], { currentSessionRoot: null });
+    assert.equal(section, null);
   });
 
   test("adding a newer file does not renumber existing sticky labels", () => {

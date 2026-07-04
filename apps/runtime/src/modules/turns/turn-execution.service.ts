@@ -75,7 +75,8 @@ import {
   type RuntimeUsageSnapshot,
   type PersaiRuntimeKnowledgeSource,
   type PersaiRuntimeModelRole,
-  type RuntimeTrace
+  type RuntimeTrace,
+  buildAssistantSessionRoot
 } from "@persai/runtime-contract";
 import { RuntimeBundleRegistryService } from "../bundles/runtime-bundle-registry.service";
 import { RuntimeObservabilityService } from "../observability/runtime-observability.service";
@@ -1052,7 +1053,10 @@ export class TurnExecutionService {
               classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
               toolLoopIteration: iteration
             }),
-            workingFilesContext: this.createWorkingFilesContext(turnState)
+            workingFilesContext: this.createWorkingFilesContext(
+              turnState,
+              this.resolveCurrentSessionRoot(execution.bundle, acceptedTurn.session.sessionId)
+            )
           });
           let advancedToNextIteration = false;
           let providerOutputSeen = false;
@@ -2119,10 +2123,12 @@ export class TurnExecutionService {
     context?: {
       currentChatId: string | null;
       producedPaths: ReadonlySet<string>;
+      currentSessionRoot?: string | null;
     }
   ): string | null {
     const producedPaths = context?.producedPaths ?? new Set<string>();
     const currentChatId = context?.currentChatId ?? null;
+    const currentSessionRoot = context?.currentSessionRoot ?? null;
     const tieredFiles: RuntimeFileHandle[] = availableWorkingFileHandles.map((file) => {
       const visibilityTier: RuntimeFileVisibilityTier =
         file.visibilityTier ??
@@ -2136,7 +2142,7 @@ export class TurnExecutionService {
       return { ...file, visibilityTier };
     });
     const allSessionFiles = tieredFiles.filter((file) => file.visibilityTier === "session");
-    if (allSessionFiles.length === 0) {
+    if (allSessionFiles.length === 0 && currentSessionRoot === null) {
       return null;
     }
     const sessionFiles = this.limitWorkingFilesForTier(
@@ -2145,17 +2151,24 @@ export class TurnExecutionService {
     );
 
     const lines = ["## Working Files"];
-    this.appendWorkingFilesTierSection(
-      lines,
-      "Current session files",
-      sessionFiles,
-      allSessionFiles
-    );
+    if (currentSessionRoot !== null) {
+      lines.push(`cwd: ${currentSessionRoot}/`);
+    }
+    if (allSessionFiles.length > 0) {
+      this.appendWorkingFilesTierSection(
+        lines,
+        "Current session files",
+        sessionFiles,
+        allSessionFiles
+      );
+    }
 
-    lines.push(
-      "",
-      "Address files by the exact `path` shown above. Do not reconstruct a path from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed."
-    );
+    if (allSessionFiles.length > 0) {
+      lines.push(
+        "",
+        "Address files by the exact `path` shown above. Do not reconstruct a path from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed."
+      );
+    }
     lines.push(
       "Recover a forgotten path with `files.list`, then `files.search` for natural-language lookup, then `files.read` / `files.preview`. If the user refers to a file not listed here, do not assume it is unavailable until you try those tools."
     );
@@ -2779,7 +2792,10 @@ export class TurnExecutionService {
             classification: iteration === 0 ? "main_turn" : "tool_loop_followup",
             toolLoopIteration: iteration
           }),
-          workingFilesContext: this.createWorkingFilesContext(turnState)
+          workingFilesContext: this.createWorkingFilesContext(
+            turnState,
+            this.resolveCurrentSessionRoot(execution.bundle, acceptedTurn.session.sessionId)
+          )
         });
         providerResult = await this.generateTextWithRuntimeFallback({
           bundle: execution.bundle,
@@ -4006,6 +4022,7 @@ export class TurnExecutionService {
       workingFilesContext?: {
         currentChatId: string | null;
         producedPaths: ReadonlySet<string>;
+        currentSessionRoot?: string | null;
       };
     }
   ): ProviderGatewayTextGenerateRequest {
@@ -4076,6 +4093,7 @@ export class TurnExecutionService {
     workingFilesContext?: {
       currentChatId: string | null;
       producedPaths: ReadonlySet<string>;
+      currentSessionRoot?: string | null;
     }
   ): string | null {
     let sections = this.replaceDeveloperInstructionSection(
@@ -4956,14 +4974,31 @@ export class TurnExecutionService {
     }
   }
 
-  private createWorkingFilesContext(turnState: TurnExecutionState): {
+  private createWorkingFilesContext(
+    turnState: TurnExecutionState,
+    currentSessionRoot: string | null
+  ): {
     currentChatId: string | null;
     producedPaths: ReadonlySet<string>;
+    currentSessionRoot: string | null;
   } {
     return {
       currentChatId: turnState.currentChatId,
-      producedPaths: new Set(turnState.deliveryFacts.producedPaths)
+      producedPaths: new Set(turnState.deliveryFacts.producedPaths),
+      currentSessionRoot
     };
+  }
+
+  private resolveCurrentSessionRoot(
+    bundle: AssistantRuntimeBundle,
+    sessionId: string
+  ): string | null {
+    const assistantId = bundle.metadata.assistantId?.trim() ?? "";
+    const normalizedSessionId = sessionId.trim();
+    if (assistantId.length === 0 || normalizedSessionId.length === 0) {
+      return null;
+    }
+    return buildAssistantSessionRoot(assistantId, normalizedSessionId);
   }
 
   private applyPreparedTurnExecutionState(
@@ -5383,7 +5418,14 @@ export class TurnExecutionService {
         forceFinalTextOnly: true,
         deferredMediaJobs: input.turnState.deferredMediaJobs,
         deferredDocumentJobs: input.turnState.deferredDocumentJobs,
-        requestMetadata: this.createSelfCheckProviderRequestMetadata(input.acceptedTurn)
+        requestMetadata: this.createSelfCheckProviderRequestMetadata(input.acceptedTurn),
+        workingFilesContext: this.createWorkingFilesContext(
+          input.turnState,
+          this.resolveCurrentSessionRoot(
+            input.execution.bundle,
+            input.acceptedTurn.session.sessionId
+          )
+        )
       });
       const finalResult = await this.callPostFinalSelfCheckProvider({
         acceptedTurn: input.acceptedTurn,
