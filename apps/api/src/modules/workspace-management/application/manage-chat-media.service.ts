@@ -652,11 +652,47 @@ export class ManageChatMediaService {
       throw new NotFoundException("File not found.");
     }
 
+    const attachments = await this.prisma.assistantChatMessageAttachment.findMany({
+      where: {
+        assistantId: params.assistantId,
+        workspaceId: params.workspaceId,
+        storagePath
+      }
+    });
+    const pathsToDelete = new Set<string>([storagePath]);
+    for (const attachment of attachments) {
+      if (attachment.thumbnailStoragePath) {
+        pathsToDelete.add(attachment.thumbnailStoragePath);
+      }
+      if (attachment.posterStoragePath) {
+        pathsToDelete.add(attachment.posterStoragePath);
+      }
+    }
+
     await this.deleteWorkspaceFileDurably({
       assistantId: params.assistantId,
       workspaceId: params.workspaceId,
       storagePath,
-      gcsPathsToDelete: [storagePath]
+      gcsPathsToDelete: [...pathsToDelete],
+      ...(attachments.length > 0
+        ? {
+            clearAttachmentRows: async () => {
+              await this.prisma.assistantChatMessageAttachment.updateMany({
+                where: {
+                  assistantId: params.assistantId,
+                  workspaceId: params.workspaceId,
+                  storagePath
+                },
+                data: {
+                  processingStatus: "unavailable",
+                  storagePath: null,
+                  thumbnailStoragePath: null,
+                  posterStoragePath: null
+                }
+              });
+            }
+          }
+        : {})
     });
   }
 

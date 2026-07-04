@@ -10,6 +10,7 @@ import {
 } from "../domain/assistant-chat.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX } from "./media/media.types";
+import { normalizeActiveWorkspaceFilePath } from "./workspace-visible-paths";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
 import { ResolveAssistantRuntimeTierService } from "./resolve-assistant-runtime-tier.service";
 import { WebRuntimeSessionStateClientService } from "./web-runtime-session-state-client.service";
@@ -189,6 +190,9 @@ export class ListChatWorkspaceFilesService {
 
     const tiles: ChatWorkspaceFileTile[] = [];
     for (const manifest of manifestRows) {
+      if (normalizeActiveWorkspaceFilePath(manifest.path) === null) {
+        continue;
+      }
       if (manifest.path.startsWith(EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX)) {
         continue;
       }

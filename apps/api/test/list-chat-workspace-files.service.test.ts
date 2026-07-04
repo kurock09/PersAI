@@ -114,14 +114,18 @@ async function run(): Promise<void> {
       originChatId: "chat-1"
     },
     {
-      // External-download bytes are tracked in the manifest but excluded
-      // from the gallery; the prefix check matches the literal storage
-      // path written by media-delivery (no leading slash).
       path: "external-download/messages/msg-99",
       mimeType: "application/octet-stream",
       sizeBytes: BigInt(10),
       createdAt: new Date("2026-06-24T10:00:00.000Z"),
       updatedAt: new Date("2026-06-24T10:00:00.000Z")
+    },
+    {
+      path: "/workspace/projects/doc-legacy/manifest.json",
+      mimeType: "application/json",
+      sizeBytes: BigInt(64),
+      createdAt: new Date("2026-06-25T10:00:00.000Z"),
+      updatedAt: new Date("2026-06-25T10:00:00.000Z")
     }
   ];
 
@@ -196,6 +200,11 @@ async function run(): Promise<void> {
     sessionScoped.files.some((file) => file.storagePath.startsWith("external-download/")),
     false,
     "external-download manifest entries must be filtered out"
+  );
+  assert.equal(
+    sessionScoped.files.some((file) => file.storagePath.includes("/projects/")),
+    false,
+    "legacy non-hierarchical manifest paths must be filtered out"
   );
   assert.equal(
     sessionScoped.files.some((file) => file.storagePath === `${otherSessionRoot}/clip.mp4`),

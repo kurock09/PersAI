@@ -4,7 +4,6 @@ import { type ComponentType, useCallback, useEffect, useMemo, useState } from "r
 import { useAuth } from "@clerk/nextjs";
 import {
   Archive,
-  Download,
   FileAudio,
   FileSpreadsheet,
   FileText,
@@ -30,10 +29,7 @@ import {
 import { AuthenticatedAttachmentImage } from "./authenticated-attachment-image";
 import { ImageLightbox } from "./image-lightbox";
 
-type GalleryFilter = "all" | "image" | "video" | "document";
 type GalleryScope = "session" | "assistant" | "workspace";
-
-const FILTER_OPTIONS: GalleryFilter[] = ["all", "image", "video", "document"];
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -119,46 +115,38 @@ function documentIcon(mimeType: string): {
   return { icon: FileText, colorClass: "text-text-muted" };
 }
 
-function TileMenu({
-  open,
-  onDownload,
-  onDelete,
-  busy
+function ScopeSegmentedChoice({
+  options,
+  value,
+  onChange
 }: {
-  open: boolean;
-  onDownload: () => void;
-  onDelete: () => void;
-  busy: boolean;
+  options: ReadonlyArray<{ value: GalleryScope; label: string; disabled?: boolean }>;
+  value: GalleryScope;
+  onChange: (value: GalleryScope) => void;
 }) {
-  const t = useTranslations("settings");
-  if (!open) return null;
   return (
-    <div className="absolute right-2 top-2 z-20 flex items-center gap-1 rounded-full border border-border/70 bg-surface/95 p-1 shadow-lg backdrop-blur">
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onDownload();
-        }}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-surface-hover hover:text-text"
-        aria-label={t("filesDownload")}
-        title={t("filesDownload")}
-      >
-        <Download className="h-4 w-4" />
-      </button>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={(event) => {
-          event.stopPropagation();
-          onDelete();
-        }}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-text-subtle transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-60"
-        aria-label={t("filesDelete")}
-        title={t("filesDelete")}
-      >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-      </button>
+    <div
+      className={cn(
+        "grid w-full rounded-full border border-border/60 bg-surface-raised/20 p-1",
+        options.length === 2 ? "grid-cols-2" : "grid-cols-3"
+      )}
+      data-testid="workspace-files-scope"
+    >
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          disabled={option.disabled === true}
+          onClick={() => onChange(option.value)}
+          aria-pressed={value === option.value}
+          className={cn(
+            "min-w-0 rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+            value === option.value ? "bg-accent/15 text-text" : "text-text-muted hover:text-text"
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -182,13 +170,11 @@ export function WorkspaceFilesGallery({
   const t = useTranslations("settings");
   const { getToken } = useAuth();
   const [scope, setScope] = useState<GalleryScope>(defaultScope);
-  const [filter, setFilter] = useState<GalleryFilter>("all");
   const [files, setFiles] = useState<ChatWorkspaceFileTile[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const [hoveredPath, setHoveredPath] = useState<string | null>(null);
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<{
     src: string;
@@ -198,6 +184,16 @@ export function WorkspaceFilesGallery({
     galleryItems: Array<{ src: string; downloadUrl?: string; filename?: string; alt?: string }>;
     currentIndex: number;
   } | null>(null);
+
+  const scopeOptions = useMemo(() => {
+    const options: Array<{ value: GalleryScope; label: string; disabled?: boolean }> = [];
+    if (allowSessionScope) {
+      options.push({ value: "session", label: t("workspaceFilesScopeSession") });
+    }
+    options.push({ value: "assistant", label: t("workspaceFilesScopeAssistant") });
+    options.push({ value: "workspace", label: t("workspaceFilesScopeWorkspace") });
+    return options;
+  }, [allowSessionScope, t]);
 
   const previewableMedia = useMemo(
     () =>
@@ -225,7 +221,6 @@ export function WorkspaceFilesGallery({
         const payload = await listChatWorkspaceFiles(token, {
           chatId,
           scope,
-          type: filter,
           cursor: null,
           limit: 24
         });
@@ -246,7 +241,7 @@ export function WorkspaceFilesGallery({
     return () => {
       cancelled = true;
     };
-  }, [chatId, filter, getToken, scope, t]);
+  }, [chatId, getToken, scope, t]);
 
   const loadMore = useCallback(async () => {
     if (!chatId || !nextCursor) return;
@@ -258,7 +253,6 @@ export function WorkspaceFilesGallery({
       const payload = await listChatWorkspaceFiles(token, {
         chatId,
         scope,
-        type: filter,
         cursor: nextCursor,
         limit: 24
       });
@@ -269,7 +263,7 @@ export function WorkspaceFilesGallery({
     } finally {
       setLoadingMore(false);
     }
-  }, [chatId, filter, getToken, nextCursor, scope, t]);
+  }, [chatId, getToken, nextCursor, scope, t]);
 
   const openPreview = useCallback(
     (file: ChatWorkspaceFileTile) => {
@@ -321,21 +315,21 @@ export function WorkspaceFilesGallery({
     async (file: ChatWorkspaceFileTile) => {
       const token = await getToken({ skipCache: true });
       if (!token) return;
-      if (file.chatId === null && workspaceId === null) {
+      if (workspaceId === null && file.chatId === null) {
         setFeedback(t("filesDeleteFailed"));
         return;
       }
       setBusyPath(file.storagePath);
       setFeedback(null);
       try {
-        if (file.chatId !== null) {
-          await deleteChatWorkspaceFile(token, {
-            chatId: file.chatId,
+        if (workspaceId !== null) {
+          await deleteWorkspaceFile(token, {
+            workspaceId,
             storagePath: file.storagePath
           });
         } else {
-          await deleteWorkspaceFile(token, {
-            workspaceId: workspaceId!,
+          await deleteChatWorkspaceFile(token, {
+            chatId: file.chatId!,
             storagePath: file.storagePath
           });
         }
@@ -365,69 +359,7 @@ export function WorkspaceFilesGallery({
         <p className="mt-1 text-xs text-text-muted">{t("filesDescription")}</p>
       </div>
 
-      <div className="flex flex-wrap gap-2" data-testid="workspace-files-scope">
-        <button
-          type="button"
-          disabled={!allowSessionScope}
-          onClick={() => setScope("session")}
-          className={cn(
-            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-            scope === "session"
-              ? "border-accent/40 bg-accent/10 text-text"
-              : "border-border/70 bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text"
-          )}
-        >
-          {t("workspaceFilesScopeSession")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setScope("assistant")}
-          className={cn(
-            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-            scope === "assistant"
-              ? "border-accent/40 bg-accent/10 text-text"
-              : "border-border/70 bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text"
-          )}
-        >
-          {t("workspaceFilesScopeAssistant")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setScope("workspace")}
-          className={cn(
-            "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-            scope === "workspace"
-              ? "border-accent/40 bg-accent/10 text-text"
-              : "border-border/70 bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text"
-          )}
-        >
-          {t("workspaceFilesScopeWorkspace")}
-        </button>
-      </div>
-
-      <div className="flex flex-wrap gap-2" data-testid="workspace-files-filters">
-        {FILTER_OPTIONS.map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => setFilter(option)}
-            className={cn(
-              "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-              filter === option
-                ? "border-accent/40 bg-accent/10 text-text"
-                : "border-border/70 bg-surface-raised text-text-muted hover:bg-surface-hover hover:text-text"
-            )}
-          >
-            {option === "all"
-              ? t("workspaceFilesFilterAll")
-              : option === "image"
-                ? t("workspaceFilesFilterImages")
-                : option === "video"
-                  ? t("workspaceFilesFilterVideos")
-                  : t("workspaceFilesFilterDocuments")}
-          </button>
-        ))}
-      </div>
+      <ScopeSegmentedChoice options={scopeOptions} value={scope} onChange={setScope} />
 
       {feedback ? <p className="text-xs text-text-subtle">{feedback}</p> : null}
 
@@ -438,15 +370,7 @@ export function WorkspaceFilesGallery({
         </div>
       ) : files.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border/80 bg-surface-raised/40 px-4 py-10 text-center">
-          <p className="text-sm font-medium text-text">
-            {filter === "image"
-              ? t("workspaceFilesEmptyImages")
-              : filter === "video"
-                ? t("workspaceFilesEmptyVideos")
-                : filter === "document"
-                  ? t("workspaceFilesEmptyDocuments")
-                  : t("filesEmptyTitle")}
-          </p>
+          <p className="text-sm font-medium text-text">{t("filesEmptyTitle")}</p>
         </div>
       ) : (
         <>
@@ -471,20 +395,9 @@ export function WorkspaceFilesGallery({
                         ? buildTileUrl({ tile: file, workspaceId, preview: true })
                         : null;
                 const { icon: DocIcon, colorClass: docColorClass } = documentIcon(file.mimeType);
-                const showMenu = hoveredPath === file.storagePath;
+                const isBusy = busyPath === file.storagePath;
                 return (
-                  <div
-                    key={file.storagePath}
-                    className="group"
-                    onMouseEnter={() => setHoveredPath(file.storagePath)}
-                    onMouseLeave={() =>
-                      setHoveredPath((current) => (current === file.storagePath ? null : current))
-                    }
-                    onContextMenu={(event) => {
-                      event.preventDefault();
-                      setHoveredPath(file.storagePath);
-                    }}
-                  >
+                  <div key={file.storagePath} className="group">
                     <div className="relative aspect-square overflow-hidden rounded-xl border border-border/45 bg-background/35 transition-colors hover:bg-surface-raised/45 hover:border-border/70">
                       <button
                         type="button"
@@ -518,11 +431,15 @@ export function WorkspaceFilesGallery({
                         ) : null}
                       </button>
 
-                      {/* Mobile: always-visible trash icon */}
-                      <div className="absolute right-1.5 top-1.5 z-20 md:hidden">
+                      <div
+                        className={cn(
+                          "absolute right-1.5 top-1.5 z-20 md:opacity-0 md:transition-opacity md:group-hover:opacity-100",
+                          isBusy && "md:opacity-100"
+                        )}
+                      >
                         <button
                           type="button"
-                          disabled={busyPath === file.storagePath}
+                          disabled={isBusy}
                           onClick={(event) => {
                             event.stopPropagation();
                             void handleDelete(file);
@@ -531,26 +448,12 @@ export function WorkspaceFilesGallery({
                           aria-label={t("filesDelete")}
                           title={t("filesDelete")}
                         >
-                          {busyPath === file.storagePath ? (
+                          {isBusy ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
                             <Trash2 className="h-3.5 w-3.5" />
                           )}
                         </button>
-                      </div>
-
-                      {/* Desktop: hover menu with download + delete */}
-                      <div className="hidden md:block">
-                        <TileMenu
-                          open={showMenu}
-                          busy={busyPath === file.storagePath}
-                          onDownload={() => {
-                            const url = buildTileUrl({ tile: file, workspaceId, download: true });
-                            if (url === null) return;
-                            window.open(url, "_blank", "noopener,noreferrer");
-                          }}
-                          onDelete={() => void handleDelete(file)}
-                        />
                       </div>
                     </div>
 

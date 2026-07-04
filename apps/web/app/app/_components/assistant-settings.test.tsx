@@ -701,17 +701,15 @@ describe("AssistantSettings Files", () => {
       expect(assistantApiMocks.listChatWorkspaceFiles).toHaveBeenCalledWith("token-1", {
         chatId: "chat-1",
         scope: "session",
-        type: "all",
         cursor: null,
         limit: 24
       });
     });
     expect(screen.getByTestId("workspace-files-gallery")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Current session" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "This assistant" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Workspace" })).toBeInTheDocument();
-    expect(screen.getByTestId("workspace-files-filters")).toBeInTheDocument();
-    expect(screen.getByText("Images")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Assistant" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "All files" })).toBeInTheDocument();
+    expect(screen.queryByTestId("workspace-files-filters")).toBeNull();
     expect(screen.queryByTestId("assistant-files-bucket-filters")).toBeNull();
   });
 });

@@ -1,5 +1,8 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { RuntimeSharedCompactionConfig } from "@persai/runtime-contract";
+import {
+  buildAssistantSessionRoot,
+  type RuntimeSharedCompactionConfig
+} from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -554,6 +557,49 @@ export class ManageWebChatListService {
       (sum, attachment) => sum + attachment.sizeBytes,
       BigInt(0)
     );
+
+    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
+      assistant.id
+    );
+    const runtimeSessionState = await this.webRuntimeSessionStateClientService.execute({
+      assistantId: assistant.id,
+      workspaceId: assistant.workspaceId,
+      runtimeTier,
+      surfaceThreadKey: chat.surfaceThreadKey,
+      userId: assistant.userId
+    });
+    const sessionRoot =
+      runtimeSessionState.session === null
+        ? null
+        : buildAssistantSessionRoot(assistant.id, runtimeSessionState.session.sessionId);
+    const attachmentPaths = new Set<string>();
+    for (const attachment of attachments) {
+      if (attachment.storagePath) {
+        attachmentPaths.add(attachment.storagePath);
+      }
+      if (attachment.thumbnailStoragePath) {
+        attachmentPaths.add(attachment.thumbnailStoragePath);
+      }
+      if (attachment.posterStoragePath) {
+        attachmentPaths.add(attachment.posterStoragePath);
+      }
+    }
+    const manifestDeleteOr: Array<
+      { originChatId: string } | { path: { in: string[] } } | { path: { startsWith: string } }
+    > = [{ originChatId: chat.id }];
+    if (attachmentPaths.size > 0) {
+      manifestDeleteOr.push({ path: { in: [...attachmentPaths] } });
+    }
+    if (sessionRoot !== null) {
+      manifestDeleteOr.push({ path: { startsWith: `${sessionRoot}/` } });
+    }
+    await this.prisma.workspaceFileMetadata.deleteMany({
+      where: {
+        workspaceId: assistant.workspaceId,
+        OR: manifestDeleteOr
+      }
+    });
+
     await this.mediaObjectStorage.deletePrefix(
       this.mediaObjectStorage.buildChatPrefix({
         assistantId: assistant.id,
