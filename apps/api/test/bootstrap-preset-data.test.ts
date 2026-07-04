@@ -492,6 +492,39 @@ async function runToolsSingleOwnerRoutingAdr130D1(): Promise<void> {
   );
 }
 
+async function runCatalogProjectionAdr135S4(): Promise<void> {
+  const tools = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.tools ?? "";
+  assert.equal(
+    countOccurrences(tools, "<catalog_projection>"),
+    1,
+    "ADR-135 S4: tools template must include exactly one <catalog_projection> rule block"
+  );
+  assert.equal(
+    countOccurrences(tools, "</catalog_projection>"),
+    1,
+    "ADR-135 S4: <catalog_projection> must be balanced"
+  );
+  assert.match(
+    tools,
+    /call `\{tool\}\(\{action:"describe"\}\)` on that same tool to load its full contract/i,
+    'ADR-135 S4: catalog-tier tools must require {tool}({action:"describe"}) before first real execution'
+  );
+  assert.match(
+    tools,
+    /Which tool to use stays in the routing rules above/i,
+    "ADR-135 S4: routing which tool must stay in existing guide rules, not catalog_projection"
+  );
+  const catalogBlock = tools.slice(
+    tools.indexOf("<catalog_projection>"),
+    tools.indexOf("</catalog_projection>") + "</catalog_projection>".length
+  );
+  assert.doesNotMatch(
+    catalogBlock,
+    /`video_generate\(\{action:"describe"\}\)`|`document\(\{action:"describe"\}\)`|`image_generate\(\{action:"describe"\}\)`/i,
+    "ADR-135 S4: catalog_projection must not duplicate per-tool describe routing prose"
+  );
+}
+
 async function run(): Promise<void> {
   await runXmlBalance();
   await runOuterTagPresence();
@@ -503,6 +536,7 @@ async function run(): Promise<void> {
   await runPresenceSlice12();
   await runToolsWorkspaceCategoryAdr123Slice7();
   await runToolsSingleOwnerRoutingAdr130D1();
+  await runCatalogProjectionAdr135S4();
 }
 
 void run();

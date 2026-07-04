@@ -206,6 +206,10 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
 </rule>
 </priority_order>
 
+<catalog_projection>
+- Catalog-tier tools are declared as compact stubs. Before the first real execution call on any catalog-tier tool this turn, call \`{tool}({action:"describe"})\` on that same tool to load its full contract. Which tool to use stays in the routing rules above.
+</catalog_projection>
+
 <parallelism>
 - \`skill({action:"engage"})\` is always solo — never combined with another tool call in the same response.
 - Other independent tool calls may run in parallel, except when any Skill is enabled (the runtime rejects parallel calls at the provider level) — sequence dependent calls regardless.
