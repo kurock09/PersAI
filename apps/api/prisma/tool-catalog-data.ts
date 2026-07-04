@@ -118,12 +118,11 @@ GOTCHAS:
     modelUsageGuidance: `WHEN TO USE: User asks for a PDF document, DOCX/Word file, XLSX/spreadsheet, report, manual, instruction, table, or other ordinary document output.
 EXAMPLES:
 - document({action:"inspect", path:"/workspace/.../source.docx"}) — inspect an existing PDF/DOCX/XLSX source by exact path copied from Working Files or files.list.
-- document({action:"render", requestedName:"q2.pdf", format:"pdf", content:"# Q2 Report\n\nSummary..."}) — render a new PDF directly from inline Markdown into the current session root.
-- document({action:"render", requestedName:"q2.docx", format:"docx", contentPath:"/workspace/.../reports/q2.md", style:"report"}) — render a DOCX from an existing Markdown file path copied from tools into the current session root.
-- document({action:"render", requestedName:"table.xlsx", format:"xlsx", content:"# Revenue\n\n| Month | Revenue |\n| --- | --- |\n| Jan | 10 |"}) — render a trivial single-sheet XLSX from flat Markdown tables only; no formulas, charts, or multi-sheet logic.
-- document({action:"convert", source:"/workspace/.../source.docx", targetFormat:"pdf", requestedName:"source.pdf"}) — convert an existing document path copied from tools and deliver the output in the current session root.
+- document({action:"render", requestedName:"q2.pdf", format:"pdf", content:"# Q2 Report\n\nSummary..."}) — render a new PDF from inline Markdown into the current session root.
+- document({action:"render", requestedName:"q2.docx", format:"docx", contentPath:"/workspace/.../reports/q2.md", style:"report"}) — render a DOCX from an existing Markdown path, same destination.
+- document({action:"render", requestedName:"table.xlsx", format:"xlsx", content:"# Revenue\n\n| Month | Revenue |\n| --- | --- |\n| Jan | 10 |"}) — trivial single-sheet XLSX from flat Markdown tables only; no formulas, charts, or multi-sheet logic.
+- document({action:"convert", source:"/workspace/.../source.docx", targetFormat:"pdf", requestedName:"source.pdf"}) — convert an existing path copied from tools; output lands in the same session root.
 GOTCHAS:
-- The document surface is exactly three verbs: \`inspect\`, \`render\`, and \`convert\`.
 - \`document.inspect\` returns \`editMethod\`: \`shell_native\` for uploaded PDF/DOCX/XLSX without a sibling \`.md\`; \`render_from_markdown\` when that sibling exists.
 - The model should provide only \`requestedName\` for new render/convert outputs, never an absolute workspace path. The runtime owns the real current-session output directory and returns the final \`outputPath\`.
 - \`document.render\` with \`format:"xlsx"\` is only for very simple spreadsheets: one sheet, flat Markdown tables, no formulas/charts/conditional formatting/multi-sheet models. Complex XLSX belongs in one \`shell\` script per user turn.
@@ -148,7 +147,7 @@ EXAMPLES:
 - presentation({descriptorMode:"revise_document", docId:"…", prompt:"…"}) — revise an existing PersAI presentation.
 - presentation({descriptorMode:"export_or_redeliver", docId:"…", outputFormat:"pptx", prompt:"…"}) — prepare editable PPTX only when the user explicitly asked for PowerPoint.
 GOTCHAS:
-- Chat delivery for create_presentation and presentation revise_document is always PDF. outputFormat=pptx is only for export_or_redeliver when the user explicitly asked for PPTX/PowerPoint.
+- Only export_or_redeliver may set outputFormat=pptx, and only when the user explicitly asked for PPTX/PowerPoint.
 - Fill visualStyle, imagePolicy, and visualDensity only when visual intent is clear.
 `,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
@@ -292,26 +291,23 @@ GOTCHAS:
     description:
       "Path-driven workspace file operations: list, read, preview, write, delete, attach.",
     modelDescription:
-      "Path-driven file operations on hierarchical `/workspace/...` paths. New visible files are created from `requestedName` or a relative path and the runtime places them under the real current session root. Widen by exact listed parent paths only when needed. Read/preview/delete/attach by exact listed path; never reconstruct paths from displayName/filename or spell assistant/session IDs. Writes are collision-safe by default, with `replace: true` as the exact-overwrite opt-in.",
-    modelUsageGuidance: `Files in this workspace use hierarchical \`/workspace/...\` paths, but the model must not construct assistant/session IDs. Call \`files.list\` with no path to see current-session files. To create a new visible file, use \`files.write\` with \`requestedName\` (or a relative path) and string \`content\`; the runtime prepends the real current session root and returns the final \`path\`. Read/preview/attach/delete by exact path from the Working Files block, a \`files.list\`, or a prior tool result. Widen only by choosing an exact listed parent path when the user needs broader files. By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` on \`files.write\` only when the user explicitly asked to overwrite that exact file. Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. Use \`/tmp/\` for ephemeral scratch that the user should not see.
-WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview file content, write a new or updated file, delete a path, or attach an existing workspace file to chat.
+      "Path-driven file operations under the assistant's current session root. For new files, pass `requestedName` or a relative path — the runtime prepends the real current session root and returns the final path; the model must not construct assistant/session IDs itself. For existing files, use the exact path from the Working Files block, `files.list`, or a prior tool result — never reconstruct paths from displayName/filename. Writes are collision-safe by default (a new sibling name on collision), with `replace: true` as the exact-overwrite opt-in.",
+    modelUsageGuidance: `WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview content, write a new or updated file, delete a path, attach an existing file to chat, or search by name/path/description.
 EXAMPLES:
 - files({action:"list"}) — list the current session root.
-- files({action:"list", path:"/workspace/assistants/..."}) — widen to this assistant's broader files only by exact parent path copied from tools.
-- files({action:"list", path:"/workspace/"}) — widen to the whole workspace only when needed.
-- files({action:"read", path:"/workspace/.../report.csv"}) — read a current-session file by exact path copied from Working Files or files.list.
+- files({action:"list", path:"/workspace/assistants/..."}) — widen only by an exact parent path copied from tools or Working Files.
+- files({action:"read", path:"/workspace/.../report.csv"}) — read by exact copied path.
 - files({action:"preview", path:"/workspace/.../notes.md", maxBytes:4096}) — peek at the head of a large file by exact copied path.
 - files({action:"write", requestedName:"draft.txt", content:"hello"}) — create a new current-session file; runtime returns the final path.
-- files({action:"delete", path:"/workspace/.../tmp.bin"}) — remove an unneeded file by exact copied path.
+- files({action:"delete", path:"/workspace/.../tmp.bin"}) — remove a file by exact copied path.
 - files({action:"attach", path:"/workspace/.../draft.txt"}) — deliver an existing file by exact copied path.
+- files({action:"search", query:"invoice"}) — look up a file by filename, path, or cached description.
 GOTCHAS:
-- Seven actions: list, read, preview, write, delete, attach, search. There is no legacy file-id selector and no send/edit action here. Use search for natural-language lookup by filename, path, or cached shortDescription.
-- Never spell assistant/session IDs for new files. Use \`requestedName\` or a relative write path; runtime owns the current-session root. Use /tmp/ for ephemeral scratch.
-- For list supply the directory path; for read/preview/delete/attach supply the file path; for new writes prefer \`requestedName\`.
-- For read/preview you may pass \`maxBytes\` to cap returned bytes; for list you may pass \`maxDepth\` to bound recursion. Server-side limits still apply.
-- The active widen model is path-based: start by omitting path, then widen only to exact parent paths returned by tools or Working Files when the user needs that broader view.
-- By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` only when the user explicitly asked to overwrite that exact file.
-- attach delivers an EXISTING file; it does not regenerate. Attach only the final output of this turn or a file the user explicitly asked to resend — never bulk-attach unrelated session files. If the file is not yet written, write it first.`,
+- Seven actions: list, read, preview, write, delete, attach, search — search matches query tokens against path, filename, and cached shortDescription.
+- Never spell assistant/session IDs; the runtime resolves the current session root for you.
+- Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. Use \`/tmp/\` for ephemeral scratch the user should not see.
+- \`maxBytes\` caps returned bytes for read/preview; \`maxDepth\` bounds recursion for list. Server-side limits still apply.
+- attach delivers an EXISTING file, never regenerates it — attach only this turn's output or a file the user explicitly asked to resend, never unrelated session files. If the file is not yet written, write it first.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -341,21 +337,18 @@ GOTCHAS:
     displayName: "Shell",
     description: "Run a bounded shell command inside the isolated sandbox workspace.",
     modelDescription: "Run a bounded shell command inside the assistant sandbox workspace.",
-    modelUsageGuidance: `WHEN TO USE: Use shell proactively for multi-step autonomous work — pipelines, shell builtins, process composition, running scripts, build commands, transformations, runtime package installs, Git operations, and any multi-command sequencing inside the sandbox. Shell is the primary autonomous execution surface; do not wait to be asked.
-SHELL ENVIRONMENT: /bin/bash with brace expansion, [[ … ]], <(…), set -o pipefail. The default cwd is the real current session root chosen by the runtime; do not construct assistant/session IDs yourself. Python 3 with system packages, plus session-scoped pip user-site under that session root (for example \`.local\`). Node 22 LTS with npm; session-local installs stay under the current session root (for example \`node_modules\` or \`.npm-global\`). Egress over HTTPS is allowlisted for github.com, *.github.com, *.githubusercontent.com, pypi.org, files.pythonhosted.org, registry.npmjs.org, *.npmjs.com — other hosts are denied.
+    modelUsageGuidance: `WHEN TO USE: Use shell proactively for multi-step autonomous work inside the sandbox — pipelines, scripts, builds, package installs, Git operations, any multi-command sequencing. It's the primary autonomous execution surface; don't wait to be asked.
+SHELL ENVIRONMENT: /bin/bash with brace expansion, [[ … ]], <(…), set -o pipefail. Default cwd is the real current session root the runtime chose; do not construct assistant/session IDs yourself. Python 3 (system packages plus session-scoped pip user-site, e.g. \`.local\`) and Node 22 LTS with npm (session-local installs, e.g. \`node_modules\`/\`.npm-global\`) — neither leaks across assistants or workspaces. HTTPS egress is allowlisted for github.com, *.github.com, *.githubusercontent.com, pypi.org, files.pythonhosted.org, registry.npmjs.org, *.npmjs.com; other hosts are denied.
 EXAMPLES:
-- shell({command:"pip install --quiet rich && python3 -c 'import rich; rich.print({\\"ok\\": True})'"}) — install a Python package (session-scoped) and use it.
-- shell({command:"npm install left-pad && node -e 'console.log(require(\\"left-pad\\")(\\"42\\", 5, \\"0\\"))'"}) — install a Node package locally.
+- shell({command:"pip install --quiet rich && python3 -c 'import rich; rich.print({\\"ok\\": True})'"}) — install and use a Python package.
 - shell({command:"git clone --depth 1 https://github.com/sindresorhus/awesome.git"}) — public HTTPS clone.
-- shell({command:"git push https://<user>:<pat>@github.com/<owner>/<repo>.git main"}) — push to GitHub when you supply your own credentials in the URL (no PersAI token is injected; without auth GitHub returns 401).
+- shell({command:"git push https://<user>:<pat>@github.com/<owner>/<repo>.git main"}) — push with your own credentials in the URL; PersAI injects no token (401 without auth).
 - shell({command:"npm install && npm run build"}) — multi-step build pipeline.
 - shell({command:"python3 script.py --input data.csv --output result.json"}) — run a script with arguments.
-- For office-file edits (DOCX/XLSX/PDF), prefer one complete \`shell\` script per user turn instead of multiple overwrite passes on the same path.
+- For office-file edits (DOCX/XLSX/PDF), prefer one complete \`shell\` script per turn over multiple overwrite passes.
 GOTCHAS:
 - Refer to workspace files by pod-absolute path (/workspace/...) or by paths relative to the current session root.
-- pip install / npm install stay session-scoped under the current session root; they do not leak across assistants or workspaces.
-- git push: PersAI never injects a GitHub token. Either bake credentials into the URL or write your own ~/.gitconfig — without auth GitHub returns 401.
-- Non-allowlisted hosts (gitlab.com, bitbucket.org, custom CDNs) are denied at the egress proxy by SNI — a 1-line allowlist follow-up is the only path to expand.
+- gitlab.com, bitbucket.org, and other non-allowlisted hosts need a 1-line allowlist follow-up before shell can reach them.
 - Stay within sandbox CPU / memory / time limits.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,

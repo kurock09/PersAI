@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
-import { projectRuntimeNativeTools } from "../src/modules/turns/native-tool-projection";
+import {
+  projectRuntimeNativeTools,
+  TOOL_DESCRIPTION_CAP
+} from "../src/modules/turns/native-tool-projection";
 import { TOOL_CATALOG } from "../../api/prisma/tool-catalog-data";
 import {
   ANTI_COLLAGE_RULE,
@@ -713,9 +716,19 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /For distinct carousel\/slideshow\/frame requests, set outputMode='series'/i
   );
   // ADR-119 Slice 7 / ADR-117: cross-tool prose removed from per-tool projection hint.
+  // ADR-130 Slice 4: the pending_delivery honesty rule itself now lives solely in the
+  // always-on DELIVERY_HONESTY_CONTRACT dev-tail (see turn-execution.service.test.ts /
+  // deferred-media-acknowledgement.test.ts); the per-tool hint keeps only the
+  // tool-specific quota/plan-limit and quota_status pointer.
   assert.match(
     imageGenerate?.description ?? "",
-    /do NOT claim anything is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
+    /action='skipped'.*quota or plan limit.*use that guidance in the reply/i
+  );
+  assert.match(imageGenerate?.description ?? "", /call quota_status for image_generate/);
+  assert.doesNotMatch(
+    imageGenerate?.description ?? "",
+    /acknowledge only that/i,
+    "ADR-130 Slice 4: verbatim pending-delivery honesty paragraph must not be duplicated per-tool"
   );
   const imageEditBackground = (
     imageEdit?.inputSchema as {
@@ -743,9 +756,17 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /For distinct carousel\/slideshow\/frame requests, set outputMode='series'/i
   );
   assert.match(imageEdit?.description ?? "", /same source product\/object identity across slides/i);
+  // ADR-130 Slice 4: honesty rule owned solely by the dev-tail DELIVERY_HONESTY_CONTRACT;
+  // the per-tool hint keeps only the quota/plan-limit and quota_status pointer.
   assert.match(
     imageEdit?.description ?? "",
-    /do NOT claim anything is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
+    /action='skipped'.*quota or plan limit.*use that guidance in the reply/i
+  );
+  assert.match(imageEdit?.description ?? "", /call quota_status for image_edit/);
+  assert.doesNotMatch(
+    imageEdit?.description ?? "",
+    /acknowledge only that/i,
+    "ADR-130 Slice 4: verbatim pending-delivery honesty paragraph must not be duplicated per-tool"
   );
   assert.deepEqual(imageEditBackground?.enum, ["auto", "transparent", "opaque"]);
   assert.match(imageEditBackground?.description ?? "", /remove background/);
@@ -785,9 +806,17 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       videoGenerateSchema.properties?.seconds?.description ?? "",
       /HeyGen talking-avatar duration follows speechText length/i
     );
+    // ADR-130 Slice 4: honesty rule owned solely by the dev-tail DELIVERY_HONESTY_CONTRACT;
+    // the per-tool hint keeps only the quota/plan-limit and quota_status pointer.
     assert.match(
       videoGenerate.description ?? "",
-      /do NOT claim anything is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId/
+      /action='skipped'.*quota or plan limit.*use that guidance in the reply/i
+    );
+    assert.match(videoGenerate.description ?? "", /call quota_status for video_generate/);
+    assert.doesNotMatch(
+      videoGenerate.description ?? "",
+      /acknowledge only that/i,
+      "ADR-130 Slice 4: verbatim pending-delivery honesty paragraph must not be duplicated per-tool"
     );
     const videoGenerateReferenceImageAlias = videoGenerateSchema.properties?.referenceImageAlias;
     assert.match(
@@ -1023,6 +1052,20 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /create_presentation|slide decks only/i,
     "presentation description must stay on deferred deck modes"
   );
+  // ADR-130 Slice 4: honesty rule owned solely by the dev-tail DELIVERY_HONESTY_CONTRACT;
+  // the per-tool hint keeps only the quota/plan-limit, quota_status pointer, and the
+  // presentation-specific no-duplicate-delivery note.
+  assert.match(
+    presentation?.description ?? "",
+    /action='skipped'.*quota or plan limit.*use that guidance in the reply/i
+  );
+  assert.match(presentation?.description ?? "", /call quota_status for document/);
+  assert.match(presentation?.description ?? "", /already routed to the user once it finishes/i);
+  assert.doesNotMatch(
+    presentation?.description ?? "",
+    /acknowledge only that/i,
+    "ADR-130 Slice 4: verbatim pending-delivery honesty paragraph must not be duplicated per-tool"
+  );
   assert.deepEqual(presentationProperties?.outputFormat?.enum, ["pdf", "pptx"]);
   assert.match(presentationProperties?.docId?.description ?? "", /presentation document UUID/);
   assert.match(
@@ -1046,7 +1089,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "visual_heavy",
     "text_heavy"
   ]);
-  assert.match(presentationProperties?.visualStyle?.description ?? "", /presentation-only/);
+  assert.match(presentationProperties?.visualStyle?.description ?? "", /presentation-only/i);
   assert.match(presentationProperties?.imagePolicy?.description ?? "", /visual deck/);
   assert.match(presentationProperties?.visualDensity?.description ?? "", /denser slide copy/);
   assert.doesNotMatch(
@@ -1893,17 +1936,19 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
   );
   assert.match(
     bootstrapSource,
-    /The \\`<enabled_skills>\\` block lists professional Skills/,
+    /\\`<enabled_skills>\\` lists the Skills the user enabled/,
     `ADR-118: skills category must point the model at the <enabled_skills> block as the source of truth`
   );
   assert.match(
     bootstrapSource,
-    /\\`id\\` attribute — the exact opaque identifier to pass as \\`skillId\\`/,
+    /\\`id\\` attribute is the exact opaque \\`skillId\\`/,
     `ADR-118: skills category must call out the id attribute as the exact identifier to pass as skillId`
   );
+  // ADR-130 Slice 1 (tools guide compression): "NEVER" emphasis dialed back to
+  // "never" per Anthropic guidance; the hard exclusivity rule itself is unchanged.
   assert.match(
     bootstrapSource,
-    /NEVER substitute the display name, category, or any other value/,
+    /never substitute the display name or category/i,
     `ADR-118: skills category must forbid substituting display name for skillId`
   );
   assert.match(
@@ -1934,9 +1979,11 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
     /<priority_order>/,
     `ADR-119 Slice 6 (d): tools template must contain <priority_order> block`
   );
+  // ADR-130 Slice 1 (tools guide compression): "Skills are the gate" tightened to
+  // "Skills gate first"; the #1-gate routing intent is unchanged.
   assert.match(
     bootstrapSource,
-    /Skills are the gate/,
+    /Skills gate first/,
     `ADR-119 Slice 6 (d): <priority_order> must enumerate Skills as #1 gate`
   );
   // (e) ADR-119 Slice 6: <parallelism> block must state skill({engage}) is solo.
@@ -1945,10 +1992,12 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
     /<parallelism>/,
     `ADR-119 Slice 6 (e): tools template must contain <parallelism> block`
   );
+  // ADR-130 Slice 1: "ALWAYS solo" tightened to "always solo"; the hard
+  // single-tool-call constraint itself is unchanged.
   assert.match(
     bootstrapSource,
-    /ALWAYS solo/,
-    `ADR-119 Slice 6 (e): <parallelism> must state skill({engage}) is ALWAYS solo`
+    /is always solo/i,
+    `ADR-119 Slice 6 (e): <parallelism> must state skill({engage}) is always solo`
   );
   // ADR-119 Slice 6: <failure_handling> block must mention pending_delivery.
   assert.match(
@@ -2606,7 +2655,9 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
   // contain "WHEN TO USE:" and the first sentence of that section.
   {
     const longGuidancePrefix = "WHEN TO USE: This is the important condition.\n";
-    const longGuidancePadding = "x".repeat(2000);
+    // Must exceed TOOL_DESCRIPTION_CAP so the truncation mechanism is still genuinely
+    // exercised after the cap was raised from 1024 to 4096.
+    const longGuidancePadding = "x".repeat(TOOL_DESCRIPTION_CAP + 500);
     const longGuidance = `${longGuidancePrefix}${longGuidancePadding}\nWHEN NOT TO USE: Never.\nEXAMPLES:\n- ex.\nGOTCHAS:\n- g.`;
 
     const truncationBundle = compileAssistantRuntimeBundle({
@@ -2765,8 +2816,8 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
 
     const desc = memoryWriteTool?.description ?? "";
     assert.ok(
-      desc.length <= 1024,
-      `ADR-119 Slice 7 safe-fallback: description must be truncated to ≤1024 chars (got ${String(desc.length)})`
+      desc.length <= TOOL_DESCRIPTION_CAP,
+      `ADR-119 Slice 7 safe-fallback: description must be truncated to ≤${String(TOOL_DESCRIPTION_CAP)} chars (got ${String(desc.length)})`
     );
     assert.ok(
       desc.includes("WHEN TO USE:"),
@@ -2798,9 +2849,11 @@ export async function runAdr119Invariantstest(): Promise<void> {
     /<priority_order>/,
     "ADR-119 GT3: tools template must contain <priority_order> block"
   );
+  // ADR-130 Slice 1 (tools guide compression): "Skills are the gate" tightened to
+  // "Skills gate first"; the #1-gate routing intent is unchanged.
   assert.match(
     bootstrapSource,
-    /Skills are the gate/,
+    /Skills gate first/,
     "ADR-119 GT3: <priority_order> must enumerate Skills as #1 gate"
   );
   // Skills rule must appear BEFORE any other priority rule in the <priority_order> block.
@@ -2810,10 +2863,10 @@ export async function runAdr119Invariantstest(): Promise<void> {
     "ADR-119 GT3: <priority_order> block must be present and balanced"
   );
   const priorityOrderBody = priorityOrderMatch![1] ?? "";
-  const skillsIdx = priorityOrderBody.indexOf("Skills are the gate");
+  const skillsIdx = priorityOrderBody.indexOf("Skills gate first");
   const knowledgeIdx = priorityOrderBody.indexOf("Knowledge before web");
   const mediaIdx = priorityOrderBody.indexOf("Media routing");
-  assert.ok(skillsIdx !== -1, "ADR-119 GT3: 'Skills are the gate' must appear in <priority_order>");
+  assert.ok(skillsIdx !== -1, "ADR-119 GT3: 'Skills gate first' must appear in <priority_order>");
   assert.ok(
     skillsIdx < knowledgeIdx || knowledgeIdx === -1,
     "ADR-119 GT3: Skills rule must appear before 'Knowledge before web' in <priority_order>"
@@ -2829,10 +2882,12 @@ export async function runAdr119Invariantstest(): Promise<void> {
     /<parallelism>/,
     "ADR-119 GT3: tools template must contain <parallelism> block"
   );
+  // ADR-130 Slice 1: "ALWAYS solo" tightened to "always solo"; the hard
+  // single-tool-call constraint itself is unchanged.
   assert.match(
     bootstrapSource,
-    /ALWAYS solo/,
-    "ADR-119 GT3: <parallelism> must state skill({engage}) is ALWAYS solo"
+    /is always solo/i,
+    "ADR-119 GT3: <parallelism> must state skill({engage}) is always solo"
   );
 
   // <failure_handling> block must mention pending_delivery.

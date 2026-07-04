@@ -268,21 +268,25 @@ async function run(): Promise<void> {
   // resolution so the model never has to spell assistant/session IDs.
   assert.match(
     filesPolicy?.description ?? "",
-    /New visible files are created from `requestedName` or a relative path/
+    /For new files, pass `requestedName` or a relative path/
   );
   assert.equal(
     filesPolicy?.description ?? "",
     FILES_CATALOG_ROW?.modelDescription ?? "",
     "files description must flow from the catalog owner without a runtime-policy shadow override"
   );
-  assert.match(filesPolicy?.description ?? "", /exact listed path/);
+  assert.match(filesPolicy?.description ?? "", /exact path from the Working Files block/);
   assert.match(
     filesPolicy?.description ?? "",
-    /never reconstruct paths from displayName\/filename or spell assistant\/session IDs/
+    /never reconstruct paths from displayName\/filename/
   );
   assert.match(
     filesPolicy?.description ?? "",
-    /runtime places them under the real current session root/
+    /must not construct assistant\/session IDs/
+  );
+  assert.match(
+    filesPolicy?.description ?? "",
+    /runtime prepends the real current session root/
   );
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/input/);
@@ -299,14 +303,14 @@ async function run(): Promise<void> {
     FILES_CATALOG_ROW?.modelUsageGuidance ?? "",
     "files usage guidance must flow from the catalog owner without a runtime-policy shadow override"
   );
-  assert.match(filesPolicy?.usageGuidance ?? "", /exact path from the Working Files block/);
+  assert.match(filesPolicy?.usageGuidance ?? "", /copied from tools or Working Files/);
   assert.match(
     filesPolicy?.usageGuidance ?? "",
     /Do not reconstruct upload paths from displayName\/filename/
   );
   assert.match(
     filesPolicy?.usageGuidance ?? "",
-    /Call `files\.list` with no path to see current-session files/
+    /files\(\{action:"list"\}\) — list the current session root/
   );
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(
@@ -322,7 +326,7 @@ async function run(): Promise<void> {
   assert.match(filesPolicy?.usageGuidance ?? "", /^EXAMPLES:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^GOTCHAS:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /seven actions|Seven actions/i);
-  assert.match(filesPolicy?.usageGuidance ?? "", /Use search for natural-language lookup/i);
+  assert.match(filesPolicy?.usageGuidance ?? "", /search matches query tokens against path, filename, and cached shortDescription/);
   assert.match(filesPolicy?.usageGuidance ?? "", /action:"attach"/);
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /coming soon/i);
   assert.doesNotMatch(

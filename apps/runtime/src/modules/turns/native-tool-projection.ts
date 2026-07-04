@@ -44,13 +44,18 @@ function appendToolDefinitionHint(base: string, hint: string): string {
   return base.includes(hint) ? base : `${base} ${hint}`;
 }
 
+// ADR-130 Slice 4: the pending_delivery honesty rule (do not claim anything is
+// queued/accepted/in-progress/attached/sent without a real structural jobId
+// result) is owned exclusively by the always-on `DELIVERY_HONESTY_CONTRACT` in
+// `turn-execution.service.ts`, shipped every turn via `developerInstructions`
+// (section key `delivery_contract`). This per-tool hint only adds the bits
+// that dev-tail contract does not cover: the action='skipped' quota/plan-limit
+// reply guidance and the tool-specific quota_status lookup pointer.
 function buildPendingDeliveryHint(params: {
-  subject: string;
   quotaToolCode: "image_generate" | "image_edit" | "video_generate" | "document";
   extra?: string;
 }): string {
   return [
-    `If the tool returns action='pending_delivery' with canSendFileNow=false, acknowledge only that ${params.subject} and will arrive separately; do NOT claim anything is already queued, accepted, in progress, ready, visible, attached, or sent unless this same turn actually got that structural pending result with a real jobId.`,
     "If the tool returns action='skipped' because of a quota or plan limit and guidance is present, use that guidance in the reply and do not stop at the limit message.",
     `If concrete package or upgrade options are still missing, call quota_status for ${params.quotaToolCode} before the final answer.`,
     params.extra ?? null
@@ -387,42 +392,41 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
           type: "string",
           enum: ["write", "close"],
           description:
-            'Defaults to "write" (record a new memory). Use "close" to deterministically resolve a known open loop by its `ref`. When "close", `ref` is required and `kind`/`memory`/`closeOpenLoop` MUST be omitted.'
+            'Defaults to "write" (record a new memory). Use "close" to resolve a known open loop by its `ref`; when "close", `ref` is required and `kind`/`memory`/`closeOpenLoop` must be omitted.'
         },
         kind: {
           type: "string",
           enum: [...PERSAI_RUNTIME_MEMORY_WRITE_KINDS],
-          description:
-            'Required when action is "write" (or omitted). Label the memory as fact, preference, or open_loop.'
+          description: 'For "write": fact, preference, or open_loop.'
         },
         memory: {
           type: "string",
           maxLength: MEMORY_WRITE_MAX_CHARS,
           description:
-            'Required when action is "write" (or omitted). One concise genuinely durable memory statement to store. Do not write greetings, acknowledgements, or one-off chatter.'
+            'For "write": one concise genuinely durable memory statement. Not greetings, acknowledgements, or one-off chatter.'
         },
         layer: {
           type: "string",
           enum: [...PERSAI_RUNTIME_MEMORY_WRITE_LAYERS],
           description:
-            'Required when action is "write" (or omitted). Use "long" for stable long-term facts, lasting preferences, or durable decisions. Use "short" for recent working context that should decay naturally after it stops mattering.'
+            'For "write": "long" for stable long-term facts, lasting preferences, or durable decisions; "short" for recent working context that should decay naturally.'
         },
         confidence: {
           type: "number",
           minimum: 0,
           maximum: 1,
           description:
-            'Optional when action is "write". Confidence in this memory being worth storing. Use it honestly; low-confidence or marginal memories should usually be skipped instead of written.'
+            'Optional for "write". Honest confidence this memory is worth storing; skip low-confidence or marginal memories instead of writing them.'
         },
         closeOpenLoop: {
           type: "boolean",
           description:
-            'Set true on a `write` action ONLY when this memory_write also resolves a previously recorded open loop and you do NOT have a precise `ref` from the carry-over block. The runtime will look up the most similar active open loop and mark it resolved. Prefer `action:"close"` with a `ref` from the carry-over block when one is available.'
+            'Set true on a `write` action only when it also resolves a previously recorded open loop and you lack a precise `ref` from the carry-over block; the runtime finds the most similar active open loop and marks it resolved. Prefer `action:"close"` with a `ref` when one is available.'
         },
         ref: {
           type: "string",
           description:
-            'Required when action is "close". Opaque open-loop reference shown next to each loop in the cross-session carry-over block as `[ref: ...]`. Pass it back verbatim to close that exact loop.'
+            'Required when action is "close". Opaque open-loop reference shown as `[ref: ...]` in the carry-over block; pass it back verbatim.'
         }
       }
     }
@@ -442,12 +446,12 @@ function createTodoWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           type: "string",
           enum: [...PERSAI_RUNTIME_TODO_WRITE_ACTIONS],
           description:
-            "One operation per call. add (create new items), update (rewrite content, status, or parent of an existing item by id), complete (mark an item done by id; rejected if it has open children), remove (soft-delete an item and its descendants by id), clear (wipe the entire chat plan)."
+            "One operation per call: add (create items), update (rewrite content/status/parent by id), complete (mark done by id; rejected if open children exist), remove (soft-delete item + descendants by id), clear (wipe the chat plan)."
         },
         items: {
           type: "array",
           description:
-            "Required for action=add. Each item: { content, parentId?, status? }. Provide concise content (<=240 chars). parentId attaches the item under an existing item id; the server rejects unknown or completed parents. status defaults to pending and cannot be completed on add.",
+            "Required for action=add. Each item: { content, parentId?, status? }, content <=240 chars. parentId attaches under an existing item id (unknown/completed parents rejected). status defaults to pending; cannot be completed on add.",
           items: {
             type: "object",
             additionalProperties: false,
@@ -461,14 +465,13 @@ function createTodoWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
               },
               parentId: {
                 type: "string",
-                description:
-                  "Optional parent todo id to attach this item as a child. Omit for a top-level item."
+                description: "Parent todo id to attach this item as a child. Omit for top-level."
               },
               status: {
                 type: "string",
                 enum: ["pending", "in_progress"],
                 description:
-                  "Optional initial status. Defaults to pending. completed cannot be set on add; only one in_progress per parent scope (extras are coerced to pending with a warning)."
+                  "Initial status, defaults to pending. completed cannot be set on add; only one in_progress per parent scope (extras coerced to pending with a warning)."
               }
             }
           }
@@ -476,7 +479,7 @@ function createTodoWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
         id: {
           type: "string",
           description:
-            "Required for action=update | complete | remove. The exact server-minted id of the todo (from a previous todo_write response)."
+            "Required for action=update|complete|remove. Exact server-minted todo id from a prior todo_write response."
         },
         content: {
           type: "string",
@@ -488,12 +491,12 @@ function createTodoWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           type: "string",
           enum: [...PERSAI_RUNTIME_TODO_WRITE_STATUSES],
           description:
-            "Optional new status for action=update. completed is rejected if the item still has open children; in_progress is rejected if a sibling is already in_progress."
+            "New status for action=update. completed rejected if open children remain; in_progress rejected if a sibling is already in_progress."
         },
         parentId: {
           type: "string",
           description:
-            "Optional new parent for action=update. Use the empty string or null to detach to top-level. Reparenting under a completed item or creating a cycle is rejected."
+            "New parent for action=update. Empty string or null detaches to top-level; reparenting under a completed item or creating a cycle is rejected."
         }
       }
     }
@@ -512,12 +515,12 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
           type: "string",
           enum: ["report", "create_checkout"],
           description:
-            "Optional action. Use 'report' (default) to inspect quota, limits, and plan options. Use 'create_checkout' when the user wants PersAI to open the checkout link now."
+            "'report' (default): inspect quota, limits, and plan options. 'create_checkout': open a checkout link now."
         },
         toolCode: {
           type: "string",
           description:
-            "Optional tool code to inspect one quota-governed tool when action='report'. Leave unset to return non-media daily tool counters, the current quota bucket snapshot, monthly tool quota rows, package availability by tool, and visible plan options."
+            "Tool code to inspect one quota-governed tool for action='report'. Unset returns daily tool counters, the quota bucket snapshot, monthly quota rows, package availability, and visible plan options."
         },
         targetPlanCode: {
           type: "string",
@@ -590,7 +593,7 @@ function createKnowledgeSearchToolDefinition(
         source: {
           type: "string",
           enum: sourceConfigs.map((sourceConfig) => sourceConfig.source),
-          description: `Knowledge source namespace to search. Available meanings: ${sourceDescriptions}.`
+          description: `Knowledge source namespace to search. Meanings: ${sourceDescriptions}.`
         },
         query: {
           type: "string",
@@ -630,7 +633,7 @@ function createKnowledgeFetchToolDefinition(
         source: {
           type: "string",
           enum: sourceConfigs.map((sourceConfig) => sourceConfig.source),
-          description: `Knowledge source namespace for the reference. Available meanings: ${sourceDescriptions}.`
+          description: `Knowledge source namespace for the reference. Meanings: ${sourceDescriptions}.`
         },
         referenceId: {
           type: "string",
@@ -782,7 +785,6 @@ function createImageGenerateToolDefinition(
         "count=N means N separate final images in this one job. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items."
       ),
       buildPendingDeliveryHint({
-        subject: "the images are being prepared",
         quotaToolCode: "image_generate"
       })
     ),
@@ -799,19 +801,19 @@ function createImageGenerateToolDefinition(
           type: "integer",
           minimum: MIN_RUNTIME_IMAGE_GENERATE_COUNT,
           maximum: effectiveCap,
-          description: `Number of images to produce in this single job (${String(MIN_RUNTIME_IMAGE_GENERATE_COUNT)}..${String(effectiveCap)}). Each image uses one per-turn result unit and one daily-quota unit.`
+          description: `Images to produce in this job (${String(MIN_RUNTIME_IMAGE_GENERATE_COUNT)}..${String(effectiveCap)}); each counts as one per-turn result and one daily-quota unit.`
         },
         outputMode: {
           type: "string",
           enum: ["variants", "series"],
           description:
-            "Optional output shape. Default to series for any multi-image request so each output has its own single-image instruction. Reserve variants only for rare compatibility cases."
+            "Default to series for any multi-image request so each output has its own seriesItems instruction; reserve variants for rare compatibility cases."
         },
         seriesItems: {
           type: "array",
           items: { type: "string" },
           description:
-            "Required when outputMode='series'. Provide exactly one single-image instruction per requested output, in order. Each item must describe only one final frame/item, be clearly distinct from the others, and never repeat the same instruction."
+            "Required when outputMode='series'. One single-image instruction per requested output, in order — each distinct, never repeated."
         },
         filename: {
           type: "string",
@@ -820,14 +822,13 @@ function createImageGenerateToolDefinition(
         size: {
           type: "string",
           enum: [...PERSAI_RUNTIME_IMAGE_GENERATE_SIZES],
-          description:
-            'Optional output size hint. Use "auto" to let the provider choose the best size.'
+          description: 'Optional output size hint; "auto" lets the provider choose.'
         },
         background: {
           type: "string",
           enum: [...PERSAI_RUNTIME_IMAGE_BACKGROUNDS],
           description:
-            'Optional background behavior. Use "transparent" when the user asks for transparent background, cutout, sticker, icon, logo asset, or PNG with alpha. Use "opaque" only when the user explicitly wants a solid background. Defaults to "auto".'
+            'Use "transparent" for a cutout, sticker, icon, logo, or PNG with alpha; "opaque" only when the user explicitly wants a solid background. Defaults to "auto".'
         }
       }
     }
@@ -845,7 +846,6 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
           "count=N means N separate final edited images in this one job. For distinct carousel/slideshow/frame requests, set outputMode='series' and put one unique single-image instruction per seriesItems entry; never duplicate the same instruction across items. In series mode, keep the same source product/object identity across slides unless the user explicitly asked to change products."
         ),
         buildPendingDeliveryHint({
-          subject: "the edit is being prepared",
           quotaToolCode: "image_edit"
         })
       ),
@@ -858,36 +858,36 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
       properties: {
         prompt: {
           type: "string",
-          description: "Text instruction describing how the referenced chat image should be edited."
+          description: "Instruction for how to edit the referenced chat image."
         },
         count: {
           type: "integer",
           minimum: MIN_RUNTIME_IMAGE_EDIT_COUNT,
           maximum: effectiveCap,
-          description: `Number of edited variants to produce in this single job (${String(MIN_RUNTIME_IMAGE_EDIT_COUNT)}..${String(effectiveCap)}). Each output uses one per-turn result unit and one daily-quota unit.`
+          description: `Edited variants to produce in this job (${String(MIN_RUNTIME_IMAGE_EDIT_COUNT)}..${String(effectiveCap)}); each counts as one per-turn result and one daily-quota unit.`
         },
         outputMode: {
           type: "string",
           enum: ["variants", "series"],
           description:
-            "Optional output shape. Default to series for any multi-image edit request so each output has its own single-image instruction. Reserve variants only for rare compatibility cases."
+            "Default to series for any multi-image edit request so each output has its own seriesItems instruction; reserve variants for rare compatibility cases."
         },
         seriesItems: {
           type: "array",
           items: { type: "string" },
           description:
-            "Required when outputMode='series'. Provide exactly one single-image edit instruction per requested output, in order. Each item must describe only one final frame/item, be clearly distinct from the others, and never repeat the same instruction."
+            "Required when outputMode='series'. One single-image edit instruction per requested output, in order — each distinct, never repeated."
         },
         sourceImageAlias: {
           type: "string",
           description:
-            'Optional human-readable sticky alias of the available image to edit, for example "image #1". Required when multiple reusable images are available and the source image is clear.'
+            'Optional sticky alias of the image to edit, e.g. "image #1". Required when multiple reusable images are available and the source image is clear.'
         },
         referenceImageAliases: {
           type: "array",
           items: { type: "string" },
           maxItems: MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES,
-          description: `Optional sticky aliases of additional images (up to ${String(MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES)}) used only as visual style, appearance, background, or composition references, for example ["image #2", "image #3"]. Do not include the sourceImageAlias here. The edited output stays rooted in the source image; references only guide it.`
+          description: `Optional sticky aliases of up to ${String(MAX_RUNTIME_IMAGE_EDIT_REFERENCE_IMAGES)} additional images used only as style/appearance/background/composition references, e.g. ["image #2", "image #3"]. Exclude sourceImageAlias — the edit stays rooted in the source image; references only guide it.`
         },
         filename: {
           type: "string",
@@ -896,14 +896,13 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
         size: {
           type: "string",
           enum: [...PERSAI_RUNTIME_IMAGE_GENERATE_SIZES],
-          description:
-            'Optional output size hint. Use "auto" to let the provider choose the best size.'
+          description: 'Optional output size hint; "auto" lets the provider choose.'
         },
         background: {
           type: "string",
           enum: [...PERSAI_RUNTIME_IMAGE_BACKGROUNDS],
           description:
-            'Optional background behavior for the edited output. Use "transparent" when the user asks to remove background, make a cutout/sticker/icon/logo asset, or return a PNG with alpha. Use "opaque" only when the user explicitly wants a solid background. Defaults to "auto".'
+            'Use "transparent" to remove background, cutout/sticker/icon/logo, or PNG with alpha; "opaque" only when the user explicitly wants a solid background. Defaults to "auto".'
         }
       }
     }
@@ -923,7 +922,6 @@ function createVideoGenerateToolDefinition(
         [
           "Prefer calling this tool immediately when the user clearly wants a video. For cinematic mode, pass explicit seconds and size/aspect when the user gave them, but do not ask a follow-up only to fill those fields: when they are omitted, runtime will use the selected model catalog defaults and normalize unsupported values.",
           buildPendingDeliveryHint({
-            subject: "the video is being prepared",
             quotaToolCode: "video_generate"
           })
         ].join(" "),
@@ -940,12 +938,12 @@ function createVideoGenerateToolDefinition(
           type: "string",
           enum: ["generate", "list_personas", "list_voices", "describe_avatar_mode"],
           description:
-            'Optional action. Omit or use "generate" for real video generation. Use the other actions for read-only persona, voice, or talking-avatar guidance lookups.'
+            'Omit or use "generate" for real video generation; use the other actions for read-only persona, voice, or talking-avatar lookups.'
         },
         prompt: {
           type: "string",
           description:
-            'Text prompt describing the video clip to generate. Required when action is omitted or "generate" and mode is cinematic. Optional for talking_avatar generation, where it may be a short scene note; ignored by read-only lookup actions.'
+            'Video clip prompt. Required when action is omitted/"generate" and mode is cinematic; optional short scene note for talking_avatar; ignored by read-only lookup actions.'
         },
         ...(talkingAvatarEnabled
           ? {
@@ -953,91 +951,91 @@ function createVideoGenerateToolDefinition(
                 type: "string",
                 enum: ["cinematic", "talking_avatar"],
                 description:
-                  "Optional video generation mode. Use 'cinematic' (default) for standard AI video generation, silent/no-speech clips, image animation, gestures, smiles, winks, air kisses, product/fashion/cinematic videos, and any request without explicit spoken avatar narration. Use 'talking_avatar' only when the user explicitly wants a speaking avatar/talking head video — requires non-empty speechText and either personaId or portraitImageAlias."
+                  "'cinematic' (default): standard AI video, silent/no-speech clips, image animation, gestures, product/fashion videos — any request without spoken avatar narration. 'talking_avatar': only for an explicit speaking avatar/talking head request; requires non-empty speechText and either personaId or portraitImageAlias."
               },
               speechText: {
                 type: "string",
                 description:
-                  "The exact non-empty script the avatar will speak aloud. Required when mode='talking_avatar'. Do not pass an empty string or invent filler text; if the user requested no speech/no dialogue/без речи, use mode='cinematic' instead."
+                  "Exact non-empty script the avatar speaks. Required when mode='talking_avatar'. Do not invent filler text; if the user wants no speech/dialogue (incl. без речи), use mode='cinematic' instead."
               },
               speechLanguage: {
                 type: "string",
                 description:
-                  "Optional BCP-47 language tag for the speech (e.g. 'en-US', 'ru-RU'). Omit to let the provider detect from speechText."
+                  "BCP-47 language tag for the speech, e.g. 'en-US', 'ru-RU'. Omit to auto-detect from speechText."
               },
               personaId: {
                 type: "string",
                 description:
-                  'Optional ID of a saved video persona (character) to use as the avatar. Load available personaIds first with action="list_personas". Mutually exclusive with portraitImageAlias.'
+                  'Saved video persona (character) id to use as the avatar. Load ids first with action="list_personas". Mutually exclusive with portraitImageAlias.'
               },
               portraitImageAlias: {
                 type: "string",
                 description:
-                  'Optional human-readable sticky alias of an available portrait image to use as an ad-hoc talking-avatar base, for example "image #1". Use only when the user explicitly identifies a specific portrait alias. Mutually exclusive with personaId.'
+                  'Sticky alias of an available portrait image for an ad-hoc talking-avatar base, e.g. "image #1". Use only when the user explicitly names a portrait alias. Mutually exclusive with personaId.'
               },
               voiceKey: {
                 type: "string",
                 description:
-                  "Optional PersAI voice key to override the persona's default voice. Load available voiceKeys first with action=\"list_voices\". Omit on the persona path to use the persona's stored voice. Required on the portraitImageAlias path."
+                  'PersAI voice key overriding the persona\'s default voice. Load keys first with action="list_voices". Omit on the persona path to use its stored voice; required on the portraitImageAlias path.'
               },
               talkingAvatarAspectRatio: {
                 type: "string",
                 enum: ["16:9", "9:16", "1:1"],
                 description:
-                  "Optional talking-avatar output aspect ratio for ad-hoc portraitImageAlias only. Do not pass with personaId; saved personas keep their stored avatar format. For portraitImageAlias, pass only when the user explicitly requested vertical/portrait/9:16, square/1:1, or widescreen/landscape/16:9. Never infer this from short/social/platform/context wording."
+                  "Talking-avatar output aspect ratio, ad-hoc portraitImageAlias only — do not pass with personaId (saved personas keep their stored format). Pass only when the user explicitly requested vertical/9:16, square/1:1, or widescreen/16:9; never infer from short/social/platform wording."
               }
             }
           : {}),
         locale: {
           type: "string",
           description:
-            'Optional locale hint used only by action="list_voices" to prefer matching-locale voices first (for example "en-US" or "ru-RU").'
+            'Locale hint for action="list_voices" to prefer matching-locale voices first, e.g. "en-US" or "ru-RU".'
         },
         referenceImageAlias: {
           type: "string",
           description:
-            "Cinematic-only optional sticky image alias for a visual reference or first frame, for example \"image #1\". Omit when mode='talking_avatar'; use portraitImageAlias instead. Provide this only when the user explicitly identifies or selects a specific available image alias, or when an upstream structured UI/tool has already provided that alias. Do not guess or infer aliases heuristically from context; otherwise omit this field so runtime uses text-to-video."
+            'Cinematic only; omit for talking_avatar (use portraitImageAlias instead). Sticky image alias for a visual reference or first frame, e.g. "image #1". Provide only when the user explicitly identifies or selects a specific available image alias, or when an upstream structured UI/tool has already provided that alias. Do not guess or infer aliases heuristically from context; otherwise omit this field so runtime uses text-to-video.'
         },
         referenceImageAliases: {
           type: "array",
           items: { type: "string" },
           description:
-            "Cinematic-only optional ordered image aliases for a true multi-image video request. Omit when mode='talking_avatar'. Use this only when the user explicitly asked for a multi-image video composition and the exact aliases are known."
+            "Cinematic only; omit for talking_avatar. Ordered image aliases for a true multi-image video request; use only when the user explicitly asked for a multi-image composition with known aliases."
         },
         voiceIds: {
           type: "array",
           items: { type: "string" },
           description:
-            "Cinematic-only optional ordered provider voice ids for explicit voice-controlled Kling text-to-video or image-to-video requests only. Omit when mode='talking_avatar'; use voiceKey for talking-avatar voice override."
+            "Cinematic only; omit for talking_avatar (use voiceKey instead). Ordered provider voice ids for explicit voice-controlled Kling text/image-to-video requests only."
         },
         voiceKeys: {
           type: "array",
           items: { type: "string" },
           description:
-            "Cinematic-only optional ordered PersAI voice keys for Kling voice-controlled text-to-video or image-to-video requests. Load valid keys first with action=\"list_voices\"; do not invent keys. Omit when mode='talking_avatar'; use the singular voiceKey field instead."
+            'Cinematic only; omit for talking_avatar (use the singular voiceKey field instead). Ordered PersAI voice keys for Kling voice-controlled text/image-to-video requests. Load valid keys first with action="list_voices"; do not invent keys.'
         },
         audioMode: {
           type: "string",
           enum: ["silent", "provider_native_audio", "voice_control"],
           description:
-            "Cinematic-only optional requested audio intent. Omit when mode='talking_avatar'; talking-avatar speech comes from speechText plus voiceKey or the persona's stored voice."
+            "Cinematic only; omit for talking_avatar (speech there comes from speechText plus voiceKey or the persona's stored voice). Requested audio intent."
         },
         inputMode: {
           type: "string",
           enum: ["text", "single_reference_image", "multi_image", "omni"],
           description:
-            "Cinematic-only optional requested input class. Omit when mode='talking_avatar'; use personaId or portraitImageAlias instead."
+            "Cinematic only; omit for talking_avatar (use personaId or portraitImageAlias instead). Requested input class."
         },
         filename: {
           type: "string",
           description:
-            "Cinematic-only optional filename hint for the generated video attachment. Omit when mode='talking_avatar'."
+            "Cinematic only; omit for talking_avatar. Filename hint for the generated video attachment."
         },
         size: {
           type: "string",
           enum: [...PERSAI_RUNTIME_VIDEO_GENERATE_SIZES],
           description:
-            "Cinematic-only optional output size/aspect hint. Omit when mode='talking_avatar'; use talkingAvatarAspectRatio for user/model-driven talking-avatar aspect selection."
+            "Cinematic-only optional output size/aspect hint. Omit when mode='talking_avatar'; use talkingAvatarAspectRatio instead."
         },
         seconds: {
           type: "integer",
@@ -1140,12 +1138,12 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
           type: "string",
           enum: ["inspect", "render", "convert"],
           description:
-            'Explicit document action. Use `action="inspect"` to inspect an existing source, `action="render"` to author a new document from Markdown, and `action="convert"` to convert an existing document between PDF/DOCX/XLSX.'
+            'Use `action="inspect"` to inspect an existing source, `action="render"` to author a new document from Markdown, or `action="convert"` to convert between PDF/DOCX/XLSX.'
         },
         path: {
           type: "string",
           description:
-            'Required for `action="inspect"`. Must be an existing exact `/workspace/...` PDF, DOCX, or XLSX path copied from Working Files, files.list, or a prior tool result. For new outputs use `requestedName`; the runtime owns the current-session directory.'
+            'Required for `action="inspect"`. Exact existing `/workspace/...` PDF, DOCX, or XLSX path from Working Files, files.list, or a prior tool result. For new outputs use `requestedName` instead.'
         },
         format: {
           type: "string",
@@ -1155,28 +1153,28 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         content: {
           type: "string",
           description:
-            'Optional inline Markdown body for `action="render"`. Provide either `content` or `contentPath`, but not both.'
+            'Inline Markdown body for `action="render"`. Provide either `content` or `contentPath`, not both.'
         },
         contentPath: {
           type: "string",
           description:
-            'Optional `/workspace/...` Markdown source path for `action="render"`. A sibling Markdown source in the current session root is the normal Case A edit path. Provide either `contentPath` or inline `content`, but not both.'
+            '`/workspace/...` Markdown source path for `action="render"` — a sibling Markdown file in the current session root is the normal edit path. Provide either `contentPath` or inline `content`, not both.'
         },
         style: {
           type: "string",
           enum: ["default", "report", "minimal"],
           description:
-            'Optional style preset for `action="render"`. Use it for ordinary authored layout choices; for highly custom layout use `shell` + Python instead.'
+            'Style preset for `action="render"`, for ordinary authored layouts; for highly custom layout use `shell` + Python instead.'
         },
         template: {
           type: "string",
           description:
-            'Optional `/workspace/...` DOCX template path for `action="render"` when `format="docx"`. For complex layout beyond the built-in render door, use `shell` + Python.'
+            '`/workspace/...` DOCX template path for `action="render"` when `format="docx"`. For complex layout beyond the built-in renderer, use `shell` + Python.'
         },
         requestedName: {
           type: "string",
           description:
-            'Required for `action="render"` and optional for `action="convert"`. Filename only, not a path. The runtime places the output under the real current session root automatically and returns the final `/workspace/...` outputPath in the tool result. If omitted for `action="convert"`, the runtime derives a same-basename filename in the current session root.'
+            'Required for `action="render"`, optional for `action="convert"`. Filename only, not a path — the runtime places it under the current session root and returns the final `/workspace/...` outputPath. If omitted for `action="convert"`, the runtime derives a same-basename filename.'
         },
         source: {
           type: "string",
@@ -1202,7 +1200,6 @@ function createPresentationToolDefinition(
     description: appendToolDefinitionHint(
       resolveToolDefinitionDescription(policy),
       buildPendingDeliveryHint({
-        subject: "the presentation is being prepared",
         quotaToolCode: "document",
         extra:
           "Do not duplicate the delivery this turn; the presentation is already routed to the user once it finishes."
@@ -1217,7 +1214,7 @@ function createPresentationToolDefinition(
           type: "string",
           enum: ["create_presentation", "revise_document", "export_or_redeliver"],
           description:
-            "Presentation deferred operation mode. Use create_presentation for new decks, revise_document for existing PersAI presentations, and export_or_redeliver only when the user explicitly asked for PPTX/PowerPoint export."
+            "Deferred operation mode: create_presentation for new decks, revise_document for existing PersAI presentations, export_or_redeliver only when the user explicitly asked for PPTX/PowerPoint export."
         },
         prompt: {
           type: "string",
@@ -1231,16 +1228,15 @@ function createPresentationToolDefinition(
           type: "string",
           enum: ["pdf", "pptx"],
           description:
-            "Optional requested output format for presentation descriptor modes. Chat delivery for create_presentation and presentation revise_document is always PDF; outputFormat=pptx is only meaningful for export_or_redeliver when the user explicitly asked for PPTX/PowerPoint."
+            "Requested output format. Chat delivery for create_presentation and revise_document is always PDF; pptx is meaningful only for export_or_redeliver when the user explicitly asked for PPTX/PowerPoint."
         },
         docId: {
           type: "string",
-          description: "Exact presentation document UUID for presentation revise/export flows only."
+          description: "Exact presentation document UUID for revise/export flows only."
         },
         storagePath: {
           type: "string",
-          description:
-            "Presentation-revision locator only for PersAI-managed Gamma presentation attachments."
+          description: "Presentation-revision locator for PersAI-managed Gamma attachments only."
         },
         requestedName: {
           type: "string",
@@ -1255,48 +1251,48 @@ function createPresentationToolDefinition(
             "illustrated_storytelling"
           ],
           description:
-            "Optional presentation-only visual style for create_presentation. Use this to steer the deck's overall look and image style."
+            "Presentation-only visual style for create_presentation, steering the deck's overall look and image style."
         },
         imagePolicy: {
           type: "string",
           enum: ["ai_generated", "web_free_to_use", "pictographic", "text_only"],
           description:
-            "Optional presentation-only image policy for create_presentation. Prefer ai_generated or web_free_to_use when the user wants a normal visual deck. Use pictographic only for explicitly icon/diagram-heavy decks, and text_only only when they explicitly want no images."
+            "Presentation-only image policy for create_presentation. Prefer ai_generated or web_free_to_use for a normal visual deck; pictographic only for icon/diagram-heavy decks; text_only only when the user explicitly wants no images."
         },
         visualDensity: {
           type: "string",
           enum: ["balanced", "visual_heavy", "text_heavy"],
           description:
-            "Optional presentation-only content balance for create_presentation. Prefer balanced for most decks, visual_heavy when the user wants stronger visuals, and text_heavy only when they explicitly ask for denser slide copy."
+            "Presentation-only content balance for create_presentation. Prefer balanced for most decks, visual_heavy for stronger visuals, text_heavy only when the user explicitly asks for denser slide copy."
         },
         targetSlideCount: {
           type: "integer",
           minimum: 1,
           maximum: 30,
           description:
-            'Optional presentation-only authoritative slide count for create_presentation and revise_document of presentations. Set this to the integer the user explicitly asked for (e.g. "7 slides" => 7). Leave unset when the user did not specify a count.'
+            'Presentation-only authoritative slide count for create_presentation and revise_document. Set to the integer the user explicitly asked for (e.g. "7 slides" => 7); leave unset otherwise.'
         },
         outline: {
           description:
-            "Optional presentation outline or structured content seed. For create_presentation, keep this as a simple flat list of slide titles or concise slide bullets; avoid deeply nested objects, speaker notes, layout directives, or provider-specific schema details."
+            "Presentation outline or content seed. For create_presentation, keep it a flat list of slide titles or concise bullets — avoid nested objects, speaker notes, layout directives, or provider-specific schema."
         },
         transferMode: {
           type: "string",
           enum: ["verbatim", "transform"],
           description:
-            "Create-only transfer mode. Use verbatim for word-for-word source transfer; use transform for restyling or presentation changes while keeping the full source content."
+            "Create-only transfer mode: verbatim for word-for-word source transfer; transform for restyling while keeping the full source content."
         },
         contentIntent: {
           type: "string",
           enum: ["preserve_content", "rewrite_content"],
           description:
-            "Explicit content intent. Use preserve_content when the original document wording/content must stay intact and only styling/format/output should change. Use rewrite_content only when the document text may be rewritten. If omitted, runtime defaults to preserve_content."
+            "Content intent: preserve_content keeps the original wording intact (only styling/format/output changes); rewrite_content allows text rewrites. Defaults to preserve_content."
         },
         editOperation: {
           type: "string",
           enum: ["style_only", "content_patch", "section_rewrite"],
           description:
-            "Revise-only explicit edit mode. You MUST set style_only when the user asks to restyle, reformat, or beautify the presentation without changing the wording. Use content_patch for targeted section edits; use section_rewrite when one or more sections need a fuller rewrite."
+            "Revise-only edit mode. Set style_only when the user asks to restyle/reformat/beautify without changing wording; content_patch for targeted section edits; section_rewrite for a fuller rewrite of one or more sections."
         },
         targetSectionIds: {
           type: "array",
@@ -1357,14 +1353,13 @@ function createScheduledActionToolDefinition(
         },
         runAt: {
           type: "string",
-          description:
-            "Absolute future datetime in ISO format for a one-time scheduled action after the time has already been resolved."
+          description: "Absolute future ISO datetime for a one-time scheduled action."
         },
         delayMs: {
           type: "number",
           minimum: 1,
           description:
-            "Relative delay in milliseconds for a one-time scheduled action. Prefer this for requests like 'in 5 minutes'."
+            "Relative delay in milliseconds for a one-time scheduled action; prefer this for requests like 'in 5 minutes'."
         },
         everyMs: {
           type: "number",
@@ -1388,7 +1383,7 @@ function createScheduledActionToolDefinition(
           minimum: 0,
           maximum: REMINDER_CONTEXT_MESSAGES_MAX,
           description:
-            "Optional number of recent chat messages to snapshot into the scheduled action context."
+            "Number of recent chat messages to snapshot into the scheduled-action context."
         }
       }
     }
@@ -1481,27 +1476,27 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
           description:
-            'One files action: "list", "read", "preview", "write", "delete", "attach", or "search". For new files use action="write" with requestedName or a relative path; the runtime resolves it under the real current session root. Use exact `/workspace/...` paths only for listed/existing files or intentional wider reads. `search` requires `query` and matches query tokens against path, filename, and cached shortDescription. `attach` delivers an existing workspace file to the current chat as a user-visible attachment.'
+            'One files action: "list", "read", "preview", "write", "delete", "attach", or "search". For new files use action="write" with requestedName or a relative path; runtime resolves it under the current session root. Use exact `/workspace/...` paths for listed/existing files. `search` requires `query`, matching query tokens against path, filename, and cached shortDescription. `attach` delivers an existing workspace file to chat as a user-visible attachment.'
         },
         query: {
           type: "string",
           description:
-            'Required when action="search". Natural-language search tokens matched against file path, filename, and cached shortDescription.'
+            'Required when action="search". Search tokens matched against file path, filename, and cached shortDescription.'
         },
         path: {
           type: "string",
           description:
-            "Path for existing/listed files, or a relative current-session path for write. Do not construct assistant/session IDs. For new visible files prefer requestedName. Use exact `/workspace/...` paths from Working Files, files.list, or prior tool results for read, preview, delete, attach, or exact overwrite. Use `/tmp/` only for ephemeral scratch that should never reach the user. Optional for list."
+            "Path for existing/listed files, or a relative current-session path for write. Do not construct assistant/session IDs; prefer requestedName for new visible files. Use exact `/workspace/...` paths from Working Files, files.list, or prior results for read, preview, delete, attach, or exact overwrite. Use `/tmp/` only for scratch that should never reach the user. Optional for list."
         },
         requestedName: {
           type: "string",
           description:
-            'Filename or relative path for action="write" when creating a new visible file in the current session. The runtime prepends the real current session root; never include `/workspace/`, assistant IDs, or session IDs here.'
+            'Filename or relative path for action="write" creating a new visible file. Runtime prepends the current session root; never include `/workspace/`, assistant IDs, or session IDs.'
         },
         dir: {
           type: "string",
           description:
-            'Synonym for "path" on action="list" — provide either dir or path, not both. Omit both to list the current session root.'
+            'Synonym for "path" on action="list"; provide dir or path, not both. Omit both to list the current session root.'
         },
         content: {
           type: "string",
@@ -1510,12 +1505,12 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         mode: {
           type: "string",
           description:
-            'Optional strict create mode for action="write". Use `mode: "create_only"` to fail if the exact path already exists.'
+            'Strict create mode for action="write"; `mode: "create_only"` fails if the exact path already exists.'
         },
         replace: {
           type: "boolean",
           description:
-            'Optional exact-overwrite flag for action="write". By default an occupied path resolves to a sibling ` (N)` filename so earlier deliveries stay intact. Pass `replace: true` only when the user explicitly asked to overwrite that same file.'
+            'Exact-overwrite flag for action="write". By default an occupied path becomes a sibling ` (N)` filename so earlier deliveries stay intact; pass `replace: true` only when the user explicitly asked to overwrite that file.'
         },
         maxBytes: {
           type: "integer",
@@ -1711,7 +1706,7 @@ function resolveAllowedModelVisibleToolPolicy(
  * When the combined description + structured guidance exceeds this, the projection
  * emits a graceful truncation that preserves at minimum the "WHEN TO USE:" first line.
  */
-const TOOL_DESCRIPTION_CAP = 1024;
+export const TOOL_DESCRIPTION_CAP = 4096;
 
 /**
  * ADR-119 Slice 7: truncate a structured description to TOOL_DESCRIPTION_CAP while

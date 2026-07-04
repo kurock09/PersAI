@@ -456,13 +456,16 @@ async function runToolsWorkspaceCategoryAdr123Slice7(): Promise<void> {
 
 async function runToolsSingleOwnerRoutingAdr130D1(): Promise<void> {
   const tools = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.tools ?? "";
+  // ADR-130 Slice 1 (tools guide compression) — "Use " prefix was dropped when the
+  // sentence was tightened; the call-order dependency itself is unchanged and still
+  // asserted here.
+  assert.match(tools, /`knowledge_fetch` only after `knowledge_search` returns a `referenceId`/i);
+  // ADR-130 Slice 1 — the full "public URL known vs unknown" routing sentence is now
+  // single-sourced in the <category name="browser"> block (still asserted verbatim
+  // below); rule order="3" only carries a compact cross-reference to it.
   assert.match(
     tools,
-    /Use `knowledge_fetch` only after `knowledge_search` returns a `referenceId`/i
-  );
-  assert.match(
-    tools,
-    /If a specific public URL is already known, use `web_fetch`; otherwise use `web_search`/i
+    /Known URL → `web_fetch`; no URL → `web_search` \(see the browser category\)/i
   );
   assert.match(
     tools,
