@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { defaultPlanFullProjection } from "../prisma/tool-catalog-data";
 import { PrismaAssistantPlanCatalogRepository } from "../src/modules/workspace-management/infrastructure/persistence/prisma-assistant-plan-catalog.repository";
 import type { AssistantPlanCatalogWriteInput } from "../src/modules/workspace-management/domain/assistant-plan-catalog.repository";
 
@@ -55,6 +56,7 @@ async function run(): Promise<void> {
   const syncRepo = new PrismaAssistantPlanCatalogRepository({} as never);
   const observedQueries: Array<Record<string, unknown>> = [];
   const upsertedToolIds: string[] = [];
+  const upsertedFullProjection: boolean[] = [];
   const writeInput: AssistantPlanCatalogWriteInput = {
     displayName: "Starter",
     description: null,
@@ -77,7 +79,11 @@ async function run(): Promise<void> {
       {
         toolCode: "files",
         active: true,
-        dailyCallLimit: 12
+        dailyCallLimit: 12,
+        perTurnCap: null,
+        maxFilePreviewBytes: null,
+        maxFilePreviewEdgePx: null,
+        fullProjection: false
       }
     ]
   };
@@ -121,6 +127,10 @@ async function run(): Promise<void> {
               (input.where as { planId_toolId: { toolId: string } }).planId_toolId.toolId ?? ""
             ).trim()
           );
+          const data = (input.update ?? input.create) as { fullProjection?: boolean };
+          if (typeof data.fullProjection === "boolean") {
+            upsertedFullProjection.push(data.fullProjection);
+          }
         }
       }
     },
@@ -140,6 +150,12 @@ async function run(): Promise<void> {
   assert.equal(queryWhere.code?.in?.includes("edit_file"), false);
   assert.equal(queryWhere.code?.in?.includes("send_media_to_user"), false);
   assert.deepEqual(upsertedToolIds, ["tool-files", "tool-shell"]);
+  assert.equal(upsertedFullProjection[0], false, "files override persists catalog stub");
+  assert.equal(
+    upsertedFullProjection[1],
+    defaultPlanFullProjection("shell"),
+    "shell without override seeds catalog default"
+  );
 }
 
 void run().catch((error) => {

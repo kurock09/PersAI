@@ -4,6 +4,7 @@ import type { AdminPlanState } from "@persai/contracts";
 import {
   PlanForm,
   ToolActivationsEdit,
+  defaultPlanToolFullProjection,
   draftToPayload,
   isCreateFormDirty,
   isPlanDraftDirty,
@@ -169,6 +170,7 @@ function createPlanState(): AdminPlanState {
         perTurnCap: null,
         maxFilePreviewBytes: null,
         maxFilePreviewEdgePx: null,
+        fullProjection: false,
         visibleInPlanEditor: true
       }
     ],
@@ -231,6 +233,8 @@ describe("admin plans page helpers", () => {
     expect(draftToPayload(draft).quotaLimits?.imageEditMonthlyUnitsLimit).toBe(10);
     expect(draftToPayload(draft).quotaLimits?.knowledgeStorageBytesLimit).toBe(128 * 1024 * 1024);
     expect(draftToPayload(draft).toolActivations?.at(0)?.dailyCallLimit).toBeNull();
+    expect(draft.toolActivations.at(0)?.fullProjection).toBe(false);
+    expect(draftToPayload(draft).toolActivations?.at(0)?.fullProjection).toBe(false);
     expect(draftToPayload({ ...draft, maxEnabledSkills: "0" }).skillPolicy?.maxEnabledSkills).toBe(
       0
     );
@@ -402,7 +406,8 @@ describe("admin plans page helpers", () => {
             dailyCallLimit: 2,
             perTurnCap: null,
             maxFilePreviewBytes: null,
-            maxFilePreviewEdgePx: null
+            maxFilePreviewEdgePx: null,
+            fullProjection: false
           },
           {
             toolCode: "image_generate",
@@ -413,7 +418,8 @@ describe("admin plans page helpers", () => {
             dailyCallLimit: 5,
             perTurnCap: null,
             maxFilePreviewBytes: null,
-            maxFilePreviewEdgePx: null
+            maxFilePreviewEdgePx: null,
+            fullProjection: false
           },
           {
             toolCode: "image_edit",
@@ -424,7 +430,8 @@ describe("admin plans page helpers", () => {
             dailyCallLimit: 5,
             perTurnCap: null,
             maxFilePreviewBytes: null,
-            maxFilePreviewEdgePx: null
+            maxFilePreviewEdgePx: null,
+            fullProjection: true
           }
         ]}
         onUpdate={() => {}}
@@ -667,6 +674,7 @@ describe("admin plans page helpers", () => {
           perTurnCap: 10,
           maxFilePreviewBytes: 1_048_576,
           maxFilePreviewEdgePx: 1024,
+          fullProjection: true,
           visibleInPlanEditor: true
         }
       ]
@@ -873,5 +881,60 @@ describe("plan draft dirty detection", () => {
     expect(() => draftToPayload({ ...draft, thinkingBudgetHeavy: "-1" })).toThrow(
       /Thinking budget \(heavy\)/
     );
+  });
+
+  it("seeds catalog-default fullProjection for new-plan tool rows", () => {
+    expect(defaultPlanToolFullProjection("files")).toBe(true);
+    expect(defaultPlanToolFullProjection("shell")).toBe(true);
+    expect(defaultPlanToolFullProjection("skill")).toBe(true);
+    expect(defaultPlanToolFullProjection("video_generate")).toBe(false);
+    expect(defaultPlanToolFullProjection("image_generate")).toBe(false);
+  });
+
+  it("round-trips fullProjection through plan draft and save payload", () => {
+    const plan = {
+      ...createPlanState(),
+      toolActivations: [
+        {
+          toolCode: "files",
+          displayName: "Files",
+          toolClass: "utility" as const,
+          policyClass: "plan_managed" as const,
+          active: true,
+          dailyCallLimit: null,
+          perTurnCap: null,
+          maxFilePreviewBytes: null,
+          maxFilePreviewEdgePx: null,
+          fullProjection: false,
+          visibleInPlanEditor: true
+        },
+        {
+          toolCode: "image_generate",
+          displayName: "Image Generate",
+          toolClass: "cost_driving" as const,
+          policyClass: "plan_managed" as const,
+          active: true,
+          dailyCallLimit: null,
+          perTurnCap: null,
+          maxFilePreviewBytes: null,
+          maxFilePreviewEdgePx: null,
+          fullProjection: true,
+          visibleInPlanEditor: true
+        }
+      ]
+    };
+    const draft = planToDraft(plan);
+    expect(draft.toolActivations.find((ta) => ta.toolCode === "files")?.fullProjection).toBe(false);
+    expect(
+      draft.toolActivations.find((ta) => ta.toolCode === "image_generate")?.fullProjection
+    ).toBe(true);
+
+    const payload = draftToPayload(draft);
+    expect(payload.toolActivations?.find((ta) => ta.toolCode === "files")?.fullProjection).toBe(
+      false
+    );
+    expect(
+      payload.toolActivations?.find((ta) => ta.toolCode === "image_generate")?.fullProjection
+    ).toBe(true);
   });
 });

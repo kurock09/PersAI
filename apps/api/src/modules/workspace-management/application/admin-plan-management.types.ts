@@ -39,6 +39,8 @@ export type AdminPlanToolActivation = {
   maxFilePreviewBytes: number | null;
   /** ADR-116 — `files` tool only; NULL on other tools in API responses. */
   maxFilePreviewEdgePx: number | null;
+  /** ADR-135 — ☑ full JSON on wire; ☐ catalog stub + per-tool describe. */
+  fullProjection: boolean;
 };
 
 export type AdminPlanToolActivationInput = {
@@ -51,6 +53,8 @@ export type AdminPlanToolActivationInput = {
   maxFilePreviewBytes?: number | null;
   /** ADR-116 — `files` tool only. */
   maxFilePreviewEdgePx?: number | null;
+  /** ADR-135 — ☑ full JSON on wire; omitted values seed from catalog defaultModelExposure. */
+  fullProjection?: boolean;
 };
 
 /**

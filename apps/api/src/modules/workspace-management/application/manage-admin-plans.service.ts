@@ -63,7 +63,11 @@ import type {
   RuntimeProviderModelCatalogByProvider,
   RuntimeVideoModelKind
 } from "./runtime-provider-profile";
-import { isPlanManagedTool, TOOL_CATALOG } from "../../../../prisma/tool-catalog-data";
+import {
+  defaultPlanFullProjection,
+  isPlanManagedTool,
+  TOOL_CATALOG
+} from "../../../../prisma/tool-catalog-data";
 import { toNormalizedNonEmptyModelKey } from "./model-key-normalization";
 import { DEFAULT_KNOWLEDGE_RETRIEVAL_POLICY } from "./knowledge-model-policy.service";
 
@@ -1258,13 +1262,23 @@ export class ManageAdminPlansService {
           `toolActivations[${String(idx)}] preview limit fields apply only to the files tool.`
         );
       }
+      let fullProjection: boolean | undefined;
+      if (typed.fullProjection !== undefined) {
+        if (typeof typed.fullProjection !== "boolean") {
+          throw new BadRequestException(
+            `toolActivations[${String(idx)}].fullProjection must be a boolean.`
+          );
+        }
+        fullProjection = typed.fullProjection;
+      }
       return {
         toolCode,
         active,
         dailyCallLimit,
         perTurnCap,
         maxFilePreviewBytes,
-        maxFilePreviewEdgePx
+        maxFilePreviewEdgePx,
+        ...(fullProjection === undefined ? {} : { fullProjection })
       };
     });
   }
@@ -1438,14 +1452,15 @@ export class ManageAdminPlansService {
         dailyCallLimit: ta.dailyCallLimit,
         perTurnCap: ta.perTurnCap,
         maxFilePreviewBytes: ta.maxFilePreviewBytes ?? null,
-        maxFilePreviewEdgePx: ta.maxFilePreviewEdgePx ?? null
+        maxFilePreviewEdgePx: ta.maxFilePreviewEdgePx ?? null,
+        fullProjection: ta.fullProjection
       }))
     };
   }
 
   private toCanonicalToolActivationOverrides(
     input: AdminPlanInput
-  ): AdminPlanToolActivationInput[] {
+  ): Array<AdminPlanToolActivationInput & { fullProjection: boolean }> {
     const overrides = new Map(
       (input.toolActivations ?? []).map((ta) => [ta.toolCode, ta] as const)
     );
@@ -1463,7 +1478,8 @@ export class ManageAdminPlansService {
         maxFilePreviewBytes:
           tool.toolCode === "files" ? (override?.maxFilePreviewBytes ?? null) : null,
         maxFilePreviewEdgePx:
-          tool.toolCode === "files" ? (override?.maxFilePreviewEdgePx ?? null) : null
+          tool.toolCode === "files" ? (override?.maxFilePreviewEdgePx ?? null) : null,
+        fullProjection: override?.fullProjection ?? defaultPlanFullProjection(tool.toolCode)
       };
     });
   }
@@ -1953,6 +1969,7 @@ export class ManageAdminPlansService {
         perTurnCap: ta.perTurnCap,
         maxFilePreviewBytes: ta.toolCode === "files" ? ta.maxFilePreviewBytes : null,
         maxFilePreviewEdgePx: ta.toolCode === "files" ? ta.maxFilePreviewEdgePx : null,
+        fullProjection: ta.fullProjection,
         visibleInPlanEditor: ta.policyClass === "plan_managed"
       })),
       toolBudgets,

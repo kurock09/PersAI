@@ -30,5 +30,7 @@ export interface AdminPlanToolActivation {
    * @nullable
    */
   maxFilePreviewEdgePx?: number | null;
+  /** ADR-135 — when true, send the full tool description and input schema on every turn; when false, send a catalog stub and require `{tool}({action:"describe"})` before first real execution. */
+  fullProjection: boolean;
   visibleInPlanEditor: boolean;
 }

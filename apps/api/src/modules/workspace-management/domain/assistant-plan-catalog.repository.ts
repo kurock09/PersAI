@@ -15,6 +15,8 @@ export type AssistantPlanCatalogToolActivationOverride = {
   maxFilePreviewBytes: number | null;
   /** ADR-116 — see `AssistantPlanCatalogToolActivation.maxFilePreviewEdgePx`. */
   maxFilePreviewEdgePx: number | null;
+  /** ADR-135 — ☑ full JSON on wire; materialized as RuntimeToolPolicy.modelExposure. */
+  fullProjection: boolean;
 };
 
 export type AssistantPlanCatalogDeleteImpact = {

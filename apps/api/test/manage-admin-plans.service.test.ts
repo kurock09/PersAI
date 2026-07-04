@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { BadRequestException, ConflictException } from "@nestjs/common";
+import { defaultPlanFullProjection } from "../prisma/tool-catalog-data";
 import { ManageAdminPlansService } from "../src/modules/workspace-management/application/manage-admin-plans.service";
 import type { AssistantPlanCatalog } from "../src/modules/workspace-management/domain/assistant-plan-catalog.entity";
 
@@ -2660,6 +2661,178 @@ async function run(): Promise<void> {
     legacyPlanState.retrievalModelProviderKey,
     "anthropic",
     "legacy retrieval slot should derive provider from unique active chat model"
+  );
+
+  // ADR-135 S5 — fullProjection parse, seed parity, and admin state round-trip.
+  const parsedFullProjection = service.parseUpdateInput({
+    displayName: "Starter",
+    description: "Trial plan",
+    status: "active",
+    defaultOnRegistration: true,
+    trialEnabled: true,
+    trialDurationDays: 7,
+    lifecyclePolicy: { trialFallbackPlanCode: "starter_fallback" },
+    metadata: { commercialTag: "trial", notes: null },
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: true,
+        utilityTools: true,
+        costDrivingQuotaGoverned: true,
+        utilityQuotaGoverned: true
+      },
+      channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
+    },
+    quotaLimits: { tokenBudgetLimit: 1000 },
+    contextPolicy,
+    primaryModelKey: null,
+    runtimeTierDefault: "free_shared_restricted",
+    toolActivations: [
+      {
+        toolCode: "files",
+        active: true,
+        dailyCallLimit: null,
+        fullProjection: false
+      },
+      {
+        toolCode: "video_generate",
+        active: true,
+        dailyCallLimit: null,
+        fullProjection: true
+      }
+    ]
+  });
+  assert.equal(parsedFullProjection.toolActivations?.[0]?.fullProjection, false);
+  assert.equal(parsedFullProjection.toolActivations?.[1]?.fullProjection, true);
+
+  assert.throws(
+    () =>
+      service.parseUpdateInput({
+        displayName: "Starter",
+        description: "Trial plan",
+        status: "active",
+        defaultOnRegistration: true,
+        trialEnabled: true,
+        trialDurationDays: 7,
+        lifecyclePolicy: { trialFallbackPlanCode: "starter_fallback" },
+        metadata: { commercialTag: "trial", notes: null },
+        entitlements: {
+          toolClasses: {
+            costDrivingTools: true,
+            utilityTools: true,
+            costDrivingQuotaGoverned: true,
+            utilityQuotaGoverned: true
+          },
+          channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
+        },
+        quotaLimits: { tokenBudgetLimit: 1000 },
+        contextPolicy,
+        primaryModelKey: null,
+        runtimeTierDefault: "free_shared_restricted",
+        toolActivations: [
+          {
+            toolCode: "files",
+            active: true,
+            dailyCallLimit: null,
+            fullProjection: "catalog"
+          }
+        ]
+      }),
+    (error) =>
+      error instanceof BadRequestException &&
+      /toolActivations\[0\]\.fullProjection must be a boolean/i.test(error.message)
+  );
+
+  const canonicalOverrides = (
+    service as unknown as {
+      toCanonicalToolActivationOverrides(input: {
+        entitlements: {
+          toolClasses: {
+            costDrivingTools: boolean;
+            utilityTools: boolean;
+          };
+        };
+        toolActivations?: Array<{ toolCode: string; fullProjection?: boolean }>;
+      }): Array<{ toolCode: string; fullProjection: boolean }>;
+    }
+  ).toCanonicalToolActivationOverrides({
+    entitlements: {
+      toolClasses: {
+        costDrivingTools: true,
+        utilityTools: true,
+        costDrivingQuotaGoverned: true,
+        utilityQuotaGoverned: true
+      },
+      channelsAndSurfaces: { webChat: true, telegram: true, whatsapp: false, max: false }
+    },
+    toolActivations: [{ toolCode: "video_generate", active: true, dailyCallLimit: null }]
+  } as never);
+  const videoGenerateOverride = canonicalOverrides.find((ta) => ta.toolCode === "video_generate");
+  const filesOverrideDefault = canonicalOverrides.find((ta) => ta.toolCode === "files");
+  assert.equal(
+    videoGenerateOverride?.fullProjection,
+    defaultPlanFullProjection("video_generate"),
+    "omitted fullProjection seeds from catalog defaultModelExposure"
+  );
+  assert.equal(
+    filesOverrideDefault?.fullProjection,
+    defaultPlanFullProjection("files"),
+    "platform default full tools seed true"
+  );
+
+  const fullProjectionState = (
+    service as unknown as {
+      toAdminPlanState(plan: AssistantPlanCatalog): {
+        toolActivations: Array<{ toolCode: string; fullProjection: boolean }>;
+      };
+    }
+  ).toAdminPlanState({
+    id: "plan-full-projection",
+    code: "pro",
+    displayName: "Pro",
+    description: "Pro plan",
+    status: "active",
+    billingProviderHints: null,
+    entitlementModel: null,
+    toolActivations: [
+      {
+        toolCode: "files",
+        displayName: "Files",
+        toolClass: "utility",
+        policyClass: "plan_managed",
+        activationStatus: "active",
+        dailyCallLimit: null,
+        perTurnCap: null,
+        maxFilePreviewBytes: null,
+        maxFilePreviewEdgePx: null,
+        fullProjection: false
+      },
+      {
+        toolCode: "image_generate",
+        displayName: "Image Generate",
+        toolClass: "cost_driving",
+        policyClass: "plan_managed",
+        activationStatus: "active",
+        dailyCallLimit: null,
+        perTurnCap: null,
+        maxFilePreviewBytes: null,
+        maxFilePreviewEdgePx: null,
+        fullProjection: true
+      }
+    ],
+    isDefaultFirstRegistrationPlan: false,
+    isTrialPlan: false,
+    trialDurationDays: null,
+    createdAt: new Date("2026-07-05T00:00:00.000Z"),
+    updatedAt: new Date("2026-07-05T00:00:00.000Z")
+  });
+  assert.equal(
+    fullProjectionState.toolActivations.find((ta) => ta.toolCode === "files")?.fullProjection,
+    false
+  );
+  assert.equal(
+    fullProjectionState.toolActivations.find((ta) => ta.toolCode === "image_generate")
+      ?.fullProjection,
+    true
   );
 }
 

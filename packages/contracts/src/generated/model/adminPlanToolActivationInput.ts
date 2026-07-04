@@ -25,4 +25,6 @@ export interface AdminPlanToolActivationInput {
    * @nullable
    */
   maxFilePreviewEdgePx?: number | null;
+  /** ADR-135 — see AdminPlanToolActivation.fullProjection. When omitted, plan save seeds from catalog defaultModelExposure. */
+  fullProjection?: boolean;
 }

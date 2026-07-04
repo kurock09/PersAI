@@ -52,6 +52,8 @@ type ToolActivationDraft = {
   perTurnCap: number | null;
   maxFilePreviewBytes: number | null;
   maxFilePreviewEdgePx: number | null;
+  /** ADR-135 — ☑ full JSON on wire; ☐ catalog stub + per-tool describe. */
+  fullProjection: boolean;
 };
 
 type ContextPolicyPresetDraft = AdminPlanState["contextPolicy"]["preset"];
@@ -369,6 +371,30 @@ const TOOL_CARD_DESCRIPTION: Readonly<Record<string, string>> = {
   shell: "Run one bounded shell command inside the sandbox workspace."
 };
 
+/** ADR-135 D2 — runtime model-visible tools whose catalog default is full projection. */
+const DEFAULT_FULL_PROJECTION_TOOL_CODES = new Set([
+  "skill",
+  "todo_write",
+  "files",
+  "shell",
+  "grep",
+  "glob",
+  "exec",
+  "knowledge_search",
+  "knowledge_fetch",
+  "web_search",
+  "web_fetch",
+  "memory_write",
+  "image_edit"
+]);
+
+/** ADR-135 — warn when a tariff sets catalog stub on platform-default full tools. */
+const DEFAULT_FULL_PROJECTION_WARNING_TOOL_CODES = new Set(["files", "shell", "skill"]);
+
+export function defaultPlanToolFullProjection(toolCode: string): boolean {
+  return DEFAULT_FULL_PROJECTION_TOOL_CODES.has(toolCode);
+}
+
 /** Short tooltips for the per-tool fields. Plain English, no ADR refs. */
 const TOOL_FIELD_HELP = {
   dailyCap:
@@ -379,6 +405,8 @@ const TOOL_FIELD_HELP = {
     "Max bytes for one visual file preview (image or native PDF). Blank = platform default (8 MB). Cannot exceed the platform ceiling.",
   maxFilePreviewEdgePx:
     "Max image edge in pixels when resizing for preview. Blank = platform default (2048 px).",
+  fullProjection:
+    "When checked, the full tool contract is sent on every turn. When unchecked, the model sees a short catalog stub and must call describe before the first real execution.",
   videoModel: "Provider model used for video generation. Affects cost and quality."
 } as const;
 
@@ -1136,7 +1164,8 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
         dailyCallLimit: ta.dailyCallLimit,
         perTurnCap: ta.perTurnCap,
         maxFilePreviewBytes: ta.maxFilePreviewBytes ?? null,
-        maxFilePreviewEdgePx: ta.maxFilePreviewEdgePx ?? null
+        maxFilePreviewEdgePx: ta.maxFilePreviewEdgePx ?? null,
+        fullProjection: ta.fullProjection
       })),
     toolLoopLimitNormal: plan.toolBudgets?.loopLimitByMode?.normal?.toString() ?? "",
     toolLoopLimitPremium: plan.toolBudgets?.loopLimitByMode?.premium?.toString() ?? "",
@@ -1553,7 +1582,8 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
             maxFilePreviewBytes: ta.maxFilePreviewBytes,
             maxFilePreviewEdgePx: ta.maxFilePreviewEdgePx
           }
-        : {})
+        : {}),
+      fullProjection: ta.fullProjection
     })),
     toolBudgets: {
       loopLimitByMode: {
@@ -2027,6 +2057,11 @@ export function ToolActivationsEdit({
     onUpdate(next);
   }
 
+  function setFullProjection(idx: number, checked: boolean) {
+    const next = activations.map((a, i) => (i === idx ? { ...a, fullProjection: checked } : a));
+    onUpdate(next);
+  }
+
   const numericInputClasses =
     "w-full appearance-none rounded border border-border bg-surface px-2 py-1 pr-7 text-[11px] text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 focus:ring-accent/50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]";
 
@@ -2242,6 +2277,21 @@ export function ToolActivationsEdit({
                   />
                 </FieldRow>
               )}
+              <FieldRow label="Full JSON on wire" tip={TOOL_FIELD_HELP.fullProjection}>
+                <input
+                  type="checkbox"
+                  checked={ta.fullProjection}
+                  onChange={(e) => setFullProjection(idx, e.target.checked)}
+                  aria-label={`${ta.displayName} full JSON on wire`}
+                  className="h-4 w-4 rounded border-border accent-accent"
+                />
+              </FieldRow>
+              {!ta.fullProjection && DEFAULT_FULL_PROJECTION_WARNING_TOOL_CODES.has(ta.toolCode) ? (
+                <p className="rounded border border-amber-500/35 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200/90">
+                  Platform default is full JSON for {ta.displayName}. Catalog stub adds a describe
+                  step before first use.
+                </p>
+              ) : null}
               <FieldRow label="Per-turn cap" tip={TOOL_FIELD_HELP.perTurnCap}>
                 <input
                   type="number"
@@ -4720,7 +4770,8 @@ export default function AdminPlansPage() {
           dailyCallLimit: null,
           perTurnCap: null,
           maxFilePreviewBytes: null,
-          maxFilePreviewEdgePx: null
+          maxFilePreviewEdgePx: null,
+          fullProjection: defaultPlanToolFullProjection(ta.toolCode)
         }));
     }
     setCreateDraft(draft);

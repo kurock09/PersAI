@@ -13465,6 +13465,7 @@ components:
         - active
         - dailyCallLimit
         - perTurnCap
+        - fullProjection
         - visibleInPlanEditor
       properties:
         toolCode:
@@ -13508,6 +13509,12 @@ components:
           description: >-
             ADR-116 — `files` tool only. Max image edge (px) for preview
             resize. NULL = code default at materialize.
+        fullProjection:
+          type: boolean
+          description: >-
+            ADR-135 — when true, send the full tool description and input
+            schema on every turn; when false, send a catalog stub and require
+            `{tool}({action:"describe"})` before first real execution.
         visibleInPlanEditor:
           type: boolean
     AdminPlanToolActivationInput:
@@ -13539,6 +13546,11 @@ components:
           nullable: true
           description: >-
             ADR-116 — `files` tool only. See AdminPlanToolActivation.maxFilePreviewEdgePx.
+        fullProjection:
+          type: boolean
+          description: >-
+            ADR-135 — see AdminPlanToolActivation.fullProjection. When omitted,
+            plan save seeds from catalog defaultModelExposure.
     AdminPlanLifecyclePolicy:
       type: object
       required:

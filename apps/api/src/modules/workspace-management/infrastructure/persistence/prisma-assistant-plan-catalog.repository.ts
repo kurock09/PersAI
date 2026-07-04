@@ -400,7 +400,7 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
         tool.code === "files" ? (override?.maxFilePreviewBytes ?? null) : null;
       const maxFilePreviewEdgePx =
         tool.code === "files" ? (override?.maxFilePreviewEdgePx ?? null) : null;
-      const fullProjection = defaultPlanFullProjection(tool.code);
+      const fullProjection = override?.fullProjection ?? defaultPlanFullProjection(tool.code);
 
       await tx.planCatalogToolActivation.upsert({
         where: {
@@ -411,7 +411,8 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
           dailyCallLimit,
           perTurnCap,
           maxFilePreviewBytes,
-          maxFilePreviewEdgePx
+          maxFilePreviewEdgePx,
+          fullProjection
         },
         create: {
           planId,
