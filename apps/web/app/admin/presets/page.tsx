@@ -16,6 +16,29 @@ import {
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 
+function useSavedFlash() {
+  const [saved, setSaved] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+  const flashSaved = () => {
+    setSaved(true);
+    if (timeoutRef.current !== null) {
+      clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = setTimeout(() => {
+      setSaved(false);
+      timeoutRef.current = null;
+    }, 1500);
+  };
+  return { saved, flashSaved };
+}
+
 interface PromptTemplateState {
   id: string;
   template: string;
@@ -562,7 +585,7 @@ function PromptTemplateEditor({
   const [value, setValue] = useState(template.template);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const { saved, flashSaved } = useSavedFlash();
   const [saveError, setSaveError] = useState<string | null>(null);
   const editorHandleRef = useRef<TemplateEditorHandle | null>(null);
 
@@ -581,8 +604,7 @@ function PromptTemplateEditor({
     setSaving(true);
     try {
       await onSave(template.id, value);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
+      flashSaved();
     } catch (cause) {
       console.error("[admin-presets] handleSaveTemplate failed", cause);
       setSaveError(cause instanceof Error ? cause.message : "Save failed");
@@ -719,7 +741,7 @@ function ToolPromptEditor({
   const [modelUsageGuidance, setModelUsageGuidance] = useState(tool.modelUsageGuidance ?? "");
   const [useCodeDefault, setUseCodeDefault] = useState(persistedUseCodeDefault);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const { saved, flashSaved } = useSavedFlash();
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -744,8 +766,7 @@ function ToolPromptEditor({
         modelDescription: codeDefaultEnabled && useCodeDefault ? null : modelDescription,
         modelUsageGuidance: codeDefaultEnabled && useCodeDefault ? null : modelUsageGuidance
       });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
+      flashSaved();
     } catch (cause) {
       console.error("[admin-presets] handleSaveTool failed", cause);
       setSaveError(cause instanceof Error ? cause.message : "Save failed");
@@ -777,8 +798,7 @@ function ToolPromptEditor({
         modelDescription: null,
         modelUsageGuidance: null
       });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
+      flashSaved();
     } catch (cause) {
       console.error("[admin-presets] handleResetTool failed", cause);
       setUseCodeDefault(persistedUseCodeDefault);
@@ -937,7 +957,7 @@ function PersonaArchetypeEditor({
   const [value, setValue] = useState(initialJson);
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const { saved, flashSaved } = useSavedFlash();
   const [parseError, setParseError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -958,8 +978,7 @@ function PersonaArchetypeEditor({
     setSaving(true);
     try {
       await onSave(archetype.key, parsed);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 1500);
+      flashSaved();
     } catch (cause) {
       setParseError(cause instanceof Error ? cause.message : "Save failed");
     } finally {
