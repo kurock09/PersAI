@@ -18,6 +18,7 @@ export type WorkspaceFileMetadataDocumentRegistrationOutcome = {
   versionNumber: number | null;
   bumped: boolean;
   isOverwrite: boolean;
+  contentChanged: boolean;
 };
 
 export type UpsertWorkspaceFileMetadataFromRuntimeResult = {
@@ -98,13 +99,22 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
   async execute(
     input: UpsertWorkspaceFileMetadataFromRuntimeInput
   ): Promise<UpsertWorkspaceFileMetadataFromRuntimeResult> {
+    const priorMetadata = await this.workspaceFileMetadataService.get({
+      workspaceId: input.workspaceId,
+      path: input.path
+    });
+    const shouldInvalidateSummary = this.shouldInvalidateShortDescription(input, priorMetadata);
     await this.workspaceFileMetadataService.upsert({
       workspaceId: input.workspaceId,
       path: input.path,
       mimeType: input.mimeType,
       sizeBytes: input.sizeBytes,
       ...(input.contentHash === null ? {} : { contentHash: input.contentHash }),
-      ...(input.shortDescription !== null ? { shortDescription: input.shortDescription } : {}),
+      ...(input.shortDescription !== null
+        ? { shortDescription: input.shortDescription }
+        : shouldInvalidateSummary
+          ? { shortDescription: null }
+          : {}),
       ...(input.originChatId !== null ? { originChatId: input.originChatId } : {}),
       ...(input.originAssistantId !== null ? { originAssistantId: input.originAssistantId } : {})
     });
@@ -116,8 +126,14 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
         sizeBytes: BigInt(input.sizeBytes)
       });
     }
-    const documentRegistration = await this.maybeRegisterVisibleWorkspaceDocumentVersion(input);
-    if (input.shortDescription === null && input.originAssistantId !== null) {
+    const documentRegistration = await this.maybeRegisterVisibleWorkspaceDocumentVersion(
+      input,
+      priorMetadata
+    );
+    if (
+      input.originAssistantId !== null &&
+      (input.shortDescription === null || shouldInvalidateSummary)
+    ) {
       void this.workspaceFileMicroDescriptionJobService
         .enqueueIfNeeded({
           workspaceId: input.workspaceId,
@@ -125,7 +141,8 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
           assistantId: input.originAssistantId,
           sourceKind: "generated",
           sourceChatId: input.originChatId,
-          chatMode: await this.resolveChatMode(input.originChatId)
+          chatMode: await this.resolveChatMode(input.originChatId),
+          ...(shouldInvalidateSummary ? { forceRefresh: true } : {})
         })
         .catch(() => undefined);
     }
@@ -173,8 +190,29 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
     }
     return value.trim();
   }
+
+  private shouldInvalidateShortDescription(
+    input: UpsertWorkspaceFileMetadataFromRuntimeInput,
+    priorMetadata: Awaited<ReturnType<WorkspaceFileMetadataService["get"]>>
+  ): boolean {
+    if (input.shortDescription !== null) {
+      return false;
+    }
+    if (input.replace) {
+      return true;
+    }
+    if (input.contentHash === null) {
+      return false;
+    }
+    if (priorMetadata === null) {
+      return false;
+    }
+    return priorMetadata.contentHash !== input.contentHash;
+  }
+
   private async maybeRegisterVisibleWorkspaceDocumentVersion(
-    input: UpsertWorkspaceFileMetadataFromRuntimeInput
+    input: UpsertWorkspaceFileMetadataFromRuntimeInput,
+    priorMetadata: Awaited<ReturnType<WorkspaceFileMetadataService["get"]>>
   ): Promise<WorkspaceFileMetadataDocumentRegistrationOutcome | null> {
     const outputFormat = resolveVisibleWorkspaceOutputFormatFromPath(input.path);
     if (outputFormat !== "pdf" && outputFormat !== "xlsx" && outputFormat !== "docx") {
@@ -188,7 +226,22 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
         registered: false,
         versionNumber: null,
         bumped: false,
-        isOverwrite: false
+        isOverwrite: false,
+        contentChanged: false
+      };
+    }
+    if (
+      priorMetadata !== null &&
+      input.contentHash !== null &&
+      priorMetadata.contentHash !== null &&
+      priorMetadata.contentHash === input.contentHash
+    ) {
+      return {
+        registered: false,
+        versionNumber: null,
+        bumped: false,
+        isOverwrite: true,
+        contentChanged: false
       };
     }
     const chat = await this.prisma.assistantChat.findFirst({
@@ -225,15 +278,18 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
         registered: false,
         versionNumber: null,
         bumped: false,
-        isOverwrite: false
+        isOverwrite: false,
+        contentChanged: false
       };
     }
     const isOverwrite = registration.descriptorMode === "revise_document";
+    const revisedInPlace = registration.revisedInPlace === true;
     return {
       registered: true,
       versionNumber: registration.versionNumber,
-      bumped: isOverwrite,
-      isOverwrite
+      bumped: isOverwrite && !revisedInPlace,
+      isOverwrite,
+      contentChanged: true
     };
   }
 }

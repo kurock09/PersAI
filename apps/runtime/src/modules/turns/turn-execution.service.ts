@@ -2145,13 +2145,12 @@ export class TurnExecutionService {
     );
 
     const lines = ["## Working Files"];
-    const documentPriorityNote = this.buildWorkingFileDocumentPriorityNote(allSessionFiles);
-    if (documentPriorityNote !== null) {
-      lines.push("", ...documentPriorityNote);
-    }
-
-    lines.push("", ...this.buildWorkingFileGeneralFileNote(allSessionFiles), "");
-    this.appendWorkingFilesTierSection(lines, "Current session files", sessionFiles);
+    this.appendWorkingFilesTierSection(
+      lines,
+      "Current session files",
+      sessionFiles,
+      allSessionFiles
+    );
 
     lines.push(
       "",
@@ -2174,15 +2173,17 @@ export class TurnExecutionService {
     if (sorted.length <= maxCount) {
       return sorted;
     }
-    const { currentSource, lastDelivered } = this.selectWorkingFileDocumentPriorityAnchors(sorted);
+    const lastDeliveredChat = this.selectLastDeliveredWorkingFile(sorted);
+    const { currentSource, lastDelivered: lastDeliveredDocument } =
+      this.selectWorkingFileDocumentPriorityAnchors(sorted);
     const requiredFileRefs = new Set(
-      [currentSource, lastDelivered]
+      [lastDeliveredChat, currentSource, lastDeliveredDocument]
         .filter((file): file is RuntimeFileHandle => file !== null)
         .map((file) => file.storagePath)
     );
     const visible = [...sorted.slice(0, maxCount)];
     const visibleFileRefs = new Set(visible.map((file) => file.storagePath));
-    for (const file of [currentSource, lastDelivered]) {
+    for (const file of [lastDeliveredChat, currentSource, lastDeliveredDocument]) {
       if (file !== null && !visibleFileRefs.has(file.storagePath)) {
         visible.push(file);
         visibleFileRefs.add(file.storagePath);
@@ -2205,12 +2206,14 @@ export class TurnExecutionService {
   private appendWorkingFilesTierSection(
     lines: string[],
     title: string,
-    files: RuntimeFileHandle[]
+    files: RuntimeFileHandle[],
+    allFilesForAnchors: RuntimeFileHandle[]
   ): void {
     if (files.length === 0) {
       return;
     }
     lines.push(`### ${title}`);
+    const lastDeliveredChat = this.selectLastDeliveredWorkingFile(allFilesForAnchors);
     const duplicateDisplayNames = this.collectDuplicateWorkingFileNames(files);
     const collisionCounters = new Map<string, number>();
     for (const file of files) {
@@ -2221,7 +2224,14 @@ export class TurnExecutionService {
         collisionCounters.set(displayNameKey, next);
         collisionIndex = next;
       }
-      lines.push(this.formatWorkingFileHistoryLine(file, duplicateDisplayNames, collisionIndex));
+      lines.push(
+        this.formatWorkingFileHistoryLine(
+          file,
+          duplicateDisplayNames,
+          collisionIndex,
+          lastDeliveredChat
+        )
+      );
     }
     lines.push("");
   }
@@ -2233,15 +2243,9 @@ export class TurnExecutionService {
   private isLastDeliveredDocumentResultWorkingFile(file: RuntimeFileHandle): boolean {
     return (
       this.isAssistantGeneratedWorkingFile(file) &&
-      (this.isPdfWorkingFileMime(file.mimeType) || file.sourceToolCode === DOCUMENT_TOOL_CODE)
-    );
-  }
-
-  private isDocumentRelatedWorkingFile(file: RuntimeFileHandle): boolean {
-    return (
-      this.isDocumentSourceWorkingFileMime(file.mimeType) ||
-      this.isPdfWorkingFileMime(file.mimeType) ||
-      file.sourceToolCode === DOCUMENT_TOOL_CODE
+      (this.isVisibleWorkspaceDocumentMime(file.mimeType) ||
+        file.sourceToolCode === DOCUMENT_TOOL_CODE ||
+        file.sourceToolCode === "shell")
     );
   }
 
@@ -2256,7 +2260,18 @@ export class TurnExecutionService {
       normalized === "application/xml" ||
       normalized === "application/x-yaml" ||
       normalized === "application/yaml" ||
-      normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      normalized ===
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+  }
+
+  private isVisibleWorkspaceDocumentMime(mimeType: string): boolean {
+    const normalized = mimeType.trim().toLowerCase();
+    return (
+      this.isPdfWorkingFileMime(normalized) ||
+      normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      normalized === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
   }
 
@@ -4244,41 +4259,16 @@ export class TurnExecutionService {
   private formatWorkingFileHistoryLine(
     file: RuntimeFileHandle,
     duplicateDisplayNames: Set<string>,
-    collisionIndex: number | null = null
+    collisionIndex: number | null = null,
+    lastDeliveredChat: RuntimeFileHandle | null = null
   ): string {
     const createdAt = this.formatWorkingFileCreatedAt(file.createdAt);
     const author = file.authorLabel ?? "model";
     const alias = this.describeWorkingFileStickyLabel(file);
     const filename = this.formatWorkingFileDisplayName(file, duplicateDisplayNames, collisionIndex);
-    const markers = this.formatWorkingFileMarkers(file);
+    const markers = this.formatWorkingFileMarkers(file, lastDeliveredChat);
     const microDescription = this.formatWorkingFileMicroDescription(file.semanticSummaryHint);
     return `- ${createdAt} | ${author} | ${alias} | ${filename} | path=${file.storagePath} | ${markers} | ${microDescription}`;
-  }
-
-  private buildWorkingFileDocumentPriorityNote(files: RuntimeFileHandle[]): string[] | null {
-    const { currentSource, lastDelivered } = this.selectWorkingFileDocumentPriorityAnchors(files);
-    const hasDocumentContext =
-      currentSource !== null ||
-      lastDelivered !== null ||
-      files.some((file) => this.isDocumentRelatedWorkingFile(file));
-    if (!hasDocumentContext) {
-      return null;
-    }
-    return [
-      "Document-tool PDF anchors (not general file recency):",
-      `- DOC_CURRENT_SOURCE = ${this.describeWorkingFilePriorityAnchor(currentSource)}`,
-      `- DOC_LAST_DELIVERED_PDF = ${this.describeWorkingFilePriorityAnchor(lastDelivered)}`,
-      "- Use DOC_CURRENT_SOURCE for new document creation; use DOC_LAST_DELIVERED_PDF only for an explicit PDF revise/redeliver request.",
-      "- Older history or discovery entries do not outrank those anchors unless the user explicitly points to them."
-    ];
-  }
-
-  private buildWorkingFileGeneralFileNote(files: RuntimeFileHandle[]): string[] {
-    const lastDeliveredFile = this.selectLastDeliveredWorkingFile(files);
-    return [
-      "Chat files visible to tools (documents, media, and attachments):",
-      `- LAST_DELIVERED_FILE = ${this.describeWorkingFilePriorityAnchor(lastDeliveredFile)}`
-    ];
   }
 
   private selectLastDeliveredWorkingFile(files: RuntimeFileHandle[]): RuntimeFileHandle | null {
@@ -4290,16 +4280,6 @@ export class TurnExecutionService {
       return author === "user" || author === "model";
     });
     return this.sortWorkingFilesByCreatedAt(delivered)[0] ?? null;
-  }
-
-  private describeWorkingFilePriorityAnchor(file: RuntimeFileHandle | null): string {
-    if (file === null) {
-      return "none";
-    }
-    return `${this.resolvePrimaryWorkingFileAlias(file)} | ${this.formatWorkingFileDisplayName(
-      file,
-      new Set<string>()
-    )} | path=${file.storagePath}`;
   }
 
   private collectDuplicateWorkingFileNames(files: RuntimeFileHandle[]): Set<string> {
@@ -4348,13 +4328,26 @@ export class TurnExecutionService {
     return imageAlias ?? fileAlias ?? this.resolvePrimaryWorkingFileAlias(file);
   }
 
-  private formatWorkingFileMarkers(file: RuntimeFileHandle): string {
+  private formatWorkingFileMarkers(
+    file: RuntimeFileHandle,
+    lastDeliveredChat: RuntimeFileHandle | null
+  ): string {
     const markers: string[] = [];
+    if (lastDeliveredChat !== null && lastDeliveredChat.storagePath === file.storagePath) {
+      markers.push("last delivered");
+    }
     if (this.isCurrentSourceWorkingFile(file)) {
       markers.push("current source");
     }
     if (this.isLastDeliveredDocumentResultWorkingFile(file)) {
       markers.push("last delivered result");
+    }
+    if (
+      typeof file.documentVersionNumber === "number" &&
+      Number.isFinite(file.documentVersionNumber) &&
+      file.documentVersionNumber > 0
+    ) {
+      markers.push(`v${String(Math.floor(file.documentVersionNumber))}`);
     }
     if (this.isRecentWorkingFile(file)) {
       markers.push("recent");
@@ -4423,15 +4416,17 @@ export class TurnExecutionService {
     if (sorted.length <= MAX_MODEL_VISIBLE_WORKING_FILES) {
       return sorted;
     }
-    const { currentSource, lastDelivered } = this.selectWorkingFileDocumentPriorityAnchors(sorted);
+    const lastDeliveredChat = this.selectLastDeliveredWorkingFile(sorted);
+    const { currentSource, lastDelivered: lastDeliveredDocument } =
+      this.selectWorkingFileDocumentPriorityAnchors(sorted);
     const requiredFileRefs = new Set(
-      [currentSource, lastDelivered]
+      [lastDeliveredChat, currentSource, lastDeliveredDocument]
         .filter((file): file is RuntimeFileHandle => file !== null)
         .map((file) => file.storagePath)
     );
     const visible = [...sorted.slice(0, MAX_MODEL_VISIBLE_WORKING_FILES)];
     const visibleFileRefs = new Set(visible.map((file) => file.storagePath));
-    for (const file of [currentSource, lastDelivered]) {
+    for (const file of [lastDeliveredChat, currentSource, lastDeliveredDocument]) {
       if (file !== null && !visibleFileRefs.has(file.storagePath)) {
         visible.push(file);
         visibleFileRefs.add(file.storagePath);

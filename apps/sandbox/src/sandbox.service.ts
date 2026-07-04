@@ -27,6 +27,10 @@ import {
   type WorkspaceBridgeContext
 } from "./workspace-file-bridge.service";
 import {
+  buildShellProducedFilesFromDocumentDiff,
+  collectWorkspaceDocumentOutputSnapshots
+} from "./shell-document-output-diff";
+import {
   buildDefaultVisibleWorkspaceRoot,
   normalizeAndClampPath,
   WORKSPACE_MOUNT_ROOT,
@@ -1675,8 +1679,15 @@ export class SandboxService {
 
     if (shellMode) {
       const command = this.requireString(args.command, "command");
-      const beforeVisibleDocuments =
-        await this.collectVisibleWorkspaceDocumentSnapshots(workspaceRoot);
+      const beforeVisibleDocuments = await collectWorkspaceDocumentOutputSnapshots({
+        workspaceRoot,
+        scanRoot: currentRoot,
+        workspaceMountRoot: WORKSPACE_MOUNT_ROOT,
+        isVisibleDocumentPath: (workspacePath) =>
+          this.isVisibleWorkspaceDocumentPath(workspacePath),
+        toVisibleWorkspaceAbsolutePath: (root, absolutePath) =>
+          this.toVisibleWorkspaceAbsolutePath(root, absolutePath)
+      });
       const result = await this.execPodBridgeService.runInPod({
         jobId,
         runtimeSessionId,
@@ -1702,12 +1713,20 @@ export class SandboxService {
           execPodName: result.execPodName
         };
       }
-      const afterVisibleDocuments =
-        await this.collectVisibleWorkspaceDocumentSnapshots(workspaceRoot);
-      const producedFiles = await this.buildShellProducedFilesFromDocumentDiff({
+      const afterVisibleDocuments = await collectWorkspaceDocumentOutputSnapshots({
         workspaceRoot,
+        scanRoot: currentRoot,
+        workspaceMountRoot: WORKSPACE_MOUNT_ROOT,
+        isVisibleDocumentPath: (workspacePath) =>
+          this.isVisibleWorkspaceDocumentPath(workspacePath),
+        toVisibleWorkspaceAbsolutePath: (root, absolutePath) =>
+          this.toVisibleWorkspaceAbsolutePath(root, absolutePath)
+      });
+      const producedFiles = buildShellProducedFilesFromDocumentDiff({
+        workspaceMountRoot: WORKSPACE_MOUNT_ROOT,
         before: beforeVisibleDocuments,
-        after: afterVisibleDocuments
+        after: afterVisibleDocuments,
+        inferMimeType: (workspacePath) => this.inferMimeType(workspacePath)
       });
       return {
         reason: null,
@@ -2766,70 +2785,6 @@ export class SandboxService {
     }
     const lowered = workspacePath.toLowerCase();
     return lowered.endsWith(".pdf") || lowered.endsWith(".xlsx") || lowered.endsWith(".docx");
-  }
-
-  private async collectVisibleWorkspaceDocumentSnapshots(
-    workspaceRoot: string
-  ): Promise<Map<string, { sizeBytes: number; mtimeMs: number }>> {
-    const snapshots = new Map<string, { sizeBytes: number; mtimeMs: number }>();
-    const visit = async (currentDir: string): Promise<void> => {
-      let entries;
-      try {
-        entries = await fs.readdir(currentDir, { withFileTypes: true });
-      } catch {
-        return;
-      }
-      for (const entry of entries) {
-        const absolutePath = join(currentDir, entry.name);
-        if (entry.isDirectory()) {
-          await visit(absolutePath);
-          continue;
-        }
-        const workspacePath = this.toVisibleWorkspaceAbsolutePath(workspaceRoot, absolutePath);
-        if (!this.isVisibleWorkspaceDocumentPath(workspacePath)) {
-          continue;
-        }
-        const stat = await fs.stat(absolutePath);
-        snapshots.set(workspacePath, {
-          sizeBytes: stat.size,
-          mtimeMs: stat.mtimeMs
-        });
-      }
-    };
-    await visit(workspaceRoot);
-    return snapshots;
-  }
-
-  private async buildShellProducedFilesFromDocumentDiff(input: {
-    workspaceRoot: string;
-    before: Map<string, { sizeBytes: number; mtimeMs: number }>;
-    after: Map<string, { sizeBytes: number; mtimeMs: number }>;
-  }): Promise<RuntimeSandboxProducedFile[]> {
-    const producedFiles: RuntimeSandboxProducedFile[] = [];
-    for (const [workspacePath, afterSnapshot] of input.after.entries()) {
-      const beforeSnapshot = input.before.get(workspacePath);
-      const changed =
-        beforeSnapshot === undefined ||
-        beforeSnapshot.sizeBytes !== afterSnapshot.sizeBytes ||
-        beforeSnapshot.mtimeMs !== afterSnapshot.mtimeMs;
-      if (!changed) {
-        continue;
-      }
-      const mountRelative =
-        workspacePath === WORKSPACE_MOUNT_ROOT
-          ? ""
-          : workspacePath.slice(WORKSPACE_MOUNT_ROOT.length + 1);
-      const mimeType = this.inferMimeType(workspacePath);
-      producedFiles.push({
-        relativePath: mountRelative,
-        displayName: basename(workspacePath),
-        mimeType,
-        sizeBytes: afterSnapshot.sizeBytes,
-        logicalSizeBytes: afterSnapshot.sizeBytes,
-        storagePath: workspacePath
-      });
-    }
-    return producedFiles;
   }
 
   private inferMimeType(relativePath: string): string {

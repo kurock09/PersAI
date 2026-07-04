@@ -8660,28 +8660,33 @@ export async function runRecentPdfsHintTests(): Promise<void> {
     assert.ok(workingFiles, "working files section must still be present");
     assert.match(
       workingFiles!,
-      /Document-tool PDF anchors \(not general file recency\):/,
-      "working files must carry the document priority note"
+      /### Current session files/,
+      "working files must render the session file list"
     );
     assert.match(
       workingFiles!,
-      /DOC_CURRENT_SOURCE/,
-      "working files must expose the current source role"
+      /current source/,
+      "working files must expose the current source marker on the matching row"
     );
     assert.match(
       workingFiles!,
-      /DOC_LAST_DELIVERED_PDF/,
-      "working files must expose the last delivered result role"
+      /last delivered result/,
+      "working files must expose the last delivered document marker on the matching row"
     );
     assert.match(
       workingFiles!,
-      /Chat files visible to tools \(documents, media, and attachments\):/,
-      "working files must separate the general file list from PDF-only anchors"
+      /last delivered/,
+      "working files must expose the general last delivered marker on the matching row"
     );
-    assert.match(
+    assert.doesNotMatch(
       workingFiles!,
-      /LAST_DELIVERED_FILE/,
-      "working files must expose a general last delivered file anchor"
+      /Document-tool PDF anchors/,
+      "legacy PDF anchor blocks must not be reintroduced"
+    );
+    assert.doesNotMatch(
+      workingFiles!,
+      /LAST_DELIVERED_FILE =/,
+      "legacy last-delivered anchor blocks must not be reintroduced"
     );
     assert.doesNotMatch(
       workingFiles!,

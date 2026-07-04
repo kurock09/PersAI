@@ -786,6 +786,7 @@ export class AssistantDocumentJobService {
     descriptorMode: AssistantDocumentDescriptorMode;
     documentType: AssistantDocumentType;
     outputFormat: VisibleWorkspaceDocumentOutputFormat;
+    revisedInPlace: boolean;
   }> {
     const requestedName =
       typeof input.requestedName === "string" && input.requestedName.trim().length > 0
@@ -793,6 +794,7 @@ export class AssistantDocumentJobService {
         : this.basename(input.workspaceFacts.outputPath);
     const sourceJson = this.buildVisibleWorkspaceSourcePayload({
       sourceUserMessageText: input.sourceUserMessageText,
+      sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
       outputFormat: input.outputFormat,
       requestedName,
       docId: input.docId ?? null,
@@ -811,7 +813,8 @@ export class AssistantDocumentJobService {
             currentVersion: {
               select: {
                 id: true,
-                versionNumber: true
+                versionNumber: true,
+                sourceSummaryText: true
               }
             }
           }
@@ -825,6 +828,34 @@ export class AssistantDocumentJobService {
           current.currentVersion.id !== current.currentVersionId
         ) {
           throw new Error("Visible workspace document version registration target was not found.");
+        }
+        const sameUserTurnRevision =
+          input.descriptorMode === "revise_document" &&
+          current.currentVersion.sourceSummaryText === input.sourceUserMessageText;
+        if (sameUserTurnRevision) {
+          await tx.assistantDocumentVersion.update({
+            where: { id: current.currentVersionId },
+            data: {
+              sourceJson: sourceJson as never,
+              sourceSummaryText: input.sourceUserMessageText
+            }
+          });
+          await tx.assistantDocument.update({
+            where: { id: current.id },
+            data: {
+              documentType,
+              status: "ready"
+            }
+          });
+          return {
+            docId: current.id,
+            versionId: current.currentVersionId,
+            versionNumber: current.currentVersion.versionNumber,
+            descriptorMode: input.descriptorMode,
+            documentType,
+            outputFormat: input.outputFormat,
+            revisedInPlace: true
+          };
         }
         const version = await tx.assistantDocumentVersion.create({
           data: {
@@ -867,7 +898,8 @@ export class AssistantDocumentJobService {
           versionNumber: version.versionNumber,
           descriptorMode: input.descriptorMode,
           documentType,
-          outputFormat: input.outputFormat
+          outputFormat: input.outputFormat,
+          revisedInPlace: false
         };
       });
     }
@@ -913,7 +945,8 @@ export class AssistantDocumentJobService {
         versionNumber: version.versionNumber,
         descriptorMode: input.descriptorMode,
         documentType,
-        outputFormat: input.outputFormat
+        outputFormat: input.outputFormat,
+        revisedInPlace: false
       };
     });
   }
@@ -1132,6 +1165,7 @@ export class AssistantDocumentJobService {
 
   private buildVisibleWorkspaceSourcePayload(input: {
     sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
     outputFormat: VisibleWorkspaceDocumentOutputFormat;
     requestedName: string | null;
     docId: string | null;
@@ -1144,6 +1178,7 @@ export class AssistantDocumentJobService {
       docId: input.docId,
       requestedName: input.requestedName,
       metadata: {
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
         documentWorkspace: {
           workspaceProjectPath: input.workspaceFacts.workspaceProjectPath,
           projectManifestPath: input.workspaceFacts.projectManifestPath,

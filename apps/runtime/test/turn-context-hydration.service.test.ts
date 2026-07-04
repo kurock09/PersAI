@@ -110,12 +110,19 @@ class FakePersaiInternalApiClientService {
   async listWorkspaceFileShortDescriptions(input: {
     workspaceId: string;
     paths: readonly string[];
-  }): Promise<Array<{ path: string; shortDescription: string | null }>> {
+  }): Promise<
+    Array<{
+      path: string;
+      shortDescription: string | null;
+      documentVersionNumber: number | null;
+    }>
+  > {
     return input.paths
       .filter((path) => this.shortDescriptionsByPath.has(path))
       .map((path) => ({
         path,
-        shortDescription: this.shortDescriptionsByPath.get(path) ?? null
+        shortDescription: this.shortDescriptionsByPath.get(path) ?? null,
+        documentVersionNumber: null
       }));
   }
 }

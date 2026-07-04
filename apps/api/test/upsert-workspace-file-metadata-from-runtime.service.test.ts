@@ -31,6 +31,9 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
         shortDescription?: string;
       }) {
         calls.push(input);
+      },
+      async get() {
+        return null;
       }
     };
     const attachments = {
@@ -72,7 +75,8 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
           outputPath: String(input.outputPath ?? `${sessionRoot}/report.pdf`),
           workspaceProjectPath: null,
           sourceManifestPath: null,
-          inspectionPath: null
+          inspectionPath: null,
+          revisedInPlace: false
         };
       }
     };
@@ -164,7 +168,8 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
       registered: true,
       versionNumber: 1,
       bumped: false,
-      isOverwrite: false
+      isOverwrite: false,
+      contentChanged: true
     });
   });
 
@@ -184,7 +189,8 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
           outputPath: String(input.outputPath ?? `${sessionRoot}/report.xlsx`),
           workspaceProjectPath: null,
           sourceManifestPath: null,
-          inspectionPath: null
+          inspectionPath: null,
+          revisedInPlace: false
         };
       }
     };
@@ -205,6 +211,9 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
       {
         async upsert() {
           return;
+        },
+        async get() {
+          return null;
         }
       } as never,
       {
@@ -236,8 +245,159 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
       registered: true,
       versionNumber: 2,
       bumped: true,
-      isOverwrite: true
+      isOverwrite: true,
+      contentChanged: true
     });
+  });
+
+  test("skips document registration when contentHash is unchanged", async () => {
+    const metadata = {
+      async upsert() {
+        return;
+      },
+      async get() {
+        return {
+          workspaceId: "workspace-1",
+          path: `${sessionRoot}/report.xlsx`,
+          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          sizeBytes: BigInt(42),
+          contentHash: "same-hash",
+          shortDescription: null,
+          originChatId: null,
+          originAssistantId: null
+        };
+      }
+    };
+    const registrationService = {
+      async execute() {
+        throw new Error("registration must not run for unchanged content");
+      }
+    };
+    const fullService = new UpsertWorkspaceFileMetadataFromRuntimeService(
+      {
+        assistantChat: {
+          async findFirst() {
+            return { surface: "web", surfaceThreadKey: "thread-1" };
+          },
+          async findUnique() {
+            return { chatMode: "project" };
+          }
+        }
+      } as never,
+      metadata as never,
+      {
+        async refreshWorkspacePathProjection() {
+          return 1;
+        }
+      } as never,
+      registrationService as never,
+      {
+        async enqueueIfNeeded() {
+          return { accepted: false, reason: "test_stub" };
+        }
+      } as never
+    );
+    const input = fullService.parseInput({
+      workspaceId: "workspace-1",
+      path: `${sessionRoot}/report.xlsx`,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      sizeBytes: 42,
+      contentHash: "same-hash",
+      replace: true,
+      originChatId: "chat-1",
+      originAssistantId: "assistant-1",
+      sourceUserMessageText: "Перезапиши xlsx",
+      sourceUserMessageCreatedAt: "2026-07-03T09:00:00.000Z"
+    });
+    const result = await fullService.execute(input);
+    assert.deepEqual(result.documentRegistration, {
+      registered: false,
+      versionNumber: null,
+      bumped: false,
+      isOverwrite: true,
+      contentChanged: false
+    });
+  });
+
+  test("clears shortDescription and force-refreshes micro-description when contentHash changes", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const enqueueCalls: Array<Record<string, unknown>> = [];
+    const metadata = {
+      async upsert(input: Record<string, unknown>) {
+        calls.push(input);
+      },
+      async get() {
+        return {
+          workspaceId: "workspace-1",
+          path: `${sessionRoot}/report.xlsx`,
+          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          sizeBytes: BigInt(42),
+          contentHash: "old-hash",
+          shortDescription: "Stale workbook summary.",
+          originChatId: "chat-1",
+          originAssistantId: "assistant-1"
+        };
+      }
+    };
+    const service = new UpsertWorkspaceFileMetadataFromRuntimeService(
+      {
+        assistantChat: {
+          async findFirst() {
+            return { surface: "web", surfaceThreadKey: "thread-1" };
+          },
+          async findUnique() {
+            return { chatMode: "project" };
+          }
+        }
+      } as never,
+      metadata as never,
+      {
+        async refreshWorkspacePathProjection() {
+          return 1;
+        }
+      } as never,
+      {
+        async execute() {
+          return {
+            accepted: true,
+            docId: "doc-1",
+            versionId: "version-2",
+            versionNumber: 2,
+            descriptorMode: "revise_document",
+            documentType: "workspace_document",
+            outputFormat: "xlsx",
+            outputPath: `${sessionRoot}/report.xlsx`,
+            workspaceProjectPath: null,
+            sourceManifestPath: null,
+            inspectionPath: null,
+            revisedInPlace: false
+          };
+        }
+      } as never,
+      {
+        async enqueueIfNeeded(input: Record<string, unknown>) {
+          enqueueCalls.push(input);
+          return { accepted: true, reason: "enqueued" };
+        }
+      } as never
+    );
+    const input = service.parseInput({
+      workspaceId: "workspace-1",
+      path: `${sessionRoot}/report.xlsx`,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      sizeBytes: 99,
+      contentHash: "new-hash",
+      replace: true,
+      originChatId: "chat-1",
+      originAssistantId: "assistant-1",
+      sourceUserMessageText: "Refresh the workbook",
+      sourceUserMessageCreatedAt: "2026-07-04T09:00:00.000Z"
+    });
+    await service.execute(input);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.shortDescription, null);
+    assert.equal(enqueueCalls.length, 1);
+    assert.equal(enqueueCalls[0]?.forceRefresh, true);
   });
 
   test("rejects paths outside /workspace/ (e.g. /tmp/)", () => {

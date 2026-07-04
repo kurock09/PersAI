@@ -22,6 +22,7 @@ function workingFile(input: {
   semanticSummaryHint?: string | null;
   sourceToolCode?: string | null;
   visibilityTier?: RuntimeFileHandle["visibilityTier"];
+  documentVersionNumber?: number | null;
 }): TestWorkingFile {
   return {
     storagePath: input.storagePath,
@@ -38,7 +39,10 @@ function workingFile(input: {
       : { semanticSummaryHint: input.semanticSummaryHint }),
     ...(input.sourceToolCode === undefined || input.sourceToolCode === null
       ? {}
-      : { sourceToolCode: input.sourceToolCode })
+      : { sourceToolCode: input.sourceToolCode }),
+    ...(input.documentVersionNumber === undefined
+      ? {}
+      : { documentVersionNumber: input.documentVersionNumber })
   };
 }
 
@@ -257,7 +261,7 @@ describe("TurnExecutionService working files developer section", () => {
     );
   });
 
-  test("LAST_DELIVERED_FILE picks newest user or model delivery by createdAt and ignores sandbox scratch", () => {
+  test("marks the newest user or model delivery with last delivered and ignores sandbox scratch", () => {
     const section = buildSection([
       workingFile({
         storagePath: wp("older-user.docx"),
@@ -294,9 +298,11 @@ describe("TurnExecutionService working files developer section", () => {
     assert.match(
       section ?? "",
       new RegExp(
-        `LAST_DELIVERED_FILE = file #2 \\| newer-model\\.pdf \\| path=${wp("newer-model.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+        `newer-model\\.pdf \\| path=${wp("newer-model.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| last delivered`
       )
     );
+    assert.doesNotMatch(section ?? "", /LAST_DELIVERED_FILE =/);
+    assert.doesNotMatch(section ?? "", /Document-tool PDF anchors/);
     const historyLines = (section ?? "").split("\n").filter((line) => line.startsWith("- 2026-"));
     for (const line of historyLines) {
       const microDescription = line.split(" | ").at(-1) ?? "";
@@ -304,7 +310,7 @@ describe("TurnExecutionService working files developer section", () => {
     }
   });
 
-  test("document priority note remains without rendering legacy role sections", () => {
+  test("renders document role markers on file rows without legacy anchor blocks", () => {
     const section = buildSection([
       workingFile({
         storagePath: wp("proposal.docx"),
@@ -330,36 +336,53 @@ describe("TurnExecutionService working files developer section", () => {
     ]);
 
     assert.ok(section);
-    assert.match(section ?? "", /Document-tool PDF anchors \(not general file recency\):/);
     assert.match(
       section ?? "",
       new RegExp(
-        `DOC_CURRENT_SOURCE = file #1 \\| proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+        `proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| current source`
       )
     );
     assert.match(
       section ?? "",
       new RegExp(
-        `DOC_LAST_DELIVERED_PDF = file #2 \\| proposal\\.pdf \\| path=${wp("proposal.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+        `proposal\\.pdf \\| path=${wp("proposal.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| last delivered result`
       )
-    );
-    assert.match(
-      section ?? "",
-      /Chat files visible to tools \(documents, media, and attachments\):/
     );
     assert.match(
       section ?? "",
       new RegExp(
-        `LAST_DELIVERED_FILE = file #1 \\| proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+        `proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| last delivered`
       )
     );
-    assert.match(
-      section ?? "",
-      /Use DOC_CURRENT_SOURCE for new document creation; use DOC_LAST_DELIVERED_PDF only for an explicit PDF revise\/redeliver request\./
-    );
+    assert.doesNotMatch(section ?? "", /Document-tool PDF anchors/);
+    assert.doesNotMatch(section ?? "", /DOC_CURRENT_SOURCE/);
+    assert.doesNotMatch(section ?? "", /LAST_DELIVERED_FILE =/);
     assert.doesNotMatch(
       section ?? "",
       /### CURRENT_SOURCE|### HISTORY|### OTHER_FILES|RECENT PDFS YOU CAN REVISE/
+    );
+  });
+
+  test("shows document version marker on registered pdf/docx/xlsx rows", () => {
+    const section = buildSection([
+      workingFile({
+        storagePath: wp("report.xlsx"),
+        displayName: "report.xlsx",
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        aliases: ["file #1"],
+        createdAt: "2026-05-26T14:40:00.000Z",
+        authorLabel: "model",
+        documentVersionNumber: 3,
+        semanticSummaryHint: "Competitor pricing workbook."
+      })
+    ]);
+
+    assert.ok(section);
+    assert.match(
+      section ?? "",
+      new RegExp(
+        `report\\.xlsx \\| path=${wp("report.xlsx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| v3`
+      )
     );
   });
 
@@ -434,21 +457,17 @@ describe("TurnExecutionService working files developer section", () => {
     assert.match(
       section ?? "",
       new RegExp(
-        `DOC_CURRENT_SOURCE = file #1 \\| proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+        `proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| current source`
       )
     );
     assert.match(
       section ?? "",
       new RegExp(
-        `DOC_LAST_DELIVERED_PDF = file #2 \\| proposal\\.pdf \\| path=${wp("proposal.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+        `proposal\\.pdf \\| path=${wp("proposal.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| last delivered result`
       )
     );
-    assert.match(
-      section ?? "",
-      new RegExp(
-        `LAST_DELIVERED_FILE = file #1 \\| proposal\\.docx \\| path=${wp("proposal.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
-      )
-    );
+    assert.doesNotMatch(section ?? "", /DOC_CURRENT_SOURCE/);
+    assert.doesNotMatch(section ?? "", /LAST_DELIVERED_FILE =/);
     assert.match(
       section ?? "",
       new RegExp(

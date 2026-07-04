@@ -84,6 +84,40 @@ describe("WorkspaceFileMicroDescriptionJobService policy", () => {
     assert.equal(result.accepted, false);
     assert.equal(result.reason, "policy_disabled");
   });
+
+  test("forceRefresh re-enqueues when summary already exists", async () => {
+    const calls: unknown[] = [];
+    const service = new WorkspaceFileMicroDescriptionJobService(
+      {
+        workspaceFileMicroDescriptionJob: {
+          findUnique: async () => ({
+            status: "completed"
+          }),
+          upsert: async (args: unknown) => {
+            calls.push(args);
+          }
+        }
+      } as never,
+      {
+        get: async () => ({ shortDescription: "Stale summary." })
+      } as never,
+      {} as never,
+      {
+        execute: async () => ({ routerPolicy: { analyzeUploadsOnB2cUpload: true } })
+      } as never,
+      {} as never,
+      {} as never
+    );
+    const result = await service.enqueueIfNeeded({
+      workspaceId: "ws-1",
+      path: "/workspace/assistants/a1/sessions/s1/report.xlsx",
+      assistantId: "a1",
+      sourceKind: "generated",
+      forceRefresh: true
+    });
+    assert.equal(result.accepted, true);
+    assert.equal(calls.length, 1);
+  });
 });
 
 function buildMinimalZip(entries: Array<[string, Buffer]>): Buffer {

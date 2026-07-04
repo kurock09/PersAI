@@ -53,17 +53,27 @@ describe("turn-delivery-facts", () => {
     assert.deepEqual(
       resolveShellAutoAttachPaths(
         [
-          { path: overwritePath, versionNumber: 2, isOverwrite: true },
-          { path: draftPath, versionNumber: 1, isOverwrite: false },
-          { path: finalPath, versionNumber: 1, isOverwrite: false }
+          { path: overwritePath, versionNumber: 2, isOverwrite: true, contentChanged: true },
+          { path: draftPath, versionNumber: 1, isOverwrite: false, contentChanged: true },
+          { path: finalPath, versionNumber: 1, isOverwrite: false, contentChanged: true }
         ],
         []
       ),
       [overwritePath]
     );
     assert.deepEqual(
-      resolveShellAutoAttachPaths([{ path: finalPath, versionNumber: 1, isOverwrite: false }], []),
+      resolveShellAutoAttachPaths(
+        [{ path: finalPath, versionNumber: 1, isOverwrite: false, contentChanged: true }],
+        []
+      ),
       [finalPath]
+    );
+    assert.deepEqual(
+      resolveShellAutoAttachPaths(
+        [{ path: overwritePath, versionNumber: 2, isOverwrite: true, contentChanged: false }],
+        []
+      ),
+      []
     );
   });
 
@@ -73,12 +83,14 @@ describe("turn-delivery-facts", () => {
     tracker.shellDocumentRegistrations.push({
       path: wp("draft.xlsx"),
       versionNumber: 1,
-      isOverwrite: false
+      isOverwrite: false,
+      contentChanged: true
     });
     tracker.shellDocumentRegistrations.push({
       path: wp("final.xlsx"),
       versionNumber: 1,
-      isOverwrite: false
+      isOverwrite: false,
+      contentChanged: true
     });
     assert.deepEqual(resolveAutoAttachCandidatePaths(tracker), [wp("rendered.pdf")]);
   });
@@ -103,7 +115,8 @@ describe("turn-delivery-facts", () => {
             registered: true,
             versionNumber: 2,
             bumped: true,
-            isOverwrite: true
+            isOverwrite: true,
+            contentChanged: true
           }
         ]
       }
@@ -111,7 +124,7 @@ describe("turn-delivery-facts", () => {
     const facts = finalizeTurnDeliveryFacts(tracker);
     assert.deepEqual(facts.producedPaths, [wp("report.xlsx")]);
     assert.deepEqual(facts.shellDocumentRegistrations, [
-      { path: wp("report.xlsx"), versionNumber: 2, isOverwrite: true }
+      { path: wp("report.xlsx"), versionNumber: 2, isOverwrite: true, contentChanged: true }
     ]);
     assert.deepEqual(resolveAutoAttachCandidatePaths(facts), [wp("report.xlsx")]);
   });

@@ -57,6 +57,7 @@ type WorkspaceDocumentRegisterVersionAccepted = {
   workspaceProjectPath: string | null;
   sourceManifestPath: string | null;
   inspectionPath: string | null;
+  revisedInPlace: boolean;
 };
 
 @Injectable()
@@ -314,7 +315,8 @@ export class DocumentWorkspaceVersionRegistrationService {
       outputPath,
       workspaceProjectPath: projectContext.workspaceProjectPath,
       sourceManifestPath: projectContext.sourceManifestPath,
-      inspectionPath
+      inspectionPath,
+      revisedInPlace: registered.revisedInPlace
     };
   }
 

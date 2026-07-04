@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-07-04 — ADR-134 follow-up: WF cleanup + micro-description invalidation + document version markers
+
+Status: **implemented locally; commit/push pending** (builds on the shell document integrity dirty tree).
+
+What changed:
+
+- **Micro-description invalidation:** runtime manifest upsert clears `shortDescription` on `replace` or `contentHash` change and force-re-enqueues the background describe job.
+- **Working Files:** removed legacy `DOC_*` and `LAST_DELIVERED_FILE` blocks; markers now live on rows (`last delivered`, `current source`, `last delivered result`, `v{N}`).
+- **Manifest hints API:** `short-descriptions` batch lookup now also returns `documentVersionNumber` for registered pdf/docx/xlsx paths.
+
+## 2026-07-04 — shell document delivery integrity fix (content-hash diff, turn-scoped versioning)
+
+Status: **implemented locally; commit/deploy pending.**
+
+What changed:
+
+- **Sandbox shell diff:** session-scoped (`currentRoot`) scan; content change = new path or size/hash delta (mtime ignored); `contentHash` on `producedFiles`.
+- **API registration:** skip `revise_document` when manifest `contentHash` unchanged; same user-turn revise updates current version in place (one `v+1` per path per turn loop).
+- **Runtime delivery:** pass `contentHash` on shell sync; auto-attach only `contentChanged` shell registrations.
+- **Prompts:** simple XLSX via `document` only; complex XLSX + office edits via one `shell` script/turn; `files.attach` only target outputs.
+
+Verification: run AGENTS.md gate + focused tests on sandbox diff, upsert, turn-delivery-facts, runtime-sandbox-tool.
+
+Next step: commit, deploy, live acceptance (DOCX restyle → only new file in chat; no false v+1 on stale session artifacts).
+
 ## 2026-07-04 — ADR-134 path-based workspace file micro-descriptions (S1–S7)
 
 Status: **implemented locally in the dirty working tree; commit/push/deploy pending.** Baseline SHA on `main` before this program: `3978f3db0ac4f4b299087d08e14d79eefd3b6960`. Local tree HEAD at doc time: `79f7755017e0e5188663e17f7901b112aea9d8f0` (includes other uncommitted slices — do not mix commits).

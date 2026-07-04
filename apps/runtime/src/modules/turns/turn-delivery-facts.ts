@@ -58,7 +58,7 @@ export function resolveShellAutoAttachPaths(
   );
   const paths: string[] = [];
   for (const entry of registrations) {
-    if (entry.isOverwrite && !attached.has(entry.path)) {
+    if (entry.isOverwrite && entry.contentChanged && !attached.has(entry.path)) {
       paths.push(entry.path);
     }
   }
@@ -180,7 +180,7 @@ function recordShellToolDeliveryFacts(
     return;
   }
   for (const outcome of payload.documentSync) {
-    if (!outcome.registered || outcome.versionNumber === null) {
+    if (!outcome.registered || outcome.versionNumber === null || !outcome.contentChanged) {
       continue;
     }
     appendUniquePath(tracker.producedPaths, outcome.path);
@@ -190,7 +190,8 @@ function recordShellToolDeliveryFacts(
     const registration: RuntimeTurnShellDocumentRegistration = {
       path: outcome.path,
       versionNumber: outcome.versionNumber,
-      isOverwrite: outcome.isOverwrite
+      isOverwrite: outcome.isOverwrite,
+      contentChanged: outcome.contentChanged
     };
     if (existing === undefined) {
       tracker.shellDocumentRegistrations.push(registration);
@@ -198,6 +199,7 @@ function recordShellToolDeliveryFacts(
     }
     existing.versionNumber = registration.versionNumber;
     existing.isOverwrite = registration.isOverwrite;
+    existing.contentChanged = registration.contentChanged;
   }
 }
 

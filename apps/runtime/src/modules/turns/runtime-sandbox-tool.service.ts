@@ -224,6 +224,7 @@ export class RuntimeSandboxToolService {
         path: file.storagePath,
         mimeType: file.mimeType,
         sizeBytes: file.sizeBytes,
+        contentHash: file.contentHash ?? null,
         replace: existing !== null,
         originChatId: input.chatId,
         originAssistantId: input.bundle.metadata.assistantId,
@@ -239,7 +240,8 @@ export class RuntimeSandboxToolService {
         registered: registration.registered,
         versionNumber: registration.versionNumber,
         bumped: registration.bumped,
-        isOverwrite: registration.isOverwrite
+        isOverwrite: registration.isOverwrite,
+        contentChanged: registration.contentChanged
       });
     }
     return outcomes;

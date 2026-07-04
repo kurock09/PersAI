@@ -253,51 +253,6 @@ export function deriveStoredAttachmentSemanticSummary(input: {
   return { semanticSummary: null, semanticSummarySource: null };
 }
 
-export function readStoredAttachmentSemanticSummary(
-  metadata: Record<string, unknown> | null | undefined
-): string | null {
-  const summary = metadata?.semanticSummary;
-  return typeof summary === "string" && summary.trim().length > 0 ? summary : null;
-}
-
-export function readStoredAttachmentSemanticSummarySource(
-  metadata: Record<string, unknown> | null | undefined
-): AttachmentSemanticSummarySource | null {
-  const source = metadata?.semanticSummarySource;
-  return source === "text_extract" ||
-    source === "transcription" ||
-    source === "upload_micro_description" ||
-    source === "generation_request"
-    ? source
-    : null;
-}
-
-export function withStoredAttachmentSemanticSummary(input: {
-  metadata: Record<string, unknown> | null | undefined;
-  semanticSummary: string | null | undefined;
-  semanticSummarySource: AttachmentSemanticSummarySource | null | undefined;
-}): Record<string, unknown> | null {
-  const base =
-    input.metadata !== null &&
-    input.metadata !== undefined &&
-    typeof input.metadata === "object" &&
-    !Array.isArray(input.metadata)
-      ? { ...input.metadata }
-      : {};
-  const semanticSummary = toStoredAttachmentSemanticSummary(input.semanticSummary ?? null);
-  const semanticSummarySource = input.semanticSummarySource ?? null;
-  if (semanticSummary === null || semanticSummarySource === null) {
-    delete base.semanticSummary;
-    delete base.semanticSummarySource;
-    return Object.keys(base).length > 0 ? base : null;
-  }
-  return {
-    ...base,
-    semanticSummary,
-    semanticSummarySource
-  };
-}
-
 export function normalizeStoredAttachmentSemanticSummary(text: string | null): string | null {
   return toStoredAttachmentSemanticSummary(text);
 }

@@ -211,6 +211,14 @@ export class RegisterChatAttachmentService {
       ...(input.metadata ?? {}),
       kind: input.kind
     };
+    const priorMetadata = await this.workspaceFileMetadataService.get({
+      workspaceId: input.workspaceId,
+      path: storagePath
+    });
+    const shouldInvalidateSummary = this.shouldInvalidateManifestShortDescription(
+      input,
+      priorMetadata
+    );
     const attachment = await this.attachmentRepository.create({
       messageId: input.messageId,
       chatId: input.chatId,
@@ -243,7 +251,9 @@ export class RegisterChatAttachmentService {
       originAssistantId: input.assistantId,
       ...(input.shortDescription !== undefined && input.shortDescription !== null
         ? { shortDescription: input.shortDescription }
-        : {})
+        : shouldInvalidateSummary
+          ? { shortDescription: null }
+          : {})
     });
 
     if (filesAttachDocumentLinkContext !== null) {
@@ -260,7 +270,8 @@ export class RegisterChatAttachmentService {
       assistantId: input.assistantId,
       chatId: input.chatId,
       kind: input.kind,
-      metadata: attachmentMetadata
+      metadata: attachmentMetadata,
+      forceRefresh: shouldInvalidateSummary
     });
 
     return {
@@ -276,6 +287,7 @@ export class RegisterChatAttachmentService {
     chatId: string;
     kind: RegisterChatAttachmentKind;
     metadata: Record<string, unknown>;
+    forceRefresh?: boolean;
   }): Promise<void> {
     try {
       const chat = await this.prisma.assistantChat.findUnique({
@@ -289,7 +301,8 @@ export class RegisterChatAttachmentService {
         assistantId: input.assistantId,
         sourceKind,
         sourceChatId: input.chatId,
-        chatMode: chat?.chatMode ?? null
+        chatMode: chat?.chatMode ?? null,
+        ...(input.forceRefresh === true ? { forceRefresh: true } : {})
       });
     } catch (error) {
       this.logger.warn(
@@ -310,6 +323,22 @@ export class RegisterChatAttachmentService {
       return "inbound";
     }
     return "user_upload";
+  }
+
+  private shouldInvalidateManifestShortDescription(
+    input: RegisterChatAttachmentInput,
+    priorMetadata: Awaited<ReturnType<WorkspaceFileMetadataService["get"]>>
+  ): boolean {
+    if (input.shortDescription !== undefined && input.shortDescription !== null) {
+      return false;
+    }
+    if (priorMetadata === null) {
+      return false;
+    }
+    return (
+      priorMetadata.sizeBytes !== BigInt(input.sizeBytes) ||
+      priorMetadata.mimeType !== input.mimeType
+    );
   }
 
   private assertStoragePathAllowed(storagePath: string): void {

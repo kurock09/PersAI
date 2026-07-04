@@ -614,7 +614,11 @@ export class TurnContextHydrationService {
       return;
     }
 
-    let descriptions: Array<{ path: string; shortDescription: string | null }> = [];
+    let descriptions: Array<{
+      path: string;
+      shortDescription: string | null;
+      documentVersionNumber: number | null;
+    }> = [];
     try {
       descriptions = await this.persaiInternalApiClient.listWorkspaceFileShortDescriptions({
         workspaceId: conversation.workspaceId,
@@ -630,14 +634,24 @@ export class TurnContextHydrationService {
     }
 
     const descriptionByPath = new Map(
-      descriptions.map((row) => [row.path, row.shortDescription] as const)
+      descriptions.map(
+        (row) =>
+          [
+            row.path,
+            {
+              shortDescription: row.shortDescription,
+              documentVersionNumber: row.documentVersionNumber
+            }
+          ] as const
+      )
     );
 
     for (const storagePath of newPaths) {
-      if (!descriptionByPath.has(storagePath)) {
+      const manifestHints = descriptionByPath.get(storagePath);
+      if (manifestHints === undefined) {
         continue;
       }
-      const shortDescription = descriptionByPath.get(storagePath) ?? null;
+      const shortDescription = manifestHints.shortDescription;
       const displayName = storagePath.split("/").pop() ?? null;
       const handle: RuntimeFileHandle = {
         storagePath,
@@ -646,7 +660,8 @@ export class TurnContextHydrationService {
         displayName,
         workspaceId: conversation.workspaceId,
         authorLabel: "sandbox",
-        semanticSummaryHint: shortDescription
+        semanticSummaryHint: shortDescription,
+        documentVersionNumber: manifestHints.documentVersionNumber
       };
       refs.set(storagePath, {
         ...(refs.get(storagePath) ?? handle),
@@ -1987,7 +2002,11 @@ export class TurnContextHydrationService {
     if (paths.length === 0) {
       return;
     }
-    let descriptions: Array<{ path: string; shortDescription: string | null }> = [];
+    let descriptions: Array<{
+      path: string;
+      shortDescription: string | null;
+      documentVersionNumber: number | null;
+    }> = [];
     try {
       descriptions = await this.persaiInternalApiClient.listWorkspaceFileShortDescriptions({
         workspaceId,
@@ -2002,15 +2021,26 @@ export class TurnContextHydrationService {
       return;
     }
     const descriptionByPath = new Map(
-      descriptions.map((row) => [row.path, row.shortDescription] as const)
+      descriptions.map(
+        (row) =>
+          [
+            row.path,
+            {
+              shortDescription: row.shortDescription,
+              documentVersionNumber: row.documentVersionNumber
+            }
+          ] as const
+      )
     );
     for (const [storagePath, handle] of refs.entries()) {
-      if (!descriptionByPath.has(storagePath)) {
+      const manifestHints = descriptionByPath.get(storagePath);
+      if (manifestHints === undefined) {
         continue;
       }
       refs.set(storagePath, {
         ...handle,
-        semanticSummaryHint: descriptionByPath.get(storagePath) ?? null
+        semanticSummaryHint: manifestHints.shortDescription ?? null,
+        documentVersionNumber: manifestHints.documentVersionNumber
       });
     }
   }

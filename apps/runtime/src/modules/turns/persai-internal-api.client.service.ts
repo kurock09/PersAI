@@ -1018,6 +1018,7 @@ export class PersaiInternalApiClientService {
       versionNumber: number | null;
       bumped: boolean;
       isOverwrite: boolean;
+      contentChanged: boolean;
     } | null;
   }> {
     if (!this.isConfigured()) {
@@ -1068,6 +1069,7 @@ export class PersaiInternalApiClientService {
                 versionNumber: number | null;
                 bumped: boolean;
                 isOverwrite: boolean;
+                contentChanged: boolean;
               } | null;
             })
           : null;
@@ -1124,7 +1126,13 @@ export class PersaiInternalApiClientService {
   async listWorkspaceFileShortDescriptions(input: {
     workspaceId: string;
     paths: readonly string[];
-  }): Promise<Array<{ path: string; shortDescription: string | null }>> {
+  }): Promise<
+    Array<{
+      path: string;
+      shortDescription: string | null;
+      documentVersionNumber: number | null;
+    }>
+  > {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
     }
@@ -1145,13 +1153,19 @@ export class PersaiInternalApiClientService {
           "PersAI internal API short-descriptions request failed."
         );
       }
-      return input.paths.map((path) => ({ path, shortDescription: null }));
+      return input.paths.map((path) => ({
+        path,
+        shortDescription: null,
+        documentVersionNumber: null
+      }));
     }
     const payload = this.asObject(response.body);
     const rows = Array.isArray(payload?.rows) ? payload.rows : [];
     return rows
       .filter(
-        (entry): entry is { path: unknown; shortDescription: unknown } =>
+        (
+          entry
+        ): entry is { path: unknown; shortDescription: unknown; documentVersionNumber: unknown } =>
           entry !== null && typeof entry === "object"
       )
       .map((entry) => ({
@@ -1159,6 +1173,12 @@ export class PersaiInternalApiClientService {
         shortDescription:
           typeof entry.shortDescription === "string" && entry.shortDescription.length > 0
             ? entry.shortDescription
+            : null,
+        documentVersionNumber:
+          typeof entry.documentVersionNumber === "number" &&
+          Number.isFinite(entry.documentVersionNumber) &&
+          entry.documentVersionNumber > 0
+            ? Math.floor(entry.documentVersionNumber)
             : null
       }))
       .filter((row) => row.path.length > 0);

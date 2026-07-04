@@ -50,12 +50,17 @@ export class WorkspaceFileMicroDescriptionJobService {
     sourceKind: WorkspaceFileMicroDescriptionSourceKind;
     sourceChatId?: string | null;
     chatMode?: string | null;
+    forceRefresh?: boolean;
   }): Promise<{ accepted: boolean; reason: string }> {
     const metadata = await this.workspaceFileMetadataService.get({
       workspaceId: input.workspaceId,
       path: input.path
     });
-    if (metadata !== null && hasNonEmptySummary(metadata.shortDescription)) {
+    if (
+      input.forceRefresh !== true &&
+      metadata !== null &&
+      hasNonEmptySummary(metadata.shortDescription)
+    ) {
       return { accepted: false, reason: "summary_exists" };
     }
     const existingJob = await this.prisma.workspaceFileMicroDescriptionJob.findUnique({
@@ -66,7 +71,7 @@ export class WorkspaceFileMicroDescriptionJobService {
         }
       }
     });
-    if (existingJob !== null) {
+    if (existingJob !== null && input.forceRefresh !== true) {
       if (
         existingJob.status === "completed" ||
         existingJob.status === "processing" ||

@@ -185,6 +185,8 @@ export interface RuntimeFileHandle {
   visibilityTier?: RuntimeFileVisibilityTier;
   /** Persisted manifest origin when known (hydration from API). */
   originChatId?: string | null;
+  /** Current registered document version when path is pdf/docx/xlsx. */
+  documentVersionNumber?: number | null;
 }
 
 export interface RuntimeSandboxPolicy {
@@ -250,6 +252,7 @@ export interface RuntimeSandboxProducedFile {
   sizeBytes: number;
   logicalSizeBytes: number | null;
   storagePath: string;
+  contentHash?: string;
 }
 
 export interface RuntimeSandboxJobResult {
@@ -295,6 +298,7 @@ export interface RuntimeSandboxDocumentSyncOutcome {
   versionNumber: number | null;
   bumped: boolean;
   isOverwrite: boolean;
+  contentChanged: boolean;
 }
 
 export interface RuntimeSandboxToolResult {
@@ -3097,6 +3101,7 @@ export interface RuntimeTurnShellDocumentRegistration {
   path: string;
   versionNumber: number;
   isOverwrite: boolean;
+  contentChanged: boolean;
 }
 
 /** ADR-129 W9 — structural delivery truth emitted by runtime at turn completion. */

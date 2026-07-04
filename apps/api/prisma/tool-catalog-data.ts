@@ -120,12 +120,13 @@ EXAMPLES:
 - document({action:"inspect", path:"/workspace/.../source.docx"}) — inspect an existing PDF/DOCX/XLSX source by exact path copied from Working Files or files.list.
 - document({action:"render", requestedName:"q2.pdf", format:"pdf", content:"# Q2 Report\n\nSummary..."}) — render a new PDF directly from inline Markdown into the current session root.
 - document({action:"render", requestedName:"q2.docx", format:"docx", contentPath:"/workspace/.../reports/q2.md", style:"report"}) — render a DOCX from an existing Markdown file path copied from tools into the current session root.
-- document({action:"render", requestedName:"table.xlsx", format:"xlsx", content:"# Revenue\n\n| Month | Revenue |\n| --- | --- |\n| Jan | 10 |"}) — render a trivial data-only XLSX from Markdown tables into the current session root.
+- document({action:"render", requestedName:"table.xlsx", format:"xlsx", content:"# Revenue\n\n| Month | Revenue |\n| --- | --- |\n| Jan | 10 |"}) — render a trivial single-sheet XLSX from flat Markdown tables only; no formulas, charts, or multi-sheet logic.
 - document({action:"convert", source:"/workspace/.../source.docx", targetFormat:"pdf", requestedName:"source.pdf"}) — convert an existing document path copied from tools and deliver the output in the current session root.
 GOTCHAS:
 - The document surface is exactly three verbs: \`inspect\`, \`render\`, and \`convert\`.
 - \`document.inspect\` returns \`editMethod\`: \`shell_native\` for uploaded PDF/DOCX/XLSX without a sibling \`.md\`; \`render_from_markdown\` when that sibling exists.
 - The model should provide only \`requestedName\` for new render/convert outputs, never an absolute workspace path. The runtime owns the real current-session output directory and returns the final \`outputPath\`.
+- \`document.render\` with \`format:"xlsx"\` is only for very simple spreadsheets: one sheet, flat Markdown tables, no formulas/charts/conditional formatting/multi-sheet models. Complex XLSX belongs in one \`shell\` script per user turn.
 - \`document.render\` persists the Markdown source as a visible sibling \`.md\` file next to the output, registers the output, and delivers it in one call.
 - \`document.convert\` is deterministic format conversion only; it does not rewrite content semantically.
 `,
@@ -310,7 +311,7 @@ GOTCHAS:
 - For read/preview you may pass \`maxBytes\` to cap returned bytes; for list you may pass \`maxDepth\` to bound recursion. Server-side limits still apply.
 - The active widen model is path-based: start by omitting path, then widen only to exact parent paths returned by tools or Working Files when the user needs that broader view.
 - By default writing to an existing path allocates a new sibling name like \`report (1).pdf\`, so previous deliveries stay intact. Pass \`replace: true\` only when the user explicitly asked to overwrite that exact file.
-- attach delivers an EXISTING file; it does not regenerate. If the file is not yet written, write it first.`,
+- attach delivers an EXISTING file; it does not regenerate. Attach only the final output of this turn or a file the user explicitly asked to resend — never bulk-attach unrelated session files. If the file is not yet written, write it first.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -349,6 +350,7 @@ EXAMPLES:
 - shell({command:"git push https://<user>:<pat>@github.com/<owner>/<repo>.git main"}) — push to GitHub when you supply your own credentials in the URL (no PersAI token is injected; without auth GitHub returns 401).
 - shell({command:"npm install && npm run build"}) — multi-step build pipeline.
 - shell({command:"python3 script.py --input data.csv --output result.json"}) — run a script with arguments.
+- For office-file edits (DOCX/XLSX/PDF), prefer one complete \`shell\` script per user turn instead of multiple overwrite passes on the same path.
 GOTCHAS:
 - Refer to workspace files by pod-absolute path (/workspace/...) or by paths relative to the current session root.
 - pip install / npm install stay session-scoped under the current session root; they do not leak across assistants or workspaces.

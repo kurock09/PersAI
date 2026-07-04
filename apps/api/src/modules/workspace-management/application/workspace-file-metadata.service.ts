@@ -18,7 +18,7 @@ export class WorkspaceFileMetadataService {
     mimeType: string;
     sizeBytes: number | bigint;
     contentHash?: string;
-    shortDescription?: string;
+    shortDescription?: string | null;
     originChatId?: string | null;
     originAssistantId?: string | null;
   }): Promise<void> {

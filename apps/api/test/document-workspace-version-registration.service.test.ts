@@ -52,7 +52,8 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
             versionNumber: 1,
             descriptorMode: "create_document",
             documentType: "workspace_document",
-            outputFormat: "xlsx"
+            outputFormat: "xlsx",
+            revisedInPlace: false
           };
         }
       } as never,
@@ -221,7 +222,8 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
             versionNumber: 1,
             descriptorMode: "create_document",
             documentType: "workspace_document",
-            outputFormat: "pdf"
+            outputFormat: "pdf",
+            revisedInPlace: false
           };
         }
       } as never,
@@ -377,7 +379,8 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
             versionNumber: 1,
             descriptorMode: "create_document",
             documentType: "workspace_document",
-            outputFormat: "pdf"
+            outputFormat: "pdf",
+            revisedInPlace: false
           };
         }
       } as never,
@@ -522,7 +525,8 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
             versionNumber: 1,
             descriptorMode: "create_document",
             documentType: "workspace_document",
-            outputFormat: "pdf"
+            outputFormat: "pdf",
+            revisedInPlace: false
           };
         }
       } as never,
@@ -673,7 +677,8 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
             versionNumber: 2,
             descriptorMode: "revise_document",
             documentType: "workspace_document",
-            outputFormat: "xlsx"
+            outputFormat: "xlsx",
+            revisedInPlace: false
           };
         }
       } as never,

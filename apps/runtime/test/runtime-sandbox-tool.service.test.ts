@@ -44,6 +44,7 @@ test("syncs only active hierarchical document outputs from sandbox jobs", async 
       versionNumber: number | null;
       bumped: boolean;
       isOverwrite: boolean;
+      contentChanged: boolean;
     } | null;
   }> = [];
   const metadataReads: string[] = [];
@@ -62,7 +63,8 @@ test("syncs only active hierarchical document outputs from sandbox jobs", async 
             {
               storagePath: wp("reports/current.pdf"),
               mimeType: "application/pdf",
-              sizeBytes: 128
+              sizeBytes: 128,
+              contentHash: "pdf-hash"
             },
             {
               storagePath: "/workspace/current.pdf",
@@ -77,7 +79,8 @@ test("syncs only active hierarchical document outputs from sandbox jobs", async 
             {
               storagePath: "/workspace/shared/team.xlsx",
               mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-              sizeBytes: 1024
+              sizeBytes: 1024,
+              contentHash: "xlsx-hash"
             }
           ]
         } as never;
@@ -102,7 +105,8 @@ test("syncs only active hierarchical document outputs from sandbox jobs", async 
             registered: true,
             versionNumber: isOverwrite ? 2 : 1,
             bumped: isOverwrite,
-            isOverwrite
+            isOverwrite,
+            contentChanged: true
           }
         });
         return upsertResults[upsertResults.length - 1]!;
@@ -132,20 +136,24 @@ test("syncs only active hierarchical document outputs from sandbox jobs", async 
   assert.equal(upsertCalls[0]?.replace, false);
   assert.equal(upsertCalls[0]?.sourceUserMessageText, "render the docs");
   assert.equal(upsertCalls[1]?.sourceUserMessageCreatedAt, "2026-07-03T16:00:00.000Z");
+  assert.equal(upsertCalls[0]?.contentHash, "pdf-hash");
+  assert.equal(upsertCalls[1]?.contentHash, "xlsx-hash");
   assert.deepEqual(result.payload.documentSync, [
     {
       path: wp("reports/current.pdf"),
       registered: true,
       versionNumber: 1,
       bumped: false,
-      isOverwrite: false
+      isOverwrite: false,
+      contentChanged: true
     },
     {
       path: "/workspace/shared/team.xlsx",
       registered: true,
       versionNumber: 2,
       bumped: true,
-      isOverwrite: true
+      isOverwrite: true,
+      contentChanged: true
     }
   ]);
 });

@@ -227,3 +227,31 @@ Closure requires all of the following on a clean tree after S1–S7:
 ## Next recommended step
 
 Run prettier on touched files, commit the ADR-134 slice, deploy with migration approval on `persai-dev-migrations`, then execute live acceptance criteria 1–11 on `persai.dev`.
+
+## Addendum (2026-07-04) — WF cleanup + summary invalidation + version markers
+
+**Status:** implemented locally on top of S1–S7.
+
+### D8 — Invalidate stale summaries on content change
+
+When manifest content changes at the same path, clear `shortDescription` and re-enqueue the background job with `forceRefresh`:
+
+- runtime manifest upsert: `replace: true` or `contentHash` delta;
+- register/upload attach path: `sizeBytes` or `mimeType` delta when no new deterministic summary is supplied.
+
+`enqueueIfNeeded({ forceRefresh: true })` bypasses the `summary_exists` short-circuit.
+
+### D9 — Working Files presentation cleanup
+
+Remove legacy developer blocks (`DOC_CURRENT_SOURCE`, `DOC_LAST_DELIVERED_PDF`, `LAST_DELIVERED_FILE = ...`). Express roles only as row markers:
+
+- `last delivered` — newest user/model file in chat;
+- `current source` — newest user document-source upload (pdf/docx/xlsx/text/*);
+- `last delivered result` — newest model pdf/docx/xlsx output (`document` / `shell` tools included);
+- `v{N}` — current registered document version for pdf/docx/xlsx paths.
+
+Pinned rows with these markers survive Working Files trim.
+
+### D10 — Version hint join
+
+`POST /api/v1/internal/runtime/files/short-descriptions` also returns `documentVersionNumber` for registered pdf/docx/xlsx paths. Working Files and discovered-path hydration consume it; `files.list` / `files.search` remain path+summary only.
