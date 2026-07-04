@@ -84,6 +84,7 @@ import { RuntimeObservabilityService } from "../observability/runtime-observabil
 import type { RuntimeTurnReceiptSummary } from "./idempotency.service";
 import {
   projectRuntimeNativeTools,
+  type NativeToolProjectionOptions,
   type RuntimeNativeToolProjection
 } from "./native-tool-projection";
 import {
@@ -129,8 +130,10 @@ import {
 import { resolveRuntimeContextHydrationConfig } from "./runtime-context-hydration-policy";
 import { SessionCompactionService } from "./session-compaction.service";
 import {
+  createToolContractNotLoadedPayload,
   executeRuntimeToolContractDescribe,
-  isToolContractDescribeCall
+  isToolContractDescribeCall,
+  shouldGuardCatalogToolExecution
 } from "./runtime-tool-contract-describe";
 import {
   ToolBudgetPolicy,
@@ -215,6 +218,8 @@ const VISIBLE_WORKING_NOTES_DEVELOPER_CONTRACT = [
 type PreparedTurnExecution = {
   bundle: AssistantRuntimeBundle;
   projectedTools: RuntimeNativeToolProjection;
+  nativeToolProjectionOptions: NativeToolProjectionOptions;
+  excludedToolNames?: ReadonlySet<string>;
   runtimeTier: RuntimeTurnRequest["runtimeTier"];
   promptMode: "chat" | "background_worker";
   providerRequest: ProviderGatewayTextGenerateRequest;
@@ -285,6 +290,8 @@ type TurnExecutionState = {
    * tool-loop provider call only.
    */
   pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
+  /** ADR-135 S3 — catalog tools described this turn expand to full wire on next iteration. */
+  wireExpandedCatalogToolCodes: Set<string>;
 };
 
 type ToolExecutionOutcome = {
@@ -786,12 +793,13 @@ export class TurnExecutionService {
       executionPlan.routeDecision,
       baselineProjectedTools
     );
+    const nativeToolProjectionOptions: NativeToolProjectionOptions = {
+      allowModelToolExposure: options?.allowModelToolExposure ?? true,
+      allowedKnowledgeSearchSources: knowledgeSourcePolicy.searchSources,
+      allowedKnowledgeFetchSources: knowledgeSourcePolicy.fetchSources
+    };
     const projectedTools = this.applyExcludedToolNames(
-      projectRuntimeNativeTools(bundleEntry.parsedBundle, {
-        allowModelToolExposure: options?.allowModelToolExposure ?? true,
-        allowedKnowledgeSearchSources: knowledgeSourcePolicy.searchSources,
-        allowedKnowledgeFetchSources: knowledgeSourcePolicy.fetchSources
-      }),
+      projectRuntimeNativeTools(bundleEntry.parsedBundle, nativeToolProjectionOptions),
       options?.excludedToolNames
     );
     options?.trace?.stage("prepare.turn_policy_applied");
@@ -869,6 +877,10 @@ export class TurnExecutionService {
     return {
       bundle: bundleEntry.parsedBundle,
       projectedTools,
+      nativeToolProjectionOptions,
+      ...(options?.excludedToolNames === undefined
+        ? {}
+        : { excludedToolNames: options.excludedToolNames }),
       runtimeTier: input.runtimeTier,
       promptMode,
       currentMessageAttachments: input.message.attachments,
@@ -1027,6 +1039,7 @@ export class TurnExecutionService {
           iteration < maxToolLoopIterations + previewFollowUpExtraIterations;
           iteration += 1
         ) {
+          this.refreshTurnProjectedToolsForWireExpansion(execution, turnState);
           if (projectModeActive && iteration > 0) {
             for (const projectEvent of createProjectModeReplanStreamEvents({
               identity: projectStreamIdentity,
@@ -1298,7 +1311,8 @@ export class TurnExecutionService {
                           input.idempotencyKey,
                           turnState.artifacts,
                           turnState.fileHandles,
-                          execution.availableWorkingFileHandles
+                          execution.availableWorkingFileHandles,
+                          turnState
                         );
                       } catch (error) {
                         yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
@@ -2765,6 +2779,7 @@ export class TurnExecutionService {
       iteration < maxToolLoopIterations + previewFollowUpExtraIterations;
       iteration += 1
     ) {
+      this.refreshTurnProjectedToolsForWireExpansion(execution, turnState);
       let providerResult: ProviderGatewayTextGenerateResult;
       let availableWorkingFileHandles = execution.availableWorkingFileHandles;
       let pendingFilePreviewBlocks: ProviderGatewayMessageContentBlock[] | undefined;
@@ -2946,7 +2961,8 @@ export class TurnExecutionService {
                 input.idempotencyKey,
                 turnState.artifacts,
                 turnState.fileHandles,
-                availableWorkingFileHandles
+                availableWorkingFileHandles,
+                turnState
               );
           this.maybeRefundToolRequestRejectionReservation(toolBudgetPolicy, entry, outcome);
           outcome.exchange.reasoningContent = providerResult.reasoningContent ?? null;
@@ -3148,7 +3164,8 @@ export class TurnExecutionService {
               params.input.idempotencyKey,
               currentArtifacts,
               currentFileHandles,
-              params.availableWorkingFileHandles
+              params.availableWorkingFileHandles,
+              params.turnState
             )
           } satisfies ExecutedToolCallResult;
         } catch (error) {
@@ -3169,7 +3186,8 @@ export class TurnExecutionService {
     currentUserMessageId: string | null,
     currentArtifacts: RuntimeOutputArtifact[],
     currentFileHandles: RuntimeFileHandle[],
-    availableWorkingFileHandles: RuntimeFileHandle[]
+    availableWorkingFileHandles: RuntimeFileHandle[],
+    turnState: TurnExecutionState
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
@@ -3180,6 +3198,19 @@ export class TurnExecutionService {
         action: "skipped",
         reason: "tool_not_projected"
       });
+    }
+    if (
+      shouldGuardCatalogToolExecution({
+        bundle: execution.bundle,
+        toolCode: toolCall.name,
+        arguments: toolCall.arguments,
+        wireExpandedCatalogToolCodes: turnState.wireExpandedCatalogToolCodes
+      })
+    ) {
+      return this.createToolExecutionOutcome(
+        toolCall,
+        createToolContractNotLoadedPayload(toolCall.name)
+      );
     }
 
     switch (toolCall.name) {
@@ -4914,8 +4945,50 @@ export class TurnExecutionService {
       discoveredFilePathSet: [],
       deliveryFacts: createEmptyTurnDeliveryFacts(),
       currentChatId: null,
-      workspaceId: ""
+      workspaceId: "",
+      wireExpandedCatalogToolCodes: new Set<string>()
     };
+  }
+
+  private refreshTurnProjectedToolsForWireExpansion(
+    execution: PreparedTurnExecution,
+    turnState: TurnExecutionState
+  ): void {
+    const projectedTools = this.applyExcludedToolNames(
+      projectRuntimeNativeTools(execution.bundle, {
+        ...execution.nativeToolProjectionOptions,
+        wireExpandedCatalogToolCodes: turnState.wireExpandedCatalogToolCodes
+      }),
+      execution.excludedToolNames
+    );
+    execution.projectedTools = projectedTools;
+    execution.providerRequest = {
+      ...execution.providerRequest,
+      tools: projectedTools.tools
+    };
+  }
+
+  private recordCatalogToolWireExpansionFromOutcome(
+    turnState: TurnExecutionState,
+    outcome: ToolExecutionOutcome
+  ): void {
+    if (outcome.exchange.toolResult.isError === true) {
+      return;
+    }
+    const payload = outcome.payload;
+    if (
+      payload === null ||
+      typeof payload !== "object" ||
+      Array.isArray(payload) ||
+      (payload as { action?: unknown }).action !== "described_contract"
+    ) {
+      return;
+    }
+    const toolCode = (payload as { toolCode?: unknown }).toolCode;
+    if (typeof toolCode !== "string" || toolCode.trim().length === 0) {
+      return;
+    }
+    turnState.wireExpandedCatalogToolCodes.add(toolCode);
   }
 
   private initializeTurnDeliveryContext(
@@ -5113,6 +5186,7 @@ export class TurnExecutionService {
       payload: outcome.payload,
       isError: outcome.exchange.toolResult.isError === true
     });
+    this.recordCatalogToolWireExpansionFromOutcome(turnState, outcome);
     if (
       outcome.exchange.toolCall.name === "document" &&
       outcome.exchange.toolResult.isError !== true &&
@@ -5421,7 +5495,8 @@ export class TurnExecutionService {
           input.input.idempotencyKey,
           input.turnState.artifacts,
           input.turnState.fileHandles,
-          input.execution.availableWorkingFileHandles
+          input.execution.availableWorkingFileHandles,
+          input.turnState
         );
         outcome.exchange.reasoningContent = firstResult.reasoningContent ?? null;
         toolHistory.push(outcome.exchange);

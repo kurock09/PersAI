@@ -1847,6 +1847,28 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.equal(describeExecution.payload.action, "described_contract");
   assert.match(describeExecution.payload.description, /transparent PNG/i);
   assert.deepEqual(describeExecution.artifacts, []);
+
+  // ADR-135 S3 — wire expansion replaces catalog stub with full projection.
+  const wireExpanded = projectRuntimeNativeTools(catalogExposureBundle, {
+    wireExpandedCatalogToolCodes: new Set(["image_generate"])
+  });
+  const expandedImageGenerate = wireExpanded.tools.find((tool) => tool.name === "image_generate");
+  assert.ok(expandedImageGenerate, "wire-expanded image_generate must still project");
+  assert.match(expandedImageGenerate?.description ?? "", /transparent PNG/i);
+  assert.doesNotMatch(
+    expandedImageGenerate?.description ?? "",
+    /Call image_generate\(\{action:"describe"\}\)/
+  );
+  assert.ok(
+    (expandedImageGenerate?.inputSchema as { properties?: { prompt?: unknown } }).properties
+      ?.prompt,
+    "wire-expanded image_generate must expose full schema"
+  );
+  const stillCatalogWebSearch = wireExpanded.tools.find((tool) => tool.name === "web_search");
+  assert.match(
+    stillCatalogWebSearch?.description ?? "",
+    /Use this when the answer depends on recent external information or links\./
+  );
 }
 
 /**

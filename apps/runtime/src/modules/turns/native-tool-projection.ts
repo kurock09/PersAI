@@ -44,10 +44,12 @@ export type NativeToolProjectionOptions = {
   allowModelToolExposure?: boolean;
   allowedKnowledgeSearchSources?: readonly PersaiRuntimeKnowledgeSource[];
   allowedKnowledgeFetchSources?: readonly PersaiRuntimeKnowledgeSource[];
+  /** ADR-135 S3 — catalog tools described this turn project as full on wire. */
+  wireExpandedCatalogToolCodes?: ReadonlySet<string>;
 };
 
 /** ADR-135 — catalog-tier tools may expose read-only family actions on the stub wire. */
-const CATALOG_READ_ONLY_ACTIONS: Partial<Record<string, readonly string[]>> = {
+export const CATALOG_READ_ONLY_TOOL_ACTIONS: Partial<Record<string, readonly string[]>> = {
   video_generate: ["list_personas", "list_voices", "describe_avatar_mode"],
   scheduled_action: ["list"],
   background_task: ["list"],
@@ -85,7 +87,7 @@ function applyModelExposureProjection(
   toolCode: string,
   policy: RuntimeToolPolicy,
   fullDefinition: ProviderGatewayToolDefinition,
-  catalogReadOnlyActions: readonly string[] = CATALOG_READ_ONLY_ACTIONS[toolCode] ?? []
+  catalogReadOnlyActions: readonly string[] = CATALOG_READ_ONLY_TOOL_ACTIONS[toolCode] ?? []
 ): ProviderGatewayToolDefinition {
   if (resolveModelExposure(policy) === "full") {
     return fullDefinition;
@@ -399,10 +401,37 @@ export function projectRuntimeNativeTools(
     projectedTools.push(createSkillToolDefinition(skillPolicy));
   }
 
-  return {
+  const projection: RuntimeNativeToolProjection = {
     tools: projectedTools,
     knowledgeSearchSources: projectedKnowledgeSearchSources,
     knowledgeFetchSources: projectedKnowledgeFetchSources
+  };
+  return applyWireExpandedCatalogToolProjection(bundle, projection, options);
+}
+
+function applyWireExpandedCatalogToolProjection(
+  bundle: AssistantRuntimeBundle,
+  projection: RuntimeNativeToolProjection,
+  options?: NativeToolProjectionOptions
+): RuntimeNativeToolProjection {
+  const expandedCodes = options?.wireExpandedCatalogToolCodes;
+  if (expandedCodes === undefined || expandedCodes.size === 0) {
+    return projection;
+  }
+  return {
+    ...projection,
+    tools: projection.tools.map((tool) => {
+      if (!expandedCodes.has(tool.name)) {
+        return tool;
+      }
+      const policy =
+        bundle.governance.toolPolicies.find((entry) => entry.toolCode === tool.name) ?? null;
+      if (policy === null || resolveModelExposure(policy) !== "catalog") {
+        return tool;
+      }
+      const fullDefinition = buildFullNativeToolDefinition(bundle, tool.name, options);
+      return fullDefinition ?? tool;
+    })
   };
 }
 

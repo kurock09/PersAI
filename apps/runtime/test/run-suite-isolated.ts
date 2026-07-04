@@ -153,6 +153,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runNativeToolProjectionTest"
   },
   {
+    modulePath: "./catalog-tool-wire-expansion.test.ts",
+    exportName: "runCatalogToolWireExpansionTest"
+  },
+  {
     modulePath: "./native-tool-projection.test.ts",
     exportName: "runMediaPromptFragmentsSanityTest"
   },
