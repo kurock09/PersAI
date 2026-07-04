@@ -455,6 +455,33 @@ async function run(): Promise<void> {
     unsupportedVideoPolicies.some((tool) => tool.toolCode === "video_generate" && !tool.enabled),
     "unsupported video providers must stay hidden"
   );
+
+  const syntheticQuotaTools = tools.filter((tool) => tool.code !== "persai_tool_quota_status");
+  const quotaStatusCatalogExposure = resolveRuntimeToolPolicies({
+    tools: syntheticQuotaTools,
+    planToolQuotaPolicy: [
+      {
+        toolCode: "persai_tool_quota_status",
+        dailyCallLimit: null,
+        perTurnCap: null,
+        maxFilePreviewBytes: null,
+        maxFilePreviewEdgePx: null,
+        activationStatus: "active",
+        fullProjection: true
+      }
+    ],
+    toolCredentialRefs: {},
+    knowledgeAccessEnabled: true,
+    sandboxEnabled: true
+  });
+  const quotaStatusPolicy = quotaStatusCatalogExposure.find(
+    (tool) => tool.toolCode === "quota_status"
+  );
+  assert.equal(
+    quotaStatusPolicy?.modelExposure,
+    "full",
+    "synthetic quota_status must resolve fullProjection from persai_tool_quota_status plan rows"
+  );
 }
 
 void run();

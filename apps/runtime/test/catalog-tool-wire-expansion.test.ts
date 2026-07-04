@@ -6,6 +6,7 @@ import {
   createToolContractNotLoadedPayload,
   shouldGuardCatalogToolExecution
 } from "../src/modules/turns/runtime-tool-contract-describe";
+import { createEmptyCatalogToolTurnMetrics } from "../src/modules/turns/catalog-tool-turn-metrics";
 import { projectRuntimeNativeTools } from "../src/modules/turns/native-tool-projection";
 
 function buildMinimalCatalogBundle(toolCode: string): AssistantRuntimeBundle {
@@ -86,6 +87,11 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
   );
 }
 
+type CatalogTurnState = {
+  wireExpandedCatalogToolCodes: Set<string>;
+  catalogToolMetrics: ReturnType<typeof createEmptyCatalogToolTurnMetrics>;
+};
+
 type CatalogWireExpansionAccessor = {
   refreshTurnProjectedToolsForWireExpansion: (
     execution: {
@@ -94,10 +100,10 @@ type CatalogWireExpansionAccessor = {
       nativeToolProjectionOptions: Record<string, unknown>;
       providerRequest: { tools?: unknown[] };
     },
-    turnState: { wireExpandedCatalogToolCodes: Set<string> }
+    turnState: CatalogTurnState
   ) => void;
   recordCatalogToolWireExpansionFromOutcome: (
-    turnState: { wireExpandedCatalogToolCodes: Set<string> },
+    turnState: CatalogTurnState,
     outcome: {
       exchange: { toolResult: { isError?: boolean } };
       payload: unknown;
@@ -125,7 +131,7 @@ type CatalogWireExpansionAccessor = {
     currentArtifacts: [],
     currentFileHandles: [],
     availableWorkingFileHandles: [],
-    turnState: { wireExpandedCatalogToolCodes: Set<string> }
+    turnState: CatalogTurnState
   ) => Promise<{ payload: Record<string, unknown> }>;
 };
 
@@ -175,7 +181,10 @@ export async function runCatalogToolWireExpansionTest(): Promise<void> {
 
   const catalogProjection = projectRuntimeNativeTools(bundle);
   const service = buildMinimalTurnExecutionService() as unknown as CatalogWireExpansionAccessor;
-  const turnState = { wireExpandedCatalogToolCodes: new Set<string>() };
+  const turnState = {
+    wireExpandedCatalogToolCodes: new Set<string>(),
+    catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
+  };
   const execution = {
     bundle,
     projectedTools: catalogProjection,
@@ -245,7 +254,53 @@ export async function runCatalogToolWireExpansionTest(): Promise<void> {
     [],
     [],
     [],
-    { wireExpandedCatalogToolCodes: new Set() }
+    {
+      wireExpandedCatalogToolCodes: new Set(),
+      catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
+    }
   );
   assert.equal(guardedOutcome.payload.reason, "tool_contract_not_loaded");
+
+  const filesBundle = buildMinimalCatalogBundle("files");
+  const filesProjection = projectRuntimeNativeTools(filesBundle);
+  const filesExecution = {
+    bundle: filesBundle,
+    projectedTools: filesProjection,
+    nativeToolProjectionOptions: {},
+    providerRequest: { tools: filesProjection.tools }
+  };
+  const filesDescribeOutcome = await service.executeProjectedToolCall(
+    filesExecution,
+    {
+      session: {
+        sessionId: "session-files",
+        conversation: { channel: "web", externalThreadKey: "thread-files" }
+      },
+      receipt: { requestId: "req-files" }
+    },
+    {
+      message: { text: "list files", attachments: [] },
+      conversation: { channel: "web", externalThreadKey: "thread-files" },
+      idempotencyKey: "msg-files"
+    },
+    {
+      id: "tool-files-describe",
+      name: "files",
+      arguments: { action: "describe" }
+    },
+    "msg-files",
+    [],
+    [],
+    [],
+    {
+      wireExpandedCatalogToolCodes: new Set(),
+      catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
+    }
+  );
+  assert.equal(
+    filesDescribeOutcome.payload.action,
+    "described_contract",
+    "catalog-tier full-default tools must dispatch describe before tool-specific services"
+  );
+  assert.equal(filesDescribeOutcome.payload.toolCode, "files");
 }

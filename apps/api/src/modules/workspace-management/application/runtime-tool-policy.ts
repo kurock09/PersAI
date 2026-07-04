@@ -12,7 +12,6 @@ import {
 import { SYNTHETIC_TOOL_DEFAULT_MODEL_EXPOSURE } from "../../../../prisma/bootstrap-preset-data";
 import {
   resolveCatalogDefaultModelExposure,
-  resolveRuntimeModelToolCode,
   type ModelExposure
 } from "../../../../prisma/tool-catalog-data";
 import type { EffectiveToolAvailabilityState } from "./effective-tool-availability.types";
@@ -107,6 +106,30 @@ function resolveToolExecutionMode(toolCode: string): RuntimeToolPolicy["executio
 
 function resolveRuntimeToolCode(toolCode: string): string {
   return RUNTIME_TOOL_CODE_BY_INVENTORY_CODE[toolCode] ?? toolCode;
+}
+
+function resolvePlanFullProjectionLookupCodes(runtimeToolCode: string): string[] {
+  const codes = [runtimeToolCode];
+  for (const [inventoryCode, mappedRuntimeCode] of Object.entries(
+    RUNTIME_TOOL_CODE_BY_INVENTORY_CODE
+  )) {
+    if (mappedRuntimeCode === runtimeToolCode) {
+      codes.push(inventoryCode);
+    }
+  }
+  return codes;
+}
+
+function resolvePlanFullProjection(
+  fullProjectionByCode: Map<string, boolean | null>,
+  runtimeToolCode: string
+): boolean | null | undefined {
+  for (const code of resolvePlanFullProjectionLookupCodes(runtimeToolCode)) {
+    if (fullProjectionByCode.has(code)) {
+      return fullProjectionByCode.get(code);
+    }
+  }
+  return undefined;
 }
 
 function resolveSyntheticDefaultModelExposure(runtimeToolCode: string): ModelExposure | null {
@@ -510,9 +533,7 @@ export function resolveRuntimeToolPolicies(params: {
         toolCode,
         params.syntheticToolOverrides ?? {},
         params.knowledgeAccessEnabled,
-        fullProjectionByCode.get(resolveRuntimeModelToolCode(toolCode)) ??
-          fullProjectionByCode.get(toolCode) ??
-          null
+        resolvePlanFullProjection(fullProjectionByCode, toolCode) ?? null
       )
     );
   return dedupeRuntimeToolPolicies([...catalogPolicies, ...syntheticPolicies]);

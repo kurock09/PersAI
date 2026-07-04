@@ -6608,6 +6608,24 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       1,
       "ADR-130 Slice 3 regression: real video generation must still reserve exactly 1 unit."
     );
+    assert.equal(
+      unitResolver.resolveRequestedToolResultUnits({
+        id: "tool-call-image-generate-describe",
+        name: "image_generate",
+        arguments: { action: "describe" }
+      }),
+      0,
+      "ADR-135 D3: catalog describe calls must reserve 0 media quota units."
+    );
+    assert.equal(
+      unitResolver.resolveRequestedToolResultUnits({
+        id: "tool-call-image-edit-describe",
+        name: "image_edit",
+        arguments: { action: "describe", count: 4 }
+      }),
+      0,
+      "ADR-135 D3: image_edit describe must not reserve count-based media units."
+    );
   }
   {
     const documentAttachments = (

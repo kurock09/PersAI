@@ -133,6 +133,7 @@ import {
   createToolContractNotLoadedPayload,
   executeRuntimeToolContractDescribe,
   isToolContractDescribeCall,
+  isToolLevelContractDescribeCall,
   shouldGuardCatalogToolExecution
 } from "./runtime-tool-contract-describe";
 import {
@@ -3048,6 +3049,9 @@ export class TurnExecutionService {
    * whole rather than silently under-counted.
    */
   private resolveRequestedToolResultUnits(toolCall: ProviderGatewayToolCall): number {
+    if (isToolLevelContractDescribeCall(toolCall.name, toolCall.arguments)) {
+      return 0;
+    }
     if (toolCall.name === IMAGE_GENERATE_TOOL_CODE) {
       return this.readRequestedMediaCount(
         toolCall.arguments,
@@ -3231,6 +3235,13 @@ export class TurnExecutionService {
         toolCall,
         createToolContractNotLoadedPayload(toolCall.name)
       );
+    }
+    if (isToolLevelContractDescribeCall(toolCall.name, toolCall.arguments)) {
+      const described = executeRuntimeToolContractDescribe({
+        bundle: execution.bundle,
+        toolCode: toolCall.name
+      });
+      return this.createToolExecutionOutcome(toolCall, described.payload, false);
     }
 
     switch (toolCall.name) {
