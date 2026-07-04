@@ -358,7 +358,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: 9db62f6c9c60b9eb5c082d5a9645e81c50fdedb1
+    tag: 81f4b1d08acb7562cf6982b291cc12f7ddece1e4
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -572,6 +572,7 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
 
 
 
