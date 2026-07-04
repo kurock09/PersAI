@@ -124,6 +124,7 @@ EXAMPLES:
 - document({action:"convert", source:"/workspace/.../source.docx", targetFormat:"pdf", requestedName:"source.pdf"}) — convert an existing document path copied from tools and deliver the output in the current session root.
 GOTCHAS:
 - The document surface is exactly three verbs: \`inspect\`, \`render\`, and \`convert\`.
+- \`document.inspect\` returns \`editMethod\`: \`shell_native\` for uploaded PDF/DOCX/XLSX without a sibling \`.md\`; \`render_from_markdown\` when that sibling exists.
 - The model should provide only \`requestedName\` for new render/convert outputs, never an absolute workspace path. The runtime owns the real current-session output directory and returns the final \`outputPath\`.
 - \`document.render\` persists the Markdown source as a visible sibling \`.md\` file next to the output, registers the output, and delivers it in one call.
 - \`document.convert\` is deterministic format conversion only; it does not rewrite content semantically.

@@ -87,13 +87,13 @@ export class InternalWorkspaceFilesController {
     };
   }
 
-  @HttpCode(204)
+  @HttpCode(200)
   @Post(":workspaceId/files/metadata")
   async upsertMetadata(
     @Req() req: InternalRequestLike,
     @Param("workspaceId") workspaceId: string,
     @Body() body: unknown
-  ): Promise<void> {
+  ) {
     this.assertAuthorized(req);
     const bodyObject =
       body !== null && typeof body === "object" && !Array.isArray(body)
@@ -103,7 +103,7 @@ export class InternalWorkspaceFilesController {
       ...bodyObject,
       workspaceId
     });
-    await this.upsertWorkspaceFileMetadataFromRuntimeService.execute(input);
+    return await this.upsertWorkspaceFileMetadataFromRuntimeService.execute(input);
   }
 
   @HttpCode(204)

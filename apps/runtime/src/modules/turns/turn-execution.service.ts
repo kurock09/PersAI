@@ -148,7 +148,7 @@ import {
   finalizeTurnDeliveryFacts,
   recordTurnDeliveryFactsFromToolOutcome,
   resolveRuntimeFileVisibilityTier,
-  resolveUndeliveredProducedPaths,
+  resolveAutoAttachCandidatePaths,
   type RuntimeTurnDeliveryFactsTracker
 } from "./turn-delivery-facts";
 import { RuntimeBundleAutoRefreshService } from "./runtime-bundle-auto-refresh.service";
@@ -4929,7 +4929,7 @@ export class TurnExecutionService {
     input: RuntimeTurnRequest;
     turnState: TurnExecutionState;
   }): Promise<void> {
-    const undelivered = resolveUndeliveredProducedPaths(input.turnState.deliveryFacts);
+    const undelivered = resolveAutoAttachCandidatePaths(input.turnState.deliveryFacts);
     if (undelivered.length === 0) {
       return;
     }

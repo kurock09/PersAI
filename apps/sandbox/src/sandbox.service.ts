@@ -12,7 +12,10 @@ import type {
   RuntimeSandboxPolicy,
   RuntimeSandboxProducedFile
 } from "@persai/runtime-contract";
-import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
+import {
+  classifyVisibleWorkspacePath,
+  DEFAULT_RUNTIME_SANDBOX_POLICY
+} from "@persai/runtime-contract";
 import { Prisma } from "@prisma/client";
 import { SANDBOX_CONFIG } from "./sandbox-config";
 import { ExecPodBridgeService, type SessionPodStagingFile } from "./exec-pod-bridge.service";
@@ -1672,6 +1675,8 @@ export class SandboxService {
 
     if (shellMode) {
       const command = this.requireString(args.command, "command");
+      const beforeVisibleDocuments =
+        await this.collectVisibleWorkspaceDocumentSnapshots(workspaceRoot);
       const result = await this.execPodBridgeService.runInPod({
         jobId,
         runtimeSessionId,
@@ -1685,15 +1690,35 @@ export class SandboxService {
         args: ["-lc", command],
         policy
       });
+      if (result.exitCode !== 0) {
+        return {
+          reason: "process_failed",
+          warning: null,
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          content: null,
+          durationMs: result.durationMs,
+          execPodName: result.execPodName
+        };
+      }
+      const afterVisibleDocuments =
+        await this.collectVisibleWorkspaceDocumentSnapshots(workspaceRoot);
+      const producedFiles = await this.buildShellProducedFilesFromDocumentDiff({
+        workspaceRoot,
+        before: beforeVisibleDocuments,
+        after: afterVisibleDocuments
+      });
       return {
-        reason: result.exitCode === 0 ? null : "process_failed",
+        reason: null,
         warning: null,
         exitCode: result.exitCode,
         stdout: result.stdout,
         stderr: result.stderr,
         content: null,
         durationMs: result.durationMs,
-        execPodName: result.execPodName
+        execPodName: result.execPodName,
+        producedFiles
       };
     }
 
@@ -2728,6 +2753,83 @@ export class SandboxService {
       throw this.createPolicyError("invalid_arguments", `${fieldName} must be a positive integer.`);
     }
     return value;
+  }
+
+  private isVisibleWorkspaceDocumentPath(workspacePath: string): boolean {
+    const info = classifyVisibleWorkspacePath(workspacePath);
+    const isActiveFilePath =
+      info.kind === "sessionDescendant" ||
+      info.kind === "assistantSharedDescendant" ||
+      info.kind === "workspaceSharedDescendant";
+    if (!isActiveFilePath) {
+      return false;
+    }
+    const lowered = workspacePath.toLowerCase();
+    return lowered.endsWith(".pdf") || lowered.endsWith(".xlsx") || lowered.endsWith(".docx");
+  }
+
+  private async collectVisibleWorkspaceDocumentSnapshots(
+    workspaceRoot: string
+  ): Promise<Map<string, { sizeBytes: number; mtimeMs: number }>> {
+    const snapshots = new Map<string, { sizeBytes: number; mtimeMs: number }>();
+    const visit = async (currentDir: string): Promise<void> => {
+      let entries;
+      try {
+        entries = await fs.readdir(currentDir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        const absolutePath = join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          await visit(absolutePath);
+          continue;
+        }
+        const workspacePath = this.toVisibleWorkspaceAbsolutePath(workspaceRoot, absolutePath);
+        if (!this.isVisibleWorkspaceDocumentPath(workspacePath)) {
+          continue;
+        }
+        const stat = await fs.stat(absolutePath);
+        snapshots.set(workspacePath, {
+          sizeBytes: stat.size,
+          mtimeMs: stat.mtimeMs
+        });
+      }
+    };
+    await visit(workspaceRoot);
+    return snapshots;
+  }
+
+  private async buildShellProducedFilesFromDocumentDiff(input: {
+    workspaceRoot: string;
+    before: Map<string, { sizeBytes: number; mtimeMs: number }>;
+    after: Map<string, { sizeBytes: number; mtimeMs: number }>;
+  }): Promise<RuntimeSandboxProducedFile[]> {
+    const producedFiles: RuntimeSandboxProducedFile[] = [];
+    for (const [workspacePath, afterSnapshot] of input.after.entries()) {
+      const beforeSnapshot = input.before.get(workspacePath);
+      const changed =
+        beforeSnapshot === undefined ||
+        beforeSnapshot.sizeBytes !== afterSnapshot.sizeBytes ||
+        beforeSnapshot.mtimeMs !== afterSnapshot.mtimeMs;
+      if (!changed) {
+        continue;
+      }
+      const mountRelative =
+        workspacePath === WORKSPACE_MOUNT_ROOT
+          ? ""
+          : workspacePath.slice(WORKSPACE_MOUNT_ROOT.length + 1);
+      const mimeType = this.inferMimeType(workspacePath);
+      producedFiles.push({
+        relativePath: mountRelative,
+        displayName: basename(workspacePath),
+        mimeType,
+        sizeBytes: afterSnapshot.sizeBytes,
+        logicalSizeBytes: afterSnapshot.sizeBytes,
+        storagePath: workspacePath
+      });
+    }
+    return producedFiles;
   }
 
   private inferMimeType(relativePath: string): string {

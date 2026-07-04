@@ -375,10 +375,12 @@ export class RuntimeDocumentToolService {
             sourcePath: outcome.sourcePath,
             inspectPath: outcome.inspectPath,
             format: outcome.format,
+            editMethod: outcome.editMethod,
+            siblingMarkdownPath: outcome.siblingMarkdownPath,
+            extractedMdPath: outcome.extractedMdPath,
             counts: outcome.counts,
             warnings: outcome.warnings,
-            suggestedReadPaths: outcome.suggestedReadPaths,
-            comparison: outcome.comparison
+            suggestedReadPaths: outcome.suggestedReadPaths
           }
         },
         artifacts: [],
@@ -451,6 +453,13 @@ export class RuntimeDocumentToolService {
     });
     if (outputPath instanceof Error) {
       return this.renderSkipped(params.request.format, "invalid_arguments", outputPath.message);
+    }
+    const inPlaceGuard = await this.rejectInPlaceRenderOnUploadedBinaryWithoutSiblingMarkdown({
+      bundle: params.bundle,
+      outputPath
+    });
+    if (inPlaceGuard !== null) {
+      return this.renderSkipped(params.request.format, "invalid_arguments", inPlaceGuard);
     }
     if (
       (params.request.content === null && (params.request.contentPath ?? null) === null) ||
@@ -991,71 +1000,6 @@ export class RuntimeDocumentToolService {
       throw new Error("document.contentPath must be a non-empty string when provided.");
     }
     return value.trim();
-  }
-
-  private readDocumentRenderTemplate(value: unknown): NormalizedDocumentRenderTemplate | null {
-    if (value === undefined || value === null) {
-      return null;
-    }
-    if (typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("document.template must be an object when provided.");
-    }
-    const row = value as Record<string, unknown>;
-    const allowedKeys = new Set([
-      "title",
-      "theme",
-      "css",
-      "pageSize",
-      "runningHeader",
-      "runningFooter"
-    ]);
-    for (const key of Object.keys(row)) {
-      if (!allowedKeys.has(key)) {
-        throw new Error(
-          "document.template supports only title, theme, css, pageSize, runningHeader, and runningFooter."
-        );
-      }
-    }
-    const title = this.readNullableTemplateString(row.title, "document.template.title");
-    const css = this.readNullableTemplateString(row.css, "document.template.css");
-    const runningHeader = this.readNullableTemplateString(
-      row.runningHeader,
-      "document.template.runningHeader"
-    );
-    const runningFooter = this.readNullableTemplateString(
-      row.runningFooter,
-      "document.template.runningFooter"
-    );
-    if (
-      row.theme !== undefined &&
-      row.theme !== "default" &&
-      row.theme !== "report" &&
-      row.theme !== "minimal"
-    ) {
-      throw new Error("document.template.theme must be default, report, or minimal.");
-    }
-    if (row.pageSize !== undefined && row.pageSize !== "A4" && row.pageSize !== "Letter") {
-      throw new Error("document.template.pageSize must be A4 or Letter.");
-    }
-    return {
-      title,
-      theme: row.theme === "report" || row.theme === "minimal" ? row.theme : ("default" as const),
-      css,
-      pageSize: row.pageSize === "Letter" ? "Letter" : "A4",
-      runningHeader,
-      runningFooter
-    };
-  }
-
-  private readNullableTemplateString(value: unknown, fieldName: string): string | null {
-    if (value === undefined || value === null) {
-      return null;
-    }
-    if (typeof value !== "string") {
-      throw new Error(`${fieldName} must be a string when provided.`);
-    }
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
   }
 
   private normalizeUuid(value: string | null): string | null {
@@ -1720,6 +1664,39 @@ export class RuntimeDocumentToolService {
     return new Error(`document.requestedName extension must match document format ${format}.`);
   }
 
+  private async rejectInPlaceRenderOnUploadedBinaryWithoutSiblingMarkdown(input: {
+    bundle: AssistantRuntimeBundle;
+    outputPath: string;
+  }): Promise<string | null> {
+    const format = this.resolveDocumentFormatFromPath(input.outputPath);
+    if (format === null) {
+      return null;
+    }
+    try {
+      const existing = await this.persaiInternalApiClientService.getWorkspaceFileMetadata({
+        workspaceId: input.bundle.metadata.workspaceId,
+        path: input.outputPath
+      });
+      if (existing === null) {
+        return null;
+      }
+      const siblingMarkdownPath = this.deriveSiblingMarkdownPath(input.outputPath);
+      const siblingMarkdown = await this.persaiInternalApiClientService.getWorkspaceFileMetadata({
+        workspaceId: input.bundle.metadata.workspaceId,
+        path: siblingMarkdownPath
+      });
+      if (siblingMarkdown !== null) {
+        return null;
+      }
+      return (
+        `document.render cannot replace existing uploaded ${format.toUpperCase()} at ${input.outputPath} without a sibling Markdown source (${siblingMarkdownPath}). ` +
+        "Inspect the source first and follow editMethod=shell_native with shell + python-docx/openpyxl, then files.attach."
+      );
+    } catch {
+      return null;
+    }
+  }
+
   private deriveSiblingMarkdownPath(outputPath: string): string {
     return `${this.dirname(outputPath)}/${this.stemOf(this.basename(outputPath))}.md`;
   }
@@ -1736,16 +1713,6 @@ export class RuntimeDocumentToolService {
       return "docx";
     }
     return null;
-  }
-
-  private resolveDocumentMimeTypeFromFormat(format: "pdf" | "xlsx" | "docx"): string {
-    if (format === "pdf") {
-      return "application/pdf";
-    }
-    if (format === "xlsx") {
-      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-    }
-    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   }
 
   private dirname(path: string): string {

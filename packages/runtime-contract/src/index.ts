@@ -289,6 +289,14 @@ export interface RuntimeSandboxJobRequest {
   args: Record<string, unknown>;
 }
 
+export interface RuntimeSandboxDocumentSyncOutcome {
+  path: string;
+  registered: boolean;
+  versionNumber: number | null;
+  bumped: boolean;
+  isOverwrite: boolean;
+}
+
 export interface RuntimeSandboxToolResult {
   toolCode: string;
   executionMode: "sandbox";
@@ -297,6 +305,7 @@ export interface RuntimeSandboxToolResult {
   warning: string | null;
   job: RuntimeSandboxJobResult | null;
   paths: string[];
+  documentSync?: RuntimeSandboxDocumentSyncOutcome[];
 }
 
 /**
@@ -2080,13 +2089,15 @@ export interface RuntimeDocumentToolResult {
   inspection?: RuntimeDocumentInspectionSummary | null;
   render?: RuntimeDocumentRenderSummary | null;
   convert?: RuntimeDocumentConvertSummary | null;
-  registration?: RuntimeDocumentVersionRegistrationSummary | null;
 }
 
 export interface RuntimeDocumentInspectionSummary {
   sourcePath: string;
   inspectPath: string;
   format: "pdf" | "xlsx" | "docx";
+  editMethod: "shell_native" | "render_from_markdown";
+  siblingMarkdownPath: string | null;
+  extractedMdPath: string | null;
   counts: {
     pageCount: number | null;
     sheetCount: number | null;
@@ -2099,16 +2110,6 @@ export interface RuntimeDocumentInspectionSummary {
   };
   warnings: string[];
   suggestedReadPaths: string[];
-  comparison?: RuntimeDocumentInspectionComparisonSummary | null;
-}
-
-export interface RuntimeDocumentInspectionComparisonSummary {
-  comparisonKind: "imported_same_format_project_output";
-  sourcePath: string;
-  sourceFormat: "xlsx" | "docx";
-  summary: string;
-  warningCount: number;
-  warnings: string[];
 }
 
 export interface RuntimeDocumentRenderSummary {
@@ -2125,19 +2126,6 @@ export interface RuntimeDocumentConvertSummary {
   targetFormat: "pdf" | "xlsx" | "docx";
   sizeBytes: number;
   mimeType: string;
-}
-
-export interface RuntimeDocumentVersionRegistrationSummary {
-  docId: string;
-  versionId: string;
-  versionNumber: number;
-  descriptorMode: "create_document" | "revise_document";
-  documentType: "workspace_document";
-  outputFormat: "pdf" | "xlsx" | "docx";
-  outputPath: string;
-  workspaceProjectPath: string | null;
-  sourceManifestPath: string | null;
-  inspectionPath: string | null;
 }
 
 export const PERSAI_RUNTIME_TTS_PROVIDER_IDS = ["elevenlabs", "yandex", "openai"] as const;
@@ -3095,6 +3083,12 @@ export interface RuntimeDeferredDocumentJobSummary {
 
 export type RuntimeTurnMediaToolCode = "image_generate" | "image_edit" | "video_generate";
 
+export interface RuntimeTurnShellDocumentRegistration {
+  path: string;
+  versionNumber: number;
+  isOverwrite: boolean;
+}
+
 /** ADR-129 W9 — structural delivery truth emitted by runtime at turn completion. */
 export interface RuntimeTurnDeliveryFacts {
   producedPaths: string[];
@@ -3102,6 +3096,7 @@ export interface RuntimeTurnDeliveryFacts {
   pendingMediaJobIds: string[];
   pendingDocumentJobIds: string[];
   mediaToolCalls: RuntimeTurnMediaToolCode[];
+  shellDocumentRegistrations: RuntimeTurnShellDocumentRegistration[];
 }
 
 export interface RuntimeTurnResult {
@@ -4466,7 +4461,6 @@ export function isStaleVisibleWorkspacePath(path: string): boolean {
 }
 
 export const DOCUMENT_WORKSPACE_PROJECT_SCHEMA = "persai.document.project.v1" as const;
-export const DOCUMENT_WORKSPACE_PROJECTS_SEGMENT = "projects" as const;
 
 export const DOCUMENT_WORKSPACE_PROJECT_SOURCE_KINDS = [
   "imported_workspace_file",
@@ -4490,122 +4484,6 @@ export const DOCUMENT_WORKSPACE_PROJECT_SOURCE_FORMATS = [
 
 export type DocumentWorkspaceProjectSourceFormat =
   (typeof DOCUMENT_WORKSPACE_PROJECT_SOURCE_FORMATS)[number];
-
-export type DocumentWorkspaceProjectLayout = {
-  projectPath: string;
-  extractDir: string;
-  renderDir: string;
-  outputDir: string;
-  projectManifestPath: string;
-  defaultRenderEntrypoint: string;
-  defaultPdfExportEntrypoint: string;
-  defaultPdfOutputPath: string;
-};
-
-export function slugifyDocumentProjectStem(sourcePath: string): string {
-  const basename = sourcePath.replace(/\\/g, "/").split("/").pop() ?? "document";
-  const dot = basename.lastIndexOf(".");
-  const stem = dot > 0 ? basename.slice(0, dot) : basename;
-  const slug = stem
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .toLowerCase()
-    .slice(0, 60);
-  if (slug.length > 0 && /[a-z]/.test(slug)) {
-    return slug;
-  }
-  let hash = 0;
-  for (const char of sourcePath) {
-    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  }
-  return `doc-${hash.toString(16).slice(0, 8)}`;
-}
-
-export function buildDocumentWorkspaceProjectLayout(
-  projectPath: string
-): DocumentWorkspaceProjectLayout {
-  const normalized = projectPath.replace(/\/+$/g, "");
-  return {
-    projectPath: normalized,
-    extractDir: `${normalized}/extract`,
-    renderDir: `${normalized}/render`,
-    outputDir: `${normalized}/output`,
-    projectManifestPath: `${normalized}/project.json`,
-    defaultRenderEntrypoint: `${normalized}/render/report.html`,
-    defaultPdfExportEntrypoint: `${normalized}/render/export_pdf.py`,
-    defaultPdfOutputPath: `${normalized}/output/report.pdf`
-  };
-}
-
-export function deriveDefaultDocumentProjectPath(sourcePath: string): string | null {
-  const slug = slugifyDocumentProjectStem(sourcePath);
-  const visiblePath = classifyVisibleWorkspacePath(sourcePath);
-  if (visiblePath.kind === "sessionRoot" || visiblePath.kind === "sessionDescendant") {
-    return `${buildAssistantSessionRoot(
-      visiblePath.assistantId ?? "",
-      visiblePath.sessionId ?? ""
-    )}/projects/${slug}`;
-  }
-  if (
-    visiblePath.kind === "assistantSharedRoot" ||
-    visiblePath.kind === "assistantSharedDescendant"
-  ) {
-    return `${buildAssistantSharedRoot(visiblePath.assistantId ?? "")}/projects/${slug}`;
-  }
-  if (
-    visiblePath.kind === "workspaceSharedRoot" ||
-    visiblePath.kind === "workspaceSharedDescendant"
-  ) {
-    return `${WORKSPACE_ROOT}/shared/projects/${slug}`;
-  }
-  return null;
-}
-
-export function applyDocumentProjectPathSuffix(projectPath: string, suffix: number): string {
-  if (suffix <= 1) {
-    return projectPath;
-  }
-  const normalized = projectPath.replace(/\/+$/g, "");
-  if (!isValidVisibleWorkspacePath(normalized)) {
-    throw new Error(`projectPath must be an active visible workspace directory: ${projectPath}`);
-  }
-  const lastSlash = normalized.lastIndexOf("/");
-  if (lastSlash <= 0) {
-    throw new Error(`projectPath must include a parent directory: ${projectPath}`);
-  }
-  const parent = normalized.slice(0, lastSlash);
-  const basename = lastSlash >= 0 ? normalized.slice(lastSlash + 1) : normalized;
-  return `${parent}/${basename}-${String(suffix)}`;
-}
-
-export function buildDocumentProjectSourceCopyPath(
-  layout: DocumentWorkspaceProjectLayout,
-  sourcePath: string | null
-): string | null {
-  if (typeof sourcePath !== "string" || sourcePath.trim().length === 0) {
-    return null;
-  }
-  const normalized = sourcePath.replace(/\\/g, "/");
-  const basename = normalized.split("/").pop()?.trim() ?? "";
-  if (basename.length === 0) {
-    return null;
-  }
-  return `${layout.projectPath}/source/${basename}`;
-}
-
-export function buildDocumentProjectPythonRenderEntrypoint(
-  layout: DocumentWorkspaceProjectLayout
-): string {
-  return `${layout.renderDir}/build.py`;
-}
-
-export function buildDocumentProjectPdfExportEntrypoint(
-  layout: DocumentWorkspaceProjectLayout
-): string {
-  return layout.defaultPdfExportEntrypoint;
-}
 
 export function buildImportedOfficeRenderScaffold(input: {
   sourceFormat: "docx" | "xlsx";
@@ -4705,157 +4583,8 @@ export function buildImportedOfficePdfExportScaffold(input: {
   ].join("\n");
 }
 
-export function resolveDocumentProjectDefaultRenderEntrypoint(input: {
-  layout: DocumentWorkspaceProjectLayout;
-  sourceKind: DocumentWorkspaceProjectSourceKind;
-  sourceFormat: DocumentWorkspaceProjectSourceFormat;
-}): string {
-  if (
-    input.sourceKind === "imported_workspace_file" &&
-    (input.sourceFormat === "docx" || input.sourceFormat === "xlsx")
-  ) {
-    return buildDocumentProjectPythonRenderEntrypoint(input.layout);
-  }
-  if (input.sourceFormat === "python") {
-    return `${input.layout.projectPath}/build.py`;
-  }
-  return input.layout.defaultRenderEntrypoint;
-}
-
 export function isWorkspacePathUnderPrefix(path: string, prefix: string): boolean {
   const normalizedPath = path.replace(/\\/g, "/").replace(/\/+$/g, "");
   const normalizedPrefix = prefix.replace(/\\/g, "/").replace(/\/+$/g, "");
   return normalizedPath === normalizedPrefix || normalizedPath.startsWith(`${normalizedPrefix}/`);
-}
-
-export function validateDocumentProjectRenderPaths(input: {
-  layout: DocumentWorkspaceProjectLayout;
-  projectPath: string;
-  outputPath: string;
-  entrypointPath: string;
-}): string | null {
-  const normalizedProjectPath = input.projectPath.replace(/\/+$/g, "");
-  if (normalizedProjectPath !== input.layout.projectPath) {
-    return `document.render projectPath must be ${input.layout.projectPath}, the active document project from document.extract.`;
-  }
-  if (!isWorkspacePathUnderPrefix(input.outputPath, input.layout.outputDir)) {
-    return `document.render outputPath must stay under ${input.layout.outputDir}/.`;
-  }
-  if (!isWorkspacePathUnderPrefix(input.entrypointPath, input.layout.renderDir)) {
-    return `document.render entrypoint must stay under ${input.layout.renderDir}/.`;
-  }
-  return null;
-}
-
-export function shouldScaffoldDocumentProjectRenderHtml(mimeType: string): boolean {
-  const normalized = mimeType.toLowerCase().split(";")[0]?.trim() ?? "";
-  return (
-    normalized === "application/pdf" ||
-    normalized === "application/x-pdf" ||
-    normalized.startsWith("text/") ||
-    normalized === "application/json" ||
-    normalized === "application/xml" ||
-    normalized === "application/yaml" ||
-    normalized === "application/x-yaml"
-  );
-}
-
-export function buildDocumentProjectManifest(input: {
-  layout: DocumentWorkspaceProjectLayout;
-  sourceKind: DocumentWorkspaceProjectSourceKind;
-  sourcePath: string | null;
-  projectSourcePath: string | null;
-  sourceFormat: DocumentWorkspaceProjectSourceFormat;
-  sourceMimeType: string | null;
-  sourceDisplayName?: string | null;
-  extractManifestPath: string | null;
-  mimeType: string | null;
-}): Record<string, unknown> {
-  return {
-    schema: DOCUMENT_WORKSPACE_PROJECT_SCHEMA,
-    projectPath: input.layout.projectPath,
-    sourcePath: input.sourcePath,
-    projectSourcePath: input.projectSourcePath,
-    sourceKind: input.sourceKind,
-    sourceFormat: input.sourceFormat,
-    sourceMimeType: input.sourceMimeType,
-    sourceDisplayName: input.sourceDisplayName ?? null,
-    extractDir: input.layout.extractDir,
-    renderDir: input.layout.renderDir,
-    outputDir: input.layout.outputDir,
-    extractManifestPath: input.extractManifestPath,
-    defaultRenderEntrypoint: resolveDocumentProjectDefaultRenderEntrypoint({
-      layout: input.layout,
-      sourceKind: input.sourceKind,
-      sourceFormat: input.sourceFormat
-    }),
-    defaultPdfExportEntrypoint: buildDocumentProjectPdfExportEntrypoint(input.layout),
-    defaultPdfOutputPath: input.layout.defaultPdfOutputPath,
-    mimeType: input.mimeType
-  };
-}
-
-function escapeDocumentProjectHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-function extractedDocumentProjectTextToHtmlBody(extractedText: string): string {
-  const paragraphs = extractedText.replace(/\r\n/g, "\n").split(/\n{2,}/);
-  if (paragraphs.length === 0) {
-    return "<p></p>";
-  }
-  return paragraphs
-    .map((paragraph) => {
-      const trimmed = paragraph.trim();
-      if (trimmed.length === 0) {
-        return "";
-      }
-      const lines = trimmed.split("\n").map((line) => escapeDocumentProjectHtml(line));
-      return `<p>${lines.join("<br/>")}</p>`;
-    })
-    .filter((paragraph) => paragraph.length > 0)
-    .join("\n");
-}
-
-export function buildDocumentProjectRenderScaffoldHtml(input: {
-  sourcePath: string;
-  extractedText: string;
-}): string {
-  const body = extractedDocumentProjectTextToHtmlBody(input.extractedText);
-  return `<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="utf-8"/>
-  <title>Document render scaffold</title>
-  <style>
-    @page { size: A4; margin: 20mm 18mm 22mm 18mm; }
-    body {
-      font-family: "Times New Roman", Georgia, serif;
-      font-size: 12pt;
-      line-height: 1.45;
-      color: #1f1f1f;
-      background: #f7f3ea;
-    }
-    main { max-width: 100%; }
-    h1.doc-title {
-      font-size: 18pt;
-      letter-spacing: 0.04em;
-      margin: 0 0 12mm 0;
-      color: #2f5496;
-    }
-    p { margin: 0 0 6pt 0; text-align: justify; }
-  </style>
-</head>
-<body>
-  <main>
-    <h1 class="doc-title">${escapeDocumentProjectHtml(input.sourcePath.split("/").pop() ?? "Document")}</h1>
-    ${body}
-  </main>
-</body>
-</html>
-`;
 }

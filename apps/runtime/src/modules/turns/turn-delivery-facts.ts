@@ -5,7 +5,9 @@ import type {
   RuntimeFilesToolResult,
   RuntimeImageEditToolResult,
   RuntimeImageGenerateToolResult,
+  RuntimeSandboxToolResult,
   RuntimeTurnDeliveryFacts,
+  RuntimeTurnShellDocumentRegistration,
   RuntimeVideoGenerateToolResult
 } from "@persai/runtime-contract";
 import { classifyVisibleWorkspacePath } from "@persai/runtime-contract";
@@ -34,7 +36,8 @@ export function createEmptyTurnDeliveryFacts(): RuntimeTurnDeliveryFactsTracker 
     attachedPaths: [],
     pendingMediaJobIds: [],
     pendingDocumentJobIds: [],
-    mediaToolCalls: []
+    mediaToolCalls: [],
+    shellDocumentRegistrations: []
   };
 }
 
@@ -43,6 +46,43 @@ export function resolveUndeliveredProducedPaths(
 ): string[] {
   const attached = new Set(facts.attachedPaths);
   return facts.producedPaths.filter((path) => !attached.has(path));
+}
+
+export function resolveShellAutoAttachPaths(
+  registrations: readonly RuntimeTurnShellDocumentRegistration[],
+  attachedPaths: readonly string[]
+): string[] {
+  const attached = new Set(attachedPaths);
+  const v1New = registrations.filter(
+    (entry) => !entry.isOverwrite && entry.versionNumber === 1 && !attached.has(entry.path)
+  );
+  const paths: string[] = [];
+  for (const entry of registrations) {
+    if (entry.isOverwrite && !attached.has(entry.path)) {
+      paths.push(entry.path);
+    }
+  }
+  if (v1New.length === 1) {
+    paths.push(v1New[0]!.path);
+  }
+  return paths;
+}
+
+export function resolveAutoAttachCandidatePaths(
+  facts: Pick<
+    RuntimeTurnDeliveryFacts,
+    "producedPaths" | "attachedPaths" | "shellDocumentRegistrations"
+  >
+): string[] {
+  const shellPaths = new Set(facts.shellDocumentRegistrations.map((entry) => entry.path));
+  const shellCandidates = resolveShellAutoAttachPaths(
+    facts.shellDocumentRegistrations,
+    facts.attachedPaths
+  );
+  const otherUndelivered = resolveUndeliveredProducedPaths(facts).filter(
+    (path) => !shellPaths.has(path)
+  );
+  return [...shellCandidates, ...otherUndelivered];
 }
 
 export function appendUniquePath(paths: string[], path: string | null | undefined): void {
@@ -93,6 +133,10 @@ export function recordTurnDeliveryFactsFromToolOutcome(input: {
   }
   if (input.toolName === "video_generate") {
     recordMediaToolDeliveryFacts(input.tracker, "video_generate", input.payload);
+    return;
+  }
+  if (input.toolName === "shell") {
+    recordShellToolDeliveryFacts(input.tracker, input.payload as RuntimeSandboxToolResult);
   }
 }
 
@@ -125,6 +169,35 @@ function recordDocumentToolDeliveryFacts(
   }
   if (payload.action === "pending_delivery" && typeof payload.jobId === "string") {
     appendUniquePath(tracker.pendingDocumentJobIds, payload.jobId);
+  }
+}
+
+function recordShellToolDeliveryFacts(
+  tracker: RuntimeTurnDeliveryFactsTracker,
+  payload: RuntimeSandboxToolResult
+): void {
+  if (payload.action !== "completed" || payload.documentSync === undefined) {
+    return;
+  }
+  for (const outcome of payload.documentSync) {
+    if (!outcome.registered || outcome.versionNumber === null) {
+      continue;
+    }
+    appendUniquePath(tracker.producedPaths, outcome.path);
+    const existing = tracker.shellDocumentRegistrations.find(
+      (entry) => entry.path === outcome.path
+    );
+    const registration: RuntimeTurnShellDocumentRegistration = {
+      path: outcome.path,
+      versionNumber: outcome.versionNumber,
+      isOverwrite: outcome.isOverwrite
+    };
+    if (existing === undefined) {
+      tracker.shellDocumentRegistrations.push(registration);
+      continue;
+    }
+    existing.versionNumber = registration.versionNumber;
+    existing.isOverwrite = registration.isOverwrite;
   }
 }
 
@@ -235,6 +308,7 @@ export function finalizeTurnDeliveryFacts(
     attachedPaths: [...tracker.attachedPaths],
     pendingMediaJobIds: [...tracker.pendingMediaJobIds],
     pendingDocumentJobIds: [...tracker.pendingDocumentJobIds],
-    mediaToolCalls: [...tracker.mediaToolCalls]
+    mediaToolCalls: [...tracker.mediaToolCalls],
+    shellDocumentRegistrations: [...tracker.shellDocumentRegistrations]
   };
 }

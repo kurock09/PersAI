@@ -1,5 +1,62 @@
 # SESSION-HANDOFF
 
+## 2026-07-04 — document inspect Slice 2: shell overwrite → v+1 + honest auto-attach
+
+Status: **implemented locally (Slice 1 + Slice 2 uncommitted), verification gate green.** Baseline SHA on `main`: `3978f3db0ac4f4b299087d08e14d79eefd3b6960`.
+
+What changed (Slice 2):
+
+- **Sandbox `shell`:** after successful session shell, snapshots visible `pdf`/`docx`/`xlsx` under the workspace mount before/after pod exec; new or changed files emit as `producedFiles` with `/workspace/...` `storagePath` (not GCS keys).
+- **API metadata upsert:** `POST .../files/metadata` now returns `200` with `{ documentRegistration: { registered, versionNumber, bumped, isOverwrite } | null }` instead of silent `204`.
+- **Runtime sandbox sync:** `RuntimeSandboxToolService` consumes upsert outcomes and surfaces `documentSync` on completed sandbox tool results; `turn-delivery-facts` tracks `shellDocumentRegistrations`.
+- **Auto-attach PROD rules:** end-of-turn auto-attach now applies shell-specific policy — **v+1 overwrite always**; **single v1 new doc auto-attaches**; **multiple v1 new docs do not** (model uses `files.attach(final)`). Non-shell produced paths (e.g. `document.render`) keep prior attach-all-undelivered behavior.
+
+Slice 1 (same dirty tree): project-tree removal + `document.inspect` `editMethod` — see prior handoff bullets unchanged.
+
+Verification:
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/sandbox run typecheck`
+- `@persai/api` `upsert-workspace-file-metadata-from-runtime.service.test.ts` — 9/9
+- `@persai/runtime` `turn-delivery-facts.test.ts` — 6/6
+- `@persai/runtime` `runtime-sandbox-tool.service.test.ts` — 1/1
+
+Residuals / next step:
+
+- Commit + deploy; live acceptance: upload DOCX → shell overwrite → v+1 + auto-attach; draft+final same turn → only overwrite auto-attaches.
+- Post-audit cleanup landed: dead `registerDocumentVersion` runtime client, unused template parser, stale contract `registration` field, failing legacy inference test fixed, upsert uses `buildDefaultInspectionPath` and returns `registered:false` instead of throw.
+
+## 2026-07-04 — document inspect Slice 1: project-tree removal + editMethod
+
+Status: **implemented locally, verification gate green, commit/push/deploy pending.** Baseline SHA on `main`: `3978f3db0ac4f4b299087d08e14d79eefd3b6960`. Slice 2 landed in the same dirty tree — see entry above.
+
+What changed:
+
+- **Removed `projects/doc-*` project-tree entirely** from the model-facing inspect path: deleted `DocumentWorkspaceExtractionService`, `internal-runtime-document-extract.controller`, runtime `extractDocumentToWorkspace`, and runtime-contract project layout helpers (`deriveDefaultDocumentProjectPath`, `buildDocumentWorkspaceProjectLayout`, manifest/scaffold builders, etc.).
+- **`document.inspect` now returns `editMethod`** (`shell_native` | `render_from_markdown`) plus optional `siblingMarkdownPath` / `extractedMdPath`. Sibling `.md` detection uses same-stem rule (`report.docx` → `report.md`). PDF OCR/full-text when needed writes `*.extracted.md` next to the source (not under `projects/`).
+- **`document.render` guard:** rejects in-place replacement of an existing uploaded PDF/DOCX/XLSX when no sibling `.md` exists; `contentPath` remains `.md`/`.markdown` only.
+- **Prompt owners:** bootstrap + tool-catalog now point models at `inspect.editMethod` instead of “new Word from upload → document” / “project mechanics internally”.
+- **Version registration:** no longer infers `workspaceProjectPath` from `/output/` paths; legacy manifest reads remain for explicit project paths only.
+
+Verification:
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `@persai/api` `document-workspace-inspection.service.test.ts` — 5/5
+- `@persai/runtime` `runtime-document-tool.service.test.ts` — 14/14
+
+Residuals / next step:
+
+- Commit + deploy; live acceptance: upload DOCX → «переоформи» → inspect (`editMethod=shell_native`) → shell+python-docx → attach → output size ~ source, not 37 KB one-pager.
+- Shell overwrite case (`test.xlsx`): v+1 + auto-attach; draft+final same turn → only overwrite auto-attaches.
+
 ## 2026-07-03 — session pod filesystem sync fix (pod + GCS source of truth)
 
 Status: **implemented locally, sandbox tests + typecheck green, commit/push/deploy pending.**

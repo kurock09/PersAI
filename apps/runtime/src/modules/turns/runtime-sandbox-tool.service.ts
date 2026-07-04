@@ -3,6 +3,7 @@ import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   classifyVisibleWorkspacePath,
   type ProviderGatewayToolCall,
+  type RuntimeSandboxDocumentSyncOutcome,
   type RuntimeSandboxJobRequest,
   type RuntimeSandboxToolResult,
   type RuntimeToolPolicy,
@@ -121,13 +122,26 @@ export class RuntimeSandboxToolService {
         params.sourceUserMessageText !== undefined &&
         params.sourceUserMessageText !== null
       ) {
-        await this.syncVisibleWorkspaceDocumentOutputs({
+        const documentSync = await this.syncVisibleWorkspaceDocumentOutputs({
           bundle: params.bundle,
           chatId: params.chatId,
           files: job.files,
           sourceUserMessageText: params.sourceUserMessageText,
           sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt ?? new Date().toISOString()
         });
+        return {
+          payload: {
+            toolCode: params.toolCall.name,
+            executionMode: "sandbox",
+            action: "completed",
+            reason: job.reason,
+            warning: job.warning ?? job.violationMessage,
+            job,
+            paths: job.files.map((file) => file.storagePath),
+            ...(documentSync.length > 0 ? { documentSync } : {})
+          },
+          isError: false
+        };
       }
 
       return {
@@ -195,7 +209,8 @@ export class RuntimeSandboxToolService {
     files: RuntimeSandboxProducedFile[];
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
-  }): Promise<void> {
+  }): Promise<RuntimeSandboxDocumentSyncOutcome[]> {
+    const outcomes: RuntimeSandboxDocumentSyncOutcome[] = [];
     for (const file of input.files) {
       if (!this.isVisibleWorkspaceDocumentOutput(file.storagePath)) {
         continue;
@@ -204,7 +219,7 @@ export class RuntimeSandboxToolService {
         workspaceId: input.bundle.metadata.workspaceId,
         path: file.storagePath
       });
-      await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
+      const upsertResult = await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
         workspaceId: input.bundle.metadata.workspaceId,
         path: file.storagePath,
         mimeType: file.mimeType,
@@ -215,7 +230,19 @@ export class RuntimeSandboxToolService {
         sourceUserMessageText: input.sourceUserMessageText,
         sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt
       });
+      const registration = upsertResult.documentRegistration;
+      if (registration === null) {
+        continue;
+      }
+      outcomes.push({
+        path: file.storagePath,
+        registered: registration.registered,
+        versionNumber: registration.versionNumber,
+        bumped: registration.bumped,
+        isOverwrite: registration.isOverwrite
+      });
     }
+    return outcomes;
   }
 
   private isVisibleWorkspaceDocumentOutput(path: string): boolean {

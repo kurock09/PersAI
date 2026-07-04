@@ -144,13 +144,83 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
       sourceUserMessageText: "Обнови pdf",
       sourceUserMessageCreatedAt: "2026-07-03T09:00:00.000Z"
     });
-    await service.execute(input);
+    const result = await service.execute(input);
     assert.equal(registerCalls.length, 1);
     assert.equal(registerCalls[0]?.assistantId, "assistant-1");
     assert.equal(registerCalls[0]?.channel, "web");
     assert.equal(registerCalls[0]?.externalThreadKey, "thread-1");
     assert.equal(registerCalls[0]?.outputPath, `${sessionRoot}/report.pdf`);
     assert.equal(registerCalls[0]?.sourceUserMessageText, "Обнови pdf");
+    assert.deepEqual(result.documentRegistration, {
+      registered: true,
+      versionNumber: 1,
+      bumped: false,
+      isOverwrite: false
+    });
+  });
+
+  test("returns overwrite registration outcome for revise_document semantics", async () => {
+    const registerCalls: Array<Record<string, unknown>> = [];
+    const registrationService = {
+      async execute(input: Record<string, unknown>) {
+        registerCalls.push(input);
+        return {
+          accepted: true,
+          docId: "doc-1",
+          versionId: "version-2",
+          versionNumber: 2,
+          descriptorMode: "revise_document",
+          documentType: "workspace_document",
+          outputFormat: "xlsx",
+          outputPath: String(input.outputPath ?? `${sessionRoot}/report.xlsx`),
+          workspaceProjectPath: null,
+          sourceManifestPath: null,
+          inspectionPath: null
+        };
+      }
+    };
+    const service = new UpsertWorkspaceFileMetadataFromRuntimeService(
+      {
+        assistantChat: {
+          async findFirst() {
+            return {
+              surface: "web",
+              surfaceThreadKey: "thread-1"
+            };
+          }
+        }
+      } as never,
+      {
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        async refreshWorkspacePathProjection() {
+          return 1;
+        }
+      } as never,
+      registrationService as never
+    );
+    const input = service.parseInput({
+      workspaceId: "workspace-1",
+      path: `${sessionRoot}/report.xlsx`,
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      sizeBytes: 42,
+      replace: true,
+      originChatId: "chat-1",
+      originAssistantId: "assistant-1",
+      sourceUserMessageText: "Перезапиши xlsx",
+      sourceUserMessageCreatedAt: "2026-07-03T09:00:00.000Z"
+    });
+    const result = await service.execute(input);
+    assert.equal(registerCalls.length, 1);
+    assert.deepEqual(result.documentRegistration, {
+      registered: true,
+      versionNumber: 2,
+      bumped: true,
+      isOverwrite: true
+    });
   });
 
   test("rejects paths outside /workspace/ (e.g. /tmp/)", () => {

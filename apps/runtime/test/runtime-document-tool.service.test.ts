@@ -260,7 +260,9 @@ describe("RuntimeDocumentToolService", () => {
           },
           warnings: [],
           suggestedReadPaths: [wp("source.inspect.json")],
-          comparison: null
+          editMethod: "shell_native",
+          siblingMarkdownPath: null,
+          extractedMdPath: null
         };
       }
     } as never);
@@ -326,7 +328,9 @@ describe("RuntimeDocumentToolService", () => {
             },
             warnings: [],
             suggestedReadPaths: [],
-            comparison: null
+            editMethod: "shell_native",
+            siblingMarkdownPath: null,
+            extractedMdPath: null
           };
         }
       } as never,
@@ -392,7 +396,6 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.render?.mimeType, "application/pdf");
     assert.equal(result.payload.descriptorMode, null);
     assert.equal(result.payload.docId, null);
-    assert.equal(result.payload.registration, undefined);
     assert.equal(result.payload.versionId, undefined);
     assert.deepEqual(
       sandboxCalls.map((call) => `${call.toolCode}:${String(call.args.action ?? "")}`),
@@ -444,22 +447,9 @@ describe("RuntimeDocumentToolService", () => {
             },
             warnings: [],
             suggestedReadPaths: [],
-            comparison: null
-          };
-        },
-        async registerDocumentVersion() {
-          return {
-            accepted: true as const,
-            docId: "doc-xlsx",
-            versionId: "version-xlsx",
-            versionNumber: 1,
-            descriptorMode: "create_document" as const,
-            documentType: "workspace_document" as const,
-            outputFormat: "xlsx" as const,
-            outputPath: wp("tables/revenue.xlsx"),
-            workspaceProjectPath: wp("tables"),
-            sourceManifestPath: null,
-            inspectionPath: wp("tables/revenue.inspect.json")
+            editMethod: "shell_native",
+            siblingMarkdownPath: null,
+            extractedMdPath: null
           };
         }
       } as never,
@@ -567,7 +557,9 @@ describe("RuntimeDocumentToolService", () => {
             },
             warnings: [],
             suggestedReadPaths: [],
-            comparison: null
+            editMethod: "shell_native",
+            siblingMarkdownPath: null,
+            extractedMdPath: null
           };
         }
       } as never,
@@ -719,7 +711,6 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.action, "rendered");
     assert.equal(result.payload.render?.outputPath, wp("monthly.pdf"));
     assert.equal(result.payload.warning, null);
-    assert.equal(result.payload.registration, undefined);
   });
 
   test("convert succeeds without legacy direct register/version payloads", async () => {
@@ -785,7 +776,6 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.action, "converted");
     assert.equal(result.payload.convert?.outputPath, wp("source.pdf"));
     assert.equal(result.payload.warning, null);
-    assert.equal(result.payload.registration, undefined);
   });
 
   test("render stays rendered when metadata upsert fails after attach", async () => {
@@ -855,7 +845,6 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.action, "rendered");
     assert.equal(result.payload.render?.outputPath, wp("monthly.pdf"));
     assert.match(result.payload.warning ?? "", /registration unavailable/);
-    assert.equal(result.payload.registration, undefined);
   });
 
   test("convert stays converted when metadata upsert fails after attach", async () => {
@@ -921,7 +910,6 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.action, "converted");
     assert.equal(result.payload.convert?.outputPath, wp("source.pdf"));
     assert.match(result.payload.warning ?? "", /registration unavailable/);
-    assert.equal(result.payload.registration, undefined);
   });
 
   test("Case A: edit sibling markdown and re-render persists the same output path through the single-owner seam", async () => {
@@ -956,7 +944,9 @@ describe("RuntimeDocumentToolService", () => {
             },
             warnings: [],
             suggestedReadPaths: [],
-            comparison: null
+            editMethod: "shell_native",
+            siblingMarkdownPath: null,
+            extractedMdPath: null
           };
         }
       } as never,
@@ -1051,8 +1041,6 @@ describe("RuntimeDocumentToolService", () => {
     );
     assert.equal(documentUpsertCalls[0]?.replace, true);
     assert.equal(documentUpsertCalls[1]?.replace, true);
-    assert.equal(first.payload.registration, undefined);
-    assert.equal(second.payload.registration, undefined);
     assert.deepEqual(
       sandboxCalls.map((call) => `${call.toolCode}:${String(call.args.action ?? "")}`),
       [
@@ -1117,7 +1105,9 @@ describe("RuntimeDocumentToolService", () => {
             },
             warnings: [],
             suggestedReadPaths: [],
-            comparison: null
+            editMethod: "shell_native",
+            siblingMarkdownPath: null,
+            extractedMdPath: null
           };
         }
       } as never,
@@ -1180,8 +1170,6 @@ describe("RuntimeDocumentToolService", () => {
 
     assert.equal(first.payload.action, "rendered");
     assert.equal(second.payload.action, "rendered");
-    assert.equal(first.payload.registration, undefined);
-    assert.equal(second.payload.registration, undefined);
     assert.equal(documentUpsertCalls.length, 2);
     assert.equal(documentUpsertCalls[0]?.path, wp("monthly.pdf"));
     assert.equal(documentUpsertCalls[1]?.path, wp("monthly.pdf"));

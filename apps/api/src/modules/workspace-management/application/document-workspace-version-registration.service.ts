@@ -1,13 +1,11 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import {
-  buildDocumentWorkspaceProjectLayout,
   type DocumentWorkspaceProjectSourceFormat,
   type DocumentWorkspaceProjectSourceKind
 } from "@persai/runtime-contract";
 import { AssistantDocumentJobService } from "./assistant-document-job.service";
 import type { AssistantDocumentWorkspaceFacts } from "./assistant-document-link-metadata";
 import {
-  inferProjectPathFromOutputPath,
   resolveVisibleWorkspaceOutputFormatFromPath,
   type DocumentWorkspaceInspectionFacts,
   type VisibleWorkspaceDocumentOutputFormat
@@ -385,8 +383,7 @@ export class DocumentWorkspaceVersionRegistrationService {
         message: string;
       }
   > {
-    const workspaceProjectPath =
-      input.requestedWorkspaceProjectPath ?? inferProjectPathFromOutputPath(input.outputPath);
+    const workspaceProjectPath = input.requestedWorkspaceProjectPath;
     const projectManifestPath =
       workspaceProjectPath === null ? null : `${workspaceProjectPath}/project.json`;
     const existingProjectManifestMetadata =
@@ -437,13 +434,7 @@ export class DocumentWorkspaceVersionRegistrationService {
           }));
     const sourceManifestPath =
       input.requestedSourceManifestPath ??
-      this.resolveProjectExtractManifestPath(existingProjectManifest) ??
-      (workspaceProjectPath === null
-        ? null
-        : await this.resolveDefaultExtractManifestPath({
-            workspaceId: input.workspaceId,
-            workspaceProjectPath
-          }));
+      this.resolveProjectExtractManifestPath(existingProjectManifest);
 
     return {
       ok: true,
@@ -515,18 +506,6 @@ export class DocumentWorkspaceVersionRegistrationService {
       return null;
     }
     const candidate = `${input.outputPath.slice(0, dotIndex)}.md`;
-    const metadata = await this.workspaceFileMetadataService.get({
-      workspaceId: input.workspaceId,
-      path: candidate
-    });
-    return metadata === null ? null : candidate;
-  }
-
-  private async resolveDefaultExtractManifestPath(input: {
-    workspaceId: string;
-    workspaceProjectPath: string;
-  }): Promise<string | null> {
-    const candidate = `${buildDocumentWorkspaceProjectLayout(input.workspaceProjectPath).extractDir}/manifest.json`;
     const metadata = await this.workspaceFileMetadataService.get({
       workspaceId: input.workspaceId,
       path: candidate

@@ -162,7 +162,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
     assert.equal(registered.workspaceFacts.inspectionSummary?.counts.sheetCount, 2);
   });
 
-  test("infers imported project/source facts from project output path and manifest", async () => {
+  test("loads project manifest facts only when workspaceProjectPath is explicit", async () => {
     const registeredInputs: unknown[] = [];
     const inspection = {
       schema: "persai.document.inspect.v1",
@@ -304,7 +304,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       descriptorMode: null,
       docId: null,
       requestedName: "report.pdf",
-      workspaceProjectPath: null,
+      workspaceProjectPath: importedProjectRoot,
       outputPath: `${importedProjectRoot}/output/report.pdf`,
       sourceManifestPath: null,
       inspectionPath: `${importedProjectRoot}/output/report.inspect.json`
@@ -348,6 +348,98 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
       registered.workspaceFacts.sourceManifestPath,
       `${importedProjectRoot}/extract/manifest.json`
     );
+  });
+
+  test("does not infer workspaceProjectPath from legacy project output paths", async () => {
+    const service = new DocumentWorkspaceVersionRegistrationService(
+      {
+        assistantChat: {
+          async findFirst() {
+            return { id: "chat-1" };
+          }
+        },
+        assistant: {
+          async findFirst() {
+            return { userId: "user-1" };
+          }
+        },
+        assistantDocument: {
+          async findFirst() {
+            return null;
+          }
+        }
+      } as never,
+      {
+        async registerVisibleWorkspaceVersion() {
+          return {
+            docId: "doc-legacy-1",
+            versionId: "version-legacy-1",
+            versionNumber: 1,
+            descriptorMode: "create_document",
+            documentType: "workspace_document",
+            outputFormat: "pdf"
+          };
+        }
+      } as never,
+      {
+        async get(input: { path: string }) {
+          if (input.path === `${importedProjectRoot}/output/report.pdf`) {
+            return {
+              workspaceId: "workspace-1",
+              path: input.path,
+              mimeType: "application/pdf",
+              sizeBytes: BigInt(128),
+              contentHash: null,
+              shortDescription: null,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+          }
+          return null;
+        },
+        async upsert() {
+          return;
+        }
+      } as never,
+      {
+        buildWorkspaceObjectKey(input: { workspaceRelPath: string }) {
+          return `gcs:${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+        },
+        async downloadObject() {
+          return null;
+        },
+        async saveObject() {
+          return {
+            objectKey: "gcs:any",
+            sizeBytes: 1,
+            mimeType: "application/json"
+          };
+        }
+      } as never
+    );
+
+    const outcome = await service.execute({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "thread-1",
+      sourceUserMessageText: "register legacy output without project path",
+      sourceUserMessageCreatedAt: "2026-06-30T10:00:00.000Z",
+      descriptorMode: null,
+      docId: null,
+      requestedName: "report.pdf",
+      workspaceProjectPath: null,
+      outputPath: `${importedProjectRoot}/output/report.pdf`,
+      sourceManifestPath: null,
+      inspectionPath: null
+    });
+
+    assert.equal(outcome.accepted, true);
+    if (!outcome.accepted) {
+      return;
+    }
+    assert.equal(outcome.workspaceProjectPath, null);
+    assert.equal(outcome.sourceManifestPath, null);
   });
 
   test("rejects retired flat-root and non-active hierarchical output paths", async () => {
@@ -403,7 +495,7 @@ describe("DocumentWorkspaceVersionRegistrationService", () => {
     assert.equal(nonActiveHierarchyOutcome.code, "invalid_output_path");
   });
 
-  test("rejects project-owned outputs when inspect truth is missing", async () => {
+  test("registers legacy project output without inspect sidecar when workspaceProjectPath is null", async () => {
     const service = new DocumentWorkspaceVersionRegistrationService(
       {
         assistantChat: {

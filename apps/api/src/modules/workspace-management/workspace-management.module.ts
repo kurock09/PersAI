@@ -44,7 +44,6 @@ import { InternalRuntimeKnowledgeController } from "./interface/http/internal-ru
 import { InternalRuntimeMemoryController } from "./interface/http/internal-runtime-memory.controller";
 import { InternalRuntimeCompactionEnqueueController } from "./interface/http/internal-runtime-compaction-enqueue.controller";
 import { InternalRuntimeDocumentJobsEnqueueController } from "./interface/http/internal-runtime-document-jobs-enqueue.controller";
-import { InternalRuntimeDocumentExtractController } from "./interface/http/internal-runtime-document-extract.controller";
 import { InternalRuntimeDocumentInspectController } from "./interface/http/internal-runtime-document-inspect.controller";
 import { InternalRuntimeDocumentRegisterVersionController } from "./interface/http/internal-runtime-document-register-version.controller";
 import { InternalRuntimeFilesController } from "./interface/http/internal-runtime-files-controller";
@@ -137,7 +136,6 @@ import { ManageAdminKnowledgeRetrievalPolicyService } from "./application/manage
 import { ManageAdminMemoryBackfillService } from "./application/manage-admin-memory-backfill.service";
 import { ListKnowledgeIndexingJobsService } from "./application/list-knowledge-indexing-jobs.service";
 import { DocumentExtractionService } from "./application/document-extraction.service";
-import { DocumentWorkspaceExtractionService } from "./application/document-workspace-extraction.service";
 import { DocumentWorkspaceInspectionService } from "./application/document-workspace-inspection.service";
 import { DocumentWorkspaceVersionRegistrationService } from "./application/document-workspace-version-registration.service";
 import { DocumentSourceAttachmentExtractionService } from "./application/document-source-attachment-extraction.service";
@@ -459,7 +457,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeCrossSessionMarkFiredController,
     InternalRuntimeCompactionEnqueueController,
     InternalRuntimeDocumentJobsEnqueueController,
-    InternalRuntimeDocumentExtractController,
     InternalRuntimeDocumentInspectController,
     InternalRuntimeDocumentRegisterVersionController,
     InternalRuntimeFilesController,
@@ -560,7 +557,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageAdminMemoryBackfillService,
     ListKnowledgeIndexingJobsService,
     DocumentExtractionService,
-    DocumentWorkspaceExtractionService,
     DocumentWorkspaceInspectionService,
     DocumentWorkspaceVersionRegistrationService,
     DocumentSourceAttachmentExtractionService,

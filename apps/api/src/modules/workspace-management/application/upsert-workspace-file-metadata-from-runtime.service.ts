@@ -4,10 +4,24 @@ import {
   type AssistantChatMessageAttachmentRepository
 } from "../domain/assistant-chat-message-attachment.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { resolveVisibleWorkspaceOutputFormatFromPath } from "./document-workspace-deliverable-gating";
+import {
+  resolveVisibleWorkspaceOutputFormatFromPath,
+  buildDefaultInspectionPath
+} from "./document-workspace-deliverable-gating";
 import { DocumentWorkspaceVersionRegistrationService } from "./document-workspace-version-registration.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 import { normalizeActiveWorkspaceFilePath } from "./workspace-visible-paths";
+
+export type WorkspaceFileMetadataDocumentRegistrationOutcome = {
+  registered: boolean;
+  versionNumber: number | null;
+  bumped: boolean;
+  isOverwrite: boolean;
+};
+
+export type UpsertWorkspaceFileMetadataFromRuntimeResult = {
+  documentRegistration: WorkspaceFileMetadataDocumentRegistrationOutcome | null;
+};
 
 export type UpsertWorkspaceFileMetadataFromRuntimeInput = {
   workspaceId: string;
@@ -79,7 +93,9 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
     };
   }
 
-  async execute(input: UpsertWorkspaceFileMetadataFromRuntimeInput): Promise<void> {
+  async execute(
+    input: UpsertWorkspaceFileMetadataFromRuntimeInput
+  ): Promise<UpsertWorkspaceFileMetadataFromRuntimeResult> {
     await this.workspaceFileMetadataService.upsert({
       workspaceId: input.workspaceId,
       path: input.path,
@@ -98,7 +114,8 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
         sizeBytes: BigInt(input.sizeBytes)
       });
     }
-    await this.maybeRegisterVisibleWorkspaceDocumentVersion(input);
+    const documentRegistration = await this.maybeRegisterVisibleWorkspaceDocumentVersion(input);
+    return { documentRegistration };
   }
 
   private optionalContentHash(value: unknown): string | null {
@@ -133,16 +150,21 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
   }
   private async maybeRegisterVisibleWorkspaceDocumentVersion(
     input: UpsertWorkspaceFileMetadataFromRuntimeInput
-  ): Promise<void> {
+  ): Promise<WorkspaceFileMetadataDocumentRegistrationOutcome | null> {
     const outputFormat = resolveVisibleWorkspaceOutputFormatFromPath(input.path);
     if (outputFormat !== "pdf" && outputFormat !== "xlsx" && outputFormat !== "docx") {
-      return;
+      return null;
     }
     if (input.originAssistantId === null || input.originChatId === null) {
-      return;
+      return null;
     }
     if (input.sourceUserMessageText === null) {
-      return;
+      return {
+        registered: false,
+        versionNumber: null,
+        bumped: false,
+        isOverwrite: false
+      };
     }
     const chat = await this.prisma.assistantChat.findFirst({
       where: {
@@ -156,7 +178,7 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
       }
     });
     if (chat === null || (chat.surface !== "web" && chat.surface !== "telegram")) {
-      return;
+      return null;
     }
     const registration = await this.documentWorkspaceVersionRegistrationService.execute({
       assistantId: input.originAssistantId,
@@ -171,12 +193,22 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
       workspaceProjectPath: null,
       outputPath: input.path,
       sourceManifestPath: null,
-      inspectionPath: null
+      inspectionPath: buildDefaultInspectionPath(input.path)
     });
     if (!registration.accepted) {
-      throw new BadRequestException(
-        `Workspace document registration failed for ${input.path} (${registration.code}): ${registration.message}`
-      );
+      return {
+        registered: false,
+        versionNumber: null,
+        bumped: false,
+        isOverwrite: false
+      };
     }
+    const isOverwrite = registration.descriptorMode === "revise_document";
+    return {
+      registered: true,
+      versionNumber: registration.versionNumber,
+      bumped: isOverwrite,
+      isOverwrite
+    };
   }
 }

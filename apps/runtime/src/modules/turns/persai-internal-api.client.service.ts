@@ -403,35 +403,6 @@ export type InternalEnqueueDeferredDocumentJobInput = {
   };
 };
 
-export type InternalDocumentExtractInput = {
-  assistantId: string;
-  workspaceId: string;
-  path: string;
-  mode?: "auto" | "text" | "ocr" | "layout";
-  outputDir?: string | null;
-};
-
-export type InternalDocumentRegisterVersionInput = {
-  assistantId: string;
-  workspaceId: string;
-  channel: "web" | "telegram";
-  externalThreadKey: string;
-  sourceUserMessageText: string;
-  sourceUserMessageCreatedAt: string;
-  descriptorMode?:
-    | "create_document"
-    | "create_pdf_document"
-    | "revise_document"
-    | "create_data_document"
-    | null;
-  docId?: string | null;
-  requestedName?: string | null;
-  workspaceProjectPath?: string | null;
-  outputPath: string;
-  sourceManifestPath?: string | null;
-  inspectionPath?: string | null;
-};
-
 export type RegisterChatAttachmentKind =
   | "user_upload"
   | "image_generate"
@@ -733,179 +704,6 @@ export class PersaiInternalApiClientService {
     );
   }
 
-  async extractDocumentToWorkspace(input: InternalDocumentExtractInput): Promise<
-    | {
-        accepted: true;
-        sourcePath: string;
-        outputDir: string;
-        manifestPath: string;
-        outputPaths: string[];
-        suggestedReadPaths: string[];
-        counts: {
-          documentCount: number | null;
-          pageCount: number | null;
-          sheetCount: number | null;
-        };
-        provider: {
-          providerKey: "local" | "mistral" | "llamaparse";
-          processorMode: "auto" | "local" | "default_provider" | "high_quality_fallback";
-          attemptedProviderKeys: Array<"local" | "mistral" | "llamaparse">;
-        } | null;
-        quality: {
-          status: "ok" | "poor" | "needs_review";
-          score: number | null;
-          reasonCodes: string[];
-          textChars: number;
-        } | null;
-        warnings: string[];
-        projectPath: string | null;
-        projectManifestPath: string | null;
-        projectSourcePath: string | null;
-        defaultRenderEntrypoint: string | null;
-        defaultPdfOutputPath: string | null;
-        suggestedNextActions: Array<{
-          tool: "document";
-          action: "render";
-          args: {
-            action: "render";
-            projectPath: string;
-            outputPath: string;
-            format: "pdf" | "xlsx" | "docx";
-          };
-          reason: string;
-        }> | null;
-      }
-    | {
-        accepted: false;
-        code: string;
-        message: string;
-      }
-  > {
-    if (!this.isConfigured()) {
-      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
-    }
-    const response = await this.fetchJson("/api/v1/internal/runtime/document-extract", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(input)
-    });
-    const payload = this.asObject(response.body);
-    if (response.ok) {
-      if (
-        payload?.ok === true &&
-        payload.accepted === true &&
-        typeof payload.sourcePath === "string" &&
-        typeof payload.outputDir === "string" &&
-        typeof payload.manifestPath === "string"
-      ) {
-        const counts = this.asObject(payload.counts);
-        const provider = this.asObject(payload.provider);
-        const quality = this.asObject(payload.quality);
-        return {
-          accepted: true,
-          sourcePath: payload.sourcePath,
-          outputDir: payload.outputDir,
-          manifestPath: payload.manifestPath,
-          projectPath: typeof payload.projectPath === "string" ? payload.projectPath : null,
-          projectManifestPath:
-            typeof payload.projectManifestPath === "string" ? payload.projectManifestPath : null,
-          projectSourcePath:
-            typeof payload.projectSourcePath === "string" ? payload.projectSourcePath : null,
-          defaultRenderEntrypoint:
-            typeof payload.defaultRenderEntrypoint === "string"
-              ? payload.defaultRenderEntrypoint
-              : null,
-          defaultPdfOutputPath:
-            typeof payload.defaultPdfOutputPath === "string" ? payload.defaultPdfOutputPath : null,
-          outputPaths: Array.isArray(payload.outputPaths)
-            ? payload.outputPaths.filter((entry): entry is string => typeof entry === "string")
-            : [],
-          suggestedReadPaths: Array.isArray(payload.suggestedReadPaths)
-            ? payload.suggestedReadPaths.filter(
-                (entry): entry is string => typeof entry === "string"
-              )
-            : [],
-          counts: {
-            documentCount: typeof counts?.documentCount === "number" ? counts.documentCount : null,
-            pageCount: typeof counts?.pageCount === "number" ? counts.pageCount : null,
-            sheetCount: typeof counts?.sheetCount === "number" ? counts.sheetCount : null
-          },
-          provider:
-            provider !== null &&
-            (provider.providerKey === "local" ||
-              provider.providerKey === "mistral" ||
-              provider.providerKey === "llamaparse") &&
-            (provider.processorMode === "auto" ||
-              provider.processorMode === "local" ||
-              provider.processorMode === "default_provider" ||
-              provider.processorMode === "high_quality_fallback") &&
-            Array.isArray(provider.attemptedProviderKeys)
-              ? {
-                  providerKey: provider.providerKey,
-                  processorMode: provider.processorMode,
-                  attemptedProviderKeys: provider.attemptedProviderKeys.filter(
-                    (entry): entry is "local" | "mistral" | "llamaparse" =>
-                      entry === "local" || entry === "mistral" || entry === "llamaparse"
-                  )
-                }
-              : null,
-          quality:
-            quality !== null &&
-            (quality.status === "ok" ||
-              quality.status === "poor" ||
-              quality.status === "needs_review") &&
-            typeof quality.textChars === "number"
-              ? {
-                  status: quality.status,
-                  score:
-                    quality.score === null || typeof quality.score === "number"
-                      ? quality.score
-                      : null,
-                  reasonCodes: Array.isArray(quality.reasonCodes)
-                    ? quality.reasonCodes.filter(
-                        (entry): entry is string => typeof entry === "string"
-                      )
-                    : [],
-                  textChars: quality.textChars
-                }
-              : null,
-          warnings: Array.isArray(payload.warnings)
-            ? payload.warnings.filter((entry): entry is string => typeof entry === "string")
-            : [],
-          suggestedNextActions: this.parseSuggestedNextActions(payload.suggestedNextActions)
-        };
-      }
-      if (
-        payload?.ok === true &&
-        payload.accepted === false &&
-        typeof payload.code === "string" &&
-        typeof payload.message === "string"
-      ) {
-        return {
-          accepted: false,
-          code: payload.code,
-          message: payload.message
-        };
-      }
-      throw new BadGatewayException(
-        "PersAI internal API returned an invalid document extract response."
-      );
-    }
-
-    const error = this.extractError(response.body);
-    if (response.status >= 500) {
-      throw new ServiceUnavailableException(
-        error.message ?? "PersAI internal API document extract failed."
-      );
-    }
-    throw new BadRequestException(
-      error.message ?? "PersAI internal API rejected document extract."
-    );
-  }
-
   async registerChatAttachment(
     input: RegisterChatAttachmentInput
   ): Promise<RegisterChatAttachmentOutcome> {
@@ -1094,6 +892,9 @@ export class PersaiInternalApiClientService {
         sourcePath: string;
         inspectPath: string;
         format: "pdf" | "xlsx" | "docx";
+        editMethod: "shell_native" | "render_from_markdown";
+        siblingMarkdownPath: string | null;
+        extractedMdPath: string | null;
         counts: {
           pageCount: number | null;
           sheetCount: number | null;
@@ -1106,14 +907,6 @@ export class PersaiInternalApiClientService {
         };
         warnings: string[];
         suggestedReadPaths: string[];
-        comparison: {
-          comparisonKind: "imported_same_format_project_output";
-          sourcePath: string;
-          sourceFormat: "xlsx" | "docx";
-          summary: string;
-          warningCount: number;
-          warnings: string[];
-        } | null;
       }
     | {
         accepted: false;
@@ -1147,6 +940,12 @@ export class PersaiInternalApiClientService {
           sourcePath: payload.sourcePath,
           inspectPath: payload.inspectPath,
           format: payload.format,
+          editMethod:
+            payload.editMethod === "render_from_markdown" ? "render_from_markdown" : "shell_native",
+          siblingMarkdownPath:
+            typeof payload.siblingMarkdownPath === "string" ? payload.siblingMarkdownPath : null,
+          extractedMdPath:
+            typeof payload.extractedMdPath === "string" ? payload.extractedMdPath : null,
           counts: {
             pageCount: typeof counts?.pageCount === "number" ? counts.pageCount : null,
             sheetCount: typeof counts?.sheetCount === "number" ? counts.sheetCount : null,
@@ -1166,8 +965,7 @@ export class PersaiInternalApiClientService {
             ? payload.suggestedReadPaths.filter(
                 (entry): entry is string => typeof entry === "string"
               )
-            : [],
-          comparison: this.readDocumentInspectionComparison(payload.comparison)
+            : []
         };
       }
       if (
@@ -1197,101 +995,6 @@ export class PersaiInternalApiClientService {
     );
   }
 
-  async registerDocumentVersion(input: InternalDocumentRegisterVersionInput): Promise<
-    | {
-        accepted: true;
-        docId: string;
-        versionId: string;
-        versionNumber: number;
-        descriptorMode: "create_document" | "revise_document";
-        documentType: "workspace_document";
-        outputFormat: "pdf" | "xlsx" | "docx";
-        outputPath: string;
-        workspaceProjectPath: string | null;
-        sourceManifestPath: string | null;
-        inspectionPath: string | null;
-      }
-    | {
-        accepted: false;
-        code: string;
-        message: string;
-      }
-  > {
-    if (!this.isConfigured()) {
-      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
-    }
-    const response = await this.fetchJson("/api/v1/internal/runtime/document-register-version", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(input)
-    });
-    const payload = this.asObject(response.body);
-    if (response.ok) {
-      if (
-        payload?.ok === true &&
-        payload.accepted === true &&
-        typeof payload.docId === "string" &&
-        typeof payload.versionId === "string" &&
-        typeof payload.versionNumber === "number" &&
-        (payload.descriptorMode === "create_document" ||
-          payload.descriptorMode === "create_pdf_document" ||
-          payload.descriptorMode === "revise_document" ||
-          payload.descriptorMode === "create_data_document") &&
-        (payload.documentType === "workspace_document" ||
-          payload.documentType === "pdf_document" ||
-          payload.documentType === "data_document") &&
-        (payload.outputFormat === "pdf" ||
-          payload.outputFormat === "xlsx" ||
-          payload.outputFormat === "docx") &&
-        typeof payload.outputPath === "string"
-      ) {
-        return {
-          accepted: true,
-          docId: payload.docId,
-          versionId: payload.versionId,
-          versionNumber: payload.versionNumber,
-          descriptorMode:
-            payload.descriptorMode === "revise_document" ? "revise_document" : "create_document",
-          documentType: "workspace_document",
-          outputFormat: payload.outputFormat,
-          outputPath: payload.outputPath,
-          workspaceProjectPath:
-            typeof payload.workspaceProjectPath === "string" ? payload.workspaceProjectPath : null,
-          sourceManifestPath:
-            typeof payload.sourceManifestPath === "string" ? payload.sourceManifestPath : null,
-          inspectionPath: typeof payload.inspectionPath === "string" ? payload.inspectionPath : null
-        };
-      }
-      if (
-        payload?.ok === true &&
-        payload.accepted === false &&
-        typeof payload.code === "string" &&
-        typeof payload.message === "string"
-      ) {
-        return {
-          accepted: false,
-          code: payload.code,
-          message: payload.message
-        };
-      }
-      throw new BadGatewayException(
-        "PersAI internal API returned an invalid document register-version response."
-      );
-    }
-    const error = this.extractError(response.body);
-    if (response.status >= 500) {
-      throw new ServiceUnavailableException(
-        error.message ?? "PersAI internal API document register-version request failed."
-      );
-    }
-    throw new BadRequestException(
-      error.message ?? "PersAI internal API rejected the document register-version request."
-    );
-  }
-
   /**
    * ADR-128 Slice 2 — upsert a `workspace_file_metadata` row after a successful
    * runtime `files.write` on a persisted `/workspace/...` path. The API is the only writer of
@@ -1308,7 +1011,14 @@ export class PersaiInternalApiClientService {
     originAssistantId?: string | null;
     sourceUserMessageText?: string | null;
     sourceUserMessageCreatedAt?: string | null;
-  }): Promise<void> {
+  }): Promise<{
+    documentRegistration: {
+      registered: boolean;
+      versionNumber: number | null;
+      bumped: boolean;
+      isOverwrite: boolean;
+    } | null;
+  }> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
     }
@@ -1342,8 +1052,24 @@ export class PersaiInternalApiClientService {
           : { sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt })
       })
     });
-    if (response.status === 204 || response.ok) {
-      return;
+    if (response.status === 204) {
+      return { documentRegistration: null };
+    }
+    if (response.ok) {
+      const body =
+        response.body !== null && typeof response.body === "object" && !Array.isArray(response.body)
+          ? (response.body as {
+              documentRegistration?: {
+                registered: boolean;
+                versionNumber: number | null;
+                bumped: boolean;
+                isOverwrite: boolean;
+              } | null;
+            })
+          : null;
+      return {
+        documentRegistration: body?.documentRegistration ?? null
+      };
     }
     const error = this.extractError(response.body);
     if (response.status >= 500) {
@@ -2484,94 +2210,6 @@ export class PersaiInternalApiClientService {
     return value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
-  }
-
-  private parseSuggestedNextActions(value: unknown): Array<{
-    tool: "document";
-    action: "render";
-    args: {
-      action: "render";
-      projectPath: string;
-      outputPath: string;
-      format: "pdf" | "xlsx" | "docx";
-    };
-    reason: string;
-  }> | null {
-    if (!Array.isArray(value)) {
-      return null;
-    }
-    const parsed: Array<{
-      tool: "document";
-      action: "render";
-      args: {
-        action: "render";
-        projectPath: string;
-        outputPath: string;
-        format: "pdf" | "xlsx" | "docx";
-      };
-      reason: string;
-    }> = [];
-    for (const entry of value) {
-      const record = this.asObject(entry);
-      if (record === null) {
-        continue;
-      }
-      if (record.tool !== "document" || record.action !== "render") {
-        continue;
-      }
-      const args = this.asObject(record.args);
-      if (
-        args === null ||
-        args.action !== "render" ||
-        typeof args.projectPath !== "string" ||
-        typeof args.outputPath !== "string" ||
-        (args.format !== "pdf" && args.format !== "xlsx" && args.format !== "docx")
-      ) {
-        continue;
-      }
-      parsed.push({
-        tool: "document",
-        action: "render",
-        args: {
-          action: "render",
-          projectPath: args.projectPath,
-          outputPath: args.outputPath,
-          format: args.format
-        },
-        reason: typeof record.reason === "string" ? record.reason : ""
-      });
-    }
-    return parsed.length === 0 ? null : parsed;
-  }
-
-  private readDocumentInspectionComparison(value: unknown): {
-    comparisonKind: "imported_same_format_project_output";
-    sourcePath: string;
-    sourceFormat: "xlsx" | "docx";
-    summary: string;
-    warningCount: number;
-    warnings: string[];
-  } | null {
-    const row = this.asObject(value);
-    if (
-      row?.comparisonKind !== "imported_same_format_project_output" ||
-      typeof row.sourcePath !== "string" ||
-      (row.sourceFormat !== "xlsx" && row.sourceFormat !== "docx") ||
-      typeof row.summary !== "string" ||
-      typeof row.warningCount !== "number"
-    ) {
-      return null;
-    }
-    return {
-      comparisonKind: row.comparisonKind,
-      sourcePath: row.sourcePath,
-      sourceFormat: row.sourceFormat,
-      summary: row.summary,
-      warningCount: row.warningCount,
-      warnings: Array.isArray(row.warnings)
-        ? row.warnings.filter((entry): entry is string => typeof entry === "string")
-        : []
-    };
   }
 
   private isInternalScheduledActionItem(value: unknown): value is InternalScheduledActionItem {

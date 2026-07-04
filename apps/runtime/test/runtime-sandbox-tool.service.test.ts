@@ -38,6 +38,14 @@ function createBundle() {
 
 test("syncs only active hierarchical document outputs from sandbox jobs", async () => {
   const upsertCalls: Array<Record<string, unknown>> = [];
+  const upsertResults: Array<{
+    documentRegistration: {
+      registered: boolean;
+      versionNumber: number | null;
+      bumped: boolean;
+      isOverwrite: boolean;
+    } | null;
+  }> = [];
   const metadataReads: string[] = [];
   const service = new RuntimeSandboxToolService(
     {
@@ -87,6 +95,17 @@ test("syncs only active hierarchical document outputs from sandbox jobs", async 
       },
       async upsertWorkspaceFileMetadata(input: Record<string, unknown>) {
         upsertCalls.push(input);
+        const path = String(input.path ?? "");
+        const isOverwrite = path.endsWith(".xlsx");
+        upsertResults.push({
+          documentRegistration: {
+            registered: true,
+            versionNumber: isOverwrite ? 2 : 1,
+            bumped: isOverwrite,
+            isOverwrite
+          }
+        });
+        return upsertResults[upsertResults.length - 1]!;
       }
     } as never
   );
@@ -113,4 +132,20 @@ test("syncs only active hierarchical document outputs from sandbox jobs", async 
   assert.equal(upsertCalls[0]?.replace, false);
   assert.equal(upsertCalls[0]?.sourceUserMessageText, "render the docs");
   assert.equal(upsertCalls[1]?.sourceUserMessageCreatedAt, "2026-07-03T16:00:00.000Z");
+  assert.deepEqual(result.payload.documentSync, [
+    {
+      path: wp("reports/current.pdf"),
+      registered: true,
+      versionNumber: 1,
+      bumped: false,
+      isOverwrite: false
+    },
+    {
+      path: "/workspace/shared/team.xlsx",
+      registered: true,
+      versionNumber: 2,
+      bumped: true,
+      isOverwrite: true
+    }
+  ]);
 });

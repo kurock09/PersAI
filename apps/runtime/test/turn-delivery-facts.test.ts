@@ -4,7 +4,9 @@ import {
   createEmptyTurnDeliveryFacts,
   finalizeTurnDeliveryFacts,
   recordTurnDeliveryFactsFromToolOutcome,
+  resolveAutoAttachCandidatePaths,
   resolveRuntimeFileVisibilityTier,
+  resolveShellAutoAttachPaths,
   resolveUndeliveredProducedPaths
 } from "../src/modules/turns/turn-delivery-facts";
 
@@ -42,6 +44,76 @@ describe("turn-delivery-facts", () => {
     const facts = finalizeTurnDeliveryFacts(tracker);
     assert.deepEqual(facts.producedPaths, [wp("test_pdf_document/output/test_document.pdf")]);
     assert.deepEqual(facts.attachedPaths, []);
+  });
+
+  test("resolveShellAutoAttachPaths applies overwrite and single-v1 rules", () => {
+    const overwritePath = wp("report.xlsx");
+    const draftPath = wp("draft.xlsx");
+    const finalPath = wp("final.xlsx");
+    assert.deepEqual(
+      resolveShellAutoAttachPaths(
+        [
+          { path: overwritePath, versionNumber: 2, isOverwrite: true },
+          { path: draftPath, versionNumber: 1, isOverwrite: false },
+          { path: finalPath, versionNumber: 1, isOverwrite: false }
+        ],
+        []
+      ),
+      [overwritePath]
+    );
+    assert.deepEqual(
+      resolveShellAutoAttachPaths([{ path: finalPath, versionNumber: 1, isOverwrite: false }], []),
+      [finalPath]
+    );
+  });
+
+  test("resolveAutoAttachCandidatePaths keeps non-shell undelivered outputs", () => {
+    const tracker = createEmptyTurnDeliveryFacts();
+    tracker.producedPaths.push(wp("rendered.pdf"));
+    tracker.shellDocumentRegistrations.push({
+      path: wp("draft.xlsx"),
+      versionNumber: 1,
+      isOverwrite: false
+    });
+    tracker.shellDocumentRegistrations.push({
+      path: wp("final.xlsx"),
+      versionNumber: 1,
+      isOverwrite: false
+    });
+    assert.deepEqual(resolveAutoAttachCandidatePaths(tracker), [wp("rendered.pdf")]);
+  });
+
+  test("recordTurnDeliveryFactsFromToolOutcome tracks shell document sync", () => {
+    const tracker = createEmptyTurnDeliveryFacts();
+    recordTurnDeliveryFactsFromToolOutcome({
+      tracker,
+      toolName: "shell",
+      isError: false,
+      payload: {
+        toolCode: "shell",
+        executionMode: "sandbox",
+        action: "completed",
+        reason: null,
+        warning: null,
+        job: null,
+        paths: [wp("report.xlsx")],
+        documentSync: [
+          {
+            path: wp("report.xlsx"),
+            registered: true,
+            versionNumber: 2,
+            bumped: true,
+            isOverwrite: true
+          }
+        ]
+      }
+    });
+    const facts = finalizeTurnDeliveryFacts(tracker);
+    assert.deepEqual(facts.producedPaths, [wp("report.xlsx")]);
+    assert.deepEqual(facts.shellDocumentRegistrations, [
+      { path: wp("report.xlsx"), versionNumber: 2, isOverwrite: true }
+    ]);
+    assert.deepEqual(resolveAutoAttachCandidatePaths(facts), [wp("report.xlsx")]);
   });
 
   test("resolveRuntimeFileVisibilityTier prefers produced paths and session roots", () => {
