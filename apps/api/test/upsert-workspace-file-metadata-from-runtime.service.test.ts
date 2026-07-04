@@ -52,6 +52,9 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
             surface: "web",
             surfaceThreadKey: "thread-1"
           };
+        },
+        async findUnique() {
+          return { chatMode: "project" };
         }
       }
     };
@@ -73,11 +76,17 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
         };
       }
     };
+    const microDescriptionJobService = {
+      async enqueueIfNeeded() {
+        return { accepted: false, reason: "test_stub" };
+      }
+    };
     const service = new UpsertWorkspaceFileMetadataFromRuntimeService(
       prisma as never,
       metadata as never,
       attachments as never,
-      registrationService as never
+      registrationService as never,
+      microDescriptionJobService as never
     );
     return { service, calls, refreshCalls, registerCalls };
   }
@@ -187,6 +196,9 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
               surface: "web",
               surfaceThreadKey: "thread-1"
             };
+          },
+          async findUnique() {
+            return { chatMode: "project" };
           }
         }
       } as never,
@@ -200,7 +212,12 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
           return 1;
         }
       } as never,
-      registrationService as never
+      registrationService as never,
+      {
+        async enqueueIfNeeded() {
+          return { accepted: false, reason: "test_stub" };
+        }
+      } as never
     );
     const input = service.parseInput({
       workspaceId: "workspace-1",

@@ -276,9 +276,7 @@ async function run(): Promise<void> {
   );
   assert.deepEqual(lastRegisterChatAttachmentInput?.metadata, {
     source: "chat_upload",
-    contentPreview: "line one line two",
-    semanticSummary: "line one line two",
-    semanticSummarySource: "text_extract"
+    contentPreview: "line one line two"
   });
   assert.deepEqual(lastRegisterChatAttachmentInput?.shortDescription, "line one line two");
   assert.deepEqual(lastRegisterChatAttachmentInput?.billingFacts, {
@@ -440,9 +438,7 @@ async function run(): Promise<void> {
   });
   assert.equal(videoUploadCreateInput?.transcription, "hello from video");
   assert.deepEqual(videoUploadCreateInput?.metadata, {
-    source: "chat_upload",
-    semanticSummary: "hello from video",
-    semanticSummarySource: "transcription"
+    source: "chat_upload"
   });
   assert.deepEqual(lastRegisterChatAttachmentInput?.shortDescription, "hello from video");
 

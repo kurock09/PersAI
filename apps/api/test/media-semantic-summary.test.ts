@@ -3,8 +3,7 @@ import { describe, test } from "node:test";
 import {
   ATTACHMENT_SEMANTIC_SUMMARY_MAX_CHARS,
   buildStoredAttachmentMetadata,
-  deriveStoredAttachmentSemanticSummary,
-  readStoredAttachmentSemanticSummary
+  deriveStoredAttachmentSemanticSummary
 } from "../src/modules/workspace-management/application/media/media.types";
 
 describe("attachment semantic summary metadata", () => {
@@ -18,7 +17,13 @@ describe("attachment semantic summary metadata", () => {
     assert.ok(!derived.semanticSummary!.includes("beta"));
   });
 
-  test("prefers transcription over text extract for audio-like ingest", () => {
+  test("prefers transcription over text extract for deterministic manifest summary", () => {
+    const derived = deriveStoredAttachmentSemanticSummary({
+      textExtract: "ignored transcript body",
+      transcription: "Meeting notes about Q2 pipeline."
+    });
+    assert.equal(derived.semanticSummary, "Meeting notes about Q2 pipeline.");
+    assert.equal(derived.semanticSummarySource, "transcription");
     const metadata = buildStoredAttachmentMetadata({
       source: "web_staged_upload",
       textExtract: "ignored transcript body",
@@ -26,17 +31,21 @@ describe("attachment semantic summary metadata", () => {
     });
     assert.deepEqual(metadata, {
       source: "web_staged_upload",
-      contentPreview: "ignored transcript body",
-      semanticSummary: "Meeting notes about Q2 pipeline.",
-      semanticSummarySource: "transcription"
+      contentPreview: "ignored transcript body"
     });
-    assert.equal(readStoredAttachmentSemanticSummary(metadata), "Meeting notes about Q2 pipeline.");
   });
 
-  test("omits semantic summary when no cheap deterministic source exists", () => {
+  test("omits semantic summary mirror in attachment metadata", () => {
     const metadata = buildStoredAttachmentMetadata({
-      source: "chat_upload"
+      source: "chat_upload",
+      textExtract: "line one\nline two"
     });
-    assert.deepEqual(metadata, { source: "chat_upload" });
+    assert.deepEqual(metadata, {
+      source: "chat_upload",
+      contentPreview: "line one line two"
+    });
+    const derived = deriveStoredAttachmentSemanticSummary({ textExtract: "line one\nline two" });
+    assert.equal(derived.semanticSummary, "line one line two");
+    assert.equal(derived.semanticSummarySource, "text_extract");
   });
 });
