@@ -14,6 +14,10 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { AssistantDocumentJobService } from "./assistant-document-job.service";
 import { resolveVisibleWorkspaceOutputFormatFromPath } from "./document-workspace-deliverable-gating";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
+import {
+  WorkspaceFileMicroDescriptionJobService,
+  type WorkspaceFileMicroDescriptionSourceKind
+} from "./workspace-file-micro-description-job.service";
 import { normalizeActiveWorkspaceFilePath } from "./workspace-visible-paths";
 
 export type RegisterChatAttachmentKind =
@@ -85,7 +89,8 @@ export class RegisterChatAttachmentService {
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
     private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
-    private readonly assistantDocumentJobService: AssistantDocumentJobService
+    private readonly assistantDocumentJobService: AssistantDocumentJobService,
+    private readonly workspaceFileMicroDescriptionJobService: WorkspaceFileMicroDescriptionJobService
   ) {}
 
   parseRuntimeInput(value: unknown): RegisterChatAttachmentFromRuntimeInput {
@@ -249,10 +254,62 @@ export class RegisterChatAttachmentService {
       });
     }
 
+    void this.enqueueMicroDescriptionBestEffort({
+      workspaceId: input.workspaceId,
+      path: storagePath,
+      assistantId: input.assistantId,
+      chatId: input.chatId,
+      kind: input.kind,
+      metadata: attachmentMetadata
+    });
+
     return {
       attachmentId: attachment.id,
       storagePath
     };
+  }
+
+  private async enqueueMicroDescriptionBestEffort(input: {
+    workspaceId: string;
+    path: string;
+    assistantId: string;
+    chatId: string;
+    kind: RegisterChatAttachmentKind;
+    metadata: Record<string, unknown>;
+  }): Promise<void> {
+    try {
+      const chat = await this.prisma.assistantChat.findUnique({
+        where: { id: input.chatId },
+        select: { chatMode: true }
+      });
+      const sourceKind = this.resolveMicroDescriptionSourceKind(input.kind, input.metadata);
+      await this.workspaceFileMicroDescriptionJobService.enqueueIfNeeded({
+        workspaceId: input.workspaceId,
+        path: input.path,
+        assistantId: input.assistantId,
+        sourceKind,
+        sourceChatId: input.chatId,
+        chatMode: chat?.chatMode ?? null
+      });
+    } catch (error) {
+      this.logger.warn(
+        `workspace_file_micro_description_enqueue_failed path=${input.path} reason=${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  private resolveMicroDescriptionSourceKind(
+    kind: RegisterChatAttachmentKind,
+    metadata: Record<string, unknown>
+  ): WorkspaceFileMicroDescriptionSourceKind {
+    if (kind !== "user_upload") {
+      return "generated";
+    }
+    const source = metadata.source;
+    if (typeof source === "string" && source.includes("telegram")) {
+      return "inbound";
+    }
+    return "user_upload";
   }
 
   private assertStoragePathAllowed(storagePath: string): void {

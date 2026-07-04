@@ -1241,3 +1241,60 @@ test("files.delete /tmp path does NOT delete manifest", async () => {
   assert.equal(result.payload.action, "deleted");
   assert.equal(manifestDeleteCalled, false);
 });
+
+test("files.search calls manifest search API and returns matched items", async () => {
+  let searchInput: Record<string, unknown> | undefined;
+  const service = createService({
+    sandboxJob: {
+      status: "completed",
+      reason: null,
+      warning: null,
+      violationMessage: null,
+      content: JSON.stringify({ items: [] })
+    },
+    apiClient: {
+      async searchWorkspaceFiles(input: Record<string, unknown>) {
+        searchInput = input;
+        return [
+          {
+            path: wp("reports/q2-revenue.xlsx"),
+            mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            sizeBytes: 2048,
+            shortDescription: "Q2 revenue spreadsheet"
+          }
+        ];
+      }
+    }
+  });
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-search",
+      name: "files",
+      arguments: { action: "search", query: "revenue spreadsheet" }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: "chat-1",
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(searchInput?.workspaceId, "workspace-1");
+  assert.equal(searchInput?.assistantId, "assistant-1");
+  assert.equal(searchInput?.sessionId, "session-1");
+  assert.equal(searchInput?.query, "revenue spreadsheet");
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.requestedAction, "search");
+  assert.equal(result.payload.action, "searched");
+  assert.equal(result.payload.query, "revenue spreadsheet");
+  const items = result.payload.items;
+  assert.ok(Array.isArray(items));
+  assert.equal(items?.length, 1);
+  assert.equal(items?.[0]?.path, wp("reports/q2-revenue.xlsx"));
+  assert.equal(items?.[0]?.shortDescription, "Q2 revenue spreadsheet");
+  assert.equal(result.discoveredFileHandles?.[0]?.semanticSummaryHint, "Q2 revenue spreadsheet");
+  assert.equal(result.discoveredFileHandles?.[0]?.aliases?.[0], "found file #1");
+});

@@ -304,7 +304,7 @@ EXAMPLES:
 - files({action:"delete", path:"/workspace/.../tmp.bin"}) — remove an unneeded file by exact copied path.
 - files({action:"attach", path:"/workspace/.../draft.txt"}) — deliver an existing file by exact copied path.
 GOTCHAS:
-- Six actions only: list, read, preview, write, delete, attach. There is no legacy file-id selector and no search/send/edit action here.
+- Seven actions: list, read, preview, write, delete, attach, search. There is no legacy file-id selector and no send/edit action here. Use search for natural-language lookup by filename, path, or cached shortDescription.
 - Never spell assistant/session IDs for new files. Use \`requestedName\` or a relative write path; runtime owns the current-session root. Use /tmp/ for ephemeral scratch.
 - For list supply the directory path; for read/preview/delete/attach supply the file path; for new writes prefer \`requestedName\`.
 - For read/preview you may pass \`maxBytes\` to cap returned bytes; for list you may pass \`maxDepth\` to bound recursion. Server-side limits still apply.

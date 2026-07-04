@@ -15,6 +15,7 @@ import {
   type RuntimeSandboxJobResult,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
+import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { SandboxClientService } from "./sandbox-client.service";
 
@@ -61,13 +62,20 @@ type FilesAttachRequest = {
   path: string;
 };
 
+type FilesSearchRequest = {
+  action: "search";
+  query: string;
+  path: string | null;
+};
+
 type ParsedFilesToolRequest =
   | FilesListRequest
   | FilesReadRequest
   | FilesPreviewRequest
   | FilesWriteRequest
   | FilesDeleteRequest
-  | FilesAttachRequest;
+  | FilesAttachRequest
+  | FilesSearchRequest;
 
 export interface RuntimeFilesToolExecutionResult {
   payload: RuntimeFilesToolResult;
@@ -160,6 +168,8 @@ export class RuntimeFilesToolService {
           return await this.executeDeleteAction(params, parsed);
         case "attach":
           return await this.executeAttachAction(params, parsed);
+        case "search":
+          return await this.executeSearchAction(params, parsed);
       }
     } catch (error) {
       return this.skipped({
@@ -539,6 +549,11 @@ export class RuntimeFilesToolService {
     // at warn and the write outcome is still surfaced to the model.
     if (this.isPersistedWorkspaceWritePath(resolvedPath)) {
       const sizeBytes = writeOutcome.sizeBytes ?? request.content.length;
+      const shortDescription = buildGeneratedFileSemanticSummary({
+        requestText: params.sourceUserMessageText ?? null,
+        requestedName: request.requestedName ?? resolvedPath.split("/").pop() ?? null,
+        allowWeakRequestFallback: false
+      });
       try {
         await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
           workspaceId: params.bundle.metadata.workspaceId,
@@ -547,6 +562,7 @@ export class RuntimeFilesToolService {
           sizeBytes,
           contentHash: createHash("sha256").update(request.content, "utf8").digest("hex"),
           replace: request.replace === true,
+          ...(shortDescription === null ? {} : { shortDescription }),
           ...(params.sourceUserMessageText === undefined || params.sourceUserMessageText === null
             ? {}
             : { sourceUserMessageText: params.sourceUserMessageText }),
@@ -937,7 +953,7 @@ export class RuntimeFilesToolService {
     const action = this.readRequestedAction(row);
     if (action === null) {
       return new Error(
-        'files.action must be one of "list", "read", "preview", "write", "delete", or "attach".'
+        'files.action must be one of "list", "read", "preview", "write", "delete", "attach", or "search".'
       );
     }
     switch (action) {
@@ -1021,7 +1037,74 @@ export class RuntimeFilesToolService {
           path
         };
       }
+      case "search": {
+        const query = this.readNonEmptyString(row.query);
+        if (query === null) {
+          return new Error("files.search requires a non-empty query.");
+        }
+        const path = this.readNonEmptyString(row.path) ?? this.readNonEmptyString(row.dir);
+        return {
+          action: "search",
+          query,
+          path
+        };
+      }
+      default:
+        return new Error(`Unsupported files action: ${String(action)}`);
     }
+  }
+
+  private async executeSearchAction(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      sessionId: string;
+      chatId: string | null;
+    },
+    request: FilesSearchRequest
+  ): Promise<RuntimeFilesToolExecutionResult> {
+    const sessionId =
+      params.sessionId.trim().length > 0 ? params.sessionId : params.bundle.metadata.assistantId;
+    const pathPrefix =
+      request.path ?? buildAssistantSessionRoot(params.bundle.metadata.assistantId, sessionId);
+    const results = await this.persaiInternalApiClientService.searchWorkspaceFiles({
+      workspaceId: params.bundle.metadata.workspaceId,
+      assistantId: params.bundle.metadata.assistantId,
+      sessionId,
+      query: request.query
+    });
+    const items: RuntimeFilesToolItem[] = results.map((row) => ({
+      path: row.path,
+      type: "file",
+      sizeBytes: row.sizeBytes,
+      mimeType: row.mimeType,
+      modifiedAt: null,
+      shortDescription: row.shortDescription
+    }));
+    const discoveredFileHandles: RuntimeFileHandle[] = items.map((item, index) => ({
+      storagePath: item.path,
+      mimeType: item.mimeType ?? "application/octet-stream",
+      sizeBytes: item.sizeBytes,
+      displayName: item.path.split("/").pop() ?? item.path,
+      workspaceId: params.bundle.metadata.workspaceId,
+      authorLabel: "sandbox",
+      semanticSummaryHint: item.shortDescription ?? null,
+      aliases: [`found file #${String(index + 1)}`]
+    }));
+    return {
+      payload: {
+        toolCode: "files",
+        executionMode: "inline",
+        requestedAction: "search",
+        action: "searched",
+        reason: null,
+        warning: null,
+        path: pathPrefix,
+        items,
+        query: request.query
+      },
+      discoveredFileHandles,
+      isError: false
+    };
   }
 
   private resolveAllowedToolPolicy(bundle: AssistantRuntimeBundle): RuntimeToolPolicy | null {
@@ -1230,7 +1313,8 @@ export class RuntimeFilesToolService {
       action === "preview" ||
       action === "write" ||
       action === "delete" ||
-      action === "attach"
+      action === "attach" ||
+      action === "search"
       ? action
       : null;
   }

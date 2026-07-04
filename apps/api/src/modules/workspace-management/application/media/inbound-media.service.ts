@@ -10,7 +10,7 @@ import {
   buildStoredAttachmentMetadata,
   inferAttachmentTypeFromMime,
   readStoredAttachmentContentPreview,
-  readStoredAttachmentSemanticSummary,
+  deriveStoredAttachmentSemanticSummary,
   type InboundMediaResolveParams,
   type ResolvedInboundMedia
 } from "./media.types";
@@ -184,7 +184,10 @@ export class InboundMediaService {
           height: processed.height,
           transcription: processed.transcription,
           metadata,
-          shortDescription: readStoredAttachmentSemanticSummary(metadata),
+          shortDescription: deriveStoredAttachmentSemanticSummary({
+            textExtract: processed.textExtract,
+            transcription: processed.transcription
+          }).semanticSummary,
           thumbnailStoragePath,
           posterStoragePath
         });

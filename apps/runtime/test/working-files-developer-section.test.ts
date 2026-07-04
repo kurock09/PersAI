@@ -212,7 +212,10 @@ describe("TurnExecutionService working files developer section", () => {
     );
     assert.match(section ?? "", /Address files by the exact `path` shown above/);
     assert.match(section ?? "", /Do not reconstruct a path from displayName\/filename/);
-    assert.match(section ?? "", /Do not answer from this block alone/);
+    assert.match(
+      section ?? "",
+      /Recover a forgotten path with `files\.list`, then `files\.search`/
+    );
   });
 
   test("keeps both same-name files visible and disambiguates them", () => {
@@ -252,6 +255,53 @@ describe("TurnExecutionService working files developer section", () => {
         `foo\\.png \\[#2\\] \\| path=${wp("foo-2.png").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| - \\| Hair color corrected\\.`
       )
     );
+  });
+
+  test("LAST_DELIVERED_FILE picks newest user or model delivery by createdAt and ignores sandbox scratch", () => {
+    const section = buildSection([
+      workingFile({
+        storagePath: wp("older-user.docx"),
+        displayName: "older-user.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        aliases: ["file #1"],
+        createdAt: "2026-05-26T10:00:00.000Z",
+        authorLabel: "user",
+        semanticSummaryHint: "Older uploaded source."
+      }),
+      workingFile({
+        storagePath: wp("newer-model.pdf"),
+        displayName: "newer-model.pdf",
+        mimeType: "application/pdf",
+        aliases: ["file #2"],
+        createdAt: "2026-05-26T12:00:00.000Z",
+        authorLabel: "model",
+        sourceToolCode: "document",
+        semanticSummaryHint: "Newer delivered PDF."
+      }),
+      workingFile({
+        storagePath: wp("scratch/tmp-notes.md"),
+        displayName: "tmp-notes.md",
+        mimeType: "text/markdown",
+        aliases: ["file #3"],
+        createdAt: "2026-05-26T15:00:00.000Z",
+        authorLabel: "sandbox",
+        sourceToolCode: "files",
+        semanticSummaryHint: "Sandbox scratch notes."
+      })
+    ]);
+
+    assert.ok(section);
+    assert.match(
+      section ?? "",
+      new RegExp(
+        `LAST_DELIVERED_FILE = file #2 \\| newer-model\\.pdf \\| path=${wp("newer-model.pdf").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`
+      )
+    );
+    const historyLines = (section ?? "").split("\n").filter((line) => line.startsWith("- 2026-"));
+    for (const line of historyLines) {
+      const microDescription = line.split(" | ").at(-1) ?? "";
+      assert.notEqual(microDescription, "-", `microDescription must not be "-" for line: ${line}`);
+    }
   });
 
   test("document priority note remains without rendering legacy role sections", () => {
@@ -428,7 +478,10 @@ describe("TurnExecutionService working files developer section", () => {
         `\\| final-client-brief\\.docx \\| path=${wp("final-client-brief.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| current source \\| Current source document for the new branded PDF\\.`
       )
     );
-    assert.match(section ?? "", /Recover a forgotten path with `files\.list` or `files\.read`/i);
+    assert.match(
+      section ?? "",
+      /Recover a forgotten path with `files\.list`, then `files\.search`/i
+    );
     assert.match(section ?? "", /Do not send files or claim delivery\/preparation/i);
     assert.doesNotMatch(section ?? "", /fileRef|objectKey|attachmentId|contentPreview/);
   });

@@ -1,5 +1,33 @@
 # SESSION-HANDOFF
 
+## 2026-07-04 — ADR-134 path-based workspace file micro-descriptions (S1–S7)
+
+Status: **implemented locally in the dirty working tree; commit/push/deploy pending.** Baseline SHA on `main` before this program: `3978f3db0ac4f4b299087d08e14d79eefd3b6960`. Local tree HEAD at doc time: `79f7755017e0e5188663e17f7901b112aea9d8f0` (includes other uncommitted slices — do not mix commits).
+
+What landed (S1–S7):
+
+- **S1 — schema + scheduler skeleton:** migration `20260704140000_adr134_workspace_file_micro_description_jobs` adds `workspace_file_micro_description_jobs` keyed by `@@unique([workspaceId, path])`; `WorkspaceFileMicroDescriptionJobService` + leased `WorkspaceFileMicroDescriptionJobSchedulerService`; module registration.
+- **S2 — describe helper:** `WorkspaceFileMicroDescriptionService` downloads workspace bytes and runs bounded cheap-LLM helper (~20s, ~60 output tokens, ~4MB cap) with internal strategies for text/code, image, pdf, and best-effort xlsx/office extract; focused unit tests for py text preview and xlsx shared-strings preview.
+- **S3 — enqueue + policy:** enqueue wired at web upload/stage (`manage-chat-media.service.ts`), inbound telegram/channel media (`inbound-media.service.ts`), runtime metadata upsert (`upsert-workspace-file-metadata-from-runtime.service.ts`), outbound delivery, and attach registration (`register-chat-attachment.service.ts`); project-mode uploads always enqueue; ordinary/B2C uploads respect `routerPolicy.analyzeUploadsOnB2cUpload`; model-generated paths bypass the B2C gate.
+- **S4 — deterministic + generation_request sync writes:** STT / text_extract one-liners upsert `workspace_file_metadata.shortDescription` immediately at register/upload paths; runtime `buildGeneratedFileSemanticSummary` upserts when informative on `files.write` / delivery, otherwise falls through to background enqueue.
+- **S5 — Working Files read fix:** `turn-context-hydration.service.ts` batch-joins manifest `shortDescription` for all current-session file handles; populates `semanticSummaryHint`, honest `createdAt`, and author on Working Files lines.
+- **S6 — restore `files.search`:** `SearchWorkspaceFilesFromManifestService` + `POST /api/v1/internal/runtime/files/search`; runtime `files` seventh action restored in contract, native projection, tool catalog, and `RuntimeFilesToolService`; Working Files recovery text updated (*list → search → read/preview*).
+- **S7 — docs closure:** this handoff entry plus `CHANGELOG.md`, `TEST-PLAN.md`, `DATA-MODEL.md`, `API-BOUNDARY.md`, and ADR-134 status update.
+
+Verification:
+
+- `corepack pnpm -r --if-present run lint` — green
+- `corepack pnpm --filter @persai/api run typecheck` — green
+- `corepack pnpm --filter @persai/web run typecheck` — green
+- `corepack pnpm --filter @persai/runtime run typecheck` — green
+- `corepack pnpm run format:check` — **red** (11 touched files need prettier write before commit)
+- `@persai/api` `search-workspace-files-from-manifest.service.test.ts` — 1/1
+- `@persai/api` `workspace-file-micro-description.service.test.ts` — 4/4 (helpers + enqueue policy: project always, B2C respects toggle)
+
+Residuals / next step:
+
+- Run prettier on touched files, commit ADR-134 slice cleanly (separate from unrelated dirty-tree work if possible), deploy with migration approval on `persai-dev-migrations`, then live acceptance per ADR-134 criteria (B2C toggle ON/OFF upload behavior, `files.search` NL discovery, Working Files non-empty microDescription, generated xlsx/image summaries).
+
 ## 2026-07-04 — document inspect Slice 2: shell overwrite → v+1 + honest auto-attach
 
 Status: **pushed to `main` (`225c7ac5`) — deploy pending CI/GitOps image publish.** Baseline SHA before slice: `3978f3db0ac4f4b299087d08e14d79eefd3b6960`.

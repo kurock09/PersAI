@@ -21,7 +21,7 @@ import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import {
   buildStoredAttachmentMetadata,
-  readStoredAttachmentSemanticSummary
+  deriveStoredAttachmentSemanticSummary
 } from "./media/media.types";
 import { RegisterChatAttachmentService } from "./register-chat-attachment.service";
 import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
@@ -207,13 +207,10 @@ export class ManageChatMediaService {
         textExtract: processed?.textExtract ?? null,
         transcription: processed?.transcription ?? null
       }),
-      shortDescription: readStoredAttachmentSemanticSummary(
-        buildStoredAttachmentMetadata({
-          source: "chat_upload",
-          textExtract: processed?.textExtract ?? null,
-          transcription: processed?.transcription ?? null
-        })
-      )
+      shortDescription: deriveStoredAttachmentSemanticSummary({
+        textExtract: processed?.textExtract ?? null,
+        transcription: processed?.transcription ?? null
+      }).semanticSummary
     });
     const attachment = (await this.attachmentRepository.findById(registered.attachmentId))!;
 
@@ -383,13 +380,10 @@ export class ManageChatMediaService {
         }),
         clientTurnId: params.clientTurnId?.trim() || null,
         clientAttachmentId: params.clientAttachmentId?.trim() || null,
-        shortDescription: readStoredAttachmentSemanticSummary(
-          buildStoredAttachmentMetadata({
-            source: "web_staged_upload",
-            textExtract: processed?.textExtract ?? null,
-            transcription: processed?.transcription ?? null
-          })
-        )
+        shortDescription: deriveStoredAttachmentSemanticSummary({
+          textExtract: processed?.textExtract ?? null,
+          transcription: processed?.transcription ?? null
+        }).semanticSummary
       });
       const attachment = (await this.attachmentRepository.findById(registered.attachmentId))!;
 

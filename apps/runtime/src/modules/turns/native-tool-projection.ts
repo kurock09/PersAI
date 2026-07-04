@@ -1481,7 +1481,12 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
           description:
-            'One files action: "list", "read", "preview", "write", "delete", or "attach". For new files use action="write" with requestedName or a relative path; the runtime resolves it under the real current session root. Use exact `/workspace/...` paths only for listed/existing files or intentional wider reads. `attach` delivers an existing workspace file to the current chat as a user-visible attachment.'
+            'One files action: "list", "read", "preview", "write", "delete", "attach", or "search". For new files use action="write" with requestedName or a relative path; the runtime resolves it under the real current session root. Use exact `/workspace/...` paths only for listed/existing files or intentional wider reads. `search` requires `query` and matches query tokens against path, filename, and cached shortDescription. `attach` delivers an existing workspace file to the current chat as a user-visible attachment.'
+        },
+        query: {
+          type: "string",
+          description:
+            'Required when action="search". Natural-language search tokens matched against file path, filename, and cached shortDescription.'
         },
         path: {
           type: "string",

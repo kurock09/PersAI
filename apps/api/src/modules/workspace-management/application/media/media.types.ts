@@ -217,15 +217,6 @@ export function buildStoredAttachmentMetadata(input: {
     metadata.contentPreview = contentPreview;
   }
 
-  const semantic = deriveStoredAttachmentSemanticSummary({
-    textExtract: input.textExtract ?? null,
-    transcription: input.transcription ?? null
-  });
-  if (semantic.semanticSummary !== null) {
-    metadata.semanticSummary = semantic.semanticSummary;
-    metadata.semanticSummarySource = semantic.semanticSummarySource;
-  }
-
   if (typeof input.originalUrl === "string" && input.originalUrl.trim().length > 0) {
     metadata.originalUrl = input.originalUrl;
   }

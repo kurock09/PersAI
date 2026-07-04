@@ -621,8 +621,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     files?.description ?? "",
     /scope:"assistant"|workspace_shared|crossScope:true/
   );
-  // ADR-126 v3 D6 — files surface is six actions: list, read, preview, write, delete, attach.
-  assert.doesNotMatch(files?.description ?? "", /write.and.send|files\.send|files\.search/);
+  // ADR-126 v3 D6 + ADR-134 — files surface includes search for path-keyed lookup.
+  assert.doesNotMatch(files?.description ?? "", /write.and.send|files\.send/);
   assert.doesNotMatch(files?.description ?? "", /fileRef|alias|relativePath/);
   assert.ok(
     Array.isArray(
@@ -645,7 +645,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "files enum must not include write_and_send"
   );
   assert.ok(!filesActionEnum.includes("send"), "files enum must not include send");
-  assert.ok(!filesActionEnum.includes("search"), "files enum must not include search");
+  assert.ok(filesActionEnum.includes("search"), "files enum must include search");
+  const filesActionDescription =
+    (files?.inputSchema as { properties?: { action?: { description?: string } } })?.properties
+      ?.action?.description ?? "";
+  assert.match(filesActionDescription, /files\.search|shortDescription/i);
   const filesProperties = (
     files?.inputSchema as {
       properties?: {
@@ -656,6 +660,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         replace?: { type?: string; description?: string };
         maxBytes?: { description?: string };
         maxDepth?: { description?: string };
+        query?: { type?: string; description?: string };
       };
     }
   )?.properties;
@@ -672,10 +677,15 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "files schema must not have alias property"
   );
   assert.equal(
-    filesProperties?.["query" as keyof typeof filesProperties],
-    undefined,
-    "files schema must not have query property"
+    filesProperties?.query?.type,
+    "string",
+    "files schema must have query string property"
   );
+  assert.match(
+    filesProperties?.query?.description ?? "",
+    /action="search"|path|filename|shortDescription/i
+  );
+  assert.match(filesActionDescription, /query tokens|query.*path.*filename.*shortDescription/i);
   assert.match(exec?.description ?? "", /assistant sandbox workspace/);
   assert.doesNotMatch(exec?.description ?? "", /same turn stay mounted/i);
   assert.match(shell?.description ?? "", /assistant sandbox workspace/);

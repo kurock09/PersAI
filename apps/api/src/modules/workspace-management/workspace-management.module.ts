@@ -140,12 +140,16 @@ import { DocumentWorkspaceInspectionService } from "./application/document-works
 import { DocumentWorkspaceVersionRegistrationService } from "./application/document-workspace-version-registration.service";
 import { DocumentSourceAttachmentExtractionService } from "./application/document-source-attachment-extraction.service";
 import { ListWorkspaceFileShortDescriptionsService } from "./application/list-workspace-file-short-descriptions.service";
+import { SearchWorkspaceFilesFromManifestService } from "./application/search-workspace-files-from-manifest.service";
 import { ListWorkspaceFilesFromManifestService } from "./application/list-workspace-files-from-manifest.service";
 import { ListChatWorkspaceFilesService } from "./application/list-chat-workspace-files.service";
 import { RegisterChatAttachmentService } from "./application/register-chat-attachment.service";
 import { SandboxControlPlaneClientService } from "./application/sandbox-control-plane.client.service";
 import { UpsertWorkspaceFileMetadataFromRuntimeService } from "./application/upsert-workspace-file-metadata-from-runtime.service";
 import { WorkspaceFileMetadataService } from "./application/workspace-file-metadata.service";
+import { WorkspaceFileMicroDescriptionService } from "./application/workspace-file-micro-description.service";
+import { WorkspaceFileMicroDescriptionJobService } from "./application/workspace-file-micro-description-job.service";
+import { WorkspaceFileMicroDescriptionJobSchedulerService } from "./application/workspace-file-micro-description-job-scheduler.service";
 import { WORKSPACE_FILE_METADATA_REPOSITORY } from "./domain/workspace-file-metadata.repository";
 import { PrismaWorkspaceFileMetadataRepository } from "./infrastructure/persistence/prisma-workspace-file-metadata.repository";
 import { KnowledgeDocumentProcessorService } from "./application/knowledge-document-processor.service";
@@ -561,12 +565,16 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     DocumentWorkspaceVersionRegistrationService,
     DocumentSourceAttachmentExtractionService,
     ListWorkspaceFileShortDescriptionsService,
+    SearchWorkspaceFilesFromManifestService,
     ListWorkspaceFilesFromManifestService,
     ListChatWorkspaceFilesService,
     RegisterChatAttachmentService,
     SandboxControlPlaneClientService,
     UpsertWorkspaceFileMetadataFromRuntimeService,
     WorkspaceFileMetadataService,
+    WorkspaceFileMicroDescriptionService,
+    WorkspaceFileMicroDescriptionJobService,
+    WorkspaceFileMicroDescriptionJobSchedulerService,
     KnowledgeDocumentProcessorService,
     KnowledgeEmbeddingService,
     KnowledgeIndexingService,

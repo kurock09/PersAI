@@ -172,8 +172,8 @@ function testFilesCatalogRowUsesExactListedPaths(): void {
     "files guidance must teach requestedName for new writes"
   );
   assert.ok(
-    /Six actions only: list, read, preview, write, delete, attach/i.test(text),
-    "files guidance must enumerate the six actions in the catalog owner"
+    /Seven actions: list, read, preview, write, delete, attach, search/i.test(text),
+    "files guidance must enumerate the seven actions in the catalog owner"
   );
   assert.ok(
     text.includes("`maxBytes`") && text.includes("`maxDepth`"),

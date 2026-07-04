@@ -1092,6 +1092,104 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
 
   await runOpenLoopRefsDeveloperBlockAcceptance();
   await runCrossSessionCarryOverM3Acceptance();
+  await runAttachmentShortDescriptionBatchJoinTest();
+}
+
+async function runAttachmentShortDescriptionBatchJoinTest(): Promise<void> {
+  const prisma = new FakeRuntimeStatePrismaService();
+  const runtimeStatePostgres = new FakeRuntimeStatePostgresService();
+  const runtimeStateKeyspace = new FakeRuntimeStateKeyspaceService();
+  const mediaObjectStorage = {
+    async downloadObject() {
+      return null;
+    }
+  };
+  const persaiInternalApiClient = new FakePersaiInternalApiClientService();
+  const service = new TurnContextHydrationService(
+    prisma as unknown as RuntimeStatePrismaService,
+    runtimeStatePostgres as never,
+    runtimeStateKeyspace as never,
+    mediaObjectStorage as never,
+    persaiInternalApiClient as unknown as PersaiInternalApiClientService
+  );
+
+  const storagePath =
+    "/workspace/assistants/assistant-1/sessions/session-1/uploads/client-brief.docx";
+  persaiInternalApiClient.shortDescriptionsByPath.set(
+    storagePath,
+    "Uploaded client brief for the branded PDF."
+  );
+  prisma.chat = { id: "chat-attach-1" };
+  prisma.messages = [
+    {
+      id: "message-user-1",
+      author: "user",
+      content: "here is the brief",
+      createdAt: new Date("2026-06-01T09:30:00.000Z"),
+      attachments: [
+        {
+          id: "attachment-brief",
+          attachmentType: "document",
+          originalFilename: "client-brief.docx",
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          storagePath,
+          sizeBytes: 512,
+          transcription: null,
+          metadata: null
+        }
+      ]
+    },
+    {
+      id: "message-model-1",
+      author: "assistant",
+      content: "delivered pdf",
+      createdAt: new Date("2026-06-01T10:15:00.000Z"),
+      attachments: [
+        {
+          id: "attachment-pdf",
+          attachmentType: "document",
+          originalFilename: "client-brief.pdf",
+          mimeType: "application/pdf",
+          storagePath:
+            "/workspace/assistants/assistant-1/sessions/session-1/outputs/client-brief.pdf",
+          sizeBytes: 1024,
+          transcription: null,
+          metadata: null
+        }
+      ]
+    }
+  ];
+  persaiInternalApiClient.shortDescriptionsByPath.set(
+    "/workspace/assistants/assistant-1/sessions/session-1/outputs/client-brief.pdf",
+    "Delivered branded PDF output."
+  );
+
+  const refs = await service.listAvailableWorkingFileHandles({
+    conversation: {
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      channel: "web",
+      externalThreadKey: "thread-attach",
+      externalUserKey: "user-1",
+      mode: "direct"
+    },
+    currentAttachments: []
+  });
+
+  const userBrief = refs.find((ref) => ref.storagePath === storagePath);
+  const modelPdf = refs.find(
+    (ref) =>
+      ref.storagePath ===
+      "/workspace/assistants/assistant-1/sessions/session-1/outputs/client-brief.pdf"
+  );
+  assert.ok(userBrief, "user attachment must appear in working files");
+  assert.ok(modelPdf, "model attachment must appear in working files");
+  assert.equal(userBrief?.authorLabel, "user");
+  assert.equal(modelPdf?.authorLabel, "model");
+  assert.equal(userBrief?.createdAt, "2026-06-01T09:30:00.000Z");
+  assert.equal(modelPdf?.createdAt, "2026-06-01T10:15:00.000Z");
+  assert.equal(userBrief?.semanticSummaryHint, "Uploaded client brief for the branded PDF.");
+  assert.equal(modelPdf?.semanticSummaryHint, "Delivered branded PDF output.");
 }
 
 async function runOpenLoopRefsDeveloperBlockAcceptance(): Promise<void> {

@@ -80,6 +80,7 @@ export class InternalWorkspaceFilesController {
               path: row.path,
               mimeType: row.mimeType,
               sizeBytes: Number(row.sizeBytes),
+              shortDescription: row.shortDescription,
               originChatId: row.originChatId,
               originAssistantId: row.originAssistantId,
               updatedAt: row.updatedAt.toISOString()

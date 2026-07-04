@@ -1,5 +1,6 @@
 import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
 import { ListWorkspaceFileShortDescriptionsService } from "../../application/list-workspace-file-short-descriptions.service";
+import { SearchWorkspaceFilesFromManifestService } from "../../application/search-workspace-files-from-manifest.service";
 import { RegisterChatAttachmentService } from "../../application/register-chat-attachment.service";
 import { assertPersaiInternalApiAuthorized } from "./assert-persai-internal-api-auth";
 
@@ -11,8 +12,17 @@ type InternalRequestLike = {
 export class InternalRuntimeFilesController {
   constructor(
     private readonly listWorkspaceFileShortDescriptionsService: ListWorkspaceFileShortDescriptionsService,
+    private readonly searchWorkspaceFilesFromManifestService: SearchWorkspaceFilesFromManifestService,
     private readonly registerChatAttachmentService: RegisterChatAttachmentService
   ) {}
+
+  @HttpCode(200)
+  @Post("search")
+  async searchWorkspaceFiles(@Req() req: InternalRequestLike, @Body() body: unknown) {
+    this.assertAuthorized(req);
+    const input = this.searchWorkspaceFilesFromManifestService.parseInput(body);
+    return this.searchWorkspaceFilesFromManifestService.execute(input);
+  }
 
   @HttpCode(200)
   @Post("short-descriptions")

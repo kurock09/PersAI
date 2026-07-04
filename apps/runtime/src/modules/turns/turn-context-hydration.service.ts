@@ -492,7 +492,8 @@ export class TurnContextHydrationService {
           const handle = this.canonicalAttachmentToRuntimeFileHandle(
             attachment,
             input.conversation.workspaceId,
-            message.author === "assistant" ? "model" : "user"
+            message.author === "assistant" ? "model" : "user",
+            message.createdAt
           );
           if (handle === null) {
             continue;
@@ -535,6 +536,8 @@ export class TurnContextHydrationService {
     }
 
     await this.injectRecentDiscoveredFilePaths(input.conversation, refs, pushAppearance);
+
+    await this.applyManifestShortDescriptions(input.conversation.workspaceId, refs);
 
     return this.assignStickyAliasesToWorkingFileRefs(
       [...refs.values()],
@@ -1976,22 +1979,64 @@ export class TurnContextHydrationService {
     };
   }
 
+  private async applyManifestShortDescriptions(
+    workspaceId: string,
+    refs: Map<string, RuntimeFileHandle>
+  ): Promise<void> {
+    const paths = [...refs.keys()];
+    if (paths.length === 0) {
+      return;
+    }
+    let descriptions: Array<{ path: string; shortDescription: string | null }> = [];
+    try {
+      descriptions = await this.persaiInternalApiClient.listWorkspaceFileShortDescriptions({
+        workspaceId,
+        paths
+      });
+    } catch (error) {
+      this.logger.warn(
+        `working_files_short_description_lookup_failed workspaceId=${workspaceId} reason=${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return;
+    }
+    const descriptionByPath = new Map(
+      descriptions.map((row) => [row.path, row.shortDescription] as const)
+    );
+    for (const [storagePath, handle] of refs.entries()) {
+      if (!descriptionByPath.has(storagePath)) {
+        continue;
+      }
+      refs.set(storagePath, {
+        ...handle,
+        semanticSummaryHint: descriptionByPath.get(storagePath) ?? null
+      });
+    }
+  }
+
   private canonicalAttachmentToRuntimeFileHandle(
     attachment: CanonicalChatAttachmentRow,
     workspaceId: string,
-    authorLabel: "user" | "model"
+    authorLabel: "user" | "model",
+    messageCreatedAt: Date | null
   ): RuntimeFileHandle | null {
     const storagePath = attachment.storagePath.trim();
     if (storagePath.length === 0) {
       return null;
     }
+    const createdAt =
+      messageCreatedAt instanceof Date && !Number.isNaN(messageCreatedAt.getTime())
+        ? messageCreatedAt.toISOString()
+        : undefined;
     return {
       storagePath,
       mimeType: attachment.mimeType,
       sizeBytes: attachment.sizeBytes,
       displayName: attachment.originalFilename,
       workspaceId,
-      authorLabel
+      authorLabel,
+      ...(createdAt === undefined ? {} : { createdAt })
     };
   }
 

@@ -9,6 +9,7 @@ import {
   buildDefaultInspectionPath
 } from "./document-workspace-deliverable-gating";
 import { DocumentWorkspaceVersionRegistrationService } from "./document-workspace-version-registration.service";
+import { WorkspaceFileMicroDescriptionJobService } from "./workspace-file-micro-description-job.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 import { normalizeActiveWorkspaceFilePath } from "./workspace-visible-paths";
 
@@ -48,7 +49,8 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
     private readonly workspaceFileMetadataService: WorkspaceFileMetadataService,
     @Inject(ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY)
     private readonly attachmentRepository: AssistantChatMessageAttachmentRepository,
-    private readonly documentWorkspaceVersionRegistrationService: DocumentWorkspaceVersionRegistrationService
+    private readonly documentWorkspaceVersionRegistrationService: DocumentWorkspaceVersionRegistrationService,
+    private readonly workspaceFileMicroDescriptionJobService: WorkspaceFileMicroDescriptionJobService
   ) {}
 
   parseInput(body: unknown): UpsertWorkspaceFileMetadataFromRuntimeInput {
@@ -115,7 +117,30 @@ export class UpsertWorkspaceFileMetadataFromRuntimeService {
       });
     }
     const documentRegistration = await this.maybeRegisterVisibleWorkspaceDocumentVersion(input);
+    if (input.shortDescription === null && input.originAssistantId !== null) {
+      void this.workspaceFileMicroDescriptionJobService
+        .enqueueIfNeeded({
+          workspaceId: input.workspaceId,
+          path: input.path,
+          assistantId: input.originAssistantId,
+          sourceKind: "generated",
+          sourceChatId: input.originChatId,
+          chatMode: await this.resolveChatMode(input.originChatId)
+        })
+        .catch(() => undefined);
+    }
     return { documentRegistration };
+  }
+
+  private async resolveChatMode(chatId: string | null): Promise<string | null> {
+    if (chatId === null) {
+      return null;
+    }
+    const chat = await this.prisma.assistantChat.findUnique({
+      where: { id: chatId },
+      select: { chatMode: true }
+    });
+    return chat?.chatMode ?? null;
   }
 
   private optionalContentHash(value: unknown): string | null {

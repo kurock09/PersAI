@@ -2158,7 +2158,7 @@ export class TurnExecutionService {
       "Address files by the exact `path` shown above. Do not reconstruct a path from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed."
     );
     lines.push(
-      "Recover a forgotten path with `files.list` or `files.read`; use `files.preview` for sampled content. Do not answer from this block alone."
+      "Recover a forgotten path with `files.list`, then `files.search` for natural-language lookup, then `files.read` / `files.preview`. If the user refers to a file not listed here, do not assume it is unavailable until you try those tools."
     );
     lines.push(
       "Do not send files or claim delivery/preparation unless the user explicitly asks and the current turn returns the matching tool result."
@@ -4282,7 +4282,14 @@ export class TurnExecutionService {
   }
 
   private selectLastDeliveredWorkingFile(files: RuntimeFileHandle[]): RuntimeFileHandle | null {
-    return this.sortWorkingFilesByCreatedAt(files)[0] ?? null;
+    const delivered = files.filter((file) => {
+      if (this.parseWorkingFileCreatedAtMs(file.createdAt) <= 0) {
+        return false;
+      }
+      const author = this.resolveWorkingFileAuthorLabel(file.authorLabel);
+      return author === "user" || author === "model";
+    });
+    return this.sortWorkingFilesByCreatedAt(delivered)[0] ?? null;
   }
 
   private describeWorkingFilePriorityAnchor(file: RuntimeFileHandle | null): string {

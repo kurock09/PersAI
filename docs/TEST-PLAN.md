@@ -68,6 +68,29 @@ Interpretation rules:
 4. `files.write` exact overwrite stays boolean `replace: true`; Slice 4 must not preserve active runtime/model-facing `mode:"overwrite"` compatibility teaching.
 5. Slice 4 remains runtime/prompt-owner scoped: web/UI/OpenAPI/docs closure and final product wording alignment are verified in Slice 5.
 
+## ADR-134 workspace file micro-description focused checks
+
+When a change touches `workspace_file_metadata.shortDescription`, path-keyed micro-description jobs, `files.search`, Working Files semantic hints, or upload enqueue policy, run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/workspace-file-micro-description.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/search-workspace-files-from-manifest.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/turn-context-hydration.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/tool-catalog-data.test.ts test/runtime-tool-policy.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+```
+
+Interpretation rules:
+
+1. The sole durable semantic index is `workspace_file_metadata.shortDescription`; there must be no active mirror in `assistant_chat_message_attachment.metadata` and no revived `AssistantFile` / `assistant_upload_micro_description_jobs` enqueue path.
+2. Project-mode uploads always enqueue a background job when `shortDescription` is still empty; ordinary/B2C uploads enqueue only when `routerPolicy.analyzeUploadsOnB2cUpload === true` (default `false`); model-generated paths (`files.write`, delivery, attach binary) bypass the B2C gate.
+3. Deterministic STT / text_extract one-liners must upsert `shortDescription` synchronously without enqueueing LLM when informative.
+4. Working Files lines for normal session attachments must carry non-empty `semanticSummaryHint` when manifest has a description (not `unknown | - | -`).
+5. **`files.search` acceptance:** tokenized natural-language query (e.g. `"photo cap"`) against manifest rows whose `shortDescription` mentions the subject must return the correct hierarchical `/workspace/assistants/<assistantId>/sessions/<sessionId>/...` path; results include `shortDescription` and discovered aliases (`found file #N`).
+6. After deploy, live acceptance must cover B2C toggle ON/OFF upload behavior, NL discovery via `files.search`, and generated-file summary via `generation_request` and/or background job lag (~30–60s).
+
 ## ADR-133 Slice 5 web/UI/docs focused checks
 
 When a change touches the assistant-settings file gallery, the public workspace-files list route, web/client scope wording, or the ADR-133 docs closure, run:
@@ -134,8 +157,7 @@ corepack pnpm --filter @persai/api exec tsx test/stream-web-chat-turn.service.te
 corepack pnpm --filter @persai/api exec tsx test/send-native-web-chat-turn.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/stream-native-web-chat-turn.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/orchestrate-runtime-retrieval.service.test.ts
-corepack pnpm --filter @persai/api exec tsx test/extract-internal-runtime-assistant-file.service.test.ts
-corepack pnpm --filter @persai/api exec tsx test/assistant-upload-micro-description-job.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/workspace-file-micro-description.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/record-model-cost-ledger.service.test.ts
 corepack pnpm --filter @persai/api exec tsx test/manage-chat-media.stage-web-thread.test.ts
 corepack pnpm --filter @persai/api exec tsx test/prepare-assistant-inbound-turn.service.test.ts
@@ -162,9 +184,9 @@ Slice-specific expectations:
 5. Project activity feed may reuse existing timeline UI, but project-only summaries must not be routed through `ThoughtBlock`.
 6. Project-only retrieval ordering changes must remain gated to project orchestrate inputs and must not silently change ordinary non-project active-skill behavior.
 7. Project-file intelligence must remain token-bounded in the steady-state prompt: working-files stays a cheap selector seam, while deep extraction is lazy and cached on canonical file truth.
-8. Cheap background upload micro-description must stay bounded: ordinary non-project/B2C chats obey `routerPolicy.analyzeUploadsOnB2cUpload` (default `false`), while project mode always enqueues after canonical `fileRef` truth exists.
-9. Canonical semantic-summary truth must persist on `AssistantFile.metadata.semanticSummary` / `semanticSummarySource` and only mirror attachment metadata when practical; `generation_request` and `upload_micro_description` are source tags, not a second file-content store.
-10. Upload micro-description себес remains internal-ledger only: successful helper calls persist durable `usageJson` + `usageOccurredAt` on `assistant_upload_micro_description_jobs` first, then append a non-blocking `tool_helper` ledger row keyed by immutable job id. No user quota path should change.
+8. Cheap background upload micro-description (ADR-134) must stay bounded: ordinary non-project/B2C chats obey `routerPolicy.analyzeUploadsOnB2cUpload` (default `false`), while project mode always enqueues after manifest path truth exists; model-generated paths bypass the B2C gate.
+9. Canonical semantic-summary truth is `workspace_file_metadata.shortDescription` only (ADR-134); there is no active `AssistantFile.metadata.semanticSummary` mirror or attachment-metadata duplicate. Sync `generation_request` and deterministic STT/text_extract writes upsert the same field; background helper completion upserts it from `workspace_file_micro_description_jobs`.
+10. Path-keyed micro-description cost remains internal-ledger only: successful helper calls persist durable `usageJson` + `usageOccurredAt` on `workspace_file_micro_description_jobs` first, then append a non-blocking `tool_helper` ledger row keyed by immutable job id (`source=upload_micro_description`). No user quota path should change.
 
 ## Required repo checks
 

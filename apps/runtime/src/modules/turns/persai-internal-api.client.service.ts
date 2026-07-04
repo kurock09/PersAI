@@ -1007,6 +1007,7 @@ export class PersaiInternalApiClientService {
     sizeBytes: number;
     contentHash?: string | null;
     replace?: boolean;
+    shortDescription?: string | null;
     originChatId?: string | null;
     originAssistantId?: string | null;
     sourceUserMessageText?: string | null;
@@ -1037,6 +1038,9 @@ export class PersaiInternalApiClientService {
           ? {}
           : { contentHash: input.contentHash }),
         ...(input.replace === undefined ? {} : { replace: input.replace }),
+        ...(input.shortDescription === undefined || input.shortDescription === null
+          ? {}
+          : { shortDescription: input.shortDescription }),
         ...(input.originChatId === undefined || input.originChatId === null
           ? {}
           : { originChatId: input.originChatId }),
@@ -1156,6 +1160,65 @@ export class PersaiInternalApiClientService {
           typeof entry.shortDescription === "string" && entry.shortDescription.length > 0
             ? entry.shortDescription
             : null
+      }))
+      .filter((row) => row.path.length > 0);
+  }
+
+  async searchWorkspaceFiles(input: {
+    workspaceId: string;
+    assistantId: string;
+    sessionId: string;
+    query: string;
+    pathPrefix?: string | null;
+  }): Promise<
+    Array<{
+      path: string;
+      mimeType: string;
+      sizeBytes: number;
+      shortDescription: string | null;
+      matchedTokenCount: number;
+    }>
+  > {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/files/search", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        sessionId: input.sessionId,
+        query: input.query,
+        ...(input.pathPrefix === undefined || input.pathPrefix === null
+          ? {}
+          : { pathPrefix: input.pathPrefix })
+      })
+    });
+    if (!response.ok) {
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException("PersAI internal API files search request failed.");
+      }
+      return [];
+    }
+    const payload = this.asObject(response.body);
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    return items
+      .filter(
+        (entry): entry is Record<string, unknown> => entry !== null && typeof entry === "object"
+      )
+      .map((entry) => ({
+        path: typeof entry.path === "string" ? entry.path : "",
+        mimeType: typeof entry.mimeType === "string" ? entry.mimeType : "application/octet-stream",
+        sizeBytes: typeof entry.sizeBytes === "number" ? entry.sizeBytes : 0,
+        shortDescription:
+          typeof entry.shortDescription === "string" && entry.shortDescription.length > 0
+            ? entry.shortDescription
+            : null,
+        matchedTokenCount: typeof entry.matchedTokenCount === "number" ? entry.matchedTokenCount : 0
       }))
       .filter((row) => row.path.length > 0);
   }

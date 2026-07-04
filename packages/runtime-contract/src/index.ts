@@ -324,7 +324,8 @@ export const PERSAI_RUNTIME_FILES_TOOL_ACTIONS = [
   "preview",
   "write",
   "delete",
-  "attach"
+  "attach",
+  "search"
 ] as const;
 
 export type RuntimeFilesToolAction = (typeof PERSAI_RUNTIME_FILES_TOOL_ACTIONS)[number];
@@ -366,17 +367,26 @@ export type RuntimeFilesReadExtractionQuality = {
 
 /**
  * Single result shape returned by every `files.*` action. The `action`
- * discriminant matches the requested action verbatim (one of the six
+ * discriminant matches the requested action verbatim (one of the seven
  * canonical values); `skipped` is the sole error/blocked outcome.
  */
 export interface RuntimeFilesToolResult {
   toolCode: "files";
   executionMode: "inline";
   requestedAction: RuntimeFilesToolAction | null;
-  action: "listed" | "read" | "previewed" | "written" | "deleted" | "attached" | "skipped";
+  action:
+    | "listed"
+    | "read"
+    | "previewed"
+    | "written"
+    | "deleted"
+    | "attached"
+    | "searched"
+    | "skipped";
   reason: string | null;
   warning: string | null;
   path: string | null;
+  query?: string | null;
   item?: RuntimeFilesToolItem | null;
   items?: RuntimeFilesToolItem[];
   content?: string | null;

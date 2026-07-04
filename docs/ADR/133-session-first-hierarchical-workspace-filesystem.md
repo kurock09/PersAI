@@ -81,7 +81,7 @@ Default behavior after cutover:
 - `files.write` with a relative/new file intent writes into the current session root.
 - API uploads and staged attachments for the active turn land in the current session root.
 - runtime-produced artifacts and document outputs default to the current session root unless the model explicitly chooses a valid wider path.
-- the Working Files developer block lists current-session files with existing micro-description behavior.
+- the Working Files developer block lists current-session files; micro-description read/write truth is owned by ADR-134 (not preserved at ADR-133 closure).
 
 The assistant widens by ordinary path choice, not by a separate model-facing scope vocabulary:
 
@@ -274,7 +274,7 @@ This ADR is not closure-ready until all are true:
 3. `shell`, `exec`, `grep`, and `glob` default to the session root.
 4. The assistant can intentionally widen to its assistant root and then to `/workspace/` with ordinary file paths.
 5. Two sessions can create same-name files without collisions or model confusion.
-6. Working Files shows only current-session files by default, with micro-descriptions preserved.
+6. Working Files shows only current-session files by default. Micro-description population is **not** an ADR-133 acceptance item; see ADR-134.
 7. Document render/convert, sibling Markdown, attach, and version download links work under hierarchical paths.
 8. Root-level flat paths such as `/workspace/report.pdf` are not accepted on active creation paths.
 9. No active model-facing prompt, descriptor, developer block, runtime result, contract comment used by prompt tests, or golden snapshot teaches:

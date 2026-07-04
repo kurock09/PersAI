@@ -2125,6 +2125,35 @@ model WorkspaceFileMetadata {
   @@map("workspace_file_metadata")
 }
 
+model WorkspaceFileMicroDescriptionJob {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId             String    @map("workspace_id") @db.Uuid
+  path                    String    @db.VarChar(1024)
+  status                  String    @db.VarChar(32)
+  sourceKind              String    @map("source_kind") @db.VarChar(32)
+  sourceChatId            String?   @map("source_chat_id") @db.Uuid
+  sourceAssistantId       String?   @map("source_assistant_id") @db.Uuid
+  chatMode                String?   @map("chat_mode") @db.VarChar(32)
+  attemptCount            Int       @default(0) @map("attempt_count")
+  maxAttempts             Int       @default(5) @map("max_attempts")
+  nextRetryAt             DateTime? @map("next_retry_at") @db.Timestamptz(6)
+  lastErrorMessage        String?   @map("last_error_message") @db.Text
+  usageJson               Json?     @map("usage_json") @db.JsonB
+  usageOccurredAt         DateTime? @map("usage_occurred_at") @db.Timestamptz(6)
+  schedulerClaimToken     String?   @map("scheduler_claim_token") @db.VarChar(64)
+  schedulerClaimedAt      DateTime? @map("scheduler_claimed_at") @db.Timestamptz(6)
+  schedulerClaimExpiresAt DateTime? @map("scheduler_claim_expires_at") @db.Timestamptz(6)
+  completedAt             DateTime? @map("completed_at") @db.Timestamptz(6)
+  failedAt                DateTime? @map("failed_at") @db.Timestamptz(6)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([workspaceId, path])
+  @@index([status, schedulerClaimExpiresAt])
+  @@index([status, nextRetryAt, createdAt])
+  @@map("workspace_file_micro_description_jobs")
+}
+
 model AssistantChat {
   id                          String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   assistantId                 String                            @map("assistant_id") @db.Uuid

@@ -321,7 +321,8 @@ async function run(): Promise<void> {
   );
   assert.match(filesPolicy?.usageGuidance ?? "", /^EXAMPLES:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^GOTCHAS:/m);
-  assert.match(filesPolicy?.usageGuidance ?? "", /six actions|Six actions/i);
+  assert.match(filesPolicy?.usageGuidance ?? "", /seven actions|Seven actions/i);
+  assert.match(filesPolicy?.usageGuidance ?? "", /Use search for natural-language lookup/i);
   assert.match(filesPolicy?.usageGuidance ?? "", /action:"attach"/);
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /coming soon/i);
   assert.doesNotMatch(
