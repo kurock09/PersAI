@@ -8633,6 +8633,7 @@ export async function runRecentPdfsHintTests(): Promise<void> {
           aliases: ["file #1"],
           authorLabel: "user",
           visibilityTier: "session",
+          createdAt: "2026-05-26T14:40:00.000Z",
           semanticSummaryHint: "Current source document for the new PDF."
         },
         {
@@ -8645,6 +8646,7 @@ export async function runRecentPdfsHintTests(): Promise<void> {
           aliases: ["file #2"],
           authorLabel: "model",
           visibilityTier: "session",
+          createdAt: "2026-05-26T14:20:00.000Z",
           semanticSummaryHint: "Most recent delivered PDF result."
         }
       ],
