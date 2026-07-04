@@ -1,8 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import {
-  resolveVisibleWorkspaceOutputFormatFromPath
-} from "./document-workspace-deliverable-gating";
+import { resolveVisibleWorkspaceOutputFormatFromPath } from "./document-workspace-deliverable-gating";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 
 export type ListWorkspaceFileShortDescriptionsInput = {

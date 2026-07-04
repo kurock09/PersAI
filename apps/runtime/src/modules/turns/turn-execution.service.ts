@@ -2261,8 +2261,7 @@ export class TurnExecutionService {
       normalized === "application/x-yaml" ||
       normalized === "application/yaml" ||
       normalized === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-      normalized ===
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      normalized === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );
   }
 
