@@ -280,14 +280,8 @@ async function run(): Promise<void> {
     filesPolicy?.description ?? "",
     /never reconstruct paths from displayName\/filename/
   );
-  assert.match(
-    filesPolicy?.description ?? "",
-    /must not construct assistant\/session IDs/
-  );
-  assert.match(
-    filesPolicy?.description ?? "",
-    /runtime prepends the real current session root/
-  );
+  assert.match(filesPolicy?.description ?? "", /must not construct assistant\/session IDs/);
+  assert.match(filesPolicy?.description ?? "", /runtime prepends the real current session root/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/<filename>/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/input/);
   assert.doesNotMatch(filesPolicy?.description ?? "", /\/workspace\/outbound/);
@@ -326,7 +320,10 @@ async function run(): Promise<void> {
   assert.match(filesPolicy?.usageGuidance ?? "", /^EXAMPLES:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /^GOTCHAS:/m);
   assert.match(filesPolicy?.usageGuidance ?? "", /seven actions|Seven actions/i);
-  assert.match(filesPolicy?.usageGuidance ?? "", /search matches query tokens against path, filename, and cached shortDescription/);
+  assert.match(
+    filesPolicy?.usageGuidance ?? "",
+    /search matches query tokens against path, filename, and cached shortDescription/
+  );
   assert.match(filesPolicy?.usageGuidance ?? "", /action:"attach"/);
   assert.doesNotMatch(filesPolicy?.usageGuidance ?? "", /coming soon/i);
   assert.doesNotMatch(
