@@ -6,6 +6,10 @@ import type {
   RuntimeQuotaStatusToolResult
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
+import {
+  executeRuntimeToolContractDescribe,
+  isToolContractDescribeCall
+} from "./runtime-tool-contract-describe";
 
 const QUOTA_STATUS_TOOL_CODE = "quota_status" as const;
 const DEFAULT_PRICING_PAGE_PATH = "/app/pricing" as const;
@@ -63,6 +67,13 @@ export class RuntimeQuotaStatusToolService {
     requestId: string;
     currentUserText: string;
   }): Promise<RuntimeQuotaStatusToolExecutionResult> {
+    if (isToolContractDescribeCall(params.toolCall.arguments)) {
+      return executeRuntimeToolContractDescribe({
+        bundle: params.bundle,
+        toolCode: QUOTA_STATUS_TOOL_CODE
+      }) as unknown as RuntimeQuotaStatusToolExecutionResult;
+    }
+
     const request = this.readArguments(params.toolCall.arguments);
     if (request instanceof Error) {
       return {

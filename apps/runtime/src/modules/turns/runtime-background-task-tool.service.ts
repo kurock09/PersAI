@@ -13,6 +13,10 @@ import {
   PersaiInternalApiClientService,
   type InternalBackgroundTaskItem
 } from "./persai-internal-api.client.service";
+import {
+  executeRuntimeToolContractDescribe,
+  isToolContractDescribeCall
+} from "./runtime-tool-contract-describe";
 
 class BackgroundTaskResolutionError extends Error {
   constructor(
@@ -38,6 +42,13 @@ export class RuntimeBackgroundTaskToolService {
     conversation: RuntimeConversationAddress;
   }): Promise<RuntimeBackgroundTaskToolExecutionResult> {
     void params.conversation;
+    if (isToolContractDescribeCall(params.toolCall.arguments)) {
+      return executeRuntimeToolContractDescribe({
+        bundle: params.bundle,
+        toolCode: "background_task"
+      }) as unknown as RuntimeBackgroundTaskToolExecutionResult;
+    }
+
     const request = this.readBackgroundTaskArguments(params.toolCall.arguments);
     if (request instanceof Error) {
       return {

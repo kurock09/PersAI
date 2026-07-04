@@ -14,6 +14,10 @@ import {
   PersaiInternalApiClientService,
   type InternalScheduledActionItem
 } from "./persai-internal-api.client.service";
+import {
+  executeRuntimeToolContractDescribe,
+  isToolContractDescribeCall
+} from "./runtime-tool-contract-describe";
 
 const SCHEDULED_ACTION_CONTEXT_MESSAGES_MAX = 10;
 const SCHEDULED_ACTION_THREAD_PREFIX = "system:scheduled-action:";
@@ -45,6 +49,13 @@ export class RuntimeScheduledActionToolService {
     toolCall: ProviderGatewayToolCall;
     conversation: RuntimeConversationAddress;
   }): Promise<RuntimeScheduledActionToolExecutionResult> {
+    if (isToolContractDescribeCall(params.toolCall.arguments)) {
+      return executeRuntimeToolContractDescribe({
+        bundle: params.bundle,
+        toolCode: "scheduled_action"
+      }) as unknown as RuntimeScheduledActionToolExecutionResult;
+    }
+
     const request = this.readScheduledActionArguments(params.toolCall.arguments);
     if (request instanceof Error) {
       return {

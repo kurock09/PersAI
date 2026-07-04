@@ -4,8 +4,10 @@ import path from "node:path";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   projectRuntimeNativeTools,
-  TOOL_DESCRIPTION_CAP
+  TOOL_DESCRIPTION_CAP,
+  buildFullNativeToolDefinition
 } from "../src/modules/turns/native-tool-projection";
+import { executeRuntimeToolContractDescribe } from "../src/modules/turns/runtime-tool-contract-describe";
 import { TOOL_CATALOG } from "../../api/prisma/tool-catalog-data";
 import {
   ANTI_COLLAGE_RULE,
@@ -964,8 +966,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       };
     }
   )?.properties;
-  assert.deepEqual(documentProperties?.action?.enum, ["inspect", "render", "convert"]);
-  assert.match(documentProperties?.action?.description ?? "", /inspect|render|convert/i);
+  assert.deepEqual(documentProperties?.action?.enum, ["describe", "inspect", "render", "convert"]);
+  assert.match(documentProperties?.action?.description ?? "", /describe|inspect|render|convert/i);
   assert.match(documentProperties?.path?.description ?? "", /inspect/i);
   assert.equal(documentProperties?.mode, undefined);
   assert.equal(documentProperties?.outputDir, undefined);
@@ -1113,7 +1115,14 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       properties?: { action?: { enum?: unknown[] } };
     }
   )?.properties?.action?.enum;
-  assert.deepEqual(backgroundTaskActionEnum, ["create", "list", "pause", "resume", "cancel"]);
+  assert.deepEqual(backgroundTaskActionEnum, [
+    "describe",
+    "create",
+    "list",
+    "pause",
+    "resume",
+    "cancel"
+  ]);
   assert.match(backgroundTask?.description ?? "", /quiet assistant-side background tasks/i);
   assert.doesNotMatch(backgroundTask?.description ?? "", /\bupdate\b/i);
   assert.match(tts?.description ?? "", /spoken reply or voice note/i);
@@ -1456,6 +1465,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     "Slice 3: prompt must no longer be globally required because read-only actions omit it"
   );
   assert.deepEqual(slice10TwoPersonasSchema.properties?.action?.enum, [
+    "describe",
     "generate",
     "list_personas",
     "list_voices",
@@ -1751,6 +1761,92 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       "skill tool schema must have additionalProperties: false"
     );
   }
+
+  // ADR-135 S2 — catalog stub projection + describe full-contract builders.
+  const catalogExposureBundle = {
+    ...artifact.bundle,
+    governance: {
+      ...artifact.bundle.governance,
+      toolPolicies: artifact.bundle.governance.toolPolicies.map((policy) => {
+        if (policy.toolCode === "image_generate") {
+          return { ...policy, modelExposure: "catalog" as const };
+        }
+        if (policy.toolCode === "web_search") {
+          return { ...policy, modelExposure: "full" as const };
+        }
+        return policy;
+      })
+    }
+  };
+  const catalogProjection = projectRuntimeNativeTools(catalogExposureBundle);
+  const catalogImageGenerate = catalogProjection.tools.find(
+    (tool) => tool.name === "image_generate"
+  );
+  const fullWebSearch = catalogProjection.tools.find((tool) => tool.name === "web_search");
+  assert.ok(catalogImageGenerate, "catalog-tier image_generate must still project");
+  assert.match(
+    catalogImageGenerate?.description ?? "",
+    /Call image_generate\(\{action:"describe"\}\) before the first real execution call\./
+  );
+  assert.doesNotMatch(catalogImageGenerate?.description ?? "", /WHEN TO USE:/i);
+  const catalogSchema = catalogImageGenerate?.inputSchema as {
+    required?: string[];
+    properties?: { action?: { enum?: string[] } };
+  };
+  assert.deepEqual(catalogSchema.required, ["action"]);
+  assert.deepEqual(catalogSchema.properties?.action?.enum, ["describe"]);
+  assert.match(
+    fullWebSearch?.description ?? "",
+    /Use this when the answer depends on recent external information or links\./
+  );
+  assert.ok(
+    (fullWebSearch?.inputSchema as { required?: string[] }).required?.includes("query"),
+    "full-tier web_search must keep full schema"
+  );
+
+  const catalogVideoBundle = {
+    ...artifact.bundle,
+    governance: {
+      ...artifact.bundle.governance,
+      toolPolicies: artifact.bundle.governance.toolPolicies.map((policy) =>
+        policy.toolCode === "video_generate"
+          ? { ...policy, modelExposure: "catalog" as const }
+          : policy
+      )
+    }
+  };
+  const catalogVideo = projectRuntimeNativeTools(catalogVideoBundle).tools.find(
+    (tool) => tool.name === "video_generate"
+  );
+  const videoCatalogSchema = catalogVideo?.inputSchema as {
+    properties?: { action?: { enum?: string[] } };
+  };
+  assert.deepEqual(videoCatalogSchema.properties?.action?.enum, [
+    "describe",
+    "list_personas",
+    "list_voices",
+    "describe_avatar_mode"
+  ]);
+
+  const fullImageGenerate = buildFullNativeToolDefinition(catalogExposureBundle, "image_generate");
+  assert.ok(fullImageGenerate, "describe builder must resolve full image_generate contract");
+  assert.match(fullImageGenerate.description, /transparent PNG/i);
+  const fullSchema = fullImageGenerate.inputSchema as {
+    properties?: { prompt?: unknown; action?: { enum?: string[] } };
+  };
+  assert.ok(fullSchema.properties?.prompt, "full image_generate schema must include prompt");
+  assert.ok(
+    fullSchema.properties?.action?.enum?.includes("describe"),
+    "full image_generate schema must include describe action"
+  );
+
+  const describeExecution = executeRuntimeToolContractDescribe({
+    bundle: catalogExposureBundle,
+    toolCode: "image_generate"
+  });
+  assert.equal(describeExecution.payload.action, "described_contract");
+  assert.match(describeExecution.payload.description, /transparent PNG/i);
+  assert.deepEqual(describeExecution.artifacts, []);
 }
 
 /**

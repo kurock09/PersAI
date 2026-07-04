@@ -9,6 +9,10 @@ import type {
   RuntimeConversationAddress
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
+import {
+  executeRuntimeToolContractDescribe,
+  isToolContractDescribeCall
+} from "./runtime-tool-contract-describe";
 
 /** ADR-119 Slice 3 — full instruction payload served on engage; removed from cache prefix. */
 export interface RuntimeSkillEngageInstruction {
@@ -137,7 +141,7 @@ type ListRequest = {
 
 type DescribeRequest = {
   action: "describe";
-  skillId: string;
+  skillId: string | null;
   scenarioKey: string | null;
 };
 
@@ -165,6 +169,16 @@ export class RuntimeSkillToolService {
     conversation: RuntimeConversationAddress;
     requestId: string | null;
   }): Promise<RuntimeSkillToolExecutionResult> {
+    if (
+      isToolContractDescribeCall(params.toolCall.arguments) &&
+      params.toolCall.arguments.skillId === undefined
+    ) {
+      return executeRuntimeToolContractDescribe({
+        bundle: params.bundle,
+        toolCode: "skill"
+      }) as unknown as RuntimeSkillToolExecutionResult;
+    }
+
     const request = this.readArguments(params.toolCall.arguments);
     if (request instanceof Error) {
       return {
@@ -253,6 +267,13 @@ export class RuntimeSkillToolService {
     },
     request: DescribeRequest
   ): RuntimeSkillToolExecutionResult {
+    if (request.skillId === null) {
+      return executeRuntimeToolContractDescribe({
+        bundle: params.bundle,
+        toolCode: "skill"
+      }) as unknown as RuntimeSkillToolExecutionResult;
+    }
+
     const enabledSkills = params.bundle.skills?.enabled ?? [];
     const skill = enabledSkills.find((entry) => entry.id === request.skillId) ?? null;
     if (skill === null) {
@@ -538,6 +559,21 @@ export class RuntimeSkillToolService {
       return { action: "list", category };
     }
 
+    if (action === "describe") {
+      if (args.category !== undefined) {
+        return new Error('category must be omitted when action is "describe".');
+      }
+      const skillId = this.asOptionalNonEmptyString(args.skillId);
+      if (skillId === undefined) {
+        return new Error("skillId must be a string or omitted when action is describe.");
+      }
+      const scenarioKey = this.asOptionalString(args.scenarioKey);
+      if (scenarioKey === undefined) {
+        return new Error("scenarioKey must be a string or null.");
+      }
+      return { action: "describe", skillId, scenarioKey };
+    }
+
     const skillId = this.asNonEmptyString(args.skillId);
     if (skillId === null) {
       return new Error(
@@ -550,17 +586,14 @@ export class RuntimeSkillToolService {
       return new Error("scenarioKey must be a string or null.");
     }
 
-    if (action === "describe") {
+    if (action === "engage") {
       if (args.category !== undefined) {
-        return new Error('category must be omitted when action is "describe".');
+        return new Error('category must be omitted when action is "engage".');
       }
-      return { action: "describe", skillId, scenarioKey };
+      return { action: "engage", skillId, scenarioKey };
     }
 
-    if (args.category !== undefined) {
-      return new Error('category must be omitted when action is "engage".');
-    }
-    return { action: "engage", skillId, scenarioKey };
+    return new Error(`Unsupported skill action "${action}".`);
   }
 
   private asAction(value: unknown): "engage" | "release" | "list" | "describe" | null {
@@ -576,6 +609,20 @@ export class RuntimeSkillToolService {
     }
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
+  }
+
+  private asOptionalNonEmptyString(value: unknown): string | null | undefined {
+    if (value === undefined) {
+      return null;
+    }
+    if (value === null) {
+      return null;
+    }
+    if (typeof value !== "string") {
+      return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
   }
 
   private asOptionalString(value: unknown): string | null | undefined {

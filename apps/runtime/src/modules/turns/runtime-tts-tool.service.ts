@@ -28,6 +28,10 @@ import { PersaiInternalApiClientService } from "./persai-internal-api.client.ser
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { SandboxClientService } from "./sandbox-client.service";
 import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
+import {
+  executeRuntimeToolContractDescribe,
+  isToolContractDescribeCall
+} from "./runtime-tool-contract-describe";
 export interface RuntimeTtsToolExecutionResult {
   payload: RuntimeTtsToolResult;
   artifacts: RuntimeOutputArtifact[];
@@ -48,6 +52,13 @@ export class RuntimeTtsToolService {
     sessionId: string;
     requestId: string;
   }): Promise<RuntimeTtsToolExecutionResult> {
+    if (isToolContractDescribeCall(params.toolCall.arguments)) {
+      return executeRuntimeToolContractDescribe({
+        bundle: params.bundle,
+        toolCode: "tts"
+      }) as unknown as RuntimeTtsToolExecutionResult;
+    }
+
     const request = this.readTtsArguments(params.toolCall.arguments, params.bundle);
     if (request instanceof Error) {
       return {

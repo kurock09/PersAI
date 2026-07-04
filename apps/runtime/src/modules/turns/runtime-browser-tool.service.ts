@@ -20,6 +20,10 @@ import {
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import {
+  executeRuntimeToolContractDescribe,
+  isToolContractDescribeCall
+} from "./runtime-tool-contract-describe";
 
 export interface RuntimeBrowserToolExecutionResult {
   payload: RuntimeBrowserToolResult;
@@ -37,6 +41,13 @@ export class RuntimeBrowserToolService {
     bundle: AssistantRuntimeBundle;
     toolCall: ProviderGatewayToolCall;
   }): Promise<RuntimeBrowserToolExecutionResult> {
+    if (isToolContractDescribeCall(params.toolCall.arguments)) {
+      return executeRuntimeToolContractDescribe({
+        bundle: params.bundle,
+        toolCode: "browser"
+      }) as unknown as RuntimeBrowserToolExecutionResult;
+    }
+
     const request = this.readBrowserArguments(params.bundle, params.toolCall.arguments);
     if (request instanceof Error) {
       return {

@@ -36,6 +36,10 @@ import {
   rewritePromptAfterProviderSafetyReject
 } from "./image-provider-safety-rewrite";
 import { selectMediaModelForRequest } from "./media-model-routing";
+import {
+  executeRuntimeToolContractDescribe,
+  isToolContractDescribeCall
+} from "./runtime-tool-contract-describe";
 
 const IMAGE_GENERATE_TOOL_CODE = "image_generate" as const;
 const DEFAULT_IMAGE_GENERATE_TIMEOUT_MS = 300_000;
@@ -91,6 +95,13 @@ export class RuntimeImageGenerateToolService {
       sourceUserMessageText: string;
     };
   }): Promise<RuntimeImageGenerateToolExecutionResult> {
+    if (isToolContractDescribeCall(params.toolCall.arguments)) {
+      return executeRuntimeToolContractDescribe({
+        bundle: params.bundle,
+        toolCode: IMAGE_GENERATE_TOOL_CODE
+      }) as unknown as RuntimeImageGenerateToolExecutionResult;
+    }
+
     const request = this.readImageGenerateArguments(params.toolCall.arguments);
     if (request instanceof Error) {
       this.logger.warn(

@@ -44,6 +44,10 @@ import {
 } from "./provider-gateway.client.service";
 import { SandboxClientService } from "./sandbox-client.service";
 import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
+import {
+  executeRuntimeToolContractDescribe,
+  isToolContractDescribeCall
+} from "./runtime-tool-contract-describe";
 const VIDEO_GENERATE_TOOL_CODE = "video_generate" as const;
 // ADR-109 Slice 10c: separate credential key for talking-avatar path (E14 Fix #3).
 const VIDEO_GENERATE_TALKING_AVATAR_TOOL_KEY = "video_generate_talking_avatar" as const;
@@ -134,7 +138,11 @@ type AdaptedVideoAttemptRequest = {
   warning: string | null;
 };
 
-type RuntimeVideoGenerateReadOnlyAction = "list_personas" | "list_voices" | "describe_avatar_mode";
+type RuntimeVideoGenerateReadOnlyAction =
+  | "describe"
+  | "list_personas"
+  | "list_voices"
+  | "describe_avatar_mode";
 
 export type RuntimeVideoGenerateReadOnlyToolResult =
   | {
@@ -229,6 +237,13 @@ export class RuntimeVideoGenerateToolService {
       sourceUserMessageText: string;
     };
   }): Promise<RuntimeVideoGenerateToolExecutionResult> {
+    if (isToolContractDescribeCall(params.toolCall.arguments)) {
+      return executeRuntimeToolContractDescribe({
+        bundle: params.bundle,
+        toolCode: VIDEO_GENERATE_TOOL_CODE
+      }) as unknown as RuntimeVideoGenerateToolExecutionResult;
+    }
+
     const request = this.readVideoGenerateArguments(params.toolCall.arguments);
     if (request instanceof Error) {
       return {
@@ -1161,6 +1176,11 @@ export class RuntimeVideoGenerateToolService {
     request: RuntimeVideoGenerateRequest
   ): RuntimeVideoGenerateToolExecutionResult {
     switch (request.action) {
+      case "describe":
+        return executeRuntimeToolContractDescribe({
+          bundle,
+          toolCode: VIDEO_GENERATE_TOOL_CODE
+        }) as unknown as RuntimeVideoGenerateToolExecutionResult;
       case "list_personas":
         return {
           payload: this.buildListPersonasPayload(bundle),
@@ -1533,7 +1553,8 @@ export class RuntimeVideoGenerateToolService {
     const action =
       args.action === undefined || args.action === null
         ? "generate"
-        : args.action === "generate" ||
+        : args.action === "describe" ||
+            args.action === "generate" ||
             args.action === "list_personas" ||
             args.action === "list_voices" ||
             args.action === "describe_avatar_mode"
@@ -1541,7 +1562,7 @@ export class RuntimeVideoGenerateToolService {
           : null;
     if ("action" in args && args.action !== null && action === null) {
       return new Error(
-        'action must be one of "generate", "list_personas", "list_voices", or "describe_avatar_mode" when provided'
+        'action must be one of "describe", "generate", "list_personas", "list_voices", or "describe_avatar_mode" when provided'
       );
     }
 
@@ -3417,6 +3438,9 @@ function isReadOnlyVideoGenerateAction(
   action: RuntimeVideoGenerateRequest["action"]
 ): action is RuntimeVideoGenerateReadOnlyAction {
   return (
-    action === "list_personas" || action === "list_voices" || action === "describe_avatar_mode"
+    action === "describe" ||
+    action === "list_personas" ||
+    action === "list_voices" ||
+    action === "describe_avatar_mode"
   );
 }

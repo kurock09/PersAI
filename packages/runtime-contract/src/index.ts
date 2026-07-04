@@ -2019,7 +2019,13 @@ export interface RuntimeVideoModelParameters {
 
 export interface RuntimeVideoGenerateRequest {
   toolCode: "video_generate";
-  action?: "generate" | "list_personas" | "list_voices" | "describe_avatar_mode" | null;
+  action?:
+    | "describe"
+    | "generate"
+    | "list_personas"
+    | "list_voices"
+    | "describe_avatar_mode"
+    | null;
   prompt: string;
   filename: string | null;
   size: PersaiRuntimeVideoGenerateSize | null;
@@ -3275,6 +3281,15 @@ export interface ProviderGatewayToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+}
+
+/** ADR-135 — read-only per-tool contract loader result from `{tool}({action:"describe"})`. */
+export interface RuntimeToolContractDescribeResult {
+  action: "described_contract";
+  toolCode: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 export interface ProviderGatewayNamedToolChoice {

@@ -40,6 +40,94 @@ import {
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
 
+export type NativeToolProjectionOptions = {
+  allowModelToolExposure?: boolean;
+  allowedKnowledgeSearchSources?: readonly PersaiRuntimeKnowledgeSource[];
+  allowedKnowledgeFetchSources?: readonly PersaiRuntimeKnowledgeSource[];
+};
+
+/** ADR-135 — catalog-tier tools may expose read-only family actions on the stub wire. */
+const CATALOG_READ_ONLY_ACTIONS: Partial<Record<string, readonly string[]>> = {
+  video_generate: ["list_personas", "list_voices", "describe_avatar_mode"],
+  scheduled_action: ["list"],
+  background_task: ["list"],
+  quota_status: ["report"],
+  skill: ["list"]
+};
+
+export function resolveModelExposure(policy: RuntimeToolPolicy): "full" | "catalog" {
+  return policy.modelExposure === "catalog" ? "catalog" : "full";
+}
+
+function buildCatalogStubDescription(toolCode: string, policy: RuntimeToolPolicy): string {
+  const modelDescription = policy.description?.trim() || policy.displayName;
+  return `${modelDescription}\nCall ${toolCode}({action:"describe"}) before the first real execution call.`;
+}
+
+function buildCatalogStubInputSchema(readOnlyActions: readonly string[]): Record<string, unknown> {
+  const actions = ["describe", ...readOnlyActions.filter((action) => action !== "describe")];
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["action"],
+    properties: {
+      action: {
+        type: "string",
+        enum: [...new Set(actions)],
+        description:
+          'Use "describe" to load the full tool contract before the first real execution call.'
+      }
+    }
+  };
+}
+
+function applyModelExposureProjection(
+  toolCode: string,
+  policy: RuntimeToolPolicy,
+  fullDefinition: ProviderGatewayToolDefinition,
+  catalogReadOnlyActions: readonly string[] = CATALOG_READ_ONLY_ACTIONS[toolCode] ?? []
+): ProviderGatewayToolDefinition {
+  if (resolveModelExposure(policy) === "full") {
+    return fullDefinition;
+  }
+  return {
+    name: fullDefinition.name,
+    description: buildCatalogStubDescription(toolCode, policy),
+    inputSchema: buildCatalogStubInputSchema(catalogReadOnlyActions)
+  };
+}
+
+function normalizeBundleForFullToolExposure(
+  bundle: AssistantRuntimeBundle,
+  toolCode: string
+): AssistantRuntimeBundle {
+  return {
+    ...bundle,
+    governance: {
+      ...bundle.governance,
+      toolPolicies: bundle.governance.toolPolicies.map((policy) =>
+        policy.toolCode === toolCode ? { ...policy, modelExposure: "full" as const } : policy
+      )
+    }
+  };
+}
+
+/**
+ * ADR-135 — build the full wire projection for one tool (ignores catalog stub tier).
+ * Used by `{tool}({action:"describe"})` execution so describe reuses the same builders.
+ */
+export function buildFullNativeToolDefinition(
+  bundle: AssistantRuntimeBundle,
+  toolCode: string,
+  options?: NativeToolProjectionOptions
+): ProviderGatewayToolDefinition | null {
+  const projection = projectRuntimeNativeTools(
+    normalizeBundleForFullToolExposure(bundle, toolCode),
+    options
+  );
+  return projection.tools.find((tool) => tool.name === toolCode) ?? null;
+}
+
 function appendToolDefinitionHint(base: string, hint: string): string {
   return base.includes(hint) ? base : `${base} ${hint}`;
 }
@@ -108,11 +196,7 @@ const REMINDER_CONTEXT_MESSAGES_MAX = 10;
 
 export function projectRuntimeNativeTools(
   bundle: AssistantRuntimeBundle,
-  options?: {
-    allowModelToolExposure?: boolean;
-    allowedKnowledgeSearchSources?: readonly PersaiRuntimeKnowledgeSource[];
-    allowedKnowledgeFetchSources?: readonly PersaiRuntimeKnowledgeSource[];
-  }
+  options?: NativeToolProjectionOptions
 ): RuntimeNativeToolProjection {
   if (options?.allowModelToolExposure === false) {
     return {
@@ -349,22 +433,24 @@ function createSummarizeContextToolDefinition(
   bundle: AssistantRuntimeBundle,
   policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
-  return {
-    name: bundle.runtime.sharedCompaction.summarizeToolCode,
+  const toolCode = bundle.runtime.sharedCompaction.summarizeToolCode;
+  return applyModelExposureProjection(toolCode, policy, {
+    name: toolCode,
     description: resolveToolDefinitionDescription(policy),
     inputSchema: createCompactionInputSchema()
-  };
+  });
 }
 
 function createCompactContextToolDefinition(
   bundle: AssistantRuntimeBundle,
   policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
-  return {
-    name: bundle.runtime.sharedCompaction.compactToolCode,
+  const toolCode = bundle.runtime.sharedCompaction.compactToolCode;
+  return applyModelExposureProjection(toolCode, policy, {
+    name: toolCode,
     description: resolveToolDefinitionDescription(policy),
     inputSchema: createCompactionInputSchema()
-  };
+  });
 }
 
 function createCompactionInputSchema(): Record<string, unknown> {
@@ -372,6 +458,12 @@ function createCompactionInputSchema(): Record<string, unknown> {
     type: "object",
     additionalProperties: false,
     properties: {
+      action: {
+        type: "string",
+        enum: ["describe"],
+        description:
+          'Use "describe" to load the full tool contract before the first real execution call.'
+      },
       instructions: {
         type: "string",
         description: "Optional guidance about what the summary should preserve."
@@ -381,7 +473,7 @@ function createCompactionInputSchema(): Record<string, unknown> {
 }
 
 function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("memory_write", policy, {
     name: "memory_write",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -430,11 +522,11 @@ function createMemoryWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGat
         }
       }
     }
-  };
+  });
 }
 
 function createTodoWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("todo_write", policy, {
     name: "todo_write",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -500,11 +592,11 @@ function createTodoWriteToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
         }
       }
     }
-  };
+  });
 }
 
 function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("quota_status", policy, {
     name: "quota_status",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -513,9 +605,9 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
       properties: {
         action: {
           type: "string",
-          enum: ["report", "create_checkout"],
+          enum: ["describe", "report", "create_checkout"],
           description:
-            "'report' (default): inspect quota, limits, and plan options. 'create_checkout': open a checkout link now."
+            '"describe" loads the full tool contract. "report" (default): inspect quota, limits, and plan options. "create_checkout": open a checkout link now.'
         },
         toolCode: {
           type: "string",
@@ -540,11 +632,11 @@ function createQuotaStatusToolDefinition(policy: RuntimeToolPolicy): ProviderGat
         }
       }
     }
-  };
+  });
 }
 
 function createWebSearchToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("web_search", policy, {
     name: "web_search",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
@@ -567,7 +659,7 @@ function createWebSearchToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
         }
       }
     }
-  };
+  });
 }
 
 function createKnowledgeSearchToolDefinition(
@@ -579,7 +671,7 @@ function createKnowledgeSearchToolDefinition(
       (sourceConfig) => `${sourceConfig.source}: ${describeKnowledgeSource(sourceConfig.source)}`
     )
     .join("; ");
-  return {
+  return applyModelExposureProjection("knowledge_search", policy, {
     name: "knowledge_search",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
@@ -607,7 +699,7 @@ function createKnowledgeSearchToolDefinition(
         }
       }
     }
-  };
+  });
 }
 
 function createKnowledgeFetchToolDefinition(
@@ -619,7 +711,7 @@ function createKnowledgeFetchToolDefinition(
       (sourceConfig) => `${sourceConfig.source}: ${describeKnowledgeSource(sourceConfig.source)}`
     )
     .join("; ");
-  return {
+  return applyModelExposureProjection("knowledge_fetch", policy, {
     name: "knowledge_fetch",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
@@ -641,7 +733,7 @@ function createKnowledgeFetchToolDefinition(
         }
       }
     }
-  };
+  });
 }
 
 function describeKnowledgeSource(source: RuntimeKnowledgeAccessSourceConfig["source"]): string {
@@ -664,7 +756,7 @@ function describeKnowledgeSource(source: RuntimeKnowledgeAccessSourceConfig["sou
 }
 
 function createWebFetchToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("web_fetch", policy, {
     name: "web_fetch",
     description: resolveToolDefinitionDescriptionWithHint(
       policy,
@@ -692,14 +784,14 @@ function createWebFetchToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         }
       }
     }
-  };
+  });
 }
 
 function createBrowserToolDefinition(
   bundle: AssistantRuntimeBundle,
   policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("browser", policy, {
     name: "browser",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -709,9 +801,9 @@ function createBrowserToolDefinition(
       properties: {
         action: {
           type: "string",
-          enum: [...bundle.runtime.browser.actions],
+          enum: ["describe", ...bundle.runtime.browser.actions],
           description:
-            'Use "snapshot" to inspect a page or "act" to perform bounded browser operations before returning a fresh snapshot.'
+            'Use "describe" to load the full tool contract. Use "snapshot" to inspect a page or "act" to perform bounded browser operations before returning a fresh snapshot.'
         },
         url: {
           type: "string",
@@ -765,7 +857,7 @@ function createBrowserToolDefinition(
         }
       }
     }
-  };
+  });
 }
 
 function createImageGenerateToolDefinition(
@@ -777,7 +869,7 @@ function createImageGenerateToolDefinition(
     policy,
     MAX_RUNTIME_IMAGE_GENERATE_COUNT
   );
-  return {
+  return applyModelExposureProjection("image_generate", policy, {
     name: "image_generate",
     description: appendToolDefinitionHint(
       appendToolDefinitionHint(
@@ -793,6 +885,12 @@ function createImageGenerateToolDefinition(
       additionalProperties: false,
       required: ["prompt"],
       properties: {
+        action: {
+          type: "string",
+          enum: ["describe", "generate"],
+          description:
+            'Use "describe" to load the full tool contract. Omit or use "generate" for real image generation.'
+        },
         prompt: {
           type: "string",
           description: "Text prompt describing the image to generate."
@@ -832,12 +930,12 @@ function createImageGenerateToolDefinition(
         }
       }
     }
-  };
+  });
 }
 
 function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
   const effectiveCap = resolveImageCountCap("image_edit", policy, MAX_RUNTIME_IMAGE_EDIT_COUNT);
-  return {
+  return applyModelExposureProjection("image_edit", policy, {
     name: "image_edit",
     description: appendToolDefinitionHint(
       appendToolDefinitionHint(
@@ -906,7 +1004,7 @@ function createImageEditToolDefinition(policy: RuntimeToolPolicy): ProviderGatew
         }
       }
     }
-  };
+  });
 }
 
 function createVideoGenerateToolDefinition(
@@ -914,7 +1012,7 @@ function createVideoGenerateToolDefinition(
   talkingAvatarCredential: AssistantRuntimeBundleToolCredentialRef | null
 ): ProviderGatewayToolDefinition {
   const talkingAvatarEnabled = talkingAvatarCredential !== null;
-  return {
+  return applyModelExposureProjection("video_generate", policy, {
     name: "video_generate",
     description: appendToolDefinitionHint(
       resolveToolDefinitionDescription(policy),
@@ -936,9 +1034,9 @@ function createVideoGenerateToolDefinition(
       properties: {
         action: {
           type: "string",
-          enum: ["generate", "list_personas", "list_voices", "describe_avatar_mode"],
+          enum: ["describe", "generate", "list_personas", "list_voices", "describe_avatar_mode"],
           description:
-            'Omit or use "generate" for real video generation; use the other actions for read-only persona, voice, or talking-avatar lookups.'
+            'Use "describe" to load the full tool contract. Omit or use "generate" for real video generation; use the other actions for read-only persona, voice, or talking-avatar lookups.'
         },
         prompt: {
           type: "string",
@@ -1046,11 +1144,11 @@ function createVideoGenerateToolDefinition(
         }
       }
     }
-  };
+  });
 }
 
 function createTtsToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("tts", policy, {
     name: "tts",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -1058,6 +1156,12 @@ function createTtsToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTool
       additionalProperties: false,
       required: ["text"],
       properties: {
+        action: {
+          type: "string",
+          enum: ["describe", "synthesize"],
+          description:
+            'Use "describe" to load the full tool contract. Omit or use "synthesize" for real speech generation.'
+        },
         text: {
           type: "string",
           description: "The exact text that should be spoken aloud."
@@ -1103,17 +1207,23 @@ function createTtsToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTool
         }
       }
     }
-  };
+  });
 }
 
 function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("document", policy, {
     name: "document",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
       type: "object",
       additionalProperties: false,
       oneOf: [
+        {
+          required: ["action"],
+          properties: {
+            action: { enum: ["describe"] }
+          }
+        },
         {
           required: ["action", "path"],
           properties: {
@@ -1136,9 +1246,9 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
       properties: {
         action: {
           type: "string",
-          enum: ["inspect", "render", "convert"],
+          enum: ["describe", "inspect", "render", "convert"],
           description:
-            'Use `action="inspect"` to inspect an existing source, `action="render"` to author a new document from Markdown, or `action="convert"` to convert between PDF/DOCX/XLSX.'
+            'Use `action="describe"` to load the full tool contract. Use `action="inspect"` to inspect an existing source, `action="render"` to author a new document from Markdown, or `action="convert"` to convert between PDF/DOCX/XLSX.'
         },
         path: {
           type: "string",
@@ -1189,13 +1299,13 @@ function createDocumentToolDefinition(policy: RuntimeToolPolicy): ProviderGatewa
         }
       }
     }
-  };
+  });
 }
 
 function createPresentationToolDefinition(
   policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("presentation", policy, {
     name: "presentation",
     description: appendToolDefinitionHint(
       resolveToolDefinitionDescription(policy),
@@ -1210,6 +1320,12 @@ function createPresentationToolDefinition(
       additionalProperties: false,
       required: ["descriptorMode", "prompt"],
       properties: {
+        action: {
+          type: "string",
+          enum: ["describe"],
+          description:
+            'Use `action="describe"` to load the full tool contract before the first real execution call.'
+        },
         descriptorMode: {
           type: "string",
           enum: ["create_presentation", "revise_document", "export_or_redeliver"],
@@ -1307,13 +1423,13 @@ function createPresentationToolDefinition(
         }
       }
     }
-  };
+  });
 }
 
 function createScheduledActionToolDefinition(
   policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("scheduled_action", policy, {
     name: "scheduled_action",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -1323,8 +1439,9 @@ function createScheduledActionToolDefinition(
       properties: {
         action: {
           type: "string",
-          enum: ["create", "list", "pause", "resume", "cancel"],
-          description: "Scheduled-action operation to perform."
+          enum: ["describe", "create", "list", "pause", "resume", "cancel"],
+          description:
+            '"describe" loads the full tool contract. Otherwise choose the scheduled-action operation to perform.'
         },
         kind: {
           type: "string",
@@ -1387,13 +1504,13 @@ function createScheduledActionToolDefinition(
         }
       }
     }
-  };
+  });
 }
 
 function createBackgroundTaskToolDefinition(
   policy: RuntimeToolPolicy
 ): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("background_task", policy, {
     name: "background_task",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -1403,8 +1520,9 @@ function createBackgroundTaskToolDefinition(
       properties: {
         action: {
           type: "string",
-          enum: ["create", "list", "pause", "resume", "cancel"],
-          description: "Background-task operation to perform."
+          enum: ["describe", "create", "list", "pause", "resume", "cancel"],
+          description:
+            '"describe" loads the full tool contract. Otherwise choose the background-task operation to perform.'
         },
         title: {
           type: "string",
@@ -1460,11 +1578,11 @@ function createBackgroundTaskToolDefinition(
         }
       }
     }
-  };
+  });
 }
 
 function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("files", policy, {
     name: "files",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -1526,11 +1644,11 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         }
       }
     }
-  };
+  });
 }
 
 function createGrepToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("grep", policy, {
     name: "grep",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -1569,11 +1687,11 @@ function createGrepToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
         }
       }
     }
-  };
+  });
 }
 
 function createGlobToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("glob", policy, {
     name: "glob",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -1592,11 +1710,11 @@ function createGlobToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
         }
       }
     }
-  };
+  });
 }
 
 function createExecToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("exec", policy, {
     name: "exec",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -1619,11 +1737,11 @@ function createExecToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
         }
       }
     }
-  };
+  });
 }
 
 function createShellToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("shell", policy, {
     name: "shell",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -1641,14 +1759,14 @@ function createShellToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         }
       }
     }
-  };
+  });
 }
 
 // ADR-118 Slice 2: skill tool projection. Schema is byte-stable per turn.
 // Slice 4 will surface the scenario catalog on the bundle; Slice 7 will extend
 // the selection guide to tell the model when to engage.
 function createSkillToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToolDefinition {
-  return {
+  return applyModelExposureProjection("skill", policy, {
     name: "skill",
     description: resolveToolDefinitionDescription(policy),
     inputSchema: {
@@ -1670,7 +1788,7 @@ function createSkillToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         skillId: {
           type: "string",
           description:
-            'Required when action is "describe" or "engage". The id of the enabled Skill to inspect or activate. Must be one of the Skill ids listed in the Enabled Skills block.'
+            'Required when action is "engage". Optional when action is "describe" for a skill-card lookup; omit skillId with action="describe" to load the tool-level full contract. Must be one of the Skill ids listed in the Enabled Skills block.'
         },
         scenarioKey: {
           type: "string",
@@ -1679,7 +1797,7 @@ function createSkillToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         }
       }
     }
-  };
+  });
 }
 
 function resolveAllowedModelVisibleToolPolicy(

@@ -18,6 +18,10 @@ import {
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { SandboxClientService } from "./sandbox-client.service";
+import {
+  executeRuntimeToolContractDescribe,
+  isToolContractDescribeCall
+} from "./runtime-tool-contract-describe";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -79,6 +83,13 @@ export class RuntimeDocumentToolService {
     };
     originChatId?: string | null;
   }): Promise<RuntimeDocumentToolExecutionResult> {
+    if (isToolContractDescribeCall(params.toolCall.arguments)) {
+      return executeRuntimeToolContractDescribe({
+        bundle: params.bundle,
+        toolCode: "document"
+      }) as unknown as RuntimeDocumentToolExecutionResult;
+    }
+
     const parsed = this.readDocumentArguments(params.toolCall.arguments);
     if (parsed instanceof Error) {
       return this.buildInvalidDocumentArgumentsResult(parsed.message);
@@ -136,6 +147,13 @@ export class RuntimeDocumentToolService {
       availableAttachments: RuntimeAttachmentRef[];
     };
   }): Promise<RuntimeDocumentToolExecutionResult> {
+    if (isToolContractDescribeCall(params.toolCall.arguments)) {
+      return executeRuntimeToolContractDescribe({
+        bundle: params.bundle,
+        toolCode: "presentation"
+      }) as unknown as RuntimeDocumentToolExecutionResult;
+    }
+
     const parsed = this.readPresentationArguments(params.toolCall.arguments);
     if (parsed instanceof Error) {
       return {

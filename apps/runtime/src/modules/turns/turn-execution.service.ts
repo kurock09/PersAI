@@ -70,6 +70,7 @@ import {
   type RuntimeBillingFacts,
   type RuntimeWebSearchToolResult,
   type RuntimeWebFetchToolResult,
+  type RuntimeToolContractDescribeResult,
   type RuntimeUsageAccounting,
   type RuntimeUsageAccountingEntry,
   type RuntimeUsageSnapshot,
@@ -127,6 +128,10 @@ import {
 } from "./prompt-cache-stable-blocks";
 import { resolveRuntimeContextHydrationConfig } from "./runtime-context-hydration-policy";
 import { SessionCompactionService } from "./session-compaction.service";
+import {
+  executeRuntimeToolContractDescribe,
+  isToolContractDescribeCall
+} from "./runtime-tool-contract-describe";
 import {
   ToolBudgetPolicy,
   createToolBudgetExhaustedResult,
@@ -305,6 +310,7 @@ type ToolExecutionOutcome = {
     | RuntimeVideoGenerateToolResult
     | RuntimeWebSearchToolResult
     | RuntimeWebFetchToolResult
+    | RuntimeToolContractDescribeResult
     | Record<string, unknown>;
   artifacts?: RuntimeOutputArtifact[];
   /**
@@ -3048,7 +3054,10 @@ export class TurnExecutionService {
     }
     const action = toolCall.arguments.action;
     return (
-      action === "list_personas" || action === "list_voices" || action === "describe_avatar_mode"
+      action === "describe" ||
+      action === "list_personas" ||
+      action === "list_voices" ||
+      action === "describe_avatar_mode"
     );
   }
 
@@ -3175,6 +3184,13 @@ export class TurnExecutionService {
 
     switch (toolCall.name) {
       case execution.bundle.runtime.sharedCompaction.summarizeToolCode: {
+        if (isToolContractDescribeCall(toolCall.arguments)) {
+          const described = executeRuntimeToolContractDescribe({
+            bundle: execution.bundle,
+            toolCode: toolCall.name
+          });
+          return this.createToolExecutionOutcome(toolCall, described.payload, false);
+        }
         const instructions = this.readOptionalInstructions(toolCall.arguments);
         if (instructions instanceof Error) {
           return this.createToolExecutionOutcome(
@@ -3206,6 +3222,13 @@ export class TurnExecutionService {
         );
       }
       case execution.bundle.runtime.sharedCompaction.compactToolCode: {
+        if (isToolContractDescribeCall(toolCall.arguments)) {
+          const described = executeRuntimeToolContractDescribe({
+            bundle: execution.bundle,
+            toolCode: toolCall.name
+          });
+          return this.createToolExecutionOutcome(toolCall, described.payload, false);
+        }
         const instructions = this.readOptionalInstructions(toolCall.arguments);
         if (instructions instanceof Error) {
           return this.createToolExecutionOutcome(
@@ -3968,6 +3991,7 @@ export class TurnExecutionService {
       | RuntimeVideoGenerateToolResult
       | RuntimeWebSearchToolResult
       | RuntimeWebFetchToolResult
+      | RuntimeToolContractDescribeResult
       | Record<string, unknown>,
     isError = false,
     sharedCompaction?: ToolExecutionOutcome["sharedCompaction"],
