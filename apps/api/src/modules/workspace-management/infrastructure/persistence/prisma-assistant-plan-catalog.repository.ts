@@ -9,6 +9,7 @@ import type { AssistantPlanCatalog } from "../../domain/assistant-plan-catalog.e
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 import {
   CURRENT_TOOL_CODE_SET,
+  defaultPlanFullProjection,
   isPlanManagedTool,
   isPlatformManagedTool,
   resolveToolPolicyClass
@@ -258,7 +259,8 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
           dailyCallLimit: activation.dailyCallLimit,
           perTurnCap: activation.perTurnCap,
           maxFilePreviewBytes: activation.maxFilePreviewBytes,
-          maxFilePreviewEdgePx: activation.maxFilePreviewEdgePx
+          maxFilePreviewEdgePx: activation.maxFilePreviewEdgePx,
+          fullProjection: activation.fullProjection
         })),
       isDefaultFirstRegistrationPlan: plan.isDefaultFirstRegistrationPlan,
       isTrialPlan: plan.isTrialPlan,
@@ -398,6 +400,7 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
         tool.code === "files" ? (override?.maxFilePreviewBytes ?? null) : null;
       const maxFilePreviewEdgePx =
         tool.code === "files" ? (override?.maxFilePreviewEdgePx ?? null) : null;
+      const fullProjection = defaultPlanFullProjection(tool.code);
 
       await tx.planCatalogToolActivation.upsert({
         where: {
@@ -417,7 +420,8 @@ export class PrismaAssistantPlanCatalogRepository implements AssistantPlanCatalo
           dailyCallLimit,
           perTurnCap,
           maxFilePreviewBytes,
-          maxFilePreviewEdgePx
+          maxFilePreviewEdgePx,
+          fullProjection
         }
       });
     }

@@ -5,7 +5,8 @@ import {
   isPlatformManagedTool,
   isPlanManagedTool,
   TOOL_CATALOG,
-  STARTER_TRIAL_TOOL_POLICY
+  STARTER_TRIAL_TOOL_POLICY,
+  defaultPlanFullProjection
 } from "../../../../prisma/tool-catalog-data";
 import { upsertToolCatalogEntry } from "../../../../prisma/tool-catalog-sync";
 import { PROMPT_TEMPLATE_DEFAULTS } from "../../../../prisma/bootstrap-preset-data";
@@ -216,11 +217,19 @@ export class SeedToolCatalogService implements OnModuleInit {
           : "inactive";
       const dailyCallLimit = isPlanManagedTool(tool.code) ? (policy?.dailyCallLimit ?? null) : null;
       const perTurnCap = isPlanManagedTool(tool.code) ? (policy?.perTurnCap ?? null) : null;
+      const fullProjection = policy?.fullProjection ?? defaultPlanFullProjection(tool.code);
 
       await this.prisma.planCatalogToolActivation.upsert({
         where: { planId_toolId: { planId, toolId: tool.id } },
-        update: { activationStatus, dailyCallLimit, perTurnCap },
-        create: { planId, toolId: tool.id, activationStatus, dailyCallLimit, perTurnCap }
+        update: { activationStatus, dailyCallLimit, perTurnCap, fullProjection },
+        create: {
+          planId,
+          toolId: tool.id,
+          activationStatus,
+          dailyCallLimit,
+          perTurnCap,
+          fullProjection
+        }
       });
     }
   }
@@ -256,7 +265,8 @@ export class SeedToolCatalogService implements OnModuleInit {
             planId: plan.id,
             toolId: tool.id,
             activationStatus: isPlatformManagedTool(tool.code) ? "active" : "inactive",
-            dailyCallLimit: null
+            dailyCallLimit: null,
+            fullProjection: defaultPlanFullProjection(tool.code)
           }
         });
       }
@@ -309,7 +319,8 @@ export class SeedToolCatalogService implements OnModuleInit {
             toolId: tool.id,
             activationStatus: active ? "active" : "inactive",
             dailyCallLimit: policy?.dailyCallLimit ?? null,
-            perTurnCap: policy?.perTurnCap ?? null
+            perTurnCap: policy?.perTurnCap ?? null,
+            fullProjection: policy?.fullProjection ?? defaultPlanFullProjection(tool.code)
           }
         });
         created++;

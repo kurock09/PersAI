@@ -8,7 +8,11 @@ import {
   WorkspaceStatus,
   WorkspaceSubscriptionStatus
 } from "@prisma/client";
-import { TOOL_CATALOG, STARTER_TRIAL_TOOL_POLICY } from "./tool-catalog-data.js";
+import {
+  TOOL_CATALOG,
+  STARTER_TRIAL_TOOL_POLICY,
+  defaultPlanFullProjection
+} from "./tool-catalog-data.js";
 import { PROMPT_TEMPLATE_DEFAULTS } from "./bootstrap-preset-data.js";
 import { PERSONA_ARCHETYPE_DEFAULTS } from "./persona-archetype-data.js";
 import { PRODUCT_KB_SEED_TEXT_ENTRIES } from "./product-kb-seed-data.js";
@@ -352,6 +356,7 @@ async function main(): Promise<void> {
           : PlanToolActivationStatus.inactive;
       const dailyCallLimit = policy?.dailyCallLimit ?? null;
       const perTurnCap = policy?.perTurnCap ?? null;
+      const fullProjection = policy?.fullProjection ?? defaultPlanFullProjection(tool.code);
       await prisma.planCatalogToolActivation.upsert({
         where: {
           planId_toolId: {
@@ -362,14 +367,16 @@ async function main(): Promise<void> {
         update: {
           activationStatus,
           dailyCallLimit,
-          perTurnCap
+          perTurnCap,
+          fullProjection
         },
         create: {
           planId: seedPlan.id,
           toolId: tool.id,
           activationStatus,
           dailyCallLimit,
-          perTurnCap
+          perTurnCap,
+          fullProjection
         }
       });
     }

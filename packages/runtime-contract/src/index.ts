@@ -745,6 +745,11 @@ export interface RuntimeToolPolicy {
    * Omitted on non-`files` policies.
    */
   maxFilePreviewEdgePx?: number | null;
+  /**
+   * ADR-135 — materialized projection tier for this tool on the model wire.
+   * Omitted when the tool is inactive (effectiveExposure = none).
+   */
+  modelExposure?: "full" | "catalog";
 }
 
 /**

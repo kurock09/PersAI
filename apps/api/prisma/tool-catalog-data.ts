@@ -2,6 +2,62 @@ import type { ToolCatalogCapabilityGroup, ToolCatalogToolClass } from "@prisma/c
 
 export type ToolPolicyClass = "plan_managed" | "platform_managed" | "hidden_internal";
 
+/** ADR-135 — catalog vs full wire projection tier for plan-visible model tools. */
+export type ModelExposure = "full" | "catalog";
+
+/**
+ * ADR-135 D2 — founder-locked platform defaults for the 24 plan-visible runtime
+ * model tool codes (wire names). Synthetic tools resolve via bootstrap metadata.
+ */
+export const PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE: Record<string, ModelExposure> = {
+  skill: "full",
+  todo_write: "full",
+  files: "full",
+  shell: "full",
+  grep: "full",
+  glob: "full",
+  exec: "full",
+  knowledge_search: "full",
+  knowledge_fetch: "full",
+  web_search: "full",
+  web_fetch: "full",
+  memory_write: "full",
+  image_edit: "full",
+  image_generate: "catalog",
+  video_generate: "catalog",
+  document: "catalog",
+  presentation: "catalog",
+  browser: "catalog",
+  tts: "catalog",
+  scheduled_action: "catalog",
+  background_task: "catalog",
+  quota_status: "catalog",
+  summarize_context: "catalog",
+  compact_context: "catalog"
+};
+
+export const PLAN_VISIBLE_MODEL_TOOL_CODES = Object.keys(
+  PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE
+) as Array<keyof typeof PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE>;
+
+const CATALOG_CODE_TO_RUNTIME_MODEL_TOOL_CODE: Record<string, string> = {
+  persai_tool_quota_status: "quota_status"
+};
+
+export function resolveRuntimeModelToolCode(catalogToolCode: string): string {
+  return CATALOG_CODE_TO_RUNTIME_MODEL_TOOL_CODE[catalogToolCode] ?? catalogToolCode;
+}
+
+export function resolveCatalogDefaultModelExposure(catalogToolCode: string): ModelExposure | null {
+  const runtimeCode = resolveRuntimeModelToolCode(catalogToolCode);
+  return PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE[runtimeCode] ?? null;
+}
+
+export function defaultPlanFullProjection(catalogToolCode: string): boolean {
+  const exposure = resolveCatalogDefaultModelExposure(catalogToolCode);
+  return exposure === null ? true : exposure === "full";
+}
+
 export type ToolCatalogEntry = {
   id: string;
   code: string;
@@ -9,6 +65,8 @@ export type ToolCatalogEntry = {
   description: string;
   modelDescription?: string;
   modelUsageGuidance?: string;
+  /** ADR-135 — platform default projection tier for plan-visible model tools. */
+  defaultModelExposure?: ModelExposure;
   capabilityGroup: ToolCatalogCapabilityGroup;
   toolClass: ToolCatalogToolClass;
   requiredCredentialId?: string;
@@ -473,20 +531,21 @@ GOTCHAS:
   }
 ];
 
+for (const entry of TOOL_CATALOG) {
+  const exposure = resolveCatalogDefaultModelExposure(entry.code);
+  if (exposure !== null) {
+    entry.defaultModelExposure = exposure;
+  }
+}
+
 export const CURRENT_TOOL_CODES = TOOL_CATALOG.map((tool) => tool.code);
 export const CURRENT_TOOL_CODE_SET = new Set(CURRENT_TOOL_CODES);
 
-export const STARTER_TRIAL_TOOL_POLICY: Record<
+const STARTER_TRIAL_TOOL_POLICY_BASE: Record<
   string,
   {
     active: boolean;
     dailyCallLimit: number | null;
-    /**
-     * ADR-074 Slice L1 — per-plan override of the per-turn hard cap on this
-     * tool's executions inside a single runtime turn. NULL = "use the runtime
-     * code default" (TOOL_HARD_CAP_PER_TURN in
-     * apps/runtime/src/modules/turns/tool-budget-policy.ts).
-     */
     perTurnCap: number | null;
   }
 > = {
@@ -511,6 +570,28 @@ export const STARTER_TRIAL_TOOL_POLICY: Record<
   shell: { active: false, dailyCallLimit: 5, perTurnCap: null },
   todo_write: { active: true, dailyCallLimit: null, perTurnCap: null }
 };
+
+export const STARTER_TRIAL_TOOL_POLICY: Record<
+  string,
+  {
+    active: boolean;
+    dailyCallLimit: number | null;
+    /**
+     * ADR-074 Slice L1 — per-plan override of the per-turn hard cap on this
+     * tool's executions inside a single runtime turn. NULL = "use the runtime
+     * code default" (TOOL_HARD_CAP_PER_TURN in
+     * apps/runtime/src/modules/turns/tool-budget-policy.ts).
+     */
+    perTurnCap: number | null;
+    /** ADR-135 — ☑ full JSON on wire; seeded from catalog defaultModelExposure. */
+    fullProjection: boolean;
+  }
+> = Object.fromEntries(
+  Object.entries(STARTER_TRIAL_TOOL_POLICY_BASE).map(([code, policy]) => [
+    code,
+    { ...policy, fullProjection: defaultPlanFullProjection(code) }
+  ])
+);
 
 const TOOL_ENTRY_BY_CODE = new Map(TOOL_CATALOG.map((tool) => [tool.code, tool]));
 

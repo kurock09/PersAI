@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { TOOL_CATALOG, STARTER_TRIAL_TOOL_POLICY } from "../prisma/tool-catalog-data";
+import {
+  TOOL_CATALOG,
+  STARTER_TRIAL_TOOL_POLICY,
+  PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE,
+  PLAN_VISIBLE_MODEL_TOOL_CODES,
+  resolveCatalogDefaultModelExposure,
+  defaultPlanFullProjection
+} from "../prisma/tool-catalog-data";
+import { SYNTHETIC_TOOL_DEFAULT_MODEL_EXPOSURE } from "../prisma/bootstrap-preset-data";
 import {
   PROMPT_CONSTRUCTOR_MODEL_TOOL_ORDER,
   isPromptConstructorModelToolCode
@@ -295,6 +303,86 @@ function testStarterTrialPolicyTodoWrite(): void {
   assert.strictEqual(policy.active, true, "todo_write starter policy must be active");
   assert.strictEqual(policy.dailyCallLimit, null, "todo_write dailyCallLimit must be null");
   assert.strictEqual(policy.perTurnCap, null, "todo_write perTurnCap must be null");
+  assert.strictEqual(
+    policy.fullProjection,
+    true,
+    "todo_write starter policy must default to full projection"
+  );
+}
+
+function testD2PlatformDefaultModelExposure(): void {
+  assert.equal(
+    PLAN_VISIBLE_MODEL_TOOL_CODES.length,
+    24,
+    "D2 fixture must cover 24 plan-visible model tools"
+  );
+
+  const fullTools = PLAN_VISIBLE_MODEL_TOOL_CODES.filter(
+    (code) => PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE[code] === "full"
+  );
+  const catalogTools = PLAN_VISIBLE_MODEL_TOOL_CODES.filter(
+    (code) => PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE[code] === "catalog"
+  );
+  assert.equal(fullTools.length, 13, "D2 must seed 13 default-full tools");
+  assert.equal(catalogTools.length, 11, "D2 must seed 11 default-catalog tools");
+
+  for (const code of PLAN_VISIBLE_MODEL_TOOL_CODES) {
+    const exposure = PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE[code];
+    assert.ok(exposure === "full" || exposure === "catalog", `${code} must have a D2 default`);
+  }
+
+  for (const entry of TOOL_CATALOG) {
+    const expected = resolveCatalogDefaultModelExposure(entry.code);
+    if (expected !== null) {
+      assert.equal(
+        entry.defaultModelExposure,
+        expected,
+        `${entry.code} catalog row must carry defaultModelExposure`
+      );
+    }
+  }
+
+  for (const [code, exposure] of Object.entries(SYNTHETIC_TOOL_DEFAULT_MODEL_EXPOSURE)) {
+    assert.equal(
+      PLAN_VISIBLE_MODEL_TOOL_DEFAULT_EXPOSURE[code],
+      exposure,
+      `synthetic ${code} bootstrap default must match D2`
+    );
+  }
+}
+
+function testStarterTrialPolicyFullProjectionParity(): void {
+  for (const [code, policy] of Object.entries(STARTER_TRIAL_TOOL_POLICY)) {
+    assert.equal(
+      policy.fullProjection,
+      defaultPlanFullProjection(code),
+      `STARTER_TRIAL_TOOL_POLICY.${code}.fullProjection must match catalog default`
+    );
+  }
+}
+
+function testPlanSeedFullProjectionCounts(): void {
+  const catalogD2 = TOOL_CATALOG.filter(
+    (entry) => resolveCatalogDefaultModelExposure(entry.code) !== null
+  );
+  const syntheticOnlyCodes = Object.keys(SYNTHETIC_TOOL_DEFAULT_MODEL_EXPOSURE).filter(
+    (code) =>
+      !catalogD2.some(
+        (entry) =>
+          entry.code === code ||
+          (entry.code === "persai_tool_quota_status" && code === "quota_status")
+      )
+  );
+
+  const fullCount =
+    catalogD2.filter((entry) => defaultPlanFullProjection(entry.code)).length +
+    syntheticOnlyCodes.filter((code) => defaultPlanFullProjection(code)).length;
+  const catalogCount =
+    catalogD2.filter((entry) => !defaultPlanFullProjection(entry.code)).length +
+    syntheticOnlyCodes.filter((code) => !defaultPlanFullProjection(code)).length;
+
+  assert.equal(fullCount, 13, "platform plan seed must default 13 tools to fullProjection");
+  assert.equal(catalogCount, 11, "platform plan seed must default 11 tools to catalog projection");
 }
 
 export async function runToolCatalogDataTest(): Promise<void> {
@@ -308,6 +396,9 @@ export async function runToolCatalogDataTest(): Promise<void> {
   testStarterTrialPolicyPresentationMirrorsDocument();
   testPresentationIsPromptConstructorEditable();
   testStarterTrialPolicyTodoWrite();
+  testD2PlatformDefaultModelExposure();
+  testStarterTrialPolicyFullProjectionParity();
+  testPlanSeedFullProjectionCounts();
   console.log("[tool-catalog-data] all tests passed");
 }
 

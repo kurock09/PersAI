@@ -16,6 +16,8 @@ export type AssistantPlanCatalogToolActivation = {
   maxFilePreviewBytes: number | null;
   /** ADR-116 — max image edge (px) for preview resize on the `files` tool. */
   maxFilePreviewEdgePx: number | null;
+  /** ADR-135 — ☑ full JSON on wire; materialized as RuntimeToolPolicy.modelExposure. */
+  fullProjection: boolean;
 };
 
 export type AssistantPlanCatalog = {

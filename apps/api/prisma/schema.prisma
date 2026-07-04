@@ -1486,6 +1486,8 @@ model PlanCatalogToolActivation {
   /// ADR-116 — optional per-plan max image edge for preview resize. NULL =
   /// code default at materialize.
   maxFilePreviewEdgePx  Int?                @map("max_file_preview_edge_px")
+  /// ADR-135 — ☑ full JSON on wire; ☐ catalog stub. Materialized as RuntimeToolPolicy.modelExposure.
+  fullProjection        Boolean             @map("full_projection")
   createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(6)
   plan             PlanCatalogPlan          @relation(fields: [planId], references: [id], onDelete: Restrict, onUpdate: Cascade)

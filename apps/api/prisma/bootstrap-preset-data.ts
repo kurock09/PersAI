@@ -1,3 +1,17 @@
+import type { ModelExposure } from "./tool-catalog-data.js";
+
+/** ADR-135 — synthetic/bootstrap tools not stored as catalog rows. */
+export const SYNTHETIC_TOOL_DEFAULT_MODEL_EXPOSURE: Record<
+  "summarize_context" | "compact_context" | "quota_status" | "knowledge_search" | "knowledge_fetch",
+  ModelExposure
+> = {
+  summarize_context: "catalog",
+  compact_context: "catalog",
+  quota_status: "catalog",
+  knowledge_search: "full",
+  knowledge_fetch: "full"
+};
+
 const SYNTHETIC_TOOL_METADATA_ID_SEGMENT: Record<
   | "summarize_context"
   | "compact_context"

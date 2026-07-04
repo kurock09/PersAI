@@ -1763,6 +1763,7 @@ export class MaterializeAssistantPublishedVersionService {
       maxFilePreviewBytes: number | null;
       maxFilePreviewEdgePx: number | null;
       activationStatus: string;
+      fullProjection: boolean | null;
     }>
   > {
     if (planCode === null) {
@@ -1783,6 +1784,7 @@ export class MaterializeAssistantPublishedVersionService {
         perTurnCap: true,
         maxFilePreviewBytes: true,
         maxFilePreviewEdgePx: true,
+        fullProjection: true,
         tool: {
           select: { code: true }
         }
@@ -1794,7 +1796,8 @@ export class MaterializeAssistantPublishedVersionService {
       perTurnCap: activation.perTurnCap,
       maxFilePreviewBytes: activation.maxFilePreviewBytes,
       maxFilePreviewEdgePx: activation.maxFilePreviewEdgePx,
-      activationStatus: activation.activationStatus
+      activationStatus: activation.activationStatus,
+      fullProjection: activation.fullProjection
     }));
   }
 

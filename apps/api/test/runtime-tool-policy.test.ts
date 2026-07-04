@@ -173,7 +173,8 @@ async function run(): Promise<void> {
         perTurnCap: 2,
         maxFilePreviewBytes: null,
         maxFilePreviewEdgePx: null,
-        activationStatus: "active"
+        activationStatus: "active",
+        fullProjection: true
       },
       {
         toolCode: "image_generate",
@@ -181,7 +182,8 @@ async function run(): Promise<void> {
         perTurnCap: null,
         maxFilePreviewBytes: null,
         maxFilePreviewEdgePx: null,
-        activationStatus: "inactive"
+        activationStatus: "inactive",
+        fullProjection: false
       },
       {
         toolCode: "files",
@@ -189,7 +191,17 @@ async function run(): Promise<void> {
         perTurnCap: null,
         maxFilePreviewBytes: 1_048_576,
         maxFilePreviewEdgePx: 1024,
-        activationStatus: "active"
+        activationStatus: "active",
+        fullProjection: true
+      },
+      {
+        toolCode: "document",
+        dailyCallLimit: null,
+        perTurnCap: null,
+        maxFilePreviewBytes: null,
+        maxFilePreviewEdgePx: null,
+        activationStatus: "active",
+        fullProjection: false
       }
     ],
     toolCredentialRefs: {
@@ -338,6 +350,30 @@ async function run(): Promise<void> {
     "quota_status should be emitted only once even when synthetic and catalog policies overlap"
   );
   assert.equal(toolPolicies.filter((tool) => tool.toolCode === "files").length, 1);
+
+  // ADR-135 S1 — plan fullProjection materializes RuntimeToolPolicy.modelExposure.
+  const webSearchExposure = toolPolicies.find((tool) => tool.toolCode === "web_search");
+  assert.equal(webSearchExposure?.modelExposure, "full");
+  const documentExposure = toolPolicies.find((tool) => tool.toolCode === "document");
+  assert.equal(documentExposure?.modelExposure, "catalog");
+  const inactiveImageGenerate = toolPolicies.find((tool) => tool.toolCode === "image_generate");
+  assert.equal(
+    inactiveImageGenerate?.modelExposure,
+    undefined,
+    "inactive tools omit modelExposure"
+  );
+  const summarizeExposure = toolPolicies.find((tool) => tool.toolCode === "summarize_context");
+  assert.equal(
+    summarizeExposure?.modelExposure,
+    "catalog",
+    "synthetic catalog-tier tools default to catalog exposure"
+  );
+  const knowledgeSearchExposure = toolPolicies.find((tool) => tool.toolCode === "knowledge_search");
+  assert.equal(
+    knowledgeSearchExposure?.modelExposure,
+    "full",
+    "synthetic full-tier tools default to full exposure"
+  );
 
   const videoTools = tools.map((tool) =>
     tool.code === "video_generate"

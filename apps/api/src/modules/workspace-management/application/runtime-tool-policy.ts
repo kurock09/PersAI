@@ -9,6 +9,12 @@ import {
   PERSAI_RUNTIME_VIDEO_GENERATE_PROVIDER_IDS,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
+import { SYNTHETIC_TOOL_DEFAULT_MODEL_EXPOSURE } from "../../../../prisma/bootstrap-preset-data";
+import {
+  resolveCatalogDefaultModelExposure,
+  resolveRuntimeModelToolCode,
+  type ModelExposure
+} from "../../../../prisma/tool-catalog-data";
 import type { EffectiveToolAvailabilityState } from "./effective-tool-availability.types";
 import {
   SYNTHETIC_PROMPT_CONSTRUCTOR_TOOL_DEFAULTS,
@@ -28,6 +34,8 @@ type ToolQuotaPolicyEntry = {
   maxFilePreviewBytes: number | null;
   maxFilePreviewEdgePx: number | null;
   activationStatus: string;
+  /** ADR-135 — plan ☑/☐ full JSON on wire. */
+  fullProjection: boolean | null;
 };
 
 type SyntheticPromptToolOverrideMap = Record<
@@ -99,6 +107,51 @@ function resolveToolExecutionMode(toolCode: string): RuntimeToolPolicy["executio
 
 function resolveRuntimeToolCode(toolCode: string): string {
   return RUNTIME_TOOL_CODE_BY_INVENTORY_CODE[toolCode] ?? toolCode;
+}
+
+function resolveSyntheticDefaultModelExposure(runtimeToolCode: string): ModelExposure | null {
+  if (runtimeToolCode in SYNTHETIC_TOOL_DEFAULT_MODEL_EXPOSURE) {
+    return SYNTHETIC_TOOL_DEFAULT_MODEL_EXPOSURE[
+      runtimeToolCode as keyof typeof SYNTHETIC_TOOL_DEFAULT_MODEL_EXPOSURE
+    ];
+  }
+  return null;
+}
+
+function resolveCatalogFallbackModelExposure(
+  catalogToolCode: string,
+  runtimeToolCode: string
+): ModelExposure | null {
+  return (
+    resolveCatalogDefaultModelExposure(catalogToolCode) ??
+    resolveSyntheticDefaultModelExposure(runtimeToolCode)
+  );
+}
+
+function resolveMaterializedModelExposure(params: {
+  enabled: boolean;
+  catalogToolCode: string;
+  runtimeToolCode: string;
+  fullProjection: boolean | null | undefined;
+}): "full" | "catalog" | undefined {
+  if (!params.enabled) {
+    return undefined;
+  }
+  if (params.fullProjection === true) {
+    return "full";
+  }
+  if (params.fullProjection === false) {
+    return "catalog";
+  }
+  return (
+    resolveCatalogFallbackModelExposure(params.catalogToolCode, params.runtimeToolCode) ?? "full"
+  );
+}
+
+function withModelExposure(
+  modelExposure: "full" | "catalog" | undefined
+): Pick<RuntimeToolPolicy, "modelExposure"> | Record<string, never> {
+  return modelExposure === undefined ? {} : { modelExposure };
 }
 
 function resolveRuntimeToolDisplayName(
@@ -306,7 +359,8 @@ function hasNativeModelExecution(
 function buildSyntheticSystemToolPolicy(
   toolCode: keyof typeof SYNTHETIC_PROMPT_CONSTRUCTOR_TOOL_DEFAULTS,
   overrides: SyntheticPromptToolOverrideMap,
-  knowledgeAccessEnabled: boolean
+  knowledgeAccessEnabled: boolean,
+  fullProjection: boolean | null | undefined
 ): RuntimeToolPolicy {
   const base = resolveSyntheticPromptConstructorTool(toolCode, []);
   const override = overrides[toolCode];
@@ -326,7 +380,15 @@ function buildSyntheticSystemToolPolicy(
     visibleToModel: enabled,
     visibleInPlanEditor: false,
     dailyCallLimit: null,
-    perTurnCap: null
+    perTurnCap: null,
+    ...withModelExposure(
+      resolveMaterializedModelExposure({
+        enabled,
+        catalogToolCode: toolCode,
+        runtimeToolCode: toolCode,
+        fullProjection
+      })
+    )
   };
 }
 
@@ -384,6 +446,9 @@ export function resolveRuntimeToolPolicies(params: {
   const maxFilePreviewEdgePxByCode = new Map(
     params.planToolQuotaPolicy.map((tool) => [tool.toolCode, tool.maxFilePreviewEdgePx] as const)
   );
+  const fullProjectionByCode = new Map(
+    params.planToolQuotaPolicy.map((tool) => [tool.toolCode, tool.fullProjection] as const)
+  );
   const catalogPolicies = params.tools.map((tool): RuntimeToolPolicy => {
     const kind = resolveToolKind(tool.policyClass);
     const runtimeToolCode = resolveRuntimeToolCode(tool.code);
@@ -409,6 +474,14 @@ export function resolveRuntimeToolPolicies(params: {
       visibleInPlanEditor: tool.visibleInPlanEditor,
       dailyCallLimit: dailyLimitByCode.get(tool.code) ?? null,
       perTurnCap: perTurnCapByCode.get(tool.code) ?? null,
+      ...withModelExposure(
+        resolveMaterializedModelExposure({
+          enabled,
+          catalogToolCode: tool.code,
+          runtimeToolCode,
+          fullProjection: fullProjectionByCode.get(tool.code)
+        })
+      ),
       ...(runtimeToolCode === "files"
         ? {
             maxFilePreviewBytes: resolveEffectiveMaxFilePreviewBytes(
@@ -436,7 +509,10 @@ export function resolveRuntimeToolPolicies(params: {
       buildSyntheticSystemToolPolicy(
         toolCode,
         params.syntheticToolOverrides ?? {},
-        params.knowledgeAccessEnabled
+        params.knowledgeAccessEnabled,
+        fullProjectionByCode.get(resolveRuntimeModelToolCode(toolCode)) ??
+          fullProjectionByCode.get(toolCode) ??
+          null
       )
     );
   return dedupeRuntimeToolPolicies([...catalogPolicies, ...syntheticPolicies]);

@@ -11,6 +11,7 @@ import {
 } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
 import { buildToolCredentialSecretRef } from "../src/modules/workspace-management/application/tool-credential-settings";
 import type { RuntimeToolPolicy } from "@persai/runtime-contract";
+import { resolveRuntimeToolPolicies } from "../src/modules/workspace-management/application/runtime-tool-policy";
 
 const RUNWAY_VIDEO_MODEL_PARAMETERS = {
   duration: {
@@ -590,6 +591,88 @@ async function run(): Promise<void> {
         modelKey: "missing-video-model"
       }),
     /not present in the active runtime video catalog/
+  );
+
+  // ADR-135 S1 — plan fullProjection → RuntimeToolPolicy.modelExposure at materialize.
+  const exposurePolicies = resolveRuntimeToolPolicies({
+    tools: [
+      {
+        code: "web_search",
+        displayName: "Web Search",
+        description: "Search the public web.",
+        modelDescription: null,
+        modelUsageGuidance: null,
+        capabilityGroup: "knowledge",
+        toolClass: "cost_driving",
+        policyClass: "plan_managed",
+        catalogStatus: "active",
+        planActivationStatus: "active",
+        effectiveActivation: "active",
+        visibleInPlanEditor: true
+      },
+      {
+        code: "video_generate",
+        displayName: "Video Generate",
+        description: "Generate video.",
+        modelDescription: null,
+        modelUsageGuidance: null,
+        capabilityGroup: "knowledge",
+        toolClass: "cost_driving",
+        policyClass: "plan_managed",
+        catalogStatus: "active",
+        planActivationStatus: "active",
+        effectiveActivation: "active",
+        visibleInPlanEditor: true
+      }
+    ],
+    planToolQuotaPolicy: [
+      {
+        toolCode: "web_search",
+        dailyCallLimit: null,
+        perTurnCap: null,
+        maxFilePreviewBytes: null,
+        maxFilePreviewEdgePx: null,
+        activationStatus: "active",
+        fullProjection: true
+      },
+      {
+        toolCode: "video_generate",
+        dailyCallLimit: null,
+        perTurnCap: null,
+        maxFilePreviewBytes: null,
+        maxFilePreviewEdgePx: null,
+        activationStatus: "active",
+        fullProjection: false
+      }
+    ],
+    toolCredentialRefs: {
+      web_search: {
+        refKey: "tool_web_search",
+        secretRef: { source: "env", provider: "tavily", id: "tool_web_search" },
+        configured: true,
+        providerId: "tavily"
+      },
+      video_generate: {
+        refKey: "tool_video_generate_runway",
+        secretRef: {
+          source: "persai",
+          provider: "persai-runtime",
+          id: "tool/video_generate/runway/api-key"
+        },
+        configured: true,
+        providerId: "runway"
+      }
+    },
+    knowledgeAccessEnabled: true,
+    sandboxEnabled: true
+  });
+  assert.equal(
+    exposurePolicies.find((tool) => tool.toolCode === "web_search")?.modelExposure,
+    "full"
+  );
+  assert.equal(
+    exposurePolicies.find((tool) => tool.toolCode === "video_generate")?.modelExposure,
+    "catalog"
   );
 
   // ── ADR-109 Slice 8 — talkingVideoEnabled materialization into toolPolicy ──
