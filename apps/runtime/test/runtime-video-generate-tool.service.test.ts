@@ -1902,6 +1902,45 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
     engine: "avatar_v"
   });
 
+  const talkingAvatarMediaJobCall = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Render a short narrated greeting from Anya",
+      mode: "talking_avatar",
+      speechText: "Background job checkpoint test.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya"
+    }),
+    availableAttachments: [],
+    sessionId: "session-1",
+    mediaJobId: "job-talking-avatar-checkpoint-1",
+    requestId: "request-talking-avatar-media-job-checkpoint"
+  });
+  assert.equal(talkingAvatarMediaJobCall.payload.action, "generated");
+  assert.equal(
+    providerGatewayClientService.videoCalls.at(-1)?.input.mediaJobId,
+    "job-talking-avatar-checkpoint-1"
+  );
+
+  const talkingAvatarSessionMediaJobCall = await service.executeToolCall({
+    bundle: heygenBundle,
+    toolCall: createToolCall({
+      prompt: "Render a short narrated greeting from Anya",
+      mode: "talking_avatar",
+      speechText: "Session-scoped media job checkpoint test.",
+      speechLanguage: "en-US",
+      personaId: "persona-anya"
+    }),
+    availableAttachments: [],
+    sessionId: "media-job:job-talking-avatar-checkpoint-2",
+    requestId: "request-talking-avatar-session-media-job-checkpoint"
+  });
+  assert.equal(talkingAvatarSessionMediaJobCall.payload.action, "generated");
+  assert.equal(
+    providerGatewayClientService.videoCalls.at(-1)?.input.mediaJobId,
+    "job-talking-avatar-checkpoint-2"
+  );
+
   persaiInternalApiClientService.personaMap.set("workspace-1:persona-wide", {
     id: "persona-wide",
     displayName: "Wide Persona",

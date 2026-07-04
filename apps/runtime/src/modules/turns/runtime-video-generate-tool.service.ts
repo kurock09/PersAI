@@ -529,6 +529,7 @@ export class RuntimeVideoGenerateToolService {
         model: this.resolveVideoGenerateModelKey(talkingAvatarRef),
         availableAttachments: params.availableAttachments,
         sessionId: params.sessionId,
+        mediaJobId: params.mediaJobId ?? null,
         requestId: params.requestId
       });
     }
@@ -2677,6 +2678,7 @@ export class RuntimeVideoGenerateToolService {
     model: ProviderGatewayVideoGenerateRequest["model"];
     availableAttachments: RuntimeAttachmentRef[];
     sessionId: string;
+    mediaJobId: string | null;
     requestId: string;
   }): Promise<RuntimeVideoGenerateToolExecutionResult> {
     const {
@@ -2688,6 +2690,7 @@ export class RuntimeVideoGenerateToolService {
       model,
       availableAttachments,
       sessionId,
+      mediaJobId,
       requestId
     } = params;
 
@@ -3107,7 +3110,7 @@ export class RuntimeVideoGenerateToolService {
           referenceTailImage: null,
           voiceIds: null,
           acceptedTask: this.readAcceptedTaskHint(request, credentialAttempt),
-          mediaJobId: this.resolveMediaJobIdFromSession(sessionId),
+          mediaJobId: mediaJobId ?? this.resolveMediaJobIdFromSession(sessionId),
           providerParameters: this.resolveProviderVideoParameters({
             providerId,
             audioMode: normalizedRequest.request.audioMode,
