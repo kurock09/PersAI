@@ -15,7 +15,8 @@ What landed locally:
 - **provider-gateway:** HeyGen abort during poll → `PERSAI_VIDEO_POLLING_LOST`; Test 6d fixed (no 10m hang).
 - **runtime media-job:** idempotency key salts with `acceptedProviderTaskId` for recovery resume.
 - **runtime video:** parse polling-loss marker; talking-avatar fallback from checkpoint **only** on polling-continuity-loss signals (audit gate).
-- **runtime turn loop:** reorder catalog contract loads before execution; expand wire on describe + video read-only lookups; provider failures do not clear expansion.
+- **runtime turn loop:** reorder catalog contract loads before execution; expand wire on describe + video read-only lookups; provider failures do not clear expansion; **mark catalog wire expanded on any guard-passing catalog call** and refresh `tools[]` immediately so full contract persists across provider errors and invalid_arguments within the same user turn.
+- **runtime tts:** accept optional `action:"synthesize"` (ignore alongside `text`) so models are not rejected after describe.
 
 Verification: lint ✅, api/web/runtime/provider-gateway typecheck ✅, heygen tests ✅, media-job tests 9/9 ✅, runtime isolated suite ✅.
 

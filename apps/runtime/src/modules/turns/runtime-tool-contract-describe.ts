@@ -47,10 +47,28 @@ export function isToolLevelContractDescribeCall(
   return true;
 }
 
-function isCatalogTierToolPolicy(bundle: AssistantRuntimeBundle, toolCode: string): boolean {
+export function isCatalogTierToolPolicy(bundle: AssistantRuntimeBundle, toolCode: string): boolean {
   const policy =
     bundle.governance.toolPolicies.find((entry) => entry.toolCode === toolCode) ?? null;
   return policy !== null && resolveModelExposure(policy) === "catalog";
+}
+
+/**
+ * ADR-135 — once a catalog-tier tool passes the contract guard in a turn, keep
+ * full wire projection for every later tool-loop step in that same user turn
+ * (provider errors and invalid_arguments must not revert to catalog stub).
+ */
+export function markCatalogToolWireExpandedForTurn(
+  bundle: AssistantRuntimeBundle,
+  toolCode: string,
+  wireExpandedCatalogToolCodes: Set<string>
+): boolean {
+  if (!isCatalogTierToolPolicy(bundle, toolCode)) {
+    return false;
+  }
+  const before = wireExpandedCatalogToolCodes.size;
+  wireExpandedCatalogToolCodes.add(toolCode);
+  return wireExpandedCatalogToolCodes.size > before;
 }
 
 export function isCatalogReadOnlyToolCall(

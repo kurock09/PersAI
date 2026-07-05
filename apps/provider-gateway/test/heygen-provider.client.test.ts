@@ -603,7 +603,7 @@ export async function runHeyGenProviderClientTest(): Promise<void> {
   // Test 6d: Poll abort after accept → recoverable PERSAI_VIDEO_POLLING_LOST
   // ──────────────────────────────────────────────────────────────────────────
   {
-    globalThis.fetch = (async (input: URL | RequestInfo, _init?: RequestInit) => {
+    globalThis.fetch = (async (input: URL | RequestInfo) => {
       const url =
         typeof input === "string"
           ? input

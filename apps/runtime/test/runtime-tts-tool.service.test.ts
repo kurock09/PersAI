@@ -457,4 +457,17 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   assert.equal(unknownArg.payload.action, "skipped");
   assert.equal(unknownArg.payload.reason, "invalid_arguments");
   assert.match(unknownArg.payload.warning ?? "", /Unexpected arguments: toneTag/);
+
+  const withSynthesizeAction = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "synthesize",
+      text: "action synthesize is accepted alongside text.",
+      delivery: "warm"
+    }),
+    sessionId: "session-1",
+    requestId: "request-3b"
+  });
+  assert.equal(withSynthesizeAction.payload.action, "generated");
+  assert.equal(withSynthesizeAction.isError, false);
 }

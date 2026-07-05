@@ -4,6 +4,7 @@ import type { ProviderGatewayToolCall } from "@persai/runtime-contract";
 import { TurnExecutionService } from "../src/modules/turns/turn-execution.service";
 import {
   createToolContractNotLoadedPayload,
+  markCatalogToolWireExpandedForTurn,
   shouldGuardCatalogToolExecution
 } from "../src/modules/turns/runtime-tool-contract-describe";
 import { createEmptyCatalogToolTurnMetrics } from "../src/modules/turns/catalog-tool-turn-metrics";
@@ -339,4 +340,33 @@ export async function runCatalogToolWireExpansionTest(): Promise<void> {
     videoTurnStateAfterFailure.wireExpandedCatalogToolCodes.has("video_generate"),
     "provider failures must not clear turn-local catalog wire expansion"
   );
+
+  const persistBundle = buildMinimalCatalogBundle("summarize_context");
+  const persistTurnState = {
+    wireExpandedCatalogToolCodes: new Set<string>(),
+    catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
+  };
+  assert.equal(
+    markCatalogToolWireExpandedForTurn(
+      persistBundle,
+      "summarize_context",
+      persistTurnState.wireExpandedCatalogToolCodes
+    ),
+    true
+  );
+  assert.equal(
+    markCatalogToolWireExpandedForTurn(
+      persistBundle,
+      "summarize_context",
+      persistTurnState.wireExpandedCatalogToolCodes
+    ),
+    false,
+    "re-marking the same catalog tool in the same turn is a no-op"
+  );
+  const persistedProjection = projectRuntimeNativeTools(persistBundle, {
+    wireExpandedCatalogToolCodes: persistTurnState.wireExpandedCatalogToolCodes
+  });
+  const persistedTool = persistedProjection.tools.find((tool) => tool.name === "summarize_context");
+  assert.ok(persistedTool);
+  assert.doesNotMatch(persistedTool.description, /Call summarize_context\(\{action:"describe"\}\)/);
 }

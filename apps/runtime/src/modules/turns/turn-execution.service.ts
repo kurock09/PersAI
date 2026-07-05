@@ -136,6 +136,7 @@ import {
   isCatalogReadOnlyToolCall,
   isToolContractDescribeCall,
   isToolLevelContractDescribeCall,
+  markCatalogToolWireExpandedForTurn,
   shouldGuardCatalogToolExecution
 } from "./runtime-tool-contract-describe";
 import {
@@ -3282,6 +3283,15 @@ export class TurnExecutionService {
         toolCall,
         createToolContractNotLoadedPayload(toolCall.name)
       );
+    }
+    if (
+      markCatalogToolWireExpandedForTurn(
+        execution.bundle,
+        toolCall.name,
+        turnState.wireExpandedCatalogToolCodes
+      )
+    ) {
+      this.refreshTurnProjectedToolsForWireExpansion(execution, turnState);
     }
     if (isToolLevelContractDescribeCall(toolCall.name, toolCall.arguments)) {
       const described = executeRuntimeToolContractDescribe({

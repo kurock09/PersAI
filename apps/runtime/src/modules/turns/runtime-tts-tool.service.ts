@@ -260,6 +260,7 @@ export class RuntimeTtsToolService {
     bundle: AssistantRuntimeBundle
   ): (RuntimeTtsRequest & { deliveryKind: PersaiRuntimeTtsDeliveryKind }) | Error {
     const allowedKeys = new Set([
+      "action",
       "text",
       "delivery",
       "emotion",
@@ -272,6 +273,14 @@ export class RuntimeTtsToolService {
     const unknownKeys = Object.keys(args).filter((key) => !allowedKeys.has(key));
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
+    }
+    if (
+      args.action !== undefined &&
+      args.action !== null &&
+      args.action !== "synthesize" &&
+      args.action !== "describe"
+    ) {
+      return new Error('action must be "describe" or "synthesize" when provided.');
     }
 
     const text = this.asNonEmptyString(args.text);
