@@ -2,7 +2,7 @@
 
 ## 2026-07-05 — files.write→attach instruction repair + gallery orphan download fix
 
-Status: **local only — not committed/pushed; deploy pending.**
+Status: **pushed `dfad6143`; deploy + live smoke pending.**
 
 **Problem:** Live smoke showed models calling `files.write` without `files.attach` for `.txt` delivery; settings gallery showed orphan write-only files but chat-scoped download returned `not_found`. Separate incident: model passed full `/workspace/assistants/.../sessions/...` as `shell.cwd`, doubling the path (`.../sessions/.../workspace/assistants/...`).
 
