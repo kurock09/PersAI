@@ -5,7 +5,9 @@
 
 ## 2026-07-05
 
-- **Change (web UX batch — media banner count, plan card, video gallery, grace tiles; local).** Multi-image `activeMediaJobs` expose optional `requestedCount`; chat-input chip shows `Generating image (7)` / `Генерирую фото (7)` when count > 1, single-image unchanged. Chat plan card: completed→in_progress→pending sort, cap 10 active rows + show-more, Cursor-style static in-progress icon (ring gap + horizontal arrow). Workspace gallery + lightbox: authenticated video poster tiles, unmuted autoplay in lightbox, mobile poster instead of gray box. Grace-period files: sort to gallery end, clock icon bottom-left, semi-transparent tiles. Deploy + live smoke pending.
+- **Fix (chat plan card list UX + in-progress icon; local).** Plan expanded view caps at **7** visible rows (`≤7` all shown, no More; `>7` window with completed tail fill + More count). More enables fixed-height scroll through the full ordered list without collapsing on todo stream rerenders. In-progress icon uses lucide-matched circle geometry (static arrow ring). 22 plan-card tests PASS. Deploy pending.
+
+- **Change (web UX batch — media banner count, plan card, video gallery, grace tiles; pushed `25feb3f3`).** Multi-image `activeMediaJobs` expose optional `requestedCount`; chat-input chip shows batch size when count > 1. Chat plan card sorting/show-more/in-progress icon (superseded by list UX fix above). Workspace gallery video posters + grace tiles. Deploy + live smoke pending.
 
 - **Change (session_subtree 3-day grace — local, no ADR).** Chat hard-delete defers workspace file purge: `session_subtree` lease `scheduledAt = now()+3d` with `metadata.sessionId`; manifest rows no longer deleted eagerly in API; sandbox reaper purges `/workspace/assistants/<id>/sessions/<sessionId>/` GCS + warm pod + manifest + session snapshot. Gallery exposes `purgeScheduledAt` with `3d/2d/1d` badge; new `GET /assistant/workspace-files` lists assistant/workspace scope when no active chat (grace files after all chats deleted). Aligns with existing `assistant_subtree` (+7d) and `workspace_subtree` (+30d). Deploy + live smoke pending.
 

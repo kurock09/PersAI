@@ -1,5 +1,15 @@
 # SESSION-HANDOFF
 
+## 2026-07-05 — chat plan card list UX + in-progress icon fix
+
+Status: **landed locally; commit + push this session.**
+
+**Scope:** Plan list window cap **7** rows; `≤7` all visible, no More; `>7` shows 7-row window (active + completed tail); More → fixed-height scroll through full list; no reset on stream rerenders. In-progress icon matched to lucide circle size.
+
+**Files:** `chat-plan-card.tsx`, `chat-plan-card.test.tsx`.
+
+**Verification:** lint, format:check, typecheck, test, test:step2 (849 web), build PASS.
+
 ## 2026-07-05 — web UX batch: media banner count, plan card, video gallery, grace tiles
 
 Status: **pushed `5ec84b5c`; deploy + live smoke pending.**

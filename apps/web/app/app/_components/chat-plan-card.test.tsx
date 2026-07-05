@@ -245,48 +245,118 @@ describe("ChatPlanCard", () => {
     expect(within(body).getByText("▸", { exact: false })).toBeInTheDocument();
   });
 
-  it("orders completed tasks above active tasks in the expanded body", () => {
+  it("orders completed tasks above active tasks in the scrollable full list", () => {
     const todos = [
-      makeTodo({ id: "1", status: "pending", content: "Next up" }),
-      makeTodo({ id: "2", status: "completed", content: "Done task" }),
-      makeTodo({ id: "3", status: "in_progress", content: "Currently working" })
+      makeTodo({ id: "done-1", status: "completed", content: "Done A" }),
+      makeTodo({ id: "done-2", status: "completed", content: "Done B" }),
+      makeTodo({ id: "active-0", status: "in_progress", content: "Currently working" }),
+      ...Array.from({ length: 9 }, (_, index) =>
+        makeTodo({ id: `active-${String(index + 1)}`, content: `Pending ${String(index + 1)}` })
+      )
     ];
     const { container } = render(
-      <ChatPlanCard todos={todos} totalCount={3} windowed={false} onClear={noop} />
-    );
-    expand(container);
-    const body = container.querySelector("#chat-plan-body") as HTMLElement;
-    const done = within(body).getByText("Done task");
-    const current = within(body).getByText("Currently working");
-    const next = within(body).getByText("Next up");
-    expect(done.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(current.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("shows a More button when more than 10 active tasks are expanded", () => {
-    const todos = Array.from({ length: 12 }, (_, index) =>
-      makeTodo({ id: String(index + 1), content: `Task ${index + 1}`, status: "pending" })
-    );
-    const { container } = render(
-      <ChatPlanCard todos={todos} totalCount={12} windowed={false} onClear={noop} />
-    );
-    expand(container);
-    expect(within(container).getByTestId("chat-plan-show-more")).toBeInTheDocument();
-    expect(within(container).queryByText("Task 11")).toBeNull();
-    expect(within(container).queryByText("Task 12")).toBeNull();
-  });
-
-  it("reveals the remaining active tasks after More is clicked", () => {
-    const todos = Array.from({ length: 12 }, (_, index) =>
-      makeTodo({ id: String(index + 1), content: `Task ${index + 1}`, status: "pending" })
-    );
-    const { container } = render(
-      <ChatPlanCard todos={todos} totalCount={12} windowed={false} onClear={noop} />
+      <ChatPlanCard todos={todos} totalCount={todos.length} windowed={false} onClear={noop} />
     );
     expand(container);
     fireEvent.click(within(container).getByTestId("chat-plan-show-more"));
-    expect(within(container).getByText("Task 11")).toBeInTheDocument();
-    expect(within(container).getByText("Task 12")).toBeInTheDocument();
+    const body = container.querySelector("#chat-plan-body") as HTMLElement;
+    const doneA = within(body).getByText("Done A");
+    const doneB = within(body).getByText("Done B");
+    const current = within(body).getByText("Currently working");
+    const next = within(body).getByText("Pending 1");
+    expect(doneA.compareDocumentPosition(doneB) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(doneB.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(current.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows every row with no More button when the plan has 7 or fewer tasks", () => {
+    const todos = [
+      makeTodo({ id: "done-1", status: "completed", content: "Done 1" }),
+      makeTodo({ id: "done-2", status: "completed", content: "Done 2" }),
+      makeTodo({ id: "done-3", status: "completed", content: "Done 3" }),
+      ...Array.from({ length: 4 }, (_, index) =>
+        makeTodo({ id: `active-${String(index + 1)}`, content: `Active ${String(index + 1)}` })
+      )
+    ];
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={todos.length} windowed={false} onClear={noop} />
+    );
+    expand(container);
+    const body = container.querySelector("#chat-plan-body") as HTMLElement;
+    expect(within(body).getByText("Done 1")).toBeInTheDocument();
+    expect(within(body).getByText("Done 3")).toBeInTheDocument();
+    expect(within(body).getByText("Active 4")).toBeInTheDocument();
+    expect(within(container).queryByTestId("chat-plan-show-more")).toBeNull();
+  });
+
+  it("shows one completed tail plus all active rows when 3 done and 6 active exceed the cap", () => {
+    const todos = [
+      makeTodo({ id: "done-1", status: "completed", content: "Done 1" }),
+      makeTodo({ id: "done-2", status: "completed", content: "Done 2" }),
+      makeTodo({ id: "done-3", status: "completed", content: "Done 3" }),
+      makeTodo({ id: "active-0", status: "in_progress", content: "Currently working" }),
+      ...Array.from({ length: 5 }, (_, index) =>
+        makeTodo({ id: `active-${String(index + 1)}`, content: `Pending ${String(index + 1)}` })
+      )
+    ];
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={todos.length} windowed={false} onClear={noop} />
+    );
+    expand(container);
+    const body = container.querySelector("#chat-plan-body") as HTMLElement;
+    expect(within(body).queryByText("Done 1")).toBeNull();
+    expect(within(body).queryByText("Done 2")).toBeNull();
+    expect(within(body).getByText("Done 3")).toBeInTheDocument();
+    expect(within(body).getByText("Currently working")).toBeInTheDocument();
+    expect(within(body).getByText("Pending 5")).toBeInTheDocument();
+    expect(within(container).getByTestId("chat-plan-show-more")).toBeInTheDocument();
+    expect(body.className).toMatch(/overflow-hidden/);
+  });
+
+  it("shows a More button when more than 7 tasks are expanded", () => {
+    const todos = Array.from({ length: 9 }, (_, index) =>
+      makeTodo({ id: String(index + 1), content: `Task ${index + 1}`, status: "pending" })
+    );
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={9} windowed={false} onClear={noop} />
+    );
+    expand(container);
+    expect(within(container).getByTestId("chat-plan-show-more")).toBeInTheDocument();
+    expect(within(container).queryByText("Task 7")).toBeInTheDocument();
+    expect(within(container).queryByText("Task 8")).toBeNull();
+    expect(within(container).queryByText("Task 9")).toBeNull();
+  });
+
+  it("reveals the full scrollable list after More is clicked without changing body height class", () => {
+    const todos = Array.from({ length: 9 }, (_, index) =>
+      makeTodo({ id: String(index + 1), content: `Task ${index + 1}`, status: "pending" })
+    );
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={9} windowed={false} onClear={noop} />
+    );
+    expand(container);
+    const body = container.querySelector("#chat-plan-body") as HTMLElement;
+    expect(body.className).toMatch(/max-h-/);
+    expect(body.className).toMatch(/overflow-hidden/);
+    fireEvent.click(within(container).getByTestId("chat-plan-show-more"));
+    expect(within(container).getByText("Task 8")).toBeInTheDocument();
+    expect(within(container).getByText("Task 9")).toBeInTheDocument();
+    expect(within(container).queryByTestId("chat-plan-show-more")).toBeNull();
+    expect(body.className).toMatch(/overflow-y-auto/);
+    expect(body.className).toMatch(/max-h-/);
+  });
+
+  it("keeps the expanded active list open after a benign todos rerender", () => {
+    const todos = Array.from({ length: 9 }, (_, index) =>
+      makeTodo({ id: String(index + 1), content: `Task ${index + 1}`, status: "pending" })
+    );
+    const { container, rerender } = render(
+      <ChatPlanCard todos={todos} totalCount={9} windowed={false} onClear={noop} />
+    );
+    expand(container);
+    fireEvent.click(within(container).getByTestId("chat-plan-show-more"));
+    rerender(<ChatPlanCard todos={[...todos]} totalCount={9} windowed={false} onClear={noop} />);
+    expect(within(container).getByText("Task 8")).toBeInTheDocument();
     expect(within(container).queryByTestId("chat-plan-show-more")).toBeNull();
   });
 

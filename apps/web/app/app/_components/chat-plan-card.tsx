@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, Circle, Loader2, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
@@ -14,7 +14,8 @@ export interface ChatPlanCardProps {
   className?: string;
 }
 
-const ACTIVE_TODO_LIMIT = 10;
+const ACTIVE_TODO_LIMIT = 7;
+const PLAN_BODY_MAX_HEIGHT_CLASS = "max-h-[min(40vh,280px)]";
 
 interface GroupedTodo {
   item: RuntimeTodoItem;
@@ -88,19 +89,49 @@ function buildVisiblePlanRows(
   showAllActive: boolean
 ): {
   visibleRows: PlanDisplayRow[];
-  hiddenActiveCount: number;
-  activeRowCount: number;
+  hiddenRowCount: number;
+  firstActiveRowId: string | null;
 } {
-  const completedRows = rows.filter((row) => row.item.status === "completed");
-  const activeRows = rows.filter((row) => row.item.status !== "completed");
-  const visibleActiveRows =
-    showAllActive || activeRows.length <= ACTIVE_TODO_LIMIT
-      ? activeRows
-      : activeRows.slice(0, ACTIVE_TODO_LIMIT);
+  const firstActiveRowId = rows.find((row) => row.item.status !== "completed")?.item.id ?? null;
+
+  if (showAllActive) {
+    return {
+      visibleRows: rows,
+      hiddenRowCount: 0,
+      firstActiveRowId
+    };
+  }
+
+  if (rows.length <= ACTIVE_TODO_LIMIT) {
+    return {
+      visibleRows: rows,
+      hiddenRowCount: 0,
+      firstActiveRowId
+    };
+  }
+
+  const firstActiveIndex = rows.findIndex((row) => row.item.status !== "completed");
+  if (firstActiveIndex === -1) {
+    return {
+      visibleRows: rows.slice(0, ACTIVE_TODO_LIMIT),
+      hiddenRowCount: rows.length - ACTIVE_TODO_LIMIT,
+      firstActiveRowId: null
+    };
+  }
+
+  const activeCount = rows.length - firstActiveIndex;
+  const completedBeforeActive = firstActiveIndex;
+  const completedToShow = Math.min(
+    completedBeforeActive,
+    Math.max(0, ACTIVE_TODO_LIMIT - activeCount)
+  );
+  const startIndex = Math.max(0, firstActiveIndex - completedToShow);
+  const visibleRows = rows.slice(startIndex, startIndex + ACTIVE_TODO_LIMIT);
+
   return {
-    visibleRows: [...completedRows, ...visibleActiveRows],
-    hiddenActiveCount: Math.max(0, activeRows.length - visibleActiveRows.length),
-    activeRowCount: activeRows.length
+    visibleRows,
+    hiddenRowCount: rows.length - visibleRows.length,
+    firstActiveRowId
   };
 }
 
@@ -117,25 +148,27 @@ function selectCurrentTodo(todos: RuntimeTodoItem[]): RuntimeTodoItem | null {
 }
 
 function TodoInProgressIcon({ className }: { className?: string }) {
+  // Match lucide Circle / CheckCircle2 geometry (24×24, r=10, stroke 2) so the ring
+  // reads the same diameter as pending/completed icons. Arrow starts left of center and
+  // may extend slightly past the ring; overflow stays visible inside the fixed h/w box.
   return (
     <svg
-      viewBox="0 0 16 16"
-      className={cn("shrink-0 text-text-muted/55", className)}
+      viewBox="0 0 24 24"
+      overflow="visible"
+      className={cn("shrink-0 overflow-visible text-text-muted/55", className)}
       aria-label="in_progress"
       fill="none"
     >
-      {/* Ring with a gap on the right where the arrow exits (Cursor-style). */}
       <path
-        d="M 12.53 10.11 A 5 5 0 1 1 12.53 5.89"
+        d="M 21.39 15.78 A 10 10 0 1 1 21.39 8.22"
         stroke="currentColor"
-        strokeWidth="1.5"
+        strokeWidth="2"
         strokeLinecap="round"
       />
-      {/* Horizontal arrow from center through the gap. */}
       <path
-        d="M 8 8 H 11.6 M 10.4 6.75 12.75 8 10.4 9.25"
+        d="M 9 12 H 19.2 M 17.2 10.1 21.8 12 17.2 13.9"
         stroke="currentColor"
-        strokeWidth="1.5"
+        strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -242,11 +275,12 @@ function ChatPlanCardBody({
   const [showAllActive, setShowAllActive] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const planBodyRef = useRef<HTMLDivElement>(null);
 
   const sortedTodos = useMemo(() => sortTodosForDisplay(todos), [todos]);
   const grouped = useMemo(() => groupTodos(sortedTodos), [sortedTodos]);
   const allRows = useMemo(() => flattenGroupedRows(grouped), [grouped]);
-  const { visibleRows, hiddenActiveCount, activeRowCount } = useMemo(
+  const { visibleRows, hiddenRowCount, firstActiveRowId } = useMemo(
     () => buildVisiblePlanRows(allRows, showAllActive),
     [allRows, showAllActive]
   );
@@ -258,8 +292,16 @@ function ChatPlanCardBody({
   }, [expanded]);
 
   useEffect(() => {
-    setShowAllActive(false);
-  }, [todos]);
+    if (!expanded || !showAllActive || firstActiveRowId === null) {
+      return;
+    }
+    const anchor = planBodyRef.current?.querySelector(
+      `[data-plan-first-active="${firstActiveRowId}"]`
+    );
+    if (anchor instanceof HTMLElement && typeof anchor.scrollIntoView === "function") {
+      anchor.scrollIntoView({ block: "start" });
+    }
+  }, [expanded, firstActiveRowId, showAllActive]);
 
   const allDone = doneCount === totalCount && totalCount > 0;
   const currentTodo = selectCurrentTodo(sortedTodos);
@@ -408,23 +450,25 @@ function ChatPlanCardBody({
         <>
           <div
             id={bodyId}
+            ref={planBodyRef}
             className={cn(
               "space-y-0 border-t border-border/30 px-3 py-2",
-              showAllActive &&
-                activeRowCount > ACTIVE_TODO_LIMIT &&
-                "max-h-[min(40vh,280px)] overflow-y-auto"
+              PLAN_BODY_MAX_HEIGHT_CLASS,
+              showAllActive ? "overflow-y-auto" : "overflow-hidden"
             )}
           >
             {visibleRows.map((row) => (
-              <PlanRow
+              <div
                 key={row.item.id}
-                item={row.item}
-                indented={row.indented}
-                isOrphan={row.isOrphan}
-              />
+                {...(showAllActive && row.item.id === firstActiveRowId
+                  ? { "data-plan-first-active": row.item.id }
+                  : {})}
+              >
+                <PlanRow item={row.item} indented={row.indented} isOrphan={row.isOrphan} />
+              </div>
             ))}
           </div>
-          {hiddenActiveCount > 0 ? (
+          {hiddenRowCount > 0 ? (
             <div className="border-t border-border/20 px-3 py-2">
               <button
                 type="button"
@@ -432,7 +476,7 @@ function ChatPlanCardBody({
                 onClick={() => setShowAllActive(true)}
                 data-testid="chat-plan-show-more"
               >
-                {t("planShowMore", { count: hiddenActiveCount })}
+                {t("planShowMore", { count: hiddenRowCount })}
               </button>
             </div>
           ) : null}
