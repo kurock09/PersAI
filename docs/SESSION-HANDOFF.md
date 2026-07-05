@@ -1,5 +1,28 @@
 # SESSION-HANDOFF
 
+## 2026-07-05 — files.write→attach instruction repair + gallery orphan download fix
+
+Status: **local only — not committed/pushed; deploy pending.**
+
+**Problem:** Live smoke showed models calling `files.write` without `files.attach` for `.txt` delivery; settings gallery showed orphan write-only files but chat-scoped download returned `not_found`. Separate incident: model passed full `/workspace/assistants/.../sessions/...` as `shell.cwd`, doubling the path (`.../sessions/.../workspace/assistants/...`).
+
+**What landed locally:**
+
+| Area | Change |
+|------|--------|
+| `tool-catalog-data.ts` | Canonical delivery contract: `files.write` ≠ chat delivery; require `files.attach` same turn; ADR-137 storage-plane wording (no `pod workspace` / `pod-absolute` in model guidance) |
+| `bootstrap-preset-data.ts` | Single-sourced routing in `<category name="files">` + `response_contract`; removed duplicate deliver line from documents category |
+| `native-tool-projection.ts` | Schema hint only on `action` enum (`write` persists / `attach` delivers) — no triplication of GOTCHAS |
+| `turn-execution.service.ts` | Open-document-jobs block: stale “shell PDF delivered via files.attach” → plain `.txt`/`.csv` need attach |
+| `workspace-files-gallery.tsx` | Chat download URL only when **both** `chatId` and `messageId`; orphan tiles use workspace URL |
+| `sandbox.service.ts` | `resolveShellExecCwdPath` — full `/workspace/...` cwd no longer doubles session root |
+| `turn-execution.service.ts` | Working Files: shell cwd hint under `cwd:` line |
+| Tests | `tool-catalog-data.test.ts`, `adr119-golden-prompt-snapshot.expected.txt`, `sandbox.service.test.ts`, `working-files-developer-section.test.ts` |
+
+**Verification:** `@persai/api` tool-catalog + bootstrap + golden snapshot tests PASS; `native-tool-projection.test.ts` PASS.
+
+**Next step:** commit + deploy `api`/`runtime`/`web`; live smoke: `files.write` + `files.attach` for `.txt`; confirm settings gallery download for write-only orphan; optional bootstrap re-seed if dev DB catalog rows lag seed file.
+
 ## 2026-07-05 — ADR-137 storage-plane cutover + shell/exec seam repair
 
 Status: **S0–S5.1 + full shell/exec seam repair pushed `7fa2e61c`; S6 grep gate PASS; deploy + live smoke pending.**

@@ -199,6 +199,32 @@ function testFilesCatalogRowUsesExactListedPaths(): void {
     !/workspace_shared|crossScope:true|scope:"assistant"|scope:"workspace_shared"/.test(text),
     "files guidance must not preserve stale scope/cross-scope vocabulary"
   );
+  assert.ok(
+    /files\.write.*persist|persist.*files\.write|Delivery contract/i.test(text),
+    "files guidance must teach that files.write alone is not chat delivery"
+  );
+  assert.ok(
+    /files\.attach/i.test(text) && /same turn/i.test(text),
+    "files guidance must require files.attach in the same turn for user-visible delivery"
+  );
+  assert.doesNotMatch(text, /pod workspace|pod-absolute/i);
+}
+
+function testShellCatalogRowWarnsAgainstCwdDoubling(): void {
+  const rows = TOOL_CATALOG.filter((t) => t.code === "shell");
+  assert.strictEqual(rows.length, 1, "TOOL_CATALOG must contain exactly one shell row");
+  const text = `${rows[0]!.modelDescription}\n${rows[0]!.modelUsageGuidance}`;
+  assert.ok(
+    /Default cwd is already the current session root/i.test(text),
+    "shell guidance must state default cwd is session root"
+  );
+  assert.ok(
+    /Never pass the full `\/workspace\/assistants\/\.\.\.\/sessions\/\.\.\.` path as `cwd`/i.test(
+      text
+    ),
+    "shell guidance must forbid full session path as cwd"
+  );
+  assert.doesNotMatch(text, /pod-absolute/i);
 }
 
 function testPresentationCatalogRowIsDeckSpecific(): void {
@@ -393,6 +419,7 @@ export async function runToolCatalogDataTest(): Promise<void> {
   testPresentationCatalogRowIsDeckSpecific();
   testCatalogRowsKeepSelectionGuideAsSingleOwner();
   testFilesCatalogRowUsesExactListedPaths();
+  testShellCatalogRowWarnsAgainstCwdDoubling();
   testStarterTrialPolicyPresentationMirrorsDocument();
   testPresentationIsPromptConstructorEditable();
   testStarterTrialPolicyTodoWrite();

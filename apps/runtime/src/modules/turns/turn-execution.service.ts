@@ -2198,6 +2198,9 @@ export class TurnExecutionService {
     const lines = ["## Working Files"];
     if (currentSessionRoot !== null) {
       lines.push(`cwd: ${currentSessionRoot}/`);
+      lines.push(
+        "Shell/exec already run in this directory — omit `shell.cwd` / `exec.cwd` and do not `cd` here again; use relative paths or the exact file `path` values below."
+      );
     }
     if (allSessionFiles.length > 0) {
       this.appendWorkingFilesTierSection(
@@ -2213,6 +2216,8 @@ export class TurnExecutionService {
         "",
         "Address files by the exact `path` shown above. Do not reconstruct a path from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed."
       );
+    } else if (currentSessionRoot !== null) {
+      lines.push("");
     }
     lines.push(
       "Recover a forgotten path with `files.list`, then `files.search` for natural-language lookup, then `files.read` / `files.preview`. If the user refers to a file not listed here, do not assume it is unavailable until you try those tools."
@@ -2398,7 +2403,7 @@ export class TurnExecutionService {
       "## Open Document Jobs",
       "Server truth: background document rendering is already in progress in this chat.",
       "Use this status block for any progress reply in the current turn.",
-      "Do not start a new PDF/DOCX/XLSX background document job. Ordinary document work uses document.inspect, document.render, or document.convert, and shell-produced PDF/DOCX/XLSX outputs are delivered with files.attach.",
+      "Do not start a new PDF/DOCX/XLSX background document job. Ordinary document work uses document.inspect, document.render, or document.convert; shell-produced plain files (.txt, .csv, etc.) need files.attach before claiming delivery.",
       "These are older or already-open jobs. They are NOT proof that the current user turn started a new delivery job.",
       "Only say a new presentation request was accepted, queued, or in progress when this same turn actually returned a structural pending_delivery result with a real jobId.",
       ...openDocumentJobs.slice(0, MAX_OPEN_DOCUMENT_JOB_CONTEXT_ITEMS).map((job, index) => {

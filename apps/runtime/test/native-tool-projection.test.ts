@@ -654,7 +654,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   const filesActionDescription =
     (files?.inputSchema as { properties?: { action?: { description?: string } } })?.properties
       ?.action?.description ?? "";
-  assert.match(filesActionDescription, /files\.search|shortDescription/i);
+  assert.match(filesActionDescription, /`write` persists only|action="search"/i);
+  assert.match(filesActionDescription, /`attach` delivers/i);
   const filesProperties = (
     files?.inputSchema as {
       properties?: {

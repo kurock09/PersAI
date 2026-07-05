@@ -67,7 +67,10 @@ function buildSection(
   ).buildWorkingFilesDeveloperSection(files, {
     currentChatId: null,
     producedPaths: new Set<string>(),
-    currentSessionRoot: context?.currentSessionRoot ?? TEST_SESSION_ROOT
+    currentSessionRoot:
+      context !== undefined && "currentSessionRoot" in context
+        ? context.currentSessionRoot
+        : TEST_SESSION_ROOT
   });
 }
 
@@ -528,6 +531,7 @@ describe("TurnExecutionService working files developer section", () => {
       [
         "## Working Files",
         `cwd: ${TEST_SESSION_ROOT}/`,
+        "Shell/exec already run in this directory — omit `shell.cwd` / `exec.cwd` and do not `cd` here again; use relative paths or the exact file `path` values below.",
         "",
         "Recover a forgotten path with `files.list`, then `files.search` for natural-language lookup, then `files.read` / `files.preview`. If the user refers to a file not listed here, do not assume it is unavailable until you try those tools.",
         "Do not send files or claim delivery/preparation unless the user explicitly asks and the current turn returns the matching tool result."

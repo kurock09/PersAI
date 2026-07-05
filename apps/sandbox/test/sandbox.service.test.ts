@@ -1240,6 +1240,71 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
   );
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ADR-126 Slice 1 — shell tool uses /bin/bash, warm-pool fire-and-forget.
-// ─────────────────────────────────────────────────────────────────────────────
+test("SandboxService: shell cwd accepts full /workspace/... path without doubling session root", async () => {
+  const assistantId = "2f8cf38e-a6d9-4609-b83a-2b748246fcec";
+  const runtimeSessionId = "6ea77d49-b361-4d9f-9733-a8e8f81748ed";
+  const sessionVisibleRoot = buildAssistantSessionRoot(assistantId, runtimeSessionId);
+  const capturedRunInPodCalls: Array<{ absoluteCwd: string }> = [];
+
+  const service = new SandboxService(
+    createLeasePrismaStub(),
+    {
+      buildSandboxObjectKey() {
+        return "obj/key";
+      },
+      buildSessionSnapshotKey() {
+        return "snap/key";
+      },
+      async saveObject(input: { buffer: Buffer }) {
+        return input.buffer.length;
+      },
+      async downloadObject() {
+        throw new Error("missing");
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 0 }),
+    {
+      async runInPod(input: { absoluteCwd: string }) {
+        capturedRunInPodCalls.push({ absoluteCwd: input.absoluteCwd });
+        return {
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+          durationMs: 10,
+          execPodName: "ses-cwd-test"
+        };
+      },
+      async warmSessionPod() {
+        return { podName: "ses-cwd-test", alreadyRunning: false };
+      }
+    } as never,
+    {} as never
+  );
+
+  const access = service as unknown as SandboxServiceTestAccess;
+  const workspaceRoot = access.resolveWorkspaceRoot("workspace-cwd-1");
+  await fs.mkdir(join(workspaceRoot, "assistants", assistantId, "sessions", runtimeSessionId), {
+    recursive: true
+  });
+
+  await access.executeQueuedJob("shell-cwd-job-1", {
+    assistantId,
+    workspaceId: "workspace-cwd-1",
+    runtimeRequestId: "request-cwd-1",
+    runtimeSessionId,
+    toolCode: "shell",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+    args: { command: "pwd", cwd: sessionVisibleRoot }
+  });
+
+  assert.equal(capturedRunInPodCalls.length, 1);
+  const expectedHostCwd = join(
+    workspaceRoot,
+    "assistants",
+    assistantId,
+    "sessions",
+    runtimeSessionId
+  );
+  assert.equal(capturedRunInPodCalls[0]!.absoluteCwd, expectedHostCwd);
+});

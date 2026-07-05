@@ -877,8 +877,7 @@ export class SandboxService {
     siblingHandles: readonly string[],
     workspaceId: string
   ) {
-    const cwd = args.cwd === undefined ? "." : this.requireRelativePath(args.cwd, "cwd");
-    const absoluteCwd = cwd === "." ? currentRoot : this.resolveWorkspacePath(currentRoot, cwd);
+    const absoluteCwd = this.resolveShellExecCwdPath(workspaceRoot, currentRoot, args.cwd);
     await fs.mkdir(absoluteCwd, { recursive: true });
 
     this.assertWorkspaceLeaseActive(leaseGuard);
@@ -1979,6 +1978,41 @@ export class SandboxService {
       return this.resolveWorkspacePath(workspaceRoot, normalized);
     }
     return this.resolveWorkspacePath(currentRoot, normalized);
+  }
+
+  /**
+   * Resolve shell/exec cwd without doubling when the model copies a full
+   * `/workspace/...` path from Working Files into the cwd field.
+   */
+  private resolveShellExecCwdPath(
+    workspaceRoot: string,
+    currentRoot: string,
+    rawCwd: unknown
+  ): string {
+    if (rawCwd === undefined || rawCwd === null) {
+      return currentRoot;
+    }
+    const raw = this.requireString(rawCwd, "cwd");
+    const normalized = raw.replace(/\\/g, "/");
+    const strippedLeading = normalized.replace(/^\/+/, "");
+
+    if (strippedLeading.length === 0 || strippedLeading === ".") {
+      return currentRoot;
+    }
+
+    if (normalized.startsWith("/workspace/") || normalized === "/workspace") {
+      return this.resolveVisiblePathWithinWorkspaceRoot(workspaceRoot, normalized);
+    }
+
+    if (strippedLeading.startsWith("workspace/")) {
+      return this.resolveVisiblePathWithinWorkspaceRoot(workspaceRoot, `/${strippedLeading}`);
+    }
+
+    if (strippedLeading.startsWith("assistants/") || strippedLeading.startsWith("shared/")) {
+      return this.resolveWorkspacePath(workspaceRoot, strippedLeading);
+    }
+
+    return this.resolveWorkspacePath(currentRoot, strippedLeading);
   }
 
   private requireRelativePath(value: unknown, fieldName: string): string {

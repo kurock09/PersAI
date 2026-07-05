@@ -48,15 +48,16 @@ function fileLabel(file: ChatWorkspaceFileTile): string {
   return file.originalFilename ?? file.storagePath.split("/").pop() ?? "file";
 }
 
-// ADR-127 W1 — pick chat-scoped URL when the tile has a chat origin,
-// otherwise fall back to the workspace-scoped URL (manifest orphan).
+// ADR-127 W1 — chat-scoped URLs require a joined attachment row (messageId).
+// Orphan manifest tiles may carry originChatId for provenance but must use
+// workspace-scoped download until files.attach creates an attachment.
 function buildTileUrl(input: {
-  tile: { chatId: string | null; storagePath: string };
+  tile: { chatId: string | null; messageId: string | null; storagePath: string };
   workspaceId: string | null;
   download?: boolean;
   preview?: boolean;
 }): string | null {
-  if (input.tile.chatId !== null) {
+  if (input.tile.chatId !== null && input.tile.messageId !== null) {
     if (input.preview === true) {
       return buildChatFilePreviewUrl({
         chatId: input.tile.chatId,
@@ -381,13 +382,21 @@ export function WorkspaceFilesGallery({
                 const thumbUrl =
                   file.attachmentType === "image" && file.thumbnailStoragePath
                     ? buildTileUrl({
-                        tile: { chatId: file.chatId, storagePath: file.thumbnailStoragePath },
+                        tile: {
+                          chatId: file.chatId,
+                          messageId: file.messageId,
+                          storagePath: file.thumbnailStoragePath
+                        },
                         workspaceId,
                         preview: true
                       })
                     : file.attachmentType === "video" && file.posterStoragePath
                       ? buildTileUrl({
-                          tile: { chatId: file.chatId, storagePath: file.posterStoragePath },
+                          tile: {
+                            chatId: file.chatId,
+                            messageId: file.messageId,
+                            storagePath: file.posterStoragePath
+                          },
                           workspaceId,
                           preview: true
                         })

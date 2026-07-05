@@ -349,23 +349,25 @@ GOTCHAS:
     description:
       "Path-driven workspace file operations: list, read, preview, write, delete, attach.",
     modelDescription:
-      "Path-driven file operations under the assistant's current session root. For new files, pass `requestedName` or a relative path — the runtime prepends the real current session root and returns the final path; the model must not construct assistant/session IDs itself. For existing files, use the exact path from the Working Files block, `files.list`, or a prior tool result — never reconstruct paths from displayName/filename. Writes are collision-safe by default (a new sibling name on collision), with `replace: true` as the exact-overwrite opt-in.",
-    modelUsageGuidance: `WHEN TO USE: Any file-system work in the assistant's pod workspace — list a directory, read or preview content, write a new or updated file, delete a path, attach an existing file to chat, or search by name/path/description.
+      "Path-driven file operations on the workspace storage plane under the assistant's current session root. For new files, pass `requestedName` or a relative path — the runtime prepends the real current session root and returns the final path; the model must not construct assistant/session IDs itself. For existing files, use the exact path from the Working Files block, `files.list`, or a prior tool result — never reconstruct paths from displayName/filename. Writes are collision-safe by default (a new sibling name on collision), with `replace: true` as the exact-overwrite opt-in. `files.write` persists only; call `files.attach(path)` in the same turn before telling the user the file was delivered.",
+    modelUsageGuidance: `WHEN TO USE: Any workspace file work on the storage plane — list, read, preview, write, delete, attach a file to chat, or search by name/path/description. \`files.*\` reads and writes committed \`/workspace/...\` paths (GCS+manifest); it does not execute in the sandbox pod.
 EXAMPLES:
 - files({action:"list"}) — list the current session root.
 - files({action:"list", path:"/workspace/assistants/..."}) — widen only by an exact parent path copied from tools or Working Files.
 - files({action:"read", path:"/workspace/.../report.csv"}) — read by exact copied path.
 - files({action:"preview", path:"/workspace/.../notes.md", maxBytes:4096}) — peek at the head of a large file by exact copied path.
-- files({action:"write", requestedName:"draft.txt", content:"hello"}) — create a new current-session file; runtime returns the final path.
+- files({action:"write", requestedName:"draft.txt", content:"hello"}) — create a new current-session file; runtime returns the final path (not a chat attachment).
+- files({action:"attach", path:"/workspace/.../draft.txt"}) — deliver that persisted file to chat in the same turn.
 - files({action:"delete", path:"/workspace/.../tmp.bin"}) — remove a file by exact copied path.
-- files({action:"attach", path:"/workspace/.../draft.txt"}) — deliver an existing file by exact copied path.
 - files({action:"search", query:"invoice"}) — look up a file by filename, path, or cached description.
 GOTCHAS:
 - Seven actions: list, read, preview, write, delete, attach, search — search matches query tokens against path, filename, and cached shortDescription.
+- **Delivery contract:** \`files.write\` saves to the workspace manifest only — the user does not receive a chat attachment or downloadable delivery from write alone. Before saying the file is ready, sent, attached, or delivered, call \`files.attach(path)\` with the exact path from this turn's write, shell, or exec result.
+- \`files.attach\` delivers an EXISTING persisted file — never regenerates content. Attach only this turn's new output, a file the user explicitly asked to resend, or a path they named; never unrelated session files. If the file is not yet written, finish write/shell/exec first, then attach in the same turn.
+- \`document.render\` / \`document.convert\` auto-deliver PDF/DOCX/XLSX in chat; plain \`.txt\`, \`.csv\`, and other non-document outputs always need explicit \`files.attach\`.
 - Never spell assistant/session IDs; the runtime resolves the current session root for you.
 - Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. Use \`/tmp/\` for ephemeral scratch the user should not see.
-- \`maxBytes\` caps returned bytes for read/preview; \`maxDepth\` bounds recursion for list. Server-side limits still apply.
-- attach delivers an EXISTING file, never regenerates it — attach only this turn's output or a file the user explicitly asked to resend, never unrelated session files. If the file is not yet written, write it first.`,
+- \`maxBytes\` caps returned bytes for read/preview; \`maxDepth\` bounds recursion for list. Server-side limits still apply.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"
@@ -405,7 +407,10 @@ EXAMPLES:
 - shell({command:"python3 script.py --input data.csv --output result.json"}) — run a script with arguments.
 - For office-file edits (DOCX/XLSX/PDF), prefer one complete \`shell\` script per turn over multiple overwrite passes.
 GOTCHAS:
-- Refer to workspace files by pod-absolute path (/workspace/...) or by paths relative to the current session root.
+- **Default cwd is already the current session root** (see Working Files \`cwd:\`). Omit the \`cwd\` argument unless you truly need a subdirectory. Never pass the full \`/workspace/assistants/.../sessions/...\` path as \`cwd\` — that duplicates the session root and fails with \`cd: can't cd to .../workspace/assistants/...\`.
+- In shell commands, do not \`cd\` to the session root; use relative paths (\`python script.py\`) or the exact file \`path\` from tool results. Only \`cd\` into a named subdirectory when needed.
+- Refer to workspace files by exact \`/workspace/...\` path or by paths relative to the current session root (execution pod cwd).
+- Produced session files are mirrored to the workspace manifest when mirroring succeeds. Plain \`.txt\`, \`.csv\`, and other non-document outputs need explicit \`files.attach(path)\` in the same turn before claiming delivery; registered PDF/DOCX/XLSX may auto-deliver (see \`document\` / \`files\` descriptors).
 - gitlab.com, bitbucket.org, and other non-allowlisted hosts need a 1-line allowlist follow-up before shell can reach them.
 - Stay within sandbox CPU / memory / time limits.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,

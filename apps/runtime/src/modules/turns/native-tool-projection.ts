@@ -1623,7 +1623,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
           description:
-            'One files action: "list", "read", "preview", "write", "delete", "attach", or "search". For new files use action="write" with requestedName or a relative path; runtime resolves it under the current session root. Use exact `/workspace/...` paths for listed/existing files. `search` requires `query`, matching query tokens against path, filename, and cached shortDescription. `attach` delivers an existing workspace file to chat as a user-visible attachment.'
+            'One files action: "list", "read", "preview", "write", "delete", "attach", or "search". For new files use action="write" with requestedName or a relative path; runtime resolves it under the current session root. Use exact `/workspace/...` paths for listed/existing files. `write` persists only — not chat delivery. `search` requires `query`. `attach` delivers an existing workspace file to chat; call it with the exact path before claiming the user received the file.'
         },
         query: {
           type: "string",
@@ -1762,7 +1762,8 @@ function createExecToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayToo
         },
         cwd: {
           type: "string",
-          description: "Optional sandbox-relative working directory."
+          description:
+            "Optional subdirectory under the current session root. Omit unless you need a subfolder — default cwd is already the session root from Working Files. Never pass a full `/workspace/...` path (duplicates the root and fails)."
         }
       }
     }
@@ -1784,7 +1785,8 @@ function createShellToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
         },
         cwd: {
           type: "string",
-          description: "Optional sandbox-relative working directory."
+          description:
+            "Optional subdirectory under the current session root. Omit unless you need a subfolder — default cwd is already the session root from Working Files. Never pass a full `/workspace/...` path (duplicates the root and fails)."
         }
       }
     }
