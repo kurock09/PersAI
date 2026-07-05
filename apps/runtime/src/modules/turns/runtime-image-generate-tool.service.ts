@@ -29,7 +29,7 @@ import {
   ProviderGatewayClientService,
   ProviderGatewaySafetyRejectedError
 } from "./provider-gateway.client.service";
-import { SandboxClientService } from "./sandbox-client.service";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
 import {
   buildImageSafetyRetryFailureWarning,
@@ -81,7 +81,7 @@ export class RuntimeImageGenerateToolService {
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
-    private readonly sandboxClient: SandboxClientService
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async executeToolCall(params: {
@@ -90,6 +90,9 @@ export class RuntimeImageGenerateToolService {
     availableAttachments?: RuntimeAttachmentRef[];
     sessionId: string;
     requestId: string;
+    chatId?: string | null;
+    sourceUserMessageText?: string | null;
+    sourceUserMessageCreatedAt?: string | null;
     deferToAsyncMediaJob?: {
       sourceUserMessageId: string;
       sourceUserMessageText: string;
@@ -492,7 +495,10 @@ export class RuntimeImageGenerateToolService {
               requestPrompt: providerResult.effectivePrompt,
               image,
               index,
-              billingFacts: providerResult.providerResult.billingFacts
+              billingFacts: providerResult.providerResult.billingFacts,
+              chatId: params.chatId ?? null,
+              sourceUserMessageText: params.sourceUserMessageText ?? null,
+              sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt ?? null
             })
           )
         );
@@ -554,7 +560,10 @@ export class RuntimeImageGenerateToolService {
                 requestPrompt: itemPrompt,
                 image,
                 index,
-                billingFacts: seriesResult.providerResult.billingFacts
+                billingFacts: seriesResult.providerResult.billingFacts,
+                chatId: params.chatId ?? null,
+                sourceUserMessageText: params.sourceUserMessageText ?? null,
+                sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt ?? null
               })
             )
           );
@@ -788,6 +797,9 @@ export class RuntimeImageGenerateToolService {
     };
     index: number;
     billingFacts: RuntimeOutputArtifact["billingFacts"];
+    chatId: string | null;
+    sourceUserMessageText: string | null;
+    sourceUserMessageCreatedAt: string | null;
   }): Promise<RuntimeOutputArtifact> {
     if (!input.image.mimeType.startsWith("image/")) {
       throw new Error(`Image provider returned unsupported MIME type "${input.image.mimeType}".`);
@@ -801,21 +813,30 @@ export class RuntimeImageGenerateToolService {
     const slugSourceText =
       input.image.revisedPrompt?.trim() || input.requestPrompt.trim() || filename || "image";
     return writeRuntimeOutboundArtifact({
-      sandboxClient: this.sandboxClient,
+      mediaObjectStorage: this.mediaObjectStorage,
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      handle: input.handle,
-      siblingHandles: input.siblingHandles,
       sessionId: input.sessionId,
-      workspaceQuotaBytes: input.workspaceQuotaBytes,
-      sharedQuotaBytes: input.sharedQuotaBytes,
       buffer,
       mimeType: input.image.mimeType,
       slugSourceText,
       filenameHint: filename,
       kind: "image",
       sourceToolCode: "image_generate",
-      billingFacts: input.billingFacts
+      billingFacts: input.billingFacts,
+      manifest: {
+        persaiInternalApiClient: this.persaiInternalApiClientService,
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        originChatId: input.chatId,
+        sourceUserMessageText: input.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt
+      },
+      quota: {
+        workspaceQuotaBytes: input.workspaceQuotaBytes,
+        sharedQuotaBytes: input.sharedQuotaBytes
+      },
+      logger: this.logger
     });
   }
 

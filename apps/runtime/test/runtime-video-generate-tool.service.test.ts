@@ -560,6 +560,14 @@ class FakePersaiInternalApiClientService {
     };
   }
 
+  async sumWorkspaceFileStorageBytes(): Promise<number> {
+    return 0;
+  }
+
+  async upsertWorkspaceFileMetadata(): Promise<{ documentRegistration: null }> {
+    return { documentRegistration: null };
+  }
+
   async fetchWorkspaceVideoPersona(input: {
     workspaceId: string;
     personaId: string;
@@ -601,20 +609,24 @@ class FakePersaiInternalApiClientService {
 }
 
 class FakePersaiMediaObjectStorageService {
-  savedObjects: Array<{ storagePath: string; mimeType: string; sizeBytes: number }> = [];
+  savedObjects: Array<{ objectKey: string; mimeType: string; sizeBytes: number }> = [];
   sourceObjects = new Map<string, Buffer>();
 
   buildRuntimeOutputObjectKey(input: { artifactId: string; extension: string | null }): string {
     return `runtime/${input.artifactId}.${input.extension ?? "bin"}`;
   }
 
+  buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }): string {
+    return `fake-prefix/workspaces/${input.workspaceId}/workspace/${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+  }
+
   async saveObject(input: {
-    storagePath: string;
+    objectKey: string;
     buffer: Buffer;
     mimeType: string;
-  }): Promise<{ storagePath: string; mimeType: string; sizeBytes: number }> {
+  }): Promise<{ objectKey: string; mimeType: string; sizeBytes: number }> {
     const stored = {
-      storagePath: input.storagePath,
+      objectKey: input.objectKey,
       mimeType: input.mimeType,
       sizeBytes: input.buffer.length
     };
@@ -638,19 +650,10 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
   const providerGatewayClientService = new FakeProviderGatewayClientService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
-  const sandboxClient = {
-    async writeWorkspaceFile(input: { contentBase64: string }) {
-      return {
-        workspaceRelPath: "/workspace/assistants/assistant-handle/sessions/session-1/video.mp4",
-        sizeBytes: Buffer.from(input.contentBase64, "base64").length
-      };
-    }
-  };
   const service = new RuntimeVideoGenerateToolService(
     providerGatewayClientService as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as unknown as PersaiMediaObjectStorageService,
-    sandboxClient as never
+    mediaObjectStorage as unknown as PersaiMediaObjectStorageService
   );
 
   const bundle = createBundle();
@@ -1932,7 +1935,8 @@ export async function runRuntimeVideoGenerateToolServiceTest(): Promise<void> {
       personaId: "persona-anya"
     }),
     availableAttachments: [],
-    sessionId: "media-job:job-talking-avatar-checkpoint-2",
+    sessionId: "session-1",
+    mediaJobId: "job-talking-avatar-checkpoint-2",
     requestId: "request-talking-avatar-session-media-job-checkpoint"
   });
   assert.equal(talkingAvatarSessionMediaJobCall.payload.action, "generated");

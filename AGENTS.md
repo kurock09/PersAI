@@ -21,7 +21,9 @@ Additional active orchestration program: `docs/ADR/134-path-based-workspace-file
 
 Additional orchestration program **closed locally 2026-07-05:** `docs/ADR/135-catalog-tool-projection-and-per-tool-describe.md` (catalog vs full tool projection via per-tool `action:"describe"` (no meta-tool); platform defaults 13 full / 11 catalog; plan `fullProjection` boolean per tool; wire-budget fixture ~8.1k tok savings on 24-tool power-config; Slices S1–S6 landed locally — deploy + live acceptance pending; do not reopen for new scope).
 
-Additional active orchestration program: `docs/ADR/136-operator-api-access-and-cursor-mcp.md` (opened 2026-07-05 — **closed locally 2026-07-05**; deploy + live Cursor acceptance pending; do not reopen for new scope).
+Additional orchestration program **closed locally 2026-07-05:** `docs/ADR/136-operator-api-access-and-cursor-mcp.md` (opened 2026-07-05 — **closed locally 2026-07-05**; deploy + live Cursor acceptance pending; do not reopen for new scope).
+
+Additional active orchestration program: `docs/ADR/137-execution-pod-boundary-and-storage-plane-cutover.md` (opened 2026-07-05 — finish ADR-127 storage-plane truth: pod only for `shell`/`exec`/`document.*`; GCS+manifest for worker outbound, `files.*`, `grep`/`glob`; S0–S2 landed locally; S3–S5 + **S5.1 session-scoped hydrate** + S6 audit pending; parent orchestrator/auditor, GPT-5.4/Sonnet subagents per slice).
 
 ## Repo rules
 

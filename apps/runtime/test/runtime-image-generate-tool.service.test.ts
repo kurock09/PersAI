@@ -10,7 +10,10 @@ import type {
 } from "@persai/runtime-contract";
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { ProviderGatewaySafetyRejectedError } from "../src/modules/turns/provider-gateway.client.service";
-import { createFakeSandboxClientForOutboundWrite } from "./helpers/runtime-outbound-test-doubles";
+import {
+  createFakeMediaObjectStorageForOutboundWrite,
+  createOutboundManifestApiStub
+} from "./helpers/runtime-outbound-test-doubles";
 
 function createBundle(): AssistantRuntimeBundle {
   return {
@@ -77,7 +80,8 @@ describe("RuntimeImageGenerateToolService", () => {
             guidance:
               'Use a request that does not need media generation. You can also buy "Starter media pack" for $10 on /app/packages.'
           };
-        }
+        },
+        ...createOutboundManifestApiStub()
       } as never,
       {} as never
     );
@@ -119,7 +123,8 @@ describe("RuntimeImageGenerateToolService", () => {
             jobId: "media-job-1",
             kind: "image"
           };
-        }
+        },
+        ...createOutboundManifestApiStub()
       } as never,
       {} as never
     );
@@ -214,8 +219,8 @@ describe("RuntimeImageGenerateToolService", () => {
     };
     const service = new RuntimeImageGenerateToolService(
       providerGatewayClient as never,
-      {} as never,
-      createFakeSandboxClientForOutboundWrite(
+      createOutboundManifestApiStub() as never,
+      createFakeMediaObjectStorageForOutboundWrite(
         "/workspace/assistants/assistant-handle/sessions/session-1/image-1.png"
       ) as never
     );
@@ -344,8 +349,8 @@ describe("RuntimeImageGenerateToolService", () => {
           };
         }
       } as never,
-      {} as never,
-      createFakeSandboxClientForOutboundWrite(
+      createOutboundManifestApiStub() as never,
+      createFakeMediaObjectStorageForOutboundWrite(
         "/workspace/assistants/assistant-handle/sessions/session-series/image-series.png"
       ) as never
     );
@@ -430,11 +435,15 @@ describe("RuntimeImageGenerateToolService", () => {
       } as never,
       {} as never,
       {
-        async writeWorkspaceFile(input: { contentBase64: string }) {
+        buildWorkspaceObjectKey() {
+          return "fake-object-key";
+        },
+        async saveObject(input: { buffer: Buffer }) {
           savedArtifacts += 1;
           return {
-            workspaceRelPath: `/workspace/generate-partial-${String(savedArtifacts)}.png`,
-            sizeBytes: Buffer.from(input.contentBase64, "base64").length
+            objectKey: `fake-object-key-${String(savedArtifacts)}`,
+            sizeBytes: input.buffer.length,
+            mimeType: "image/png"
           };
         }
       } as never
@@ -465,7 +474,11 @@ describe("RuntimeImageGenerateToolService", () => {
   });
 
   test("rejects ref-bound series generate when a reusable source image is already available", async () => {
-    const service = new RuntimeImageGenerateToolService({} as never, {} as never, {} as never);
+    const service = new RuntimeImageGenerateToolService(
+      {} as never,
+      createOutboundManifestApiStub() as never,
+      {} as never
+    );
 
     const attachments = [
       {

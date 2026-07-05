@@ -26,7 +26,7 @@ import {
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
-import { SandboxClientService } from "./sandbox-client.service";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
 import {
   executeRuntimeToolContractDescribe,
@@ -43,7 +43,7 @@ export class RuntimeTtsToolService {
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
-    private readonly sandboxClient: SandboxClientService
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async executeToolCall(params: {
@@ -51,6 +51,9 @@ export class RuntimeTtsToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     requestId: string;
+    chatId?: string | null;
+    sourceUserMessageText?: string | null;
+    sourceUserMessageCreatedAt?: string | null;
   }): Promise<RuntimeTtsToolExecutionResult> {
     if (isToolContractDescribeCall(params.toolCall.arguments)) {
       return executeRuntimeToolContractDescribe({
@@ -198,7 +201,10 @@ export class RuntimeTtsToolService {
           deliveryKind: providerResult.deliveryKind,
           bytesBase64: providerResult.bytesBase64,
           mimeType: providerResult.mimeType,
-          billingFacts: providerResult.billingFacts
+          billingFacts: providerResult.billingFacts,
+          chatId: params.chatId ?? null,
+          sourceUserMessageText: params.sourceUserMessageText ?? null,
+          sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt ?? null
         });
         return {
           payload: {
@@ -342,6 +348,9 @@ export class RuntimeTtsToolService {
     bytesBase64: string;
     mimeType: string;
     billingFacts: RuntimeOutputArtifact["billingFacts"];
+    chatId: string | null;
+    sourceUserMessageText: string | null;
+    sourceUserMessageCreatedAt: string | null;
   }): Promise<RuntimeOutputArtifact> {
     if (!input.mimeType.startsWith("audio/")) {
       throw new Error(`Speech provider returned unsupported MIME type "${input.mimeType}".`);
@@ -355,14 +364,10 @@ export class RuntimeTtsToolService {
     const filename = this.resolveFilename(input.deliveryKind, input.provider, extension);
     const slugSourceText = input.requestText.trim() || filename || "speech";
     return writeRuntimeOutboundArtifact({
-      sandboxClient: this.sandboxClient,
+      mediaObjectStorage: this.mediaObjectStorage,
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      handle: input.handle,
-      siblingHandles: input.siblingHandles,
       sessionId: input.sessionId,
-      workspaceQuotaBytes: input.workspaceQuotaBytes,
-      sharedQuotaBytes: input.sharedQuotaBytes,
       buffer,
       mimeType: input.mimeType,
       slugSourceText,
@@ -370,7 +375,19 @@ export class RuntimeTtsToolService {
       kind: "audio",
       sourceToolCode: "tts",
       billingFacts: input.billingFacts,
-      voiceNote: input.deliveryKind === "voice_note"
+      voiceNote: input.deliveryKind === "voice_note",
+      manifest: {
+        persaiInternalApiClient: this.persaiInternalApiClientService,
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        originChatId: input.chatId,
+        sourceUserMessageText: input.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt
+      },
+      quota: {
+        workspaceQuotaBytes: input.workspaceQuotaBytes,
+        sharedQuotaBytes: input.sharedQuotaBytes
+      }
     });
   }
 

@@ -1,23 +1,27 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   buildAssistantSessionRoot,
   buildAssistantWorkspaceRoot,
   classifyVisibleWorkspacePath,
+  type ProviderGatewayMessageContentBlock,
   type ProviderGatewayToolCall,
   type RuntimeFileHandle,
   type RuntimeOutputArtifact,
   type RuntimeFilesToolAction,
   type RuntimeFilesToolItem,
   type RuntimeFilesToolResult,
-  type RuntimeSandboxJobRequest,
-  type RuntimeSandboxJobResult,
   type RuntimeToolPolicy
 } from "@persai/runtime-contract";
-import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
-import { SandboxClientService } from "./sandbox-client.service";
+import {
+  buildFilePreviewBlocks,
+  resolveFilePreviewCapSource
+} from "./runtime-file-preview-hydration";
+import { readFilesToolEffectivePreviewLimits } from "./runtime-file-capabilities";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
+import { RuntimeStoragePlaneFilesService } from "./runtime-storage-plane-files.service";
 
 const DEFAULT_READ_MAX_BYTES = 1_048_576;
 const DEFAULT_PREVIEW_MAX_BYTES = 256 * 1024;
@@ -82,21 +86,17 @@ export interface RuntimeFilesToolExecutionResult {
   isError: boolean;
   discoveredFileHandles?: RuntimeFileHandle[];
   artifacts?: RuntimeOutputArtifact[];
+  pendingFilePreviewBlocks?: ProviderGatewayMessageContentBlock[];
 }
-
-const BINARY_PREVIEW_MIME_TYPES = new Set([
-  "application/pdf",
-  "application/x-pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-]);
 
 @Injectable()
 export class RuntimeFilesToolService {
   private readonly logger = new Logger(RuntimeFilesToolService.name);
 
   constructor(
-    private readonly sandboxClientService: SandboxClientService,
-    private readonly persaiInternalApiClientService: PersaiInternalApiClientService
+    private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
+    private readonly storagePlaneFilesService: RuntimeStoragePlaneFilesService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async executeToolCall(params: {
@@ -117,15 +117,6 @@ export class RuntimeFilesToolService {
         requestedAction: this.readRequestedAction(params.toolCall.arguments),
         reason: "tool_unavailable",
         warning: null,
-        path: this.readPathFromArguments(params.toolCall.arguments)
-      });
-    }
-
-    if (!this.sandboxClientService.isConfigured()) {
-      return this.skipped({
-        requestedAction: this.readRequestedAction(params.toolCall.arguments),
-        reason: "sandbox_unconfigured",
-        warning: "Sandbox service is not configured.",
         path: this.readPathFromArguments(params.toolCall.arguments)
       });
     }
@@ -181,6 +172,19 @@ export class RuntimeFilesToolService {
     }
   }
 
+  private scratchPathSkipped(
+    action: RuntimeFilesToolAction,
+    path: string | null
+  ): RuntimeFilesToolExecutionResult {
+    return this.skipped({
+      requestedAction: action,
+      reason: "scratch_path_unsupported",
+      warning:
+        "Scratch paths under /tmp are pod-only during shell/exec; use shell for ephemeral files.",
+      path
+    });
+  }
+
   private async executeListAction(
     params: {
       bundle: AssistantRuntimeBundle;
@@ -197,44 +201,15 @@ export class RuntimeFilesToolService {
     if (this.isPersistedWorkspaceListPath(path)) {
       return this.executeListFromManifest(params, { ...request, path });
     }
-    const job = await this.runSandboxJob(params, {
-      action: "list",
-      path,
-      maxDepth: request.maxDepth
-    });
-    if (job.status !== "completed") {
-      return {
-        payload: {
-          toolCode: "files",
-          executionMode: "inline",
-          requestedAction: "list",
-          action: "skipped",
-          reason: job.reason ?? "files_failed",
-          warning: job.warning ?? job.violationMessage,
-          path
-        },
-        isError: true
-      };
+    if (this.storagePlaneFilesService.isScratchPath(path)) {
+      return this.scratchPathSkipped("list", path);
     }
-    const parsedItems = this.parseListContent(job.content);
-    const enrichedItems = await this.enrichListWithShortDescriptions(
-      params.bundle.metadata.workspaceId,
-      parsedItems
-    );
-    return {
-      payload: {
-        toolCode: "files",
-        executionMode: "inline",
-        requestedAction: "list",
-        action: "listed",
-        reason: null,
-        warning: job.warning,
-        path,
-        items: enrichedItems,
-        item: enrichedItems[0] ?? null
-      },
-      isError: false
-    };
+    return this.skipped({
+      requestedAction: "list",
+      reason: "invalid_arguments",
+      warning: "files.list supports manifest-backed /workspace/... paths only.",
+      path
+    });
   }
 
   private async executeListFromManifest(
@@ -333,44 +308,54 @@ export class RuntimeFilesToolService {
     },
     request: FilesReadRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const job = await this.runSandboxJob(params, {
-      action: "read",
-      path: request.path,
-      maxBytes: request.maxBytes
-    });
-    if (job.status !== "completed") {
+    if (this.storagePlaneFilesService.isPersistedWorkspacePath(request.path)) {
+      const outcome = await this.storagePlaneFilesService.readTextFile({
+        workspaceId: params.bundle.metadata.workspaceId,
+        path: request.path,
+        maxBytes: request.maxBytes
+      });
+      if (!outcome.ok) {
+        return {
+          payload: {
+            toolCode: "files",
+            executionMode: "inline",
+            requestedAction: "read",
+            action: "skipped",
+            reason: outcome.reason,
+            warning: outcome.warning,
+            path: request.path
+          },
+          isError: true
+        };
+      }
       return {
         payload: {
           toolCode: "files",
           executionMode: "inline",
           requestedAction: "read",
-          action: "skipped",
-          reason: job.reason ?? "files_failed",
-          warning: job.warning ?? job.violationMessage,
-          path: request.path
+          action: "read",
+          reason: null,
+          warning: null,
+          path: request.path,
+          content: outcome.content,
+          sizeBytes: outcome.sizeBytes,
+          sha256: outcome.sha256,
+          truncated: outcome.truncated,
+          charCount: Array.from(outcome.content).length,
+          contentTruncated: outcome.truncated
         },
-        isError: true
+        isError: false
       };
     }
-    const parsedRead = this.parseReadContent(job.content);
-    return {
-      payload: {
-        toolCode: "files",
-        executionMode: "inline",
-        requestedAction: "read",
-        action: "read",
-        reason: null,
-        warning: job.warning,
-        path: request.path,
-        content: parsedRead.content,
-        sizeBytes: parsedRead.sizeBytes,
-        sha256: parsedRead.sha256,
-        truncated: parsedRead.truncated,
-        charCount: parsedRead.content === null ? null : Array.from(parsedRead.content).length,
-        contentTruncated: parsedRead.truncated
-      },
-      isError: false
-    };
+    if (this.storagePlaneFilesService.isScratchPath(request.path)) {
+      return this.scratchPathSkipped("read", request.path);
+    }
+    return this.skipped({
+      requestedAction: "read",
+      reason: "invalid_arguments",
+      warning: "files.read supports manifest-backed /workspace/... paths only.",
+      path: request.path
+    });
   }
 
   private async executePreviewAction(
@@ -382,50 +367,82 @@ export class RuntimeFilesToolService {
     },
     request: FilesPreviewRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    // Stat the file via the sandbox to classify text vs binary. Text-like MIME
-    // types return inline preview content from stat; binary types fall back to
-    // sandbox `read` with the caller's bounded `maxBytes`.
-    const statJob = await this.runSandboxJob(params, {
-      action: "stat",
+    if (this.storagePlaneFilesService.isScratchPath(request.path)) {
+      return this.scratchPathSkipped("preview", request.path);
+    }
+    if (!this.storagePlaneFilesService.isPersistedWorkspacePath(request.path)) {
+      return this.skipped({
+        requestedAction: "preview",
+        reason: "invalid_arguments",
+        warning: "files.preview supports manifest-backed /workspace/... paths only.",
+        path: request.path
+      });
+    }
+    const metadata = await this.persaiInternalApiClientService.getWorkspaceFileMetadata({
+      workspaceId: params.bundle.metadata.workspaceId,
       path: request.path
     });
-    if (statJob.status !== "completed") {
+    if (metadata === null) {
       return {
         payload: {
           toolCode: "files",
           executionMode: "inline",
           requestedAction: "preview",
           action: "skipped",
-          reason: statJob.reason ?? "files_failed",
-          warning: statJob.warning ?? statJob.violationMessage,
+          reason: "file_not_found",
+          warning: `Workspace file ${request.path} was not found in the manifest.`,
           path: request.path
         },
         isError: true
       };
     }
-    const stat = this.parseStatContent(statJob.content);
-    const mimeType = stat?.mimeType ?? null;
-    if (mimeType !== null && this.isBinaryPreviewMime(mimeType)) {
-      const readJob = await this.runSandboxJob(params, {
-        action: "read",
-        path: request.path,
-        maxBytes: request.maxBytes
+    const mimeType = metadata.mimeType;
+    const normalizedMime = mimeType.trim().toLowerCase();
+    const isImage = normalizedMime.startsWith("image/");
+    const isPdf = normalizedMime === "application/pdf" || normalizedMime === "application/x-pdf";
+    const displayName = request.path.split("/").pop() ?? request.path;
+
+    if (isImage || isPdf) {
+      const filesPolicy =
+        params.bundle.governance.toolPolicies.find((entry) => entry.toolCode === "files") ?? null;
+      const limits = readFilesToolEffectivePreviewLimits(filesPolicy);
+      const effectiveMaxPreviewBytes = Math.min(request.maxBytes, limits.effectiveMaxPreviewBytes);
+      const hydration = await buildFilePreviewBlocks({
+        downloadBytes: () =>
+          this.mediaObjectStorage.downloadByWorkspacePath({
+            workspaceId: params.bundle.metadata.workspaceId,
+            storagePath: request.path
+          }),
+        mimeType,
+        filename: displayName,
+        sizeBytes: metadata.sizeBytes,
+        effectiveMaxPreviewBytes,
+        effectiveMaxPreviewEdgePx: limits.effectiveMaxPreviewEdgePx,
+        alias: null,
+        instruction: null
       });
-      if (readJob.status !== "completed") {
+      if (!hydration.ok) {
         return {
           payload: {
             toolCode: "files",
             executionMode: "inline",
             requestedAction: "preview",
             action: "skipped",
-            reason: readJob.reason ?? "files_failed",
-            warning: readJob.warning ?? readJob.violationMessage,
+            reason: hydration.reason,
+            warning:
+              hydration.reason === "preview_size_limit"
+                ? `File exceeds the effective preview byte limit (${String(effectiveMaxPreviewBytes)}). Use files.read for text when supported.`
+                : hydration.reason === "preview_unsupported"
+                  ? "Visual preview is only available for images and native PDF files under the preview byte limit."
+                  : "Failed to download the file for visual preview.",
             path: request.path
           },
           isError: true
         };
       }
-      const previewRead = this.parseReadContent(readJob.content);
+      this.logger.log(
+        `file_preview assistantId=${params.bundle.metadata.assistantId} path=${request.path} mimeType=${mimeType} bytes=${String(hydration.bytes)} effectiveMaxPreviewBytes=${String(effectiveMaxPreviewBytes)} capSource=${resolveFilePreviewCapSource(filesPolicy?.maxFilePreviewBytes ?? null)}`
+      );
       return {
         payload: {
           toolCode: "files",
@@ -433,40 +450,42 @@ export class RuntimeFilesToolService {
           requestedAction: "preview",
           action: "previewed",
           reason: null,
-          warning: readJob.warning,
+          warning: null,
           path: request.path,
-          content: previewRead.content,
+          content: JSON.stringify({
+            mimeType,
+            visualKind: hydration.visualKind
+          }),
           mimeType,
-          sizeBytes: previewRead.sizeBytes ?? stat?.sizeBytes ?? null,
-          sha256: previewRead.sha256,
-          truncated: previewRead.truncated,
-          charCount: previewRead.content === null ? null : Array.from(previewRead.content).length,
-          contentTruncated: previewRead.truncated
+          sizeBytes: hydration.bytes,
+          truncated: false,
+          charCount: 0,
+          contentTruncated: false
         },
-        isError: false
+        isError: false,
+        pendingFilePreviewBlocks: hydration.blocks
       };
     }
-    // Text/unknown: do a bounded sandbox read.
-    const readJob = await this.runSandboxJob(params, {
-      action: "read",
+
+    const outcome = await this.storagePlaneFilesService.readTextFile({
+      workspaceId: params.bundle.metadata.workspaceId,
       path: request.path,
       maxBytes: request.maxBytes
     });
-    if (readJob.status !== "completed") {
+    if (!outcome.ok) {
       return {
         payload: {
           toolCode: "files",
           executionMode: "inline",
           requestedAction: "preview",
           action: "skipped",
-          reason: readJob.reason ?? "files_failed",
-          warning: readJob.warning ?? readJob.violationMessage,
+          reason: outcome.reason,
+          warning: outcome.warning,
           path: request.path
         },
         isError: true
       };
     }
-    const previewRead = this.parseReadContent(readJob.content);
     return {
       payload: {
         toolCode: "files",
@@ -474,14 +493,15 @@ export class RuntimeFilesToolService {
         requestedAction: "preview",
         action: "previewed",
         reason: null,
-        warning: readJob.warning,
+        warning: null,
         path: request.path,
-        content: previewRead.content,
-        sizeBytes: previewRead.sizeBytes ?? stat?.sizeBytes ?? null,
-        sha256: previewRead.sha256,
-        truncated: previewRead.truncated,
-        charCount: previewRead.content === null ? null : Array.from(previewRead.content).length,
-        contentTruncated: previewRead.truncated
+        content: outcome.content,
+        mimeType,
+        sizeBytes: outcome.sizeBytes,
+        sha256: outcome.sha256,
+        truncated: outcome.truncated,
+        charCount: Array.from(outcome.content).length,
+        contentTruncated: outcome.truncated
       },
       isError: false
     };
@@ -507,95 +527,61 @@ export class RuntimeFilesToolService {
         path: request.path ?? request.requestedName
       });
     }
-    const job = await this.runSandboxJob(params, {
-      action: "write",
-      path: targetPath,
-      content: request.content,
-      ...(request.mode === undefined ? {} : { mode: request.mode }),
-      ...(request.replace === undefined ? {} : { replace: request.replace })
-    });
-    if (job.status !== "completed") {
-      return {
-        payload: {
-          toolCode: "files",
-          executionMode: "inline",
-          requestedAction: "write",
-          action: "skipped",
-          reason: job.reason ?? "files_failed",
-          warning: job.warning ?? job.violationMessage,
-          path: targetPath
-        },
-        isError: true
-      };
-    }
-    if (typeof job.reason === "string" && job.reason.length > 0) {
-      return {
-        payload: {
-          toolCode: "files",
-          executionMode: "inline",
-          requestedAction: "write",
-          action: "skipped",
-          reason: job.reason,
-          warning: job.warning,
-          path: targetPath
-        },
-        isError: true
-      };
-    }
-    const writeOutcome = this.parseWriteContent(job.content);
-    const resolvedPath = writeOutcome.resolvedPath ?? targetPath;
-    // ADR-128 Slice 4 — every successful write under `/workspace/` mirrors to
-    // the authoritative manifest. The upsert is best-effort: failure is logged
-    // at warn and the write outcome is still surfaced to the model.
-    if (this.isPersistedWorkspaceWritePath(resolvedPath)) {
-      const sizeBytes = writeOutcome.sizeBytes ?? request.content.length;
-      const shortDescription = buildGeneratedFileSemanticSummary({
-        requestText: params.sourceUserMessageText ?? null,
-        requestedName: request.requestedName ?? resolvedPath.split("/").pop() ?? null,
-        allowWeakRequestFallback: false
+    if (this.storagePlaneFilesService.isPersistedWorkspacePath(targetPath)) {
+      const outcome = await this.storagePlaneFilesService.writeTextFile({
+        bundle: params.bundle,
+        sessionId: params.sessionId,
+        chatId: params.chatId,
+        targetPath,
+        content: request.content,
+        ...(request.mode === undefined ? {} : { mode: request.mode }),
+        ...(request.replace === undefined ? {} : { replace: request.replace }),
+        requestedName: request.requestedName,
+        ...(params.sourceUserMessageText === undefined || params.sourceUserMessageText === null
+          ? {}
+          : { sourceUserMessageText: params.sourceUserMessageText }),
+        ...(params.sourceUserMessageCreatedAt === undefined ||
+        params.sourceUserMessageCreatedAt === null
+          ? {}
+          : { sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt })
       });
-      try {
-        await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
-          workspaceId: params.bundle.metadata.workspaceId,
-          path: resolvedPath,
-          mimeType: this.inferMimeForWrite(resolvedPath, request.content),
-          sizeBytes,
-          contentHash: createHash("sha256").update(request.content, "utf8").digest("hex"),
-          replace: request.replace === true,
-          ...(shortDescription === null ? {} : { shortDescription }),
-          ...(params.sourceUserMessageText === undefined || params.sourceUserMessageText === null
-            ? {}
-            : { sourceUserMessageText: params.sourceUserMessageText }),
-          ...(params.sourceUserMessageCreatedAt === undefined ||
-          params.sourceUserMessageCreatedAt === null
-            ? {}
-            : { sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt }),
-          ...(params.chatId === null
-            ? {}
-            : {
-                originChatId: params.chatId,
-                originAssistantId: params.bundle.metadata.assistantId
-              })
-        });
-      } catch (error) {
-        this.logger.warn(
-          `files_write_manifest_upsert_failed path=${resolvedPath} reason=${error instanceof Error ? error.message : String(error)}`
-        );
+      if (!outcome.ok) {
+        return {
+          payload: {
+            toolCode: "files",
+            executionMode: "inline",
+            requestedAction: "write",
+            action: "skipped",
+            reason: outcome.reason,
+            warning: outcome.warning,
+            path: targetPath
+          },
+          isError: true
+        };
       }
+      return {
+        payload: {
+          toolCode: "files",
+          executionMode: "inline",
+          requestedAction: "write",
+          action: "written",
+          reason: null,
+          warning: null,
+          path: outcome.resolvedPath,
+          sizeBytes: outcome.sizeBytes
+        },
+        isError: false
+      };
     }
-    return {
-      payload: {
-        toolCode: "files",
-        executionMode: "inline",
-        requestedAction: "write",
-        action: "written",
-        reason: null,
-        warning: job.warning,
-        path: resolvedPath,
-        sizeBytes: writeOutcome.sizeBytes
-      },
-      isError: false
-    };
+    if (this.storagePlaneFilesService.isScratchPath(targetPath)) {
+      return this.scratchPathSkipped("write", targetPath);
+    }
+    return this.skipped({
+      requestedAction: "write",
+      reason: "invalid_arguments",
+      warning: "files.write supports manifest-backed /workspace/... paths only.",
+      path: targetPath
+    });
   }
 
   private resolveWriteTargetPath(
@@ -693,38 +679,6 @@ export class RuntimeFilesToolService {
     return `${sessionRoot}/${segments.join("/")}`;
   }
 
-  private isPersistedWorkspaceWritePath(path: string): boolean {
-    return path.startsWith("/workspace/");
-  }
-
-  // The model passes raw text content via `files.write`. Without sniffing
-  // file bytes (which the sandbox already did), pick a conservative mime
-  // type from the extension and fall back to `text/plain` so the manifest
-  // can store something meaningful.
-  private inferMimeForWrite(path: string, content: string): string {
-    const lower = path.toLowerCase();
-    if (lower.endsWith(".json")) return "application/json";
-    if (lower.endsWith(".csv")) return "text/csv";
-    if (lower.endsWith(".tsv")) return "text/tab-separated-values";
-    if (lower.endsWith(".md")) return "text/markdown";
-    if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
-    if (lower.endsWith(".xml")) return "application/xml";
-    if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "application/yaml";
-    if (lower.endsWith(".txt") || lower.endsWith(".log")) return "text/plain";
-    // Heuristic: structured JSON-like content with no extension still benefits
-    // from a richer mime than octet-stream so the gallery can categorise it.
-    const trimmed = content.trim();
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      try {
-        JSON.parse(trimmed);
-        return "application/json";
-      } catch {
-        // Fall through to text/plain.
-      }
-    }
-    return "text/plain";
-  }
-
   private async executeDeleteAction(
     params: {
       bundle: AssistantRuntimeBundle;
@@ -734,35 +688,26 @@ export class RuntimeFilesToolService {
     },
     request: FilesDeleteRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const job = await this.runSandboxJob(params, {
-      action: "delete",
+    if (this.storagePlaneFilesService.isScratchPath(request.path)) {
+      return this.scratchPathSkipped("delete", request.path);
+    }
+    const outcome = await this.storagePlaneFilesService.deletePersistedWorkspaceFile({
+      workspaceId: params.bundle.metadata.workspaceId,
       path: request.path
     });
-    if (job.status !== "completed") {
+    if (!outcome.ok) {
       return {
         payload: {
           toolCode: "files",
           executionMode: "inline",
           requestedAction: "delete",
           action: "skipped",
-          reason: job.reason ?? "files_failed",
-          warning: job.warning ?? job.violationMessage,
+          reason: outcome.reason,
+          warning: outcome.warning,
           path: request.path
         },
         isError: true
       };
-    }
-    if (this.isPersistedWorkspaceWritePath(request.path)) {
-      try {
-        await this.persaiInternalApiClientService.deleteWorkspaceFileFromManifest({
-          workspaceId: params.bundle.metadata.workspaceId,
-          path: request.path
-        });
-      } catch (error) {
-        this.logger.warn(
-          `files_delete_manifest_delete_failed path=${request.path} reason=${error instanceof Error ? error.message : String(error)}`
-        );
-      }
     }
     return {
       payload: {
@@ -771,7 +716,7 @@ export class RuntimeFilesToolService {
         requestedAction: "delete",
         action: "deleted",
         reason: null,
-        warning: job.warning,
+        warning: null,
         path: request.path
       },
       isError: false
@@ -790,48 +735,22 @@ export class RuntimeFilesToolService {
     },
     request: FilesAttachRequest
   ): Promise<RuntimeFilesToolExecutionResult> {
-    const job = await this.runSandboxJob(params, {
-      action: "attach",
+    if (this.storagePlaneFilesService.isScratchPath(request.path)) {
+      return this.scratchPathSkipped("attach", request.path);
+    }
+    const outcome = await this.storagePlaneFilesService.attachPersistedWorkspaceFile({
+      workspaceId: params.bundle.metadata.workspaceId,
       path: request.path
     });
-    if (job.status !== "completed") {
+    if (!outcome.ok) {
       return {
         payload: {
           toolCode: "files",
           executionMode: "inline",
           requestedAction: "attach",
           action: "skipped",
-          reason: job.reason ?? "files_failed",
-          warning: job.warning ?? job.violationMessage,
-          path: request.path
-        },
-        isError: true
-      };
-    }
-    if (typeof job.reason === "string" && job.reason.length > 0) {
-      return {
-        payload: {
-          toolCode: "files",
-          executionMode: "inline",
-          requestedAction: "attach",
-          action: "skipped",
-          reason: job.reason,
-          warning: job.warning,
-          path: request.path
-        },
-        isError: true
-      };
-    }
-    const attachOutcome = this.parseAttachContent(job.content);
-    if (attachOutcome === null) {
-      return {
-        payload: {
-          toolCode: "files",
-          executionMode: "inline",
-          requestedAction: "attach",
-          action: "skipped",
-          reason: "files_attach_failed",
-          warning: "Sandbox attach completed without attachment payload.",
+          reason: outcome.reason,
+          warning: outcome.warning,
           path: request.path
         },
         isError: true
@@ -839,33 +758,13 @@ export class RuntimeFilesToolService {
     }
     const outputArtifact: RuntimeOutputArtifact = {
       artifactId: randomUUID(),
-      storagePath: attachOutcome.workspaceRelPath,
-      kind: this.resolveOutputArtifactKindForMime(attachOutcome.mimeType),
-      mimeType: attachOutcome.mimeType,
-      filename: attachOutcome.displayName,
-      sizeBytes: attachOutcome.sizeBytes,
+      storagePath: outcome.workspaceRelPath,
+      kind: this.resolveOutputArtifactKindForMime(outcome.mimeType),
+      mimeType: outcome.mimeType,
+      filename: outcome.displayName,
+      sizeBytes: outcome.sizeBytes,
       voiceNote: false
     };
-    if (this.isPersistedWorkspaceWritePath(attachOutcome.workspaceRelPath)) {
-      try {
-        await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
-          workspaceId: params.bundle.metadata.workspaceId,
-          path: attachOutcome.workspaceRelPath,
-          mimeType: attachOutcome.mimeType,
-          sizeBytes: attachOutcome.sizeBytes,
-          ...(params.chatId === null
-            ? {}
-            : {
-                originChatId: params.chatId,
-                originAssistantId: params.bundle.metadata.assistantId
-              })
-        });
-      } catch (error) {
-        this.logger.warn(
-          `files_attach_manifest_upsert_failed path=${attachOutcome.workspaceRelPath} reason=${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    }
     return {
       payload: {
         toolCode: "files",
@@ -873,48 +772,15 @@ export class RuntimeFilesToolService {
         requestedAction: "attach",
         action: "attached",
         reason: null,
-        warning: job.warning,
-        path: attachOutcome.workspaceRelPath,
-        mimeType: attachOutcome.mimeType,
-        displayName: attachOutcome.displayName,
-        sizeBytes: attachOutcome.sizeBytes
+        warning: null,
+        path: outcome.workspaceRelPath,
+        mimeType: outcome.mimeType,
+        displayName: outcome.displayName,
+        sizeBytes: outcome.sizeBytes
       },
       artifacts: [outputArtifact],
       isError: false
     };
-  }
-
-  private async runSandboxJob(
-    params: {
-      bundle: AssistantRuntimeBundle;
-      sessionId: string;
-      requestId: string;
-    },
-    args: Record<string, unknown>
-  ): Promise<RuntimeSandboxJobResult> {
-    const policy = params.bundle.runtime.sandbox;
-    if (policy === undefined) {
-      throw new Error("Sandbox policy is unavailable for files tool execution.");
-    }
-    const assistantHandle = params.bundle.metadata.assistantHandle ?? "";
-    if (params.bundle.metadata.assistantId.length === 0) {
-      throw new Error("Assistant id is missing from the runtime bundle.");
-    }
-    const siblingHandles: readonly string[] = params.bundle.metadata.siblingAssistantHandles ?? [];
-    const quota = params.bundle.governance.quota;
-    return await this.sandboxClientService.waitForCompletion({
-      assistantId: params.bundle.metadata.assistantId,
-      assistantHandle,
-      siblingHandles,
-      workspaceId: params.bundle.metadata.workspaceId,
-      runtimeRequestId: params.requestId,
-      runtimeSessionId: params.sessionId,
-      toolCode: "files",
-      policy,
-      workspaceQuotaBytes: quota.workspaceQuotaBytes ?? null,
-      sharedQuotaBytes: quota.sharedQuotaBytes ?? null,
-      args
-    } satisfies RuntimeSandboxJobRequest);
   }
 
   private async enrichListWithShortDescriptions(
@@ -1115,8 +981,7 @@ export class RuntimeFilesToolService {
       policy.executionMode !== "inline" ||
       policy.enabled !== true ||
       policy.visibleToModel !== true ||
-      policy.usageRule !== "allowed" ||
-      bundle.runtime.sandbox?.enabled !== true
+      policy.usageRule !== "allowed"
     ) {
       return null;
     }
@@ -1162,145 +1027,6 @@ export class RuntimeFilesToolService {
       return "video";
     }
     return "document";
-  }
-
-  private isBinaryPreviewMime(mimeType: string): boolean {
-    const normalized = mimeType.toLowerCase().trim().split(";")[0] ?? "";
-    return BINARY_PREVIEW_MIME_TYPES.has(normalized) || normalized.startsWith("image/");
-  }
-
-  private parseListContent(content: string | null): RuntimeFilesToolItem[] {
-    if (content === null) {
-      return [];
-    }
-    try {
-      const parsed = JSON.parse(content) as { items?: unknown };
-      if (!Array.isArray(parsed.items)) {
-        return [];
-      }
-      const items: RuntimeFilesToolItem[] = [];
-      for (const entry of parsed.items) {
-        if (entry === null || typeof entry !== "object") {
-          continue;
-        }
-        const row = entry as Record<string, unknown>;
-        const path = typeof row.path === "string" ? row.path : null;
-        const type = row.type === "directory" ? "directory" : "file";
-        if (path === null) {
-          continue;
-        }
-        items.push({
-          path,
-          type,
-          sizeBytes: typeof row.sizeBytes === "number" ? row.sizeBytes : 0,
-          mimeType: typeof row.mimeType === "string" ? row.mimeType : null,
-          modifiedAt: typeof row.modifiedAt === "string" ? row.modifiedAt : null
-        });
-      }
-      return items;
-    } catch {
-      return [];
-    }
-  }
-
-  private parseReadContent(content: string | null): {
-    content: string | null;
-    sizeBytes: number | null;
-    sha256: string | null;
-    truncated: boolean;
-  } {
-    if (content === null) {
-      return { content: null, sizeBytes: null, sha256: null, truncated: false };
-    }
-    try {
-      const parsed = JSON.parse(content) as Record<string, unknown>;
-      const body = typeof parsed.content === "string" ? parsed.content : null;
-      return {
-        content: body,
-        sizeBytes: typeof parsed.sizeBytes === "number" ? parsed.sizeBytes : null,
-        sha256: typeof parsed.sha256 === "string" ? parsed.sha256 : null,
-        truncated: parsed.truncated === true
-      };
-    } catch {
-      return { content, sizeBytes: null, sha256: null, truncated: false };
-    }
-  }
-
-  private parseStatContent(content: string | null): {
-    sizeBytes: number | null;
-    mimeType: string | null;
-  } | null {
-    if (content === null) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(content) as Record<string, unknown>;
-      return {
-        sizeBytes: typeof parsed.sizeBytes === "number" ? parsed.sizeBytes : null,
-        mimeType: typeof parsed.mimeType === "string" ? parsed.mimeType : null
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  private parseWriteContent(content: string | null): {
-    sizeBytes: number | null;
-    resolvedPath: string | null;
-  } {
-    if (content === null) {
-      return { sizeBytes: null, resolvedPath: null };
-    }
-    try {
-      const parsed = JSON.parse(content) as Record<string, unknown>;
-      return {
-        sizeBytes: typeof parsed.sizeBytes === "number" ? parsed.sizeBytes : null,
-        resolvedPath: typeof parsed.resolvedPath === "string" ? parsed.resolvedPath : null
-      };
-    } catch {
-      return { sizeBytes: null, resolvedPath: null };
-    }
-  }
-
-  private parseAttachContent(content: string | null): {
-    workspaceRelPath: string;
-    sourcePath: string;
-    sizeBytes: number;
-    mimeType: string;
-    displayName: string;
-  } | null {
-    if (content === null) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(content) as Record<string, unknown>;
-      const attachment =
-        parsed.attachment !== null && typeof parsed.attachment === "object"
-          ? (parsed.attachment as Record<string, unknown>)
-          : null;
-      if (attachment === null) {
-        return null;
-      }
-      const workspaceRelPath =
-        typeof attachment.workspaceRelPath === "string" ? attachment.workspaceRelPath : null;
-      const sourcePath = typeof attachment.sourcePath === "string" ? attachment.sourcePath : null;
-      const sizeBytes = typeof attachment.sizeBytes === "number" ? attachment.sizeBytes : null;
-      const mimeType = typeof attachment.mimeType === "string" ? attachment.mimeType : null;
-      const displayName =
-        typeof attachment.displayName === "string" ? attachment.displayName : null;
-      if (
-        workspaceRelPath === null ||
-        sourcePath === null ||
-        sizeBytes === null ||
-        mimeType === null ||
-        displayName === null
-      ) {
-        return null;
-      }
-      return { workspaceRelPath, sourcePath, sizeBytes, mimeType, displayName };
-    } catch {
-      return null;
-    }
   }
 
   private readRequestedAction(value: unknown): RuntimeFilesToolAction | null {

@@ -11,8 +11,9 @@ import type {
 import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-edit-tool.service";
 import { ProviderGatewaySafetyRejectedError } from "../src/modules/turns/provider-gateway.client.service";
 import {
+  createFakeMediaObjectStorageForOutboundWrite,
   createFakeMediaObjectStorageForRead,
-  createFakeSandboxClientForOutboundWrite
+  createOutboundManifestApiStub
 } from "./helpers/runtime-outbound-test-doubles";
 
 function createBundle(): AssistantRuntimeBundle {
@@ -128,13 +129,16 @@ describe("RuntimeImageEditToolService", () => {
         };
       }
     };
+    const mediaObjectStorage = {
+      ...createFakeMediaObjectStorageForRead(),
+      ...createFakeMediaObjectStorageForOutboundWrite(
+        "/workspace/assistants/assistant-handle/sessions/session-1/image-edit-1.png"
+      )
+    };
     const service = new RuntimeImageEditToolService(
       providerGatewayClient as never,
-      {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite(
-        "/workspace/assistants/assistant-handle/sessions/session-1/image-edit-1.png"
-      ) as never
+      createOutboundManifestApiStub() as never,
+      mediaObjectStorage as never
     );
 
     const attachments = [
@@ -212,9 +216,8 @@ describe("RuntimeImageEditToolService", () => {
           };
         }
       } as never,
-      {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      {} as never
+      createOutboundManifestApiStub() as never,
+      createFakeMediaObjectStorageForRead() as never
     );
 
     const result = await service.executeToolCall({
@@ -281,11 +284,13 @@ describe("RuntimeImageEditToolService", () => {
           };
         }
       } as never,
-      {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite(
-        "/workspace/assistants/assistant-handle/sessions/session-ref/image-edit-ref.png"
-      ) as never
+      createOutboundManifestApiStub() as never,
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite(
+          "/workspace/assistants/assistant-handle/sessions/session-ref/image-edit-ref.png"
+        )
+      } as never
     );
 
     const attachments = [
@@ -339,9 +344,8 @@ describe("RuntimeImageEditToolService", () => {
   test("returns source_image_alias_required when multiple images present and no alias provided", async () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
-      {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      {} as never
+      createOutboundManifestApiStub() as never,
+      createFakeMediaObjectStorageForRead() as never
     );
 
     const attachments = [
@@ -394,10 +398,10 @@ describe("RuntimeImageEditToolService", () => {
         }) {
           enqueueCalls.push(input.directToolExecution);
           return { accepted: true, jobId: "media-job-7", kind: "image" };
-        }
+        },
+        ...createOutboundManifestApiStub()
       } as never,
-      createFakeMediaObjectStorageForRead() as never,
-      {} as never
+      createFakeMediaObjectStorageForRead() as never
     );
 
     const attachments = [
@@ -481,11 +485,13 @@ describe("RuntimeImageEditToolService", () => {
           };
         }
       } as never,
-      {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite(
-        "/workspace/assistants/assistant-handle/sessions/session-series/edit-series.png"
-      ) as never
+      createOutboundManifestApiStub() as never,
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite(
+          "/workspace/assistants/assistant-handle/sessions/session-series/edit-series.png"
+        )
+      } as never
     );
 
     const attachments = [
@@ -578,14 +584,18 @@ describe("RuntimeImageEditToolService", () => {
           });
         }
       } as never,
-      {} as never,
-      createFakeMediaObjectStorageForRead() as never,
+      createOutboundManifestApiStub() as never,
       {
-        async writeWorkspaceFile(input: { contentBase64: string }) {
+        ...createFakeMediaObjectStorageForRead(),
+        buildWorkspaceObjectKey() {
+          return "fake-object-key";
+        },
+        async saveObject(input: { buffer: Buffer }) {
           savedArtifacts += 1;
           return {
-            workspaceRelPath: `/workspace/edit-partial-${String(savedArtifacts)}.png`,
-            sizeBytes: Buffer.from(input.contentBase64, "base64").length
+            objectKey: `fake-object-key-${String(savedArtifacts)}`,
+            sizeBytes: input.buffer.length,
+            mimeType: "image/png"
           };
         }
       } as never

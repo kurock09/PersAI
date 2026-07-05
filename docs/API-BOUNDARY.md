@@ -319,8 +319,11 @@ Current active internal sandbox endpoints are served by `apps/sandbox`:
 - `GET /ready`
 - `POST /api/v1/jobs`
 - `GET /api/v1/jobs/:jobId`
+- `POST /api/v1/jobs/workspace-write-control-plane` — API-only upload pod hydration (not a model tool)
 
-These are internal runtime-to-sandbox boundaries for isolated `files` / `exec` / `shell` work, not public product APIs.
+**ADR-137 pod boundary:** sandbox jobs are **execution-only** (`shell`, `exec`, `execute_document_code`, `render_html_to_pdf`). Model-facing `files.*`, `grep`, and `glob` no longer dispatch sandbox jobs; they use the storage plane (`GCS` + `workspace_file_metadata` + internal runtime files API). Retired: `POST /api/v1/jobs/workspace-write` and sandbox `toolCode: "files"`.
+
+These are internal runtime-to-sandbox boundaries for isolated exec/document work, not public product APIs.
 
 ### Files
 

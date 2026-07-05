@@ -1571,7 +1571,7 @@ class FakePersaiInternalApiClientService {
 }
 
 class FakePersaiMediaObjectStorageService {
-  saveCalls: Array<{ storagePath: string; mimeType: string; buffer: Buffer }> = [];
+  saveCalls: Array<{ objectKey: string; mimeType: string; buffer: Buffer }> = [];
   sourceObjects = new Map<string, Buffer>();
 
   buildRuntimeOutputObjectKey(input: {
@@ -1585,14 +1585,18 @@ class FakePersaiMediaObjectStorageService {
     return `assistant-media/assistants/${input.assistantId}/runtime-output/sessions/${input.sessionId}/requests/${input.requestId}/${input.artifactId ?? "artifact"}.${extension}`;
   }
 
+  buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }): string {
+    return `fake-prefix/workspaces/${input.workspaceId}/workspace/${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+  }
+
   async saveObject(input: {
-    storagePath: string;
+    objectKey: string;
     buffer: Buffer;
     mimeType: string;
-  }): Promise<{ storagePath: string; sizeBytes: number; mimeType: string }> {
+  }): Promise<{ objectKey: string; sizeBytes: number; mimeType: string }> {
     this.saveCalls.push(input);
     return {
-      storagePath: input.storagePath,
+      objectKey: input.objectKey,
       sizeBytes: input.buffer.length,
       mimeType: input.mimeType
     };
@@ -2048,15 +2052,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const sessionCompactionService = new FakeSessionCompactionService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
-  const sandboxClient = {
-    async writeWorkspaceFile(input: { contentBase64: string }) {
-      return {
-        workspaceRelPath:
-          "/workspace/assistants/assistant-handle/sessions/session-id/test-artefact.bin",
-        sizeBytes: Buffer.from(input.contentBase64, "base64").length
-      };
-    }
-  };
   const runtimeBrowserToolService = new RuntimeBrowserToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -2064,16 +2059,17 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeImageEditToolService = new RuntimeImageEditToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as never,
-    sandboxClient as never
+    mediaObjectStorage as never
   );
   const runtimeImageGenerateToolService = new RuntimeImageGenerateToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    sandboxClient as never
+    mediaObjectStorage as never
   );
   const runtimeDocumentToolService = new RuntimeDocumentToolService(
-    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    {} as never,
+    {} as never
   );
   const runtimeKnowledgeToolService = new RuntimeKnowledgeToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -2093,8 +2089,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeVideoGenerateToolService = new RuntimeVideoGenerateToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as never,
-    sandboxClient as never
+    mediaObjectStorage as never
   );
   const runtimeScheduledActionToolService = new RuntimeScheduledActionToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -2105,7 +2100,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const runtimeTtsToolService = new RuntimeTtsToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    sandboxClient as never
+    mediaObjectStorage as never
   );
   const runtimeFilesToolService = new FakeRuntimeFilesToolService();
   const runtimeSandboxToolService = new FakeRuntimeSandboxToolService();
@@ -8454,15 +8449,6 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
   const sessionCompactionService = new FakeSessionCompactionService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
-  const sandboxClient = {
-    async writeWorkspaceFile(input: { contentBase64: string }) {
-      return {
-        workspaceRelPath:
-          "/workspace/assistants/assistant-handle/sessions/session-id/test-artefact.bin",
-        sizeBytes: Buffer.from(input.contentBase64, "base64").length
-      };
-    }
-  };
   const runtimeBrowserToolService = new RuntimeBrowserToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -8470,16 +8456,17 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
   const runtimeImageEditToolService = new RuntimeImageEditToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as never,
-    sandboxClient as never
+    mediaObjectStorage as never
   );
   const runtimeImageGenerateToolService = new RuntimeImageGenerateToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    sandboxClient as never
+    mediaObjectStorage as never
   );
   const runtimeDocumentToolService = new RuntimeDocumentToolService(
-    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    {} as never,
+    {} as never
   );
   const runtimeKnowledgeToolService = new RuntimeKnowledgeToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -8499,8 +8486,7 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
   const runtimeVideoGenerateToolService = new RuntimeVideoGenerateToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    mediaObjectStorage as never,
-    sandboxClient as never
+    mediaObjectStorage as never
   );
   const runtimeScheduledActionToolService = new RuntimeScheduledActionToolService(
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService
@@ -8511,7 +8497,7 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
   const runtimeTtsToolService = new RuntimeTtsToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    sandboxClient as never
+    mediaObjectStorage as never
   );
   const runtimeFilesToolService = new FakeRuntimeFilesToolService();
   const runtimeSandboxToolService = new FakeRuntimeSandboxToolService();

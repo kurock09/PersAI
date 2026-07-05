@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
@@ -17,6 +16,8 @@ import {
   isValidVisibleWorkspacePath
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
+import { RuntimeStoragePlaneFilesService } from "./runtime-storage-plane-files.service";
 import { SandboxClientService } from "./sandbox-client.service";
 import {
   executeRuntimeToolContractDescribe,
@@ -60,6 +61,8 @@ export class RuntimeDocumentToolService {
 
   constructor(
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
+    private readonly storagePlaneFilesService: RuntimeStoragePlaneFilesService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly sandboxClientService?: SandboxClientService
   ) {}
 
@@ -565,7 +568,8 @@ export class RuntimeDocumentToolService {
         replace: true,
         originChatId: params.originChatId,
         sourceUserMessageText: params.sourceUserMessageText,
-        sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt
+        sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
+        job
       });
     } catch (error) {
       return this.renderSkipped(
@@ -728,7 +732,8 @@ export class RuntimeDocumentToolService {
         replace: true,
         originChatId: params.originChatId,
         sourceUserMessageText: params.sourceUserMessageText,
-        sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt
+        sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt,
+        job
       });
     } catch (error) {
       return this.convertSkipped(
@@ -1749,49 +1754,19 @@ export class RuntimeDocumentToolService {
     mimeType: string;
     replace?: boolean;
   }): Promise<string> {
-    const job = await this.sandboxClientService!.waitForCompletion({
-      assistantId: input.bundle.metadata.assistantId,
-      assistantHandle: input.bundle.metadata.assistantHandle,
-      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
-      workspaceId: input.bundle.metadata.workspaceId,
-      runtimeRequestId: input.requestId,
-      runtimeSessionId: input.sessionId,
-      toolCode: "files",
-      policy: this.buildInlineDocumentSandboxPolicy(input.bundle.runtime.sandbox),
-      args: {
-        action: "write",
-        path: input.path,
-        content: input.content,
-        replace: input.replace !== false
-      }
-    } satisfies RuntimeSandboxJobRequest);
-    if (job.status !== "completed" || typeof job.reason === "string") {
-      throw new Error(
-        job.warning ?? job.violationMessage ?? job.reason ?? `Could not write ${input.path}.`
-      );
+    const outcome = await this.storagePlaneFilesService.writeTextFile({
+      bundle: input.bundle,
+      sessionId: input.sessionId,
+      chatId: input.originChatId,
+      targetPath: input.path,
+      content: input.content,
+      replace: input.replace === true,
+      requestedName: this.basename(input.path)
+    });
+    if (!outcome.ok) {
+      throw new Error(outcome.warning ?? outcome.reason ?? `Could not write ${input.path}.`);
     }
-    const writeOutcome = this.parseFilesWriteContent(job.content);
-    const resolvedPath = writeOutcome.resolvedPath ?? input.path;
-    try {
-      await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
-        workspaceId: input.bundle.metadata.workspaceId,
-        path: resolvedPath,
-        mimeType: input.mimeType,
-        sizeBytes: writeOutcome.sizeBytes ?? Buffer.byteLength(input.content, "utf8"),
-        contentHash: createHash("sha256").update(input.content, "utf8").digest("hex"),
-        replace: input.replace !== false,
-        ...(input.originChatId === null
-          ? {}
-          : {
-              originChatId: input.originChatId,
-              originAssistantId: input.bundle.metadata.assistantId
-            })
-      });
-    } catch {
-      // Best-effort only: authored scaffolding stays usable even if the metadata mirror
-      // upsert is temporarily unavailable, matching normal files.write behavior.
-    }
-    return resolvedPath;
+    return outcome.resolvedPath;
   }
 
   private async readWorkspaceTextFile(input: {
@@ -1800,34 +1775,17 @@ export class RuntimeDocumentToolService {
     requestId: string;
     path: string;
   }): Promise<string> {
-    const job = await this.sandboxClientService!.waitForCompletion({
-      assistantId: input.bundle.metadata.assistantId,
-      assistantHandle: input.bundle.metadata.assistantHandle,
-      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
+    const outcome = await this.storagePlaneFilesService.readTextFile({
       workspaceId: input.bundle.metadata.workspaceId,
-      runtimeRequestId: input.requestId,
-      runtimeSessionId: input.sessionId,
-      toolCode: "files",
-      policy: this.buildInlineDocumentSandboxPolicy(input.bundle.runtime.sandbox),
-      args: {
-        action: "read",
-        path: input.path,
-        maxBytes: 2 * 1024 * 1024
-      }
-    } satisfies RuntimeSandboxJobRequest);
-    if (job.status !== "completed" || typeof job.reason === "string") {
+      path: input.path,
+      maxBytes: 2 * 1024 * 1024
+    });
+    if (!outcome.ok) {
       throw new Error(
-        job.warning ??
-          job.violationMessage ??
-          job.reason ??
-          `Could not read ${input.path} from the workspace.`
+        outcome.warning ?? outcome.reason ?? `Could not read ${input.path} from the workspace.`
       );
     }
-    const parsed = this.parseFilesReadContent(job.content);
-    if (parsed.content === null) {
-      throw new Error(`Workspace file ${input.path} did not return readable text content.`);
-    }
-    return parsed.content;
+    return outcome.content;
   }
 
   private stemOf(name: string | null): string {
@@ -1874,45 +1832,43 @@ export class RuntimeDocumentToolService {
     originChatId: string | null;
     sourceUserMessageText: string;
     sourceUserMessageCreatedAt: string;
+    job: RuntimeSandboxJobResult;
   }): Promise<{
     mimeType: string;
     sizeBytes: number;
     resolvedPath: string;
     metadataWarning: string | null;
   }> {
-    const job = await this.sandboxClientService!.waitForCompletion({
-      assistantId: input.bundle.metadata.assistantId,
-      assistantHandle: input.bundle.metadata.assistantHandle,
-      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
-      workspaceId: input.bundle.metadata.workspaceId,
-      runtimeRequestId: `${input.requestId}:persist`,
-      runtimeSessionId: input.sessionId,
-      toolCode: "files",
-      policy: this.buildInlineDocumentSandboxPolicy(input.bundle.runtime.sandbox),
-      args: {
-        action: "attach",
-        path: input.outputPath
-      }
-    } satisfies RuntimeSandboxJobRequest);
-    if (job.status !== "completed" || typeof job.reason === "string") {
+    const produced =
+      input.job.files.find((file) => file.sizeBytes > 0) ?? input.job.files[0] ?? null;
+    if (produced === null || produced.sizeBytes === 0) {
       throw new Error(
-        job.warning ??
-          job.violationMessage ??
-          job.reason ??
-          `Could not persist ${input.outputPath} to the canonical workspace.`
+        `Could not persist ${input.outputPath}: document render produced no workspace artifact.`
       );
     }
-    const attach = this.parseFilesAttachContent(job.content);
-    if (attach === null) {
-      throw new Error("Sandbox attach completed without a valid persistence payload.");
+    const buffer = await this.mediaObjectStorage.downloadObject(produced.storagePath);
+    if (buffer === null || buffer.length === 0) {
+      throw new Error(
+        `Could not persist ${input.outputPath}: rendered bytes are unavailable in object storage.`
+      );
     }
+    const resolvedPath = input.outputPath;
+    const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
+      workspaceId: input.bundle.metadata.workspaceId,
+      workspaceRelPath: resolvedPath
+    });
+    await this.mediaObjectStorage.saveObject({
+      objectKey,
+      buffer,
+      mimeType: produced.mimeType
+    });
     let metadataWarning: string | null = null;
     try {
       await this.persaiInternalApiClientService.upsertWorkspaceFileMetadata({
         workspaceId: input.bundle.metadata.workspaceId,
-        path: attach.workspaceRelPath,
-        mimeType: attach.mimeType,
-        sizeBytes: attach.sizeBytes,
+        path: resolvedPath,
+        mimeType: produced.mimeType,
+        sizeBytes: buffer.length,
         replace: input.replace,
         sourceUserMessageText: input.sourceUserMessageText,
         sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt,
@@ -1928,15 +1884,13 @@ export class RuntimeDocumentToolService {
         error instanceof Error
           ? error.message
           : "Document metadata registration is temporarily unavailable.";
-      this.logger.warn(
-        `document_metadata_upsert_failed path=${attach.workspaceRelPath} reason=${detail}`
-      );
-      metadataWarning = `document metadata registration failed after persisting ${attach.workspaceRelPath}: ${detail}`;
+      this.logger.warn(`document_metadata_upsert_failed path=${resolvedPath} reason=${detail}`);
+      metadataWarning = `document metadata registration failed after persisting ${resolvedPath}: ${detail}`;
     }
     return {
-      resolvedPath: attach.workspaceRelPath,
-      mimeType: attach.mimeType,
-      sizeBytes: attach.sizeBytes,
+      resolvedPath,
+      mimeType: produced.mimeType,
+      sizeBytes: buffer.length,
       metadataWarning
     };
   }
@@ -1948,34 +1902,13 @@ export class RuntimeDocumentToolService {
     outputPath: string;
     replace: boolean;
   }): Promise<string> {
-    const job = await this.sandboxClientService!.waitForCompletion({
-      assistantId: input.bundle.metadata.assistantId,
-      assistantHandle: input.bundle.metadata.assistantHandle,
-      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
-      workspaceId: input.bundle.metadata.workspaceId,
-      runtimeRequestId: `${input.requestId}:resolve-output-path`,
-      runtimeSessionId: input.sessionId,
-      toolCode: "files",
-      policy: this.buildInlineDocumentSandboxPolicy(input.bundle.runtime.sandbox),
-      args: {
-        action: "resolve_write_path",
-        path: input.outputPath,
-        replace: input.replace
-      }
-    } satisfies RuntimeSandboxJobRequest);
-    if (job.status !== "completed" || typeof job.reason === "string") {
-      throw new Error(
-        job.warning ??
-          job.violationMessage ??
-          job.reason ??
-          `Could not resolve ${input.outputPath} for document.render.`
-      );
-    }
-    const resolvedPath = this.parseResolvedWritePathContent(job.content);
-    if (resolvedPath === null) {
-      throw new Error("Sandbox path resolution completed without a valid resolvedPath payload.");
-    }
-    return resolvedPath;
+    return this.storagePlaneFilesService.resolveWritePath({
+      bundle: input.bundle,
+      sessionId: input.sessionId,
+      chatId: null,
+      targetPath: input.outputPath,
+      replace: input.replace
+    });
   }
 
   private buildInlineDocumentSandboxPolicy(
@@ -1999,84 +1932,6 @@ export class RuntimeDocumentToolService {
       maxSingleFileWriteBytes: Math.max(basePolicy.maxSingleFileWriteBytes, 50 * 1024 * 1024),
       maxWorkspaceBytesPerJob: Math.max(basePolicy.maxWorkspaceBytesPerJob, 64 * 1024 * 1024)
     };
-  }
-
-  private parseFilesReadContent(content: string | null): {
-    content: string | null;
-    sizeBytes: number | null;
-    truncated: boolean;
-  } {
-    const row = this.parseJsonObject(content);
-    return {
-      content: typeof row?.content === "string" ? row.content : null,
-      sizeBytes: typeof row?.sizeBytes === "number" ? row.sizeBytes : null,
-      truncated: row?.truncated === true
-    };
-  }
-
-  private parseFilesAttachContent(content: string | null): {
-    workspaceRelPath: string;
-    sizeBytes: number;
-    mimeType: string;
-    displayName: string;
-  } | null {
-    const row = this.parseJsonObject(content);
-    const attachment = row?.attachment;
-    if (attachment === null || typeof attachment !== "object" || Array.isArray(attachment)) {
-      return null;
-    }
-    const value = attachment as Record<string, unknown>;
-    if (
-      typeof value.workspaceRelPath !== "string" ||
-      typeof value.sizeBytes !== "number" ||
-      typeof value.mimeType !== "string" ||
-      typeof value.displayName !== "string"
-    ) {
-      return null;
-    }
-    return {
-      workspaceRelPath: value.workspaceRelPath,
-      sizeBytes: value.sizeBytes,
-      mimeType: value.mimeType,
-      displayName: value.displayName
-    };
-  }
-
-  private parseResolvedWritePathContent(content: string | null): string | null {
-    if (content === null) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(content) as Record<string, unknown>;
-      return typeof parsed.resolvedPath === "string" ? parsed.resolvedPath : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private parseFilesWriteContent(content: string | null): {
-    sizeBytes: number | null;
-    resolvedPath: string | null;
-  } {
-    const row = this.parseJsonObject(content);
-    return {
-      sizeBytes: typeof row?.sizeBytes === "number" ? row.sizeBytes : null,
-      resolvedPath: typeof row?.resolvedPath === "string" ? row.resolvedPath : null
-    };
-  }
-
-  private parseJsonObject(content: string | null): Record<string, unknown> | null {
-    if (typeof content !== "string" || content.trim().length === 0) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(content) as unknown;
-      return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : null;
-    } catch {
-      return null;
-    }
   }
 
   private toWorkspaceRelativePath(path: string): string {

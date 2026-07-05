@@ -18,6 +18,112 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+/**
+ * Localized text map for Skill.name / Skill.description. At least one locale required;
+ * any locale key (2-16 chars) is accepted (API does not require "ru"/"en" specifically here).
+ */
+const skillLocalizedTextSchema = z
+  .record(z.string(), z.string().min(1))
+  .describe(
+    "Locale map, e.g. { ru: '...', en: '...' }. At least one locale key required (2-16 chars each)."
+  );
+
+const skillInstructionCardSchema = z.object({
+  title: z.string().min(1).max(120),
+  body: z.string().min(1).max(1200),
+  guardrails: z.array(z.string().min(1).max(240)).max(8).optional(),
+  examples: z.array(z.string().min(1).max(240)).max(8).optional()
+});
+
+const skillUpsertBodySchema = z.object({
+  name: skillLocalizedTextSchema,
+  description: skillLocalizedTextSchema,
+  category: z.string().min(1).max(64),
+  tags: z.array(z.string().min(1).max(40)).max(12).optional(),
+  instructionCard: skillInstructionCardSchema,
+  iconEmoji: z.string().max(16).nullable().optional(),
+  color: z.string().max(32).nullable().optional(),
+  displayOrder: z.number().int().optional(),
+  status: z.enum(["draft", "active", "archived"]).optional()
+});
+
+/**
+ * Skill knowledge card body. NOTE: unlike scenario displayName/description, `title`/`body`
+ * here are PLAIN STRINGS (not locale maps) — locale is a separate optional field.
+ */
+const skillKnowledgeCardBodySchema = z.object({
+  title: z.string().min(1).max(255),
+  body: z.string().min(1).max(80_000),
+  locale: z.string().max(16).nullable().optional(),
+  tags: z.array(z.string().min(1).max(48)).max(20).optional(),
+  lifecycleStatus: z.enum(["draft", "active", "stale", "archived"]).nullable().optional(),
+  provenanceKind: z
+    .enum(["manual", "assistant_generated", "document_summary", "imported"])
+    .optional(),
+  provenanceMetadata: z.record(z.string(), z.unknown()).nullable().optional()
+});
+
+/**
+ * Locale map required by SkillScenario displayName/description. Unlike Skill.name/description,
+ * the scenario API strictly REQUIRES both "ru" and "en" keys (validated server-side).
+ */
+const scenarioLocaleMapSchema = z
+  .object({ ru: z.string().min(1).max(500), en: z.string().min(1).max(500) })
+  .catchall(z.string().min(1).max(500))
+  .describe("Locale map. Both 'ru' and 'en' keys are REQUIRED by the API; other locales allowed.");
+
+const scenarioStepSchema = z.object({
+  number: z.number().int().nonnegative().describe("1-based step order."),
+  directive: z
+    .string()
+    .min(1)
+    .max(600)
+    .describe("What the model should do in this step. NOT `title`/`instructions`."),
+  recommendedToolCall: z.string().min(1).max(64).nullable().optional(),
+  mayBeSkippedIf: z.string().min(1).max(240).nullable().optional(),
+  negativeGuards: z.array(z.string().min(1).max(240)).max(8).optional(),
+  expectedUserResponse: z.string().min(1).max(400).nullable().optional(),
+  nextStepTrigger: z.string().min(1).max(400).nullable().optional(),
+  recoveryGuidance: z.string().min(1).max(400).nullable().optional(),
+  firstStepPreview: z.string().min(1).max(200).nullable().optional()
+});
+
+/**
+ * Body shape for POST (create, no top-level scenarioKey arg — `key` required here) and
+ * PATCH (update, top-level scenarioKey supplied separately — `key` ignored/not required).
+ * Field names deliberately do NOT match the old opaque `z.record(z.unknown())`: there is no
+ * `title`/`instructions`/`guardrails`/`triggerIntentExamples` at this level — use
+ * `displayName`/`description` (locale maps), `steps[].directive` (not title/instructions),
+ * `intentExamples` (not triggerIntentExamples), and `exitCondition` (not guardrails).
+ */
+const skillScenarioBodySchema = z.object({
+  key: z
+    .string()
+    .regex(/^[a-z][a-z0-9_]{1,63}$/, "lowercase, must start with a letter, underscores allowed")
+    .optional()
+    .describe("Required when creating (no scenarioKey arg). Ignored/omit on update."),
+  displayName: scenarioLocaleMapSchema.optional().describe("Required when creating."),
+  description: scenarioLocaleMapSchema.optional().describe("Required when creating."),
+  iconEmoji: z.string().max(16).nullable().optional(),
+  intentExamples: z.array(z.string().min(1).max(200)).max(10).optional(),
+  steps: z
+    .array(scenarioStepSchema)
+    .min(1)
+    .max(20)
+    .optional()
+    .describe("Required when creating; at least one step."),
+  recommendedTools: z.array(z.string().min(1).max(64)).max(12).optional(),
+  exitCondition: z
+    .string()
+    .min(1)
+    .max(400)
+    .optional()
+    .describe("Required when creating. Plain string describing scenario completion."),
+  firstStepPreview: z.string().min(1).max(200).nullable().optional(),
+  status: z.enum(["draft", "active", "archived"]).optional(),
+  displayOrder: z.number().int().nonnegative().optional()
+});
+
 function toolText(payload: unknown): { content: Array<{ type: "text"; text: string }> } {
   return {
     content: [{ type: "text", text: JSON.stringify(payload, null, 2) }]
@@ -102,7 +208,7 @@ export function createPersaiAdminMcpServer(
         "Create or update an admin Skill (core fields + instructionCard). Pass skillId to update.",
       inputSchema: z.object({
         skillId: z.string().uuid().optional(),
-        body: z.record(z.unknown())
+        body: skillUpsertBodySchema
       })
     },
     async ({ skillId, body }) => {
@@ -148,11 +254,11 @@ export function createPersaiAdminMcpServer(
     "skill_card_upsert",
     {
       description:
-        "Create or update a Skill knowledge card. Defaults provenanceKind=manual when omitted in body.",
+        "Create or update a Skill knowledge card. `title`/`body` are plain strings (locale is a separate optional field) — NOT locale maps. Defaults provenanceKind=manual when omitted in body.",
       inputSchema: z.object({
         skillId: z.string().uuid(),
         cardId: z.string().uuid().optional(),
-        body: z.record(z.unknown())
+        body: skillKnowledgeCardBodySchema
       })
     },
     async ({ skillId, cardId, body }) => {
@@ -209,11 +315,15 @@ export function createPersaiAdminMcpServer(
   server.registerTool(
     "skill_scenario_upsert",
     {
-      description: "Create or update a Skill scenario with the full API schema (all step fields).",
+      description:
+        "Create (omit scenarioKey) or update (pass scenarioKey) a Skill scenario. Body uses `key`/`displayName`+`description` (locale maps, both ru+en required)/`steps[].directive`/`exitCondition` — NOT `scenarioKey`-in-body/`title`/`instructions`/`guardrails`/`triggerIntentExamples`.",
       inputSchema: z.object({
         skillId: z.string().uuid(),
-        scenarioKey: z.string().optional(),
-        body: z.record(z.unknown())
+        scenarioKey: z
+          .string()
+          .optional()
+          .describe("Omit to CREATE (POST); pass the existing key to UPDATE (PATCH)."),
+        body: skillScenarioBodySchema
       })
     },
     async ({ skillId, scenarioKey, body }) => {

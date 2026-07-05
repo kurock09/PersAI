@@ -3439,7 +3439,8 @@ export class TurnExecutionService {
           result.isError,
           undefined,
           result.artifacts,
-          result.discoveredFileHandles
+          result.discoveredFileHandles,
+          result.pendingFilePreviewBlocks
         );
       }
       case EXEC_TOOL_CODE:
@@ -3564,6 +3565,9 @@ export class TurnExecutionService {
           availableAttachments: availableImageAttachments,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
+          chatId: this.resolveCurrentChatId(input),
+          sourceUserMessageText: input.message.text,
+          sourceUserMessageCreatedAt: new Date().toISOString(),
           ...(this.shouldDeferMediaToolExecution(input)
             ? {
                 deferToAsyncMediaJob: {
@@ -3594,6 +3598,9 @@ export class TurnExecutionService {
           availableAttachments: availableImageAttachments,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
+          chatId: this.resolveCurrentChatId(input),
+          sourceUserMessageText: input.message.text,
+          sourceUserMessageCreatedAt: new Date().toISOString(),
           ...(this.shouldDeferMediaToolExecution(input)
             ? {
                 deferToAsyncMediaJob: {
@@ -3618,7 +3625,10 @@ export class TurnExecutionService {
               toolCall,
               availableAttachments: [],
               sessionId: acceptedTurn.session.sessionId,
-              requestId: acceptedTurn.receipt.requestId
+              requestId: acceptedTurn.receipt.requestId,
+              chatId: this.resolveCurrentChatId(input),
+              sourceUserMessageText: input.message.text,
+              sourceUserMessageCreatedAt: new Date().toISOString()
             })
           : await this.runtimeVideoGenerateToolService.executeToolCall({
               bundle: execution.bundle,
@@ -3631,6 +3641,9 @@ export class TurnExecutionService {
               ),
               sessionId: acceptedTurn.session.sessionId,
               requestId: acceptedTurn.receipt.requestId,
+              chatId: this.resolveCurrentChatId(input),
+              sourceUserMessageText: input.message.text,
+              sourceUserMessageCreatedAt: new Date().toISOString(),
               ...(this.shouldDeferMediaToolExecution(input)
                 ? {
                     deferToAsyncMediaJob: {
@@ -3653,7 +3666,10 @@ export class TurnExecutionService {
           bundle: execution.bundle,
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
-          requestId: acceptedTurn.receipt.requestId
+          requestId: acceptedTurn.receipt.requestId,
+          chatId: this.resolveCurrentChatId(input),
+          sourceUserMessageText: input.message.text,
+          sourceUserMessageCreatedAt: new Date().toISOString()
         });
         return this.createToolExecutionOutcome(
           toolCall,

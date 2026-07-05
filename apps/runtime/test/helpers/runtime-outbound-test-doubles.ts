@@ -1,24 +1,36 @@
-export function createFakeSandboxClientForOutboundWrite(
+export function createOutboundManifestApiStub(): {
+  sumWorkspaceFileStorageBytes(): Promise<number>;
+  upsertWorkspaceFileMetadata(): Promise<{ documentRegistration: null }>;
+} {
+  return {
+    async sumWorkspaceFileStorageBytes() {
+      return 0;
+    },
+    async upsertWorkspaceFileMetadata() {
+      return { documentRegistration: null };
+    }
+  };
+}
+
+export function createFakeMediaObjectStorageForOutboundWrite(
   workspaceRelPath = "/workspace/assistants/assistant-handle/sessions/session-id/test-artefact.bin"
 ): {
-  writeWorkspaceFile(input: {
-    contentBase64: string;
-    workspaceQuotaBytes?: number | null;
-    sharedQuotaBytes?: number | null;
-  }): Promise<{
-    workspaceRelPath: string;
+  buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }): string;
+  saveObject(input: { objectKey: string; buffer: Buffer; mimeType: string }): Promise<{
+    objectKey: string;
     sizeBytes: number;
+    mimeType: string;
   }>;
 } {
   return {
-    async writeWorkspaceFile(input: {
-      contentBase64: string;
-      workspaceQuotaBytes?: number | null;
-      sharedQuotaBytes?: number | null;
-    }) {
+    buildWorkspaceObjectKey(input) {
+      return `fake-prefix/workspaces/${input.workspaceId}/workspace/${input.workspaceRelPath.replace(/^\/workspace\//, "")}`;
+    },
+    async saveObject(input) {
       return {
-        workspaceRelPath,
-        sizeBytes: Buffer.from(input.contentBase64, "base64").length
+        objectKey: input.objectKey,
+        sizeBytes: input.buffer.length,
+        mimeType: input.mimeType
       };
     }
   };

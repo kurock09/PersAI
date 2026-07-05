@@ -1,9 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join, extname, basename, isAbsolute, relative, resolve, sep } from "node:path";
-import { posix as pathPosix } from "node:path";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { SandboxConfig } from "@persai/config";
 import type {
@@ -26,6 +25,7 @@ import {
   WorkspaceFileBridgeService,
   type WorkspaceBridgeContext
 } from "./workspace-file-bridge.service";
+import { mirrorVisibleWorkspaceProducedFilesToGcs } from "./workspace-produced-gcs-mirror";
 import {
   buildShellProducedFilesFromDocumentDiff,
   collectWorkspaceDocumentOutputSnapshots
@@ -33,9 +33,7 @@ import {
 import {
   buildDefaultVisibleWorkspaceRoot,
   normalizeAndClampPath,
-  WORKSPACE_MOUNT_ROOT,
-  WorkspacePathError,
-  assertAllowedMountPrefix
+  WORKSPACE_MOUNT_ROOT
 } from "./workspace-path";
 
 type WorkspaceStats = {
@@ -246,7 +244,7 @@ export class SandboxService {
    * GCS upload succeeds, so the running pod sees the uploaded file without
    * having to wait for the next cold-start hydrate. If the workspace has no
    * Running pod, this is a no-op (`mode: "deferred"`) — the bytes are already
-   * the canonical copy in GCS and `hydrateWorkspaceMountFromGcs` will pull them
+   * the canonical copy in GCS and scoped session/shared hydrate will pull them
    * on the next pod boot. The caller treats either outcome as success and
    * never blocks the upload on this hop.
    *
@@ -363,175 +361,6 @@ export class SandboxService {
       removedFromPods: result.removedFromPods,
       failures: result.failures
     };
-  }
-
-  /**
-   * ADR-128 Slice 4 / ADR-133 Slice 2 — synchronous control-plane write of
-   * artifact bytes into the current assistant/session root (collision-aware).
-   */
-  async writeWorkspaceFile(input: {
-    assistantId: string;
-    workspaceId: string;
-    assistantHandle?: string | null;
-    siblingHandles?: readonly string[] | null;
-    runtimeSessionId?: string | null;
-    basename: string;
-    contents: Buffer;
-    mimeType: string;
-    collisionStrategy?: "overwrite" | "numeric_suffix";
-    policy?: RuntimeSandboxPolicy;
-    workspaceQuotaBytes?: number | null;
-    sharedQuotaBytes?: number | null;
-  }): Promise<
-    | { ok: true; workspaceRelPath: string; sizeBytes: number }
-    | { ok: false; reason: string; message: string }
-  > {
-    const policy = input.policy ?? DEFAULT_RUNTIME_SANDBOX_POLICY;
-    if (input.runtimeSessionId === null || input.runtimeSessionId === undefined) {
-      return {
-        ok: false,
-        reason: "runtime_session_id_required",
-        message: "workspace_write_runtime_session_id_required"
-      };
-    }
-    const jobId = randomUUID();
-    let leaseGuard: WorkspaceLeaseGuard | null = null;
-    try {
-      await this.prisma.sandboxJob.create({
-        data: {
-          id: jobId,
-          assistantId: input.assistantId,
-          workspaceId: input.workspaceId,
-          runtimeRequestId: `workspace-write:${jobId}`,
-          toolCode: "workspace_write",
-          status: "running",
-          relativeWorkspace: ".",
-          policySnapshot: this.toJsonValue(policy),
-          requestPayload: this.toJsonValue({
-            basename: input.basename,
-            mimeType: input.mimeType,
-            collisionStrategy: input.collisionStrategy ?? "numeric_suffix",
-            bytes: input.contents.length
-          }),
-          startedAt: new Date()
-        }
-      });
-      const leaseHandle = await this.waitForWorkspaceLease({
-        assistantId: input.assistantId,
-        workspaceId: input.workspaceId,
-        sandboxJobId: jobId,
-        waitTimeoutMs: this.resolveWorkspaceLeaseWaitTimeoutMs(policy)
-      });
-      leaseGuard = this.startWorkspaceLeaseHeartbeat(leaseHandle);
-      const assistantHandle = await this.resolveAssistantHandle(
-        input.assistantId,
-        input.assistantHandle ?? null
-      );
-      const siblingHandles = await this.resolveSiblingHandles(
-        input.workspaceId,
-        input.assistantId,
-        input.siblingHandles ?? null
-      );
-      const bridgeCtx: WorkspaceBridgeContext = {
-        assistantId: input.assistantId,
-        assistantHandle,
-        siblingHandles,
-        workspaceId: input.workspaceId,
-        runtimeSessionId: input.runtimeSessionId ?? null,
-        defaultVisibleRoot: buildDefaultVisibleWorkspaceRoot(
-          input.assistantId,
-          input.runtimeSessionId ?? null
-        ),
-        policy,
-        workspaceQuotaBytes: input.workspaceQuotaBytes ?? null,
-        sharedQuotaBytes: input.sharedQuotaBytes ?? null
-      };
-      const writeResult = await this.workspaceFileBridgeService.writeWorkspaceFileWithCollision(
-        bridgeCtx,
-        {
-          basename: input.basename,
-          contents: input.contents,
-          collisionStrategy: input.collisionStrategy ?? "numeric_suffix"
-        }
-      );
-      if (!writeResult.success) {
-        await this.prisma.sandboxJob.update({
-          where: { id: jobId },
-          data: {
-            status: "failed",
-            completedAt: new Date(),
-            violationCode: writeResult.reason ?? "write_failed",
-            violationMessage: writeResult.reason ?? "workspace_write_failed",
-            resultPayload: {
-              reason: writeResult.reason ?? "write_failed",
-              warning: null,
-              exitCode: null,
-              stdout: null,
-              stderr: null,
-              content: null
-            }
-          }
-        });
-        return {
-          ok: false,
-          reason: writeResult.reason ?? "write_failed",
-          message: writeResult.reason ?? "workspace_write_failed"
-        };
-      }
-      await this.prisma.sandboxJob.update({
-        where: { id: jobId },
-        data: {
-          status: "completed",
-          completedAt: new Date(),
-          resultPayload: {
-            reason: null,
-            warning: null,
-            exitCode: 0,
-            stdout: null,
-            stderr: null,
-            content: JSON.stringify({
-              workspaceRelPath: writeResult.data.workspaceRelPath,
-              sizeBytes: writeResult.data.bytes
-            })
-          }
-        }
-      });
-      return {
-        ok: true,
-        workspaceRelPath: writeResult.data.workspaceRelPath,
-        sizeBytes: writeResult.data.bytes
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      await this.prisma.sandboxJob
-        .update({
-          where: { id: jobId },
-          data: {
-            status: "failed",
-            completedAt: new Date(),
-            violationCode: "workspace_write_failed",
-            violationMessage: message,
-            resultPayload: {
-              reason: "workspace_write_failed",
-              warning: message,
-              exitCode: null,
-              stdout: null,
-              stderr: null,
-              content: null
-            }
-          }
-        })
-        .catch(() => {});
-      return {
-        ok: false,
-        reason: "workspace_write_failed",
-        message
-      };
-    } finally {
-      if (leaseGuard !== null) {
-        await this.stopWorkspaceLeaseHeartbeat(leaseGuard);
-      }
-    }
   }
 
   private async findJobRecord(jobId: string) {
@@ -967,25 +796,7 @@ export class SandboxService {
     siblingHandles: readonly string[];
   }): Promise<SandboxToolExecutionResult> {
     this.assertWorkspaceLeaseActive(input.leaseGuard);
-    const bridgeCtx: WorkspaceBridgeContext = {
-      assistantId: input.request.assistantId,
-      assistantHandle: input.assistantHandle,
-      siblingHandles: input.siblingHandles,
-      workspaceId: input.request.workspaceId,
-      runtimeSessionId: input.request.runtimeSessionId ?? null,
-      defaultVisibleRoot: input.defaultVisibleRoot,
-      policy: input.request.policy,
-      workspaceQuotaBytes: input.request.workspaceQuotaBytes ?? null,
-      sharedQuotaBytes: input.request.sharedQuotaBytes ?? null
-    };
     switch (input.request.toolCode) {
-      case "files": {
-        return this.executeFilesBridgeAction(bridgeCtx, input.request.args);
-      }
-      case "grep":
-        return this.executeGrepActionViaPodExec(bridgeCtx, input.request.args);
-      case "glob":
-        return this.executeGlobActionViaPodExec(bridgeCtx, input.request.args);
       case "exec":
         return this.executeExecLike(
           input.workspaceRoot,
@@ -1052,611 +863,6 @@ export class SandboxService {
     }
   }
 
-  /**
-   * ADR-126 Slice 3 — unified files bridge dispatcher. Routes the five
-   * model-facing actions (list, read, stat, write, delete) to the
-   * WorkspaceFileBridgeService primitives and translates the result into the
-   * dispatcher return shape expected by executeQueuedJob. Content JSON shapes
-   * match the parsers in runtime-files-tool.service.ts exactly.
-   */
-  private async executeFilesBridgeAction(
-    bridgeCtx: WorkspaceBridgeContext,
-    args: Record<string, unknown>
-  ): Promise<{
-    reason: string | null;
-    warning: string | null;
-    exitCode: number | null;
-    stdout: string | null;
-    stderr: string | null;
-    content: string | null;
-  }> {
-    const action = typeof args.action === "string" ? args.action : null;
-    if (
-      action !== "list" &&
-      action !== "read" &&
-      action !== "stat" &&
-      action !== "write" &&
-      action !== "resolve_write_path" &&
-      action !== "delete" &&
-      action !== "attach"
-    ) {
-      return {
-        reason: "unsupported_action",
-        warning: `Unsupported files action: ${String(action)}`,
-        exitCode: null,
-        stdout: null,
-        stderr: null,
-        content: null
-      };
-    }
-    try {
-      if (action === "list") {
-        const path =
-          typeof args.path === "string" && args.path.trim().length > 0
-            ? args.path.trim()
-            : bridgeCtx.defaultVisibleRoot;
-        const result = await this.workspaceFileBridgeService.workspaceFileList(bridgeCtx, {
-          path
-        });
-        if (!result.success) {
-          return {
-            reason: result.reason,
-            warning: null,
-            exitCode: null,
-            stdout: null,
-            stderr: null,
-            content: null
-          };
-        }
-        const includeHidden = args.includeHidden === true;
-        const NOISE_BASENAMES = new Set([
-          "node_modules",
-          ".venv",
-          ".local",
-          ".npm-global",
-          ".cache",
-          "__pycache__"
-        ]);
-        const NOISE_EXT = /\.(pyc|log|lock|tmp)$/;
-        let entries = result.data;
-        if (!includeHidden) {
-          entries = entries.filter((entry) => {
-            const bname = entry.path.split("/").pop() ?? "";
-            if (NOISE_BASENAMES.has(bname)) return false;
-            if (bname.startsWith(".")) return false;
-            if (NOISE_EXT.test(bname)) return false;
-            return true;
-          });
-        }
-        entries.sort((a, b) => {
-          if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
-          return a.path.localeCompare(b.path);
-        });
-        const items = entries.map((entry) => ({
-          path: entry.path,
-          type: entry.type,
-          sizeBytes: entry.sizeBytes,
-          mimeType: this.mimeTypeFromPath(entry.path),
-          modifiedAt: entry.modifiedAt
-        }));
-        return {
-          reason: null,
-          warning: null,
-          exitCode: 0,
-          stdout: null,
-          stderr: null,
-          content: JSON.stringify({ items })
-        };
-      }
-
-      if (action === "read") {
-        const path = this.requireString(args.path, "path");
-        const maxBytes = this.optionalPositiveInteger(args.maxBytes, "maxBytes");
-        const result = await this.workspaceFileBridgeService.workspaceFileRead(bridgeCtx, {
-          path,
-          ...(maxBytes === undefined ? {} : { maxBytes })
-        });
-        if (!result.success || result.data === null) {
-          return {
-            reason: result.reason,
-            warning: null,
-            exitCode: null,
-            stdout: null,
-            stderr: null,
-            content: null
-          };
-        }
-        const content = this.stripNulCharacters(result.data.bytes.toString("utf8"));
-        const sha256 = createHash("sha256").update(result.data.bytes).digest("hex");
-        return {
-          reason: null,
-          warning: null,
-          exitCode: 0,
-          stdout: null,
-          stderr: null,
-          content: JSON.stringify({
-            content,
-            sizeBytes: result.data.bytes.length,
-            sha256,
-            truncated: result.data.truncated
-          })
-        };
-      }
-
-      if (action === "stat") {
-        const path = this.requireString(args.path, "path");
-        const result = await this.workspaceFileBridgeService.workspaceFileStat(bridgeCtx, {
-          path
-        });
-        if (!result.success) {
-          return {
-            reason: result.reason,
-            warning: null,
-            exitCode: null,
-            stdout: null,
-            stderr: null,
-            content: null
-          };
-        }
-        return {
-          reason: null,
-          warning: null,
-          exitCode: 0,
-          stdout: null,
-          stderr: null,
-          content: JSON.stringify({
-            sizeBytes: result.data.type === "missing" ? 0 : result.data.sizeBytes,
-            mimeType:
-              result.data.type === "missing" ? null : this.mimeTypeFromPath(result.data.path)
-          })
-        };
-      }
-
-      if (action === "write") {
-        const path = this.requireString(args.path, "path");
-        const contentStr = this.requireString(args.content, "content");
-        const mode: "overwrite" | "create_only" | undefined =
-          args.mode === "create_only"
-            ? "create_only"
-            : args.mode === "overwrite"
-              ? "overwrite"
-              : undefined;
-        const replace = args.replace === true;
-        const contents = Buffer.from(contentStr, "utf8");
-        const result = await this.workspaceFileBridgeService.workspaceFileWrite(bridgeCtx, {
-          path,
-          contents,
-          ...(mode === undefined ? {} : { mode }),
-          replace
-        });
-        if (!result.success) {
-          return {
-            reason: result.reason,
-            warning: null,
-            exitCode: null,
-            stdout: null,
-            stderr: null,
-            content: null
-          };
-        }
-        return {
-          reason: null,
-          warning: null,
-          exitCode: 0,
-          stdout: null,
-          stderr: null,
-          content: JSON.stringify({
-            sizeBytes: result.data.bytes,
-            resolvedPath: result.data.resolvedPath
-          })
-        };
-      }
-
-      if (action === "resolve_write_path") {
-        const path = this.requireString(args.path, "path");
-        const result = await this.workspaceFileBridgeService.resolveWorkspaceWritePath(bridgeCtx, {
-          path,
-          replace: args.replace === true
-        });
-        if (!result.success) {
-          return {
-            reason: result.reason,
-            warning: null,
-            exitCode: null,
-            stdout: null,
-            stderr: null,
-            content: null
-          };
-        }
-        return {
-          reason: null,
-          warning: null,
-          exitCode: 0,
-          stdout: null,
-          stderr: null,
-          content: JSON.stringify({ resolvedPath: result.data.resolvedPath })
-        };
-      }
-
-      if (action === "attach") {
-        // ADR-133 Slice 2: `files.attach` is a thin wrapper that confirms the
-        // file lives under the visible `/workspace/...` tree and surfaces it to
-        // the assistant message as an attachment. The sandbox does not invent a
-        // second delivery root here: if the path is addressable under
-        // `/workspace/...`, attach persists that exact file.
-        const path = this.requireString(args.path, "path");
-        let sourceResolved;
-        try {
-          sourceResolved = assertAllowedMountPrefix(path);
-        } catch (error) {
-          if (error instanceof WorkspacePathError) {
-            return {
-              reason: "path_not_attachable",
-              warning: "files.attach accepts only paths under /workspace/",
-              exitCode: null,
-              stdout: null,
-              stderr: null,
-              content: null
-            };
-          }
-          throw error;
-        }
-        const statResult = await this.workspaceFileBridgeService.workspaceFileStat(bridgeCtx, {
-          path: sourceResolved.absolutePath
-        });
-        if (!statResult.success || statResult.data.type !== "file") {
-          return {
-            reason: statResult.reason ?? "path_not_found",
-            warning: null,
-            exitCode: null,
-            stdout: null,
-            stderr: null,
-            content: null
-          };
-        }
-        const workspaceRelPath = sourceResolved.absolutePath;
-        const mimeType =
-          this.mimeTypeFromPath(sourceResolved.absolutePath) ?? "application/octet-stream";
-        const displayName = pathPosix.basename(workspaceRelPath);
-        const persistResult = await this.workspaceFileBridgeService.workspaceFilePersist(
-          bridgeCtx,
-          {
-            path: sourceResolved.absolutePath,
-            mimeType
-          }
-        );
-        if (!persistResult.success) {
-          return {
-            reason: persistResult.reason ?? "files_attach_failed",
-            warning: `files.attach could not persist ${sourceResolved.absolutePath} for delivery.`,
-            exitCode: null,
-            stdout: null,
-            stderr: null,
-            content: null
-          };
-        }
-        return {
-          reason: null,
-          warning: null,
-          exitCode: 0,
-          stdout: null,
-          stderr: null,
-          content: JSON.stringify({
-            action: "attached",
-            attachment: {
-              workspaceRelPath,
-              sourcePath: path,
-              sizeBytes: statResult.data.sizeBytes,
-              mimeType,
-              displayName
-            }
-          })
-        };
-      }
-
-      // action === "delete"
-      const path = this.requireString(args.path, "path");
-      const recursive = args.recursive === true;
-      const result = await this.workspaceFileBridgeService.workspaceFileDelete(bridgeCtx, {
-        path,
-        recursive
-      });
-      if (!result.success) {
-        return {
-          reason: result.reason,
-          warning: null,
-          exitCode: null,
-          stdout: null,
-          stderr: null,
-          content: null
-        };
-      }
-      return {
-        reason: null,
-        warning: null,
-        exitCode: 0,
-        stdout: null,
-        stderr: null,
-        content: JSON.stringify({})
-      };
-    } catch (error) {
-      if (error instanceof WorkspacePathError) {
-        return {
-          reason: error.code,
-          warning: error.message,
-          exitCode: null,
-          stdout: null,
-          stderr: null,
-          content: null
-        };
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Derive a MIME type from a path's file extension using a small inline map.
-   * Returns null for unknown extensions.
-   */
-  private mimeTypeFromPath(path: string): string | null {
-    const dotIdx = path.lastIndexOf(".");
-    if (dotIdx < 0) return null;
-    const ext = path.slice(dotIdx).toLowerCase();
-    const MAP: Record<string, string> = {
-      ".txt": "text/plain",
-      ".csv": "text/csv",
-      ".json": "application/json",
-      ".md": "text/markdown",
-      ".pdf": "application/pdf",
-      ".png": "image/png",
-      ".jpg": "image/jpeg",
-      ".jpeg": "image/jpeg",
-      ".webp": "image/webp",
-      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    };
-    return MAP[ext] ?? null;
-  }
-
-  /**
-   * ADR-126 Slice 3 — grep via pod exec. Runs rg inside the session pod via
-   * execShellInSessionPod using a quoted shell command, so the model pattern
-   * never touches a control-plane process. Path containment is enforced by
-   * assertAllowedMountPrefix before the command is composed.
-   */
-  private async executeGrepActionViaPodExec(
-    bridgeCtx: WorkspaceBridgeContext,
-    args: Record<string, unknown>
-  ): Promise<{
-    reason: string | null;
-    warning: string | null;
-    exitCode: number | null;
-    stdout: string | null;
-    stderr: string | null;
-    content: string | null;
-  }> {
-    const pattern = this.requireString(args.pattern, "pattern");
-    const maxMatches = 200;
-    const lineByteCap = 2_000;
-
-    const rawPath =
-      typeof args.path === "string" && args.path.trim().length > 0
-        ? args.path.trim()
-        : bridgeCtx.defaultVisibleRoot;
-    let containedPath: string;
-    try {
-      const resolved = assertAllowedMountPrefix(rawPath);
-      containedPath = resolved.absolutePath;
-    } catch (error) {
-      if (error instanceof WorkspacePathError) {
-        return {
-          reason: error.code,
-          warning: error.message,
-          exitCode: null,
-          stdout: null,
-          stderr: null,
-          content: JSON.stringify({ matches: [], matchCount: 0, truncated: false })
-        };
-      }
-      throw error;
-    }
-
-    const parts: string[] = [
-      "rg",
-      "--line-number",
-      "--no-heading",
-      "--color=never",
-      "--max-count",
-      String(maxMatches + 1)
-    ];
-    if (args.caseInsensitive === true) {
-      parts.push("--ignore-case");
-    }
-    if (typeof args.contextLines === "number" && Number.isInteger(args.contextLines)) {
-      const ctx = Math.min(Math.max(args.contextLines, 0), 10);
-      if (ctx > 0) {
-        parts.push("--context", String(ctx));
-      }
-    }
-    if (typeof args.glob === "string" && args.glob.trim().length > 0) {
-      parts.push("--glob", sandboxPosixSingleQuote(args.glob.trim()));
-    }
-    if (typeof args.type === "string" && args.type.trim().length > 0) {
-      parts.push("--type", sandboxPosixSingleQuote(args.type.trim()));
-    }
-    parts.push("--", sandboxPosixSingleQuote(pattern), sandboxPosixSingleQuote(containedPath));
-
-    const podResult = await this.execPodBridgeService.execShellInSessionPod({
-      assistantId: bridgeCtx.assistantId,
-      assistantHandle: bridgeCtx.assistantHandle,
-      siblingHandles: bridgeCtx.siblingHandles,
-      workspaceId: bridgeCtx.workspaceId,
-      policy: bridgeCtx.policy,
-      shellCommand: parts.join(" "),
-      stdin: null
-    });
-
-    // rg exit code 1 = no matches (not an error); 2+ = real error.
-    if (podResult.exitCode !== 0 && podResult.exitCode !== 1) {
-      const firstStderrLine =
-        (podResult.stderr ?? "")
-          .split("\n")
-          .find((line) => line.trim().length > 0)
-          ?.trim() ?? null;
-      return {
-        reason: "grep_failed",
-        warning: firstStderrLine,
-        exitCode: podResult.exitCode,
-        stdout: null,
-        stderr: (podResult.stderr ?? "").slice(0, bridgeCtx.policy.maxStderrBytes),
-        content: JSON.stringify({ matches: [], matchCount: 0, truncated: false })
-      };
-    }
-
-    const matches = this.parseRipgrepMatchesPod(podResult.stdout ?? "", lineByteCap);
-    const truncated = matches.length > maxMatches;
-    const cappedMatches = matches.slice(0, maxMatches);
-    return {
-      reason: null,
-      warning: null,
-      exitCode: 0,
-      stdout: null,
-      stderr: null,
-      content: JSON.stringify({
-        matches: cappedMatches,
-        matchCount: cappedMatches.length,
-        truncated
-      })
-    };
-  }
-
-  /**
-   * Parse `rg --line-number --no-heading` output from a pod exec invocation.
-   * Unlike the legacy control-plane parser, paths are kept as pod-absolute
-   * (e.g. `/workspace/src/app.ts`) since the new files contract is path-based.
-   */
-  private parseRipgrepMatchesPod(
-    stdout: string,
-    lineByteCap: number
-  ): Array<{ file: string; line: number; text: string }> {
-    const result: Array<{ file: string; line: number; text: string }> = [];
-    for (const rawLine of stdout.split("\n")) {
-      if (rawLine.length === 0) continue;
-      const firstColon = rawLine.indexOf(":");
-      if (firstColon <= 0) continue;
-      const secondColon = rawLine.indexOf(":", firstColon + 1);
-      if (secondColon <= firstColon) continue;
-      const filePart = rawLine.slice(0, firstColon);
-      const lineNumberPart = rawLine.slice(firstColon + 1, secondColon);
-      const lineNumber = Number.parseInt(lineNumberPart, 10);
-      if (!Number.isFinite(lineNumber) || lineNumber <= 0) continue;
-      const text = rawLine.slice(secondColon + 1);
-      result.push({
-        file: filePart,
-        line: lineNumber,
-        text: this.stripNulCharacters(text).slice(0, lineByteCap)
-      });
-    }
-    return result;
-  }
-
-  /**
-   * ADR-126 Slice 3 — glob via pod exec. Runs fd inside the session pod via
-   * execShellInSessionPod. Path containment is enforced before command
-   * composition. Output paths are pod-absolute (e.g. `/workspace/src/app.ts`).
-   */
-  private async executeGlobActionViaPodExec(
-    bridgeCtx: WorkspaceBridgeContext,
-    args: Record<string, unknown>
-  ): Promise<{
-    reason: string | null;
-    warning: string | null;
-    exitCode: number | null;
-    stdout: string | null;
-    stderr: string | null;
-    content: string | null;
-  }> {
-    const pattern = this.requireString(args.pattern, "pattern");
-    const maxPaths = 500;
-
-    const rawPath =
-      typeof args.path === "string" && args.path.trim().length > 0
-        ? args.path.trim()
-        : bridgeCtx.defaultVisibleRoot;
-    let containedPath: string;
-    try {
-      const resolved = assertAllowedMountPrefix(rawPath);
-      containedPath = resolved.absolutePath;
-    } catch (error) {
-      if (error instanceof WorkspacePathError) {
-        return {
-          reason: error.code,
-          warning: error.message,
-          exitCode: null,
-          stdout: null,
-          stderr: null,
-          content: JSON.stringify({ paths: [], truncated: false })
-        };
-      }
-      throw error;
-    }
-
-    const shellCommand = [
-      "fd",
-      "--type",
-      "f",
-      "--color",
-      "never",
-      "--glob",
-      "--max-results",
-      String(maxPaths + 1),
-      "--",
-      sandboxPosixSingleQuote(pattern),
-      sandboxPosixSingleQuote(containedPath)
-    ].join(" ");
-
-    const podResult = await this.execPodBridgeService.execShellInSessionPod({
-      assistantId: bridgeCtx.assistantId,
-      assistantHandle: bridgeCtx.assistantHandle,
-      siblingHandles: bridgeCtx.siblingHandles,
-      workspaceId: bridgeCtx.workspaceId,
-      policy: bridgeCtx.policy,
-      shellCommand,
-      stdin: null
-    });
-
-    if (podResult.exitCode !== 0) {
-      const firstStderrLine =
-        (podResult.stderr ?? "")
-          .split("\n")
-          .find((line) => line.trim().length > 0)
-          ?.trim() ?? null;
-      return {
-        reason: "glob_failed",
-        warning: firstStderrLine,
-        exitCode: podResult.exitCode,
-        stdout: null,
-        stderr: (podResult.stderr ?? "").slice(0, bridgeCtx.policy.maxStderrBytes),
-        content: JSON.stringify({ paths: [], truncated: false })
-      };
-    }
-
-    const paths = (podResult.stdout ?? "")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .sort((a, b) => a.localeCompare(b));
-    const truncated = paths.length > maxPaths;
-    const cappedPaths = paths.slice(0, maxPaths);
-    return {
-      reason: null,
-      warning: null,
-      exitCode: 0,
-      stdout: null,
-      stderr: null,
-      content: JSON.stringify({ paths: cappedPaths, truncated })
-    };
-  }
-
   private async executeExecLike(
     workspaceRoot: string,
     currentRoot: string,
@@ -1677,74 +883,16 @@ export class SandboxService {
 
     this.assertWorkspaceLeaseActive(leaseGuard);
 
-    if (shellMode) {
-      const command = this.requireString(args.command, "command");
-      const beforeVisibleDocuments = await collectWorkspaceDocumentOutputSnapshots({
-        workspaceRoot,
-        scanRoot: currentRoot,
-        workspaceMountRoot: WORKSPACE_MOUNT_ROOT,
-        isVisibleDocumentPath: (workspacePath) =>
-          this.isVisibleWorkspaceDocumentPath(workspacePath),
-        toVisibleWorkspaceAbsolutePath: (root, absolutePath) =>
-          this.toVisibleWorkspaceAbsolutePath(root, absolutePath)
-      });
-      const result = await this.execPodBridgeService.runInPod({
-        jobId,
-        runtimeSessionId,
-        assistantId,
-        assistantHandle,
-        siblingHandles,
-        workspaceId,
-        workspaceRoot,
-        absoluteCwd,
-        command: "/bin/bash",
-        args: ["-lc", command],
-        policy
-      });
-      if (result.exitCode !== 0) {
-        return {
-          reason: "process_failed",
-          warning: null,
-          exitCode: result.exitCode,
-          stdout: result.stdout,
-          stderr: result.stderr,
-          content: null,
-          durationMs: result.durationMs,
-          execPodName: result.execPodName
-        };
-      }
-      const afterVisibleDocuments = await collectWorkspaceDocumentOutputSnapshots({
-        workspaceRoot,
-        scanRoot: currentRoot,
-        workspaceMountRoot: WORKSPACE_MOUNT_ROOT,
-        isVisibleDocumentPath: (workspacePath) =>
-          this.isVisibleWorkspaceDocumentPath(workspacePath),
-        toVisibleWorkspaceAbsolutePath: (root, absolutePath) =>
-          this.toVisibleWorkspaceAbsolutePath(root, absolutePath)
-      });
-      const producedFiles = buildShellProducedFilesFromDocumentDiff({
-        workspaceMountRoot: WORKSPACE_MOUNT_ROOT,
-        before: beforeVisibleDocuments,
-        after: afterVisibleDocuments,
-        inferMimeType: (workspacePath) => this.inferMimeType(workspacePath)
-      });
-      return {
-        reason: null,
-        warning: null,
-        exitCode: result.exitCode,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        content: null,
-        durationMs: result.durationMs,
-        execPodName: result.execPodName,
-        producedFiles
-      };
-    }
-
+    const beforeVisibleFiles = await this.collectVisibleProducedFileSnapshots(
+      workspaceRoot,
+      currentRoot
+    );
     const command = this.requireString(args.command, "command");
-    const childArgs = Array.isArray(args.args)
-      ? args.args.filter((item): item is string => typeof item === "string")
-      : [];
+    const childArgs: string[] = shellMode
+      ? ["-lc", command]
+      : Array.isArray(args.args)
+        ? args.args.filter((item): item is string => typeof item === "string")
+        : [];
     const result = await this.execPodBridgeService.runInPod({
       jobId,
       runtimeSessionId,
@@ -1754,20 +902,94 @@ export class SandboxService {
       workspaceId,
       workspaceRoot,
       absoluteCwd,
-      command,
+      command: shellMode ? "/bin/bash" : command,
       args: childArgs,
-      policy
+      policy,
+      visibleWorkspacePaths: [this.toVisibleWorkspaceAbsolutePath(workspaceRoot, absoluteCwd)]
+    });
+    if (result.exitCode !== 0) {
+      return {
+        reason: "process_failed",
+        warning: null,
+        exitCode: result.exitCode,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        content: null,
+        durationMs: result.durationMs,
+        execPodName: result.execPodName
+      };
+    }
+    const afterVisibleFiles = await this.collectVisibleProducedFileSnapshots(
+      workspaceRoot,
+      currentRoot
+    );
+    const producedFiles = await this.mirrorShellExecProducedFiles({
+      workspaceId,
+      workspaceRoot,
+      before: beforeVisibleFiles,
+      after: afterVisibleFiles
     });
     return {
-      reason: result.exitCode === 0 ? null : "process_failed",
+      reason: null,
       warning: null,
       exitCode: result.exitCode,
       stdout: result.stdout,
       stderr: result.stderr,
       content: null,
       durationMs: result.durationMs,
-      execPodName: result.execPodName
+      execPodName: result.execPodName,
+      producedFiles
     };
+  }
+
+  private async collectVisibleProducedFileSnapshots(
+    workspaceRoot: string,
+    scanRoot: string
+  ): Promise<Map<string, import("./shell-document-output-diff").WorkspaceDocumentOutputSnapshot>> {
+    return collectWorkspaceDocumentOutputSnapshots({
+      workspaceRoot,
+      scanRoot,
+      workspaceMountRoot: WORKSPACE_MOUNT_ROOT,
+      isVisibleDocumentPath: (workspacePath) =>
+        this.isVisibleWorkspaceProducedFilePath(workspacePath),
+      toVisibleWorkspaceAbsolutePath: (root, absolutePath) =>
+        this.toVisibleWorkspaceAbsolutePath(root, absolutePath)
+    });
+  }
+
+  private async mirrorShellExecProducedFiles(input: {
+    workspaceId: string;
+    workspaceRoot: string;
+    before: Map<string, import("./shell-document-output-diff").WorkspaceDocumentOutputSnapshot>;
+    after: Map<string, import("./shell-document-output-diff").WorkspaceDocumentOutputSnapshot>;
+  }): Promise<RuntimeSandboxProducedFile[]> {
+    const producedFiles = buildShellProducedFilesFromDocumentDiff({
+      workspaceMountRoot: WORKSPACE_MOUNT_ROOT,
+      before: input.before,
+      after: input.after,
+      inferMimeType: (workspacePath) => this.inferMimeType(workspacePath)
+    });
+    if (producedFiles.length === 0) {
+      return producedFiles;
+    }
+    try {
+      await mirrorVisibleWorkspaceProducedFilesToGcs({
+        workspaceId: input.workspaceId,
+        workspaceRoot: input.workspaceRoot,
+        workspaceMountRoot: WORKSPACE_MOUNT_ROOT,
+        producedFiles,
+        resolveLocalAbsolutePath: (root, visiblePath) =>
+          this.resolveVisiblePathWithinWorkspaceRoot(root, visiblePath),
+        objectStorage: this.objectStorage,
+        readFile: (absolutePath) => fs.readFile(absolutePath)
+      });
+    } catch (error) {
+      this.throwPolicy(
+        "produced_file_mirror_failed",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    return producedFiles;
   }
 
   /**
@@ -1837,7 +1059,8 @@ export class SandboxService {
         command: "weasyprint",
         args: [podInputPath, podOutputPath],
         policy,
-        stagingFiles
+        stagingFiles,
+        visibleWorkspacePaths: [podOutputPath]
       });
       if (result.exitCode !== 0) {
         return {
@@ -1880,6 +1103,7 @@ export class SandboxService {
           assistantHandle,
           siblingHandles,
           workspaceId,
+          runtimeSessionId,
           policy,
           paths: [podInputPath]
         });
@@ -1982,6 +1206,7 @@ export class SandboxService {
         currentRoot,
         outputFileName
       );
+      const podOutputPath = this.toVisibleWorkspaceAbsolutePath(workspaceRoot, outputAbsolutePath);
       const result = await this.execPodBridgeService.runInPod({
         jobId,
         runtimeSessionId,
@@ -1994,7 +1219,8 @@ export class SandboxService {
         command: "python3",
         args: [podProgramPath],
         policy,
-        stagingFiles
+        stagingFiles,
+        visibleWorkspacePaths: [podOutputPath]
       });
       if (result.exitCode !== 0) {
         return {
@@ -2037,6 +1263,7 @@ export class SandboxService {
           assistantHandle,
           siblingHandles,
           workspaceId,
+          runtimeSessionId,
           policy,
           paths: [podProgramPath, podSourcesDirPath]
         });
@@ -2052,6 +1279,7 @@ export class SandboxService {
     assistantHandle: string;
     siblingHandles: readonly string[];
     workspaceId: string;
+    runtimeSessionId: string;
     policy: RuntimeSandboxPolicy;
     paths: readonly string[];
   }): Promise<void> {
@@ -2066,6 +1294,7 @@ export class SandboxService {
       assistantHandle: input.assistantHandle,
       siblingHandles: input.siblingHandles,
       workspaceId: input.workspaceId,
+      runtimeSessionId: input.runtimeSessionId,
       policy: input.policy,
       shellCommand
     });
@@ -2774,17 +2003,13 @@ export class SandboxService {
     return value;
   }
 
-  private isVisibleWorkspaceDocumentPath(workspacePath: string): boolean {
+  private isVisibleWorkspaceProducedFilePath(workspacePath: string): boolean {
     const info = classifyVisibleWorkspacePath(workspacePath);
-    const isActiveFilePath =
+    return (
       info.kind === "sessionDescendant" ||
       info.kind === "assistantSharedDescendant" ||
-      info.kind === "workspaceSharedDescendant";
-    if (!isActiveFilePath) {
-      return false;
-    }
-    const lowered = workspacePath.toLowerCase();
-    return lowered.endsWith(".pdf") || lowered.endsWith(".xlsx") || lowered.endsWith(".docx");
+      info.kind === "workspaceSharedDescendant"
+    );
   }
 
   private inferMimeType(relativePath: string): string {

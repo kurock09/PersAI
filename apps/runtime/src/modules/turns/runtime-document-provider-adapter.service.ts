@@ -9,8 +9,9 @@ import type {
   RuntimeDocumentSourceFile,
   RuntimeOutputArtifact
 } from "@persai/runtime-contract";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
+import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
-import { SandboxClientService } from "./sandbox-client.service";
 import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
 
 // ADR-132 hard cutover: document worker now serves Gamma presentations only.
@@ -30,7 +31,8 @@ export class RuntimeDocumentProviderAdapterService {
 
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
-    private readonly sandboxClientService: SandboxClientService
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
+    private readonly persaiInternalApiClientService: PersaiInternalApiClientService
   ) {}
 
   async run(input: {
@@ -121,17 +123,18 @@ export class RuntimeDocumentProviderAdapterService {
     const artifact = await this.persistGeneratedArtifact({
       assistantId: input.bundle.metadata.assistantId,
       workspaceId: input.bundle.metadata.workspaceId,
-      handle: input.bundle.metadata.assistantHandle,
-      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
       sessionId: input.request.runtimeSessionId,
-      workspaceQuotaBytes: input.bundle.governance.quota?.workspaceQuotaBytes ?? null,
-      sharedQuotaBytes: input.bundle.governance.quota?.sharedQuotaBytes ?? null,
       filename,
       requestPrompt: input.request.directToolExecution.request.prompt,
       requestedName: input.request.directToolExecution.request.requestedName ?? null,
       buffer: Buffer.from(providerResult.bytesBase64, "base64"),
       mimeType: providerResult.mimeType,
-      billingFacts: providerResult.billingFacts ?? null
+      billingFacts: providerResult.billingFacts ?? null,
+      chatId: input.request.job.chatId,
+      sourceUserMessageText: input.request.job.sourceUserMessageText,
+      sourceUserMessageCreatedAt: input.request.job.sourceUserMessageCreatedAt,
+      workspaceQuotaBytes: input.bundle.governance.quota?.workspaceQuotaBytes ?? null,
+      sharedQuotaBytes: input.bundle.governance.quota?.sharedQuotaBytes ?? null
     });
     return {
       assistantText: null,
@@ -624,17 +627,18 @@ export class RuntimeDocumentProviderAdapterService {
   private async persistGeneratedArtifact(input: {
     assistantId: string;
     workspaceId: string;
-    handle: string;
-    siblingHandles: readonly string[];
     sessionId: string;
-    workspaceQuotaBytes: number | null;
-    sharedQuotaBytes: number | null;
     filename: string;
     requestPrompt: string;
     requestedName: string | null;
     buffer: Buffer;
     mimeType: string;
     billingFacts?: RuntimeOutputArtifact["billingFacts"];
+    chatId: string;
+    sourceUserMessageText: string;
+    sourceUserMessageCreatedAt: string;
+    workspaceQuotaBytes: number | null;
+    sharedQuotaBytes: number | null;
   }): Promise<RuntimeOutputArtifact> {
     if (this.extensionForPresentationMimeType(input.mimeType) === null) {
       throw new Error(
@@ -647,21 +651,30 @@ export class RuntimeDocumentProviderAdapterService {
     const slugSourceText =
       input.requestedName?.trim() || input.requestPrompt.trim() || input.filename || "presentation";
     return writeRuntimeOutboundArtifact({
-      sandboxClient: this.sandboxClientService,
+      mediaObjectStorage: this.mediaObjectStorage,
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      handle: input.handle,
-      siblingHandles: input.siblingHandles,
       sessionId: input.sessionId,
-      workspaceQuotaBytes: input.workspaceQuotaBytes,
-      sharedQuotaBytes: input.sharedQuotaBytes,
       buffer: input.buffer,
       mimeType: input.mimeType,
       slugSourceText,
       filenameHint: input.filename,
       kind: "file",
       sourceToolCode: "document",
-      billingFacts: input.billingFacts ?? null
+      billingFacts: input.billingFacts ?? null,
+      manifest: {
+        persaiInternalApiClient: this.persaiInternalApiClientService,
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        originChatId: input.chatId,
+        sourceUserMessageText: input.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt
+      },
+      quota: {
+        workspaceQuotaBytes: input.workspaceQuotaBytes,
+        sharedQuotaBytes: input.sharedQuotaBytes
+      },
+      logger: this.logger
     });
   }
 

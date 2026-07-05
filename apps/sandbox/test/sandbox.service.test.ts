@@ -570,153 +570,6 @@ test("SandboxService: session snapshot round-trip — save then restore adds eph
   }
 });
 
-test("SandboxService: files.read forwards model-requested maxBytes to workspace bridge", async () => {
-  const sessionRoot = buildAssistantSessionRoot("reader", "session-read-1");
-  let capturedRead: {
-    path: string;
-    maxBytes?: number;
-  } | null = null;
-  const service = new SandboxService(
-    {} as never,
-    {} as never,
-    new SandboxObservabilityService(),
-    createSandboxConfig(),
-    {} as never,
-    {
-      async workspaceFileRead(
-        _ctx: unknown,
-        input: {
-          path: string;
-          maxBytes?: number;
-        }
-      ) {
-        capturedRead = input;
-        return {
-          success: true,
-          reason: null,
-          latencyMs: 1,
-          data: {
-            path: input.path,
-            bytes: Buffer.from("partial blackbox text", "utf8"),
-            truncated: true
-          }
-        };
-      }
-    } as never
-  );
-
-  const result = await (
-    service as unknown as {
-      executeFilesBridgeAction(
-        bridgeCtx: unknown,
-        args: Record<string, unknown>
-      ): Promise<{ reason: string | null; content: string | null }>;
-    }
-  ).executeFilesBridgeAction(
-    {
-      assistantId: "assistant-read-1",
-      assistantHandle: "reader",
-      siblingHandles: [],
-      workspaceId: "workspace-read-1",
-      runtimeSessionId: "session-read-1",
-      defaultVisibleRoot: sessionRoot,
-      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
-      workspaceQuotaBytes: null,
-      sharedQuotaBytes: null
-    },
-    {
-      action: "read",
-      path: `${sessionRoot}/LOG011 (3).TXT`,
-      maxBytes: 10_000
-    }
-  );
-
-  assert.equal(result.reason, null);
-  assert.deepEqual(capturedRead, {
-    path: `${sessionRoot}/LOG011 (3).TXT`,
-    maxBytes: 10_000
-  });
-  const payload = JSON.parse(result.content!) as { content: string; truncated: boolean };
-  assert.equal(payload.content, "partial blackbox text");
-  assert.equal(payload.truncated, true);
-});
-
-test("SandboxService: files.write forwards replace and returns resolvedPath", async () => {
-  const sessionRoot = buildAssistantSessionRoot("writer", "session-write-2");
-  let capturedWrite: {
-    path: string;
-    contents: Buffer;
-    mode?: "overwrite" | "create_only";
-    replace?: boolean;
-  } | null = null;
-  const service = new SandboxService(
-    {} as never,
-    {} as never,
-    new SandboxObservabilityService(),
-    createSandboxConfig(),
-    {} as never,
-    {
-      async workspaceFileWrite(
-        _ctx: unknown,
-        input: {
-          path: string;
-          contents: Buffer;
-          mode?: "overwrite" | "create_only";
-          replace?: boolean;
-        }
-      ) {
-        capturedWrite = input;
-        return {
-          success: true,
-          reason: null,
-          latencyMs: 1,
-          data: {
-            resolvedPath: `${sessionRoot}/report (1).txt`,
-            bytes: input.contents.length
-          }
-        };
-      }
-    } as never
-  );
-
-  const result = await (
-    service as unknown as {
-      executeFilesBridgeAction(
-        bridgeCtx: unknown,
-        args: Record<string, unknown>
-      ): Promise<{ reason: string | null; content: string | null }>;
-    }
-  ).executeFilesBridgeAction(
-    {
-      assistantId: "assistant-write-2",
-      assistantHandle: "writer",
-      siblingHandles: [],
-      workspaceId: "workspace-write-2",
-      runtimeSessionId: "session-write-2",
-      defaultVisibleRoot: sessionRoot,
-      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
-      workspaceQuotaBytes: null,
-      sharedQuotaBytes: null
-    },
-    {
-      action: "write",
-      path: `${sessionRoot}/report.txt`,
-      content: "hello",
-      replace: true
-    }
-  );
-
-  assert.equal(result.reason, null);
-  assert.deepEqual(capturedWrite, {
-    path: `${sessionRoot}/report.txt`,
-    contents: Buffer.from("hello", "utf8"),
-    replace: true
-  });
-  const payload = JSON.parse(result.content!) as { sizeBytes: number; resolvedPath: string };
-  assert.equal(payload.sizeBytes, 5);
-  assert.equal(payload.resolvedPath, `${sessionRoot}/report (1).txt`);
-});
-
 test("SandboxService: control-plane workspace write can hydrate bytes from workspace storage", async () => {
   const assistantSharedRoot = "/workspace/assistants/writer";
   let downloadedObjectKey: string | null = null;
@@ -780,34 +633,6 @@ test("SandboxService: control-plane workspace write can hydrate bytes from works
   const write = capturedWrite as unknown as { basename: string; contents: Buffer };
   assert.equal(write.basename, "LOG006.01 (2).csv");
   assert.equal(write.contents.toString("utf8"), "csv-bytes");
-});
-
-test("SandboxService: runtime-origin workspace write fails closed without runtimeSessionId", async () => {
-  const service = new SandboxService(
-    {} as never,
-    {} as never,
-    new SandboxObservabilityService(),
-    createSandboxConfig(),
-    {} as never,
-    {} as never
-  );
-
-  const result = await service.writeWorkspaceFile({
-    assistantId: "assistant-write-missing-session",
-    workspaceId: "workspace-write-missing-session",
-    assistantHandle: "writer",
-    siblingHandles: [],
-    runtimeSessionId: null,
-    basename: "report.txt",
-    contents: Buffer.from("hello", "utf8"),
-    mimeType: "text/plain"
-  });
-
-  assert.deepEqual(result, {
-    ok: false,
-    reason: "runtime_session_id_required",
-    message: "workspace_write_runtime_session_id_required"
-  });
 });
 
 test("SandboxService: control-plane workspace write forwards replace for explicit paths", async () => {
@@ -1216,112 +1041,62 @@ function buildGrepGlobService(
   return service;
 }
 
-test("SandboxService: grep runs rg via pod exec and returns structured matches", async () => {
+// ADR-137 S4 — model grep/glob no longer dispatch sandbox jobs.
+
+test("SandboxService: grep toolCode is rejected after storage-plane cutover", async () => {
   const capturedJobUpdates: Array<Record<string, unknown>> = [];
-  const capturedShellCalls: Array<{ shellCommand: string }> = [];
-  const sessionRoot = buildAssistantSessionRoot("assistant-grep-1", "session-grep-1");
-  const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
-    exitCode: 0,
-    stdout: `${sessionRoot}/src/app.ts:12:const token = 1;\n${sessionRoot}/src/app.ts:40:const token2 = 2;\n`,
-    stderr: ""
-  });
-  const access = service as unknown as SandboxServiceTestAccess;
-
-  await access.executeQueuedJob("grep-job-1", {
-    assistantId: "assistant-grep-1",
-    workspaceId: "workspace-grep-1",
-    runtimeRequestId: "request-grep-1",
-    runtimeSessionId: "session-grep-1",
-    toolCode: "grep",
-    policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
-    args: { pattern: "token", glob: "**/*.ts", caseInsensitive: true },
-    assistantHandle: "grep-handle"
-  });
-
-  assert.equal(capturedShellCalls.length, 1, "rg must be invoked exactly once via pod exec");
-  const shellCommand = capturedShellCalls[0]!.shellCommand;
-  assert.ok(shellCommand.startsWith("rg "), "pod shell must invoke rg");
-  assert.ok(shellCommand.includes(" -- "), "rg command must include pattern terminator");
-  assert.ok(shellCommand.includes("'token'"), "model pattern must be shell-quoted in rg command");
-  assert.ok(shellCommand.includes("--glob"), "glob filter must be forwarded");
-  assert.ok(
-    shellCommand.includes(sessionRoot),
-    "default grep path must stay under the session root"
-  );
-
-  const completed = capturedJobUpdates.find((d) => d.status === "completed");
-  assert.ok(completed, "job must complete");
-  const payload = completed!.resultPayload as { content: string | null };
-  const parsed = JSON.parse(payload.content!) as {
-    matches: Array<{ file: string; line: number; text: string }>;
-    matchCount: number;
-    truncated: boolean;
-  };
-  assert.equal(parsed.matchCount, 2);
-  assert.deepEqual(parsed.matches[0], {
-    file: `${sessionRoot}/src/app.ts`,
-    line: 12,
-    text: "const token = 1;"
-  });
-  assert.equal(parsed.truncated, false);
-});
-
-test("SandboxService: grep rejects a path outside allowed mounts", async () => {
-  const capturedJobUpdates: Array<Record<string, unknown>> = [];
-  const capturedShellCalls: Array<{ shellCommand: string }> = [];
-  const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
+  const service = buildGrepGlobService(capturedJobUpdates, [], {
     exitCode: 0,
     stdout: "",
     stderr: ""
   });
   const access = service as unknown as SandboxServiceTestAccess;
 
-  await access.executeQueuedJob("grep-job-escape", {
-    assistantId: "assistant-grep-2",
-    workspaceId: "workspace-grep-2",
-    runtimeRequestId: "request-grep-2",
-    runtimeSessionId: null,
+  await access.executeQueuedJob("grep-job-rejected", {
+    assistantId: "assistant-grep-1",
+    workspaceId: "workspace-grep-1",
+    runtimeRequestId: "request-grep-1",
+    runtimeSessionId: "session-grep-1",
     toolCode: "grep",
     policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
-    args: { pattern: "secret", path: "/etc/passwd" }
+    args: { pattern: "token" }
   });
 
-  assert.equal(capturedShellCalls.length, 0, "rg must NOT run for a disallowed path");
-  const completed = capturedJobUpdates.find((d) => d.status === "completed");
-  assert.ok(completed, "job completes with a path rejection payload");
-  const payload = completed!.resultPayload as { reason: string | null; content: string | null };
-  assert.equal(payload.reason, "outside_allowed_mount");
+  const rejected = capturedJobUpdates.find(
+    (update) => update.violationCode === "tool_not_supported"
+  );
+  assert.ok(
+    rejected,
+    "grep sandbox job must reject tool_not_supported after storage-plane cutover"
+  );
 });
 
-test("SandboxService: grep caps match count and flags truncation", async () => {
+test("SandboxService: glob toolCode is rejected after storage-plane cutover", async () => {
   const capturedJobUpdates: Array<Record<string, unknown>> = [];
-  const capturedShellCalls: Array<{ shellCommand: string }> = [];
-  const stdout = Array.from(
-    { length: 250 },
-    (_unused, index) => `src/file.ts:${String(index + 1)}:match ${String(index)}`
-  ).join("\n");
-  const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
+  const service = buildGrepGlobService(capturedJobUpdates, [], {
     exitCode: 0,
-    stdout,
+    stdout: "",
     stderr: ""
   });
   const access = service as unknown as SandboxServiceTestAccess;
 
-  await access.executeQueuedJob("grep-job-cap", {
-    assistantId: "assistant-grep-3",
-    workspaceId: "workspace-grep-3",
-    runtimeRequestId: "request-grep-3",
-    runtimeSessionId: null,
-    toolCode: "grep",
+  await access.executeQueuedJob("glob-job-rejected", {
+    assistantId: "assistant-glob-1",
+    workspaceId: "workspace-glob-1",
+    runtimeRequestId: "request-glob-1",
+    runtimeSessionId: "session-glob-1",
+    toolCode: "glob",
     policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
-    args: { pattern: "match" }
+    args: { pattern: "*.ts" }
   });
 
-  const completed = capturedJobUpdates.find((d) => d.status === "completed");
-  const payload = completed!.resultPayload as { content: string | null };
-  const parsed = JSON.parse(payload.content!) as { matchCount: number; truncated: boolean };
-  assert.equal(parsed.matchCount, 200, "match count must be capped at 200");
-  assert.equal(parsed.truncated, true, "truncation must be flagged when matches exceed the cap");
+  const rejected = capturedJobUpdates.find(
+    (update) => update.violationCode === "tool_not_supported"
+  );
+  assert.ok(
+    rejected,
+    "glob sandbox job must reject tool_not_supported after storage-plane cutover"
+  );
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1429,9 +1204,9 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
     workspaceId: "workspace-warm-svc",
     runtimeRequestId: "request-warm-1",
     runtimeSessionId: "session-warm-1",
-    toolCode: "files",
+    toolCode: "shell",
     policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
-    args: { action: "write", path: "hello.txt", content: "world" }
+    args: { command: "echo warm" }
   });
 
   // Allow the fire-and-forget to settle.
@@ -1452,9 +1227,9 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
     workspaceId: "workspace-warm-svc",
     runtimeRequestId: "request-warm-null",
     runtimeSessionId: null,
-    toolCode: "files",
+    toolCode: "shell",
     policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
-    args: { action: "write", path: "hello2.txt", content: "world2" }
+    args: { command: "echo warm-null" }
   });
   // Brief settle
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1465,44 +1240,6 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
   );
 });
 
-test("SandboxService: glob runs fd via pod exec and returns sorted relative paths", async () => {
-  const capturedJobUpdates: Array<Record<string, unknown>> = [];
-  const capturedShellCalls: Array<{ shellCommand: string }> = [];
-  const sessionRoot = buildAssistantSessionRoot("assistant-glob-1", "session-glob-1");
-  const service = buildGrepGlobService(capturedJobUpdates, capturedShellCalls, {
-    exitCode: 0,
-    stdout: `${sessionRoot}/src/index.ts\n${sessionRoot}/src/app.ts\n`,
-    stderr: ""
-  });
-  const access = service as unknown as SandboxServiceTestAccess;
-
-  await access.executeQueuedJob("glob-job-1", {
-    assistantId: "assistant-glob-1",
-    workspaceId: "workspace-glob-1",
-    runtimeRequestId: "request-glob-1",
-    runtimeSessionId: "session-glob-1",
-    toolCode: "glob",
-    policy: DEFAULT_RUNTIME_SANDBOX_POLICY,
-    args: { pattern: "*.ts" },
-    assistantHandle: "glob-handle"
-  });
-
-  assert.equal(capturedShellCalls.length, 1, "fd must be invoked exactly once via pod exec");
-  const shellCommand = capturedShellCalls[0]!.shellCommand;
-  assert.ok(shellCommand.startsWith("fd "), "pod shell must invoke fd");
-  assert.ok(shellCommand.includes(" -- "), "fd command must include pattern terminator");
-  assert.ok(
-    shellCommand.includes(sessionRoot),
-    "default glob path must stay under the session root"
-  );
-
-  const completed = capturedJobUpdates.find((d) => d.status === "completed");
-  const payload = completed!.resultPayload as { content: string | null };
-  const parsed = JSON.parse(payload.content!) as { paths: string[]; truncated: boolean };
-  assert.deepEqual(
-    parsed.paths,
-    [`${sessionRoot}/src/app.ts`, `${sessionRoot}/src/index.ts`],
-    "paths must be pod-absolute and sorted"
-  );
-  assert.equal(parsed.truncated, false);
-});
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR-126 Slice 1 — shell tool uses /bin/bash, warm-pool fire-and-forget.
+// ─────────────────────────────────────────────────────────────────────────────

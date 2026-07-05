@@ -14,6 +14,7 @@ import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.s
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
+import { RuntimeStoragePlaneFilesService } from "./runtime-storage-plane-files.service";
 import { RuntimeFilesToolService } from "./runtime-files-tool.service";
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
@@ -68,6 +69,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeDocumentJobCompletionService,
     RuntimeDocumentJobRunService,
     RuntimeFilesToolService,
+    RuntimeStoragePlaneFilesService,
     RuntimeImageEditToolService,
     RuntimeImageGenerateToolService,
     RuntimeKnowledgeToolService,
@@ -109,6 +111,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeDocumentJobCompletionService,
     RuntimeDocumentJobRunService,
     RuntimeFilesToolService,
+    RuntimeStoragePlaneFilesService,
     RuntimeImageEditToolService,
     RuntimeImageGenerateToolService,
     RuntimeKnowledgeToolService,

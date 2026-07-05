@@ -295,6 +295,7 @@ export class WorkspaceFileBridgeService {
       assistantHandle: ctx.assistantHandle,
       siblingHandles: ctx.siblingHandles,
       workspaceId: ctx.workspaceId,
+      runtimeSessionId: ctx.runtimeSessionId,
       policy: ctx.policy,
       shellCommand,
       stdin: input.contents
@@ -432,9 +433,11 @@ export class WorkspaceFileBridgeService {
       assistantHandle: ctx.assistantHandle,
       siblingHandles: ctx.siblingHandles,
       workspaceId: ctx.workspaceId,
+      runtimeSessionId: ctx.runtimeSessionId,
       policy: ctx.policy,
       shellCommand,
-      stdin: input.contents
+      stdin: input.contents,
+      visibleWorkspacePaths: [resolvedPath]
     });
     const latencyMs = Date.now() - startedAt;
     this.sandboxObservabilityService.recordWorkspaceFileLatency("write", latencyMs);
@@ -552,9 +555,11 @@ export class WorkspaceFileBridgeService {
       assistantHandle: ctx.assistantHandle,
       siblingHandles: ctx.siblingHandles,
       workspaceId: ctx.workspaceId,
+      runtimeSessionId: ctx.runtimeSessionId,
       policy: ctx.policy,
       shellCommand,
-      stdin: null
+      stdin: null,
+      visibleWorkspacePaths: [resolved.absolutePath]
     });
     const latencyMs = Date.now() - startedAt;
     this.sandboxObservabilityService.recordWorkspaceFileLatency("read", latencyMs);
@@ -631,9 +636,11 @@ export class WorkspaceFileBridgeService {
       assistantHandle: ctx.assistantHandle,
       siblingHandles: ctx.siblingHandles,
       workspaceId: ctx.workspaceId,
+      runtimeSessionId: ctx.runtimeSessionId,
       policy: ctx.policy,
       shellCommand,
-      stdin: null
+      stdin: null,
+      visibleWorkspacePaths: [resolved.absolutePath]
     });
     const latencyMs = Date.now() - startedAt;
     this.sandboxObservabilityService.recordWorkspaceFileLatency("list", latencyMs);
@@ -725,9 +732,11 @@ export class WorkspaceFileBridgeService {
       assistantHandle: ctx.assistantHandle,
       siblingHandles: ctx.siblingHandles,
       workspaceId: ctx.workspaceId,
+      runtimeSessionId: ctx.runtimeSessionId,
       policy: ctx.policy,
       shellCommand,
-      stdin: null
+      stdin: null,
+      visibleWorkspacePaths: [resolved.absolutePath]
     });
     const latencyMs = Date.now() - startedAt;
     this.sandboxObservabilityService.recordWorkspaceFileLatency("stat", latencyMs);
@@ -812,9 +821,11 @@ export class WorkspaceFileBridgeService {
       assistantHandle: ctx.assistantHandle,
       siblingHandles: ctx.siblingHandles,
       workspaceId: ctx.workspaceId,
+      runtimeSessionId: ctx.runtimeSessionId,
       policy: ctx.policy,
       shellCommand,
-      stdin: null
+      stdin: null,
+      visibleWorkspacePaths: [sourceResolved.absolutePath, targetResolved.absolutePath]
     });
     const latencyMs = Date.now() - startedAt;
     const success = podResult.exitCode === 0;
@@ -908,6 +919,7 @@ export class WorkspaceFileBridgeService {
         assistantHandle: ctx.assistantHandle,
         siblingHandles: ctx.siblingHandles,
         workspaceId: ctx.workspaceId,
+        runtimeSessionId: ctx.runtimeSessionId,
         policy: ctx.policy,
         absolutePath: resolved.absolutePath,
         maxBytes: Math.max(ctx.policy.webMaxOutboundBytes, ctx.policy.telegramMaxOutboundBytes)
@@ -976,9 +988,11 @@ export class WorkspaceFileBridgeService {
       assistantHandle: ctx.assistantHandle,
       siblingHandles: ctx.siblingHandles,
       workspaceId: ctx.workspaceId,
+      runtimeSessionId: ctx.runtimeSessionId,
       policy: ctx.policy,
       shellCommand,
-      stdin: null
+      stdin: null,
+      visibleWorkspacePaths: [resolved.absolutePath]
     });
     const latencyMs = Date.now() - startedAt;
     this.sandboxObservabilityService.recordWorkspaceFileLatency("delete", latencyMs);
@@ -1099,6 +1113,7 @@ export class WorkspaceFileBridgeService {
       assistantHandle: ctx.assistantHandle,
       siblingHandles: ctx.siblingHandles,
       workspaceId: ctx.workspaceId,
+      runtimeSessionId: ctx.runtimeSessionId,
       policy: ctx.policy,
       shellCommand: duCommand,
       stdin: null

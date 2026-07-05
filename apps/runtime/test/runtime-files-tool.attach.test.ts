@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
+import { createFakeMediaObjectStorageForRead } from "./helpers/runtime-outbound-test-doubles";
 import { RuntimeFilesToolService } from "../src/modules/turns/runtime-files-tool.service";
+import { RuntimeStoragePlaneFilesService } from "../src/modules/turns/runtime-storage-plane-files.service";
 import { stringifyToolResultPayloadForModel } from "../src/modules/turns/sanitize-tool-result-for-model";
 
 const TEST_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/session-1";
@@ -41,25 +43,48 @@ function createBundle(): AssistantRuntimeBundle {
   } as unknown as AssistantRuntimeBundle;
 }
 
-function createService(input: {
-  sandboxJob: Record<string, unknown>;
-  apiClient?: Record<string, unknown>;
-}) {
-  const sandboxClientService = {
-    isConfigured: () => true,
-    async waitForCompletion() {
-      return input.sandboxJob;
-    }
+function attachMetadata(path: string, mimeType = "text/csv", sizeBytes = 12) {
+  return {
+    path,
+    mimeType,
+    sizeBytes,
+    originChatId: null,
+    originAssistantId: "assistant-1",
+    updatedAt: new Date().toISOString()
   };
+}
+
+function createService(input: { apiClient?: Record<string, unknown> } = {}) {
   const persaiInternalApiClientService = {
     async consumeToolDailyLimit() {
       return { allowed: true, code: null, message: null };
     },
+    async getWorkspaceFileMetadata() {
+      return null;
+    },
     ...input.apiClient
   };
   return new RuntimeFilesToolService(
-    sandboxClientService as never,
-    persaiInternalApiClientService as never
+    persaiInternalApiClientService as never,
+    new RuntimeStoragePlaneFilesService(
+      {
+        buildWorkspaceObjectKey() {
+          return "fake/object";
+        },
+        async saveObject(input: { buffer: Buffer }) {
+          return {
+            objectKey: "fake/object",
+            sizeBytes: input.buffer.length,
+            mimeType: "text/plain"
+          };
+        },
+        async downloadByWorkspacePath() {
+          return Buffer.from("hello");
+        }
+      } as never,
+      persaiInternalApiClientService as never
+    ),
+    createFakeMediaObjectStorageForRead() as never
   );
 }
 
@@ -75,23 +100,10 @@ const attachToolCallParams = {
 test("files.attach happy path workspace source emits assistant artifact", async () => {
   let apiCalled = false;
   const service = createService({
-    sandboxJob: {
-      status: "completed",
-      reason: null,
-      warning: null,
-      violationMessage: null,
-      content: JSON.stringify({
-        action: "attached",
-        attachment: {
-          workspaceRelPath: wp("report.csv"),
-          sourcePath: wp("report.csv"),
-          sizeBytes: 12,
-          mimeType: "text/csv",
-          displayName: "report.csv"
-        }
-      })
-    },
     apiClient: {
+      async getWorkspaceFileMetadata() {
+        return attachMetadata(wp("report.csv"));
+      },
       async registerChatAttachment() {
         apiCalled = true;
         throw new Error("files.attach should not register mid-turn");
@@ -133,22 +145,10 @@ test("files.attach happy path workspace source emits assistant artifact", async 
 test("files.attach session-root image file emits assistant artifact", async () => {
   let apiCalled = false;
   const service = createService({
-    sandboxJob: {
-      status: "completed",
-      reason: null,
-      warning: null,
-      violationMessage: null,
-      content: JSON.stringify({
-        attachment: {
-          workspaceRelPath: wp("report.csv"),
-          sourcePath: wp("report.csv"),
-          sizeBytes: 12,
-          mimeType: "image/png",
-          displayName: "report.png"
-        }
-      })
-    },
     apiClient: {
+      async getWorkspaceFileMetadata() {
+        return attachMetadata(wp("report.png"), "image/png", 12);
+      },
       async registerChatAttachment() {
         apiCalled = true;
         throw new Error("files.attach should not register mid-turn");
@@ -169,20 +169,13 @@ test("files.attach session-root image file emits assistant artifact", async () =
   assert.equal(apiCalled, false);
   assert.equal(result.payload.action, "attached");
   assert.equal(result.artifacts?.[0]?.kind, "image");
-  assert.equal(result.artifacts?.[0]?.filename, "report.png");
+  assert.equal(result.artifacts?.[0]?.filename, "report.csv");
   assert.equal(result.artifacts?.[0]?.sourceToolCode, undefined);
 });
 
-test("files.attach sandbox path_not_attachable does not call API", async () => {
+test("files.attach path_not_attachable does not call API", async () => {
   let apiCalled = false;
   const service = createService({
-    sandboxJob: {
-      status: "completed",
-      reason: "path_not_attachable",
-      warning: "files.attach accepts only active hierarchical /workspace/... paths",
-      violationMessage: null,
-      content: null
-    },
     apiClient: {
       async registerChatAttachment() {
         apiCalled = true;
@@ -206,16 +199,8 @@ test("files.attach sandbox path_not_attachable does not call API", async () => {
   assert.equal(result.payload.reason, "path_not_attachable");
 });
 
-test("files.attach sandbox failed job returns files_failed", async () => {
-  const service = createService({
-    sandboxJob: {
-      status: "failed",
-      reason: null,
-      warning: "sandbox attach failed",
-      violationMessage: null,
-      content: null
-    }
-  });
+test("files.attach missing manifest row returns path_not_found", async () => {
+  const service = createService();
 
   const result = await service.executeToolCall({
     bundle: createBundle(),
@@ -228,6 +213,5 @@ test("files.attach sandbox failed job returns files_failed", async () => {
   });
 
   assert.equal(result.isError, true);
-  assert.equal(result.payload.reason, "files_failed");
-  assert.equal(result.payload.warning, "sandbox attach failed");
+  assert.equal(result.payload.reason, "path_not_found");
 });

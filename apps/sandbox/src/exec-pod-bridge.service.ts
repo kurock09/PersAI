@@ -15,12 +15,20 @@ import { KubeConfig, CoreV1Api, Exec, V1Status } from "@kubernetes/client-node";
 import type { SandboxConfig } from "@persai/config";
 import {
   type RuntimeSandboxPolicy,
-  DEFAULT_RUNTIME_SANDBOX_POLICY
+  DEFAULT_RUNTIME_SANDBOX_POLICY,
+  normalizeWorkspacePath
 } from "@persai/runtime-contract";
 import { SANDBOX_CONFIG } from "./sandbox-config";
 import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
 import { SandboxObservabilityService } from "./sandbox-observability.service";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
+import {
+  buildBootstrapHydrateSubPaths,
+  buildSharedOnlyHydrateSubPath,
+  collectOnDemandHydratePaths,
+  toWorkspaceGcsSubPath,
+  type WorkspaceHydrateScopeLabel
+} from "./workspace-mount-hydrate";
 
 // Annotations carrying the assistant+workspace identity on the reusable exec pod.
 // The exec pod is keyed by (assistantId, workspaceId), NOT by chat session, so all
@@ -39,6 +47,9 @@ const ASSISTANT_HANDLE_ANNOTATION = "persai.io/assistant-handle";
 const WORKSPACE_MOUNT_BOOTSTRAP_MARKER = "/tmp/.persai_workspace_bootstrap_ok";
 const WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL = "__PERSAI_WORKSPACE_OK__";
 const WORKSPACE_MOUNT_DIRS_OK_SENTINEL = "__PERSAI_WORKSPACE_DIRS_OK__";
+const WORKSPACE_MOUNT_HYDRATE_SESSION_MARKER = "/tmp/.persai_workspace_hydrate_session";
+const WORKSPACE_MOUNT_HYDRATE_SHARED_MARKER = "/tmp/.persai_workspace_hydrate_shared_ok";
+const WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL = "__PERSAI_HYDRATE_SHARED_OK__";
 const ASSISTANT_HANDLE_RE = /^[A-Za-z0-9-]+$/;
 // Permissive policy used for the GCS hydrate exec writes during pod bootstrap.
 // These are control-plane operations, not model jobs — the tight per-job limits
@@ -249,13 +260,16 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     args: string[];
     policy: RuntimeSandboxPolicy;
     stagingFiles?: ReadonlyArray<SessionPodStagingFile>;
+    visibleWorkspacePaths?: readonly string[];
   }): Promise<PodExecResult> {
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const startedAt = Date.now();
 
     if (options.runtimeSessionId !== null) {
+      const { runtimeSessionId, ...sessionOptions } = options;
       return this.runInSessionPod({
-        ...options,
+        ...sessionOptions,
+        runtimeSessionId,
         namespace,
         startedAt
       });
@@ -283,9 +297,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     assistantHandle: string;
     siblingHandles: readonly string[];
     workspaceId: string;
+    runtimeSessionId?: string | null;
     policy: RuntimeSandboxPolicy;
     shellCommand: string;
     stdin?: Buffer | null;
+    visibleWorkspacePaths?: readonly string[];
   }): Promise<PodExecResult> {
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const podName = this.buildSessionPodName(input.assistantId, input.workspaceId);
@@ -302,9 +318,21 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       podName,
       namespace,
       input.workspaceId,
+      input.assistantId,
+      input.runtimeSessionId ?? null,
       input.assistantHandle,
       input.siblingHandles
     );
+    if (input.visibleWorkspacePaths !== undefined && input.visibleWorkspacePaths.length > 0) {
+      await this.hydrateVisibleWorkspacePathsOnDemand({
+        podName,
+        namespace,
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        runtimeSessionId: input.runtimeSessionId ?? null,
+        visiblePaths: input.visibleWorkspacePaths
+      });
+    }
     const result = await this.execCommand(podName, namespace, {
       command: "/bin/bash",
       args: ["-lc", input.shellCommand],
@@ -324,6 +352,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     assistantHandle: string;
     siblingHandles: readonly string[];
     workspaceId: string;
+    runtimeSessionId?: string | null;
     policy: RuntimeSandboxPolicy;
     absolutePath: string;
     maxBytes: number;
@@ -343,8 +372,16 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       podName,
       namespace,
       input.workspaceId,
+      input.assistantId,
+      input.runtimeSessionId ?? null,
       input.assistantHandle,
       input.siblingHandles
+    );
+    await this.hydrateWorkspacePathOnDemand(
+      podName,
+      namespace,
+      input.workspaceId,
+      input.absolutePath
     );
     const bytes = await this.readFileBytesFromPod(podName, namespace, {
       absolutePath: input.absolutePath,
@@ -385,6 +422,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     assistantHandle: string;
     siblingHandles: readonly string[];
     workspaceId: string;
+    runtimeSessionId?: string | null;
     policy: RuntimeSandboxPolicy;
     shellCommand: string;
     stdin?: Buffer | null;
@@ -416,6 +454,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       podName,
       namespace,
       input.workspaceId,
+      input.assistantId,
+      input.runtimeSessionId ?? null,
       input.assistantHandle,
       input.siblingHandles
     );
@@ -444,6 +484,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
    */
   private async runInSessionPod(options: {
     jobId: string;
+    runtimeSessionId: string;
     assistantId: string;
     assistantHandle: string;
     siblingHandles: readonly string[];
@@ -454,6 +495,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     args: string[];
     policy: RuntimeSandboxPolicy;
     stagingFiles?: ReadonlyArray<SessionPodStagingFile>;
+    visibleWorkspacePaths?: readonly string[];
     namespace: string;
     startedAt: number;
   }): Promise<PodExecResult> {
@@ -476,9 +518,22 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       podName,
       namespace,
       workspaceId,
+      assistantId,
+      options.runtimeSessionId,
       assistantHandle,
       siblingHandles
     );
+    const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
+    const onDemandPaths = collectOnDemandHydratePaths({
+      assistantId,
+      runtimeSessionId: options.runtimeSessionId,
+      visiblePaths: [
+        podCwd,
+        ...(options.visibleWorkspacePaths ?? []),
+        ...(options.stagingFiles ?? []).map((file) => file.absolutePath)
+      ]
+    });
+    await this.hydrateOnDemandSubPaths(podName, namespace, workspaceId, onDemandPaths);
     if (options.stagingFiles !== undefined) {
       for (const file of options.stagingFiles) {
         await this.writePodFileBytes(
@@ -490,7 +545,6 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         );
       }
     }
-    const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
     const result = await this.execCommand(podName, namespace, {
       command: options.command,
       args: options.args,
@@ -512,6 +566,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
    */
   private async runInEphemeralPod(options: {
     jobId: string;
+    assistantId: string;
     assistantHandle: string;
     siblingHandles: readonly string[];
     workspaceId: string;
@@ -540,8 +595,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         podName,
         namespace,
         options.workspaceId,
+        options.assistantId,
+        null,
         options.assistantHandle,
-        options.siblingHandles
+        options.siblingHandles,
+        "none"
       );
       await this.pushWorkspace(podName, namespace, options.workspaceRoot);
       if (options.stagingFiles !== undefined) {
@@ -1116,8 +1174,13 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     podName: string,
     namespace: string,
     workspaceId: string,
+    assistantId: string,
+    runtimeSessionId: string | null,
     assistantHandle: string,
-    siblingHandles: readonly string[]
+    siblingHandles: readonly string[],
+    gcsHydrateScope: "session" | "shared_only" | "none" = runtimeSessionId !== null
+      ? "session"
+      : "shared_only"
   ): Promise<void> {
     void siblingHandles;
     if (!ASSISTANT_HANDLE_RE.test(assistantHandle)) {
@@ -1128,85 +1191,311 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     }
     const workspaceRoot = "/workspace";
 
-    const alreadyBootstrapped = await this.runStdinlessProbe(
+    const podDirsBootstrapped = await this.runStdinlessProbe(
       podName,
       namespace,
       `test -f ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_MARKER)} && printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL)}`,
       WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL
     );
-    if (alreadyBootstrapped) {
-      return;
+    if (!podDirsBootstrapped) {
+      const dirsScript = [
+        "set -e",
+        `test -d ${posixSingleQuote(workspaceRoot)}`,
+        `test -w ${posixSingleQuote(workspaceRoot)}`,
+        `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_DIRS_OK_SENTINEL)}`
+      ].join("\n");
+      const dirsOk = await this.runStdinlessProbe(
+        podName,
+        namespace,
+        dirsScript,
+        WORKSPACE_MOUNT_DIRS_OK_SENTINEL
+      );
+      if (!dirsOk) {
+        throw createBridgeError(
+          "process_spawn_failed",
+          `Failed to create workspace directory for handle=${assistantHandle}.`
+        );
+      }
     }
 
-    const dirsScript = [
-      "set -e",
-      `test -d ${posixSingleQuote(workspaceRoot)}`,
-      `test -w ${posixSingleQuote(workspaceRoot)}`,
-      `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_DIRS_OK_SENTINEL)}`
-    ].join("\n");
-    const dirsOk = await this.runStdinlessProbe(
-      podName,
-      namespace,
-      dirsScript,
-      WORKSPACE_MOUNT_DIRS_OK_SENTINEL
-    );
-    if (!dirsOk) {
-      throw createBridgeError(
-        "process_spawn_failed",
-        `Failed to create workspace directory for handle=${assistantHandle}.`
-      );
+    if (gcsHydrateScope !== "none") {
+      if (gcsHydrateScope === "session" && runtimeSessionId !== null) {
+        const hydratedSessionId = await this.readPodHydrateSessionId(podName, namespace);
+        if (hydratedSessionId !== runtimeSessionId) {
+          const workspaceHydrateStartedAt = Date.now();
+          await this.hydrateBootstrapWorkspaceMounts(
+            podName,
+            namespace,
+            workspaceId,
+            assistantId,
+            runtimeSessionId,
+            "session"
+          );
+          await this.writePodHydrateSessionId(podName, namespace, runtimeSessionId);
+          this.observability?.recordSnapshotColdPull(
+            "session",
+            Date.now() - workspaceHydrateStartedAt
+          );
+        }
+      } else if (gcsHydrateScope === "shared_only") {
+        const sharedHydrated = await this.runStdinlessProbe(
+          podName,
+          namespace,
+          `test -f ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_MARKER)} && printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL)}`,
+          WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL
+        );
+        if (!sharedHydrated) {
+          const workspaceHydrateStartedAt = Date.now();
+          await this.hydrateBootstrapWorkspaceMounts(
+            podName,
+            namespace,
+            workspaceId,
+            assistantId,
+            runtimeSessionId,
+            "shared_only"
+          );
+          const sharedMarkerScript = [
+            "set -e",
+            `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL)} > ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_MARKER)}`,
+            `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL)}`
+          ].join("\n");
+          const sharedMarkerOk = await this.runStdinlessProbe(
+            podName,
+            namespace,
+            sharedMarkerScript,
+            WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL
+          );
+          if (!sharedMarkerOk) {
+            throw createBridgeError(
+              "process_spawn_failed",
+              `Failed to record shared workspace hydrate marker for handle=${assistantHandle}.`
+            );
+          }
+          this.observability?.recordSnapshotColdPull(
+            "shared",
+            Date.now() - workspaceHydrateStartedAt
+          );
+        }
+      }
     }
 
-    const workspaceHydrateStartedAt = Date.now();
-    await this.hydrateWorkspaceMountFromGcs(podName, namespace, workspaceId);
-    this.observability?.recordSnapshotColdPull("shared", Date.now() - workspaceHydrateStartedAt);
-
-    const markerScript = [
-      "set -e",
-      `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL)} > ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_MARKER)}`,
-      `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL)}`
-    ].join("\n");
-    const ok = await this.runStdinlessProbe(
-      podName,
-      namespace,
-      markerScript,
-      WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL
-    );
-    if (!ok) {
-      throw createBridgeError(
-        "process_spawn_failed",
-        `Failed to bootstrap workspace mount for handle=${assistantHandle}.`
+    if (!podDirsBootstrapped) {
+      const markerScript = [
+        "set -e",
+        `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL)} > ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_MARKER)}`,
+        `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL)}`
+      ].join("\n");
+      const ok = await this.runStdinlessProbe(
+        podName,
+        namespace,
+        markerScript,
+        WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL
       );
+      if (!ok) {
+        throw createBridgeError(
+          "process_spawn_failed",
+          `Failed to bootstrap workspace mount for handle=${assistantHandle}.`
+        );
+      }
     }
   }
 
-  /**
-   * Pull every persisted workspace object under the workspace prefix into the
-   * corresponding pod path, preserving the full visible hierarchy. Best-effort:
-   * a list or download failure is logged at warn but does not abort the
-   * bootstrap.
-   */
-  private async hydrateWorkspaceMountFromGcs(
+  private async hydrateOnDemandSubPaths(
     podName: string,
     namespace: string,
-    workspaceId: string
+    workspaceId: string,
+    subPaths: readonly string[]
+  ): Promise<void> {
+    for (const subPath of subPaths) {
+      await this.hydrateWorkspaceMountOnDemandSubPath(podName, namespace, workspaceId, subPath);
+    }
+  }
+
+  private async hydrateVisibleWorkspacePathsOnDemand(input: {
+    podName: string;
+    namespace: string;
+    workspaceId: string;
+    assistantId: string;
+    runtimeSessionId: string | null;
+    visiblePaths: readonly string[];
+  }): Promise<void> {
+    if (input.runtimeSessionId === null) {
+      for (const visiblePath of input.visiblePaths) {
+        await this.hydrateWorkspacePathOnDemand(
+          input.podName,
+          input.namespace,
+          input.workspaceId,
+          visiblePath
+        );
+      }
+      return;
+    }
+    const subPaths = collectOnDemandHydratePaths({
+      assistantId: input.assistantId,
+      runtimeSessionId: input.runtimeSessionId,
+      visiblePaths: input.visiblePaths
+    });
+    await this.hydrateOnDemandSubPaths(input.podName, input.namespace, input.workspaceId, subPaths);
+  }
+
+  private async hydrateWorkspacePathOnDemand(
+    podName: string,
+    namespace: string,
+    workspaceId: string,
+    visiblePath: string
+  ): Promise<void> {
+    const gcsSubPath = toWorkspaceGcsSubPath(visiblePath);
+    if (gcsSubPath.length === 0) {
+      return;
+    }
+    await this.hydrateWorkspaceMountOnDemandSubPath(podName, namespace, workspaceId, gcsSubPath);
+  }
+
+  private async readPodHydrateSessionId(
+    podName: string,
+    namespace: string
+  ): Promise<string | null> {
+    const result = await this.execCommand(podName, namespace, {
+      command: "/bin/sh",
+      args: [
+        "-c",
+        `cat ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SESSION_MARKER)} 2>/dev/null || true`
+      ],
+      podCwd: "/",
+      policy: BOOTSTRAP_HYDRATE_POLICY
+    });
+    const value = result.stdout.trim();
+    return value.length > 0 ? value : null;
+  }
+
+  private async writePodHydrateSessionId(
+    podName: string,
+    namespace: string,
+    runtimeSessionId: string
+  ): Promise<void> {
+    await this.writePodFileBytes(
+      podName,
+      namespace,
+      WORKSPACE_MOUNT_HYDRATE_SESSION_MARKER,
+      Buffer.from(runtimeSessionId, "utf8"),
+      BOOTSTRAP_HYDRATE_POLICY,
+      "throw"
+    );
+  }
+
+  /**
+   * ADR-137 S5.1 — cold bootstrap hydrates only the current session subtree and
+   * the assistant shared subtree. Sessionless control-plane paths hydrate shared
+   * only; ephemeral pods skip GCS hydrate (local push/pull owns the tree).
+   */
+  private async hydrateBootstrapWorkspaceMounts(
+    podName: string,
+    namespace: string,
+    workspaceId: string,
+    assistantId: string,
+    runtimeSessionId: string | null,
+    scope: "session" | "shared_only"
   ): Promise<void> {
     if (this.objectStorage === null) {
       return;
     }
-    const workspacePrefix = this.objectStorage.buildWorkspacePrefix({ workspaceId });
+    if (scope === "shared_only" || runtimeSessionId === null) {
+      const sharedSubPath = buildSharedOnlyHydrateSubPath(assistantId);
+      await this.hydrateWorkspaceMountPrefix(
+        podName,
+        namespace,
+        workspaceId,
+        sharedSubPath,
+        "shared"
+      );
+      return;
+    }
+    for (const hydrateScope of buildBootstrapHydrateSubPaths({ assistantId, runtimeSessionId })) {
+      await this.hydrateWorkspaceMountPrefix(
+        podName,
+        namespace,
+        workspaceId,
+        hydrateScope.subPath,
+        hydrateScope.scope
+      );
+    }
+  }
+
+  private async hydrateWorkspaceMountOnDemandSubPath(
+    podName: string,
+    namespace: string,
+    workspaceId: string,
+    gcsSubPath: string
+  ): Promise<void> {
+    if (this.objectStorage === null) {
+      return;
+    }
+    const workspaceVisiblePath = normalizeWorkspacePath(`/workspace/${gcsSubPath}`);
+    const objectKey = this.objectStorage.buildWorkspaceObjectKey({
+      workspaceId,
+      workspaceRelPath: workspaceVisiblePath
+    });
+    try {
+      const buffer = await this.objectStorage.downloadObject(objectKey);
+      if (buffer !== null && buffer.length > 0) {
+        await this.hydrateWorkspaceMountObjectFromGcs(
+          podName,
+          namespace,
+          workspaceId,
+          objectKey,
+          workspaceVisiblePath
+        );
+        this.logger.log(
+          `workspace_mount_hydrate_done workspace=${workspaceId} scope=on_demand objects=1 path=${workspaceVisiblePath}`
+        );
+        return;
+      }
+    } catch (error) {
+      this.logger.warn(
+        `workspace_mount_hydrate_on_demand_file_failed workspace=${workspaceId} path=${workspaceVisiblePath} error=${describeUnknownError(error)}`
+      );
+    }
+    await this.hydrateWorkspaceMountPrefix(
+      podName,
+      namespace,
+      workspaceId,
+      gcsSubPath,
+      "on_demand"
+    );
+  }
+
+  private async hydrateWorkspaceMountPrefix(
+    podName: string,
+    namespace: string,
+    workspaceId: string,
+    gcsSubPath: string,
+    scope: WorkspaceHydrateScopeLabel
+  ): Promise<void> {
+    if (this.objectStorage === null) {
+      return;
+    }
+    if (gcsSubPath.length === 0) {
+      this.logger.warn(
+        `workspace_mount_hydrate_skipped_empty_sub_path workspace=${workspaceId} scope=${scope}`
+      );
+      return;
+    }
+    const workspacePrefix = this.objectStorage.buildWorkspacePrefix({
+      workspaceId,
+      subPath: gcsSubPath
+    });
     let keys: string[];
     try {
       keys = await this.objectStorage.listPrefix(workspacePrefix);
     } catch (error) {
       this.logger.warn(
-        `workspace_mount_hydrate_list_failed workspace=${workspaceId} error=${describeUnknownError(error)}`
+        `workspace_mount_hydrate_list_failed workspace=${workspaceId} scope=${scope} sub_path=${gcsSubPath} error=${describeUnknownError(error)}`
       );
       return;
     }
     if (keys.length === 0) {
       this.logger.log(
-        `workspace_mount_hydrate_done workspace=${workspaceId} objects=0 elapsed_ms=0 concurrency=${WORKSPACE_MOUNT_HYDRATE_CONCURRENCY}`
+        `workspace_mount_hydrate_done workspace=${workspaceId} scope=${scope} sub_path=${gcsSubPath} objects=0 elapsed_ms=0 concurrency=${WORKSPACE_MOUNT_HYDRATE_CONCURRENCY}`
       );
       return;
     }
@@ -1217,13 +1506,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         const relPath = key.slice(workspacePrefix.length);
         return { key, relPath };
       })
-      .filter(({ relPath }) => {
-        // Skip GCS "directory" placeholder objects (key ends with "/").
-        return relPath.length > 0 && !relPath.endsWith("/");
-      });
-    // `listPrefix()` only returns keys, not object sizes, so we cannot cheaply
-    // single out large blobs for serial fallback in this slice. Keep concurrency
-    // conservative to bound the worst-case transient buffer footprint.
+      .filter(({ relPath }) => relPath.length > 0 && !relPath.endsWith("/"));
     let nextIndex = 0;
     const workerCount = Math.min(WORKSPACE_MOUNT_HYDRATE_CONCURRENCY, hydrateTargets.length);
     const workers = Array.from({ length: workerCount }, async () => {
@@ -1239,13 +1522,13 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           namespace,
           workspaceId,
           target.key,
-          `${workspaceRoot}${target.relPath}`
+          `${workspaceRoot}${gcsSubPath}/${target.relPath}`.replace(/\/+/g, "/")
         );
       }
     });
     await Promise.allSettled(workers);
     this.logger.log(
-      `workspace_mount_hydrate_done workspace=${workspaceId} objects=${hydrateTargets.length} elapsed_ms=${Date.now() - startedAt} concurrency=${workerCount}`
+      `workspace_mount_hydrate_done workspace=${workspaceId} scope=${scope} sub_path=${gcsSubPath} objects=${hydrateTargets.length} elapsed_ms=${Date.now() - startedAt} concurrency=${workerCount}`
     );
   }
 

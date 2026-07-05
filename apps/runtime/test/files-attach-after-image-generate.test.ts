@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import { DEFAULT_RUNTIME_SANDBOX_POLICY } from "@persai/runtime-contract";
+import { createFakeMediaObjectStorageForRead } from "./helpers/runtime-outbound-test-doubles";
 import { RuntimeFilesToolService } from "../src/modules/turns/runtime-files-tool.service";
+import { RuntimeStoragePlaneFilesService } from "../src/modules/turns/runtime-storage-plane-files.service";
 
 /**
  * ADR-126 AC11 regression pin: after image_generate dual-write, the model can
@@ -42,59 +44,24 @@ test("AC11: read shared-outbound artefact then attach workspace edit", async () 
   const artefactPath =
     "/workspace/assistants/assistant-1/sessions/session-1/2026-06-23T22-00-00-marketing-poster.png";
   const editedPath = "/workspace/assistants/assistant-1/sessions/session-1/edited.png";
-  const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
-
-  const sandboxClientService = {
-    isConfigured: () => true,
-    async waitForCompletion(job: { toolCode: string; args: Record<string, unknown> }) {
-      sandboxCalls.push({ toolCode: job.toolCode, args: job.args });
-      const action = job.args.action;
-      if (action === "read") {
-        return {
-          status: "completed",
-          reason: null,
-          warning: null,
-          violationMessage: null,
-          content: JSON.stringify({
-            content: "PNG_BYTES",
-            sizeBytes: 8,
-            sha256: "abc",
-            truncated: false
-          })
-        };
-      }
-      if (action === "attach") {
-        return {
-          status: "completed",
-          reason: null,
-          warning: null,
-          violationMessage: null,
-          content: JSON.stringify({
-            action: "attached",
-            attachment: {
-              workspaceRelPath: artefactPath,
-              sourcePath: editedPath,
-              sizeBytes: 8,
-              mimeType: "image/png",
-              displayName: "edited.png"
-            }
-          })
-        };
-      }
-      return {
-        status: "failed",
-        reason: "unexpected_action",
-        warning: null,
-        violationMessage: null,
-        content: null
-      };
-    }
-  };
 
   let apiCalled = false;
   const persaiInternalApiClientService = {
     async consumeToolDailyLimit() {
       return { allowed: true, code: null, message: null };
+    },
+    async getWorkspaceFileMetadata(input: { path: string }) {
+      if (input.path === artefactPath || input.path === editedPath) {
+        return {
+          path: input.path,
+          mimeType: "image/png",
+          sizeBytes: 8,
+          originChatId: null,
+          originAssistantId: "assistant-1",
+          updatedAt: new Date().toISOString()
+        };
+      }
+      return null;
     },
     async registerChatAttachment() {
       apiCalled = true;
@@ -103,8 +70,26 @@ test("AC11: read shared-outbound artefact then attach workspace edit", async () 
   };
 
   const service = new RuntimeFilesToolService(
-    sandboxClientService as never,
-    persaiInternalApiClientService as never
+    persaiInternalApiClientService as never,
+    new RuntimeStoragePlaneFilesService(
+      {
+        buildWorkspaceObjectKey() {
+          return "fake/object";
+        },
+        async saveObject(input: { buffer: Buffer }) {
+          return {
+            objectKey: "fake/object",
+            sizeBytes: input.buffer.length,
+            mimeType: "image/png"
+          };
+        },
+        async downloadByWorkspacePath() {
+          return Buffer.from("img-bytes");
+        }
+      } as never,
+      persaiInternalApiClientService as never
+    ),
+    createFakeMediaObjectStorageForRead() as never
   );
 
   const readResult = await service.executeToolCall({
@@ -124,7 +109,6 @@ test("AC11: read shared-outbound artefact then attach workspace edit", async () 
 
   assert.equal(readResult.isError, false);
   assert.equal(readResult.payload.path, artefactPath);
-  assert.equal(sandboxCalls[0]?.args.action, "read");
 
   const attachResult = await service.executeToolCall({
     bundle: createBundle(),
@@ -143,10 +127,9 @@ test("AC11: read shared-outbound artefact then attach workspace edit", async () 
 
   assert.equal(attachResult.isError, false);
   assert.equal(attachResult.payload.action, "attached");
-  assert.equal(sandboxCalls[1]?.args.action, "attach");
   assert.equal(apiCalled, false);
   assert.equal(attachResult.discoveredFileHandles, undefined);
-  assert.equal(attachResult.artifacts?.[0]?.storagePath, artefactPath);
+  assert.equal(attachResult.artifacts?.[0]?.storagePath, editedPath);
   assert.equal(attachResult.artifacts?.[0]?.mimeType, "image/png");
   assert.equal(attachResult.artifacts?.[0]?.sizeBytes, 8);
   assert.equal(attachResult.artifacts?.[0]?.kind, "image");

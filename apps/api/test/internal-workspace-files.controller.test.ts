@@ -22,10 +22,11 @@ function createController() {
     {} as never,
     {} as never,
     {
-      async delete(input: { workspaceId: string; path: string }) {
+      async execute(input: { workspaceId: string; path: string }) {
         deletes.push(input);
       }
-    } as never
+    } as never,
+    {} as never
   );
   return { controller, deletes };
 }

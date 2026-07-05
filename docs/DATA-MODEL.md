@@ -105,7 +105,7 @@ Chat rendering/download rows project back to canonical workspace paths. `attachm
 
 ## Workspace file semantic index (ADR-134)
 
-Path-keyed manifest rows in `workspace_file_metadata` carry product file truth for every visible workspace file:
+Path-keyed manifest rows in `workspace_file_metadata` carry product file truth for every visible workspace file. **ADR-137:** committed bytes live in GCS at `buildWorkspaceObjectKey(workspaceId, workspaceRelPath)`; the session pod filesystem is an execution cache only. Model `files.*` / `grep` / `glob` and worker outbound media never depend on pod FS for correctness.
 
 - composite primary key `(workspaceId, path)` where `path` is the hierarchical visible path under `/workspace/assistants/<assistantId>/sessions/<sessionId>/...` (or wider assistant/workspace roots)
 - `shortDescription` — nullable text; the **sole durable semantic index** for natural-language file discovery. Populated by: (1) deterministic STT / text_extract one-liners at upload/register time; (2) sync `buildGeneratedFileSemanticSummary` with provenance `generation_request` on model-produced files when informative; (3) background cheap-LLM helper via `workspace_file_micro_description_jobs` when still empty and policy allows

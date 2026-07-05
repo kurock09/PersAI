@@ -141,11 +141,14 @@ import { DocumentWorkspaceVersionRegistrationService } from "./application/docum
 import { DocumentSourceAttachmentExtractionService } from "./application/document-source-attachment-extraction.service";
 import { ListWorkspaceFileShortDescriptionsService } from "./application/list-workspace-file-short-descriptions.service";
 import { SearchWorkspaceFilesFromManifestService } from "./application/search-workspace-files-from-manifest.service";
+import { GrepWorkspaceFilesFromStorageService } from "./application/grep-workspace-files-from-storage.service";
+import { GlobWorkspaceFilesFromManifestService } from "./application/glob-workspace-files-from-manifest.service";
 import { ListWorkspaceFilesFromManifestService } from "./application/list-workspace-files-from-manifest.service";
 import { ListChatWorkspaceFilesService } from "./application/list-chat-workspace-files.service";
 import { RegisterChatAttachmentService } from "./application/register-chat-attachment.service";
 import { SandboxControlPlaneClientService } from "./application/sandbox-control-plane.client.service";
 import { UpsertWorkspaceFileMetadataFromRuntimeService } from "./application/upsert-workspace-file-metadata-from-runtime.service";
+import { DeleteWorkspaceFileFromRuntimeService } from "./application/delete-workspace-file-from-runtime.service";
 import { WorkspaceFileMetadataService } from "./application/workspace-file-metadata.service";
 import { WorkspaceFileMicroDescriptionService } from "./application/workspace-file-micro-description.service";
 import { WorkspaceFileMicroDescriptionJobService } from "./application/workspace-file-micro-description-job.service";
@@ -566,11 +569,14 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     DocumentSourceAttachmentExtractionService,
     ListWorkspaceFileShortDescriptionsService,
     SearchWorkspaceFilesFromManifestService,
+    GrepWorkspaceFilesFromStorageService,
+    GlobWorkspaceFilesFromManifestService,
     ListWorkspaceFilesFromManifestService,
     ListChatWorkspaceFilesService,
     RegisterChatAttachmentService,
     SandboxControlPlaneClientService,
     UpsertWorkspaceFileMetadataFromRuntimeService,
+    DeleteWorkspaceFileFromRuntimeService,
     WorkspaceFileMetadataService,
     WorkspaceFileMicroDescriptionService,
     WorkspaceFileMicroDescriptionJobService,

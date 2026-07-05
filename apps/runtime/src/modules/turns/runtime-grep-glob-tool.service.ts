@@ -1,16 +1,14 @@
 import { Injectable } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
-import type {
-  ProviderGatewayToolCall,
-  RuntimeGlobToolResult,
-  RuntimeGrepMatch,
-  RuntimeGrepToolResult,
-  RuntimeSandboxJobRequest,
-  RuntimeSandboxJobResult,
-  RuntimeToolPolicy
+import {
+  buildAssistantSessionRoot,
+  type ProviderGatewayToolCall,
+  type RuntimeGlobToolResult,
+  type RuntimeGrepMatch,
+  type RuntimeGrepToolResult,
+  type RuntimeToolPolicy
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
-import { SandboxClientService } from "./sandbox-client.service";
 
 export interface RuntimeGrepToolExecutionResult {
   payload: RuntimeGrepToolResult;
@@ -23,17 +21,11 @@ export interface RuntimeGlobToolExecutionResult {
 }
 
 /**
- * ADR-123 Slice 7 — inline `grep` / `glob` workspace tools.
- *
- * Routes grep/glob tool calls to the sandbox service, which executes `rg`/`fd`
- * via `kubectl exec` inside the session pod.
+ * ADR-137 S4 — inline `grep` / `glob` over committed storage-plane bytes.
  */
 @Injectable()
 export class RuntimeGrepGlobToolService {
-  constructor(
-    private readonly sandboxClientService: SandboxClientService,
-    private readonly persaiInternalApiClientService: PersaiInternalApiClientService
-  ) {}
+  constructor(private readonly persaiInternalApiClientService: PersaiInternalApiClientService) {}
 
   async executeGrepToolCall(params: {
     bundle: AssistantRuntimeBundle;
@@ -46,15 +38,6 @@ export class RuntimeGrepGlobToolService {
       return {
         payload: this.createSkippedGrep("tool_unavailable", null),
         isError: false
-      };
-    }
-    if (!this.sandboxClientService.isConfigured()) {
-      return {
-        payload: this.createSkippedGrep(
-          "sandbox_unconfigured",
-          "Sandbox service is not configured."
-        ),
-        isError: true
       };
     }
     const pattern = this.readPattern(params.toolCall.arguments);
@@ -76,33 +59,34 @@ export class RuntimeGrepGlobToolService {
           isError: false
         };
       }
-      const job = await this.executeSandboxJob({
-        bundle: params.bundle,
+      const args = this.asObject(params.toolCall.arguments);
+      const outcome = await this.persaiInternalApiClientService.grepWorkspaceFiles({
+        workspaceId: params.bundle.metadata.workspaceId,
+        assistantId: params.bundle.metadata.assistantId,
         sessionId: params.sessionId,
-        requestId: params.requestId,
-        toolCode: "grep",
-        args: this.asObject(params.toolCall.arguments)
+        pattern,
+        path: this.readOptionalString(args.path) ?? this.defaultSearchPath(params),
+        glob: this.readOptionalString(args.glob),
+        type: this.readOptionalString(args.type),
+        caseInsensitive: args.caseInsensitive === true
       });
-      if (job.status !== "completed") {
+      if (outcome.reason !== null && outcome.matches.length === 0) {
         return {
-          payload: this.createSkippedGrep(
-            job.reason ?? "grep_failed",
-            job.warning ?? job.violationMessage
-          ),
+          payload: this.createSkippedGrep(outcome.reason, outcome.warning),
           isError: true
         };
       }
-      const parsed = this.parseGrepContent(job.content);
+      const matches: RuntimeGrepMatch[] = outcome.matches;
       return {
         payload: {
           toolCode: "grep",
           executionMode: "inline",
           action: "matched",
           reason: null,
-          warning: job.warning,
-          matches: parsed.matches,
-          matchCount: parsed.matches.length,
-          truncated: parsed.truncated
+          warning: outcome.warning,
+          matches,
+          matchCount: matches.length,
+          truncated: outcome.truncated
         },
         isError: false
       };
@@ -130,15 +114,6 @@ export class RuntimeGrepGlobToolService {
         isError: false
       };
     }
-    if (!this.sandboxClientService.isConfigured()) {
-      return {
-        payload: this.createSkippedGlob(
-          "sandbox_unconfigured",
-          "Sandbox service is not configured."
-        ),
-        isError: true
-      };
-    }
     const pattern = this.readPattern(params.toolCall.arguments);
     if (pattern === null) {
       return {
@@ -158,32 +133,29 @@ export class RuntimeGrepGlobToolService {
           isError: false
         };
       }
-      const job = await this.executeSandboxJob({
-        bundle: params.bundle,
+      const args = this.asObject(params.toolCall.arguments);
+      const outcome = await this.persaiInternalApiClientService.globWorkspaceFiles({
+        workspaceId: params.bundle.metadata.workspaceId,
+        assistantId: params.bundle.metadata.assistantId,
         sessionId: params.sessionId,
-        requestId: params.requestId,
-        toolCode: "glob",
-        args: this.asObject(params.toolCall.arguments)
+        pattern,
+        path: this.readOptionalString(args.path) ?? this.defaultSearchPath(params)
       });
-      if (job.status !== "completed") {
+      if (outcome.reason !== null && outcome.paths.length === 0) {
         return {
-          payload: this.createSkippedGlob(
-            job.reason ?? "glob_failed",
-            job.warning ?? job.violationMessage
-          ),
+          payload: this.createSkippedGlob(outcome.reason, outcome.warning),
           isError: true
         };
       }
-      const parsed = this.parseGlobContent(job.content);
       return {
         payload: {
           toolCode: "glob",
           executionMode: "inline",
           action: "found",
           reason: null,
-          warning: job.warning,
-          paths: parsed.paths,
-          truncated: parsed.truncated
+          warning: outcome.warning,
+          paths: outcome.paths,
+          truncated: outcome.truncated
         },
         isError: false
       };
@@ -198,28 +170,12 @@ export class RuntimeGrepGlobToolService {
     }
   }
 
-  private async executeSandboxJob(input: {
-    bundle: AssistantRuntimeBundle;
-    sessionId: string;
-    requestId: string;
-    toolCode: "grep" | "glob";
-    args: Record<string, unknown>;
-  }): Promise<RuntimeSandboxJobResult> {
-    const policy = input.bundle.runtime.sandbox;
-    if (policy === undefined) {
-      throw new Error("Sandbox policy is unavailable for grep/glob tool execution.");
+  private defaultSearchPath(params: { bundle: AssistantRuntimeBundle; sessionId: string }): string {
+    const assistantId = params.bundle.metadata.assistantId;
+    if (assistantId.length === 0) {
+      return "/workspace";
     }
-    return await this.sandboxClientService.waitForCompletion({
-      assistantId: input.bundle.metadata.assistantId,
-      assistantHandle: input.bundle.metadata.assistantHandle,
-      siblingHandles: input.bundle.metadata.siblingAssistantHandles,
-      workspaceId: input.bundle.metadata.workspaceId,
-      runtimeRequestId: input.requestId,
-      runtimeSessionId: input.sessionId,
-      toolCode: input.toolCode,
-      policy,
-      args: input.args
-    } satisfies RuntimeSandboxJobRequest);
+    return buildAssistantSessionRoot(assistantId, params.sessionId);
   }
 
   private resolveAllowedToolPolicy(
@@ -233,57 +189,11 @@ export class RuntimeGrepGlobToolService {
       policy.executionMode !== "inline" ||
       policy.enabled !== true ||
       policy.visibleToModel !== true ||
-      policy.usageRule !== "allowed" ||
-      bundle.runtime.sandbox?.enabled !== true
+      policy.usageRule !== "allowed"
     ) {
       return null;
     }
     return policy;
-  }
-
-  private parseGrepContent(content: string | null): {
-    matches: RuntimeGrepMatch[];
-    truncated: boolean;
-  } {
-    if (content === null) {
-      return { matches: [], truncated: false };
-    }
-    try {
-      const parsed = JSON.parse(content) as {
-        matches?: unknown;
-        truncated?: unknown;
-      };
-      const matches = Array.isArray(parsed.matches)
-        ? parsed.matches
-            .filter(
-              (entry): entry is { file: unknown; line: unknown; text: unknown } =>
-                entry !== null && typeof entry === "object"
-            )
-            .map((entry) => ({
-              file: typeof entry.file === "string" ? entry.file : "",
-              line: typeof entry.line === "number" ? entry.line : 0,
-              text: typeof entry.text === "string" ? entry.text : ""
-            }))
-        : [];
-      return { matches, truncated: parsed.truncated === true };
-    } catch {
-      return { matches: [], truncated: false };
-    }
-  }
-
-  private parseGlobContent(content: string | null): { paths: string[]; truncated: boolean } {
-    if (content === null) {
-      return { paths: [], truncated: false };
-    }
-    try {
-      const parsed = JSON.parse(content) as { paths?: unknown; truncated?: unknown };
-      const paths = Array.isArray(parsed.paths)
-        ? parsed.paths.filter((entry): entry is string => typeof entry === "string")
-        : [];
-      return { paths, truncated: parsed.truncated === true };
-    } catch {
-      return { paths: [], truncated: false };
-    }
   }
 
   private readPattern(value: unknown): string | null {
@@ -292,6 +202,14 @@ export class RuntimeGrepGlobToolService {
     }
     const pattern = (value as Record<string, unknown>).pattern;
     return typeof pattern === "string" && pattern.trim().length > 0 ? pattern : null;
+  }
+
+  private readOptionalString(value: unknown): string | null {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   private asObject(value: unknown): Record<string, unknown> {

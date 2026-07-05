@@ -12,7 +12,7 @@ type ResolvedSandboxConfig = ReturnType<typeof loadApiConfig>;
  * Design constraints:
  *   * The api MUST treat this client as best-effort. The canonical store for
  *     uploaded bytes is GCS (already written by `manage-chat-media`). The
- *     sandbox cold-start hydrate path (`hydrateWorkspaceMountFromGcs`) is the
+ *     sandbox cold-start hydrate path (session + shared scoped prefixes) is the
  *     authoritative recovery mechanism. Failing or skipping the hot-pod push
  *     never blocks the upload or corrupts state.
  *   * The api MUST NOT throw on misconfiguration, network failure, or

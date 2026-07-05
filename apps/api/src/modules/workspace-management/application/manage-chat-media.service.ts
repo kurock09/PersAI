@@ -392,7 +392,7 @@ export class ManageChatMediaService {
       // latency optimisation so the running pod sees the file on the *next
       // turn* instead of only after the next cold-start hydrate. Any failure
       // (sandbox unreachable, pod cold, write rejected) is logged at warn and
-      // never blocks the upload — `hydrateWorkspaceMountFromGcs` is the
+      // never blocks the upload — scoped session/shared hydrate is the
       // authoritative recovery path.
       const workspaceBasename = lastWorkspacePathSegment(storagePath);
       if (workspaceBasename !== null) {

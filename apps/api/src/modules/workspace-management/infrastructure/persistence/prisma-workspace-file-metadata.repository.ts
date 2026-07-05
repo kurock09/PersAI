@@ -83,6 +83,19 @@ export class PrismaWorkspaceFileMetadataRepository implements WorkspaceFileMetad
     return rows.map((row) => this.mapToDomain(row));
   }
 
+  async sumSizeBytes(input: { workspaceId: string; pathPrefix?: string }): Promise<bigint> {
+    const result = await this.prisma.workspaceFileMetadata.aggregate({
+      where: {
+        workspaceId: input.workspaceId,
+        ...(input.pathPrefix !== undefined && input.pathPrefix.length > 0
+          ? { path: { startsWith: input.pathPrefix } }
+          : {})
+      },
+      _sum: { sizeBytes: true }
+    });
+    return result._sum.sizeBytes ?? BigInt(0);
+  }
+
   async delete(input: { workspaceId: string; path: string }): Promise<void> {
     await this.prisma.workspaceFileMetadata.deleteMany({
       where: {

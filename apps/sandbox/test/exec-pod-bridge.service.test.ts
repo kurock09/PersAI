@@ -215,12 +215,28 @@ function buildHydrateTestBridge(input: {
   const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
   const warnings: string[] = [];
   const infos: string[] = [];
+  const listPrefixCalls: string[] = [];
   Object.defineProperty(bridge, "objectStorage", {
     configurable: true,
     value: {
-      buildWorkspacePrefix: ({ workspaceId }: { workspaceId: string }) =>
-        `assistant-media/workspaces/${workspaceId}/workspace/`,
-      listPrefix: async () => input.keys,
+      buildWorkspacePrefix: ({
+        workspaceId,
+        subPath
+      }: {
+        workspaceId: string;
+        subPath?: string;
+      }) => {
+        const base = `assistant-media/workspaces/${workspaceId}/workspace/`;
+        if (subPath === undefined || subPath.length === 0) {
+          return base;
+        }
+        const normalized = subPath.replace(/\/+$/g, "");
+        return `${base}${normalized}/`;
+      },
+      listPrefix: async (prefix: string) => {
+        listPrefixCalls.push(prefix);
+        return input.keys.filter((key) => key.startsWith(prefix));
+      },
       downloadObject: input.downloadObject
     }
   });
@@ -240,32 +256,79 @@ function buildHydrateTestBridge(input: {
     value:
       input.execCommand ??
       (async () => {
-        return { exitCode: 0 };
+        return { exitCode: 0, stdout: "", stderr: "" };
       })
+  });
+  Object.defineProperty(bridge, "runStdinlessProbe", {
+    configurable: true,
+    value: async () => true
   });
   return {
     bridge,
     warnings,
     infos,
-    async hydrateWorkspaceMountFromGcs(
+    listPrefixCalls,
+    async hydrateBootstrapWorkspaceMounts(
       podName: string,
       namespace: string,
-      workspaceId: string
+      workspaceId: string,
+      assistantId: string,
+      runtimeSessionId: string | null,
+      scope: "session" | "shared_only"
     ): Promise<void> {
-      const method = Reflect.get(bridge, "hydrateWorkspaceMountFromGcs");
+      const method = Reflect.get(bridge, "hydrateBootstrapWorkspaceMounts");
       assert.equal(
         typeof method,
         "function",
-        "hydrateWorkspaceMountFromGcs must exist on the bridge"
+        "hydrateBootstrapWorkspaceMounts must exist on the bridge"
       );
       await (
         method as (
           this: ExecPodBridgeService,
           podName: string,
           namespace: string,
-          workspaceId: string
+          workspaceId: string,
+          assistantId: string,
+          runtimeSessionId: string | null,
+          scope: "session" | "shared_only"
         ) => Promise<void>
-      ).call(bridge, podName, namespace, workspaceId);
+      ).call(bridge, podName, namespace, workspaceId, assistantId, runtimeSessionId, scope);
+    },
+    async ensureWorkspaceMountBootstrapped(
+      podName: string,
+      namespace: string,
+      workspaceId: string,
+      assistantId: string,
+      runtimeSessionId: string | null,
+      scope: "session" | "shared_only" | "none" = runtimeSessionId !== null
+        ? "session"
+        : "shared_only"
+    ): Promise<void> {
+      const method = Reflect.get(bridge, "ensureWorkspaceMountBootstrapped");
+      assert.equal(typeof method, "function");
+      await (
+        method as (
+          this: ExecPodBridgeService,
+          podName: string,
+          namespace: string,
+          workspaceId: string,
+          assistantId: string,
+          runtimeSessionId: string | null,
+          assistantHandle: string,
+          siblingHandles: readonly string[],
+          gcsHydrateScope?: "session" | "shared_only" | "none"
+        ) => Promise<void>
+      ).call(
+        bridge,
+        podName,
+        namespace,
+        workspaceId,
+        assistantId,
+        runtimeSessionId,
+        "test-handle",
+        [],
+        scope
+      );
     }
   };
 }
@@ -284,10 +347,10 @@ test("ExecPodBridgeService: buildPodName derives stable name from jobId", () => 
   assert.ok(/^[a-z0-9-]+$/.test(name1), "pod name must be lowercase alphanumeric/hyphens");
 });
 
-test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs no-ops when no workspace keys exist", async () => {
+test("ExecPodBridgeService: hydrateBootstrapWorkspaceMounts no-ops when no scoped keys exist", async () => {
   let downloadCount = 0;
   let execCount = 0;
-  const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
+  const { hydrateBootstrapWorkspaceMounts, warnings, listPrefixCalls } = buildHydrateTestBridge({
     keys: [],
     downloadObject: async () => {
       downloadCount += 1;
@@ -299,18 +362,28 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs no-ops when no workspac
     }
   });
 
-  await hydrateWorkspaceMountFromGcs("pod-1", "persai-dev", "ws-empty");
+  await hydrateBootstrapWorkspaceMounts("pod-1", "persai-dev", "ws-empty", "bot", "s1", "session");
 
   assert.equal(downloadCount, 0, "empty hydrate must not download any blobs");
   assert.equal(execCount, 0, "empty hydrate must not open pod exec sessions");
   assert.deepEqual(warnings, [], "empty hydrate should not warn");
+  assert.ok(
+    listPrefixCalls.every((prefix) => prefix.includes("/assistants/bot/")),
+    "scoped hydrate must list only assistant session/shared prefixes"
+  );
+  assert.ok(
+    !listPrefixCalls.some((prefix) => /\/workspace\/$/.test(prefix)),
+    "hydrate must not list the bare workspace prefix"
+  );
 });
 
-test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs executes every file when key count is within concurrency", async () => {
+test("ExecPodBridgeService: hydrateBootstrapWorkspaceMounts executes every scoped file when key count is within concurrency", async () => {
   const keys = [
     "assistant-media/workspaces/ws-small/workspace/assistants/bot/sessions/s1/a.txt",
     "assistant-media/workspaces/ws-small/workspace/assistants/bot/sessions/s1/b.txt",
-    "assistant-media/workspaces/ws-small/workspace/assistants/bot/sessions/s1/c.txt"
+    "assistant-media/workspaces/ws-small/workspace/assistants/bot/sessions/s1/c.txt",
+    "assistant-media/workspaces/ws-small/workspace/assistants/bot/sessions/other-session/noise.txt",
+    "assistant-media/workspaces/ws-small/workspace/assistants/other-bot/sessions/s1/noise.txt"
   ];
   const buffers = new Map<string, Buffer>([
     [keys[0]!, Buffer.from("alpha")],
@@ -318,7 +391,7 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs executes every file whe
     [keys[2]!, Buffer.from("gamma")]
   ]);
   const writes: Array<{ shell: string; stdin: Buffer }> = [];
-  const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
+  const { hydrateBootstrapWorkspaceMounts, warnings } = buildHydrateTestBridge({
     keys,
     downloadObject: async (key) => buffers.get(key) ?? Buffer.from("missing"),
     execCommand: async (_podName, _namespace, request) => {
@@ -330,9 +403,9 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs executes every file whe
     }
   });
 
-  await hydrateWorkspaceMountFromGcs("pod-2", "persai-dev", "ws-small");
+  await hydrateBootstrapWorkspaceMounts("pod-2", "persai-dev", "ws-small", "bot", "s1", "session");
 
-  assert.equal(writes.length, keys.length, "every listed blob must be written into the pod");
+  assert.equal(writes.length, 3, "only the current session subtree must be written into the pod");
   assert.deepEqual(warnings, [], "happy-path hydrate should not warn");
   assert.ok(
     writes.some(
@@ -360,7 +433,116 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs executes every file whe
   );
 });
 
-test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs caps in-flight work at the concurrency constant", async () => {
+test("ExecPodBridgeService: hydrateBootstrapWorkspaceMounts ignores other sessions in a large workspace", async () => {
+  const workspaceId = "ws-large";
+  const assistantId = "bot";
+  const runtimeSessionId = "s-current";
+  const sessionPrefix = `assistant-media/workspaces/${workspaceId}/workspace/assistants/${assistantId}/sessions/${runtimeSessionId}/`;
+  const keys = [
+    `${sessionPrefix}only.txt`,
+    ...Array.from({ length: 40 }, (_, index) => {
+      return `assistant-media/workspaces/${workspaceId}/workspace/assistants/${assistantId}/sessions/other-${index}/blob.bin`;
+    }),
+    ...Array.from({ length: 20 }, (_, index) => {
+      return `assistant-media/workspaces/${workspaceId}/workspace/assistants/other-assistant/sessions/s-${index}/blob.bin`;
+    })
+  ];
+  const writes: string[] = [];
+  const { hydrateBootstrapWorkspaceMounts, listPrefixCalls } = buildHydrateTestBridge({
+    keys,
+    downloadObject: async (key) => Buffer.from(key),
+    execCommand: async (_podName, _namespace, request) => {
+      writes.push(request.args[1] ?? "");
+      return { exitCode: 0 };
+    }
+  });
+
+  await hydrateBootstrapWorkspaceMounts(
+    "pod-large",
+    "persai-dev",
+    workspaceId,
+    assistantId,
+    runtimeSessionId,
+    "session"
+  );
+
+  assert.equal(writes.length, 1, "hydrate object count must match the current session only");
+  assert.ok(
+    writes[0]?.includes(
+      `/workspace/assistants/${assistantId}/sessions/${runtimeSessionId}/only.txt`
+    ),
+    "only the current session object must be hydrated"
+  );
+  assert.ok(
+    !listPrefixCalls.some(
+      (prefix) => prefix === `assistant-media/workspaces/${workspaceId}/workspace/`
+    ),
+    "hydrate must not list the bare workspace prefix"
+  );
+  assert.ok(
+    listPrefixCalls.every(
+      (prefix) =>
+        prefix.includes(`/assistants/${assistantId}/sessions/${runtimeSessionId}/`) ||
+        prefix.includes(`/assistants/${assistantId}/shared/`)
+    ),
+    "listPrefix must stay scoped to session and shared subtrees"
+  );
+});
+
+test("ExecPodBridgeService: ensureWorkspaceMountBootstrapped re-hydrates when runtimeSessionId changes on warm pod", async () => {
+  let hydratedSessionId: string | null = null;
+  const { bridge, listPrefixCalls, ensureWorkspaceMountBootstrapped } = buildHydrateTestBridge({
+    keys: [
+      "assistant-media/workspaces/ws-switch/workspace/assistants/bot/sessions/s1/a.txt",
+      "assistant-media/workspaces/ws-switch/workspace/assistants/bot/sessions/s2/b.txt"
+    ],
+    downloadObject: async () => Buffer.from("data"),
+    execCommand: async (_podName, _namespace, request) => {
+      const shell = request.args[1] ?? "";
+      if (
+        shell.includes("/tmp/.persai_workspace_hydrate_session") &&
+        shell.includes("cat ") &&
+        !shell.includes("cat >")
+      ) {
+        return { exitCode: 0, stdout: hydratedSessionId ?? "", stderr: "" };
+      }
+      if (
+        shell.includes("/tmp/.persai_workspace_hydrate_session") &&
+        request.stdin !== undefined &&
+        request.stdin !== null
+      ) {
+        hydratedSessionId = request.stdin.toString("utf8");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+  });
+  void bridge;
+
+  const ensure = async (sessionId: string) => {
+    const callsBefore = listPrefixCalls.length;
+    await ensureWorkspaceMountBootstrapped(
+      "pod-switch",
+      "persai-dev",
+      "ws-switch",
+      "bot",
+      sessionId,
+      "session"
+    );
+    return listPrefixCalls.length - callsBefore;
+  };
+
+  const first = await ensure("s1");
+  const secondSame = await ensure("s1");
+  const thirdSwitch = await ensure("s2");
+
+  assert.ok(first > 0, "first session must hydrate from GCS");
+  assert.equal(secondSame, 0, "same session on warm pod must not re-list GCS");
+  assert.ok(thirdSwitch > 0, "session switch must re-hydrate the new session prefix");
+  assert.equal(hydratedSessionId, "s2");
+});
+
+test("ExecPodBridgeService: hydrateBootstrapWorkspaceMounts caps in-flight work at the concurrency constant", async () => {
   const totalKeys = WORKSPACE_MOUNT_HYDRATE_CONCURRENCY * 2 + 3;
   const keys = Array.from({ length: totalKeys }, (_, index) => {
     return `assistant-media/workspaces/ws-many/workspace/assistants/bot/sessions/s1/file-${index}.txt`;
@@ -368,7 +550,7 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs caps in-flight work at 
   let active = 0;
   let peak = 0;
   let execCount = 0;
-  const { hydrateWorkspaceMountFromGcs } = buildHydrateTestBridge({
+  const { hydrateBootstrapWorkspaceMounts } = buildHydrateTestBridge({
     keys,
     downloadObject: async (key) => {
       active += 1;
@@ -384,7 +566,7 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs caps in-flight work at 
     }
   });
 
-  await hydrateWorkspaceMountFromGcs("pod-3", "persai-dev", "ws-many");
+  await hydrateBootstrapWorkspaceMounts("pod-3", "persai-dev", "ws-many", "bot", "s1", "session");
 
   assert.equal(execCount, totalKeys, "all keys must still complete");
   assert.ok(
@@ -394,14 +576,14 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs caps in-flight work at 
   assert.equal(active, 0, "all in-flight work must drain before the hydrate resolves");
 });
 
-test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs download failures and continues other blobs", async () => {
+test("ExecPodBridgeService: hydrateBootstrapWorkspaceMounts logs download failures and continues other blobs", async () => {
   const keys = [
     "assistant-media/workspaces/ws-download/workspace/assistants/bot/sessions/s1/good-a.txt",
     "assistant-media/workspaces/ws-download/workspace/assistants/bot/sessions/s1/bad.txt",
     "assistant-media/workspaces/ws-download/workspace/assistants/bot/sessions/s1/good-b.txt"
   ];
   const writtenPaths: string[] = [];
-  const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
+  const { hydrateBootstrapWorkspaceMounts, warnings } = buildHydrateTestBridge({
     keys,
     downloadObject: async (key) => {
       if (key.endsWith("/bad.txt")) {
@@ -415,7 +597,14 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs download failures 
     }
   });
 
-  await hydrateWorkspaceMountFromGcs("pod-4", "persai-dev", "ws-download");
+  await hydrateBootstrapWorkspaceMounts(
+    "pod-4",
+    "persai-dev",
+    "ws-download",
+    "bot",
+    "s1",
+    "session"
+  );
 
   assert.equal(writtenPaths.length, 2, "healthy blobs must still be written");
   assert.ok(
@@ -438,13 +627,13 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs download failures 
   );
 });
 
-test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs non-zero exec exits and still resolves", async () => {
+test("ExecPodBridgeService: hydrateBootstrapWorkspaceMounts logs non-zero exec exits and still resolves", async () => {
   const keys = [
     "assistant-media/workspaces/ws-exit/workspace/assistants/bot/sessions/s1/ok.txt",
     "assistant-media/workspaces/ws-exit/workspace/assistants/bot/sessions/s1/fail.txt"
   ];
   const executed: string[] = [];
-  const { hydrateWorkspaceMountFromGcs, warnings } = buildHydrateTestBridge({
+  const { hydrateBootstrapWorkspaceMounts, warnings } = buildHydrateTestBridge({
     keys,
     downloadObject: async (key) => Buffer.from(key),
     execCommand: async (_podName, _namespace, request) => {
@@ -457,7 +646,9 @@ test("ExecPodBridgeService: hydrateWorkspaceMountFromGcs logs non-zero exec exit
     }
   });
 
-  await assert.doesNotReject(() => hydrateWorkspaceMountFromGcs("pod-5", "persai-dev", "ws-exit"));
+  await assert.doesNotReject(() =>
+    hydrateBootstrapWorkspaceMounts("pod-5", "persai-dev", "ws-exit", "bot", "s1", "session")
+  );
 
   assert.equal(executed.length, keys.length, "non-zero exits must not stop other writes");
   assert.ok(

@@ -34,5 +34,6 @@ export interface WorkspaceFileMetadataRepository {
     originAssistantId?: string | null;
     limit?: number;
   }): Promise<WorkspaceFileMetadataRow[]>;
+  sumSizeBytes(input: { workspaceId: string; pathPrefix?: string }): Promise<bigint>;
   delete(input: { workspaceId: string; path: string }): Promise<void>;
 }

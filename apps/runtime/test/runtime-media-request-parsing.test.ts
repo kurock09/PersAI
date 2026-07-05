@@ -5,8 +5,8 @@ import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-
 import { RuntimeImageGenerateToolService } from "../src/modules/turns/runtime-image-generate-tool.service";
 import { RuntimeVideoGenerateToolService } from "../src/modules/turns/runtime-video-generate-tool.service";
 import {
-  createFakeMediaObjectStorageForRead,
-  createFakeSandboxClientForOutboundWrite
+  createFakeMediaObjectStorageForOutboundWrite,
+  createFakeMediaObjectStorageForRead
 } from "./helpers/runtime-outbound-test-doubles";
 
 describe("runtime media request parsing", () => {
@@ -88,8 +88,10 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite() as never
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite()
+      } as never
     );
     const parsed = (
       service as unknown as {
@@ -112,8 +114,10 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite() as never
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite()
+      } as never
     );
     const parsed = (
       service as unknown as {
@@ -134,8 +138,10 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite() as never
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite()
+      } as never
     );
     const parsed = (
       service as unknown as {
@@ -162,8 +168,10 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite() as never
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite()
+      } as never
     );
     const parsed = (
       service as unknown as {
@@ -182,8 +190,10 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite() as never
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite()
+      } as never
     );
     const parsed = (
       service as unknown as {
@@ -214,8 +224,10 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite() as never
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite()
+      } as never
     );
     const parsed = (
       service as unknown as {
@@ -239,8 +251,10 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite() as never
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite()
+      } as never
     );
     const tooMany = Array.from({ length: 16 }, (_, index) => `image #${String(index + 2)}`);
     const parsed = (
@@ -268,8 +282,10 @@ describe("runtime media request parsing", () => {
     const service = new RuntimeImageEditToolService(
       {} as never,
       {} as never,
-      createFakeMediaObjectStorageForRead() as never,
-      createFakeSandboxClientForOutboundWrite() as never
+      {
+        ...createFakeMediaObjectStorageForRead(),
+        ...createFakeMediaObjectStorageForOutboundWrite()
+      } as never
     );
     const readImageEditArguments = (
       service as unknown as {
@@ -319,12 +335,7 @@ describe("runtime media request parsing", () => {
   });
 
   test("video_generate accepts persisted toolCode inside worker request", () => {
-    const service = new RuntimeVideoGenerateToolService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never
-    );
+    const service = new RuntimeVideoGenerateToolService({} as never, {} as never, {} as never);
     const parsed = (
       service as unknown as {
         readVideoGenerateArguments(args: Record<string, unknown>): unknown;
@@ -341,12 +352,7 @@ describe("runtime media request parsing", () => {
   });
 
   test("video_generate accepts acceptedProviderTask for media-job recovery resume", () => {
-    const service = new RuntimeVideoGenerateToolService(
-      {} as never,
-      {} as never,
-      {} as never,
-      {} as never
-    );
+    const service = new RuntimeVideoGenerateToolService({} as never, {} as never, {} as never);
     const parsed = (
       service as unknown as {
         readVideoGenerateArguments(args: Record<string, unknown>): unknown;

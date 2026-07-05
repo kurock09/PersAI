@@ -3,6 +3,136 @@ import { describe, test } from "node:test";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import { RuntimeDocumentToolService } from "../src/modules/turns/runtime-document-tool.service";
 
+function createStoragePlaneStub(input?: {
+  resolveWritePath?: (targetPath: string) => Promise<string> | string;
+  writeTextFile?: (args: {
+    targetPath: string;
+    content: string;
+  }) => Promise<{ ok: true; resolvedPath: string; sizeBytes: number }>;
+  readTextFile?: (args: { path: string }) => Promise<{
+    ok: true;
+    content: string;
+    sizeBytes: number;
+    sha256: string;
+    truncated: boolean;
+  }>;
+}) {
+  return {
+    async resolveWritePath(args: { targetPath: string }) {
+      if (input?.resolveWritePath !== undefined) {
+        return input.resolveWritePath(args.targetPath);
+      }
+      return args.targetPath;
+    },
+    async writeTextFile(args: { targetPath: string; content: string }) {
+      if (input?.writeTextFile !== undefined) {
+        return input.writeTextFile(args);
+      }
+      return {
+        ok: true as const,
+        resolvedPath: args.targetPath,
+        sizeBytes: Buffer.byteLength(args.content, "utf8")
+      };
+    },
+    async readTextFile(args: { path: string }) {
+      if (input?.readTextFile !== undefined) {
+        return input.readTextFile(args);
+      }
+      return {
+        ok: true as const,
+        content: "# file",
+        sizeBytes: 6,
+        sha256: "abc",
+        truncated: false
+      };
+    }
+  };
+}
+
+function createMediaStorageStub(input?: { downloadBytes?: Buffer }) {
+  const downloadBytes = input?.downloadBytes ?? Buffer.from("rendered-bytes");
+  return {
+    buildWorkspaceObjectKey() {
+      return "workspace/key";
+    },
+    async downloadObject() {
+      return downloadBytes;
+    },
+    async saveObject(saveInput: { buffer: Buffer; mimeType: string }) {
+      return {
+        objectKey: "workspace/key",
+        sizeBytes: saveInput.buffer.length,
+        mimeType: saveInput.mimeType
+      };
+    }
+  };
+}
+
+function createDocumentToolService(
+  internalApi: unknown,
+  options?: {
+    storagePlane?: ReturnType<typeof createStoragePlaneStub>;
+    mediaStorage?: ReturnType<typeof createMediaStorageStub>;
+    sandbox?: unknown;
+  }
+) {
+  return new RuntimeDocumentToolService(
+    internalApi as never,
+    (options?.storagePlane ?? createStoragePlaneStub()) as never,
+    (options?.mediaStorage ?? createMediaStorageStub()) as never,
+    options?.sandbox as never
+  );
+}
+
+function createProducedDocumentJob(mimeType: string, sizeBytes: number) {
+  return {
+    status: "completed" as const,
+    jobId: "job-render-1",
+    toolCode: "execute_document_code",
+    exitCode: 0,
+    reason: null,
+    warning: null,
+    violationCode: null,
+    violationMessage: null,
+    stderr: null,
+    content: null,
+    files: [
+      {
+        relativePath: "output",
+        displayName: "output",
+        mimeType,
+        sizeBytes,
+        logicalSizeBytes: sizeBytes,
+        storagePath: "fs/sandbox/job-render-1/output"
+      }
+    ]
+  };
+}
+
+function createDocumentSandbox(input?: {
+  calls?: Array<{ toolCode: string; args: Record<string, unknown> }>;
+  mimeType?: string;
+  sizeBytes?: number;
+}) {
+  return {
+    isConfigured() {
+      return true;
+    },
+    async waitForCompletion(jobInput: { toolCode: string; args: Record<string, unknown> }) {
+      input?.calls?.push(jobInput);
+      if (jobInput.toolCode === "execute_document_code") {
+        return createCompletedDocumentJob(
+          input?.mimeType ?? "application/pdf",
+          input?.sizeBytes ?? 321
+        );
+      }
+      throw new Error(
+        `Unexpected sandbox call: ${jobInput.toolCode}/${String(jobInput.args.action ?? "")}`
+      );
+    }
+  };
+}
+
 function createBundle(): AssistantRuntimeBundle {
   return {
     metadata: {
@@ -23,90 +153,13 @@ function wp(relativePath: string): string {
   return `${TEST_SESSION_ROOT}/${relativePath.replace(/^\/+/, "")}`;
 }
 
-function createResolvedWritePathJob(path: string) {
-  return {
-    status: "completed" as const,
-    exitCode: 0,
-    reason: null,
-    warning: null,
-    violationMessage: null,
-    stderr: null,
-    content: JSON.stringify({ resolvedPath: path }),
-    files: []
-  };
-}
-
-function createWrittenWorkspaceFileJob(path: string, content: string) {
-  return {
-    status: "completed" as const,
-    exitCode: 0,
-    reason: null,
-    warning: null,
-    violationMessage: null,
-    stderr: null,
-    content: JSON.stringify({
-      sizeBytes: Buffer.byteLength(content, "utf8"),
-      resolvedPath: path
-    }),
-    files: []
-  };
-}
-
-function createReadWorkspaceFileJob(content: string) {
-  return {
-    status: "completed" as const,
-    exitCode: 0,
-    reason: null,
-    warning: null,
-    violationMessage: null,
-    stderr: null,
-    content: JSON.stringify({
-      content,
-      sizeBytes: Buffer.byteLength(content, "utf8"),
-      truncated: false
-    }),
-    files: []
-  };
-}
-
-function createAttachedWorkspaceFileJob(path: string, mimeType: string, sizeBytes = 1024) {
-  return {
-    status: "completed" as const,
-    exitCode: 0,
-    reason: null,
-    warning: null,
-    violationMessage: null,
-    stderr: null,
-    content: JSON.stringify({
-      action: "attached",
-      attachment: {
-        workspaceRelPath: path,
-        sourcePath: path,
-        sizeBytes,
-        mimeType,
-        displayName: path.split("/").pop()
-      }
-    }),
-    files: []
-  };
-}
-
-function createCompletedDocumentJob() {
-  return {
-    status: "completed" as const,
-    exitCode: 0,
-    reason: null,
-    warning: null,
-    violationMessage: null,
-    stderr: null,
-    content: null,
-    files: []
-  };
+function createCompletedDocumentJob(mimeType = "application/pdf", sizeBytes = 321) {
+  return createProducedDocumentJob(mimeType, sizeBytes);
 }
 
 describe("RuntimeDocumentToolService", () => {
   test('rejects removed "extract" action instead of aliasing it', async () => {
-    const service = new RuntimeDocumentToolService({} as never);
+    const service = createDocumentToolService({});
 
     const result = await service.executeToolCall({
       bundle: createBundle(),
@@ -136,7 +189,7 @@ describe("RuntimeDocumentToolService", () => {
   });
 
   test('rejects removed "edit" action instead of aliasing it', async () => {
-    const service = new RuntimeDocumentToolService({} as never);
+    const service = createDocumentToolService({});
 
     const result = await service.executeToolCall({
       bundle: createBundle(),
@@ -168,7 +221,7 @@ describe("RuntimeDocumentToolService", () => {
   });
 
   test('rejects removed "register_version" action instead of aliasing it', async () => {
-    const service = new RuntimeDocumentToolService({} as never);
+    const service = createDocumentToolService({});
 
     const result = await service.executeToolCall({
       bundle: createBundle(),
@@ -201,13 +254,15 @@ describe("RuntimeDocumentToolService", () => {
   });
 
   test("rejects nested path in document.requestedName", async () => {
-    const service = new RuntimeDocumentToolService(
-      {} as never,
+    const service = createDocumentToolService(
+      {},
       {
-        isConfigured() {
-          return true;
+        sandbox: {
+          isConfigured() {
+            return true;
+          }
         }
-      } as never
+      }
     );
 
     const result = await service.executeToolCall({
@@ -240,7 +295,7 @@ describe("RuntimeDocumentToolService", () => {
 
   test("inspects a document using only path", async () => {
     const inspectCalls: Array<Record<string, unknown>> = [];
-    const service = new RuntimeDocumentToolService({
+    const service = createDocumentToolService({
       async inspectDocumentInWorkspace(args: Record<string, unknown>) {
         inspectCalls.push(args);
         return {
@@ -265,7 +320,7 @@ describe("RuntimeDocumentToolService", () => {
           extractedMdPath: null
         };
       }
-    } as never);
+    });
 
     const result = await service.executeToolCall({
       bundle: createBundle(),
@@ -302,10 +357,11 @@ describe("RuntimeDocumentToolService", () => {
 
   test("renders authored PDF and persists collision-safe sibling markdown", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
+    const storageCalls: Array<{ kind: string; path: string }> = [];
     const metadataPaths: string[] = [];
     const resolvedMarkdownPath = wp("monthly (1).md");
     const markdownContent = "# Monthly\n\nSummary body.";
-    const service = new RuntimeDocumentToolService(
+    const service = createDocumentToolService(
       {
         async upsertWorkspaceFileMetadata(args: Record<string, unknown>) {
           metadataPaths.push(String(args.path ?? ""));
@@ -333,33 +389,40 @@ describe("RuntimeDocumentToolService", () => {
             extractedMdPath: null
           };
         }
-      } as never,
+      },
       {
-        isConfigured() {
-          return true;
-        },
-        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
-          sandboxCalls.push(input);
-          if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
-            return createResolvedWritePathJob(resolvedMarkdownPath);
+        storagePlane: createStoragePlaneStub({
+          resolveWritePath(targetPath) {
+            storageCalls.push({ kind: "resolve", path: targetPath });
+            return targetPath.endsWith(".md") ? resolvedMarkdownPath : targetPath;
+          },
+          async writeTextFile(args) {
+            storageCalls.push({ kind: "write", path: args.targetPath });
+            return {
+              ok: true,
+              resolvedPath: args.targetPath,
+              sizeBytes: Buffer.byteLength(args.content, "utf8")
+            };
           }
-          if (input.toolCode === "files" && input.args.action === "write") {
-            return createWrittenWorkspaceFileJob(
-              String(input.args.path ?? ""),
-              String(input.args.content ?? "")
+        }),
+        mediaStorage: createMediaStorageStub({
+          downloadBytes: Buffer.alloc(321)
+        }),
+        sandbox: {
+          isConfigured() {
+            return true;
+          },
+          async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
+            sandboxCalls.push(input);
+            if (input.toolCode === "execute_document_code") {
+              return createCompletedDocumentJob("application/pdf", 321);
+            }
+            throw new Error(
+              `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
             );
           }
-          if (input.toolCode === "execute_document_code") {
-            return createCompletedDocumentJob();
-          }
-          if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(wp("monthly.pdf"), "application/pdf", 321);
-          }
-          throw new Error(
-            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
-          );
         }
-      } as never
+      }
     );
 
     const result = await service.executeToolCall({
@@ -399,12 +462,12 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(result.payload.versionId, undefined);
     assert.deepEqual(
       sandboxCalls.map((call) => `${call.toolCode}:${String(call.args.action ?? "")}`),
-      ["files:resolve_write_path", "files:write", "execute_document_code:", "files:attach"]
+      ["execute_document_code:"]
     );
-    assert.equal(sandboxCalls[0]?.args.path, wp("monthly.md"));
-    assert.equal(sandboxCalls[0]?.args.replace, false);
-    assert.equal(sandboxCalls[1]?.args.path, resolvedMarkdownPath);
-    assert.equal(sandboxCalls[1]?.args.replace, false);
+    assert.deepEqual(
+      storageCalls.map((call) => `${call.kind}:${call.path}`),
+      [`resolve:${wp("monthly.md")}`, `write:${resolvedMarkdownPath}`]
+    );
     const programSource = String(
       sandboxCalls.find((call) => call.toolCode === "execute_document_code")?.args.programSource ??
         ""
@@ -418,13 +481,13 @@ describe("RuntimeDocumentToolService", () => {
     );
     assert.doesNotMatch(programSource, /PERSAI_OUTPUT_PATH/);
     assert.match(programSource, /HTML\(string=build_html_document\(\)/);
-    assert.deepEqual(metadataPaths, [resolvedMarkdownPath, wp("monthly.pdf")]);
+    assert.deepEqual(metadataPaths, [wp("monthly.pdf")]);
   });
 
   test("renders authored XLSX from Markdown tables and writes sibling markdown", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
     const markdownPath = wp("revenue.md");
-    const service = new RuntimeDocumentToolService(
+    const service = createDocumentToolService(
       {
         async upsertWorkspaceFileMetadata() {
           return;
@@ -452,37 +515,14 @@ describe("RuntimeDocumentToolService", () => {
             extractedMdPath: null
           };
         }
-      } as never,
+      },
       {
-        isConfigured() {
-          return true;
-        },
-        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
-          sandboxCalls.push(input);
-          if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
-            return createResolvedWritePathJob(markdownPath);
-          }
-          if (input.toolCode === "files" && input.args.action === "write") {
-            return createWrittenWorkspaceFileJob(
-              String(input.args.path ?? ""),
-              String(input.args.content ?? "")
-            );
-          }
-          if (input.toolCode === "execute_document_code") {
-            return createCompletedDocumentJob();
-          }
-          if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(
-              wp("revenue.xlsx"),
-              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-              512
-            );
-          }
-          throw new Error(
-            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
-          );
-        }
-      } as never
+        sandbox: createDocumentSandbox({
+          calls: sandboxCalls,
+          mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          sizeBytes: 512
+        })
+      }
     );
 
     const result = await service.executeToolCall({
@@ -534,7 +574,7 @@ describe("RuntimeDocumentToolService", () => {
   test("converts an existing document and derives outputPath when omitted", async () => {
     const sandboxCalls: Array<{ toolCode: string; args: Record<string, unknown> }> = [];
     const upsertCalls: Array<Record<string, unknown>> = [];
-    const service = new RuntimeDocumentToolService(
+    const service = createDocumentToolService(
       {
         async upsertWorkspaceFileMetadata(args: Record<string, unknown>) {
           upsertCalls.push(args);
@@ -562,30 +602,14 @@ describe("RuntimeDocumentToolService", () => {
             extractedMdPath: null
           };
         }
-      } as never,
+      },
       {
-        isConfigured() {
-          return true;
-        },
-        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
-          sandboxCalls.push(input);
-          if (input.toolCode === "files" && input.args.action === "write") {
-            return createWrittenWorkspaceFileJob(
-              String(input.args.path ?? ""),
-              String(input.args.content ?? "")
-            );
-          }
-          if (input.toolCode === "execute_document_code") {
-            return createCompletedDocumentJob();
-          }
-          if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(wp("source.pdf"), "application/pdf", 2048);
-          }
-          throw new Error(
-            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
-          );
-        }
-      } as never
+        sandbox: createDocumentSandbox({
+          calls: sandboxCalls,
+          mimeType: "application/pdf",
+          sizeBytes: 2048
+        })
+      }
     );
 
     const result = await service.executeToolCall({
@@ -645,7 +669,7 @@ describe("RuntimeDocumentToolService", () => {
   });
 
   test("render succeeds without legacy direct register/version payloads", async () => {
-    const service = new RuntimeDocumentToolService(
+    const service = createDocumentToolService(
       {
         async upsertWorkspaceFileMetadata() {
           return;
@@ -653,32 +677,10 @@ describe("RuntimeDocumentToolService", () => {
         async inspectDocumentInWorkspace() {
           throw new Error("inspect should not run after single-owner registration cutover");
         }
-      } as never,
+      },
       {
-        isConfigured() {
-          return true;
-        },
-        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
-          if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
-            return createResolvedWritePathJob(wp("monthly.md"));
-          }
-          if (input.toolCode === "files" && input.args.action === "write") {
-            return createWrittenWorkspaceFileJob(
-              String(input.args.path ?? ""),
-              String(input.args.content ?? "")
-            );
-          }
-          if (input.toolCode === "execute_document_code") {
-            return createCompletedDocumentJob();
-          }
-          if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(wp("monthly.pdf"), "application/pdf", 321);
-          }
-          throw new Error(
-            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
-          );
-        }
-      } as never
+        sandbox: createDocumentSandbox({ mimeType: "application/pdf", sizeBytes: 321 })
+      }
     );
 
     const result = await service.executeToolCall({
@@ -714,7 +716,7 @@ describe("RuntimeDocumentToolService", () => {
   });
 
   test("convert succeeds without legacy direct register/version payloads", async () => {
-    const service = new RuntimeDocumentToolService(
+    const service = createDocumentToolService(
       {
         async upsertWorkspaceFileMetadata() {
           return;
@@ -722,29 +724,10 @@ describe("RuntimeDocumentToolService", () => {
         async inspectDocumentInWorkspace() {
           throw new Error("inspect should not run after single-owner registration cutover");
         }
-      } as never,
+      },
       {
-        isConfigured() {
-          return true;
-        },
-        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
-          if (input.toolCode === "files" && input.args.action === "write") {
-            return createWrittenWorkspaceFileJob(
-              String(input.args.path ?? ""),
-              String(input.args.content ?? "")
-            );
-          }
-          if (input.toolCode === "execute_document_code") {
-            return createCompletedDocumentJob();
-          }
-          if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(wp("source.pdf"), "application/pdf", 2048);
-          }
-          throw new Error(
-            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
-          );
-        }
-      } as never
+        sandbox: createDocumentSandbox({ mimeType: "application/pdf", sizeBytes: 2048 })
+      }
     );
 
     const result = await service.executeToolCall({
@@ -779,7 +762,7 @@ describe("RuntimeDocumentToolService", () => {
   });
 
   test("render stays rendered when metadata upsert fails after attach", async () => {
-    const service = new RuntimeDocumentToolService(
+    const service = createDocumentToolService(
       {
         async upsertWorkspaceFileMetadata() {
           throw new Error("registration unavailable");
@@ -787,32 +770,10 @@ describe("RuntimeDocumentToolService", () => {
         async inspectDocumentInWorkspace() {
           throw new Error("inspect should not run after single-owner registration cutover");
         }
-      } as never,
+      },
       {
-        isConfigured() {
-          return true;
-        },
-        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
-          if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
-            return createResolvedWritePathJob(wp("monthly.md"));
-          }
-          if (input.toolCode === "files" && input.args.action === "write") {
-            return createWrittenWorkspaceFileJob(
-              String(input.args.path ?? ""),
-              String(input.args.content ?? "")
-            );
-          }
-          if (input.toolCode === "execute_document_code") {
-            return createCompletedDocumentJob();
-          }
-          if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(wp("monthly.pdf"), "application/pdf", 321);
-          }
-          throw new Error(
-            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
-          );
-        }
-      } as never
+        sandbox: createDocumentSandbox({ mimeType: "application/pdf", sizeBytes: 321 })
+      }
     );
 
     const result = await service.executeToolCall({
@@ -848,7 +809,7 @@ describe("RuntimeDocumentToolService", () => {
   });
 
   test("convert stays converted when metadata upsert fails after attach", async () => {
-    const service = new RuntimeDocumentToolService(
+    const service = createDocumentToolService(
       {
         async upsertWorkspaceFileMetadata() {
           throw new Error("registration unavailable");
@@ -856,29 +817,10 @@ describe("RuntimeDocumentToolService", () => {
         async inspectDocumentInWorkspace() {
           throw new Error("inspect should not run after single-owner registration cutover");
         }
-      } as never,
+      },
       {
-        isConfigured() {
-          return true;
-        },
-        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
-          if (input.toolCode === "files" && input.args.action === "write") {
-            return createWrittenWorkspaceFileJob(
-              String(input.args.path ?? ""),
-              String(input.args.content ?? "")
-            );
-          }
-          if (input.toolCode === "execute_document_code") {
-            return createCompletedDocumentJob();
-          }
-          if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(wp("source.pdf"), "application/pdf", 2048);
-          }
-          throw new Error(
-            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
-          );
-        }
-      } as never
+        sandbox: createDocumentSandbox({ mimeType: "application/pdf", sizeBytes: 2048 })
+      }
     );
 
     const result = await service.executeToolCall({
@@ -919,7 +861,7 @@ describe("RuntimeDocumentToolService", () => {
     const editedMarkdown = "# Report\n\nEdited body with exact spacing.\n";
     const sourceMarkdownPath =
       "/workspace/assistants/assistant-1/sessions/session-case-a/report.md";
-    const service = new RuntimeDocumentToolService(
+    const service = createDocumentToolService(
       {
         async upsertWorkspaceFileMetadata(args: Record<string, unknown>) {
           if (String(args.path ?? "").endsWith(".pdf")) {
@@ -949,41 +891,35 @@ describe("RuntimeDocumentToolService", () => {
             extractedMdPath: null
           };
         }
-      } as never,
+      },
       {
-        isConfigured() {
-          return true;
-        },
-        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
-          sandboxCalls.push(input);
-          if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
-            return createResolvedWritePathJob(sourceMarkdownPath);
+        storagePlane: createStoragePlaneStub({
+          resolveWritePath(targetPath) {
+            return targetPath.endsWith("report.md") ? sourceMarkdownPath : targetPath;
+          },
+          async writeTextFile(args) {
+            return {
+              ok: true,
+              resolvedPath: args.targetPath,
+              sizeBytes: Buffer.byteLength(args.content, "utf8")
+            };
+          },
+          async readTextFile(args) {
+            return {
+              ok: true,
+              content: args.path === sourceMarkdownPath ? editedMarkdown : initialMarkdown,
+              sizeBytes: editedMarkdown.length,
+              sha256: "abc",
+              truncated: false
+            };
           }
-          if (input.toolCode === "files" && input.args.action === "read") {
-            assert.equal(input.args.path, sourceMarkdownPath);
-            return createReadWorkspaceFileJob(editedMarkdown);
-          }
-          if (input.toolCode === "files" && input.args.action === "write") {
-            return createWrittenWorkspaceFileJob(
-              String(input.args.path ?? ""),
-              String(input.args.content ?? "")
-            );
-          }
-          if (input.toolCode === "execute_document_code") {
-            return createCompletedDocumentJob();
-          }
-          if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(
-              "/workspace/assistants/assistant-1/sessions/session-case-a/report.pdf",
-              "application/pdf",
-              2048
-            );
-          }
-          throw new Error(
-            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
-          );
-        }
-      } as never
+        }),
+        sandbox: createDocumentSandbox({
+          calls: sandboxCalls,
+          mimeType: "application/pdf",
+          sizeBytes: 2048
+        })
+      }
     );
 
     const executeRender = (requestId: string, args: Record<string, unknown>) =>
@@ -1043,28 +979,7 @@ describe("RuntimeDocumentToolService", () => {
     assert.equal(documentUpsertCalls[1]?.replace, true);
     assert.deepEqual(
       sandboxCalls.map((call) => `${call.toolCode}:${String(call.args.action ?? "")}`),
-      [
-        "files:resolve_write_path",
-        "files:write",
-        "execute_document_code:",
-        "files:attach",
-        "files:read",
-        "execute_document_code:",
-        "files:attach"
-      ]
-    );
-    assert.equal(sandboxCalls[0]?.args.path, sourceMarkdownPath);
-    assert.equal(sandboxCalls[1]?.args.path, sourceMarkdownPath);
-    assert.equal(sandboxCalls[1]?.args.content, initialMarkdown.trim());
-    assert.equal(sandboxCalls[4]?.args.path, sourceMarkdownPath);
-    assert.equal(
-      sandboxCalls.filter(
-        (call) =>
-          call.toolCode === "files" &&
-          call.args.action === "write" &&
-          call.args.path === sourceMarkdownPath
-      ).length,
-      1
+      ["execute_document_code:", "execute_document_code:"]
     );
     const secondProgramSource = String(
       sandboxCalls.filter((call) => call.toolCode === "execute_document_code").at(-1)?.args
@@ -1080,7 +995,7 @@ describe("RuntimeDocumentToolService", () => {
 
   test("rendering the same output path twice uses the same single-owner persist path twice", async () => {
     const documentUpsertCalls: Array<Record<string, unknown>> = [];
-    const service = new RuntimeDocumentToolService(
+    const service = createDocumentToolService(
       {
         async upsertWorkspaceFileMetadata(args: Record<string, unknown>) {
           if (String(args.path ?? "").endsWith(".pdf")) {
@@ -1110,32 +1025,10 @@ describe("RuntimeDocumentToolService", () => {
             extractedMdPath: null
           };
         }
-      } as never,
+      },
       {
-        isConfigured() {
-          return true;
-        },
-        async waitForCompletion(input: { toolCode: string; args: Record<string, unknown> }) {
-          if (input.toolCode === "files" && input.args.action === "resolve_write_path") {
-            return createResolvedWritePathJob(wp("monthly.md"));
-          }
-          if (input.toolCode === "files" && input.args.action === "write") {
-            return createWrittenWorkspaceFileJob(
-              String(input.args.path ?? ""),
-              String(input.args.content ?? "")
-            );
-          }
-          if (input.toolCode === "execute_document_code") {
-            return createCompletedDocumentJob();
-          }
-          if (input.toolCode === "files" && input.args.action === "attach") {
-            return createAttachedWorkspaceFileJob(wp("monthly.pdf"), "application/pdf", 321);
-          }
-          throw new Error(
-            `Unexpected sandbox call: ${input.toolCode}/${String(input.args.action ?? "")}`
-          );
-        }
-      } as never
+        sandbox: createDocumentSandbox({ mimeType: "application/pdf", sizeBytes: 321 })
+      }
     );
 
     const executeRender = (requestId: string, content: string) =>

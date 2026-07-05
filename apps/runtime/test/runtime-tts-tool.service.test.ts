@@ -11,7 +11,7 @@ import type {
 } from "@persai/runtime-contract";
 import { projectRuntimeNativeTools } from "../src/modules/turns/native-tool-projection";
 import { RuntimeTtsToolService } from "../src/modules/turns/runtime-tts-tool.service";
-import { createFakeSandboxClientForOutboundWrite } from "./helpers/runtime-outbound-test-doubles";
+import { createFakeMediaObjectStorageForOutboundWrite } from "./helpers/runtime-outbound-test-doubles";
 import type {
   ConsumeToolDailyLimitOutcome,
   PersaiInternalApiClientService
@@ -313,18 +313,26 @@ class FakePersaiInternalApiClientService {
       limit: input.dailyCallLimit
     };
   }
+
+  async sumWorkspaceFileStorageBytes(): Promise<number> {
+    return 0;
+  }
+
+  async upsertWorkspaceFileMetadata(): Promise<{ documentRegistration: null }> {
+    return { documentRegistration: null };
+  }
 }
 
 export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   const providerGatewayClientService = new FakeProviderGatewayClientService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
-  const sandboxClient = createFakeSandboxClientForOutboundWrite(
+  const mediaObjectStorage = createFakeMediaObjectStorageForOutboundWrite(
     "/workspace/assistants/assistant-handle/sessions/session-1/speech-openai.mp3"
   );
   const service = new RuntimeTtsToolService(
     providerGatewayClientService as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
-    sandboxClient as never
+    mediaObjectStorage as never
   );
 
   const bundle = createBundle();
@@ -381,9 +389,9 @@ export async function runRuntimeTtsToolServiceTest(): Promise<void> {
   assert.equal(providerGatewayClientService.speechCalls.length, 1);
   assert.equal(providerGatewayClientService.speechCalls[0]?.credential.providerId, "openai");
   assert.equal(providerGatewayClientService.speechCalls[0]?.credential.modelKey, "gpt-4o-mini-tts");
-  assert.equal(
-    result.artifacts[0]?.storagePath,
-    "/workspace/assistants/assistant-handle/sessions/session-1/speech-openai.mp3"
+  assert.match(
+    result.artifacts[0]?.storagePath ?? "",
+    /^\/workspace\/assistants\/assistant-1\/sessions\/session-1\/.+\.ogg$/
   );
   assert.equal(result.artifacts[0]?.mimeType, "audio/ogg");
   assert.deepEqual(persaiInternalApiClientService.quotaCalls, [

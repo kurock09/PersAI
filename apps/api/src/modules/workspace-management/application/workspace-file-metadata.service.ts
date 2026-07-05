@@ -53,6 +53,11 @@ export class WorkspaceFileMetadataService {
     return this.repository.list(input);
   }
 
+  async sumSizeBytes(input: { workspaceId: string; pathPrefix?: string }): Promise<number> {
+    const total = await this.repository.sumSizeBytes(input);
+    return Number(total);
+  }
+
   async delete(input: { workspaceId: string; path: string }): Promise<void> {
     await this.repository.delete(input);
   }

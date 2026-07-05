@@ -42,7 +42,7 @@ import {
   ProviderGatewayHttpError,
   ProviderGatewayTimeoutError
 } from "./provider-gateway.client.service";
-import { SandboxClientService } from "./sandbox-client.service";
+
 import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
 import {
   executeRuntimeToolContractDescribe,
@@ -221,8 +221,7 @@ export class RuntimeVideoGenerateToolService {
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
-    private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
-    private readonly sandboxClient: SandboxClientService
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async executeToolCall(params: {
@@ -232,6 +231,9 @@ export class RuntimeVideoGenerateToolService {
     sessionId: string;
     mediaJobId?: string | null;
     requestId: string;
+    chatId?: string | null;
+    sourceUserMessageText?: string | null;
+    sourceUserMessageCreatedAt?: string | null;
     deferToAsyncMediaJob?: {
       sourceUserMessageId: string;
       sourceUserMessageText: string;
@@ -545,7 +547,10 @@ export class RuntimeVideoGenerateToolService {
         availableAttachments: params.availableAttachments,
         sessionId: params.sessionId,
         mediaJobId: params.mediaJobId ?? null,
-        requestId: params.requestId
+        requestId: params.requestId,
+        chatId: params.chatId ?? null,
+        sourceUserMessageText: params.sourceUserMessageText ?? null,
+        sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt ?? null
       });
     }
 
@@ -910,7 +915,10 @@ export class RuntimeVideoGenerateToolService {
           requestPrompt: request.prompt,
           referenceFilename: selection.referenceFilename,
           video: providerResult.video,
-          billingFacts: providerResult.billingFacts
+          billingFacts: providerResult.billingFacts,
+          chatId: params.chatId ?? null,
+          sourceUserMessageText: params.sourceUserMessageText ?? null,
+          sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt ?? null
         });
 
         return {
@@ -2706,6 +2714,9 @@ export class RuntimeVideoGenerateToolService {
       downloadUrl?: string | null;
     };
     billingFacts: RuntimeOutputArtifact["billingFacts"];
+    chatId: string | null;
+    sourceUserMessageText: string | null;
+    sourceUserMessageCreatedAt: string | null;
   }): Promise<RuntimeOutputArtifact> {
     if (!input.video.mimeType.startsWith("video/")) {
       throw new Error(`Video provider returned unsupported MIME type "${input.video.mimeType}".`);
@@ -2718,14 +2729,10 @@ export class RuntimeVideoGenerateToolService {
     const filename = this.resolveFilename(input.filenameHint, input.referenceFilename, extension);
     const slugSourceText = input.requestPrompt.trim() || filename || "video";
     return writeRuntimeOutboundArtifact({
-      sandboxClient: this.sandboxClient,
+      mediaObjectStorage: this.mediaObjectStorage,
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
-      handle: input.handle,
-      siblingHandles: input.siblingHandles,
       sessionId: input.sessionId,
-      workspaceQuotaBytes: input.workspaceQuotaBytes,
-      sharedQuotaBytes: input.sharedQuotaBytes,
       buffer,
       mimeType: input.video.mimeType,
       slugSourceText,
@@ -2733,7 +2740,20 @@ export class RuntimeVideoGenerateToolService {
       kind: "video",
       sourceToolCode: "video_generate",
       billingFacts: input.billingFacts,
-      downloadUrl: input.video.downloadUrl ?? null
+      downloadUrl: input.video.downloadUrl ?? null,
+      manifest: {
+        persaiInternalApiClient: this.persaiInternalApiClientService,
+        workspaceId: input.workspaceId,
+        assistantId: input.assistantId,
+        originChatId: input.chatId,
+        sourceUserMessageText: input.sourceUserMessageText,
+        sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt
+      },
+      quota: {
+        workspaceQuotaBytes: input.workspaceQuotaBytes,
+        sharedQuotaBytes: input.sharedQuotaBytes
+      },
+      logger: this.logger
     });
   }
 
@@ -2860,6 +2880,9 @@ export class RuntimeVideoGenerateToolService {
     sessionId: string;
     mediaJobId: string | null;
     requestId: string;
+    chatId: string | null;
+    sourceUserMessageText: string | null;
+    sourceUserMessageCreatedAt: string | null;
   }): Promise<RuntimeVideoGenerateToolExecutionResult> {
     const {
       bundle,
@@ -3328,7 +3351,10 @@ export class RuntimeVideoGenerateToolService {
         requestPrompt: request.prompt,
         referenceFilename: null,
         video: providerResult.video,
-        billingFacts: providerResult.billingFacts
+        billingFacts: providerResult.billingFacts,
+        chatId: params.chatId,
+        sourceUserMessageText: params.sourceUserMessageText,
+        sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt
       });
 
       return {

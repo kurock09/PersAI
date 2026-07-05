@@ -1,5 +1,222 @@
 # SESSION-HANDOFF
 
+## 2026-07-05 — ADR-137 storage-plane cutover + shell/exec seam repair
+
+Status: **S0–S5.1 + full shell/exec seam repair landed locally; S6 grep gate PASS; deploy + live smoke pending.**
+
+Program baseline at open: `a50ef764`. Independent S6 audit (2026-07-05): P0 shell→storage gap closed; program not closed until dev live smoke.
+
+**ADR-137 slices (local):**
+
+| Slice | Summary |
+|-------|---------|
+| S0 | Worker media → GCS + manifest (`writeRuntimeOutboundArtifact`) |
+| S1 | Gamma GCS-direct; `writeRuntimeOutboundArtifactViaSandbox` removed |
+| S2–S3 | `files.*` → `RuntimeStoragePlaneFilesService`; sandbox model `files` dispatch removed |
+| S4 | Model `grep`/`glob` → API storage scan |
+| S5 | Dead sandbox `workspace-write` + runtime `writeWorkspaceFile` client paths removed |
+| S5.1 | Session-scoped pod hydrate + on-demand widen (`workspace-mount-hydrate.ts`) |
+| Seam | **Shell + exec:** diff all produced `/workspace/...` file paths (not pdf/docx/xlsx only) → GCS mirror **fail-closed** → runtime `syncVisibleWorkspaceProducedOutputs` manifest upsert **fail-closed** (chatId optional) |
+
+**Also in this slice:** `files.write` fail-closed on manifest upsert; `files.preview` restored (image/PDF multimodal); internal workspace-files API + grep/glob manifest services; API controller test fix.
+
+**S6 grep gate:** PASS — forbidden paths 0 in active code (`assistant-media/runtime-output` only in test fixtures).
+
+**Residuals (non-blocking for dev deploy candidate):** shell diff scans session root only (not `assistants/.../shared/` prefix); `document.render` metadata upsert still fail-open; dead `workspaceFilePersist` in bridge; no E2E shell→csv→attach integration test.
+
+**Verification (pre-push):** root `lint`, `typecheck`, `test`, `test:step2`, `build` — run at commit.
+
+**Next step:** deploy `persai-dev` + live smoke ×3: (1) shell → `report.csv` → `files.attach` in chat, (2) `document.render` → pdf, (3) `files.write` → `files.list` → `grep`. ADR-137 closes on founder live acceptance only.
+
+## 2026-07-05 — Marketer skill: reference depth upgrade (file KB + FAQ cards + 6 scenarios)
+
+Status: **scenario fixed (6 steps: style-ref → image_edit series); user-natural smoke v2 in progress — style-ref + 2 image_edit series batches enqueued, caption drafted. Prior smoke v1 was invalid (programmer-style prompts, skipped ref-first workflow).**
+
+Founder asked to use **«Маркетолог»** as the depth template (not Wave 1 B2B slice): large file KB with trends/colors/techniques, FAQ-style knowledge cards, polish all existing scenarios + add new ones.
+
+**Skill:** «Маркетолог» (id `131c1531-5566-4ad2-9422-3b9b76f6d666`, seed `marketer`)
+
+**What landed:**
+- **File KB:** `marketer-visual-content-fundamentals.md` (~16 KB) — 2026 visual trends, Pantone/WGSN palettes, carousel styles, typography, Reels hooks, content pillars, RU channel mix, landing audit criteria, niche palette tables (FinTech, beauty, food, etc.). Doc id `742591dd-2eed-401e-803b-ce8dfd5f86a0`.
+- **12 FAQ knowledge cards:** carousel slide count, 2026 colors, Reels vs carousel, hook writing, content pillars, native SEO, text per slide, caption structure, positioning framework, Reels script structure, landing quick fixes, RU social channels priority.
+- **Skill instruction upgraded** via `skill_upsert` (richer body, guardrails, tags: carousel, reels, visual, smm).
+- **6 scenarios** (3 polished + 3 new):
+  - `instagram_carousel` — 6–8 slides, palette from KB, copy before visuals, `image_edit` series
+  - `content_plan_monthly` — RU channels, pillars, 30-day calendar, KPI, `firstStepPreview`
+  - `landing_audit` — 6 criteria, top-5 fixes, backlog, `firstStepPreview`
+  - `product_positioning` *(new)* — positioning statement, one-liner, elevator pitch, proof points
+  - `reels_short_script` *(new)* — timed script hook/setup/value/CTA
+  - `competitor_messaging_audit` *(new)* — `web_search` competitors, comparison table, differentiation
+
+**Smoke:** `chat_smoke` with `surfaceThreadKey: marketer-carousel-smoke-1` — skill activated, scenario `instagram_carousel`, `knowledge_search` ×2, `todo_write` plan with 5 todos (brief → narrative → copy → visuals → caption). Assistant correctly asked brief clarifiers + proposed two palette options from fundamentals.
+
+**Source file (local):** `.persai-smoke-artifacts/skill-content/marketer-visual-content-fundamentals.md`
+
+Next step: **live user validation** of Marketer scenarios (carousel end-to-end with image generation, content plan, landing audit); use Marketer depth as template when deepening Wave 2 skills; optional 2nd fundamentals doc (copywriting hooks library, more niche palettes) if founder wants even deeper file KB.
+
+## 2026-07-05 — Skills Growth Wave 1: 3 RU B2B SMB skills authored + smoke-tested via MCP
+
+Status: **content landed live via `@persai/admin-mcp` against `api.persai.dev`; all 3 `chat_smoke` scenario tests PASS. Plus one small code fix in `@persai/admin-mcp` itself (see below).** The skill/scenario content is a pure content/config change through the existing Skill/Knowledge Card/Document/Scenario mechanism (no ADR needed, per `docs/SKILLS-GROWTH-PLAYBOOK.md` framing); the MCP tool schema fix is a small, low-risk source change to the admin tooling package, not to product runtime.
+
+Founder asked for a "founder + marketer" pass: research profitable AI-wrapper niches globally, prioritize RU B2B SMB (structural edge: RU blocks ChatGPT/Claude/Gemini for ordinary users), pick 3 skills, write knowledge cards (text KB) + PDF fundamentals (file KB) + scenario for each, land through MCP, smoke-test to a clean result. Full strategy, research findings, and content spec: `docs/SKILLS-GROWTH-PLAYBOOK.md`.
+
+**Wave 1 skills (all `chat_smoke` PASS):**
+
+1. **«Бухгалтерия и налоги»** (id `e9a6d9bd-1109-42cd-8a36-56b23186b4bf`, seed `accounting-tax`) — 8 knowledge cards + PDF fundamentals (RU tax regimes 2026: USN/OSN/PSN/NPD, insurance contributions, VAT thresholds) + scenario `tax_regime_and_calendar`. Smoke: 3-turn scenario reached `exitCondition` with regime recommendation + deadline calendar.
+2. **«Юридические черновики»** (id `1cf5ca25-0cac-411a-a4d4-18c2535023e2`, seed `legal-drafting`) — 7 knowledge cards + PDF fundamentals (contract clauses, NDA, self-employed reclassification risk, pre-trial claim procedure) + scenario `draft_contract_or_claim`. Smoke: real DOCX contract generated and delivered (verified via direct `/workspace-files` API call + `chat_fetch_attachment`, extracted and inspected text).
+3. **«Финансовая аналитика»** (id `288cd7f8-503f-4249-a853-cc10111a3f81`, reframed from seed `sales-coach` per founder direction — sales-proposal generation didn't fit platform strengths, financial/document analytics does) — 8 knowledge cards + PDF fundamentals (P&L/cash flow/unit economics/break-even methodology + RU industry margin benchmarks 2026) + scenario `financial_health_check`. Smoke: 5-turn scenario correctly diagnosed a cash-gap case, built P&L + cash-flow timeline with formulas shown, computed required buffer (734 000 ₽), benchmarked margin against industry range from the fundamentals doc, gave 3 concrete recommendations without breaking guardrails (deferred tax-regime questions to the tax skill), and exited cleanly (`chatSkillState.status: inactive`, all 4 todos completed).
+
+**Process notes / gotchas for future skill-authoring sessions:**
+- **Fixed at the source** — `skill_upsert`, `skill_card_upsert`, and `skill_scenario_upsert` in `packages/persai-admin-mcp/src/server.ts` previously accepted `body: z.record(z.unknown())`, an opaque passthrough that gave the calling model zero schema guidance and caused three live 400s during this session (`scenarioKey`-in-body vs top-level `key`, `title`/`instructions` vs `steps[].directive`, locale-object `title` vs plain-string card `title`). Replaced with real typed Zod schemas (`skillUpsertBodySchema`, `skillKnowledgeCardBodySchema`, `skillScenarioBodySchema`) mirroring the exact API parsers (`apps/api/.../skill-management.types.ts`, `authored-knowledge.types.ts`, `skill-scenario.types.ts`), including the ru+en-required locale map for scenario `displayName`/`description` vs skill `name`/`description` (any single locale OK). Verified: `@persai/admin-mcp` typecheck/lint/test green, `dist` rebuilt. **Cursor's live MCP connection needs a reload/restart of the `user-persai` server to pick up the new schema** (it was still running the old build during this session, hence the trial-and-error).
+- `skill_scenario_upsert` body: top-level fields are `key` (create only; omit `scenarioKey` arg to POST, pass it to PATCH), `displayName`/`description` (locale maps, **both `ru` and `en` required**), `steps[].directive`/`recommendedToolCall`/`mayBeSkippedIf`/`negativeGuards`/`expectedUserResponse`/`nextStepTrigger`/`recoveryGuidance`/`firstStepPreview` (not `title`/`instructions`), and `exitCondition` (not `guardrails`).
+- `skill_card_upsert` body uses plain-string `title`/`body` + separate optional `locale` field (not a locale object like scenario `displayName`).
+- **`chat_smoke` without `surfaceThreadKey` starts a brand-new chat on every call** — for multi-turn scenario testing, always pass the same `surfaceThreadKey` across calls in one test, or the assistant re-asks already-answered questions with no conversation memory.
+- Occasional transient `fetch failed` from `chat_smoke` during document generation does not mean the server-side operation failed — verify via `GET /api/v1/assistant/chats/web/:chatId/workspace-files` before concluding failure.
+
+Next step: **reload/restart the `user-persai` MCP connection in Cursor** so the new tool schemas take effect; then live user validation of the three Wave 1 skills (real bio, not MCP smoke); schedule annual content review reminder for tax rates/thresholds and industry margin benchmarks; consider Wave 2 candidates (тендеры/госзакупки 44-ФЗ/223-ФЗ, HR/наём) per `docs/SKILLS-GROWTH-PLAYBOOK.md` §3 and §9.
+
+## 2026-07-05 — ADR-137 S5.1: session-scoped pod hydrate
+
+Status: **S5.1 landed locally; S6 pending.**
+
+What landed:
+
+- **Cold bootstrap hydrate** lists only `assistants/<assistantId>/sessions/<runtimeSessionId>/` + `assistants/<assistantId>/shared/` — never bare `workspaces/<workspaceId>/workspace/`.
+- **`ensureWorkspaceMountBootstrapped`** now receives `assistantId`, `runtimeSessionId`, and `gcsHydrateScope` (`session` | `shared_only` | `none`); ephemeral pods skip GCS hydrate (push/pull owns tree).
+- **On-demand hydrate (v1):** `visibleWorkspacePaths` on `runInPod` triggers lazy prefix/file hydrate for valid ADR-133 paths outside session+shared before exec.
+- **Wiring:** `sandbox.service` passes `visibleWorkspacePaths` for shell/exec/document jobs; `workspace-file-bridge` passes `runtimeSessionId` into session-pod exec/read paths.
+- **New module:** `apps/sandbox/src/workspace-mount-hydrate.ts` (bootstrap subpath builders + on-demand path collection).
+
+Grep proofs (S5.1 acceptance):
+
+- `buildWorkspacePrefix({ workspaceId })` without `subPath` in `apps/sandbox/src/exec-pod-bridge.service.ts` hydrate path → **0** (only `buildWorkspacePrefix({ workspaceId, subPath })` at hydrate site).
+- `hydrateWorkspaceMountFromGcs` in `apps/sandbox/src/` → **0** (replaced by `hydrateBootstrapWorkspaceMounts` / `hydrateWorkspaceMountPrefix`).
+
+Tests: exec-pod-bridge hydrate **8/8** + workspace-mount-hydrate **4/4** + sandbox shell/document regression **green**; `@persai/sandbox` typecheck green.
+
+**Post-S5.1 audit fixes (same slice):**
+- Session-aware hydrate marker (`/tmp/.persai_workspace_hydrate_session`) — warm pod re-hydrates when `runtimeSessionId` changes (fixes multi-chat same assistant+workspace).
+- `shared_only` hydrate uses separate marker — no longer blocks later session bootstrap.
+- On-demand hydrate wired into `execShellInSessionPod` / `readWorkspaceFileFromSessionPod` + files-bridge `visibleWorkspacePaths`.
+- Empty `/workspace` subPath guard — prevents accidental full-workspace list.
+- Metrics: `recordSnapshotColdPull("session")` vs `"shared"` corrected.
+
+Next step: **S6** — parent audit grep gate + full verification + live smoke.
+
+## 2026-07-05 — ADR-137 S5: dead sandbox path removal + document storage-plane plumbing
+
+Status: **S5 landed locally; superseded checkpoint for S5.1 above.**
+
+What landed:
+
+- **Sandbox:** removed `POST /api/v1/jobs/workspace-write`, `SandboxService.writeWorkspaceFile`, and model-tool `toolCode: "files"` dispatch (`executeFilesBridgeAction`). Kept `workspace-write-control-plane` for API upload pod hydration.
+- **Runtime document tool:** internal read/write/resolve paths use `RuntimeStoragePlaneFilesService`; render persist copies sandbox job artifact bytes from GCS → workspace object key + manifest upsert (no sandbox `files.attach`).
+- **Docs:** `API-BOUNDARY.md`, `ARCHITECTURE.md`, `DATA-MODEL.md` pod vs storage-plane boundary paragraphs.
+
+Grep proofs (S5 acceptance):
+
+- `workspace-write` in `apps/runtime` → **0**
+- `writeWorkspaceFile` in `apps/runtime/src` → **0**
+
+Tests: runtime document tool **14/14**; sandbox tests updated (removed obsolete files-bridge tests).
+
+Next step: **S6** — parent audit grep gate + full verification + live smoke.
+
+## 2026-07-05 — ADR-137 S4: grep/glob storage plane
+
+Status: **S4 landed locally; S5–S6 pending.**
+
+What landed:
+
+- **API:** `POST .../internal/runtime/files/grep` scans committed GCS bytes (manifest-scoped, size-capped); `POST .../glob` matches manifest paths via glob patterns.
+- **`RuntimeGrepGlobToolService`:** zero `sandboxClientService`; routes through internal API.
+- **Sandbox:** removed model-tool `grep`/`glob` dispatch (`executeGrepActionViaPodExec`, `executeGlobActionViaPodExec`, switch cases).
+
+Grep proofs (S4 acceptance):
+
+- `sandboxClientService` in `runtime-grep-glob-tool.service.ts` → **0**
+- `case "grep"|case "glob"` in `sandbox.service.ts` → **0**
+- `executeGrepActionViaPodExec` in `apps/` → **0**
+
+Tests: runtime grep/glob **3/3**, API storage grep/glob **3/3**, sandbox rejection **2/2**.
+
+Next step: **S5** — dead sandbox path removal + docs.
+
+## 2026-07-05 — ADR-137 S3: files.list/delete/attach/search off sandbox
+
+Status: **S3 landed locally (superseded by S4 checkpoint above).**
+
+What landed:
+
+- **`RuntimeFilesToolService`:** zero `sandboxClientService` / `runSandboxJob`; all `files.*` actions route through storage plane or internal API.
+- **`delete` / `attach`:** `RuntimeStoragePlaneFilesService.deletePersistedWorkspaceFile` + `attachPersistedWorkspaceFile` (manifest + GCS bytes verification).
+- **API:** `DeleteWorkspaceFileFromRuntimeService` — GCS object delete + manifest row delete on internal `DELETE .../files/metadata`.
+- **`/tmp` scratch:** `scratch_path_unsupported` skip (use `shell` for ephemeral pod files).
+- **`preview`:** manifest mime + storage-plane read (no sandbox stat).
+- **Policy gate:** `files` tool no longer requires `sandbox.enabled`.
+
+Grep proof (S3 acceptance):
+
+- `sandboxClientService` in `runtime-files-tool.service.ts` → **0**
+
+Tests: runtime files tool suites **30/30** pass.
+
+Next step: **S4** — `grep`/`glob` → storage-plane API; remove model-tool pod dispatch.
+
+## 2026-07-05 — ADR-137 S2: files.read + files.write storage plane
+
+Status: **S2 landed locally (superseded by S3 checkpoint above).**
+
+What landed:
+
+- **`RuntimeStoragePlaneFilesService`:** `/workspace/...` `files.read` → manifest check + GCS `downloadByWorkspacePath`; `files.write` → collision (ADR-131 numeric suffix via manifest list), quota (manifest byte sum vs bundle caps), GCS `saveObject`, manifest upsert.
+- **`/tmp` scratch writes** were removed from `files.write` in S3 (`scratch_path_unsupported`).
+- **API:** `GET .../files/storage-bytes-used` for manifest byte-sum quota check; `sumSizeBytes` on metadata repository.
+- **Runtime gate:** storage-plane read/write/list/search/delete/attach no longer require sandbox configured.
+
+Next step: ~~**S3**~~ — see S3 checkpoint above.
+
+## 2026-07-05 — ADR-137 S1: Gamma presentation outbound GCS-direct
+
+Status: **S1 landed locally on dirty tree; S2–S6 pending.** Program baseline SHA: `a50ef764` (HEAD at session open; tree was dirty — S0 + ADR-135/136 + skills + admin-mcp mixed).
+
+What landed:
+
+- **Gamma PDF/PPTX:** `RuntimeDocumentProviderAdapterService` now persists via `writeRuntimeOutboundArtifact` + `PersaiMediaObjectStorageService.saveObject` (same GCS seam as S0 worker media).
+- **Deleted:** `write-runtime-outbound-artifact-via-sandbox.ts`; runtime `SandboxClientService.writeWorkspaceFile` (no runtime callers remain).
+- **Tests:** document provider adapter exercises real `saveObject` mock on success path + direct `persistGeneratedArtifact` unit test.
+
+Grep proofs (S1 acceptance):
+
+- `writeRuntimeOutboundArtifactViaSandbox` / `write-runtime-outbound-artifact-via-sandbox` → **0** in `apps/`
+- `writeWorkspaceFile` in `apps/runtime/src` → **0**
+
+Residual: manifest upsert for Gamma outbound bytes (parity with eventual `files.write` storage plane — S2); deploy + live Gamma smoke pending.
+
+Next step: **S2** — `files.read` + `files.write` → API/GCS + manifest with ADR-131 quota/collision.
+
+## 2026-07-05 — ADR-137 pod execution vs storage plane (opened)
+
+Status: **ADR opened; S0 + S1 + S2 + S3 + S4 landed locally; S5–S6 pending.**
+
+- Opened `docs/ADR/137-execution-pod-boundary-and-storage-plane-cutover.md` — founder-locked split: **pod = `shell`/`exec`/`document.*` only**; **GCS + manifest** for `files.*`, `grep`/`glob`, worker media, Gamma outbound. Corrects ADR-126 W3.2 “sandbox single writer” overreach without reopening path cutover. S6 = independent grep audit + parallel code purge.
+
+## 2026-07-05 — Worker media outbound: GCS-direct (fix avatar 413)
+
+Status: **implemented locally; deploy pending.**
+
+Root cause of long avatar video failure (`0a8dc123` class): HeyGen delivered bytes, but `writeRuntimeOutboundArtifact` routed all worker artifacts through sandbox `workspace-write` (20 MB JSON body limit). Short clips passed; longer pirate speech mp4s hit **413**.
+
+What landed:
+
+- **runtime `writeRuntimeOutboundArtifact`:** `image_generate`, `image_edit`, `tts`, `video_generate` now persist directly to GCS via restored `PersaiMediaObjectStorageService.saveObject` + `buildWorkspaceObjectKey` under the ADR-133 session root. No session pod spin-up for delivery bytes.
+- **document provider (Gamma PDF/PPTX):** moved to GCS in ADR-137 S1 — see S1 checkpoint above.
+- **tests:** runtime outbound doubles + image/tts/video/turn-execution harnesses updated.
+
+Verification: pending full gate + live long-script avatar smoke on `persai-dev`.
+
+Next step: deploy runtime to `persai-dev`, re-run avatar video with long script, confirm delivery without 413.
+
 ## 2026-07-05 — Avatar video recovery + ADR-135 catalog wire persistence (hotfix slice)
 
 Status: **pushed to origin/main (`a3b9414d`).** Deploy runtime + provider-gateway to `persai-dev` pending.

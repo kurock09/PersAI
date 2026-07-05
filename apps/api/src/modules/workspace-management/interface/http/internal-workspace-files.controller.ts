@@ -10,6 +10,7 @@ import {
   Query,
   Req
 } from "@nestjs/common";
+import { DeleteWorkspaceFileFromRuntimeService } from "../../application/delete-workspace-file-from-runtime.service";
 import { ListWorkspaceFilesFromManifestService } from "../../application/list-workspace-files-from-manifest.service";
 import { UpsertWorkspaceFileMetadataFromRuntimeService } from "../../application/upsert-workspace-file-metadata-from-runtime.service";
 import { WorkspaceFileMetadataService } from "../../application/workspace-file-metadata.service";
@@ -30,6 +31,7 @@ export class InternalWorkspaceFilesController {
   constructor(
     private readonly listWorkspaceFilesFromManifestService: ListWorkspaceFilesFromManifestService,
     private readonly upsertWorkspaceFileMetadataFromRuntimeService: UpsertWorkspaceFileMetadataFromRuntimeService,
+    private readonly deleteWorkspaceFileFromRuntimeService: DeleteWorkspaceFileFromRuntimeService,
     private readonly workspaceFileMetadataService: WorkspaceFileMetadataService
   ) {}
 
@@ -89,6 +91,21 @@ export class InternalWorkspaceFilesController {
   }
 
   @HttpCode(200)
+  @Get(":workspaceId/files/storage-bytes-used")
+  async sumStorageBytesUsed(
+    @Req() req: InternalRequestLike,
+    @Param("workspaceId") workspaceId: string,
+    @Query("pathPrefix") pathPrefix: string | undefined
+  ) {
+    this.assertAuthorized(req);
+    const usedBytes = await this.workspaceFileMetadataService.sumSizeBytes({
+      workspaceId,
+      ...(typeof pathPrefix === "string" && pathPrefix.length > 0 ? { pathPrefix } : {})
+    });
+    return { usedBytes };
+  }
+
+  @HttpCode(200)
   @Post(":workspaceId/files/metadata")
   async upsertMetadata(
     @Req() req: InternalRequestLike,
@@ -119,7 +136,7 @@ export class InternalWorkspaceFilesController {
     if (normalizedPath === null) {
       throw new BadRequestException('path must be an active hierarchical "/workspace/..." file.');
     }
-    await this.workspaceFileMetadataService.delete({
+    await this.deleteWorkspaceFileFromRuntimeService.execute({
       workspaceId,
       path: normalizedPath
     });

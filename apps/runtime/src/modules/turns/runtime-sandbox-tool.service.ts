@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   classifyVisibleWorkspacePath,
@@ -10,6 +10,7 @@ import {
   type RuntimeSandboxProducedFile
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
+import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { SandboxClientService } from "./sandbox-client.service";
 
 export interface RuntimeSandboxToolExecutionResult {
@@ -19,9 +20,12 @@ export interface RuntimeSandboxToolExecutionResult {
 
 @Injectable()
 export class RuntimeSandboxToolService {
+  private readonly logger = new Logger(RuntimeSandboxToolService.name);
+
   constructor(
     private readonly sandboxClientService: SandboxClientService,
-    private readonly persaiInternalApiClientService: PersaiInternalApiClientService
+    private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
+    private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
   async executeToolCall(params: {
@@ -115,51 +119,64 @@ export class RuntimeSandboxToolService {
         },
         args: this.asObject(params.toolCall.arguments)
       } satisfies RuntimeSandboxJobRequest);
-      if (
-        job.status === "completed" &&
-        params.chatId !== undefined &&
-        params.chatId !== null &&
-        params.sourceUserMessageText !== undefined &&
-        params.sourceUserMessageText !== null
-      ) {
-        const documentSync = await this.syncVisibleWorkspaceDocumentOutputs({
-          bundle: params.bundle,
-          chatId: params.chatId,
-          files: job.files,
-          sourceUserMessageText: params.sourceUserMessageText,
-          sourceUserMessageCreatedAt: params.sourceUserMessageCreatedAt ?? new Date().toISOString()
-        });
+
+      if (job.status !== "completed") {
         return {
           payload: {
             toolCode: params.toolCall.name,
             executionMode: "sandbox",
-            action: "completed",
+            action: job.status === "blocked" ? "blocked" : "skipped",
             reason: job.reason,
             warning: job.warning ?? job.violationMessage,
             job,
-            paths: job.files.map((file) => file.storagePath),
-            ...(documentSync.length > 0 ? { documentSync } : {})
+            paths: job.files.map((file) => file.storagePath)
           },
-          isError: false
+          isError: true
         };
+      }
+
+      let documentSync: RuntimeSandboxDocumentSyncOutcome[] | undefined;
+      if (job.files.length > 0) {
+        try {
+          const outcomes = await this.syncVisibleWorkspaceProducedOutputs({
+            bundle: params.bundle,
+            chatId: params.chatId ?? null,
+            files: job.files,
+            sourceUserMessageText: params.sourceUserMessageText ?? null,
+            sourceUserMessageCreatedAt:
+              params.sourceUserMessageCreatedAt ?? new Date().toISOString()
+          });
+          if (outcomes.length > 0) {
+            documentSync = outcomes;
+          }
+        } catch (error) {
+          return {
+            payload: {
+              toolCode: params.toolCall.name,
+              executionMode: "sandbox",
+              action: "skipped",
+              reason: "manifest_sync_failed",
+              warning: error instanceof Error ? error.message : "Manifest sync failed.",
+              job,
+              paths: job.files.map((file) => file.storagePath)
+            },
+            isError: true
+          };
+        }
       }
 
       return {
         payload: {
           toolCode: params.toolCall.name,
           executionMode: "sandbox",
-          action:
-            job.status === "completed"
-              ? "completed"
-              : job.status === "blocked"
-                ? "blocked"
-                : "skipped",
+          action: job.reason === "process_failed" ? "skipped" : "completed",
           reason: job.reason,
           warning: job.warning ?? job.violationMessage,
           job,
-          paths: job.files.map((file) => file.storagePath)
+          paths: job.files.map((file) => file.storagePath),
+          ...(documentSync !== undefined ? { documentSync } : {})
         },
-        isError: job.status !== "completed"
+        isError: job.reason === "process_failed"
       };
     } catch (error) {
       return {
@@ -203,17 +220,24 @@ export class RuntimeSandboxToolService {
     return value as Record<string, unknown>;
   }
 
-  private async syncVisibleWorkspaceDocumentOutputs(input: {
+  private async syncVisibleWorkspaceProducedOutputs(input: {
     bundle: AssistantRuntimeBundle;
-    chatId: string;
+    chatId: string | null;
     files: RuntimeSandboxProducedFile[];
-    sourceUserMessageText: string;
+    sourceUserMessageText: string | null;
     sourceUserMessageCreatedAt: string;
   }): Promise<RuntimeSandboxDocumentSyncOutcome[]> {
     const outcomes: RuntimeSandboxDocumentSyncOutcome[] = [];
     for (const file of input.files) {
-      if (!this.isVisibleWorkspaceDocumentOutput(file.storagePath)) {
+      if (!this.isVisibleWorkspaceProducedFilePath(file.storagePath)) {
         continue;
+      }
+      const committedBytes = await this.mediaObjectStorage.downloadByWorkspacePath({
+        workspaceId: input.bundle.metadata.workspaceId,
+        storagePath: file.storagePath
+      });
+      if (committedBytes === null || committedBytes.length === 0) {
+        throw new Error(`manifest_sync_no_gcs path=${file.storagePath}`);
       }
       const existing = await this.persaiInternalApiClientService.getWorkspaceFileMetadata({
         workspaceId: input.bundle.metadata.workspaceId,
@@ -226,9 +250,11 @@ export class RuntimeSandboxToolService {
         sizeBytes: file.sizeBytes,
         contentHash: file.contentHash ?? null,
         replace: existing !== null,
-        originChatId: input.chatId,
+        ...(input.chatId !== null ? { originChatId: input.chatId } : {}),
         originAssistantId: input.bundle.metadata.assistantId,
-        sourceUserMessageText: input.sourceUserMessageText,
+        ...(input.sourceUserMessageText !== null
+          ? { sourceUserMessageText: input.sourceUserMessageText }
+          : {}),
         sourceUserMessageCreatedAt: input.sourceUserMessageCreatedAt
       });
       const registration = upsertResult.documentRegistration;
@@ -247,17 +273,13 @@ export class RuntimeSandboxToolService {
     return outcomes;
   }
 
-  private isVisibleWorkspaceDocumentOutput(path: string): boolean {
+  private isVisibleWorkspaceProducedFilePath(path: string): boolean {
     const normalizedPath = path.trim();
     const info = classifyVisibleWorkspacePath(normalizedPath);
-    const isActiveFilePath =
+    return (
       info.kind === "sessionDescendant" ||
       info.kind === "assistantSharedDescendant" ||
-      info.kind === "workspaceSharedDescendant";
-    if (!isActiveFilePath) {
-      return false;
-    }
-    const lowered = normalizedPath.toLowerCase();
-    return lowered.endsWith(".pdf") || lowered.endsWith(".xlsx") || lowered.endsWith(".docx");
+      info.kind === "workspaceSharedDescendant"
+    );
   }
 }

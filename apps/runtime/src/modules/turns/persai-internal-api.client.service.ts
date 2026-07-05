@@ -822,6 +822,40 @@ export class PersaiInternalApiClientService {
     return { items: validated };
   }
 
+  async sumWorkspaceFileStorageBytes(input: { workspaceId: string }): Promise<number> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const url =
+      `/api/v1/internal/workspaces/${encodeURIComponent(input.workspaceId)}/files/storage-bytes-used` +
+      `?pathPrefix=${encodeURIComponent("/workspace")}`;
+    const response = await this.fetchJson(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`
+      }
+    });
+    if (!response.ok) {
+      const error = this.extractError(response.body);
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException(
+          error.message ?? "PersAI internal API workspace storage bytes request failed."
+        );
+      }
+      throw new BadRequestException(
+        error.message ?? "PersAI internal API rejected the workspace storage bytes request."
+      );
+    }
+    const payload = this.asObject(response.body);
+    const usedBytes = payload?.usedBytes;
+    if (typeof usedBytes !== "number" || !Number.isFinite(usedBytes) || usedBytes < 0) {
+      throw new BadGatewayException(
+        "PersAI internal API returned invalid workspace storage bytes payload."
+      );
+    }
+    return usedBytes;
+  }
+
   async getWorkspaceFileMetadata(input: { workspaceId: string; path: string }): Promise<{
     path: string;
     mimeType: string;
@@ -1241,6 +1275,98 @@ export class PersaiInternalApiClientService {
         matchedTokenCount: typeof entry.matchedTokenCount === "number" ? entry.matchedTokenCount : 0
       }))
       .filter((row) => row.path.length > 0);
+  }
+
+  async grepWorkspaceFiles(input: {
+    workspaceId: string;
+    assistantId: string;
+    sessionId: string;
+    pattern: string;
+    path?: string | null;
+    glob?: string | null;
+    type?: string | null;
+    caseInsensitive?: boolean;
+  }): Promise<{
+    matches: Array<{ file: string; line: number; text: string }>;
+    truncated: boolean;
+    reason: string | null;
+    warning: string | null;
+  }> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/files/grep", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    if (!response.ok) {
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException("PersAI internal API files grep request failed.");
+      }
+      return { matches: [], truncated: false, reason: "grep_failed", warning: null };
+    }
+    const payload = this.asObject(response.body);
+    const matches = Array.isArray(payload?.matches) ? payload.matches : [];
+    return {
+      matches: matches
+        .filter(
+          (entry): entry is Record<string, unknown> => entry !== null && typeof entry === "object"
+        )
+        .map((entry) => ({
+          file: typeof entry.file === "string" ? entry.file : "",
+          line: typeof entry.line === "number" ? entry.line : 0,
+          text: typeof entry.text === "string" ? entry.text : ""
+        }))
+        .filter((row) => row.file.length > 0 && row.line > 0),
+      truncated: payload?.truncated === true,
+      reason: typeof payload?.reason === "string" ? payload.reason : null,
+      warning: typeof payload?.warning === "string" ? payload.warning : null
+    };
+  }
+
+  async globWorkspaceFiles(input: {
+    workspaceId: string;
+    assistantId: string;
+    sessionId: string;
+    pattern: string;
+    path?: string | null;
+  }): Promise<{
+    paths: string[];
+    truncated: boolean;
+    reason: string | null;
+    warning: string | null;
+  }> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+    const response = await this.fetchJson("/api/v1/internal/runtime/files/glob", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+    if (!response.ok) {
+      if (response.status >= 500) {
+        throw new ServiceUnavailableException("PersAI internal API files glob request failed.");
+      }
+      return { paths: [], truncated: false, reason: "glob_failed", warning: null };
+    }
+    const payload = this.asObject(response.body);
+    const paths = Array.isArray(payload?.paths) ? payload.paths : [];
+    return {
+      paths: paths.filter(
+        (entry): entry is string => typeof entry === "string" && entry.length > 0
+      ),
+      truncated: payload?.truncated === true,
+      reason: typeof payload?.reason === "string" ? payload.reason : null,
+      warning: typeof payload?.warning === "string" ? payload.warning : null
+    };
   }
 
   async consumeToolDailyLimit(input: {

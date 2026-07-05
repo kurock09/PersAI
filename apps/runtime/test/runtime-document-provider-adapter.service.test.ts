@@ -7,18 +7,10 @@ import type {
 } from "@persai/runtime-bundle";
 import type { RuntimeDocumentJobRunRequest, RuntimeOutputArtifact } from "@persai/runtime-contract";
 import { RuntimeDocumentProviderAdapterService } from "../src/modules/turns/runtime-document-provider-adapter.service";
-
-const stubArtifact: RuntimeOutputArtifact = {
-  artifactId: "artifact-1",
-  kind: "file",
-  storagePath: "/workspace/assistants/assistant-1/sessions/session-1/deck.pptx",
-  mimeType: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  sizeBytes: 1024,
-  filename: "deck.pptx",
-  voiceNote: false,
-  sourceToolCode: "document",
-  billingFacts: null
-};
+import {
+  createFakeMediaObjectStorageForOutboundWrite,
+  createOutboundManifestApiStub
+} from "./helpers/runtime-outbound-test-doubles";
 
 function buildBundle(options: {
   configuredGamma: boolean;
@@ -95,7 +87,8 @@ export async function runRuntimeDocumentProviderAdapterServiceTest(): Promise<vo
   await test("rejects non-gamma providers with a workspace-workflow guidance", async () => {
     const service = new RuntimeDocumentProviderAdapterService(
       { generateDocumentOutcome: async () => ({ ok: true, result: {} as never }) } as never,
-      {} as never
+      {} as never,
+      createOutboundManifestApiStub() as never
     );
     await assert.rejects(
       () =>
@@ -114,7 +107,8 @@ export async function runRuntimeDocumentProviderAdapterServiceTest(): Promise<vo
   await test("rejects when gamma credential is missing", async () => {
     const service = new RuntimeDocumentProviderAdapterService(
       { generateDocumentOutcome: async () => ({ ok: true, result: {} as never }) } as never,
-      {} as never
+      {} as never,
+      createOutboundManifestApiStub() as never
     );
     await assert.rejects(
       () =>
@@ -130,7 +124,8 @@ export async function runRuntimeDocumentProviderAdapterServiceTest(): Promise<vo
   await test("rejects when gamma credential is not active", async () => {
     const service = new RuntimeDocumentProviderAdapterService(
       { generateDocumentOutcome: async () => ({ ok: true, result: {} as never }) } as never,
-      {} as never
+      {} as never,
+      createOutboundManifestApiStub() as never
     );
     await assert.rejects(
       () =>
@@ -171,29 +166,90 @@ export async function runRuntimeDocumentProviderAdapterServiceTest(): Promise<vo
         };
       }
     };
-    const sandboxStub = {} as never;
+    let savedObjectKey: string | null = null;
+    const mediaStorageStub = createFakeMediaObjectStorageForOutboundWrite(
+      "/workspace/assistants/00000000-0000-0000-0000-000000000001/sessions/runtime-session-1/deck.pptx"
+    );
+    const originalSaveObject = mediaStorageStub.saveObject.bind(mediaStorageStub);
+    mediaStorageStub.saveObject = async (input) => {
+      savedObjectKey = input.objectKey;
+      return originalSaveObject(input);
+    };
     const service = new RuntimeDocumentProviderAdapterService(
       providerGatewayStub as never,
-      sandboxStub
+      mediaStorageStub as never,
+      createOutboundManifestApiStub() as never
     );
-    const persistedArtifacts: RuntimeOutputArtifact[] = [];
-    (service as unknown as { persistGeneratedArtifact: () => Promise<RuntimeOutputArtifact> })[
-      "persistGeneratedArtifact"
-    ] = async () => {
-      persistedArtifacts.push(stubArtifact);
-      return stubArtifact;
-    };
 
     const result = await service.run({
       bundle: buildBundle({ configuredGamma: true }),
       request: buildRequest({ outputFormat: "pptx" })
     });
 
-    assert.equal(persistedArtifacts.length, 1);
     assert.equal(receivedFilename.endsWith(".pptx"), true);
+    assert.ok(savedObjectKey !== null);
     assert.equal(result.artifacts.length, 1);
+    assert.equal(result.artifacts[0]?.sourceToolCode, "document");
+    assert.equal(
+      result.artifacts[0]?.storagePath.startsWith(
+        "/workspace/assistants/00000000-0000-0000-0000-000000000001/sessions/runtime-session-1/"
+      ),
+      true
+    );
     assert.equal(result.toolInvocations[0]?.ok, true);
     assert.equal(result.toolInvocations[0]?.executionMode, "worker");
+  });
+
+  await test("persistGeneratedArtifact writes presentation bytes via GCS saveObject", async () => {
+    let savedMimeType: string | null = null;
+    const mediaStorageStub = createFakeMediaObjectStorageForOutboundWrite();
+    const originalSaveObject = mediaStorageStub.saveObject.bind(mediaStorageStub);
+    mediaStorageStub.saveObject = async (input) => {
+      savedMimeType = input.mimeType;
+      return originalSaveObject(input);
+    };
+    const service = new RuntimeDocumentProviderAdapterService(
+      {} as never,
+      mediaStorageStub as never,
+      createOutboundManifestApiStub() as never
+    );
+    const artifact = await (
+      service as unknown as {
+        persistGeneratedArtifact(input: {
+          assistantId: string;
+          workspaceId: string;
+          sessionId: string;
+          filename: string;
+          requestPrompt: string;
+          requestedName: string | null;
+          buffer: Buffer;
+          mimeType: string;
+          chatId: string;
+          sourceUserMessageText: string;
+          sourceUserMessageCreatedAt: string;
+          workspaceQuotaBytes: number | null;
+          sharedQuotaBytes: number | null;
+        }): Promise<RuntimeOutputArtifact>;
+      }
+    ).persistGeneratedArtifact({
+      assistantId: "00000000-0000-0000-0000-000000000001",
+      workspaceId: "00000000-0000-0000-0000-000000000002",
+      sessionId: "runtime-session-1",
+      filename: "deck.pdf",
+      requestPrompt: "Investor deck",
+      requestedName: null,
+      buffer: Buffer.from("pdf-bytes"),
+      mimeType: "application/pdf",
+      chatId: "chat-1",
+      sourceUserMessageText: "make a deck",
+      sourceUserMessageCreatedAt: "2026-07-05T00:00:00.000Z",
+      workspaceQuotaBytes: null,
+      sharedQuotaBytes: null
+    });
+
+    assert.equal(savedMimeType, "application/pdf");
+    assert.equal(artifact.sourceToolCode, "document");
+    assert.equal(artifact.sizeBytes, Buffer.from("pdf-bytes").length);
   });
 
   await test("propagates gamma provider failures", async () => {
@@ -216,7 +272,8 @@ export async function runRuntimeDocumentProviderAdapterServiceTest(): Promise<vo
     };
     const service = new RuntimeDocumentProviderAdapterService(
       providerGatewayStub as never,
-      {} as never
+      {} as never,
+      createOutboundManifestApiStub() as never
     );
 
     const result = await service.run({

@@ -8,7 +8,7 @@ PersAI is a modular monolith control plane plus three internal execution service
 - `apps/web` - product and admin UI
 - `apps/runtime` - PersAI-native execution runtime
 - `apps/provider-gateway` - internal provider transport boundary
-- `apps/sandbox` - isolated file/process execution boundary for the native `files` / `exec` / `shell` path
+- `apps/sandbox` - isolated **execution** boundary for `shell` / `exec` / `document.*` sandbox jobs only (ADR-137)
 
 OpenClaw is not part of the active architecture. Historical migration traces remain only in archival documents and old migrations.
 
@@ -64,9 +64,11 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
 
 `apps/sandbox` owns:
 
-- isolated file/process job execution
-- assistant-workspace materialization, path-based persistence, and sandbox workspace sync
+- isolated process/document job execution (`shell`, `exec`, `execute_document_code`, `render_html_to_pdf`)
+- assistant-workspace pod materialization and session snapshot cache (not canonical bytes authority — ADR-137)
 - sandbox job health/readiness and job polling surfaces used by `apps/runtime`
+
+Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 
 ### Native Tool Runtime instruction model
 
