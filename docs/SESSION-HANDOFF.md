@@ -2,7 +2,7 @@
 
 ## 2026-07-05 — web UX batch: media banner count, plan card, video gallery, grace tiles
 
-Status: **landed locally; pushed pending verification commit.**
+Status: **pushed `5ec84b5c`; deploy + live smoke pending.**
 
 **Scope:** (1) Multi-image media job chip shows batch size — `Генерирую фото (7) - 0:15` via optional `requestedCount` on `activeMediaJobs`. (2) Chat plan card: completed→in_progress→pending sort, cap 10 active + «Больше (N)», Cursor-style static `in_progress` icon (circle break + horizontal arrow, no spin). (3) Workspace gallery + lightbox: video poster thumbnails, unmuted autoplay in lightbox, authenticated poster hook. (4) Grace-period tiles: pending-purge files sorted to end, clock icon bottom-left, semi-transparent tiles.
 
