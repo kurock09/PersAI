@@ -2,7 +2,7 @@
 
 ## 2026-07-05 — chat plan card list UX + in-progress icon fix
 
-Status: **landed locally; commit + push this session.**
+Status: **pushed `1fa62dfb`; deploy + live smoke pending.**
 
 **Scope:** Plan list window cap **7** rows; `≤7` all visible, no More; `>7` shows 7-row window (active + completed tail); More → fixed-height scroll through full list; no reset on stream rerenders. In-progress icon matched to lucide circle size.
 
