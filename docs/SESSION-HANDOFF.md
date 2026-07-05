@@ -2,7 +2,7 @@
 
 ## 2026-07-05 — ADR-137 storage-plane cutover + shell/exec seam repair
 
-Status: **S0–S5.1 + full shell/exec seam repair landed locally; S6 grep gate PASS; deploy + live smoke pending.**
+Status: **S0–S5.1 + full shell/exec seam repair pushed `7fa2e61c`; S6 grep gate PASS; deploy + live smoke pending.**
 
 Program baseline at open: `a50ef764`. Independent S6 audit (2026-07-05): P0 shell→storage gap closed; program not closed until dev live smoke.
 
