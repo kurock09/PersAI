@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { SESSION_SUBTREE_GC_GRACE_MS } from "@persai/runtime-contract";
 import {
   Prisma,
   type AssistantChat as PrismaAssistantChat,
@@ -347,22 +348,6 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     const workspaceId = options?.workspaceId ?? existingChat.workspaceId;
 
     await this.prisma.$transaction(async (tx) => {
-      // ADR-126 Slice 3 — schedule a session-subtree GC lease BEFORE the chat row
-      // disappears so the warm-pod and GCS-snapshot purge survives the
-      // hard-delete. `scheduledAt = now()` so the reaper (and the in-process
-      // eager call from `ManageWebChatListService.hardDeleteChat`) can run
-      // the purge immediately on the next tick.
-      await tx.sandboxWorkspaceGcLease.create({
-        data: {
-          kind: "session_subtree",
-          targetId: chatId,
-          scheduledAt: new Date(),
-          metadata: {
-            workspaceId,
-            assistantId
-          }
-        }
-      });
       const runtimeSessions =
         existingChat.surface === "web"
           ? await tx.runtimeSession.findMany({
@@ -375,6 +360,20 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
             })
           : [];
       const runtimeSessionIds = runtimeSessions.map((session) => session.id);
+      // Schedule session-subtree GC before the chat row disappears so bytes
+      // and manifest survive the hard-delete transaction for the 3-day grace.
+      await tx.sandboxWorkspaceGcLease.create({
+        data: {
+          kind: "session_subtree",
+          targetId: chatId,
+          scheduledAt: new Date(Date.now() + SESSION_SUBTREE_GC_GRACE_MS),
+          metadata: {
+            workspaceId,
+            assistantId,
+            ...(runtimeSessionIds[0] !== undefined ? { sessionId: runtimeSessionIds[0] } : {})
+          }
+        }
+      });
 
       if (existingChat.surface === "web") {
         await tx.runtimeTurnReceipt.deleteMany({

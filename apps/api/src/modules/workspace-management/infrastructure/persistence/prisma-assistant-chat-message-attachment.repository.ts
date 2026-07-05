@@ -68,6 +68,20 @@ export class PrismaAssistantChatMessageAttachmentRepository implements Assistant
     return record ? this.mapToDomain(record) : null;
   }
 
+  async findByChatIdAndDerivativeStoragePath(input: {
+    chatId: string;
+    storagePath: string;
+  }): Promise<AssistantChatMessageAttachment | null> {
+    const record = await this.prisma.assistantChatMessageAttachment.findFirst({
+      where: {
+        chatId: input.chatId,
+        OR: [{ thumbnailStoragePath: input.storagePath }, { posterStoragePath: input.storagePath }]
+      },
+      orderBy: { createdAt: "desc" }
+    });
+    return record ? this.mapToDomain(record) : null;
+  }
+
   async refreshWorkspacePathProjection(input: {
     workspaceId: string;
     storagePath: string;

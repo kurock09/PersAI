@@ -691,7 +691,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     filesProperties?.query?.description ?? "",
     /action="search"|path|filename|shortDescription/i
   );
-  assert.match(filesActionDescription, /query tokens|query.*path.*filename.*shortDescription/i);
+  assert.match(filesActionDescription, /`search` requires `query`/i);
   assert.match(exec?.description ?? "", /assistant sandbox workspace/);
   assert.doesNotMatch(exec?.description ?? "", /same turn stay mounted/i);
   assert.match(shell?.description ?? "", /assistant sandbox workspace/);

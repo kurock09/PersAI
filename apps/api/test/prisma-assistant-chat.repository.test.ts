@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Prisma } from "@prisma/client";
+import { SESSION_SUBTREE_GC_GRACE_MS } from "@persai/runtime-contract";
 import { PrismaAssistantChatRepository } from "../src/modules/workspace-management/infrastructure/persistence/prisma-assistant-chat.repository";
 
 async function runRetriesSerializableWebChatCap(): Promise<void> {
@@ -73,10 +74,12 @@ async function runRetriesSerializableWebChatCap(): Promise<void> {
 
 async function runHardDeleteRemovesWebRuntimeState(): Promise<void> {
   const calls: string[] = [];
+  let leaseScheduledAt: Date | null = null;
   const tx = {
     sandboxWorkspaceGcLease: {
       create: async (args: { data: Record<string, unknown> }) => {
         calls.push(`gc-lease:${JSON.stringify(args.data)}`);
+        leaseScheduledAt = args.data.scheduledAt instanceof Date ? args.data.scheduledAt : null;
         return {};
       }
     },
@@ -133,11 +136,17 @@ async function runHardDeleteRemovesWebRuntimeState(): Promise<void> {
   const leasePayload = JSON.parse((calls[0] ?? "").slice("gc-lease:".length)) as {
     kind: string;
     targetId: string;
-    metadata: { workspaceId: string; assistantId: string };
+    metadata: { workspaceId: string; assistantId: string; sessionId: string };
   };
   assert.equal(leasePayload.kind, "session_subtree");
   assert.equal(leasePayload.targetId, "chat-1");
   assert.equal(leasePayload.metadata.assistantId, "assistant-1");
+  assert.equal(leasePayload.metadata.sessionId, "runtime-session-1");
+  assert.ok(leaseScheduledAt !== null);
+  assert.ok(
+    leaseScheduledAt.getTime() >= Date.now() + SESSION_SUBTREE_GC_GRACE_MS - 5_000,
+    "lease must be scheduled ~3 days out"
+  );
   assert.deepEqual(calls.slice(1), [
     'runtime-receipt:{"where":{"assistantId":"assistant-1","channel":"web","externalThreadKey":"thread-1"}}',
     'runtime-compaction:{"where":{"runtimeSessionId":{"in":["runtime-session-1"]},"assistantId":"assistant-1"}}',

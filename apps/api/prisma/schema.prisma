@@ -2075,8 +2075,8 @@ model AssistantWorkspaceLease {
 ///
 /// `kind` selects the purge routine and metadata schema:
 ///   - `session_subtree`:     `targetId = chatId`,
-///                            `metadata = {workspaceId, assistantId}`,
-///                            `scheduledAt = now()`.
+///                            `metadata = {workspaceId, assistantId, sessionId?}`,
+///                            `scheduledAt = now() + 3 days`.
 ///   - `assistant_subtree`:   `targetId = assistantId`,
 ///                            `metadata = {workspaceId, handle}`,
 ///                            `scheduledAt = now() + 7 days`.

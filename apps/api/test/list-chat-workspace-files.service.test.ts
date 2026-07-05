@@ -156,6 +156,9 @@ async function run(): Promise<void> {
       },
       assistantChatMessageAttachment: {
         findMany: async () => attachments
+      },
+      sandboxWorkspaceGcLease: {
+        findMany: async () => []
       }
     } as never,
     {
@@ -182,6 +185,8 @@ async function run(): Promise<void> {
   assert.equal(orphan?.messageId, null);
   assert.equal(orphan?.attachmentType, "document");
   assert.equal(orphan?.originalFilename, "report.pdf");
+
+  assert.equal(orphan?.purgeScheduledAt, null);
 
   const attached = sessionScoped.files.find(
     (file) => file.storagePath === `${sessionRoot}/photo.jpg`

@@ -402,11 +402,6 @@ function createService(overrides?: {
       },
       runtimeSessionCompaction: {
         findMany: async () => []
-      },
-      workspaceFileMetadata: {
-        deleteMany: async () => {
-          callOrder.push("manifest-delete");
-        }
       }
     } as never
   );
@@ -672,7 +667,6 @@ describe("ManageWebChatListService", () => {
     await service.hardDeleteChat("user-1", "chat-1", { confirmText: "DELETE" });
 
     assert.deepEqual(callOrder, [
-      "manifest-delete",
       "object-storage-delete:assistant-media/assistants/assistant-1/chats/chat-1/",
       "attachments-delete",
       "repo-delete",

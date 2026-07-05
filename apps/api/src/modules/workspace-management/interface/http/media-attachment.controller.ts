@@ -175,6 +175,30 @@ export class MediaAttachmentController {
     };
   }
 
+  @Get("assistant/workspace-files")
+  async listAssistantWorkspaceFiles(
+    @Req() req: RequestWithPlatformContext,
+    @Query("scope") scope?: string,
+    @Query("type") type?: string,
+    @Query("cursor") cursor?: string,
+    @Query("limit") limit?: string
+  ) {
+    const userId = this.resolveRequestUserId(req);
+    const parsedLimit = typeof limit === "string" && limit.trim().length > 0 ? Number(limit) : null;
+    const result = await this.listChatWorkspaceFilesService.execute({
+      userId,
+      scope: scope ?? null,
+      type: type ?? null,
+      cursor: cursor ?? null,
+      ...(parsedLimit !== null && Number.isFinite(parsedLimit) ? { limit: parsedLimit } : {})
+    });
+    return {
+      requestId: req.requestId ?? null,
+      files: result.files,
+      nextCursor: result.nextCursor
+    };
+  }
+
   @Get("assistant/chats/web/:chatId/workspace-files")
   async listWorkspaceFiles(
     @Req() req: RequestWithPlatformContext,

@@ -4324,6 +4324,9 @@ export function buildAssistantWorkspaceRoot(assistantId: string): string {
   return `${WORKSPACE_ASSISTANTS_ROOT}/${safeAssistantStableKey}`;
 }
 
+/** Deferred GC grace after chat hard-delete; nested under assistant_subtree (+7d). */
+export const SESSION_SUBTREE_GC_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+
 export function buildAssistantSessionsRoot(assistantId: string): string {
   return `${buildAssistantWorkspaceRoot(assistantId)}/sessions`;
 }

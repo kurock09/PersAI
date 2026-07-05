@@ -33,6 +33,8 @@ export type ChatWorkspaceFileTile = {
   // attributed to any chat or assistant message.
   chatId: string | null;
   messageId: string | null;
+  /** ISO timestamp when a pending session_subtree GC purge will remove this file. */
+  purgeScheduledAt: string | null;
 };
 
 const DEFAULT_LIMIT = 48;
@@ -118,7 +120,7 @@ export class ListChatWorkspaceFilesService {
 
   async execute(input: {
     userId: string;
-    chatId: string;
+    chatId?: string | null;
     scope?: string | null;
     type?: string | null;
     cursor?: string | null;
@@ -126,44 +128,86 @@ export class ListChatWorkspaceFilesService {
   }): Promise<{ files: ChatWorkspaceFileTile[]; nextCursor: string | null }> {
     const assistant = (await this.resolveActiveAssistantService.execute({ userId: input.userId }))
       .assistant;
-    const chat = await this.chatRepository.findChatById(input.chatId);
-    if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
-      throw new NotFoundException("Web chat does not exist for this assistant.");
+    const chatId =
+      typeof input.chatId === "string" && input.chatId.trim().length > 0 ? input.chatId : null;
+    const typeFilter = this.parseTypeFilter(input.type);
+    let scope = this.parseScopeFilter(input.scope);
+    if (chatId === null) {
+      if (scope === "session") {
+        scope = "assistant";
+      }
     }
 
-    const typeFilter = this.parseTypeFilter(input.type);
-    const scope = this.parseScopeFilter(input.scope);
+    let chat: Awaited<ReturnType<AssistantChatRepository["findChatById"]>> = null;
+    if (chatId !== null) {
+      chat = await this.chatRepository.findChatById(chatId);
+      if (chat === null || chat.assistantId !== assistant.id || chat.surface !== "web") {
+        throw new NotFoundException("Web chat does not exist for this assistant.");
+      }
+    }
+
     const limit = this.parseLimit(input.limit);
     const assistantRoot = buildAssistantWorkspaceRoot(assistant.id);
     const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
       assistant.id
     );
-    const runtimeSessionState = await this.webRuntimeSessionStateClientService.execute({
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId,
-      runtimeTier,
-      surfaceThreadKey: chat.surfaceThreadKey,
-      userId: assistant.userId
-    });
+    const runtimeSessionState =
+      chat === null
+        ? { session: null }
+        : await this.webRuntimeSessionStateClientService.execute({
+            assistantId: assistant.id,
+            workspaceId: assistant.workspaceId,
+            runtimeTier,
+            surfaceThreadKey: chat.surfaceThreadKey,
+            userId: assistant.userId
+          });
     const sessionRoot =
       runtimeSessionState.session === null
         ? null
         : buildAssistantSessionRoot(assistant.id, runtimeSessionState.session.sessionId);
-    const [manifestRowsRaw, attachmentRowsRaw] = await Promise.all([
+    const [manifestRowsRaw, attachmentRowsRaw, pendingSessionPurges] = await Promise.all([
       this.prisma.workspaceFileMetadata.findMany({
-        where: { workspaceId: chat.workspaceId },
+        where: { workspaceId: assistant.workspaceId },
         orderBy: { createdAt: "desc" },
         take: MANIFEST_MAX_FETCH
       }),
       this.prisma.assistantChatMessageAttachment.findMany({
         where: {
-          workspaceId: chat.workspaceId,
+          workspaceId: assistant.workspaceId,
           assistantId: assistant.id,
           NOT: { storagePath: null }
         },
         orderBy: { createdAt: "desc" }
+      }),
+      this.prisma.sandboxWorkspaceGcLease.findMany({
+        where: {
+          kind: "session_subtree",
+          purgedAt: null,
+          AND: [
+            {
+              metadata: {
+                path: ["workspaceId"],
+                equals: assistant.workspaceId
+              }
+            },
+            {
+              metadata: {
+                path: ["assistantId"],
+                equals: assistant.id
+              }
+            }
+          ]
+        },
+        select: {
+          scheduledAt: true,
+          metadata: true
+        }
       })
     ]);
+    const pendingPurgeBySessionRoot = this.buildPendingSessionPurgeMap({
+      assistantId: assistant.id,
+      pendingLeases: pendingSessionPurges
+    });
     const manifestRows: ManifestRow[] = [];
     for (const raw of manifestRowsRaw) {
       const normalized = this.normalizeManifestRow(raw);
@@ -223,7 +267,8 @@ export class ListChatWorkspaceFilesService {
           attachmentType: attachment.attachmentType,
           createdAt: attachment.createdAt.toISOString(),
           chatId: attachment.chatId,
-          messageId: attachment.messageId
+          messageId: attachment.messageId,
+          purgeScheduledAt: this.resolvePurgeScheduledAt(manifest.path, pendingPurgeBySessionRoot)
         });
         continue;
       }
@@ -250,7 +295,8 @@ export class ListChatWorkspaceFilesService {
         attachmentType: inferredType,
         createdAt: manifest.createdAt.toISOString(),
         chatId: orphanChatId,
-        messageId: null
+        messageId: null,
+        purgeScheduledAt: this.resolvePurgeScheduledAt(manifest.path, pendingPurgeBySessionRoot)
       });
     }
 
@@ -412,5 +458,47 @@ export class ListChatWorkspaceFilesService {
 
   private isPathAtOrUnderRoot(path: string, root: string): boolean {
     return path === root || path.startsWith(`${root}/`);
+  }
+
+  private buildPendingSessionPurgeMap(input: {
+    assistantId: string;
+    pendingLeases: Array<{ scheduledAt: Date; metadata: unknown }>;
+  }): Map<string, Date> {
+    const pendingBySessionRoot = new Map<string, Date>();
+    for (const lease of input.pendingLeases) {
+      if (
+        lease.metadata === null ||
+        typeof lease.metadata !== "object" ||
+        Array.isArray(lease.metadata)
+      ) {
+        continue;
+      }
+      const metadata = lease.metadata as Record<string, unknown>;
+      if (metadata.assistantId !== input.assistantId) {
+        continue;
+      }
+      const sessionId = typeof metadata.sessionId === "string" ? metadata.sessionId : null;
+      if (sessionId === null) {
+        continue;
+      }
+      const sessionRoot = buildAssistantSessionRoot(input.assistantId, sessionId);
+      const existing = pendingBySessionRoot.get(sessionRoot);
+      if (existing === undefined || lease.scheduledAt > existing) {
+        pendingBySessionRoot.set(sessionRoot, lease.scheduledAt);
+      }
+    }
+    return pendingBySessionRoot;
+  }
+
+  private resolvePurgeScheduledAt(
+    path: string,
+    pendingBySessionRoot: Map<string, Date>
+  ): string | null {
+    for (const [sessionRoot, scheduledAt] of pendingBySessionRoot) {
+      if (this.isPathAtOrUnderRoot(path, sessionRoot)) {
+        return scheduledAt.toISOString();
+      }
+    }
+    return null;
   }
 }

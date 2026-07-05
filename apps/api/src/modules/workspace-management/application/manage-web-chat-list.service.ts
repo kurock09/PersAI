@@ -1,8 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import {
-  buildAssistantSessionRoot,
-  type RuntimeSharedCompactionConfig
-} from "@persai/runtime-contract";
+import { type RuntimeSharedCompactionConfig } from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
   type AssistantChatMessageAttachmentRepository
@@ -558,48 +555,6 @@ export class ManageWebChatListService {
       BigInt(0)
     );
 
-    const runtimeTier = await this.resolveAssistantRuntimeTierService.resolveByAssistantId(
-      assistant.id
-    );
-    const runtimeSessionState = await this.webRuntimeSessionStateClientService.execute({
-      assistantId: assistant.id,
-      workspaceId: assistant.workspaceId,
-      runtimeTier,
-      surfaceThreadKey: chat.surfaceThreadKey,
-      userId: assistant.userId
-    });
-    const sessionRoot =
-      runtimeSessionState.session === null
-        ? null
-        : buildAssistantSessionRoot(assistant.id, runtimeSessionState.session.sessionId);
-    const attachmentPaths = new Set<string>();
-    for (const attachment of attachments) {
-      if (attachment.storagePath) {
-        attachmentPaths.add(attachment.storagePath);
-      }
-      if (attachment.thumbnailStoragePath) {
-        attachmentPaths.add(attachment.thumbnailStoragePath);
-      }
-      if (attachment.posterStoragePath) {
-        attachmentPaths.add(attachment.posterStoragePath);
-      }
-    }
-    const manifestDeleteOr: Array<
-      { originChatId: string } | { path: { in: string[] } } | { path: { startsWith: string } }
-    > = [{ originChatId: chat.id }];
-    if (attachmentPaths.size > 0) {
-      manifestDeleteOr.push({ path: { in: [...attachmentPaths] } });
-    }
-    if (sessionRoot !== null) {
-      manifestDeleteOr.push({ path: { startsWith: `${sessionRoot}/` } });
-    }
-    await this.prisma.workspaceFileMetadata.deleteMany({
-      where: {
-        workspaceId: assistant.workspaceId,
-        OR: manifestDeleteOr
-      }
-    });
-
     await this.mediaObjectStorage.deletePrefix(
       this.mediaObjectStorage.buildChatPrefix({
         assistantId: assistant.id,
@@ -620,11 +575,8 @@ export class ManageWebChatListService {
     if (!deleted) {
       throw new NotFoundException("Web chat does not exist for this assistant.");
     }
-    // ADR-133 Slice 3 — the session_subtree lease persisted inside
-    // `hardDeleteChat` is `scheduledAt = now()` so the very next sandbox
-    // reaper tick will purge the warm-pod scratch and GCS snapshot subtree
-    // for this chat. We do not call across the API → sandbox process
-    // boundary here; the reaper tick is the single execution path.
+    // session_subtree lease (+3d grace) is persisted inside `hardDeleteChat`.
+    // Manifest rows and workspace bytes stay until the sandbox reaper runs.
     const activeWebChatsCurrent =
       await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
         assistant.id,

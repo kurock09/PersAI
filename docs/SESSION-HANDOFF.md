@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-05 — session_subtree 3-day grace + full session purge (no ADR)
+
+Status: **landed locally; deploy + live smoke pending.**
+
+**Scope:** Chat hard-delete now schedules `session_subtree` GC with **+3d grace** (aligned under `assistant_subtree` +7d / `workspace_subtree` +30d). Manifest + workspace bytes stay until purge; gallery shows `3d/2d/1d` badge via `purgeScheduledAt`. Sandbox reaper purges one session path (GCS + pod + manifest + snapshot) when `metadata.sessionId` is present.
+
+**Files:** `runtime-contract` (`SESSION_SUBTREE_GC_GRACE_MS`), `prisma-assistant-chat.repository.ts`, `manage-web-chat-list.service.ts`, `list-chat-workspace-files.service.ts`, `media-attachment.controller.ts` (+ `GET /assistant/workspace-files` for no-chat gallery), `workspace-gc.service.ts`, `workspace-files-gallery.tsx`, i18n en/ru.
+
+**Verification:** focused tests PASS (`prisma-assistant-chat.repository`, `manage-web-chat-list`, `list-chat-workspace-files`, `workspace-gc.service`); api/web/sandbox typecheck PASS.
+
+**Residuals:** `POST /assistant/reset` still immediate (no lease); media quota releases on chat delete while bytes remain 3d; legacy dev GCS orphans untouched.
+
+**Next step:** deploy api/sandbox/web; smoke: delete chat → files visible in Settings (assistant scope) with badge → after 3d reaper purge gone.
+
 ## 2026-07-05 — files.write→attach instruction repair + gallery orphan download fix
 
 Status: **pushed `dfad6143`; deploy + live smoke pending.**

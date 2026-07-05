@@ -39,6 +39,7 @@ function createConfig(): SandboxConfig {
 const WS_ID = "11111111-0000-4000-8000-000000000001";
 const ASST_ID = "22222222-0000-4000-8000-000000000002";
 const CHAT_ID = "33333333-0000-4000-8000-000000000003";
+const SESSION_ID = "55555555-0000-4000-8000-000000000005";
 const HANDLE = "my-bot";
 const POD_NAME = "ses-abc123";
 
@@ -166,9 +167,41 @@ function makeGcService(
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test("WorkspaceGcService: session_subtree lease past-due → session snapshot subtree deleted, purgedAt set, audit ok", async () => {
+test("WorkspaceGcService: session_subtree lease past-due with sessionId → session tree deleted, purgedAt set", async () => {
   const lease: GcLease = {
     id: "lease-cs-1",
+    kind: "session_subtree",
+    targetId: CHAT_ID,
+    metadata: { workspaceId: WS_ID, assistantId: ASST_ID, sessionId: SESSION_ID },
+    scheduledAt: pastDate(),
+    purgedAt: null
+  };
+  const pods: WarmPod[] = [{ podName: POD_NAME, assistantId: ASST_ID, handle: HANDLE }];
+  const { gc, prisma, exec, storage, audit } = makeGcService([lease], pods);
+
+  await gc.runDuePurgesNow();
+
+  const sessionRoot = buildAssistantWorkspaceRoot(ASST_ID);
+  assert.equal(exec.shellCalls.length, 1);
+  assert.ok(exec.shellCalls[0]?.shellCommand.includes(`${sessionRoot}/sessions/${SESSION_ID}`));
+  assert.equal(storage.deletedPrefixes.length, 2);
+  assert.ok(
+    storage.deletedPrefixes.some((prefix) =>
+      prefix.includes(`${WS_ID}/workspace/assistants/${ASST_ID}/sessions/${SESSION_ID}/`)
+    )
+  );
+  assert.ok(
+    storage.deletedPrefixes.some((prefix) => prefix.includes(`sandbox-sessions/${SESSION_ID}/`))
+  );
+  assert.deepEqual(prisma.updatedLeases, ["lease-cs-1"]);
+  assert.equal(audit.purgedEvents.length, 1);
+  assert.equal(audit.purgedEvents[0]?.kind, "session_subtree");
+  assert.equal(audit.failedEvents.length, 0);
+});
+
+test("WorkspaceGcService: legacy session_subtree lease without sessionId → assistant snapshot prefix only", async () => {
+  const lease: GcLease = {
+    id: "lease-cs-legacy",
     kind: "session_subtree",
     targetId: CHAT_ID,
     metadata: { workspaceId: WS_ID, assistantId: ASST_ID },
@@ -181,15 +214,30 @@ test("WorkspaceGcService: session_subtree lease past-due → session snapshot su
   await gc.runDuePurgesNow();
 
   assert.equal(exec.shellCalls.length, 0);
-  // GCS snapshot subtree deleted
   assert.equal(storage.deletedPrefixes.length, 1);
-  assert.ok(storage.deletedPrefixes[0]?.includes(ASST_ID));
-  // Lease marked purged
-  assert.deepEqual(prisma.updatedLeases, ["lease-cs-1"]);
-  // Audit event emitted
+  assert.ok(storage.deletedPrefixes[0]?.includes(`${ASST_ID}/sandbox-sessions/`));
+  assert.deepEqual(prisma.updatedLeases, ["lease-cs-legacy"]);
   assert.equal(audit.purgedEvents.length, 1);
   assert.equal(audit.purgedEvents[0]?.kind, "session_subtree");
-  assert.equal(audit.failedEvents.length, 0);
+});
+
+test("WorkspaceGcService: session_subtree lease future-dated → no purge on this tick", async () => {
+  const lease: GcLease = {
+    id: "lease-cs-future",
+    kind: "session_subtree",
+    targetId: CHAT_ID,
+    metadata: { workspaceId: WS_ID, assistantId: ASST_ID, sessionId: SESSION_ID },
+    scheduledAt: futureDate(),
+    purgedAt: null
+  };
+  const { gc, prisma, exec, storage, audit } = makeGcService([lease]);
+
+  await gc.runDuePurgesNow();
+
+  assert.equal(exec.shellCalls.length, 0);
+  assert.equal(storage.deletedPrefixes.length, 0);
+  assert.deepEqual(prisma.updatedLeases, []);
+  assert.equal(audit.purgedEvents.length, 0);
 });
 
 test("WorkspaceGcService: session_subtree lease no longer purges pod-local legacy chat trees", async () => {

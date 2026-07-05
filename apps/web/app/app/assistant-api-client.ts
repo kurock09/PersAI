@@ -4468,7 +4468,48 @@ export type ChatWorkspaceFileTile = {
   // orphans). UI must fall back to `buildWorkspaceFileUrl` in that case.
   chatId: string | null;
   messageId: string | null;
+  purgeScheduledAt: string | null;
 };
+
+export async function listAssistantWorkspaceFiles(
+  token: string,
+  input: {
+    scope?: "assistant" | "workspace";
+    type?: "all" | "image" | "video" | "document";
+    cursor?: string | null;
+    limit?: number;
+  }
+): Promise<{ files: ChatWorkspaceFileTile[]; nextCursor: string | null }> {
+  const base = getApiBaseUrl();
+  const params = new URLSearchParams();
+  if (input.scope && input.scope !== "assistant") {
+    params.set("scope", input.scope);
+  }
+  if (input.type && input.type !== "all") {
+    params.set("type", input.type);
+  }
+  if (typeof input.cursor === "string" && input.cursor.trim().length > 0) {
+    params.set("cursor", input.cursor.trim());
+  }
+  if (typeof input.limit === "number") {
+    params.set("limit", String(input.limit));
+  }
+  const qs = params.toString();
+  const res = await fetch(`${base}/assistant/workspace-files${qs ? `?${qs}` : ""}`, {
+    headers: getAuthHeaders(token)
+  });
+  if (!res.ok) {
+    throw new Error(await readJsonErrorMessage(res, "Failed to load workspace files."));
+  }
+  const data = (await res.json()) as {
+    files: ChatWorkspaceFileTile[];
+    nextCursor?: string | null;
+  };
+  return {
+    files: data.files,
+    nextCursor: data.nextCursor ?? null
+  };
+}
 
 export async function listChatWorkspaceFiles(
   token: string,

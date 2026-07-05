@@ -24,10 +24,14 @@ import {
   deleteChatWorkspaceFile,
   deleteWorkspaceFile,
   listChatWorkspaceFiles,
+  listAssistantWorkspaceFiles,
   type ChatWorkspaceFileTile
 } from "../assistant-api-client";
 import { AuthenticatedAttachmentImage } from "./authenticated-attachment-image";
 import { ImageLightbox } from "./image-lightbox";
+import { useTouchDevice } from "./use-touch-device";
+
+const MOBILE_DELETE_ARM_MS = 4_000;
 
 type GalleryScope = "session" | "assistant" | "workspace";
 
@@ -42,6 +46,15 @@ function formatBytes(bytes: number): string {
   }
   const precision = value >= 100 || unitIndex === 0 ? 0 : 1;
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function purgeGraceDaysLabel(purgeScheduledAt: string): string {
+  const remainingMs = Date.parse(purgeScheduledAt) - Date.now();
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+    return "1d";
+  }
+  const days = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+  return `${Math.max(1, Math.min(3, days))}d`;
 }
 
 function fileLabel(file: ChatWorkspaceFileTile): string {
@@ -170,6 +183,7 @@ export function WorkspaceFilesGallery({
 }) {
   const t = useTranslations("settings");
   const { getToken } = useAuth();
+  const isTouchDevice = useTouchDevice();
   const [scope, setScope] = useState<GalleryScope>(defaultScope);
   const [files, setFiles] = useState<ChatWorkspaceFileTile[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -177,6 +191,7 @@ export function WorkspaceFilesGallery({
   const [loadingMore, setLoadingMore] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [busyPath, setBusyPath] = useState<string | null>(null);
+  const [armedDeletePath, setArmedDeletePath] = useState<string | null>(null);
   const [preview, setPreview] = useState<{
     src: string;
     downloadUrl: string;
@@ -207,24 +222,41 @@ export function WorkspaceFilesGallery({
   }, [defaultScope]);
 
   useEffect(() => {
+    setArmedDeletePath(null);
+  }, [scope, chatId]);
+
+  useEffect(() => {
+    if (armedDeletePath === null) return;
+    const timer = window.setTimeout(() => setArmedDeletePath(null), MOBILE_DELETE_ARM_MS);
+    return () => window.clearTimeout(timer);
+  }, [armedDeletePath]);
+
+  useEffect(() => {
     let cancelled = false;
     void (async () => {
-      if (!chatId) {
+      const token = await getToken({ skipCache: true });
+      if (!token || cancelled) return;
+      if (!chatId && scope === "session") {
         setFiles([]);
         setNextCursor(null);
         return;
       }
-      const token = await getToken({ skipCache: true });
-      if (!token || cancelled) return;
       setLoading(true);
       setFeedback(null);
       try {
-        const payload = await listChatWorkspaceFiles(token, {
-          chatId,
-          scope,
-          cursor: null,
-          limit: 24
-        });
+        const payload =
+          chatId !== null
+            ? await listChatWorkspaceFiles(token, {
+                chatId,
+                scope,
+                cursor: null,
+                limit: 24
+              })
+            : await listAssistantWorkspaceFiles(token, {
+                scope: scope === "workspace" ? "workspace" : "assistant",
+                cursor: null,
+                limit: 24
+              });
         if (!cancelled) {
           setFiles(payload.files);
           setNextCursor(payload.nextCursor);
@@ -245,18 +277,26 @@ export function WorkspaceFilesGallery({
   }, [chatId, getToken, scope, t]);
 
   const loadMore = useCallback(async () => {
-    if (!chatId || !nextCursor) return;
+    if (!nextCursor) return;
+    if (!chatId && scope === "session") return;
     const token = await getToken({ skipCache: true });
     if (!token) return;
     setLoadingMore(true);
     setFeedback(null);
     try {
-      const payload = await listChatWorkspaceFiles(token, {
-        chatId,
-        scope,
-        cursor: nextCursor,
-        limit: 24
-      });
+      const payload =
+        chatId !== null
+          ? await listChatWorkspaceFiles(token, {
+              chatId,
+              scope,
+              cursor: nextCursor,
+              limit: 24
+            })
+          : await listAssistantWorkspaceFiles(token, {
+              scope: scope === "workspace" ? "workspace" : "assistant",
+              cursor: nextCursor,
+              limit: 24
+            });
       setFiles((current) => [...current, ...payload.files]);
       setNextCursor(payload.nextCursor);
     } catch (error) {
@@ -301,6 +341,7 @@ export function WorkspaceFilesGallery({
 
   const handleTileClick = useCallback(
     (file: ChatWorkspaceFileTile) => {
+      setArmedDeletePath(null);
       if (file.attachmentType === "image" || file.attachmentType === "video") {
         openPreview(file);
         return;
@@ -335,6 +376,7 @@ export function WorkspaceFilesGallery({
           });
         }
         setFiles((current) => current.filter((row) => row.storagePath !== file.storagePath));
+        setArmedDeletePath(null);
       } catch (error) {
         setFeedback(error instanceof Error ? error.message : t("filesDeleteFailed"));
       } finally {
@@ -344,7 +386,20 @@ export function WorkspaceFilesGallery({
     [getToken, t, workspaceId]
   );
 
-  if (!chatId) {
+  const handleDeletePress = useCallback(
+    (file: ChatWorkspaceFileTile) => {
+      if (isTouchDevice) {
+        if (armedDeletePath !== file.storagePath) {
+          setArmedDeletePath(file.storagePath);
+          return;
+        }
+      }
+      void handleDelete(file);
+    },
+    [armedDeletePath, handleDelete, isTouchDevice]
+  );
+
+  if (!chatId && !workspaceId) {
     return (
       <div className="rounded-2xl border border-dashed border-border/80 bg-surface-raised/40 px-4 py-8 text-center">
         <p className="text-sm font-medium text-text">{t("filesEmptyTitle")}</p>
@@ -400,11 +455,18 @@ export function WorkspaceFilesGallery({
                           workspaceId,
                           preview: true
                         })
-                      : file.attachmentType === "image" || file.attachmentType === "video"
+                      : file.attachmentType === "video"
                         ? buildTileUrl({ tile: file, workspaceId, preview: true })
-                        : null;
+                        : file.attachmentType === "image"
+                          ? buildTileUrl({ tile: file, workspaceId, preview: true })
+                          : null;
                 const { icon: DocIcon, colorClass: docColorClass } = documentIcon(file.mimeType);
                 const isBusy = busyPath === file.storagePath;
+                const isDeleteArmed = armedDeletePath === file.storagePath;
+                const purgeGraceLabel =
+                  file.purgeScheduledAt !== null
+                    ? purgeGraceDaysLabel(file.purgeScheduledAt)
+                    : null;
                 return (
                   <div key={file.storagePath} className="group">
                     <div className="relative aspect-square overflow-hidden rounded-xl border border-border/45 bg-background/35 transition-colors hover:bg-surface-raised/45 hover:border-border/70">
@@ -440,10 +502,19 @@ export function WorkspaceFilesGallery({
                         ) : null}
                       </button>
 
+                      {purgeGraceLabel !== null ? (
+                        <span
+                          className="pointer-events-none absolute left-1.5 top-1.5 z-20 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur"
+                          title={t("workspaceFilesPurgeGraceHint")}
+                        >
+                          {purgeGraceLabel}
+                        </span>
+                      ) : null}
+
                       <div
                         className={cn(
                           "absolute right-1.5 top-1.5 z-20 md:opacity-0 md:transition-opacity md:group-hover:opacity-100",
-                          isBusy && "md:opacity-100"
+                          (isBusy || isDeleteArmed) && "opacity-100 md:opacity-100"
                         )}
                       >
                         <button
@@ -451,16 +522,26 @@ export function WorkspaceFilesGallery({
                           disabled={isBusy}
                           onClick={(event) => {
                             event.stopPropagation();
-                            void handleDelete(file);
+                            handleDeletePress(file);
                           }}
-                          className="flex h-7 w-7 items-center justify-center rounded-full bg-surface/90 text-text-subtle backdrop-blur transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-60"
-                          aria-label={t("filesDelete")}
-                          title={t("filesDelete")}
+                          data-testid={
+                            isDeleteArmed ? "workspace-file-delete-armed" : "workspace-file-delete"
+                          }
+                          className={cn(
+                            "flex h-7 items-center justify-center overflow-hidden rounded-full bg-surface/90 backdrop-blur transition-[width,padding,color,background-color] duration-200 ease-out disabled:opacity-60",
+                            isDeleteArmed
+                              ? "min-w-[5.25rem] px-2.5 text-[10px] font-semibold text-destructive"
+                              : "w-7 text-text-subtle hover:bg-destructive/10 hover:text-destructive"
+                          )}
+                          aria-label={isDeleteArmed ? t("filesDeleteConfirm") : t("filesDelete")}
+                          title={isDeleteArmed ? t("filesDeleteConfirm") : t("filesDelete")}
                         >
                           {isBusy ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : isDeleteArmed ? (
+                            <span className="whitespace-nowrap">{t("filesDeleteConfirm")}</span>
                           ) : (
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-3.5 w-3.5 shrink-0" />
                           )}
                         </button>
                       </div>

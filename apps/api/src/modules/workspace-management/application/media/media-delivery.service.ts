@@ -469,10 +469,17 @@ export class MediaDeliveryService {
     mimeType: string;
     originalFilename: string | null;
   }> {
-    const attachment = await this.attachmentRepository.findByChatIdAndStoragePath({
+    let attachment = await this.attachmentRepository.findByChatIdAndStoragePath({
       chatId: input.chatId,
       storagePath: input.path
     });
+    const downloadPath = input.path;
+    if (attachment === null) {
+      attachment = await this.attachmentRepository.findByChatIdAndDerivativeStoragePath({
+        chatId: input.chatId,
+        storagePath: input.path
+      });
+    }
     if (
       attachment === null ||
       attachment.assistantId !== input.assistantId ||
@@ -495,7 +502,7 @@ export class MediaDeliveryService {
         ? (attachment.metadata as Record<string, unknown>)
         : null
     );
-    if (externalUrl !== null) {
+    if (externalUrl !== null && downloadPath === attachment.storagePath) {
       const downloaded = await downloadRuntimeMediaUrl(externalUrl);
       if (downloaded === null) {
         throw new GoneException("(file no longer available)");
@@ -509,17 +516,23 @@ export class MediaDeliveryService {
     }
     const objectKey = this.mediaObjectStorage.buildWorkspaceObjectKey({
       workspaceId: input.workspaceId,
-      workspaceRelPath: attachment.storagePath
+      workspaceRelPath: downloadPath
     });
     const downloaded = await this.mediaObjectStorage.downloadObject(objectKey);
     if (downloaded === null) {
       throw new GoneException("(file no longer available)");
     }
+    const derivativeBasename = downloadPath.split("/").pop() ?? "";
     return {
       buffer: downloaded.buffer,
       contentType: downloaded.contentType,
-      mimeType: attachment.mimeType,
-      originalFilename: attachment.originalFilename
+      mimeType: downloaded.contentType,
+      originalFilename:
+        downloadPath === attachment.storagePath
+          ? attachment.originalFilename
+          : derivativeBasename.length > 0
+            ? derivativeBasename
+            : attachment.originalFilename
     };
   }
 

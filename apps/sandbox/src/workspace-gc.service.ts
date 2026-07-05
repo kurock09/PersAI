@@ -6,7 +6,7 @@ import {
   type OnModuleInit
 } from "@nestjs/common";
 import type { SandboxConfig } from "@persai/config";
-import { buildAssistantWorkspaceRoot } from "@persai/runtime-contract";
+import { buildAssistantSessionRoot, buildAssistantWorkspaceRoot } from "@persai/runtime-contract";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { SANDBOX_CONFIG } from "./sandbox-config";
@@ -25,9 +25,10 @@ import { WorkspaceAuditService } from "./workspace-audit.service";
  * ADR-133 Slice 2 keeps the existing producer rows in the database for now, but
  * maps them to hierarchy-aligned sandbox semantics at the boundary:
  *
- * - `session_subtree` cleanup drops the assistant's session-snapshot GCS
- *   subtree. Current producer metadata still lacks a runtime session id, so this
- *   slice cannot yet target one concrete session directory on warm pods.
+ * - `session_subtree` cleanup purges one session directory under
+ *   `/workspace/assistants/<assistantId>/sessions/<sessionId>/...` when
+ *   `metadata.sessionId` is present; legacy leases without `sessionId` fall
+ *   back to the assistant-wide sandbox-snapshot prefix.
  * - `assistant_subtree` cleanup purges `/workspace/assistants/<assistantId>/...`.
  * - `workspace_subtree` cleanup purges the whole visible workspace tree.
  *
@@ -38,7 +39,8 @@ import { WorkspaceAuditService } from "./workspace-audit.service";
 
 const SESSION_SUBTREE_METADATA = z.object({
   workspaceId: z.string().uuid(),
-  assistantId: z.string().uuid()
+  assistantId: z.string().uuid(),
+  sessionId: z.string().uuid().optional()
 });
 
 const ASSISTANT_SUBTREE_METADATA = z.object({
@@ -178,22 +180,67 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
   }): Promise<void> {
     const startedAt = Date.now();
     const meta = SESSION_SUBTREE_METADATA.parse(lease.metadata);
-    try {
+    let metadataRowsRemoved = 0;
+    let podsTouched = 0;
+
+    if (meta.sessionId !== undefined) {
+      const sessionRoot = buildAssistantSessionRoot(meta.assistantId, meta.sessionId);
+      const prefix = this.sandboxObjectStorageService.buildWorkspacePrefix({
+        workspaceId: meta.workspaceId,
+        subPath: sessionRoot.replace(/^\/workspace\/?/, "")
+      });
+      await this.sandboxObjectStorageService.deletePrefix(prefix);
+      try {
+        const snapshotPrefix = `${this.mediaPrefix()}/assistants/${meta.assistantId}/sandbox-sessions/${meta.sessionId}/`;
+        await this.sandboxObjectStorageService.deletePrefix(snapshotPrefix);
+      } catch (error) {
+        this.logger.warn(
+          `workspace_gc_session_subtree_snapshot_purge_failed target=${lease.targetId} reason=${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      const pods = await this.execPodBridgeService.listWarmSessionPodsForWorkspace(
+        meta.workspaceId
+      );
+      for (const pod of pods) {
+        if (pod.assistantId !== meta.assistantId) {
+          continue;
+        }
+        try {
+          await this.execPodBridgeService.execShellInSessionPod({
+            assistantId: pod.assistantId,
+            assistantHandle: pod.handle,
+            siblingHandles: pods.filter((p) => p.podName !== pod.podName).map((p) => p.handle),
+            workspaceId: meta.workspaceId,
+            policy: this.gcSandboxPolicy(),
+            shellCommand: `rm -rf ${posixSingleQuote(sessionRoot)}`,
+            stdin: null
+          });
+          podsTouched += 1;
+        } catch (error) {
+          this.logger.warn(
+            `workspace_gc_session_subtree_pod_purge_failed pod=${pod.podName} workspace=${meta.workspaceId} sessionId=${meta.sessionId} reason=${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+      }
+      metadataRowsRemoved = await this.deleteWorkspaceFileMetadataByPathPrefix({
+        workspaceId: meta.workspaceId,
+        relPathPrefix: `${sessionRoot}/`
+      });
+    } else {
+      // Legacy leases without sessionId cannot target one session tree; snapshot-only
+      // cleanup remains best-effort until the lease row ages out of the queue.
       const snapshotPrefix = `${this.mediaPrefix()}/assistants/${meta.assistantId}/sandbox-sessions/`;
       await this.sandboxObjectStorageService.deletePrefix(snapshotPrefix);
-    } catch (error) {
-      this.logger.warn(
-        `workspace_gc_session_subtree_gcs_purge_failed target=${lease.targetId} reason=${error instanceof Error ? error.message : String(error)}`
-      );
     }
+
     await this.markLeasePurged(lease.id);
     this.workspaceAuditService.recordGcPurged({
       leaseId: lease.id,
       kind: "session_subtree",
       targetId: lease.targetId,
       durationMs: Date.now() - startedAt,
-      metadataRowsRemoved: 0,
-      podsTouched: 0
+      metadataRowsRemoved,
+      podsTouched
     });
   }
 
