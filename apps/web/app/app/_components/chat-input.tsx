@@ -242,16 +242,24 @@ function resolveMediaJobLabel(
     if (elapsedSec < 300) return t("chatTalkingAvatarBannerStage3");
     return t("chatTalkingAvatarBannerStage4");
   }
+  const requestedCount =
+    typeof job.requestedCount === "number" && Number.isInteger(job.requestedCount)
+      ? job.requestedCount
+      : null;
   switch (job.operation) {
     case "image_edit":
-      return t("mediaJobImageEdit");
+      return requestedCount !== null && requestedCount > 1
+        ? t("mediaJobImageEditBatch", { count: requestedCount })
+        : t("mediaJobImageEdit");
     case "video_generate":
       return t("mediaJobVideoGenerate");
     case "audio_generate":
       return t("mediaJobAudioGenerate");
     case "image_generate":
     default:
-      return t("mediaJobImageGenerate");
+      return requestedCount !== null && requestedCount > 1
+        ? t("mediaJobImageGenerateBatch", { count: requestedCount })
+        : t("mediaJobImageGenerate");
   }
 }
 

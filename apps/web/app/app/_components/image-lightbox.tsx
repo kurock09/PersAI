@@ -31,6 +31,7 @@ import {
   type NativeMediaTransferRequest
 } from "./persai-native-bridge";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
+import { useAuthenticatedVideoPosterUrl } from "./use-authenticated-video-poster-url";
 
 interface ImageLightboxProps {
   open: boolean;
@@ -39,6 +40,8 @@ interface ImageLightboxProps {
   filename?: string | undefined;
   alt?: string | undefined;
   mediaType?: "image" | "video" | undefined;
+  posterSrc?: string | null | undefined;
+  videoSourceUrl?: string | null | undefined;
   galleryItems?: Array<{
     src: string;
     downloadUrl?: string | undefined;
@@ -160,17 +163,6 @@ function createTransferRequestId(action: "save" | "share"): string {
   return `lightbox-${action}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** Touch / mobile WebView: user taps the hero play button instead of autoplay. */
-function prefersManualVideoPlayback(): boolean {
-  if (typeof window === "undefined") {
-    return true;
-  }
-  if (typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches) {
-    return true;
-  }
-  return typeof navigator !== "undefined" && (navigator.maxTouchPoints ?? 0) > 0;
-}
-
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -269,6 +261,8 @@ export function ImageLightbox({
   filename,
   alt,
   mediaType = "image",
+  posterSrc,
+  videoSourceUrl,
   galleryItems,
   currentIndex,
   onNavigate,
@@ -280,7 +274,7 @@ export function ImageLightbox({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [sharing, setSharing] = useState(false);
   const [videoPlaying, setVideoPlaying] = useState(false);
-  const [videoMuted, setVideoMuted] = useState(true);
+  const [videoMuted, setVideoMuted] = useState(false);
   const [videoDurationSec, setVideoDurationSec] = useState(0);
   const [videoCurrentTimeSec, setVideoCurrentTimeSec] = useState(0);
   const [chromeVisible, setChromeVisible] = useState(true);
@@ -335,6 +329,12 @@ export function ImageLightbox({
   const galleryPositionLabel = hasGallery
     ? `${resolvedGalleryIndex + 1} / ${resolvedGalleryItems.length}`
     : null;
+  const resolvedVideoPosterPreviewUrl = mediaType === "video" ? (posterSrc ?? null) : null;
+  const resolvedVideoSourceUrl = mediaType === "video" ? (videoSourceUrl ?? src) : null;
+  const { posterUrl: resolvedVideoPosterUrl } = useAuthenticatedVideoPosterUrl({
+    posterPreviewUrl: resolvedVideoPosterPreviewUrl,
+    videoSourceUrl: resolvedVideoSourceUrl
+  });
 
   useHistoryBackToClose(open, onClose);
 
@@ -344,7 +344,7 @@ export function ImageLightbox({
       setPan({ x: 0, y: 0 });
       setSharing(false);
       setVideoPlaying(false);
-      setVideoMuted(true);
+      setVideoMuted(false);
       setVideoDurationSec(0);
       setVideoCurrentTimeSec(0);
       setChromeVisible(true);
@@ -379,6 +379,8 @@ export function ImageLightbox({
     setScale(1);
     setPan({ x: 0, y: 0 });
     setSwipeDismissOffsetY(0);
+    setVideoPlaying(false);
+    setVideoMuted(false);
     setNativeTransfer(null);
     pointersRef.current.clear();
     pinchRef.current = null;
@@ -495,9 +497,6 @@ export function ImageLightbox({
       return;
     }
     video.muted = videoMuted;
-    if (prefersManualVideoPlayback()) {
-      return;
-    }
     const playPromise = video.play();
     if (playPromise && typeof playPromise.then === "function") {
       void playPromise.then(
@@ -508,7 +507,7 @@ export function ImageLightbox({
     if (playPromise === undefined) {
       setVideoPlaying(!video.paused);
     }
-  }, [mediaType, open, videoMuted]);
+  }, [mediaType, open, src, videoMuted]);
 
   const applyZoom = useCallback(
     (
@@ -1177,6 +1176,8 @@ export function ImageLightbox({
   const showTopChrome = chromeVisible;
   const showVideoTransportChrome = mediaType !== "video" || chromeVisible;
   const showVideoHeroPlay = mediaType === "video" && !videoPlaying;
+  const showVideoPosterOverlay =
+    mediaType === "video" && resolvedVideoPosterUrl !== null && !videoPlaying;
   const nativeTransferBusy =
     nativeTransfer !== null &&
     nativeTransfer.stage !== "completed" &&
@@ -1403,10 +1404,14 @@ export function ImageLightbox({
             ref={videoRef}
             src={src}
             playsInline
-            preload="metadata"
+            preload="auto"
             muted={videoMuted}
             disableRemotePlayback
-            className="max-h-full max-w-full object-contain"
+            poster={resolvedVideoPosterUrl ?? undefined}
+            className={cn(
+              "max-h-full max-w-full object-contain",
+              showVideoPosterOverlay && "opacity-0"
+            )}
             onPlay={() => setVideoPlaying(true)}
             onPause={() => setVideoPlaying(false)}
             onEnded={() => setVideoPlaying(false)}
@@ -1418,6 +1423,14 @@ export function ImageLightbox({
               setVideoCurrentTimeSec(e.currentTarget.currentTime || 0);
             }}
           />
+          {showVideoPosterOverlay ? (
+            <img
+              src={resolvedVideoPosterUrl ?? undefined}
+              alt={alt ?? mediaTitle}
+              className="pointer-events-none absolute inset-0 m-auto max-h-full max-w-full object-contain"
+              data-testid="media-lightbox-video-poster"
+            />
+          ) : null}
           {showVideoHeroPlay ? (
             <button
               type="button"

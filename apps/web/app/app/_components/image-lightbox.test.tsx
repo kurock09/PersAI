@@ -17,6 +17,14 @@ vi.mock("./use-history-back-to-close", () => ({
   useHistoryBackToClose: () => undefined
 }));
 
+vi.mock("./use-authenticated-video-poster-url", () => ({
+  useAuthenticatedVideoPosterUrl: () => ({
+    posterUrl: null,
+    loading: false,
+    failed: false
+  })
+}));
+
 function blockVideoAutoplay() {
   vi.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(
     () => new Promise<void>(() => undefined)
@@ -445,7 +453,7 @@ describe("ImageLightbox", () => {
     expect(screen.getByLabelText("lightboxPlayHero")).toBeInTheDocument();
   });
 
-  it("does not autoplay video on touch devices", () => {
+  it("autoplays video on touch devices after open", () => {
     const playSpy = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     vi.stubGlobal(
       "matchMedia",
@@ -473,8 +481,7 @@ describe("ImageLightbox", () => {
       />
     );
 
-    expect(playSpy).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("lightboxPlayHero")).toBeInTheDocument();
+    expect(playSpy).toHaveBeenCalled();
   });
 
   it("reuses one fetched blob across share and save fallback actions", async () => {
@@ -582,7 +589,7 @@ describe("ImageLightbox", () => {
     expect(screen.getByRole("button", { name: "lightboxClose" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "lightboxPlay" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "lightboxPlayHero" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "lightboxUnmute" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "lightboxMute" })).toBeInTheDocument();
   });
 
   it("restores video chrome visibility when the playing video is tapped", async () => {

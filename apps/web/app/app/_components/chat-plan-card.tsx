@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronDown, Circle, Loader2, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
@@ -14,10 +14,18 @@ export interface ChatPlanCardProps {
   className?: string;
 }
 
+const ACTIVE_TODO_LIMIT = 10;
+
 interface GroupedTodo {
   item: RuntimeTodoItem;
   isOrphan: boolean;
   children: RuntimeTodoItem[];
+}
+
+interface PlanDisplayRow {
+  item: RuntimeTodoItem;
+  indented: boolean;
+  isOrphan: boolean;
 }
 
 function groupTodos(todos: RuntimeTodoItem[]): GroupedTodo[] {
@@ -48,6 +56,54 @@ function groupTodos(todos: RuntimeTodoItem[]): GroupedTodo[] {
   return result;
 }
 
+function sortTodosForDisplay(todos: RuntimeTodoItem[]): RuntimeTodoItem[] {
+  const statusRank = (status: PersaiRuntimeTodoWriteStatus): number => {
+    if (status === "completed") return 0;
+    if (status === "in_progress") return 1;
+    return 2;
+  };
+  return todos
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const rankDelta = statusRank(left.item.status) - statusRank(right.item.status);
+      if (rankDelta !== 0) return rankDelta;
+      return left.index - right.index;
+    })
+    .map(({ item }) => item);
+}
+
+function flattenGroupedRows(grouped: GroupedTodo[]): PlanDisplayRow[] {
+  const rows: PlanDisplayRow[] = [];
+  for (const { item, isOrphan, children } of grouped) {
+    rows.push({ item, indented: false, isOrphan });
+    for (const child of children) {
+      rows.push({ item: child, indented: true, isOrphan: false });
+    }
+  }
+  return rows;
+}
+
+function buildVisiblePlanRows(
+  rows: PlanDisplayRow[],
+  showAllActive: boolean
+): {
+  visibleRows: PlanDisplayRow[];
+  hiddenActiveCount: number;
+  activeRowCount: number;
+} {
+  const completedRows = rows.filter((row) => row.item.status === "completed");
+  const activeRows = rows.filter((row) => row.item.status !== "completed");
+  const visibleActiveRows =
+    showAllActive || activeRows.length <= ACTIVE_TODO_LIMIT
+      ? activeRows
+      : activeRows.slice(0, ACTIVE_TODO_LIMIT);
+  return {
+    visibleRows: [...completedRows, ...visibleActiveRows],
+    hiddenActiveCount: Math.max(0, activeRows.length - visibleActiveRows.length),
+    activeRowCount: activeRows.length
+  };
+}
+
 // Pick the task to preview in the collapsed header:
 // 1) first in_progress (anywhere)
 // 2) else first pending
@@ -60,6 +116,33 @@ function selectCurrentTodo(todos: RuntimeTodoItem[]): RuntimeTodoItem | null {
   return null;
 }
 
+function TodoInProgressIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={cn("shrink-0 text-text-muted/55", className)}
+      aria-label="in_progress"
+      fill="none"
+    >
+      {/* Ring with a gap on the right where the arrow exits (Cursor-style). */}
+      <path
+        d="M 12.53 10.11 A 5 5 0 1 1 12.53 5.89"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      {/* Horizontal arrow from center through the gap. */}
+      <path
+        d="M 8 8 H 11.6 M 10.4 6.75 12.75 8 10.4 9.25"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function StatusIcon({
   status,
   size
@@ -67,7 +150,6 @@ function StatusIcon({
   status: PersaiRuntimeTodoWriteStatus;
   size?: "sm" | "md";
 }) {
-  // ADR-125 follow-up — smaller and more muted icons to match the quieter banner styling.
   const cls = size === "md" ? "h-3.5 w-3.5" : "h-3 w-3";
   if (status === "completed") {
     return (
@@ -75,12 +157,7 @@ function StatusIcon({
     );
   }
   if (status === "in_progress") {
-    return (
-      <Loader2
-        className={cn(cls, "shrink-0 animate-spin text-text-subtle/80")}
-        aria-label="in_progress"
-      />
-    );
+    return <TodoInProgressIcon className={cls} />;
   }
   return <Circle className={cn(cls, "shrink-0 text-text-muted/40")} aria-label="pending" />;
 }
@@ -161,22 +238,34 @@ function ChatPlanCardBody({
   className?: string;
 }) {
   const t = useTranslations("chat");
-  // Collapsed by default. Best practice: keep the plan compact, surface
-  // the current task as a one-line preview, let the user expand on demand.
   const [expanded, setExpanded] = useState(false);
+  const [showAllActive, setShowAllActive] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [clearing, setClearing] = useState(false);
 
+  const sortedTodos = useMemo(() => sortTodosForDisplay(todos), [todos]);
+  const grouped = useMemo(() => groupTodos(sortedTodos), [sortedTodos]);
+  const allRows = useMemo(() => flattenGroupedRows(grouped), [grouped]);
+  const { visibleRows, hiddenActiveCount, activeRowCount } = useMemo(
+    () => buildVisiblePlanRows(allRows, showAllActive),
+    [allRows, showAllActive]
+  );
+
+  useEffect(() => {
+    if (!expanded) {
+      setShowAllActive(false);
+    }
+  }, [expanded]);
+
+  useEffect(() => {
+    setShowAllActive(false);
+  }, [todos]);
+
   const allDone = doneCount === totalCount && totalCount > 0;
-  const currentTodo = selectCurrentTodo(todos);
+  const currentTodo = selectCurrentTodo(sortedTodos);
   const hiddenCount = windowed ? Math.max(0, totalCount - todos.length) : 0;
   const bodyId = "chat-plan-body";
-  const grouped = groupTodos(todos);
 
-  // Status indicator on the very left of the header:
-  // - all done → green check
-  // - in_progress task exists → spinner
-  // - otherwise → muted circle
   const headerStatus: PersaiRuntimeTodoWriteStatus = allDone
     ? "completed"
     : currentTodo?.status === "in_progress"
@@ -193,9 +282,6 @@ function ChatPlanCardBody({
     }
   };
 
-  // ADR-125 follow-up — when the plan is fully completed, the trash click
-  // is a single-tap delete with no confirmation prompt (the plan is done
-  // anyway). Otherwise, a confirmation row gates the destructive action.
   const handleTrashClick = () => {
     if (allDone) {
       void runClear();
@@ -207,27 +293,14 @@ function ChatPlanCardBody({
   return (
     <div
       className={cn(
-        // ADR-125 follow-up — quieter banner styling.
-        //
-        // Mobile (`< md`): flush against the chat header, no rounded
-        // corners on the sides, no left/right borders, just a hairline
-        // along the bottom edge to separate it from the message stream.
-        //
-        // Desktop (`md+`): subtle hairline border + slight rounding, no
-        // shadow / "floating" feel. The background uses `color-mix()` so
-        // the banner blends into the current surface variable instead of
-        // hard-coding a tone (works in both light and dark themes).
         "border-b border-border/30 backdrop-blur-xl backdrop-saturate-150",
         "md:rounded-[0.625rem] md:border md:border-border/40",
         className
       )}
       style={{
-        // Slightly more transparent on mobile, a touch more opaque on
-        // desktop where the banner sits over the chat surface.
         backgroundColor: "color-mix(in srgb, var(--surface-raised) 78%, transparent)"
       }}
     >
-      {/* Header row */}
       <div className="flex items-center gap-2 px-3 py-2">
         <button
           type="button"
@@ -249,7 +322,6 @@ function ChatPlanCardBody({
             </span>
           ) : null}
 
-          {/* Inline preview of the current task in the collapsed state */}
           {!expanded ? (
             <span className="flex min-w-0 flex-1 items-center gap-2">
               <span aria-hidden className="shrink-0 text-text-muted/30">
@@ -306,7 +378,6 @@ function ChatPlanCardBody({
         ) : null}
       </div>
 
-      {/* Inline confirm row (only when the plan is not yet fully done) */}
       {confirmingClear ? (
         <div className="flex items-center gap-2 border-t border-border/30 px-3 py-2">
           <span className="flex-1 text-xs text-text-muted">{t("planClearConfirmPrompt")}</span>
@@ -333,18 +404,39 @@ function ChatPlanCardBody({
         </div>
       ) : null}
 
-      {/* Body */}
       {expanded ? (
-        <div id={bodyId} className="space-y-0 border-t border-border/30 px-3 py-2">
-          {grouped.map(({ item, isOrphan, children }) => (
-            <div key={item.id}>
-              <PlanRow item={item} indented={false} isOrphan={isOrphan} />
-              {children.map((child) => (
-                <PlanRow key={child.id} item={child} indented={true} isOrphan={false} />
-              ))}
+        <>
+          <div
+            id={bodyId}
+            className={cn(
+              "space-y-0 border-t border-border/30 px-3 py-2",
+              showAllActive &&
+                activeRowCount > ACTIVE_TODO_LIMIT &&
+                "max-h-[min(40vh,280px)] overflow-y-auto"
+            )}
+          >
+            {visibleRows.map((row) => (
+              <PlanRow
+                key={row.item.id}
+                item={row.item}
+                indented={row.indented}
+                isOrphan={row.isOrphan}
+              />
+            ))}
+          </div>
+          {hiddenActiveCount > 0 ? (
+            <div className="border-t border-border/20 px-3 py-2">
+              <button
+                type="button"
+                className="w-full rounded-md px-2 py-1.5 text-[12px] font-medium text-text-subtle transition-colors hover:bg-surface-hover hover:text-text"
+                onClick={() => setShowAllActive(true)}
+                data-testid="chat-plan-show-more"
+              >
+                {t("planShowMore", { count: hiddenActiveCount })}
+              </button>
             </div>
-          ))}
-        </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );

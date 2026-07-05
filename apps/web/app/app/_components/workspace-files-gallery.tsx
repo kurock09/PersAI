@@ -12,7 +12,8 @@ import {
   Loader2,
   Play,
   Trash2,
-  Video
+  Video,
+  Clock
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
@@ -28,6 +29,7 @@ import {
   type ChatWorkspaceFileTile
 } from "../assistant-api-client";
 import { AuthenticatedAttachmentImage } from "./authenticated-attachment-image";
+import { AuthenticatedVideoTilePreview } from "./authenticated-video-tile-preview";
 import { ImageLightbox } from "./image-lightbox";
 import { useTouchDevice } from "./use-touch-device";
 
@@ -48,17 +50,25 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
 }
 
-function purgeGraceDaysLabel(purgeScheduledAt: string): string {
-  const remainingMs = Date.parse(purgeScheduledAt) - Date.now();
-  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
-    return "1d";
-  }
-  const days = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
-  return `${Math.max(1, Math.min(3, days))}d`;
-}
-
 function fileLabel(file: ChatWorkspaceFileTile): string {
   return file.originalFilename ?? file.storagePath.split("/").pop() ?? "file";
+}
+
+function sortWorkspaceFilesForGallery(files: ChatWorkspaceFileTile[]): ChatWorkspaceFileTile[] {
+  const active: ChatWorkspaceFileTile[] = [];
+  const pendingPurge: ChatWorkspaceFileTile[] = [];
+  for (const file of files) {
+    if (file.purgeScheduledAt !== null) {
+      pendingPurge.push(file);
+    } else {
+      active.push(file);
+    }
+  }
+  return [...active, ...pendingPurge];
+}
+
+function isPendingPurgeFile(file: ChatWorkspaceFileTile): boolean {
+  return file.purgeScheduledAt !== null;
 }
 
 // ADR-127 W1 — chat-scoped URLs require a joined attachment row (messageId).
@@ -97,6 +107,48 @@ function buildTileUrl(input: {
     });
   }
   return null;
+}
+
+function buildWorkspaceFileTileImagePreviewUrl(
+  file: ChatWorkspaceFileTile,
+  workspaceId: string | null
+): string | null {
+  if (file.attachmentType === "image") {
+    if (file.thumbnailStoragePath) {
+      return buildTileUrl({
+        tile: {
+          chatId: file.chatId,
+          messageId: file.messageId,
+          storagePath: file.thumbnailStoragePath
+        },
+        workspaceId,
+        preview: true
+      });
+    }
+    return buildTileUrl({ tile: file, workspaceId, preview: true });
+  }
+  if (file.attachmentType === "video" && file.posterStoragePath) {
+    return buildTileUrl({
+      tile: {
+        chatId: file.chatId,
+        messageId: file.messageId,
+        storagePath: file.posterStoragePath
+      },
+      workspaceId,
+      preview: true
+    });
+  }
+  return null;
+}
+
+function buildWorkspaceFileTileVideoSourceUrl(
+  file: ChatWorkspaceFileTile,
+  workspaceId: string | null
+): string | null {
+  if (file.attachmentType !== "video") {
+    return null;
+  }
+  return buildTileUrl({ tile: file, workspaceId });
 }
 
 function documentIcon(mimeType: string): {
@@ -197,6 +249,8 @@ export function WorkspaceFilesGallery({
     downloadUrl: string;
     filename?: string;
     mediaType: "image" | "video";
+    posterSrc: string | null;
+    videoSourceUrl: string | null;
     galleryItems: Array<{ src: string; downloadUrl?: string; filename?: string; alt?: string }>;
     currentIndex: number;
   } | null>(null);
@@ -211,10 +265,14 @@ export function WorkspaceFilesGallery({
     return options;
   }, [allowSessionScope, t]);
 
+  const displayFiles = useMemo(() => sortWorkspaceFilesForGallery(files), [files]);
+
   const previewableMedia = useMemo(
     () =>
-      files.filter((file) => file.attachmentType === "image" || file.attachmentType === "video"),
-    [files]
+      displayFiles.filter(
+        (file) => file.attachmentType === "image" || file.attachmentType === "video"
+      ),
+    [displayFiles]
   );
 
   useEffect(() => {
@@ -327,11 +385,21 @@ export function WorkspaceFilesGallery({
       const fileSrc = buildTileUrl({ tile: file, workspaceId });
       if (fileSrc === null) return;
       const fileDownloadUrl = buildTileUrl({ tile: file, workspaceId, download: true }) ?? fileSrc;
+      const posterSrc =
+        file.attachmentType === "video"
+          ? buildWorkspaceFileTileImagePreviewUrl(file, workspaceId)
+          : null;
+      const videoSourceUrl =
+        file.attachmentType === "video"
+          ? buildWorkspaceFileTileVideoSourceUrl(file, workspaceId)
+          : null;
       setPreview({
         src: fileSrc,
         downloadUrl: fileDownloadUrl,
         filename: fileLabel(file),
         mediaType: file.attachmentType === "video" ? "video" : "image",
+        posterSrc,
+        videoSourceUrl,
         galleryItems,
         currentIndex: currentIndex >= 0 ? currentIndex : 0
       });
@@ -432,53 +500,41 @@ export function WorkspaceFilesGallery({
         <>
           <div className="max-h-[min(64vh,540px)] overflow-y-auto pr-1">
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
-              {files.map((file) => {
+              {displayFiles.map((file) => {
                 const label = fileLabel(file);
-                const thumbUrl =
-                  file.attachmentType === "image" && file.thumbnailStoragePath
-                    ? buildTileUrl({
-                        tile: {
-                          chatId: file.chatId,
-                          messageId: file.messageId,
-                          storagePath: file.thumbnailStoragePath
-                        },
-                        workspaceId,
-                        preview: true
-                      })
-                    : file.attachmentType === "video" && file.posterStoragePath
-                      ? buildTileUrl({
-                          tile: {
-                            chatId: file.chatId,
-                            messageId: file.messageId,
-                            storagePath: file.posterStoragePath
-                          },
-                          workspaceId,
-                          preview: true
-                        })
-                      : file.attachmentType === "video"
-                        ? buildTileUrl({ tile: file, workspaceId, preview: true })
-                        : file.attachmentType === "image"
-                          ? buildTileUrl({ tile: file, workspaceId, preview: true })
-                          : null;
+                const imagePreviewUrl = buildWorkspaceFileTileImagePreviewUrl(file, workspaceId);
+                const videoSourceUrl = buildWorkspaceFileTileVideoSourceUrl(file, workspaceId);
                 const { icon: DocIcon, colorClass: docColorClass } = documentIcon(file.mimeType);
                 const isBusy = busyPath === file.storagePath;
                 const isDeleteArmed = armedDeletePath === file.storagePath;
-                const purgeGraceLabel =
-                  file.purgeScheduledAt !== null
-                    ? purgeGraceDaysLabel(file.purgeScheduledAt)
-                    : null;
+                const pendingPurge = isPendingPurgeFile(file);
                 return (
-                  <div key={file.storagePath} className="group">
-                    <div className="relative aspect-square overflow-hidden rounded-xl border border-border/45 bg-background/35 transition-colors hover:bg-surface-raised/45 hover:border-border/70">
+                  <div
+                    key={file.storagePath}
+                    className={cn("group", pendingPurge && "opacity-55 saturate-[0.82]")}
+                  >
+                    <div
+                      className={cn(
+                        "relative aspect-square overflow-hidden rounded-xl border border-border/45 bg-background/35 transition-colors hover:bg-surface-raised/45 hover:border-border/70",
+                        pendingPurge && "border-border/30 bg-background/20"
+                      )}
+                    >
                       <button
                         type="button"
                         className="absolute inset-0 flex h-full w-full items-center justify-center"
                         onClick={() => handleTileClick(file)}
                         data-testid={`workspace-file-tile-${file.attachmentType}`}
                       >
-                        {thumbUrl ? (
+                        {file.attachmentType === "video" ? (
+                          <AuthenticatedVideoTilePreview
+                            posterPreviewUrl={imagePreviewUrl}
+                            videoSourceUrl={videoSourceUrl}
+                            alt={label}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : imagePreviewUrl ? (
                           <AuthenticatedAttachmentImage
-                            src={thumbUrl}
+                            src={imagePreviewUrl}
                             alt={label}
                             className="h-full w-full object-cover"
                           />
@@ -502,12 +558,14 @@ export function WorkspaceFilesGallery({
                         ) : null}
                       </button>
 
-                      {purgeGraceLabel !== null ? (
+                      {pendingPurge ? (
                         <span
-                          className="pointer-events-none absolute left-1.5 top-1.5 z-20 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur"
+                          className="pointer-events-none absolute bottom-1.5 left-1.5 z-20 flex h-5 w-5 items-center justify-center rounded-full bg-black/30 text-white/75 backdrop-blur-sm"
                           title={t("workspaceFilesPurgeGraceHint")}
+                          aria-label={t("workspaceFilesPurgeGraceHint")}
+                          data-testid="workspace-file-purge-grace-indicator"
                         >
-                          {purgeGraceLabel}
+                          <Clock className="h-3 w-3" strokeWidth={2.25} />
                         </span>
                       ) : null}
 
@@ -584,6 +642,7 @@ export function WorkspaceFilesGallery({
           onNavigate={(nextIndex) => {
             const next = preview.galleryItems[nextIndex];
             if (!next) return;
+            const nextFile = previewableMedia[nextIndex];
             setPreview((current) =>
               current
                 ? {
@@ -591,13 +650,22 @@ export function WorkspaceFilesGallery({
                     src: next.src,
                     downloadUrl: next.downloadUrl ?? next.src,
                     ...(next.filename ? { filename: next.filename } : {}),
-                    mediaType:
-                      previewableMedia[nextIndex]?.attachmentType === "video" ? "video" : "image",
+                    mediaType: nextFile?.attachmentType === "video" ? "video" : "image",
+                    posterSrc:
+                      nextFile?.attachmentType === "video"
+                        ? buildWorkspaceFileTileImagePreviewUrl(nextFile, workspaceId)
+                        : null,
+                    videoSourceUrl:
+                      nextFile?.attachmentType === "video"
+                        ? buildWorkspaceFileTileVideoSourceUrl(nextFile, workspaceId)
+                        : null,
                     currentIndex: nextIndex
                   }
                 : current
             );
           }}
+          posterSrc={preview.posterSrc}
+          videoSourceUrl={preview.videoSourceUrl}
           onClose={() => setPreview(null)}
         />
       ) : null}

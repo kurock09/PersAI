@@ -1444,6 +1444,8 @@ function VideoAttachmentPreview({
         filename={filename}
         alt={filename}
         mediaType="video"
+        posterSrc={previewUrl}
+        videoSourceUrl={fullUrl}
         onClose={onClose}
       />
     </div>

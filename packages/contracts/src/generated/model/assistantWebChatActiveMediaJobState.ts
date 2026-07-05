@@ -19,6 +19,13 @@ export interface AssistantWebChatActiveMediaJobState {
    * @nullable
    */
   displayKind?: AssistantWebChatActiveMediaJobStateDisplayKind;
+  /**
+   * Total image outputs requested for this job when known from persisted request metadata. Omitted or null for single-image jobs, unknown legacy rows, and non-image operations.
+
+   * @minimum 1
+   * @nullable
+   */
+  requestedCount?: number | null;
   status: AssistantWebChatActiveMediaJobStateStatus;
   createdAt: string;
   /** @nullable */

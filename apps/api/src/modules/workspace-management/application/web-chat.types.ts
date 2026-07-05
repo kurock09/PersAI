@@ -236,6 +236,8 @@ export interface AssistantWebChatActiveMediaJobState {
    * `requestJson.directToolExecution.request.mode`; defaults to `"cinematic"`.
    */
   displayKind?: AssistantWebChatActiveMediaJobDisplayKind | null;
+  /** Total image outputs requested for this job; omitted or null when unknown or single-image. */
+  requestedCount?: number | null;
   status: AssistantWebChatActiveMediaJobStatus;
   createdAt: string;
   startedAt: string | null;

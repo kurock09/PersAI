@@ -522,7 +522,9 @@
     "chatTalkingAvatarBannerStage3": "Rendering video…",
     "chatTalkingAvatarBannerStage4": "Final pass, almost there…",
     "mediaJobImageGenerate": "Generating image",
+    "mediaJobImageGenerateBatch": "Generating image ({count})",
     "mediaJobImageEdit": "Editing image",
+    "mediaJobImageEditBatch": "Editing image ({count})",
     "mediaJobVideoGenerate": "Generating video",
     "mediaJobAudioGenerate": "Generating audio",
     "mediaJobsInProgress": "Generation in progress: {count}",
@@ -715,7 +717,8 @@
     "planClearCancel": "Cancel",
     "planToggleExpand": "Expand plan",
     "planToggleCollapse": "Collapse plan",
-    "planAllDone": "All tasks completed"
+    "planAllDone": "All tasks completed",
+    "planShowMore": "More ({count})"
   },
   "sidebar": {
     "defaultAssistant": "Your Assistant",

@@ -427,6 +427,96 @@ async function run(): Promise<void> {
     assert.equal(results[0]?.status, "completion_pending");
   }
 
+  // ── Test 10: listOpenJobsForWebChat exposes requestedCount for multi-image ─
+  {
+    const prisma = buildPrismaStub([
+      {
+        id: "job-series-web",
+        kind: "image",
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "Carousel slides",
+          sourceUserMessageCreatedAt: "2026-05-31T00:00:00.000Z",
+          directToolExecution: {
+            toolCode: "image_edit",
+            request: {
+              toolCode: "image_edit",
+              count: 7,
+              outputMode: "series",
+              prompt: "brand carousel",
+              seriesItems: [
+                "slide 1",
+                "slide 2",
+                "slide 3",
+                "slide 4",
+                "slide 5",
+                "slide 6",
+                "slide 7"
+              ],
+              sourceImageAlias: "ref-1",
+              filename: null,
+              size: null
+            }
+          }
+        },
+        status: "running",
+        createdAt: new Date("2026-05-31T10:00:00.000Z"),
+        startedAt: new Date("2026-05-31T10:00:05.000Z"),
+        updatedAt: new Date("2026-05-31T10:00:05.000Z")
+      }
+    ]);
+    (service as never)["prisma"] = prisma;
+
+    const results = await service.listOpenJobsForWebChat({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1"
+    });
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0]?.requestedCount, 7);
+  }
+
+  // ── Test 11: listOpenJobsForWebChat includes requestedCount=1 for single ───
+  {
+    const prisma = buildPrismaStub([
+      {
+        id: "job-single-web",
+        kind: "image",
+        requestJson: {
+          attachments: [],
+          sourceUserMessageText: "One banner",
+          sourceUserMessageCreatedAt: "2026-05-31T00:00:00.000Z",
+          directToolExecution: {
+            toolCode: "image_generate",
+            request: {
+              toolCode: "image_generate",
+              count: 1,
+              prompt: "festival banner",
+              filename: null,
+              size: null,
+              background: "auto"
+            }
+          }
+        },
+        status: "running",
+        createdAt: new Date("2026-05-31T10:00:00.000Z"),
+        startedAt: new Date("2026-05-31T10:00:05.000Z"),
+        updatedAt: new Date("2026-05-31T10:00:05.000Z")
+      }
+    ]);
+    (service as never)["prisma"] = prisma;
+
+    const results = await service.listOpenJobsForWebChat({
+      assistantId: "assistant-1",
+      userId: "user-1",
+      chatId: "chat-1"
+    });
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0]?.requestedCount, 1);
+  }
+
   // ── Test 10: recent delivered jobs surface as recent delivery updates ──────
   {
     const prisma = buildPrismaStub([

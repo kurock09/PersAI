@@ -297,19 +297,23 @@ export class AssistantMediaJobService {
         updatedAt: true
       }
     });
-    return rows.map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      operation: toWebOpenMediaJobOperation({
+    return rows.map((row) => {
+      const requestedCount = extractRequestedCountFromRequestJson(row.requestJson);
+      return {
+        id: row.id,
         kind: row.kind,
-        requestJson: row.requestJson
-      }),
-      displayKind: toWebOpenMediaJobDisplayKind({ requestJson: row.requestJson }),
-      status: toWebOpenMediaJobStatus(row.status),
-      createdAt: row.createdAt.toISOString(),
-      startedAt: row.startedAt?.toISOString() ?? null,
-      updatedAt: row.updatedAt.toISOString()
-    }));
+        operation: toWebOpenMediaJobOperation({
+          kind: row.kind,
+          requestJson: row.requestJson
+        }),
+        displayKind: toWebOpenMediaJobDisplayKind({ requestJson: row.requestJson }),
+        ...(requestedCount === null ? {} : { requestedCount }),
+        status: toWebOpenMediaJobStatus(row.status),
+        createdAt: row.createdAt.toISOString(),
+        startedAt: row.startedAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt.toISOString()
+      };
+    });
   }
 
   private toRuntimeJobDeliveryUpdate(

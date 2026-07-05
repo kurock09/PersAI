@@ -522,7 +522,9 @@
     "chatTalkingAvatarBannerStage3": "Видео рендерится…",
     "chatTalkingAvatarBannerStage4": "Финальный проход, скоро будет готово…",
     "mediaJobImageGenerate": "Генерирую фото",
+    "mediaJobImageGenerateBatch": "Генерирую фото ({count})",
     "mediaJobImageEdit": "Редактирую фото",
+    "mediaJobImageEditBatch": "Редактирую фото ({count})",
     "mediaJobVideoGenerate": "Генерирую видео",
     "mediaJobAudioGenerate": "Генерирую аудио",
     "mediaJobsInProgress": "Генерация в процессе: {count}",
@@ -715,7 +717,8 @@
     "planClearCancel": "Отмена",
     "planToggleExpand": "Развернуть план",
     "planToggleCollapse": "Свернуть план",
-    "planAllDone": "Все задачи выполнены"
+    "planAllDone": "Все задачи выполнены",
+    "planShowMore": "Больше ({count})"
   },
   "sidebar": {
     "defaultAssistant": "Твой ассистент",

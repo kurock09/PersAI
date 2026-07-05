@@ -244,4 +244,62 @@ describe("ChatPlanCard", () => {
     expect(orphanRow?.classList.contains("pl-5")).toBe(false);
     expect(within(body).getByText("▸", { exact: false })).toBeInTheDocument();
   });
+
+  it("orders completed tasks above active tasks in the expanded body", () => {
+    const todos = [
+      makeTodo({ id: "1", status: "pending", content: "Next up" }),
+      makeTodo({ id: "2", status: "completed", content: "Done task" }),
+      makeTodo({ id: "3", status: "in_progress", content: "Currently working" })
+    ];
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={3} windowed={false} onClear={noop} />
+    );
+    expand(container);
+    const body = container.querySelector("#chat-plan-body") as HTMLElement;
+    const done = within(body).getByText("Done task");
+    const current = within(body).getByText("Currently working");
+    const next = within(body).getByText("Next up");
+    expect(done.compareDocumentPosition(current) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(current.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows a More button when more than 10 active tasks are expanded", () => {
+    const todos = Array.from({ length: 12 }, (_, index) =>
+      makeTodo({ id: String(index + 1), content: `Task ${index + 1}`, status: "pending" })
+    );
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={12} windowed={false} onClear={noop} />
+    );
+    expand(container);
+    expect(within(container).getByTestId("chat-plan-show-more")).toBeInTheDocument();
+    expect(within(container).queryByText("Task 11")).toBeNull();
+    expect(within(container).queryByText("Task 12")).toBeNull();
+  });
+
+  it("reveals the remaining active tasks after More is clicked", () => {
+    const todos = Array.from({ length: 12 }, (_, index) =>
+      makeTodo({ id: String(index + 1), content: `Task ${index + 1}`, status: "pending" })
+    );
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={12} windowed={false} onClear={noop} />
+    );
+    expand(container);
+    fireEvent.click(within(container).getByTestId("chat-plan-show-more"));
+    expect(within(container).getByText("Task 11")).toBeInTheDocument();
+    expect(within(container).getByText("Task 12")).toBeInTheDocument();
+    expect(within(container).queryByTestId("chat-plan-show-more")).toBeNull();
+  });
+
+  it("uses the cursor-style in_progress icon instead of a spinner", () => {
+    const todos = [makeTodo({ id: "1", status: "in_progress", content: "Working" })];
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={1} windowed={false} onClear={noop} />
+    );
+    expand(container);
+    expect(container.querySelector('[aria-label="in_progress"]')).not.toBeNull();
+    expect(container.querySelector(".lucide-loader-2")).toBeNull();
+    expect(
+      container.querySelector('[aria-label="in_progress"]')?.classList.contains("animate-spin")
+    ).toBe(false);
+  });
 });

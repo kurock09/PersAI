@@ -1,5 +1,17 @@
 # SESSION-HANDOFF
 
+## 2026-07-05 — web UX batch: media banner count, plan card, video gallery, grace tiles
+
+Status: **landed locally; pushed pending verification commit.**
+
+**Scope:** (1) Multi-image media job chip shows batch size — `Генерирую фото (7) - 0:15` via optional `requestedCount` on `activeMediaJobs`. (2) Chat plan card: completed→in_progress→pending sort, cap 10 active + «Больше (N)», Cursor-style static `in_progress` icon (circle break + horizontal arrow, no spin). (3) Workspace gallery + lightbox: video poster thumbnails, unmuted autoplay in lightbox, authenticated poster hook. (4) Grace-period tiles: pending-purge files sorted to end, clock icon bottom-left, semi-transparent tiles.
+
+**Files:** `workspace-media-job.service.ts`, `web-chat.types.ts`, `openapi.yaml`, `assistantWebChatActiveMediaJobState.ts`, `chat-input.tsx`, `chat-plan-card.tsx`, `workspace-files-gallery.tsx`, `image-lightbox.tsx`, `chat-message.tsx`, new `video-preview-utils.ts` / `use-authenticated-video-poster-url.ts` / `authenticated-video-tile-preview.tsx`, i18n en/ru, focused tests.
+
+**Verification:** root `lint`, `format:check`, `typecheck`, `test`, `test:step2`, `build` PASS locally. `prisma:migrate:check` FAIL — pre-existing local DB failed migration (`20260501120000_adr079_knowledge_skills_foundation`), unrelated to this slice (no schema changes).
+
+**Next step:** deploy `api` + `web`; live smoke: carousel media job banner `(N)`, plan card expand/show-more, video tile poster + lightbox playback, grace tile clock after chat delete.
+
 ## 2026-07-05 — session_subtree 3-day grace + full session purge (no ADR)
 
 Status: **landed locally; deploy + live smoke pending.**

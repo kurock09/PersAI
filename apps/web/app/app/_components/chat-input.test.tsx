@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatInput } from "./chat-input";
 
 vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string) => key
+  useTranslations: () => (key: string, params?: { count?: number }) =>
+    params?.count !== undefined ? `${key} (${String(params.count)})` : key
 }));
 
 function toFileList(files: File[]): FileList {
@@ -456,6 +457,74 @@ describe("ChatInput", () => {
     );
 
     expect(screen.getByText("mediaJobImageEdit 1:42")).toBeInTheDocument();
+  });
+
+  it("shows batch image banner copy when requestedCount is greater than one", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-05T12:01:42Z"));
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+        activeMediaJobs={[
+          {
+            id: "job-series",
+            kind: "image",
+            operation: "image_generate",
+            status: "running",
+            requestedCount: 7,
+            createdAt: "2026-05-05T12:00:00Z",
+            startedAt: "2026-05-05T12:00:18Z",
+            updatedAt: "2026-05-05T12:01:40Z"
+          },
+          {
+            id: "job-edit-series",
+            kind: "image",
+            operation: "image_edit",
+            status: "running",
+            requestedCount: 4,
+            createdAt: "2026-05-05T12:00:00Z",
+            startedAt: "2026-05-05T12:00:18Z",
+            updatedAt: "2026-05-05T12:01:40Z"
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("mediaJobImageGenerateBatch (7) 1:24")).toBeInTheDocument();
+    expect(screen.getByText("mediaJobImageEditBatch (4) 1:24")).toBeInTheDocument();
+  });
+
+  it("keeps single-image banner copy when requestedCount is one", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-05T12:01:42Z"));
+
+    render(
+      <ChatInput
+        onSend={vi.fn()}
+        onTranscribeVoice={vi.fn(async () => "")}
+        onStop={vi.fn()}
+        isStreaming={false}
+        activeMediaJobs={[
+          {
+            id: "job-single",
+            kind: "image",
+            operation: "image_generate",
+            status: "running",
+            requestedCount: 1,
+            createdAt: "2026-05-05T12:00:00Z",
+            startedAt: "2026-05-05T12:00:18Z",
+            updatedAt: "2026-05-05T12:01:40Z"
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("mediaJobImageGenerate 1:24")).toBeInTheDocument();
+    expect(screen.queryByText(/mediaJobImageGenerateBatch/)).toBeNull();
   });
 
   it("shows active document job chips with elapsed time", () => {

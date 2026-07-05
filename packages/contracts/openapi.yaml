@@ -12209,6 +12209,15 @@ components:
             `requestJson.directToolExecution.request.mode` when present;
             defaults to `cinematic`. Optional for backwards compatibility with
             legacy job rows that predate this field.
+        requestedCount:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: >
+            Total image outputs requested for this job when known from persisted
+            request metadata (`count` or `seriesItems` length for image_generate
+            and image_edit). Omitted or null for single-image jobs, unknown
+            legacy rows, and non-image operations.
         status:
           type: string
           enum:
