@@ -34,9 +34,15 @@ import type {
   RuntimeImageEditRequest,
   RuntimeImageGenerateRequest,
   RuntimeTodoItem,
-  RuntimeVideoGenerateRequest
+  RuntimeVideoGenerateRequest,
+  RuntimeBrowserProfileListItem,
+  RuntimeBrowserLoginResult,
+  PersaiRuntimeBrowserProfileErrorReason
 } from "@persai/runtime-contract";
-import { PERSAI_RUNTIME_TODO_WRITE_STATUSES } from "@persai/runtime-contract";
+import {
+  PERSAI_RUNTIME_BROWSER_PROFILE_ERROR_REASONS,
+  PERSAI_RUNTIME_TODO_WRITE_STATUSES
+} from "@persai/runtime-contract";
 import { RUNTIME_CONFIG } from "../../runtime-config";
 
 const INTERNAL_API_TIMEOUT_MS = 10_000;
@@ -66,6 +72,14 @@ export type ConsumeToolDailyLimitOutcome =
       code: string;
       message: string;
     };
+
+export type ResolveBrowserProfileOutcome =
+  | { ok: true; providerSessionId: string; profileId: string }
+  | { ok: false; reason: PersaiRuntimeBrowserProfileErrorReason };
+
+export type StartBrowserLoginOutcome = RuntimeBrowserLoginResult & {
+  profileId: string;
+};
 
 export type InternalQuotaStatusOutcome = {
   planCode: string | null;
@@ -3080,6 +3094,213 @@ export class PersaiInternalApiClientService {
 
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected the chat-todos window request."
+    );
+  }
+
+  async listBrowserProfiles(input: {
+    assistantId: string;
+  }): Promise<RuntimeBrowserProfileListItem[]> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/browser-profiles/list", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      if (payload?.ok === true && Array.isArray(payload.profiles)) {
+        const profiles: RuntimeBrowserProfileListItem[] = [];
+        for (const entry of payload.profiles) {
+          const row = this.asObject(entry);
+          if (
+            row === null ||
+            typeof row.profileKey !== "string" ||
+            typeof row.displayName !== "string" ||
+            typeof row.status !== "string" ||
+            typeof row.originHost !== "string" ||
+            (row.lastUsedAt !== null && typeof row.lastUsedAt !== "string")
+          ) {
+            continue;
+          }
+          profiles.push({
+            profileKey: row.profileKey,
+            displayName: row.displayName,
+            status: row.status as RuntimeBrowserProfileListItem["status"],
+            originHost: row.originHost,
+            lastUsedAt: row.lastUsedAt as string | null
+          });
+        }
+        return profiles;
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid browser-profiles list response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API browser-profiles list request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the browser-profiles list request."
+    );
+  }
+
+  async resolveBrowserProfile(input: {
+    assistantId: string;
+    profileKey: string;
+  }): Promise<ResolveBrowserProfileOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/browser-profiles/resolve", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      if (payload?.ok === true && typeof payload.providerSessionId === "string") {
+        return {
+          ok: true,
+          providerSessionId: payload.providerSessionId,
+          profileId: typeof payload.profileId === "string" ? payload.profileId : ""
+        };
+      }
+      if (
+        payload?.ok === false &&
+        typeof payload.reason === "string" &&
+        (PERSAI_RUNTIME_BROWSER_PROFILE_ERROR_REASONS as readonly string[]).includes(payload.reason)
+      ) {
+        return { ok: false, reason: payload.reason as PersaiRuntimeBrowserProfileErrorReason };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid browser-profiles resolve response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API browser-profiles resolve request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the browser-profiles resolve request."
+    );
+  }
+
+  async startBrowserLogin(input: {
+    assistantId: string;
+    workspaceId: string;
+    displayName: string;
+    loginUrl: string;
+    browserCredentialSecretId?: string;
+    originatingChatId?: string | null;
+  }): Promise<StartBrowserLoginOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/browser-profiles/start-login", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      if (
+        payload?.ok === true &&
+        typeof payload.profileId === "string" &&
+        typeof payload.profileKey === "string" &&
+        typeof payload.displayName === "string" &&
+        typeof payload.liveUrl === "string" &&
+        typeof payload.loginUrl === "string" &&
+        typeof payload.status === "string"
+      ) {
+        return {
+          profileId: payload.profileId,
+          profileKey: payload.profileKey,
+          displayName: payload.displayName,
+          liveUrl: payload.liveUrl,
+          loginUrl: payload.loginUrl,
+          status: payload.status as RuntimeBrowserLoginResult["status"]
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid browser-profiles start-login response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API browser-profiles start-login request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the browser-profiles start-login request."
+    );
+  }
+
+  async touchBrowserProfile(input: {
+    assistantId: string;
+    workspaceId: string;
+    profileKey: string;
+  }): Promise<void> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/browser-profiles/touch", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      if (payload?.ok === true) {
+        return;
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid browser-profiles touch response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API browser-profiles touch request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the browser-profiles touch request."
     );
   }
 

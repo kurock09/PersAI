@@ -191,7 +191,7 @@ async function run(): Promise<void> {
     const ALLOW_LIST: Record<string, string[]> = {
       web_search: ["web_fetch"],
       web_fetch: ["web_search", "browser"],
-      browser: ["web_search", "web_fetch"],
+      browser: ["web_search", "web_fetch", "files"],
       memory_search: ["knowledge_fetch", "knowledge_search"],
       memory_get: ["knowledge_search", "knowledge_fetch"],
       image_generate: ["image_edit"],

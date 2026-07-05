@@ -261,6 +261,11 @@ function testCatalogRowsKeepSelectionGuideAsSingleOwner(): void {
   );
   assert.doesNotMatch(toolText("tts"), /text reply|Quiet background context/i);
   assert.doesNotMatch(toolText("browser"), /Static page content|No URL in hand/i);
+  assert.doesNotMatch(toolText("browser"), /Sessions are bounded|ephemeral/i);
+  assert.match(toolText("browser"), /list_profiles/);
+  assert.match(toolText("browser"), /action:"login"/);
+  assert.match(toolText("browser"), /optimizeForSpeed/);
+  assert.match(toolText("browser"), /format:"pdf"/);
   assert.doesNotMatch(toolText("memory_search"), /Use BEFORE web tools|specific public URL/i);
   assert.doesNotMatch(toolText("memory_get"), /No referenceId is available/i);
   assert.doesNotMatch(

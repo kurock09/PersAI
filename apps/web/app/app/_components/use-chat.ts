@@ -32,7 +32,9 @@ import {
   type WebChatActiveDocumentJobState,
   type WebChatActiveTurnState,
   type WebChatTurnStatusState,
-  type WebChatUxIssue
+  type WebChatUxIssue,
+  parsePendingBrowserLoginState,
+  type PendingBrowserLoginState
 } from "../assistant-api-client";
 import type { RuntimeTodoItem, RuntimeTurnToolInvocation } from "@persai/runtime-contract";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
@@ -137,6 +139,11 @@ export interface UseChatReturn {
    * reloads. Mirrors `chat.skillDecisionState` derivation on the API.
    */
   currentEngagement: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
+  pendingBrowserLogin: PendingBrowserLoginState | null;
+  browserLoginModalOpen: boolean;
+  dismissBrowserLogin: () => void;
+  reopenBrowserLogin: () => void;
+  clearPendingBrowserLogin: () => void;
   send: (text: string, files?: File[], options?: ChatSendOptions) => Promise<void>;
   sendWelcome: (locale: string) => Promise<void>;
   compactNow: (instructions?: string) => Promise<ChatCompactionResult | null>;
@@ -1062,6 +1069,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     skillDisplayName: string;
     scenarioDisplayName: string | null;
   } | null>(null);
+  const pendingBrowserLoginByThreadRef = useRef<Map<string, PendingBrowserLoginState>>(new Map());
+  const browserLoginDismissedByThreadRef = useRef<Map<string, boolean>>(new Map());
+  const [pendingBrowserLogin, setPendingBrowserLoginState] =
+    useState<PendingBrowserLoginState | null>(null);
+  const [browserLoginDismissed, setBrowserLoginDismissedState] = useState(false);
   const [pendingSendStatus, setPendingSendStatusState] = useState<PendingSendStatus | null>(null);
   /* Slice 1.1 ��� abort controllers are per-thread now (was a single `useRef`). */ /* The single ref clobbered itself when Chat A's stream cleaned up while */ /* Chat B was already mid-flight, which made `stop()` either no-op or abort */ /* the wrong stream. Keying by `threadKey` keeps each turn's controller */ /* independent until *its* stream completes or the user explicitly stops it */ /* from that thread's view. */ /*  */ /* Slice 1.2 ��� each entry now also carries the `clientTurnId` of the */ /* turn it owns. `stop()` needs the id to call the new */ /* `stopAssistantWebChatTurn` API (see `assistant-api-client.ts`); see */ /* the `stop` callback below for why this distinction matters */ /* (soft-detach vs hard-stop). */ const abortControllersByThreadRef =
     useRef<Map<string, { controller: AbortController; clientTurnId: string }>>(new Map());
@@ -1127,6 +1139,38 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     pendingSendStatusRef.current = next;
     setPendingSendStatusState(next);
   }, []);
+  const syncPendingBrowserLoginForThread = useCallback((targetThreadKey: string) => {
+    const nextPending = pendingBrowserLoginByThreadRef.current.get(targetThreadKey) ?? null;
+    const dismissed = browserLoginDismissedByThreadRef.current.get(targetThreadKey) === true;
+    setPendingBrowserLoginState(nextPending);
+    setBrowserLoginDismissedState(dismissed);
+  }, []);
+  const applyPendingBrowserLoginForThread = useCallback(
+    (targetThreadKey: string, next: PendingBrowserLoginState | null) => {
+      if (next === null) {
+        pendingBrowserLoginByThreadRef.current.delete(targetThreadKey);
+        browserLoginDismissedByThreadRef.current.delete(targetThreadKey);
+      } else {
+        pendingBrowserLoginByThreadRef.current.set(targetThreadKey, next);
+        browserLoginDismissedByThreadRef.current.delete(targetThreadKey);
+      }
+      if (currentThreadKeyRef.current === targetThreadKey) {
+        syncPendingBrowserLoginForThread(targetThreadKey);
+      }
+    },
+    [syncPendingBrowserLoginForThread]
+  );
+  const dismissBrowserLogin = useCallback(() => {
+    browserLoginDismissedByThreadRef.current.set(assistantScopedThreadKey, true);
+    setBrowserLoginDismissedState(true);
+  }, [assistantScopedThreadKey]);
+  const reopenBrowserLogin = useCallback(() => {
+    browserLoginDismissedByThreadRef.current.delete(assistantScopedThreadKey);
+    setBrowserLoginDismissedState(false);
+  }, [assistantScopedThreadKey]);
+  const clearPendingBrowserLogin = useCallback(() => {
+    applyPendingBrowserLoginForThread(assistantScopedThreadKey, null);
+  }, [applyPendingBrowserLoginForThread, assistantScopedThreadKey]);
   currentThreadKeyRef.current = assistantScopedThreadKey;
   const setThreadPendingSend = useCallback(
     (targetThreadKey: string, next: PendingSendSlot | null) => {
@@ -1462,6 +1506,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     pendingSendRef.current = pendingForThread;
     pendingSendStatusRef.current = pendingForThread?.status ?? null;
     setPendingSendStatusState(pendingForThread?.status ?? null);
+    syncPendingBrowserLoginForThread(assistantScopedThreadKey);
   }
   const stop = useCallback(() => {
     /* Per-thread stop: abort only the stream attached to the thread the */ /* user is currently looking at. Streams in other threads keep going so */ /* switching away from a generating image doesn't kill it. */ /*  */ /* Slice 1.2 ��� `stop()` is the *user-visible* hard-stop affordance */ /* (the Stop button on the composer). The API can no longer infer */ /* hard-stop from a dead SSE socket, because that signal also fires */ /* for soft-detach cases like locking the screen mid-image-generate. */ /* So before tearing down the local controller we send an explicit */ /* `POST /assistant/chat/web/stop` with the in-flight `clientTurnId`, */ /* which is the only path that flips the server-side abort signal. */ /* The POST is best-effort and intentionally not awaited: a failure */ /* here just means the runtime keeps generating in the background */ /* (the same fate as a soft-detach), which is strictly safer than */ /* the pre-Slice-1.2 "always kill on any disconnect" default. */ const entry =
@@ -2247,6 +2292,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                       : message
                   )
                 );
+              },
+              onPendingBrowserLogin: ({
+                pendingBrowserLogin
+              }: {
+                pendingBrowserLogin: unknown;
+              }) => {
+                const pendingLogin = parsePendingBrowserLoginState(pendingBrowserLogin);
+                if (pendingLogin !== null) {
+                  applyPendingBrowserLoginForThread(targetThreadKey, pendingLogin);
+                }
               },
               onCompleted: async () => {
                 const targetChatId = resolveKnownChatIdForThread(targetThreadKey);
@@ -3200,6 +3255,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
             )
           );
         },
+        onPendingBrowserLogin: ({ pendingBrowserLogin }: { pendingBrowserLogin: unknown }) => {
+          const pendingLogin = parsePendingBrowserLoginState(pendingBrowserLogin);
+          if (pendingLogin !== null) {
+            applyPendingBrowserLoginForThread(sendThreadKey, pendingLogin);
+          }
+        },
         onCompleted: ({ transport }: { transport: unknown }) => {
           acceptStartedStream();
           flushBufferedAssistantState(true);
@@ -3224,6 +3285,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               scenarioDisplayName?: unknown;
             } | null;
             runtime?: RuntimeTransportMeta;
+            pendingBrowserLogin?: unknown;
           } | null;
           // ADR-125 follow-up — drive the chat-level subtitle from the SSE
           // payload. When the engagement summary is `null` the server is
@@ -3240,6 +3302,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   typeof raw.scenarioDisplayName === "string" ? raw.scenarioDisplayName : null
               });
             }
+          }
+          const pendingLogin = parsePendingBrowserLoginState(t?.pendingBrowserLogin);
+          if (pendingLogin !== null) {
+            applyPendingBrowserLoginForThread(sendThreadKey, pendingLogin);
+          } else if (t?.pendingBrowserLogin === null) {
+            applyPendingBrowserLoginForThread(sendThreadKey, null);
           }
           const realUserMsgId = typeof t?.userMessage?.id === "string" ? t.userMessage.id : null;
           const newAssistantId =
@@ -4371,6 +4439,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         replaceActiveDocumentJobs(nextActiveDocumentJobs);
         if (currentThreadKeyRef.current === targetThreadKey) {
           setCurrentEngagement(page.currentEngagement ?? null);
+          applyPendingBrowserLoginForThread(targetThreadKey, page.pendingBrowserLogin ?? null);
         }
         setChatId(targetChatId);
         cachedThreadHistorySnapshotsRef.current.set(targetThreadKey, {
@@ -4543,6 +4612,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     refreshChatPlan,
     clearChatPlan,
     currentEngagement,
+    pendingBrowserLogin,
+    browserLoginModalOpen: pendingBrowserLogin !== null && !browserLoginDismissed,
+    dismissBrowserLogin,
+    reopenBrowserLogin,
+    clearPendingBrowserLogin,
     send,
     sendWelcome,
     compactNow,

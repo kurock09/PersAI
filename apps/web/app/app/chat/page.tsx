@@ -416,6 +416,7 @@ function ChatPageInner() {
       billingPlanCode={billingBanner.planCode}
       billingPaymentIntentId={billingBanner.paymentIntentId}
       paidLightModeActive={paidLightModeActive}
+      assistantId={appData.activeAssistantId}
     />
   );
 }

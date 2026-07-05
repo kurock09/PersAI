@@ -51,6 +51,11 @@ import { ResolveActiveAssistantService } from "./resolve-active-assistant.servic
 import { EnforceAssistantCapabilityAndQuotaService } from "./enforce-assistant-capability-and-quota.service";
 import { toAssistantWebChatMessageAttachmentState } from "./media/media.types";
 import { mapAssistantChatMessageToWebState } from "./web-chat-message-state.mapper";
+import {
+  ASSISTANT_BROWSER_PROFILE_REPOSITORY,
+  type AssistantBrowserProfileRepository
+} from "../domain/assistant-browser-profile.repository";
+import { resolvePendingBrowserLoginForWebChat } from "./resolve-pending-browser-login-for-web-chat";
 
 export interface UpdateWebChatRequest {
   title?: string | null;
@@ -117,7 +122,9 @@ export class ManageWebChatListService {
     private readonly webChatTurnAttemptService: WebChatTurnAttemptService,
     private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
     private readonly enforceAssistantCapabilityAndQuotaService: EnforceAssistantCapabilityAndQuotaService,
-    private readonly prisma: WorkspaceManagementPrismaService
+    private readonly prisma: WorkspaceManagementPrismaService,
+    @Inject(ASSISTANT_BROWSER_PROFILE_REPOSITORY)
+    private readonly assistantBrowserProfileRepository: AssistantBrowserProfileRepository
   ) {}
 
   parseUpdateInput(payload: unknown): UpdateWebChatRequest {
@@ -218,6 +225,11 @@ export class ManageWebChatListService {
             assistantId: assistant.id,
             userId,
             chatId: chat.id
+          }),
+          pendingBrowserLogin: await resolvePendingBrowserLoginForWebChat({
+            browserProfileRepository: this.assistantBrowserProfileRepository,
+            assistantId: assistant.id,
+            chatId: chat.id
           })
         };
       })
@@ -280,6 +292,11 @@ export class ManageWebChatListService {
         assistantId: assistant.id,
         userId,
         chatId
+      }),
+      pendingBrowserLogin: await resolvePendingBrowserLoginForWebChat({
+        browserProfileRepository: this.assistantBrowserProfileRepository,
+        assistantId: assistant.id,
+        chatId
       })
     };
   }
@@ -328,6 +345,7 @@ export class ManageWebChatListService {
     activeTurn: AssistantWebChatActiveTurnState | null;
     activeMediaJobs: AssistantWebChatActiveMediaJobState[];
     activeDocumentJobs: AssistantWebChatActiveDocumentJobState[];
+    pendingBrowserLogin: AssistantWebChatListItemState["pendingBrowserLogin"];
     /**
      * ADR-125 follow-up — chat-level "active skill / scenario" projection so
      * the web header subtitle reads truth on every history reload instead of
@@ -409,6 +427,11 @@ export class ManageWebChatListService {
     });
 
     const currentEngagement = deriveEngagementSummary(chat.skillDecisionState);
+    const pendingBrowserLogin = await resolvePendingBrowserLoginForWebChat({
+      browserProfileRepository: this.assistantBrowserProfileRepository,
+      assistantId: assistant.id,
+      chatId
+    });
 
     return {
       messages: page,
@@ -416,7 +439,8 @@ export class ManageWebChatListService {
       activeTurn,
       activeMediaJobs,
       activeDocumentJobs,
-      currentEngagement
+      currentEngagement,
+      pendingBrowserLogin
     };
   }
 

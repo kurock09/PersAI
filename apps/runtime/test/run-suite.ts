@@ -29,6 +29,7 @@ import {
 import { runRuntimeQuotaStatusToolServiceTest } from "./runtime-quota-status-tool.service.test";
 import { runRuntimeScheduledActionToolServiceTest } from "./runtime-scheduled-action-tool.service.test";
 import { runRuntimeTtsToolServiceTest } from "./runtime-tts-tool.service.test";
+import { runRuntimeBrowserToolServiceTest } from "./runtime-browser-tool.service.test";
 import { runRuntimeVideoGenerateToolServiceTest } from "./runtime-video-generate-tool.service.test";
 import { runRuntimeMemoryWriteToolServiceTest } from "./runtime-memory-write-tool.service.test";
 import { runSanitizeToolResultForModelTest } from "./sanitize-tool-result-for-model.test";
@@ -55,6 +56,7 @@ async function run(): Promise<void> {
   await runRuntimeQuotaStatusToolServiceTest();
   await runRuntimeScheduledActionToolServiceTest();
   await runRuntimeTtsToolServiceTest();
+  await runRuntimeBrowserToolServiceTest();
   await runRuntimeVideoGenerateToolServiceTest();
   await runRuntimeMemoryWriteToolServiceTest();
   await runSessionStoreServiceTest();

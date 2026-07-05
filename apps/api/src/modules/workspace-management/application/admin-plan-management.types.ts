@@ -235,6 +235,11 @@ export type AdminPlanInput = {
    * remain per-unit and are unaffected.
    */
   videoVcoinMonthlyGrant: number;
+  /**
+   * ADR-138 D5 — sliding TTL in days for persisted assistant browser profiles.
+   * Stored in `billingProviderHints`; Starter default 30d, Scale default 90d.
+   */
+  browserProfileTtlDays?: number | null;
   runtimeTierDefault: AdminPlanRuntimeTier | null;
   toolActivations?: AdminPlanToolActivationInput[];
   /**

@@ -15,7 +15,7 @@ async function run(): Promise<void> {
     providerIds: [...PERSAI_RUNTIME_BROWSER_PROVIDER_IDS],
     defaultProviderId: "browserless",
     actions: [...PERSAI_RUNTIME_BROWSER_ACTIONS],
-    confirmationRequiredActions: ["act"]
+    confirmationRequiredActions: ["act", "login"]
   });
 }
 

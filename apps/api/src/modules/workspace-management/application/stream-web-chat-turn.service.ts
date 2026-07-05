@@ -76,6 +76,15 @@ import {
   extractWorkingNotesFromMetadata
 } from "./web-chat-message-state.mapper";
 import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
+import {
+  resolvePendingBrowserLoginForWebChat,
+  resolvePendingBrowserLoginFromRuntimeTurn
+} from "./resolve-pending-browser-login-for-web-chat";
+import {
+  ASSISTANT_BROWSER_PROFILE_REPOSITORY,
+  type AssistantBrowserProfileRepository
+} from "../domain/assistant-browser-profile.repository";
+import type { PendingBrowserLoginState } from "@persai/runtime-contract";
 
 export interface StreamWebChatTurnPrepared {
   chat: AssistantWebChatState;
@@ -236,6 +245,8 @@ export class StreamWebChatTurnService {
     private readonly assistantMediaJobService: AssistantMediaJobService,
     private readonly assistantDocumentJobReadService: AssistantDocumentJobReadService,
     private readonly notificationDeliveryWorkerService: NotificationDeliveryWorkerService,
+    @Inject(ASSISTANT_BROWSER_PROFILE_REPOSITORY)
+    private readonly assistantBrowserProfileRepository: AssistantBrowserProfileRepository,
     @Optional()
     private readonly quotaAdvisoryFollowUpService?: QuotaAdvisoryFollowUpService,
     private readonly webChatTurnAttemptService?: WebChatTurnAttemptService,
@@ -347,6 +358,7 @@ export class StreamWebChatTurnService {
        * frozen output.
        */
       onStreamReset?: (payload: { reason: string; attempt: number }) => void;
+      onPendingBrowserLogin?: (state: PendingBrowserLoginState) => void;
       getSseWriterStatsSummary?: () => string | null;
     }
   ): Promise<StreamWebChatTurnOutcome> {
@@ -837,6 +849,10 @@ export class StreamWebChatTurnService {
       const streamEngagementSummary = deriveEngagementSummary(
         refreshedChat.skillDecisionState as Parameters<typeof deriveEngagementSummary>[0]
       );
+      const pendingBrowserLogin = resolvePendingBrowserLoginFromRuntimeTurn({
+        toolInvocations,
+        toolExchanges
+      });
       return {
         status: "completed",
         transport: {
@@ -878,6 +894,7 @@ export class StreamWebChatTurnService {
           ...(streamEngagementSummary !== null
             ? { engagementSummary: streamEngagementSummary }
             : {}),
+          pendingBrowserLogin,
           runtime: {
             respondedAt: respondedAt ?? new Date().toISOString(),
             degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
@@ -1098,6 +1115,7 @@ export class StreamWebChatTurnService {
         detail?: string | null;
       }) => void;
       onDone: (respondedAt: string) => void;
+      onPendingBrowserLogin?: (state: PendingBrowserLoginState) => void;
     };
     trace: OverviewLatencyTraceHandle;
     primaryRuntimeStartedAt: number;
@@ -1256,6 +1274,21 @@ export class StreamWebChatTurnService {
             toolCallId: chunk.toolCallId,
             isError: chunk.isError === true
           });
+          if (
+            chunk.toolPhase === "end" &&
+            chunk.toolName === "browser" &&
+            chunk.isError !== true &&
+            input.callbacks.onPendingBrowserLogin !== undefined
+          ) {
+            const pendingBrowserLogin = await resolvePendingBrowserLoginForWebChat({
+              browserProfileRepository: this.assistantBrowserProfileRepository,
+              assistantId: input.prepared.assistantId,
+              chatId: input.prepared.chat.id
+            });
+            if (pendingBrowserLogin !== null) {
+              input.callbacks.onPendingBrowserLogin(pendingBrowserLogin);
+            }
+          }
         }
 
         if (chunk.type === "media" && Array.isArray(chunk.media)) {
@@ -1664,6 +1697,17 @@ export class StreamWebChatTurnService {
       userId: chat.userId,
       chatId: chat.id
     });
+    const messageToolContext = await this.assistantChatRepository.findMessageToolContextById(
+      assistantMessage.id,
+      assistantId
+    );
+    const pendingBrowserLogin =
+      messageToolContext === null
+        ? null
+        : resolvePendingBrowserLoginFromRuntimeTurn({
+            toolInvocations: extractToolInvocationsFromMetadata(messageToolContext.metadata),
+            toolExchanges: messageToolContext.toolExchanges ?? undefined
+          });
 
     return {
       chat: {
@@ -1729,6 +1773,7 @@ export class StreamWebChatTurnService {
         );
         return s !== null ? { engagementSummary: s } : {};
       })(),
+      pendingBrowserLogin,
       runtime: {
         respondedAt: state.respondedAt,
         degradedByQuotaFallback: state.degradedByQuotaFallback,

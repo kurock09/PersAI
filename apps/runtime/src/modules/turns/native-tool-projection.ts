@@ -21,6 +21,7 @@ import {
   PERSAI_RUNTIME_VIDEO_GENERATE_SIZES,
   isTalkingAvatarVideoProvider,
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
+  PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS,
   PERSAI_RUNTIME_DOCUMENT_PROVIDER_IDS,
   PERSAI_RUNTIME_TTS_DELIVERY_KINDS,
   PERSAI_RUNTIME_TTS_DELIVERY_STYLES,
@@ -50,6 +51,7 @@ export type NativeToolProjectionOptions = {
 
 /** ADR-135 — catalog-tier tools may expose read-only family actions on the stub wire. */
 export const CATALOG_READ_ONLY_TOOL_ACTIONS: Partial<Record<string, readonly string[]>> = {
+  browser: ["list_profiles"],
   video_generate: ["list_personas", "list_voices", "describe_avatar_mode"],
   scheduled_action: ["list"],
   background_task: ["list"],
@@ -826,23 +828,45 @@ function createBrowserToolDefinition(
     inputSchema: {
       type: "object",
       additionalProperties: false,
-      required: ["action", "url"],
+      required: ["action"],
       properties: {
         action: {
           type: "string",
           enum: ["describe", ...bundle.runtime.browser.actions],
           description:
-            'Use "describe" to load the full tool contract. Use "snapshot" to inspect a page or "act" to perform bounded browser operations before returning a fresh snapshot.'
+            'Use "describe" to load the full tool contract. Use "list_profiles" to list saved browser sessions, "login" to start live login, "snapshot" to inspect a page, or "act" to perform bounded browser operations before returning a fresh snapshot.'
         },
         url: {
           type: "string",
-          description: "HTTP or HTTPS URL to open in the browser."
+          description:
+            'HTTP or HTTPS URL. Required for "login", "snapshot", and "act". For "login" this is the site login page opened before the live window.'
+        },
+        displayName: {
+          type: "string",
+          description:
+            'Human-readable profile label chosen by the assistant. Required for action="login".'
+        },
+        profile: {
+          type: "string",
+          description:
+            'Stable profileKey from "login" or "list_profiles". Optional for "snapshot" and "act" to reuse a saved session.'
+        },
+        format: {
+          type: "string",
+          enum: [...PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS],
+          description:
+            'Snapshot output format. Default "text". Use "pdf" on action="snapshot" to export a PDF artifact attachable via files.attach.'
+        },
+        optimizeForSpeed: {
+          type: "boolean",
+          description:
+            "When true, prefer faster page load (block heavy assets, domcontentloaded). Supported on snapshot and act."
         },
         maxChars: {
           type: "integer",
           minimum: 500,
           maximum: MAX_RUNTIME_BROWSER_MAX_CHARS,
-          description: "Maximum number of page-text characters to return."
+          description: "Maximum number of page-text characters to return for text snapshots."
         },
         operations: {
           type: "array",

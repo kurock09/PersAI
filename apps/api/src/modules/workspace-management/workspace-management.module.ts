@@ -47,6 +47,8 @@ import { InternalRuntimeDocumentJobsEnqueueController } from "./interface/http/i
 import { InternalRuntimeDocumentInspectController } from "./interface/http/internal-runtime-document-inspect.controller";
 import { InternalRuntimeDocumentRegisterVersionController } from "./interface/http/internal-runtime-document-register-version.controller";
 import { InternalRuntimeFilesController } from "./interface/http/internal-runtime-files-controller";
+import { InternalRuntimeBrowserProfilesController } from "./interface/http/internal-runtime-browser-profiles.controller";
+import { AssistantBrowserProfilesController } from "./interface/http/assistant-browser-profiles.controller";
 import { InternalWorkspaceFilesController } from "./interface/http/internal-workspace-files.controller";
 import { InternalRuntimeMediaJobsEnqueueController } from "./interface/http/internal-runtime-media-jobs-enqueue.controller";
 import { InternalRuntimeMediaJobsCheckpointController } from "./interface/http/internal-runtime-media-jobs-checkpoint.controller";
@@ -154,6 +156,14 @@ import { WorkspaceFileMicroDescriptionService } from "./application/workspace-fi
 import { WorkspaceFileMicroDescriptionJobService } from "./application/workspace-file-micro-description-job.service";
 import { WorkspaceFileMicroDescriptionJobSchedulerService } from "./application/workspace-file-micro-description-job-scheduler.service";
 import { WORKSPACE_FILE_METADATA_REPOSITORY } from "./domain/workspace-file-metadata.repository";
+import { ASSISTANT_BROWSER_PROFILE_REPOSITORY } from "./domain/assistant-browser-profile.repository";
+import { PrismaAssistantBrowserProfileRepository } from "./infrastructure/persistence/prisma-assistant-browser-profile.repository";
+import { BROWSERLESS_SESSION_PORT } from "./application/browserless-session.port";
+import { BrowserlessProviderGatewayClient } from "./application/browserless-provider-gateway.client";
+import { ProviderBrowserlessSessionPort } from "./application/provider-browserless-session.port";
+import { AssistantBrowserProfileService } from "./application/assistant-browser-profile.service";
+import { ExpireAssistantBrowserProfilesService } from "./application/expire-assistant-browser-profiles.service";
+import { AssistantBrowserProfileExpirySchedulerService } from "./application/assistant-browser-profile-expiry-scheduler.service";
 import { PrismaWorkspaceFileMetadataRepository } from "./infrastructure/persistence/prisma-workspace-file-metadata.repository";
 import { KnowledgeDocumentProcessorService } from "./application/knowledge-document-processor.service";
 import { KnowledgeEmbeddingService } from "./application/knowledge-embedding.service";
@@ -415,6 +425,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
   controllers: [
     AppBootstrapController,
     AssistantController,
+    AssistantBrowserProfilesController,
     UserSupportController,
     AssistantBillingController,
     AssistantKnowledgeSourcesController,
@@ -467,6 +478,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeDocumentInspectController,
     InternalRuntimeDocumentRegisterVersionController,
     InternalRuntimeFilesController,
+    InternalRuntimeBrowserProfilesController,
     InternalWorkspaceFilesController,
     InternalRuntimeMediaJobsEnqueueController,
     InternalRuntimeMediaJobsCheckpointController,
@@ -581,6 +593,9 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     WorkspaceFileMicroDescriptionService,
     WorkspaceFileMicroDescriptionJobService,
     WorkspaceFileMicroDescriptionJobSchedulerService,
+    AssistantBrowserProfileService,
+    ExpireAssistantBrowserProfilesService,
+    AssistantBrowserProfileExpirySchedulerService,
     KnowledgeDocumentProcessorService,
     KnowledgeEmbeddingService,
     KnowledgeIndexingService,
@@ -852,6 +867,15 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
       provide: WORKSPACE_FILE_METADATA_REPOSITORY,
       useClass: PrismaWorkspaceFileMetadataRepository
     },
+    {
+      provide: ASSISTANT_BROWSER_PROFILE_REPOSITORY,
+      useClass: PrismaAssistantBrowserProfileRepository
+    },
+    {
+      provide: BROWSERLESS_SESSION_PORT,
+      useClass: ProviderBrowserlessSessionPort
+    },
+    BrowserlessProviderGatewayClient,
     ManageChatMediaService,
     MediaPreprocessorService,
     NativeMediaTranscriptionService,

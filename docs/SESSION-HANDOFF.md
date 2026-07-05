@@ -1,5 +1,34 @@
 # SESSION-HANDOFF
 
+## 2026-07-06 — ADR-138 pre-deploy audit fixes (P0/P1)
+
+Status: **landed locally on `466b7b97` baseline; not pushed.** Verification gate PASS (lint, format:check, api/web typecheck, focused ADR-138 tests).
+
+**Scope (audit BLOCK → clean):**
+- **P0** `completeLogin` → Browserless `verifySession` probe before `active` (PG `/browser-session/verify`, API port, `ConflictException` on unreachable session).
+- **P0** Chat-scoped `pendingBrowserLogin`: `originating_chat_id` migration + runtime `chatId` on `startLogin`; list/history resolve by chat, not assistant-wide.
+- **P1** Mid-stream modal: SSE `pending_browser_login` on `browser` tool end; web `use-chat` + `assistant-api-client` wire-through.
+- **P1** Telegram: `updateMessageContent` persists assistant text **with** login liveUrl link.
+- **P2** Per-assistant browser credential on reconnect/delete/verify; expiry scheduler test; Scale 90d TTL documented as operator plan-catalog config (seed has only `starter_trial`).
+
+**Parent reconcile:** removed duplicate `findMostRecentPendingLoginForChat` in repository interface + test mocks; prettier on 3 files.
+
+**Residuals (non-blocking):** `optimizeForSpeed` does not block 3p scripts (P2); live acceptance 1–8 on dev; `/unblock` out of MVP.
+
+**Next step:** founder commit + push=deploy; run migrations `20260705110000`, `20260705120000`, `20260706120000`; live smoke per ADR-138.
+
+## 2026-07-05 — ADR-138 browser profiles + live login (S0–S6 closure + audit fixes)
+
+Status: **landed locally on `466b7b97` baseline; not pushed.** Deploy + live acceptance pending founder push=deploy.
+
+**Scope:** ADR-138 program complete locally: per-assistant Browserless profile persistence (`AssistantBrowserProfile`), runtime `browser` tool (`list_profiles`, `login`, profile on `snapshot`/`act`, `optimizeForSpeed`, `format:pdf`), provider-gateway reconnect/liveURL/PDF paths, web `pendingBrowserLogin` auto-modal + settings site cards, Telegram live URL link, TTL/expiry scheduler, tool catalog + bootstrap profile routing, docs (DATA-MODEL/API-BOUNDARY/TEST-PLAN/ADR-138).
+
+**Audit fixes (post-S6):** persisted `live_url` on pending profiles; web-chat pending login resolves from DB (not latest message only); fixed `browserLoginSucceeded` false positive; plan TTL → Browserless `reconnectTimeoutMs`; runtime credential `secretRef` threaded through start-login; stale `pending_login` cleanup on new login; PG `optimizeForSpeed` single interception guard + reconnect navigation skip; removed dead `profile`/`profileKey` port params.
+
+**Verification:** lint, format:check, api/web/runtime/provider-gateway typecheck, focused browser tests (API 20, PG, runtime, web modal/settings) — PASS after audit.
+
+**Next step:** founder push=deploy; live smoke per ADR-138 acceptance.
+
 ## 2026-07-05 — chat plan card list UX + in-progress icon fix
 
 Status: **pushed `1fa62dfb`; deploy + live smoke pending.**
@@ -44,16 +73,16 @@ Status: **pushed `dfad6143`; deploy + live smoke pending.**
 
 **What landed locally:**
 
-| Area | Change |
-|------|--------|
-| `tool-catalog-data.ts` | Canonical delivery contract: `files.write` ≠ chat delivery; require `files.attach` same turn; ADR-137 storage-plane wording (no `pod workspace` / `pod-absolute` in model guidance) |
-| `bootstrap-preset-data.ts` | Single-sourced routing in `<category name="files">` + `response_contract`; removed duplicate deliver line from documents category |
-| `native-tool-projection.ts` | Schema hint only on `action` enum (`write` persists / `attach` delivers) — no triplication of GOTCHAS |
-| `turn-execution.service.ts` | Open-document-jobs block: stale “shell PDF delivered via files.attach” → plain `.txt`/`.csv` need attach |
-| `workspace-files-gallery.tsx` | Chat download URL only when **both** `chatId` and `messageId`; orphan tiles use workspace URL |
-| `sandbox.service.ts` | `resolveShellExecCwdPath` — full `/workspace/...` cwd no longer doubles session root |
-| `turn-execution.service.ts` | Working Files: shell cwd hint under `cwd:` line |
-| Tests | `tool-catalog-data.test.ts`, `adr119-golden-prompt-snapshot.expected.txt`, `sandbox.service.test.ts`, `working-files-developer-section.test.ts` |
+| Area                          | Change                                                                                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tool-catalog-data.ts`        | Canonical delivery contract: `files.write` ≠ chat delivery; require `files.attach` same turn; ADR-137 storage-plane wording (no `pod workspace` / `pod-absolute` in model guidance) |
+| `bootstrap-preset-data.ts`    | Single-sourced routing in `<category name="files">` + `response_contract`; removed duplicate deliver line from documents category                                                   |
+| `native-tool-projection.ts`   | Schema hint only on `action` enum (`write` persists / `attach` delivers) — no triplication of GOTCHAS                                                                               |
+| `turn-execution.service.ts`   | Open-document-jobs block: stale “shell PDF delivered via files.attach” → plain `.txt`/`.csv` need attach                                                                            |
+| `workspace-files-gallery.tsx` | Chat download URL only when **both** `chatId` and `messageId`; orphan tiles use workspace URL                                                                                       |
+| `sandbox.service.ts`          | `resolveShellExecCwdPath` — full `/workspace/...` cwd no longer doubles session root                                                                                                |
+| `turn-execution.service.ts`   | Working Files: shell cwd hint under `cwd:` line                                                                                                                                     |
+| Tests                         | `tool-catalog-data.test.ts`, `adr119-golden-prompt-snapshot.expected.txt`, `sandbox.service.test.ts`, `working-files-developer-section.test.ts`                                     |
 
 **Verification:** `@persai/api` tool-catalog + bootstrap + golden snapshot tests PASS; `native-tool-projection.test.ts` PASS.
 
@@ -67,15 +96,15 @@ Program baseline at open: `a50ef764`. Independent S6 audit (2026-07-05): P0 shel
 
 **ADR-137 slices (local):**
 
-| Slice | Summary |
-|-------|---------|
-| S0 | Worker media → GCS + manifest (`writeRuntimeOutboundArtifact`) |
-| S1 | Gamma GCS-direct; `writeRuntimeOutboundArtifactViaSandbox` removed |
-| S2–S3 | `files.*` → `RuntimeStoragePlaneFilesService`; sandbox model `files` dispatch removed |
-| S4 | Model `grep`/`glob` → API storage scan |
-| S5 | Dead sandbox `workspace-write` + runtime `writeWorkspaceFile` client paths removed |
-| S5.1 | Session-scoped pod hydrate + on-demand widen (`workspace-mount-hydrate.ts`) |
-| Seam | **Shell + exec:** diff all produced `/workspace/...` file paths (not pdf/docx/xlsx only) → GCS mirror **fail-closed** → runtime `syncVisibleWorkspaceProducedOutputs` manifest upsert **fail-closed** (chatId optional) |
+| Slice | Summary                                                                                                                                                                                                                 |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S0    | Worker media → GCS + manifest (`writeRuntimeOutboundArtifact`)                                                                                                                                                          |
+| S1    | Gamma GCS-direct; `writeRuntimeOutboundArtifactViaSandbox` removed                                                                                                                                                      |
+| S2–S3 | `files.*` → `RuntimeStoragePlaneFilesService`; sandbox model `files` dispatch removed                                                                                                                                   |
+| S4    | Model `grep`/`glob` → API storage scan                                                                                                                                                                                  |
+| S5    | Dead sandbox `workspace-write` + runtime `writeWorkspaceFile` client paths removed                                                                                                                                      |
+| S5.1  | Session-scoped pod hydrate + on-demand widen (`workspace-mount-hydrate.ts`)                                                                                                                                             |
+| Seam  | **Shell + exec:** diff all produced `/workspace/...` file paths (not pdf/docx/xlsx only) → GCS mirror **fail-closed** → runtime `syncVisibleWorkspaceProducedOutputs` manifest upsert **fail-closed** (chatId optional) |
 
 **Also in this slice:** `files.write` fail-closed on manifest upsert; `files.preview` restored (image/PDF multimodal); internal workspace-files API + grep/glob manifest services; API controller test fix.
 
@@ -96,6 +125,7 @@ Founder asked to use **«Маркетолог»** as the depth template (not Wav
 **Skill:** «Маркетолог» (id `131c1531-5566-4ad2-9422-3b9b76f6d666`, seed `marketer`)
 
 **What landed:**
+
 - **File KB:** `marketer-visual-content-fundamentals.md` (~16 KB) — 2026 visual trends, Pantone/WGSN palettes, carousel styles, typography, Reels hooks, content pillars, RU channel mix, landing audit criteria, niche palette tables (FinTech, beauty, food, etc.). Doc id `742591dd-2eed-401e-803b-ce8dfd5f86a0`.
 - **12 FAQ knowledge cards:** carousel slide count, 2026 colors, Reels vs carousel, hook writing, content pillars, native SEO, text per slide, caption structure, positioning framework, Reels script structure, landing quick fixes, RU social channels priority.
 - **Skill instruction upgraded** via `skill_upsert` (richer body, guardrails, tags: carousel, reels, visual, smm).
@@ -103,9 +133,9 @@ Founder asked to use **«Маркетолог»** as the depth template (not Wav
   - `instagram_carousel` — 6–8 slides, palette from KB, copy before visuals, `image_edit` series
   - `content_plan_monthly` — RU channels, pillars, 30-day calendar, KPI, `firstStepPreview`
   - `landing_audit` — 6 criteria, top-5 fixes, backlog, `firstStepPreview`
-  - `product_positioning` *(new)* — positioning statement, one-liner, elevator pitch, proof points
-  - `reels_short_script` *(new)* — timed script hook/setup/value/CTA
-  - `competitor_messaging_audit` *(new)* — `web_search` competitors, comparison table, differentiation
+  - `product_positioning` _(new)_ — positioning statement, one-liner, elevator pitch, proof points
+  - `reels_short_script` _(new)_ — timed script hook/setup/value/CTA
+  - `competitor_messaging_audit` _(new)_ — `web_search` competitors, comparison table, differentiation
 
 **Smoke:** `chat_smoke` with `surfaceThreadKey: marketer-carousel-smoke-1` — skill activated, scenario `instagram_carousel`, `knowledge_search` ×2, `todo_write` plan with 5 todos (brief → narrative → copy → visuals → caption). Assistant correctly asked brief clarifiers + proposed two palette options from fundamentals.
 
@@ -126,6 +156,7 @@ Founder asked for a "founder + marketer" pass: research profitable AI-wrapper ni
 3. **«Финансовая аналитика»** (id `288cd7f8-503f-4249-a853-cc10111a3f81`, reframed from seed `sales-coach` per founder direction — sales-proposal generation didn't fit platform strengths, financial/document analytics does) — 8 knowledge cards + PDF fundamentals (P&L/cash flow/unit economics/break-even methodology + RU industry margin benchmarks 2026) + scenario `financial_health_check`. Smoke: 5-turn scenario correctly diagnosed a cash-gap case, built P&L + cash-flow timeline with formulas shown, computed required buffer (734 000 ₽), benchmarked margin against industry range from the fundamentals doc, gave 3 concrete recommendations without breaking guardrails (deferred tax-regime questions to the tax skill), and exited cleanly (`chatSkillState.status: inactive`, all 4 todos completed).
 
 **Process notes / gotchas for future skill-authoring sessions:**
+
 - **Fixed at the source** — `skill_upsert`, `skill_card_upsert`, and `skill_scenario_upsert` in `packages/persai-admin-mcp/src/server.ts` previously accepted `body: z.record(z.unknown())`, an opaque passthrough that gave the calling model zero schema guidance and caused three live 400s during this session (`scenarioKey`-in-body vs top-level `key`, `title`/`instructions` vs `steps[].directive`, locale-object `title` vs plain-string card `title`). Replaced with real typed Zod schemas (`skillUpsertBodySchema`, `skillKnowledgeCardBodySchema`, `skillScenarioBodySchema`) mirroring the exact API parsers (`apps/api/.../skill-management.types.ts`, `authored-knowledge.types.ts`, `skill-scenario.types.ts`), including the ru+en-required locale map for scenario `displayName`/`description` vs skill `name`/`description` (any single locale OK). Verified: `@persai/admin-mcp` typecheck/lint/test green, `dist` rebuilt. **Cursor's live MCP connection needs a reload/restart of the `user-persai` server to pick up the new schema** (it was still running the old build during this session, hence the trial-and-error).
 - `skill_scenario_upsert` body: top-level fields are `key` (create only; omit `scenarioKey` arg to POST, pass it to PATCH), `displayName`/`description` (locale maps, **both `ru` and `en` required**), `steps[].directive`/`recommendedToolCall`/`mayBeSkippedIf`/`negativeGuards`/`expectedUserResponse`/`nextStepTrigger`/`recoveryGuidance`/`firstStepPreview` (not `title`/`instructions`), and `exitCondition` (not `guardrails`).
 - `skill_card_upsert` body uses plain-string `title`/`body` + separate optional `locale` field (not a locale object like scenario `displayName`).
@@ -154,6 +185,7 @@ Grep proofs (S5.1 acceptance):
 Tests: exec-pod-bridge hydrate **8/8** + workspace-mount-hydrate **4/4** + sandbox shell/document regression **green**; `@persai/sandbox` typecheck green.
 
 **Post-S5.1 audit fixes (same slice):**
+
 - Session-aware hydrate marker (`/tmp/.persai_workspace_hydrate_session`) — warm pod re-hydrates when `runtimeSessionId` changes (fixes multi-chat same assistant+workspace).
 - `shared_only` hydrate uses separate marker — no longer blocks later session bootstrap.
 - On-demand hydrate wired into `execShellInSessionPod` / `readWorkspaceFileFromSessionPod` + files-bridge `visibleWorkspacePaths`.
@@ -384,7 +416,7 @@ What landed (S1–S7):
 - **S3 — enqueue + policy:** enqueue wired at web upload/stage (`manage-chat-media.service.ts`), inbound telegram/channel media (`inbound-media.service.ts`), runtime metadata upsert (`upsert-workspace-file-metadata-from-runtime.service.ts`), outbound delivery, and attach registration (`register-chat-attachment.service.ts`); project-mode uploads always enqueue; ordinary/B2C uploads respect `routerPolicy.analyzeUploadsOnB2cUpload`; model-generated paths bypass the B2C gate.
 - **S4 — deterministic + generation_request sync writes:** STT / text_extract one-liners upsert `workspace_file_metadata.shortDescription` immediately at register/upload paths; runtime `buildGeneratedFileSemanticSummary` upserts when informative on `files.write` / delivery, otherwise falls through to background enqueue.
 - **S5 — Working Files read fix:** `turn-context-hydration.service.ts` batch-joins manifest `shortDescription` for all current-session file handles; populates `semanticSummaryHint`, honest `createdAt`, and author on Working Files lines.
-- **S6 — restore `files.search`:** `SearchWorkspaceFilesFromManifestService` + `POST /api/v1/internal/runtime/files/search`; runtime `files` seventh action restored in contract, native projection, tool catalog, and `RuntimeFilesToolService`; Working Files recovery text updated (*list → search → read/preview*).
+- **S6 — restore `files.search`:** `SearchWorkspaceFilesFromManifestService` + `POST /api/v1/internal/runtime/files/search`; runtime `files` seventh action restored in contract, native projection, tool catalog, and `RuntimeFilesToolService`; Working Files recovery text updated (_list → search → read/preview_).
 - **S7 — docs closure:** this handoff entry plus `CHANGELOG.md`, `TEST-PLAN.md`, `DATA-MODEL.md`, `API-BOUNDARY.md`, and ADR-134 status update.
 
 Verification:

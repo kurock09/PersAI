@@ -135,7 +135,14 @@ export interface RuntimeOutputArtifact {
   artifactId: string;
   storagePath: string;
   kind: PersaiRuntimeAttachmentKind;
-  sourceToolCode?: "image_generate" | "image_edit" | "video_generate" | "tts" | "document" | null;
+  sourceToolCode?:
+    | "image_generate"
+    | "image_edit"
+    | "video_generate"
+    | "tts"
+    | "document"
+    | "browser"
+    | null;
   mimeType: string;
   filename: string | null;
   sizeBytes: number | null;
@@ -1551,9 +1558,56 @@ export const PERSAI_RUNTIME_BROWSER_PROVIDER_IDS = ["browserless"] as const;
 
 export type PersaiRuntimeBrowserProviderId = (typeof PERSAI_RUNTIME_BROWSER_PROVIDER_IDS)[number];
 
-export const PERSAI_RUNTIME_BROWSER_ACTIONS = ["snapshot", "act"] as const;
+export const PERSAI_RUNTIME_BROWSER_ACTIONS = [
+  "snapshot",
+  "act",
+  "login",
+  "list_profiles"
+] as const;
 
 export type PersaiRuntimeBrowserAction = (typeof PERSAI_RUNTIME_BROWSER_ACTIONS)[number];
+
+export const PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS = ["text", "pdf"] as const;
+
+export type PersaiRuntimeBrowserSnapshotFormat =
+  (typeof PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS)[number];
+
+export const ASSISTANT_BROWSER_PROFILE_STATUSES = ["pending_login", "active", "expired"] as const;
+
+export type AssistantBrowserProfileStatus = (typeof ASSISTANT_BROWSER_PROFILE_STATUSES)[number];
+
+export const PERSAI_RUNTIME_BROWSER_PROFILE_ERROR_REASONS = [
+  "browser_profile_not_found",
+  "browser_profile_expired",
+  "browser_profile_pending_login"
+] as const;
+
+export type PersaiRuntimeBrowserProfileErrorReason =
+  (typeof PERSAI_RUNTIME_BROWSER_PROFILE_ERROR_REASONS)[number];
+
+export interface PendingBrowserLoginState {
+  profileId: string;
+  profileKey: string;
+  displayName: string;
+  liveUrl: string;
+  loginUrl: string;
+}
+
+export interface RuntimeBrowserProfileListItem {
+  profileKey: string;
+  displayName: string;
+  status: AssistantBrowserProfileStatus;
+  originHost: string;
+  lastUsedAt: IsoTimestamp | null;
+}
+
+export interface RuntimeBrowserLoginResult {
+  profileKey: string;
+  displayName: string;
+  liveUrl: string;
+  loginUrl: string;
+  status: AssistantBrowserProfileStatus;
+}
 
 export const DEFAULT_RUNTIME_BROWSER_MAX_CHARS = 12_000;
 export const MIN_RUNTIME_BROWSER_MAX_CHARS = 500;
@@ -1634,6 +1688,10 @@ export interface RuntimeBrowserRequest {
   url: string;
   maxChars: number | null;
   operations: RuntimeBrowserOperation[];
+  profile?: string | null;
+  displayName?: string | null;
+  format?: PersaiRuntimeBrowserSnapshotFormat | null;
+  optimizeForSpeed?: boolean | null;
 }
 
 export interface RuntimeBrowserInteractiveElement {
@@ -1674,10 +1732,13 @@ export interface RuntimeBrowserResult {
 }
 
 export interface RuntimeBrowserToolResult extends RuntimeBrowserResult {
-  action: "snapshot" | "acted" | "skipped";
-  reason: string | null;
+  action: "snapshot" | "acted" | "skipped" | "login" | "listed_profiles";
+  reason: PersaiRuntimeBrowserProfileErrorReason | string | null;
   warning: string | null;
   billingFacts?: RuntimeBillingFacts | null;
+  profiles?: RuntimeBrowserProfileListItem[] | null;
+  login?: RuntimeBrowserLoginResult | null;
+  pendingBrowserLogin?: PendingBrowserLoginState | null;
 }
 
 export const PERSAI_RUNTIME_IMAGE_GENERATE_PROVIDER_IDS = ["openai"] as const;
@@ -3864,6 +3925,10 @@ export interface ProviderGatewayBrowserActionRequest {
   maxChars: number | null;
   operations: RuntimeBrowserOperation[];
   timeoutMs: number | null;
+  profileSessionId?: string | null;
+  displayName?: string | null;
+  format?: PersaiRuntimeBrowserSnapshotFormat | null;
+  optimizeForSpeed?: boolean | null;
   credential: {
     toolCode: "browser";
     secretId: string;
@@ -3883,12 +3948,53 @@ export interface ProviderGatewayBrowserActionResult {
   observedAt: IsoTimestamp;
   tookMs: number;
   warning: string | null;
+  pdfBase64?: string | null;
+  artifactMimeType?: string | null;
   externalContent: {
     untrusted: true;
     source: "browser";
     provider: PersaiRuntimeBrowserProviderId;
   };
   billingFacts?: RuntimeBillingFacts | null;
+}
+
+export interface ProviderGatewayBrowserSessionStartLoginRequest {
+  loginUrl: string;
+  timeoutMs: number | null;
+  reconnectTimeoutMs: number | null;
+  credential: {
+    toolCode: "browser";
+    secretId: string;
+    providerId: PersaiRuntimeBrowserProviderId | null;
+  };
+}
+
+export interface ProviderGatewayBrowserSessionStartLoginResult {
+  /** Browserless reconnect path (for example `/reconnect/{id}`) stored by API for session reuse. */
+  providerSessionId: string;
+  liveUrl: string;
+}
+
+export interface ProviderGatewayBrowserSessionDeleteRequest {
+  providerSessionId: string;
+  credential: {
+    toolCode: "browser";
+    secretId: string;
+    providerId: PersaiRuntimeBrowserProviderId | null;
+  };
+}
+
+export interface ProviderGatewayBrowserSessionVerifyRequest {
+  providerSessionId: string;
+  credential: {
+    toolCode: "browser";
+    secretId: string;
+    providerId: PersaiRuntimeBrowserProviderId | null;
+  };
+}
+
+export interface ProviderGatewayBrowserSessionVerifyResult {
+  ok: true;
 }
 
 export interface ProviderGatewayTextDeltaEvent {

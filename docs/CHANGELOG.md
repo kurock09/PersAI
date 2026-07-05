@@ -5,6 +5,10 @@
 
 ## 2026-07-05
 
+- **Fix (ADR-138 pre-deploy audit — P0/P1; local, not pushed).** `completeLogin` verifies Browserless session before `active`; chat-scoped pending login via `originating_chat_id`; mid-stream SSE `pending_browser_login` opens web modal; Telegram persists login liveUrl in DB; per-assistant browser credential on reconnect/delete/verify; expiry scheduler test. Migrations: `20260706120000_adr138_originating_chat_id_on_browser_profiles`. Verification gate PASS.
+
+- **Change (ADR-138 — browser persistent profiles + live login; S0–S6 + audit fixes; local, not pushed).** Per-assistant Browserless profiles: `AssistantBrowserProfile` + migrations, API profile CRUD/login/TTL/expiry scheduler, provider-gateway reconnect/liveURL/optimizeForSpeed/PDF, runtime `browser` (`list_profiles`, `login`, profile `snapshot`/`act`), web auto-modal + settings site cards, Telegram live URL. Audit fixes: `live_url` on pending rows, DB-backed pending login on refresh, credential secretRef threading, plan TTL→reconnect timeout, stale pending cleanup, PG intercept guard. Deploy + live acceptance pending.
+
 - **Fix (chat plan card list UX + in-progress icon; local).** Plan expanded view caps at **7** visible rows (`≤7` all shown, no More; `>7` window with completed tail fill + More count). More enables fixed-height scroll through the full ordered list without collapsing on todo stream rerenders. In-progress icon uses lucide-matched circle geometry (static arrow ring). 22 plan-card tests PASS. Deploy pending.
 
 - **Change (web UX batch — media banner count, plan card, video gallery, grace tiles; pushed `25feb3f3`).** Multi-image `activeMediaJobs` expose optional `requestedCount`; chat-input chip shows batch size when count > 1. Chat plan card sorting/show-more/in-progress icon (superseded by list UX fix above). Workspace gallery video posters + grace tiles. Deploy + live smoke pending.

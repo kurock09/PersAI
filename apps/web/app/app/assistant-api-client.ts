@@ -168,8 +168,12 @@ import {
   type ListNotificationDeliveriesParams,
   type ListNotificationDeadLettersParams
 } from "@persai/contracts";
-import type { RuntimeTurnToolInvocation } from "@persai/runtime-contract";
-import type { RuntimeTodoItem } from "@persai/runtime-contract";
+import type {
+  PendingBrowserLoginState,
+  RuntimeTurnToolInvocation,
+  RuntimeTodoItem,
+  AssistantBrowserProfileStatus
+} from "@persai/runtime-contract";
 export type {
   AssistantBillingSubscriptionActionResult,
   AssistantBillingSubscriptionManagementState
@@ -340,7 +344,11 @@ type WebChatStreamEvent =
   | { event: "interrupted"; data: { transport: unknown } }
   | { event: "failed"; data: { code?: string; message: string; transport: unknown } }
   | { event: "turn_status"; data: { turn: WebChatTurnStatusState } }
-  | { event: "reattached"; data: { turn: WebChatTurnStatusState; live: boolean } };
+  | { event: "reattached"; data: { turn: WebChatTurnStatusState; live: boolean } }
+  | {
+      event: "pending_browser_login";
+      data: { pendingBrowserLogin: PendingBrowserLoginState };
+    };
 
 export const WELCOME_THREAD_KEY = "welcome";
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
@@ -408,6 +416,7 @@ export interface AssistantWebChatStreamHandlers {
   onStreamReset?: (payload: { reason: string; attempt: number }) => void;
   onTurnStatus?: (payload: { turn: WebChatTurnStatusState }) => void;
   onReattached?: (payload: { turn: WebChatTurnStatusState; live: boolean }) => void;
+  onPendingBrowserLogin?: (payload: { pendingBrowserLogin: PendingBrowserLoginState }) => void;
   onCompleted?: (payload: { transport: unknown }) => void;
   onInterrupted?: (payload: { transport: unknown }) => void;
   onFailed?: (payload: { code?: string; message: string; transport: unknown }) => void;
@@ -1163,6 +1172,16 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
       data: { turn: body.turn as WebChatTurnStatusState, live: body.live }
     };
   }
+  if (eventName === "pending_browser_login") {
+    const pendingBrowserLogin = parsePendingBrowserLoginState(body.pendingBrowserLogin);
+    if (pendingBrowserLogin === null) {
+      return null;
+    }
+    return {
+      event: "pending_browser_login",
+      data: { pendingBrowserLogin }
+    };
+  }
   if (eventName === "completed") {
     return { event: "completed", data: { transport: body.transport } };
   }
@@ -1311,6 +1330,8 @@ export async function streamAssistantWebChatTurn(
       handlers.onTurnStatus?.(streamEvent.data);
     } else if (streamEvent.event === "reattached") {
       handlers.onReattached?.(streamEvent.data);
+    } else if (streamEvent.event === "pending_browser_login") {
+      handlers.onPendingBrowserLogin?.(streamEvent.data);
     } else if (streamEvent.event === "completed") {
       sawTerminalEvent = true;
       handlers.onCompleted?.(streamEvent.data);
@@ -1443,6 +1464,8 @@ export async function reattachAssistantWebChatTurnStream(
     else if (streamEvent.event === "stream_reset") handlers.onStreamReset?.(streamEvent.data);
     else if (streamEvent.event === "turn_status") handlers.onTurnStatus?.(streamEvent.data);
     else if (streamEvent.event === "reattached") handlers.onReattached?.(streamEvent.data);
+    else if (streamEvent.event === "pending_browser_login")
+      handlers.onPendingBrowserLogin?.(streamEvent.data);
     else if (streamEvent.event === "completed") {
       sawTerminalEvent = true;
       handlers.onCompleted?.(streamEvent.data);
@@ -2526,6 +2549,7 @@ export async function getChatMessages(
    * reloads. Derived on the API from `chat.skillDecisionState`.
    */
   currentEngagement?: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
+  pendingBrowserLogin?: PendingBrowserLoginState | null;
 }> {
   const base = getApiBaseUrl();
   const params = new URLSearchParams();
@@ -2535,13 +2559,18 @@ export async function getChatMessages(
   const url = `${base}/assistant/chats/web/${encodeURIComponent(chatId)}/messages${qs ? `?${qs}` : ""}`;
   const res = await fetch(url, { headers: getAuthHeaders(token) });
   if (!res.ok) throw new Error("Failed to load chat messages.");
-  return (await res.json()) as {
+  const payload = (await res.json()) as {
     messages: ChatHistoryMessage[];
     nextCursor: string | null;
     activeTurn?: WebChatActiveTurnState | null;
     activeMediaJobs?: WebChatActiveMediaJobState[];
     activeDocumentJobs?: WebChatActiveDocumentJobState[];
     currentEngagement?: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
+    pendingBrowserLogin?: PendingBrowserLoginState | null;
+  };
+  return {
+    ...payload,
+    pendingBrowserLogin: parsePendingBrowserLoginState(payload.pendingBrowserLogin)
   };
 }
 
@@ -3737,6 +3766,123 @@ export async function getAssistantTelegramIntegration(
     return response.data.integration;
   } catch (error) {
     throw new Error(toErrorMessage(error));
+  }
+}
+
+export type { PendingBrowserLoginState };
+
+export type AssistantBrowserProfileListItem = {
+  id: string;
+  profileKey: string;
+  displayName: string;
+  loginUrl: string;
+  originHost: string;
+  status: AssistantBrowserProfileStatus;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+};
+
+export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLoginState | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.profileId !== "string" ||
+    typeof row.profileKey !== "string" ||
+    typeof row.displayName !== "string" ||
+    typeof row.liveUrl !== "string" ||
+    typeof row.loginUrl !== "string"
+  ) {
+    return null;
+  }
+  return {
+    profileId: row.profileId,
+    profileKey: row.profileKey,
+    displayName: row.displayName,
+    liveUrl: row.liveUrl,
+    loginUrl: row.loginUrl
+  };
+}
+
+export async function listAssistantBrowserProfiles(
+  token: string,
+  assistantId: string
+): Promise<AssistantBrowserProfileListItem[]> {
+  const response = await fetch(
+    `${getApiBaseUrl()}/assistant/${encodeURIComponent(assistantId)}/browser-profiles`,
+    { headers: getAuthHeaders(token) }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to load browser profiles.");
+  }
+  const payload = (await response.json()) as { profiles?: AssistantBrowserProfileListItem[] };
+  return Array.isArray(payload.profiles) ? payload.profiles : [];
+}
+
+export async function completeAssistantBrowserLogin(
+  token: string,
+  assistantId: string,
+  profileId: string
+): Promise<AssistantBrowserProfileListItem> {
+  const response = await fetch(
+    `${getApiBaseUrl()}/assistant/${encodeURIComponent(assistantId)}/browser-profiles/${encodeURIComponent(profileId)}/complete-login`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to complete browser login.");
+  }
+  const payload = (await response.json()) as { profile?: AssistantBrowserProfileListItem };
+  if (!payload.profile) {
+    throw new Error("Failed to complete browser login.");
+  }
+  return payload.profile;
+}
+
+export async function reconnectAssistantBrowserProfile(
+  token: string,
+  assistantId: string,
+  profileId: string
+): Promise<PendingBrowserLoginState> {
+  const response = await fetch(
+    `${getApiBaseUrl()}/assistant/${encodeURIComponent(assistantId)}/browser-profiles/${encodeURIComponent(profileId)}/reconnect`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to reconnect browser profile.");
+  }
+  const payload = (await response.json()) as Record<string, unknown>;
+  const pending = parsePendingBrowserLoginState(payload);
+  if (pending === null) {
+    throw new Error("Failed to reconnect browser profile.");
+  }
+  return pending;
+}
+
+export async function deleteAssistantBrowserProfile(
+  token: string,
+  assistantId: string,
+  profileId: string
+): Promise<void> {
+  const response = await fetch(
+    `${getApiBaseUrl()}/assistant/${encodeURIComponent(assistantId)}/browser-profiles/${encodeURIComponent(profileId)}`,
+    {
+      method: "DELETE",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to delete browser profile.");
   }
 }
 

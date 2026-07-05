@@ -59,6 +59,7 @@ import { NotificationDeliveryWorkerService } from "./notifications/notification-
 import { persistAssistantMessage } from "./persist-assistant-message";
 import { extractToolInvocationsFromMetadata } from "./web-chat-message-state.mapper";
 import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
+import { resolvePendingBrowserLoginFromRuntimeTurn } from "./resolve-pending-browser-login-for-web-chat";
 
 export const WELCOME_TURN_SENTINEL = "__welcome_init__";
 
@@ -547,6 +548,10 @@ export class SendWebChatTurnService {
         typeof deriveEngagementSummary
       >[0];
       const engagementSummary = deriveEngagementSummary(finalSkillDecisionState);
+      const pendingBrowserLogin = resolvePendingBrowserLoginFromRuntimeTurn({
+        toolInvocations: runtimeResponse.toolInvocations,
+        toolExchanges: runtimeResponse.toolExchanges
+      });
       return {
         chat: {
           ...prepared.chat,
@@ -572,6 +577,7 @@ export class SendWebChatTurnService {
         activeMediaJobs: postRuntime.activeMediaJobs,
         activeDocumentJobs: postRuntime.activeDocumentJobs,
         ...(engagementSummary !== null ? { engagementSummary } : {}),
+        pendingBrowserLogin,
         runtime: {
           respondedAt: runtimeResponse.respondedAt,
           degradedByQuotaFallback: prepared.quotaDegradeModelOverride !== null,
@@ -733,6 +739,17 @@ export class SendWebChatTurnService {
       userId: chat.userId,
       chatId: chat.id
     });
+    const messageToolContext = await this.assistantChatRepository.findMessageToolContextById(
+      assistantMessage.id,
+      assistantId
+    );
+    const pendingBrowserLogin =
+      messageToolContext === null
+        ? null
+        : resolvePendingBrowserLoginFromRuntimeTurn({
+            toolInvocations: extractToolInvocationsFromMetadata(messageToolContext.metadata),
+            toolExchanges: messageToolContext.toolExchanges ?? undefined
+          });
 
     const replayEngagementSummary = deriveEngagementSummary(
       chat.skillDecisionState as Parameters<typeof deriveEngagementSummary>[0]
@@ -792,6 +809,7 @@ export class SendWebChatTurnService {
       activeMediaJobs,
       activeDocumentJobs,
       ...(replayEngagementSummary !== null ? { engagementSummary: replayEngagementSummary } : {}),
+      pendingBrowserLogin,
       runtime: {
         respondedAt: state.respondedAt,
         degradedByQuotaFallback: state.degradedByQuotaFallback,

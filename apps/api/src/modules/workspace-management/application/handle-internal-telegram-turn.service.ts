@@ -41,6 +41,8 @@ import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service
 import { RecordToolPathLedgerFromToolInvocationsService } from "./record-tool-path-ledger-from-tool-invocations.service";
 import { persistAssistantMessage } from "./persist-assistant-message";
 import { stripToolInvocationsForClient } from "./strip-tool-invocations-for-client";
+import { resolvePendingBrowserLoginFromRuntimeTurn } from "./resolve-pending-browser-login-for-web-chat";
+import type { PendingBrowserLoginState } from "@persai/runtime-contract";
 import { WebRuntimeSessionStateClientService } from "./web-runtime-session-state-client.service";
 
 export interface InternalTelegramTurnResult {
@@ -55,6 +57,7 @@ export interface InternalTelegramTurnResult {
   compactionAdvisoryFollowUpIntentId?: string | null;
   compactionQueueNoticeKind?: "compacted" | "exhausted" | null;
   deduplicated?: boolean;
+  pendingBrowserLogin?: PendingBrowserLoginState | null;
 }
 
 export interface TelegramRuntimeToolEvent {
@@ -438,6 +441,10 @@ export class HandleInternalTelegramTurnService {
           status: "completed",
           outputPreview: assistantMessage
         });
+        const pendingBrowserLogin = resolvePendingBrowserLoginFromRuntimeTurn({
+          toolInvocations: runtimeResponse.toolInvocations,
+          toolExchanges: runtimeResponse.toolExchanges
+        });
         return {
           ...runtimeResponse,
           assistantMessage,
@@ -446,7 +453,8 @@ export class HandleInternalTelegramTurnService {
           chatId: chat.id,
           workspaceId: resolved.workspaceId,
           quotaAdvisoryFollowUpIntentId: null,
-          compactionQueueNoticeKind: queueWaitResult?.noticeKind ?? null
+          compactionQueueNoticeKind: queueWaitResult?.noticeKind ?? null,
+          pendingBrowserLogin
         };
       }
 
@@ -523,6 +531,10 @@ export class HandleInternalTelegramTurnService {
         status: "completed",
         outputPreview: assistantMessage
       });
+      const pendingBrowserLogin = resolvePendingBrowserLoginFromRuntimeTurn({
+        toolInvocations: runtimeResponse.toolInvocations,
+        toolExchanges: runtimeResponse.toolExchanges
+      });
       return {
         ...runtimeResponse,
         assistantMessage,
@@ -532,7 +544,8 @@ export class HandleInternalTelegramTurnService {
         workspaceId: resolved.workspaceId,
         quotaAdvisoryFollowUpIntentId: quotaAdvisoryFollowUp?.intentId ?? null,
         compactionAdvisoryFollowUpIntentId: compactionAdvisoryFollowUp?.intentId ?? null,
-        compactionQueueNoticeKind: queueWaitResult?.noticeKind ?? null
+        compactionQueueNoticeKind: queueWaitResult?.noticeKind ?? null,
+        pendingBrowserLogin
       };
     } catch (error) {
       if (claimedUpdateId !== null) {

@@ -4,6 +4,32 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-138 browser persistent profiles + live login (focused checks)
+
+When a change touches browser profiles, provider-gateway Browserless reconnect/liveURL, runtime `browser` tool, web login modal, or assistant settings site cards, run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/assistant-browser-profile.service.test.ts test/extract-pending-browser-login-from-turn.test.ts test/resolve-pending-browser-login-for-web-chat.test.ts test/runtime-browser.test.ts test/tool-catalog-data.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-browser-tool.service.test.ts test/native-tool-projection.test.ts
+corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-browser.service.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/browser-login-modal.test.tsx app/app/_components/assistant-settings.test.tsx app/app/_components/chat-area.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/provider-gateway run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Live acceptance (post-deploy):
+
+1. `browser.login` with `displayName` + login `url` → web modal auto-opens on the login page.
+2. User completes login, presses «Готово» → profile `active` in assistant settings site card.
+3. `browser.snapshot` with `profile` returns authenticated CRM content without re-login.
+4. `optimizeForSpeed:true` measurably faster than default on the same table URL (note in handoff).
+5. `browser.snapshot` with `format:"pdf"` produces a PDF attachable via `files.attach`.
+6. Forced expiry → `browser_profile_expired` business error, not stack trace.
+7. Telegram turn returns clickable `liveUrl` text; no web modal.
+8. Delete profile from settings removes row and prevents reuse.
+
 ## ADR-133 Slice 1 path-contract focused checks
 
 When a change touches only the shared hierarchical workspace path contract (constants/builders/classifiers/docs) without migrating sandbox/API/runtime behavior yet, run:

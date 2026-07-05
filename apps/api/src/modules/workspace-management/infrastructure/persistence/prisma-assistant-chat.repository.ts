@@ -1,5 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { SESSION_SUBTREE_GC_GRACE_MS } from "@persai/runtime-contract";
+import {
+  SESSION_SUBTREE_GC_GRACE_MS,
+  type ProviderGatewayToolExchange
+} from "@persai/runtime-contract";
 import {
   Prisma,
   type AssistantChat as PrismaAssistantChat,
@@ -507,6 +510,52 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     return messages.map((message) => this.mapMessageToDomain(message));
   }
 
+  async findLatestAssistantMessageToolContext(
+    chatId: string,
+    assistantId: string
+  ): Promise<{
+    metadata: Record<string, unknown> | null;
+    toolExchanges: ProviderGatewayToolExchange[] | null;
+  } | null> {
+    const message = await this.prisma.assistantChatMessage.findFirst({
+      where: {
+        chatId,
+        assistantId,
+        author: "assistant",
+        toolExchanges: { not: Prisma.DbNull }
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        metadata: true,
+        toolExchanges: true
+      }
+    });
+    if (message === null) {
+      return null;
+    }
+    return this.mapMessageToolContext(message);
+  }
+
+  async findMessageToolContextById(
+    messageId: string,
+    assistantId: string
+  ): Promise<{
+    metadata: Record<string, unknown> | null;
+    toolExchanges: ProviderGatewayToolExchange[] | null;
+  } | null> {
+    const message = await this.prisma.assistantChatMessage.findFirst({
+      where: { id: messageId, assistantId },
+      select: {
+        metadata: true,
+        toolExchanges: true
+      }
+    });
+    if (message === null) {
+      return null;
+    }
+    return this.mapMessageToolContext(message);
+  }
+
   async findMessageByIdForAssistant(
     messageId: string,
     assistantId: string
@@ -588,6 +637,25 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
       activeScenarioDisplayName: status === "active" ? activeScenarioDisplayName : null,
       topicSummary
     };
+  }
+
+  private mapMessageToolContext(message: {
+    metadata: Prisma.JsonValue | null;
+    toolExchanges: Prisma.JsonValue | null;
+  }): {
+    metadata: Record<string, unknown> | null;
+    toolExchanges: ProviderGatewayToolExchange[] | null;
+  } {
+    const metadata =
+      message.metadata !== null &&
+      typeof message.metadata === "object" &&
+      !Array.isArray(message.metadata)
+        ? (message.metadata as Record<string, unknown>)
+        : null;
+    const toolExchanges = Array.isArray(message.toolExchanges)
+      ? (message.toolExchanges as unknown as ProviderGatewayToolExchange[])
+      : null;
+    return { metadata, toolExchanges };
   }
 
   private mapMessageToDomain(message: PrismaAssistantChatMessage): AssistantChatMessage {

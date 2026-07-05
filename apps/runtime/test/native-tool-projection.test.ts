@@ -179,8 +179,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         credentialToolCode: "browser",
         providerIds: ["browserless"],
         defaultProviderId: "browserless",
-        actions: ["snapshot", "act"],
-        confirmationRequiredActions: ["act"]
+        actions: ["snapshot", "act", "login", "list_profiles"],
+        confirmationRequiredActions: ["act", "login"]
       }
     },
     governance: {
@@ -2215,8 +2215,8 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
         credentialToolCode: "browser",
         providerIds: ["browserless"],
         defaultProviderId: "browserless",
-        actions: ["snapshot", "act"],
-        confirmationRequiredActions: ["act"]
+        actions: ["snapshot", "act", "login", "list_profiles"],
+        confirmationRequiredActions: ["act", "login"]
       }
     },
     governance: {
@@ -2463,8 +2463,8 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
           credentialToolCode: "browser",
           providerIds: ["browserless"],
           defaultProviderId: "browserless",
-          actions: ["snapshot", "act"],
-          confirmationRequiredActions: ["act"]
+          actions: ["snapshot", "act", "login", "list_profiles"],
+          confirmationRequiredActions: ["act", "login"]
         }
       },
       governance: {
@@ -2862,8 +2862,8 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
           credentialToolCode: "browser",
           providerIds: ["browserless"],
           defaultProviderId: "browserless",
-          actions: ["snapshot", "act"],
-          confirmationRequiredActions: ["act"]
+          actions: ["snapshot", "act", "login", "list_profiles"],
+          confirmationRequiredActions: ["act", "login"]
         }
       },
       governance: {

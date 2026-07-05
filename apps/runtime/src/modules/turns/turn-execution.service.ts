@@ -3486,9 +3486,19 @@ export class TurnExecutionService {
       case BROWSER_TOOL_CODE: {
         const result = await this.runtimeBrowserToolService.executeToolCall({
           bundle: execution.bundle,
-          toolCall
+          toolCall,
+          sessionId: acceptedTurn.session.sessionId,
+          chatId: this.resolveCurrentChatId(input),
+          sourceUserMessageText: input.message.text,
+          sourceUserMessageCreatedAt: new Date().toISOString()
         });
-        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+        return this.createToolExecutionOutcome(
+          toolCall,
+          result.payload,
+          result.isError,
+          undefined,
+          result.artifacts
+        );
       }
       case DOCUMENT_TOOL_CODE: {
         const documentSourceAttachments = this.mergeWorkingFileDocumentSourceAttachments(

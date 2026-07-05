@@ -103,6 +103,22 @@ ADR-081 plus ADR-133 extend the target-state authority of path-based Files: ever
 
 Chat rendering/download rows project back to canonical workspace paths. `attachmentId` remains message-rendering state, while `path`/`storagePath` is the durable file identity exposed by active APIs.
 
+## Assistant browser profiles (ADR-138)
+
+Per-assistant persistent browser sessions for logged-in CRM/portal work. Cookies live in Browserless; PersAI stores mapping + metadata only.
+
+Table `assistant_browser_profiles` (`AssistantBrowserProfile`):
+
+- composite unique `(assistantId, profileKey)` — stable slug server-generated from assistant-chosen `displayName` on `login`
+- `displayName`, `loginUrl`, `originHost` (from login URL, for settings favicon)
+- `providerSessionId` — Browserless reconnect id
+- `status`: `pending_login` | `active` | `expired`
+- `lastUsedAt`, `expiresAt` — sliding TTL from last successful `snapshot`/`act` with `profile`
+
+TTL: plan billing hint `browserProfileTtlDays` when set (e.g. 90 on scale-like plans); **default 30 days** when absent (`resolveBrowserProfileTtlDays`). Scheduler lease `browser_profile_expiry` marks overdue `active` rows `expired`.
+
+Web chat turn/stream/list may carry `pendingBrowserLogin` when a profile is awaiting user completion in the live login modal. Telegram turns surface the `liveUrl` as link text only.
+
 ## Workspace file semantic index (ADR-134)
 
 Path-keyed manifest rows in `workspace_file_metadata` carry product file truth for every visible workspace file. **ADR-137:** committed bytes live in GCS at `buildWorkspaceObjectKey(workspaceId, workspaceRelPath)`; the session pod filesystem is an execution cache only. Model `files.*` / `grep` / `glob` and worker outbound media never depend on pod FS for correctness.

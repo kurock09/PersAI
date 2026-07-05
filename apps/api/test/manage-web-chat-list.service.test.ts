@@ -297,7 +297,8 @@ function createService(overrides?: {
         return true;
       },
       countActiveChatsByAssistantIdAndSurface: async () => 0,
-      listMessagesByChatId: async () => overrides?.messages ?? createMessages()
+      listMessagesByChatId: async () => overrides?.messages ?? createMessages(),
+      findLatestAssistantMessageToolContext: async () => null
     } as never,
     {
       listByChatId: async () => createAttachments(),
@@ -403,6 +404,9 @@ function createService(overrides?: {
       runtimeSessionCompaction: {
         findMany: async () => []
       }
+    } as never,
+    {
+      findMostRecentPendingLoginForChat: async () => null
     } as never
   );
 
@@ -434,7 +438,8 @@ describe("ManageWebChatListService", () => {
         getChatListMetadata: async () => ({
           messageCount: 1,
           lastMessagePreview: "message-1"
-        })
+        }),
+        findLatestAssistantMessageToolContext: async () => null
       } as never,
       {
         listByMessageIds: async () => [],
@@ -520,6 +525,9 @@ describe("ManageWebChatListService", () => {
         assistantChatMessageAttachment: {
           findMany: async () => []
         }
+      } as never,
+      {
+        findMostRecentPendingLoginForChat: async () => null
       } as never
     );
 

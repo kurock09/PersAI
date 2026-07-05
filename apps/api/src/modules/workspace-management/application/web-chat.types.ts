@@ -1,4 +1,5 @@
 import type { ClientRuntimeTurnToolInvocation } from "./strip-tool-invocations-for-client";
+import type { PendingBrowserLoginState } from "@persai/runtime-contract";
 
 export type AssistantChatSurfaceState = "web" | "telegram";
 export type AssistantChatModeState = "normal" | "smart" | "project";
@@ -175,6 +176,7 @@ export interface AssistantWebChatTurnState {
   activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
   activeDocumentJobs?: AssistantWebChatActiveDocumentJobState[];
   engagementSummary?: AssistantWebChatEngagementSummary | null;
+  pendingBrowserLogin?: PendingBrowserLoginState | null;
   runtime: {
     respondedAt: string;
     degradedByQuotaFallback: boolean;
@@ -292,4 +294,5 @@ export interface AssistantWebChatListItemState {
   activeTurn: AssistantWebChatCompactActiveTurnState | null;
   activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
   activeDocumentJobs?: AssistantWebChatActiveDocumentJobState[];
+  pendingBrowserLogin?: PendingBrowserLoginState | null;
 }

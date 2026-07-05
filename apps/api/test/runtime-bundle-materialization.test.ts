@@ -279,12 +279,12 @@ function createInput(order: "alpha" | "beta") {
               credentialToolCode: "browser",
               providerIds: ["browserless"],
               defaultProviderId: "browserless",
-              actions: ["snapshot", "act"],
-              confirmationRequiredActions: ["act"]
+              actions: ["snapshot", "act", "login", "list_profiles"],
+              confirmationRequiredActions: ["act", "login"]
             }
           : {
-              confirmationRequiredActions: ["act"],
-              actions: ["snapshot", "act"],
+              confirmationRequiredActions: ["act", "login"],
+              actions: ["snapshot", "act", "login", "list_profiles"],
               defaultProviderId: "browserless",
               providerIds: ["browserless"],
               credentialToolCode: "browser",
@@ -524,8 +524,8 @@ async function run(): Promise<void> {
     credentialToolCode: "browser",
     providerIds: ["browserless"],
     defaultProviderId: "browserless",
-    actions: ["snapshot", "act"],
-    confirmationRequiredActions: ["act"]
+    actions: ["snapshot", "act", "login", "list_profiles"],
+    confirmationRequiredActions: ["act", "login"]
   });
   assert.deepEqual(alpha.bundle.governance.quota, {
     planCode: "starter_trial",

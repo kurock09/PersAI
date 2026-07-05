@@ -38,6 +38,7 @@ import {
 } from "./project-files-events";
 import type { UseChatReturn } from "./use-chat";
 import { ChatPlanCard } from "./chat-plan-card";
+import { BrowserLoginModal } from "./browser-login-modal";
 
 interface ChatAreaProps {
   chat: UseChatReturn;
@@ -57,6 +58,7 @@ interface ChatAreaProps {
   billingPlanCode?: string | undefined;
   billingPaymentIntentId?: string | undefined;
   paidLightModeActive?: boolean | undefined;
+  assistantId?: string | null | undefined;
 }
 
 function formatBillingPlanLabel(planCode: string | undefined): string {
@@ -135,7 +137,8 @@ export function ChatArea({
   billingReturnKind,
   billingPlanCode,
   billingPaymentIntentId,
-  paidLightModeActive = false
+  paidLightModeActive = false,
+  assistantId
 }: ChatAreaProps) {
   const { getToken } = useAuth();
   const t = useTranslations("chat");
@@ -528,6 +531,8 @@ export function ChatArea({
     },
     [chat.chatId, chatMode, getToken, onTitleChanged, openSidebar, paidLightModeActive]
   );
+
+  const showBrowserLoginChip = chat.pendingBrowserLogin !== null && !chat.browserLoginModalOpen;
 
   return (
     <div className="relative flex h-full flex-col">
@@ -1015,6 +1020,27 @@ export function ChatArea({
           </div>
         </div>
       ) : null}
+      {showBrowserLoginChip ? (
+        <div className="px-3 md:px-4">
+          <div className="mx-auto mb-2 flex w-full max-w-[50rem] items-center justify-between gap-3 rounded-lg border border-accent/20 bg-accent/[0.06] px-3 py-2">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold text-text">
+                {chat.pendingBrowserLogin?.displayName}
+              </p>
+              <p className="truncate text-[11px] text-text-muted">
+                {t("browserLoginContinueHint")}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={chat.reopenBrowserLogin}
+              className="shrink-0 cursor-pointer rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-white transition hover:bg-accent-hover"
+            >
+              {t("browserLoginContinue")}
+            </button>
+          </div>
+        </div>
+      ) : null}
       <ChatInput
         ref={chatInputRef}
         onSend={(text, files, options) => {
@@ -1037,6 +1063,13 @@ export function ChatArea({
         pendingSendStatus={chat.pendingSendStatus}
         activeMediaJobs={chat.activeMediaJobs}
         activeDocumentJobs={chat.activeDocumentJobs}
+      />
+      <BrowserLoginModal
+        open={chat.browserLoginModalOpen}
+        assistantId={assistantId}
+        pendingBrowserLogin={chat.pendingBrowserLogin}
+        onClose={chat.dismissBrowserLogin}
+        onCompleted={chat.clearPendingBrowserLogin}
       />
     </div>
   );

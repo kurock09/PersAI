@@ -97,6 +97,8 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         operations?: unknown[];
         maxChars?: number;
         timeoutMs?: number;
+        format?: string;
+        optimizeForSpeed?: boolean;
       };
     };
     assert.match(snapshotBody.code ?? "", /page\.goto/);
@@ -105,7 +107,9 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       action: "snapshot",
       operations: [],
       maxChars: 12000,
-      timeoutMs: 120000
+      timeoutMs: 120000,
+      format: "text",
+      optimizeForSpeed: false
     });
     assert.equal(snapshotResult.provider, "browserless");
     assert.equal(snapshotResult.action, "snapshot");
@@ -147,12 +151,16 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         operations?: Array<Record<string, unknown>>;
         maxChars?: number;
         timeoutMs?: number;
+        format?: string;
+        optimizeForSpeed?: boolean;
       };
     };
     assert.equal(internalApi.secretIds[1], "secret-2");
     assert.equal(actBody.context?.action, "act");
     assert.equal(actBody.context?.maxChars, 5000);
     assert.equal(actBody.context?.timeoutMs, 30000);
+    assert.equal(actBody.context?.format, "text");
+    assert.equal(actBody.context?.optimizeForSpeed, false);
     assert.deepEqual(actBody.context?.operations, [
       {
         kind: "click",
@@ -163,6 +171,263 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         timeoutMs: 250
       }
     ]);
+
+    await service.browserAction({
+      action: "snapshot",
+      url: "https://example.com/fast",
+      maxChars: null,
+      operations: [],
+      timeoutMs: null,
+      optimizeForSpeed: true,
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-speed",
+        providerId: "browserless"
+      }
+    });
+    const speedBody = JSON.parse(String(requests[2]?.init?.body ?? "{}")) as {
+      code?: string;
+      context?: { optimizeForSpeed?: boolean; format?: string };
+    };
+    assert.equal(speedBody.context?.optimizeForSpeed, true);
+    assert.match(speedBody.code ?? "", /setRequestInterception/);
+    assert.match(speedBody.code ?? "", /__persaiSpeedIntercept/);
+    assert.match(speedBody.code ?? "", /domcontentloaded/);
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: {
+            initialUrl: "https://example.com/report",
+            finalUrl: "https://example.com/report",
+            title: "Report",
+            content: "",
+            truncated: false,
+            elements: [],
+            pdfBase64: "JVBERi0xLjQK"
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    const pdfResult = await service.browserAction({
+      action: "snapshot",
+      url: "https://example.com/report",
+      maxChars: null,
+      operations: [],
+      timeoutMs: null,
+      format: "pdf",
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-pdf",
+        providerId: "browserless"
+      }
+    });
+    const pdfBody = JSON.parse(String(requests[3]?.init?.body ?? "{}")) as {
+      context?: { format?: string };
+      code?: string;
+    };
+    assert.equal(pdfBody.context?.format, "pdf");
+    assert.match(pdfBody.code ?? "", /page\.pdf/);
+    assert.equal(pdfResult.pdfBase64, "JVBERi0xLjQK");
+    assert.equal(pdfResult.artifactMimeType, "application/pdf");
+    assert.deepEqual(pdfResult.elements, []);
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: {
+            initialUrl: "https://crm.example.com/",
+            finalUrl: "https://crm.example.com/dashboard",
+            title: "CRM",
+            content: "Authenticated CRM content",
+            truncated: false,
+            elements: []
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    await service.browserAction({
+      action: "snapshot",
+      url: "https://crm.example.com/dashboard",
+      maxChars: null,
+      operations: [],
+      timeoutMs: null,
+      profileSessionId: "/reconnect/session-abc123",
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-reconnect",
+        providerId: "browserless"
+      }
+    });
+    const reconnectBody = JSON.parse(String(requests[4]?.init?.body ?? "{}")) as {
+      code?: string;
+      context?: { reuseSession?: boolean };
+    };
+    assert.equal(reconnectBody.context?.reuseSession, true);
+    assert.match(reconnectBody.code ?? "", /urlMatchesHostPathPrefix/);
+    assert.match(reconnectBody.code ?? "", /shouldNavigate/);
+    assert.equal(
+      requests[4]?.url,
+      "https://browserless.example.com/reconnect/session-abc123/function?token=browserless-secret"
+    );
+    assert.notEqual(
+      requests[4]?.url,
+      "https://browserless.example.com/function?token=browserless-secret"
+    );
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: {
+            providerSessionId: "/reconnect/session-login",
+            liveUrl: "https://browserless.example.com/live/session-login"
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    const loginResult = await service.startLogin({
+      loginUrl: "https://crm.example.com/login",
+      timeoutMs: null,
+      reconnectTimeoutMs: null,
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-login",
+        providerId: "browserless"
+      }
+    });
+    assert.equal(loginResult.providerSessionId, "/reconnect/session-login");
+    assert.equal(loginResult.liveUrl, "https://browserless.example.com/live/session-login");
+    const loginBody = JSON.parse(String(requests[5]?.init?.body ?? "{}")) as {
+      code?: string;
+      context?: { loginUrl?: string };
+    };
+    assert.match(loginBody.code ?? "", /Browserless\.liveURL/);
+    assert.equal(loginBody.context?.loginUrl, "https://crm.example.com/login");
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: { closed: true }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    await service.deleteSession({
+      providerSessionId: "/reconnect/session-login",
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-delete",
+        providerId: "browserless"
+      }
+    });
+    assert.equal(
+      requests[6]?.url,
+      "https://browserless.example.com/reconnect/session-login/function?token=browserless-secret"
+    );
+    const deleteBody = JSON.parse(String(requests[6]?.init?.body ?? "{}")) as { code?: string };
+    assert.match(deleteBody.code ?? "", /browser\.close/);
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: { ok: true, url: "https://crm.example.com/dashboard" }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    const verifyResult = await service.verifySession({
+      providerSessionId: "/reconnect/session-login",
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-verify",
+        providerId: "browserless"
+      }
+    });
+    assert.deepEqual(verifyResult, { ok: true });
+    assert.equal(
+      requests[7]?.url,
+      "https://browserless.example.com/reconnect/session-login/function?token=browserless-secret"
+    );
+    const verifyBody = JSON.parse(String(requests[7]?.init?.body ?? "{}")) as { code?: string };
+    assert.match(verifyBody.code ?? "", /page\.url/);
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: {
+            initialUrl: "https://example.com/",
+            finalUrl: "https://example.com/final",
+            title: "Example page",
+            content: "Rendered browser content",
+            truncated: false,
+            elements: []
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
 
     await assert.rejects(
       () =>

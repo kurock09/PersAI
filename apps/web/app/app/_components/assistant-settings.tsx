@@ -102,9 +102,15 @@ import {
   ApiStructuredError,
   type PersonaListItemDto,
   type VoiceCatalogEntry,
-  type WorkspaceVideoClonedVoiceDto
+  type WorkspaceVideoClonedVoiceDto,
+  deleteAssistantBrowserProfile,
+  listAssistantBrowserProfiles,
+  reconnectAssistantBrowserProfile,
+  type AssistantBrowserProfileListItem,
+  type PendingBrowserLoginState
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
+import { BrowserLoginModal } from "./browser-login-modal";
 import { VoicePreviewButton } from "../../_components/voice-preview-button";
 import { AssistantSupportSection } from "./assistant-support-section";
 import { userFieldClassName, userPillButtonClassName } from "./form-ui";
@@ -1363,6 +1369,12 @@ export function AssistantSettings({
   const [enableAutoRenewPending, setEnableAutoRenewPending] = useState(false);
   const [disableAutoRenewPending, setDisableAutoRenewPending] = useState(false);
   const [disableAutoRenewConfirmOpen, setDisableAutoRenewConfirmOpen] = useState(false);
+  const [browserProfiles, setBrowserProfiles] = useState<AssistantBrowserProfileListItem[]>([]);
+  const [browserProfilesLoading, setBrowserProfilesLoading] = useState(false);
+  const [browserProfilesActionId, setBrowserProfilesActionId] = useState<string | null>(null);
+  const [settingsBrowserLogin, setSettingsBrowserLogin] = useState<PendingBrowserLoginState | null>(
+    null
+  );
   const assistant = data.assistant;
   const latestWebChatId =
     [...data.chats]
@@ -2025,6 +2037,63 @@ export function AssistantSettings({
       // Keep the last known count when the background refresh fails.
     }
   }, [assistant?.id, getToken]);
+
+  const refreshBrowserProfiles = useCallback(async () => {
+    if (!assistant?.id) {
+      setBrowserProfiles([]);
+      return;
+    }
+    const token = await getToken();
+    if (!token) return;
+    setBrowserProfilesLoading(true);
+    try {
+      const profiles = await listAssistantBrowserProfiles(token, assistant.id);
+      setBrowserProfiles(profiles);
+    } catch {
+      // Keep the last known list when refresh fails.
+    } finally {
+      setBrowserProfilesLoading(false);
+    }
+  }, [assistant?.id, getToken]);
+
+  const handleDeleteBrowserProfile = useCallback(
+    async (profileId: string) => {
+      if (!assistant?.id) return;
+      const token = await getToken();
+      if (!token) return;
+      setBrowserProfilesActionId(profileId);
+      try {
+        await deleteAssistantBrowserProfile(token, assistant.id, profileId);
+        await refreshBrowserProfiles();
+      } finally {
+        setBrowserProfilesActionId(null);
+      }
+    },
+    [assistant?.id, getToken, refreshBrowserProfiles]
+  );
+
+  const handleReconnectBrowserProfile = useCallback(
+    async (profile: AssistantBrowserProfileListItem) => {
+      if (!assistant?.id) return;
+      const token = await getToken();
+      if (!token) return;
+      setBrowserProfilesActionId(profile.id);
+      try {
+        const pending = await reconnectAssistantBrowserProfile(token, assistant.id, profile.id);
+        setSettingsBrowserLogin(pending);
+        await refreshBrowserProfiles();
+      } finally {
+        setBrowserProfilesActionId(null);
+      }
+    },
+    [assistant?.id, getToken, refreshBrowserProfiles]
+  );
+
+  useEffect(() => {
+    if (openSection === "channels") {
+      void refreshBrowserProfiles();
+    }
+  }, [openSection, refreshBrowserProfiles]);
 
   useEffect(() => {
     void refreshSupportUnreadCount();
@@ -4668,6 +4737,32 @@ export function AssistantSettings({
               comingSoon
             />
           </div>
+          <div className="my-4 border-t border-border/60" />
+          <div className="mb-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+              {t("connectedSites")}
+            </h3>
+          </div>
+          {browserProfilesLoading ? (
+            <div className="flex items-center gap-2 py-2 text-xs text-text-muted">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {t("connectedSitesLoading")}
+            </div>
+          ) : browserProfiles.length === 0 ? (
+            <p className="text-xs text-text-muted">{t("connectedSitesEmpty")}</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {browserProfiles.map((profile) => (
+                <BrowserSiteCard
+                  key={profile.id}
+                  profile={profile}
+                  busy={browserProfilesActionId === profile.id}
+                  onDelete={() => void handleDeleteBrowserProfile(profile.id)}
+                  onReconnect={() => void handleReconnectBrowserProfile(profile)}
+                />
+              ))}
+            </div>
+          )}
         </Section>
 
         {assistant?.id ? (
@@ -6304,6 +6399,16 @@ export function AssistantSettings({
         onSwitch={handleSwitchAssistant}
         onCreate={hasAssistantSwitcher ? handleCreateAssistant : null}
       />
+      <BrowserLoginModal
+        open={settingsBrowserLogin !== null}
+        assistantId={assistant?.id}
+        pendingBrowserLogin={settingsBrowserLogin}
+        onClose={() => setSettingsBrowserLogin(null)}
+        onCompleted={() => {
+          setSettingsBrowserLogin(null);
+          void refreshBrowserProfiles();
+        }}
+      />
     </>
   );
 }
@@ -6316,6 +6421,94 @@ const STATUS_LABELS: Record<string, { label: string; dot: string }> = {
   degraded: { label: "Degraded", dot: "bg-warning" },
   none: { label: "Not created", dot: "bg-text-subtle" }
 };
+
+function BrowserSiteCard({
+  profile,
+  busy,
+  onDelete,
+  onReconnect
+}: {
+  profile: AssistantBrowserProfileListItem;
+  busy?: boolean;
+  onDelete: () => void;
+  onReconnect: () => void;
+}) {
+  const t = useTranslations("settings");
+  const faviconUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(profile.originHost)}&sz=64`;
+  const statusLabel =
+    profile.status === "active"
+      ? t("browserProfileStatusActive")
+      : profile.status === "expired"
+        ? t("browserProfileStatusExpired")
+        : t("browserProfileStatusPending");
+  const statusDot =
+    profile.status === "active"
+      ? "bg-success"
+      : profile.status === "expired"
+        ? "bg-destructive"
+        : "bg-warning";
+  const interactive = profile.status !== "active";
+  const Comp = interactive ? "button" : "div";
+
+  return (
+    <Comp
+      type={interactive ? "button" : undefined}
+      onClick={interactive ? onReconnect : undefined}
+      disabled={interactive ? busy : undefined}
+      className={cn(
+        "group relative flex rounded-2xl border px-3.5 py-3 text-left transition-all",
+        profile.status === "active"
+          ? "border-accent/25 bg-accent/[0.07]"
+          : "border-border/60 bg-background/50",
+        interactive && "cursor-pointer hover:-translate-y-[1px] hover:border-accent/30",
+        busy && "opacity-70"
+      )}
+    >
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onDelete();
+        }}
+        disabled={busy}
+        aria-label={t("browserProfileDelete")}
+        className="absolute top-2.5 right-2.5 inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/70 bg-background/80 text-text-muted transition hover:border-destructive/30 hover:text-destructive disabled:opacity-50"
+      >
+        {busy ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Trash2 className="h-3.5 w-3.5" />
+        )}
+      </button>
+      <div className="flex min-w-0 flex-1 items-start gap-3 pr-8">
+        <img src={faviconUrl} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-text">
+              {profile.displayName}
+            </p>
+            <span className={cn("inline-block h-2.5 w-2.5 shrink-0 rounded-full", statusDot)} />
+          </div>
+          <p className="mt-0.5 truncate text-xs text-text-subtle">{profile.originHost}</p>
+          <p
+            className={cn(
+              "mt-0.5 text-xs",
+              profile.status === "active" ? "text-success" : "text-text-subtle"
+            )}
+          >
+            {statusLabel}
+          </p>
+          {interactive ? (
+            <span className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text">
+              {t("browserProfileReconnect")}
+              <ChevronRight className="h-3.5 w-3.5" />
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </Comp>
+  );
+}
 
 function IntegrationCard({
   name,

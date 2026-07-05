@@ -87,6 +87,20 @@ export interface AssistantChatRepository {
   ): Promise<AssistantChatMessage | null>;
   deleteMessage(messageId: string, assistantId: string): Promise<boolean>;
   listMessagesByChatId(chatId: string): Promise<AssistantChatMessage[]>;
+  findLatestAssistantMessageToolContext(
+    chatId: string,
+    assistantId: string
+  ): Promise<{
+    metadata: Record<string, unknown> | null;
+    toolExchanges: ProviderGatewayToolExchange[] | null;
+  } | null>;
+  findMessageToolContextById(
+    messageId: string,
+    assistantId: string
+  ): Promise<{
+    metadata: Record<string, unknown> | null;
+    toolExchanges: ProviderGatewayToolExchange[] | null;
+  } | null>;
   findMessageByIdForAssistant(
     messageId: string,
     assistantId: string

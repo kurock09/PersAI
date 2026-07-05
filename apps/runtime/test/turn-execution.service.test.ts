@@ -2054,7 +2054,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
   const runtimeBrowserToolService = new RuntimeBrowserToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
-    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    mediaObjectStorage as never
   );
   const runtimeImageEditToolService = new RuntimeImageEditToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
@@ -7140,6 +7141,9 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       action: "act",
       url: "https://example.com/app",
       maxChars: 5000,
+      format: null,
+      optimizeForSpeed: null,
+      profileSessionId: null,
       operations: [
         {
           kind: "click",
@@ -8451,7 +8455,8 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
   const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
   const runtimeBrowserToolService = new RuntimeBrowserToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
-    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    mediaObjectStorage as never
   );
   const runtimeImageEditToolService = new RuntimeImageEditToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,

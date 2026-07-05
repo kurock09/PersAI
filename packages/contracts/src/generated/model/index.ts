@@ -392,6 +392,7 @@ export * from "./assistantWebChatTurnCurrentActivityStateType";
 export * from "./assistantWebChatTurnRequest";
 export * from "./assistantWebChatTurnRequestChatMode";
 export * from "./assistantWebChatTurnState";
+export * from "./pendingBrowserLoginState";
 export * from "./assistantWebChatTurnStatusState";
 export * from "./assistantWebChatTurnStatusStateCurrentActivity";
 export * from "./assistantWebChatTurnStatusStateCurrentActivityPhase";

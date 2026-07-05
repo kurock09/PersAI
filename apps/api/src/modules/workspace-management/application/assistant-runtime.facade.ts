@@ -268,7 +268,9 @@ export function runtimeOutputArtifactsToMediaArtifacts(
       source: "persai_object_storage",
       objectKey: artifact.storagePath,
       type,
-      ...(artifact.sourceToolCode === undefined || artifact.sourceToolCode === null
+      ...(artifact.sourceToolCode === undefined ||
+      artifact.sourceToolCode === null ||
+      artifact.sourceToolCode === "browser"
         ? {}
         : { sourceToolCode: artifact.sourceToolCode }),
       mimeType: artifact.mimeType,

@@ -12066,6 +12066,25 @@ components:
                 topicSummary:
                   type: string
                   nullable: true
+    PendingBrowserLoginState:
+      type: object
+      required:
+        - profileId
+        - profileKey
+        - displayName
+        - liveUrl
+        - loginUrl
+      properties:
+        profileId:
+          type: string
+        profileKey:
+          type: string
+        displayName:
+          type: string
+        liveUrl:
+          type: string
+        loginUrl:
+          type: string
     AssistantWebChatTurnState:
       type: object
       required:
@@ -12088,6 +12107,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantWebChatActiveDocumentJobState"
+        pendingBrowserLogin:
+          nullable: true
+          $ref: "#/components/schemas/PendingBrowserLoginState"
         runtime:
           $ref: "#/components/schemas/AssistantWebChatRuntimeState"
     AssistantWebChatTurnCurrentActivityState:
@@ -12448,6 +12470,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantWebChatActiveDocumentJobState"
+        pendingBrowserLogin:
+          nullable: true
+          $ref: "#/components/schemas/PendingBrowserLoginState"
     AssistantWebChatRenameRequest:
       type: object
       minProperties: 1
@@ -12803,6 +12828,9 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AssistantWebChatActiveDocumentJobState"
+        pendingBrowserLogin:
+          nullable: true
+          $ref: "#/components/schemas/PendingBrowserLoginState"
     GetAssistantWebChatListItemResponse:
       type: object
       required:

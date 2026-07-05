@@ -67,6 +67,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
   },
   { modulePath: "./runtime-tts-tool.service.test.ts", exportName: "runRuntimeTtsToolServiceTest" },
   {
+    modulePath: "./runtime-browser-tool.service.test.ts",
+    exportName: "runRuntimeBrowserToolServiceTest"
+  },
+  {
     modulePath: "./runtime-video-generate-tool.service.test.ts",
     exportName: "runRuntimeVideoGenerateToolServiceTest"
   },

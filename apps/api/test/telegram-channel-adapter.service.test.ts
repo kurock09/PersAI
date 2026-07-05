@@ -7,6 +7,7 @@ import {
   isTelegramNewSessionRequest,
   normalizeTelegramTextIntent
 } from "../src/modules/workspace-management/application/telegram-channel-adapter.service";
+import { appendTelegramBrowserLoginLink } from "../src/modules/workspace-management/application/extract-pending-browser-login-from-turn";
 
 const defaultAlbumCollectorStub = {
   async appendPart() {
@@ -640,6 +641,164 @@ test("passes compaction queue notice as a post-reply notice instead of sending a
 
   assert.equal(sendPlainTextCalls, 0);
   assert.deepEqual(capturedPostReplyNotices, ["Готово, контекст сжал. Продолжаем."]);
+});
+
+test("persists telegram assistant message with browser login liveUrl link", async () => {
+  let persistedContent: string | null = null;
+  const pendingBrowserLogin = {
+    profileId: "profile-1",
+    profileKey: "bitrix24",
+    displayName: "Bitrix24",
+    liveUrl: "https://browserless.example/live/bitrix24",
+    loginUrl: "https://crm.example/login"
+  };
+
+  const service = new TelegramChannelAdapterService(
+    {
+      async resolveByAssistantId() {
+        return {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          locale: "en",
+          botToken: "bot-token",
+          botUserId: 555,
+          botUsername: "test_bot",
+          inbound: true,
+          outbound: true,
+          groupReplyMode: "mention_reply",
+          parseMode: "plain_text",
+          defaultDeepModeEnabled: false,
+          accessMode: "owner_only",
+          ownerClaimStatus: "claimed",
+          ownerClaimCode: null,
+          ownerClaimCodeExpiresAt: null,
+          ownerTelegramUserId: 777,
+          ownerTelegramUsername: "alex",
+          ownerTelegramChatId: "12345",
+          sessionThreadKey: "default_session",
+          runtimeHealth: "ok",
+          webhookSecret: "secret-1"
+        };
+      }
+    } as never,
+    {
+      async sendPlainText() {
+        return undefined;
+      },
+      async sendAssistantTurnReply() {
+        return undefined;
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          assistantMessage: "I'll open the login page.",
+          respondedAt: "2026-05-11T10:00:00.000Z",
+          media: [],
+          assistantMessageId: "assistant-msg-1",
+          chatId: "chat-1",
+          workspaceId: "workspace-1",
+          quotaAdvisoryFollowUpIntentId: null,
+          compactionAdvisoryFollowUpIntentId: null,
+          pendingBrowserLogin
+        };
+      }
+    } as never,
+    {
+      async markUndeliveredArtifactsReconciliationRequired() {
+        return undefined;
+      },
+      async deliver() {
+        return { attachments: [] };
+      }
+    } as never,
+    {
+      async execute() {
+        return undefined;
+      }
+    } as never,
+    {
+      async execute() {
+        return undefined;
+      }
+    } as never,
+    {
+      renderError() {
+        return { text: "error" };
+      }
+    } as never,
+    {
+      async deliverIntentNow() {
+        return undefined;
+      }
+    } as never,
+    defaultAlbumCollectorStub as never,
+    defaultInboundContextStub as never,
+    {
+      async updateMessageContent(_messageId: string, _assistantId: string, content: string) {
+        persistedContent = content;
+        return { id: "assistant-msg-1" };
+      }
+    } as never,
+    {
+      async findByAssistantProviderSurface() {
+        return {
+          id: "binding-1",
+          assistantId: "assistant-1",
+          providerKey: "telegram",
+          surfaceType: "telegram_bot",
+          bindingState: "active",
+          tokenFingerprint: null,
+          tokenLastFour: null,
+          policy: null,
+          config: null,
+          metadata: {
+            telegramOwnerClaimStatus: "claimed",
+            telegramOwnerTelegramUserId: 777,
+            telegramOwnerTelegramChatId: "12345",
+            telegramSessionThreadKey: "default_session"
+          },
+          connectedAt: null,
+          disconnectedAt: null,
+          createdAt: new Date("2026-05-01T00:00:00.000Z"),
+          updatedAt: new Date("2026-05-01T00:00:00.000Z")
+        };
+      },
+      async claimTelegramUpdateProcessing() {
+        return "claimed" as const;
+      },
+      async completeTelegramUpdateProcessing() {
+        return undefined;
+      },
+      async releaseTelegramUpdateProcessing() {
+        return undefined;
+      },
+      async patchMetadata() {
+        return undefined;
+      },
+      async hasActiveBindingForProvider() {
+        return true;
+      }
+    } as never
+  );
+
+  await service.handleWebhook({
+    assistantId: "assistant-1",
+    secretToken: "secret-1",
+    payload: {
+      update_id: 302,
+      message: {
+        text: "log into bitrix",
+        chat: { id: 12345, type: "private" },
+        from: { id: 777, username: "alex" }
+      }
+    }
+  });
+
+  assert.equal(
+    persistedContent,
+    appendTelegramBrowserLoginLink("en", "I'll open the login page.", pendingBrowserLogin)
+  );
 });
 
 test("extractTelegramWebhookEvent surfaces media_group_id for album parts", () => {

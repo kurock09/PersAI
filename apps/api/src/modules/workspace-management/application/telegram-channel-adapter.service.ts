@@ -33,6 +33,7 @@ import {
   applyFinalDeliveryHonestyCorrection,
   resolveUndeliveredArtifactKind
 } from "./final-delivery-honesty";
+import { appendTelegramBrowserLoginLink } from "./extract-pending-browser-login-from-turn";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import { TelegramAlbumCollectorService } from "./telegram-album-collector.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
@@ -1057,18 +1058,29 @@ export class TelegramChannelAdapterService {
           assistantMessage: finalAssistantMessage
         };
       }
+      if (turnResult.pendingBrowserLogin !== null && turnResult.pendingBrowserLogin !== undefined) {
+        const loginLinkedMessage = appendTelegramBrowserLoginLink(
+          config.locale,
+          outboundTurnResult.assistantMessage,
+          turnResult.pendingBrowserLogin
+        );
+        outboundTurnResult = {
+          ...outboundTurnResult,
+          assistantMessage: loginLinkedMessage
+        };
+      }
       if (
-        finalAssistantMessage !== turnResult.assistantMessage &&
+        outboundTurnResult.assistantMessage !== turnResult.assistantMessage &&
         turnResult.assistantMessageId.trim().length > 0
       ) {
         const updated = await this.assistantChatRepository.updateMessageContent(
           turnResult.assistantMessageId,
           config.assistantId,
-          finalAssistantMessage
+          outboundTurnResult.assistantMessage
         );
         if (updated === null) {
           this.logger.warn(
-            `Failed to persist final delivery-honesty correction for Telegram assistant message "${turnResult.assistantMessageId}".`
+            `Failed to persist final Telegram assistant message content for "${turnResult.assistantMessageId}".`
           );
         }
       }

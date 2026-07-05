@@ -778,6 +778,34 @@ describe("streamAssistantWebChatTurn", () => {
     expect(onCompleted).toHaveBeenCalledWith({ transport: { mode: "sse" } });
   });
 
+  it("dispatches pending_browser_login mid-stream without waiting for completed", async () => {
+    const onPendingBrowserLogin = vi.fn();
+    const pendingBrowserLogin = {
+      profileId: "profile-1",
+      profileKey: "bitrix",
+      displayName: "Bitrix24",
+      liveUrl: "https://browserless.example/live/bitrix",
+      loginUrl: "https://example.bitrix24.ru/login"
+    };
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        createSseResponse([
+          `event: started\ndata: ${JSON.stringify({ chat: { id: "chat-1" }, userMessage: { id: "msg-1" } })}\n\n`,
+          `event: pending_browser_login\ndata: ${JSON.stringify({ pendingBrowserLogin })}\n\n`,
+          `event: completed\ndata: ${JSON.stringify({ transport: { mode: "sse" } })}\n\n`
+        ])
+      ) as typeof fetch;
+
+    await streamAssistantWebChatTurn(
+      "token-1",
+      { surfaceThreadKey: "thread-1", message: "Hello" },
+      { onPendingBrowserLogin }
+    );
+
+    expect(onPendingBrowserLogin).toHaveBeenCalledWith({ pendingBrowserLogin });
+  });
+
   it("ignores keepalive comment blocks while waiting for the terminal event", async () => {
     const onCompleted = vi.fn();
     global.fetch = vi

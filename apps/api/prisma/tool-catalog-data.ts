@@ -237,14 +237,19 @@ GOTCHAS:
     description: "Automated web browser for interactive page navigation and content extraction.",
     modelDescription:
       "Use a real browser for JavaScript-rendered or interactive pages when web_search or web_fetch are insufficient.",
-    modelUsageGuidance: `WHEN TO USE: Live, interactive, JavaScript-rendered, or logged-in web pages where plain web_fetch cannot reach the needed state.
-WHEN NOT TO USE: The user only wants a textual description of a page.
+    modelUsageGuidance: `WHEN TO USE: Live, interactive, JavaScript-rendered, or logged-in web pages where plain web_fetch cannot reach the needed state — especially CRM/portals that require cookies across turns.
+WHEN NOT TO USE: Static public pages with a known URL (prefer web_fetch) or facts discoverable via web_search without interaction.
 EXAMPLES:
-- browser({action:"snapshot", url:"…"}) — inspect a live page's current state.
-- browser({action:"act", url:"…", task:"…"}) — drive a multi-step interaction.
+- browser({action:"list_profiles"}) — list saved per-assistant browser sessions and their profileKey/status.
+- browser({action:"login", displayName:"Bitrix24", url:"https://…/login"}) — start live login; reuse the returned profileKey after the user completes login.
+- browser({action:"snapshot", url:"…", profile:"profileKey"}) — inspect an authenticated page with a saved session.
+- browser({action:"act", url:"…", profile:"profileKey", operations:[…]}) — bounded interaction, then a fresh snapshot.
+- browser({action:"snapshot", url:"…", profile:"profileKey", format:"pdf"}) — export a PDF artifact; deliver via files.attach.
 GOTCHAS:
-- Prefer \`snapshot\` first to inspect the page. Use \`act\` only when the user explicitly wants interaction or when static tools cannot reach the needed state.
-- Sessions are bounded and ephemeral; do not assume login or cookies persist between calls.`,
+- Prefer \`snapshot\` first to inspect the page. Use \`act\` only when interaction is required.
+- Pass \`profile\` on \`snapshot\`/\`act\` to reuse cookies; omit \`profile\` only for public pages.
+- \`optimizeForSpeed:true\` on \`snapshot\`/\`act\` speeds table scraping (blocks heavy assets).
+- Saved profiles expire after plan TTL inactivity; missing/expired/pending profiles return business errors — run \`login\` to reconnect.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_browser",

@@ -488,6 +488,12 @@ enum AssistantChannelBindingState {
   unconfigured
 }
 
+enum AssistantBrowserProfileStatus {
+  pending_login
+  active
+  expired
+}
+
 enum PlatformRolloutStatus {
   in_progress
   applied
@@ -783,6 +789,7 @@ model Workspace {
   workspaceVideoPersonas            WorkspaceVideoPersona[]
   workspaceVideoClonedVoices        WorkspaceVideoClonedVoice[]
   safetyModerationReviewJobs        SafetyModerationReviewJob[]
+  assistantBrowserProfiles          AssistantBrowserProfile[]
 
   @@map("workspaces")
 }
@@ -904,6 +911,7 @@ model Assistant {
   documentRenderJobs                   AssistantDocumentRenderJob[]
   notificationIntents                  NotificationIntent[]                  @relation("NotificationIntentAssistant")
   activeForWorkspaceMembers            WorkspaceMember[]                     @relation("WorkspaceMemberActiveAssistant")
+  browserProfiles                      AssistantBrowserProfile[]
 
   @@unique([id, userId])
   @@unique([id, workspaceId])
@@ -934,6 +942,32 @@ model AssistantChannelSurfaceBinding {
   @@unique([assistantId, providerKey, surfaceType])
   @@index([assistantId, providerKey, bindingState])
   @@map("assistant_channel_surface_bindings")
+}
+
+model AssistantBrowserProfile {
+  id                 String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assistantId        String                        @map("assistant_id") @db.Uuid
+  workspaceId        String                        @map("workspace_id") @db.Uuid
+  profileKey         String                        @map("profile_key") @db.VarChar(128)
+  displayName        String                        @map("display_name") @db.VarChar(500)
+  loginUrl           String                        @map("login_url") @db.Text
+  originHost         String                        @map("origin_host") @db.VarChar(255)
+  providerSessionId  String                        @map("provider_session_id") @db.VarChar(512)
+  liveUrl            String?                       @map("live_url") @db.Text
+  originatingChatId  String?                       @map("originating_chat_id") @db.Uuid
+  status             AssistantBrowserProfileStatus
+  lastUsedAt         DateTime?                     @map("last_used_at") @db.Timestamptz(6)
+  expiresAt          DateTime?                     @map("expires_at") @db.Timestamptz(6)
+  createdAt          DateTime                      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant          Assistant                     @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace          Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([assistantId, profileKey])
+  @@index([assistantId, status])
+  @@index([assistantId, originatingChatId, status])
+  @@index([status, expiresAt])
+  @@map("assistant_browser_profiles")
 }
 
 model AssistantPublishedVersion {

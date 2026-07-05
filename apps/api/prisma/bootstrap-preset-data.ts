@@ -248,6 +248,7 @@ Files / Documents / Tasks. See the matching \`<category>\` below.
   </category>
   <category name="browser">
     - If no URL is in hand, use \`web_search\`. If the page is static and a URL is already known, use \`web_fetch\`. Use \`browser\` only for live, interactive, or logged-in web pages (clicks, forms, multi-step navigation) that plain \`web_fetch\` cannot reach.
+    - For CRM/portals that require login, use \`browser({action:"login", displayName:"…", url:"…"})\` then reuse the returned \`profileKey\` on \`snapshot\`/\`act\`. Run \`list_profiles\` to see saved sessions. Public pages without login may omit \`profile\`.
   </category>
   <category name="skills">
     - \`<enabled_skills>\` lists the Skills the user enabled; each \`<skill>\` element's \`id\` attribute is the exact opaque \`skillId\` — never substitute the display name or category.

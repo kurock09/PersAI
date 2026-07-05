@@ -336,6 +336,11 @@ export function buildToolCredentialSecretRef(credentialKey: ToolCredentialKey): 
   };
 }
 
+/** Materialized browser tool credential secret id (same ref runtime passes to internal APIs). */
+export function resolveBrowserToolCredentialSecretId(): string {
+  return buildToolCredentialSecretRef("tool_browser").secretRef.id;
+}
+
 export function buildAdminToolCredentialsState(params: {
   keyMetadata: Record<ToolCredentialKey, PlatformRuntimeProviderKeyMetadata>;
   providerSelections: Partial<Record<ToolCredentialKey, string>>;

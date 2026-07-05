@@ -78,6 +78,12 @@ const assistantApiMocks = vi.hoisted(() => ({
   setWorkspaceVideoClonedVoiceDefault: vi.fn()
 }));
 
+const browserProfileMocks = vi.hoisted(() => ({
+  listAssistantBrowserProfiles: vi.fn(),
+  deleteAssistantBrowserProfile: vi.fn(),
+  reconnectAssistantBrowserProfile: vi.fn()
+}));
+
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
     getToken: clerkMocks.getToken,
@@ -131,9 +137,16 @@ vi.mock("../assistant-api-client", async () => {
     updateWorkspaceVideoPersona: assistantApiMocks.updateWorkspaceVideoPersona,
     deleteWorkspaceVideoPersona: assistantApiMocks.deleteWorkspaceVideoPersona,
     archiveWorkspaceVideoClonedVoice: assistantApiMocks.archiveWorkspaceVideoClonedVoice,
-    setWorkspaceVideoClonedVoiceDefault: assistantApiMocks.setWorkspaceVideoClonedVoiceDefault
+    setWorkspaceVideoClonedVoiceDefault: assistantApiMocks.setWorkspaceVideoClonedVoiceDefault,
+    listAssistantBrowserProfiles: browserProfileMocks.listAssistantBrowserProfiles,
+    deleteAssistantBrowserProfile: browserProfileMocks.deleteAssistantBrowserProfile,
+    reconnectAssistantBrowserProfile: browserProfileMocks.reconnectAssistantBrowserProfile
   };
 });
+
+vi.mock("./browser-login-modal", () => ({
+  BrowserLoginModal: () => null
+}));
 
 vi.mock("./assistant-avatar", () => ({
   AssistantAvatar: () => <div data-testid="assistant-avatar" />
@@ -287,6 +300,34 @@ function renderSettings(
 }
 
 describe("integrations section", () => {
+  beforeEach(() => {
+    browserProfileMocks.listAssistantBrowserProfiles.mockResolvedValue([
+      {
+        id: "profile-1",
+        profileKey: "bitrix",
+        displayName: "Bitrix24",
+        loginUrl: "https://bitrix.example/login",
+        originHost: "bitrix.example",
+        status: "active",
+        lastUsedAt: null,
+        expiresAt: null,
+        createdAt: "2026-07-05T12:00:00.000Z"
+      }
+    ]);
+  });
+
+  it("renders connected sites subsection with browser profiles", async () => {
+    renderSettings(makeAppData(), "channels");
+
+    expect(await screen.findByText("Connected sites")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(browserProfileMocks.listAssistantBrowserProfiles).toHaveBeenCalled();
+    });
+    expect(await screen.findByText("Bitrix24")).toBeInTheDocument();
+    expect(screen.getByText("bitrix.example")).toBeInTheDocument();
+    expect(screen.getByText("Active")).toBeInTheDocument();
+  });
+
   it("renders integrations cards and moves reminder delivery into tasks", async () => {
     const openTelegramSettings = vi.fn();
     renderSettings(

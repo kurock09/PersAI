@@ -963,6 +963,7 @@ export class AssistantController {
     activeMediaJobs: AssistantWebChatListItemState["activeMediaJobs"];
     activeDocumentJobs: AssistantWebChatListItemState["activeDocumentJobs"];
     currentEngagement: AssistantWebChatEngagementSummary | null;
+    pendingBrowserLogin: AssistantWebChatListItemState["pendingBrowserLogin"];
   }> {
     const userId = this.resolveRequestUserId(req);
     const limit = Math.min(Math.max(parseInt(limitParam ?? "50", 10) || 50, 1), 100);
@@ -978,7 +979,8 @@ export class AssistantController {
       activeTurn: result.activeTurn,
       activeMediaJobs: result.activeMediaJobs,
       activeDocumentJobs: result.activeDocumentJobs,
-      currentEngagement: result.currentEngagement
+      currentEngagement: result.currentEngagement,
+      pendingBrowserLogin: result.pendingBrowserLogin
     };
   }
 
@@ -1399,6 +1401,9 @@ export class AssistantController {
         },
         onStreamReset: ({ reason, attempt }) => {
           sendSse("stream_reset", { reason, attempt });
+        },
+        onPendingBrowserLogin: (pendingBrowserLogin) => {
+          sendSse("pending_browser_login", { pendingBrowserLogin });
         },
         getSseWriterStatsSummary: () =>
           prepared.traceHandle?.isEnabled() === true ? sseWriterInstrumentation.formatStats() : null

@@ -156,7 +156,8 @@ describe("SendWebChatTurnService", () => {
           author: messageId === "user-msg-1" ? "user" : "assistant",
           content: messageId === "user-msg-1" ? "hello" : "hi back",
           createdAt: new Date("2026-04-05T12:00:00.000Z")
-        })
+        }),
+        findMessageToolContextById: async () => null
       } as never,
       {
         listByMessageId: async () => []

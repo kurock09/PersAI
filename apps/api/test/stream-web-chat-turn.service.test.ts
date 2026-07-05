@@ -86,6 +86,14 @@ function createNotificationDeliveryWorkerServiceMock() {
   };
 }
 
+function createAssistantBrowserProfileRepositoryMock(
+  pendingProfile: Record<string, unknown> | null = null
+) {
+  return {
+    findMostRecentPendingLoginForChat: async () => pendingProfile
+  };
+}
+
 function captureProcessStdoutSync<T>(action: () => Promise<T>): Promise<{
   result: T;
   captured: string;
@@ -275,7 +283,8 @@ describe("StreamWebChatTurnService", () => {
         listOpenJobsForWebChat: async () => []
       } as never,
       createAssistantDocumentJobReadServiceMock() as never,
-      createNotificationDeliveryWorkerServiceMock() as never
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -460,7 +469,8 @@ describe("StreamWebChatTurnService", () => {
         listOpenJobsForWebChat: async () => []
       } as never,
       createAssistantDocumentJobReadServiceMock() as never,
-      createNotificationDeliveryWorkerServiceMock() as never
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -658,7 +668,8 @@ describe("StreamWebChatTurnService", () => {
         listOpenJobsForWebChat: async () => []
       } as never,
       createAssistantDocumentJobReadServiceMock() as never,
-      createNotificationDeliveryWorkerServiceMock() as never
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -865,6 +876,7 @@ describe("StreamWebChatTurnService", () => {
           };
         }
       } as never,
+      createAssistantBrowserProfileRepositoryMock() as never,
       {
         maybeCreateFollowUp: async () => null
       } as never,
@@ -1029,6 +1041,7 @@ describe("StreamWebChatTurnService", () => {
           throw new Error("follow-up delivery failed");
         }
       } as never,
+      createAssistantBrowserProfileRepositoryMock() as never,
       {
         maybeCreateFollowUp: async () => ({
           intentId: "intent-quota-1"
@@ -1219,7 +1232,8 @@ describe("StreamWebChatTurnService", () => {
         listOpenJobsForWebChat: async () => []
       } as never,
       createAssistantDocumentJobReadServiceMock() as never,
-      createNotificationDeliveryWorkerServiceMock() as never
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -1419,7 +1433,8 @@ describe("StreamWebChatTurnService", () => {
         listOpenJobsForWebChat: async () => []
       } as never,
       createAssistantDocumentJobReadServiceMock() as never,
-      createNotificationDeliveryWorkerServiceMock() as never
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -1537,6 +1552,175 @@ describe("StreamWebChatTurnService", () => {
     );
   });
 
+  test("fires onPendingBrowserLogin when browser tool ends with pending profile", async () => {
+    const pendingProfile = {
+      id: "profile-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "bitrix",
+      displayName: "Bitrix24",
+      loginUrl: "https://example.bitrix24.ru/login",
+      originHost: "example.bitrix24.ru",
+      providerSessionId: "session-1",
+      liveUrl: "https://browserless.example/live/bitrix",
+      status: "pending_login" as const,
+      lastUsedAt: null,
+      expiresAt: null,
+      createdAt: new Date("2026-07-05T12:00:00.000Z"),
+      updatedAt: new Date("2026-07-05T12:00:00.000Z")
+    };
+    const pendingLoginEvents: Array<Record<string, unknown>> = [];
+
+    const service = new StreamWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        findChatById: async (chatId: string) => ({
+          id: chatId,
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+          createdAt: new Date("2026-04-05T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-05T12:00:00.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        releaseWebTurnProcessing: async () => undefined,
+        completeWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async function* () {
+          yield {
+            type: "tool",
+            toolPhase: "start",
+            toolName: "browser",
+            toolCallId: "tool-browser-1"
+          };
+          yield {
+            type: "tool",
+            toolPhase: "end",
+            toolName: "browser",
+            toolCallId: "tool-browser-1",
+            isError: false
+          };
+          yield {
+            type: "delta",
+            delta: "Please sign in.",
+            accumulated: "Please sign in."
+          };
+          yield {
+            type: "done",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            finalAnswer: "Please sign in."
+          };
+        }
+      } as never,
+      createWebRuntimeTurnClientServiceMock() as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called in this test");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => {
+          throw new Error("resolve should not be called in this test");
+        }
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock(pendingProfile) as never
+    );
+
+    const outcome = await service.streamToCompletion(
+      {
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: "2026-04-05T12:00:00.000Z",
+          updatedAt: "2026-04-05T12:00:00.000Z"
+        },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "log into bitrix",
+          attachments: [],
+          createdAt: "2026-04-05T12:00:00.000Z"
+        },
+        assistant: {
+          id: "assistant-1",
+          workspaceId: "workspace-1"
+        },
+        assistantId: "assistant-1",
+        publishedVersionId: "pub-1",
+        runtimeTier: "paid_shared",
+        quotaDegradeModelOverride: null,
+        quotaDegradeReason: null,
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        workspaceTimezone: "UTC"
+      } as never,
+      {
+        isClientAborted: () => false,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onTool: () => undefined,
+        onDone: () => undefined,
+        onPendingBrowserLogin: (state) => {
+          pendingLoginEvents.push(state as Record<string, unknown>);
+        }
+      }
+    );
+
+    assert.equal(outcome.status, "completed");
+    assert.equal(pendingLoginEvents.length, 1);
+    assert.deepEqual(pendingLoginEvents[0], {
+      profileId: "profile-1",
+      profileKey: "bitrix",
+      displayName: "Bitrix24",
+      liveUrl: "https://browserless.example/live/bitrix",
+      loginUrl: "https://example.bitrix24.ru/login"
+    });
+  });
+
   test("retries stream web turn after waiting for active compaction conflict", async () => {
     let webRuntimeCalls = 0;
     let compactionWaitCalls = 0;
@@ -1624,6 +1808,7 @@ describe("StreamWebChatTurnService", () => {
       {
         deliverIntentNow: async () => undefined
       } as never,
+      createAssistantBrowserProfileRepositoryMock() as never,
       {
         maybeCreateFollowUp: async () => null
       } as never,
@@ -1761,7 +1946,8 @@ describe("StreamWebChatTurnService", () => {
         listOpenJobsForWebChat: async () => []
       } as never,
       createAssistantDocumentJobReadServiceMock() as never,
-      createNotificationDeliveryWorkerServiceMock() as never
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -1849,7 +2035,8 @@ describe("StreamWebChatTurnService", () => {
           author: messageId === "user-msg-1" ? "user" : "assistant",
           content: messageId === "user-msg-1" ? "hello" : "hi back",
           createdAt: new Date("2026-04-05T12:00:00.000Z")
-        })
+        }),
+        findMessageToolContextById: async () => null
       } as never,
       {
         listByMessageId: async () => []
@@ -1893,7 +2080,8 @@ describe("StreamWebChatTurnService", () => {
         listOpenJobsForWebChat: async () => []
       } as never,
       createAssistantDocumentJobReadServiceMock() as never,
-      createNotificationDeliveryWorkerServiceMock() as never
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock() as never
     );
 
     const preparation = await service.prepare("user-1", {
@@ -2059,7 +2247,8 @@ describe("StreamWebChatTurnService", () => {
         listOpenJobsForWebChat: async () => []
       } as never,
       createAssistantDocumentJobReadServiceMock() as never,
-      createNotificationDeliveryWorkerServiceMock() as never
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock() as never
     );
 
     const outcome = await service.streamToCompletion(
@@ -2217,7 +2406,8 @@ function buildToolStreamingServiceForTraceTest(options: {
       listOpenJobsForWebChat: async () => []
     } as never,
     createAssistantDocumentJobReadServiceMock() as never,
-    createNotificationDeliveryWorkerServiceMock() as never
+    createNotificationDeliveryWorkerServiceMock() as never,
+    createAssistantBrowserProfileRepositoryMock() as never
   );
 }
 

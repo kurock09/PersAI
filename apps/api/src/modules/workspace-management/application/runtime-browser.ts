@@ -4,7 +4,10 @@ import {
   type RuntimeBrowserConfig
 } from "@persai/runtime-contract";
 
-const CONFIRMATION_REQUIRED_ACTIONS: RuntimeBrowserConfig["confirmationRequiredActions"] = ["act"];
+const CONFIRMATION_REQUIRED_ACTIONS: RuntimeBrowserConfig["confirmationRequiredActions"] = [
+  "act",
+  "login"
+];
 
 export function buildRuntimeBrowserConfig(): RuntimeBrowserConfig {
   return {
