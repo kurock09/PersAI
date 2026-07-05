@@ -39,9 +39,19 @@ Optional: `PERSAI_MCP_CHAT_TIMEOUT_MS` (default 310000), `PERSAI_MCP_INDEXING_TI
 
 - `skill_upsert`, `skill_get`, `skill_card_upsert`, `skill_document_upload`, `skill_scenario_upsert`
 - `indexing_wait`, `assistant_skills_assign`, `assistant_publish`
-- `chat_stage_attachment`, `chat_smoke`, `chat_fetch_attachment`
+- `chat_stage_attachment`, `chat_smoke`, `chat_list_deliverables`, `chat_inspect_attachments`, `chat_fetch_attachment`
 
-`goal` in `chat_smoke` is echoed in the tool result only — not stored in PersAI.
+**Cursor agents:** read [`SMOKE-AGENT.md`](./SMOKE-AGENT.md) for PASS/FAIL workflow (skill/scenario/todos + vision QA on delivered images).
+
+`chat_smoke` returns:
+
+- `skillActivation` — merged skill/scenario state (`status`, `activeSkillId`, `activeScenarioKey`, `engagementSummary`, `retrievalPlan`)
+- `toolSignals` — grouped `skill` / `todo_write` / `memory_write` tool calls from the turn
+- `plan` — chat todo list from `GET /assistant/chats/web/:chatId/plan`
+- `assistantMessage`, attachments, legacy `skillState` / `turnRouting`
+- `pendingDelivery` + `deliveryCheck` when media tools ran (poll deliverables next)
+
+Optional: `PERSAI_MCP_ARTIFACT_DIR` — local folder for `chat_inspect_attachments` / `chat_fetch_attachment` saves.
 
 ## Typical flow
 

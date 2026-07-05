@@ -1,3 +1,6 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 export interface PersaiAdminMcpConfig {
   apiBaseUrl: string;
   operatorToken: string;
@@ -8,6 +11,7 @@ export interface PersaiAdminMcpConfig {
   indexingPollIntervalMs: number;
   indexingTimeoutMs: number;
   attachmentFetchMaxBytes: number;
+  artifactDir: string;
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, name: string): string {
@@ -58,6 +62,8 @@ export function loadPersaiAdminMcpConfig(
     chatTimeoutMs: optionalPositiveInt(env, "PERSAI_MCP_CHAT_TIMEOUT_MS", 310_000),
     indexingPollIntervalMs: optionalPositiveInt(env, "PERSAI_MCP_INDEXING_POLL_MS", 2_000),
     indexingTimeoutMs: optionalPositiveInt(env, "PERSAI_MCP_INDEXING_TIMEOUT_MS", 600_000),
-    attachmentFetchMaxBytes: optionalPositiveInt(env, "PERSAI_MCP_ATTACHMENT_MAX_BYTES", 4_194_304)
+    attachmentFetchMaxBytes: optionalPositiveInt(env, "PERSAI_MCP_ATTACHMENT_MAX_BYTES", 4_194_304),
+    artifactDir:
+      optionalEnv(env, "PERSAI_MCP_ARTIFACT_DIR") ?? join(tmpdir(), "persai-mcp-artifacts")
   };
 }

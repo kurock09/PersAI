@@ -6,7 +6,8 @@
       "env": {
         "PERSAI_API_BASE_URL": "https://api.persai.dev",
         "PERSAI_OPERATOR_TOKEN": "<set-in-persai-api-secrets-PERSAI_OPERATOR_TOKEN>",
-        "PERSAI_OPERATOR_ACTOR_EMAIL": "kurock09@gmail.com"
+        "PERSAI_OPERATOR_ACTOR_EMAIL": "kurock09@gmail.com",
+        "PERSAI_MCP_ARTIFACT_DIR": "<optional-local-dir-for-smoke-attachment-downloads>"
       }
     }
   }

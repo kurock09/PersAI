@@ -1,8 +1,15 @@
-import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { PersaiAdminMcpConfig } from "./config.js";
 import { PersaiOperatorApiError, PersaiOperatorClient } from "./client.js";
+import { randomUUID } from "node:crypto";
+import { buildSkillActivationSummary, mapChatPlan, summarizeToolSignals } from "./smoke-signals.js";
+import {
+  buildChatFileUrl,
+  mapMessageDeliverable,
+  saveAttachmentBytes,
+  SMOKE_DELIVERY_AGENT_GUIDE
+} from "./chat-deliverables.js";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -422,30 +429,183 @@ export function createPersaiAdminMcpServer(
   );
 
   server.registerTool(
+    "chat_list_deliverables",
+    {
+      description:
+        "List recent web chat messages with attachments and active media/document jobs. Use after async delivery.",
+      inputSchema: z.object({
+        chatId: z.string().uuid(),
+        limit: z.number().int().min(1).max(100).optional()
+      })
+    },
+    async ({ chatId, limit }) => {
+      try {
+        const query = `?limit=${String(limit ?? 30)}`;
+        const payload = await client.requestJson({
+          method: "GET",
+          path: `/api/v1/assistant/chats/web/${chatId}/messages${query}`
+        });
+        const row = asRecord(payload);
+        const messages = Array.isArray(row?.messages) ? row.messages : [];
+        const deliverables = messages
+          .map((item) => mapMessageDeliverable(item))
+          .filter((item): item is Record<string, unknown> => item !== null);
+        const withAttachments = deliverables.filter(
+          (message) =>
+            Array.isArray(message.attachments) && (message.attachments as unknown[]).length > 0
+        );
+        return toolText({
+          chatId,
+          agentGuide: SMOKE_DELIVERY_AGENT_GUIDE,
+          currentEngagement: row?.currentEngagement ?? null,
+          activeMediaJobs: row?.activeMediaJobs ?? [],
+          activeDocumentJobs: row?.activeDocumentJobs ?? [],
+          messages: deliverables,
+          attachmentMessages: withAttachments,
+          nextStep:
+            withAttachments.length > 0
+              ? "Call chat_inspect_attachments(chatId) to save full files for vision QA."
+              : row?.activeMediaJobs && (row.activeMediaJobs as unknown[]).length > 0
+                ? "Media still running — poll chat_list_deliverables again."
+                : "No attachments yet."
+        });
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "chat_inspect_attachments",
+    {
+      description:
+        "Download full chat attachments to local disk for Cursor Read/vision QA. Best for scenario slide checks.",
+      inputSchema: z.object({
+        chatId: z.string().uuid(),
+        limit: z.number().int().min(1).max(100).optional(),
+        paths: z.array(z.string().min(1)).optional()
+      })
+    },
+    async ({ chatId, limit, paths }) => {
+      try {
+        const query = limit !== undefined ? `?limit=${String(limit)}` : "?limit=30";
+        const payload = await client.requestJson({
+          method: "GET",
+          path: `/api/v1/assistant/chats/web/${chatId}/messages${query}`
+        });
+        const row = asRecord(payload);
+        const messages = Array.isArray(row?.messages) ? row.messages : [];
+        const pathFilter = paths !== undefined ? new Set(paths) : null;
+        const inspected: Record<string, unknown>[] = [];
+
+        for (const message of messages) {
+          const messageRow = asRecord(message);
+          if (messageRow === null || messageRow.author !== "assistant") {
+            continue;
+          }
+          const attachments = Array.isArray(messageRow.attachments) ? messageRow.attachments : [];
+          for (const attachment of attachments) {
+            const attachmentRow = asRecord(attachment);
+            if (attachmentRow === null) {
+              continue;
+            }
+            const storagePath = String(attachmentRow.path ?? "");
+            if (storagePath.length === 0) {
+              continue;
+            }
+            if (pathFilter !== null && !pathFilter.has(storagePath)) {
+              continue;
+            }
+            const attachmentId = String(attachmentRow.id ?? randomUUID());
+            const { buffer, contentType } = await client.requestBinary({
+              path: buildChatFileUrl({ chatId, path: storagePath, variant: "full" })
+            });
+            const truncated = buffer.length > config.attachmentFetchMaxBytes;
+            const localPath = await saveAttachmentBytes({
+              artifactRoot: config.artifactDir,
+              chatId,
+              attachmentId,
+              buffer: truncated ? buffer.subarray(0, config.attachmentFetchMaxBytes) : buffer,
+              mimeType: contentType,
+              originalFilename:
+                typeof attachmentRow.originalFilename === "string"
+                  ? attachmentRow.originalFilename
+                  : null
+            });
+            inspected.push({
+              messageId: messageRow.id ?? null,
+              attachmentId,
+              path: storagePath,
+              mimeType: contentType,
+              sizeBytes: buffer.length,
+              truncated,
+              localPath,
+              visionHint:
+                "Open localPath with the Read tool to visually verify image/slide content."
+            });
+          }
+        }
+
+        return toolText({
+          chatId,
+          artifactDir: config.artifactDir,
+          inspected,
+          agentGuide: SMOKE_DELIVERY_AGENT_GUIDE,
+          nextStep:
+            inspected.length > 0
+              ? "Read each localPath and compare to scenario goal (copy on slides, layout, count)."
+              : "No attachments found — try chat_list_deliverables or wait for media jobs."
+        });
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
     "chat_fetch_attachment",
     {
       description:
-        "Download a chat workspace file by path for Cursor inspection (base64, size-capped).",
+        "Download one chat file. Prefer variant=full + saveLocally for smoke vision QA; preview is a small webp thumb.",
       inputSchema: z.object({
         chatId: z.string().uuid(),
-        path: z.string().min(1)
+        path: z.string().min(1),
+        variant: z.enum(["preview", "full"]).optional(),
+        saveLocally: z.boolean().optional(),
+        attachmentId: z.string().optional()
       })
     },
-    async ({ chatId, path }) => {
+    async ({ chatId, path, variant, saveLocally, attachmentId }) => {
       try {
-        const encodedPath = encodeURIComponent(path);
+        const resolvedVariant = variant ?? "full";
+        const shouldSave = saveLocally ?? true;
         const { buffer, contentType } = await client.requestBinary({
-          path: `/api/v1/assistant/chats/web/${chatId}/files/preview?path=${encodedPath}`
+          path: buildChatFileUrl({ chatId, path, variant: resolvedVariant })
         });
         const truncated = buffer.length > config.attachmentFetchMaxBytes;
         const slice = truncated ? buffer.subarray(0, config.attachmentFetchMaxBytes) : buffer;
+        let localPath: string | null = null;
+        if (shouldSave) {
+          localPath = await saveAttachmentBytes({
+            artifactRoot: config.artifactDir,
+            chatId,
+            attachmentId: attachmentId ?? randomUUID(),
+            buffer: slice,
+            mimeType: contentType,
+            originalFilename: null
+          });
+        }
         return toolText({
           chatId,
           path,
+          variant: resolvedVariant,
           contentType,
           sizeBytes: buffer.length,
           truncated,
-          base64: slice.toString("base64")
+          localPath,
+          visionHint:
+            localPath !== null ? "Open localPath with Read for vision verification." : null,
+          base64: shouldSave ? null : slice.toString("base64")
         });
       } catch (error) {
         return toolError(error);
@@ -457,7 +617,7 @@ export function createPersaiAdminMcpServer(
     "chat_smoke",
     {
       description:
-        "Send a sync web chat turn. Optionally stage attachmentPaths first. Returns full transport for Cursor evaluation against goal.",
+        "Send a sync web chat turn. Returns skill/scenario activation, todo plan, and tool signals for smoke evaluation.",
       inputSchema: z.object({
         message: z.string().min(1),
         surfaceThreadKey: z.string().min(1).optional(),
@@ -498,24 +658,73 @@ export function createPersaiAdminMcpServer(
         const root = asRecord(payload);
         const transport = asRecord(root?.transport);
         const chat = asRecord(transport?.chat);
+        const assistantMessage = mapMessage(transport?.assistantMessage);
+        const chatId = typeof chat?.id === "string" ? chat.id : null;
+
+        let plan: Record<string, unknown> | null = null;
+        if (chatId !== null) {
+          try {
+            const planPayload = await client.requestJson({
+              method: "GET",
+              path: `/api/v1/assistant/chats/web/${chatId}/plan`
+            });
+            plan = mapChatPlan(planPayload);
+          } catch (planError) {
+            plan = {
+              fetchError: planError instanceof Error ? planError.message : String(planError)
+            };
+          }
+        }
+
+        const toolSignals = summarizeToolSignals(assistantMessage?.toolInvocations);
+        const skillActivation = buildSkillActivationSummary(transport, chat);
+        const activeMediaJobs = Array.isArray(transport?.activeMediaJobs)
+          ? transport.activeMediaJobs
+          : [];
+        const activeDocumentJobs = Array.isArray(transport?.activeDocumentJobs)
+          ? transport.activeDocumentJobs
+          : [];
+        const mediaToolRequested =
+          toolSignals.other.some((tool) => {
+            const name = String(asRecord(tool)?.name ?? "");
+            return (
+              name === "image_generate" ||
+              name === "image_edit" ||
+              name === "video_generate" ||
+              name === "document"
+            );
+          }) ||
+          activeMediaJobs.length > 0 ||
+          activeDocumentJobs.length > 0;
 
         const result = {
           goal: goal ?? null,
           thread: {
             surfaceThreadKey: threadKey,
-            chatId: chat?.id ?? null,
+            chatId,
             clientTurnId: turnId
           },
           stagedAttachments: staged,
           userMessage: mapMessage(transport?.userMessage),
-          assistantMessage: mapMessage(transport?.assistantMessage),
+          assistantMessage,
+          skillActivation,
+          toolSignals,
+          plan,
           skillState: chat?.skillDecisionState ?? null,
           engagementSummary: transport?.engagementSummary ?? null,
           turnRouting: asRecord(transport?.runtime)?.turnRouting ?? null,
-          activeMediaJobs: transport?.activeMediaJobs ?? [],
-          activeDocumentJobs: transport?.activeDocumentJobs ?? [],
+          activeMediaJobs,
+          activeDocumentJobs,
+          pendingDelivery: activeMediaJobs.length > 0 || activeDocumentJobs.length > 0,
+          deliveryCheck: mediaToolRequested
+            ? {
+                agentGuide: SMOKE_DELIVERY_AGENT_GUIDE,
+                nextTools: ["chat_list_deliverables", "chat_inspect_attachments"],
+                note: "Async delivery matches web UI. Poll chat_list_deliverables until attachmentMessages appear, then chat_inspect_attachments and Read localPath for vision QA."
+              }
+            : null,
           evaluationHint:
-            "Compare assistantMessage, attachments, and toolInvocations to goal. PASS/FAIL is model-owned."
+            "Workflow: skillActivation + plan.todos on turn; if deliveryCheck set, inspect attachments before PASS/FAIL."
         };
 
         return toolText(result);
