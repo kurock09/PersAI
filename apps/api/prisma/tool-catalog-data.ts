@@ -245,6 +245,7 @@ EXAMPLES:
 - browser({action:"snapshot", url:"…", profile:"profileKey"}) — inspect an authenticated page with a saved session.
 - browser({action:"act", url:"…", profile:"profileKey", operations:[…]}) — bounded interaction, then a fresh snapshot.
 - browser({action:"snapshot", url:"…", profile:"profileKey", format:"pdf"}) — export a PDF artifact; deliver via files.attach.
+- browser({action:"snapshot", url:"…", format:"png", fullPage:true}) — screenshot artifact (png/jpeg/webp); deliver via files.attach.
 GOTCHAS:
 - Prefer \`snapshot\` first to inspect the page. Use \`act\` only when interaction is required.
 - Pass \`profile\` on \`snapshot\`/\`act\` to reuse cookies; omit \`profile\` only for public pages.

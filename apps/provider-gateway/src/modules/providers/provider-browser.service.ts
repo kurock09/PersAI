@@ -71,7 +71,9 @@ export default async ({ page, context }) => {
     content: "",
     truncated: false,
     elements: [],
-    pdfBase64: null
+    pdfBase64: null,
+    artifactBase64: null,
+    artifactMimeType: null
   };
 
   const collectElements = async () =>
@@ -296,6 +298,32 @@ export default async ({ page, context }) => {
       };
     }
 
+    if (format === "png" || format === "jpeg" || format === "webp") {
+      const snapshotSelector =
+        typeof context.snapshotSelector === "string" ? context.snapshotSelector.trim() : "";
+      const fullPage = context.fullPage === true;
+      let screenshotBuffer;
+      if (snapshotSelector.length > 0) {
+        const handle = await page.$(snapshotSelector);
+        if (handle === null) {
+          throw new Error("Snapshot selector not found: " + snapshotSelector);
+        }
+        screenshotBuffer = await handle.screenshot({ type: format });
+      } else {
+        screenshotBuffer = await page.screenshot({ type: format, fullPage });
+      }
+      result.artifactBase64 = Buffer.from(screenshotBuffer).toString("base64");
+      result.artifactMimeType =
+        format === "png" ? "image/png" : format === "jpeg" ? "image/jpeg" : "image/webp";
+      result.content = "";
+      result.truncated = false;
+      result.elements = [];
+      return {
+        data: result,
+        type: "application/json"
+      };
+    }
+
     const snapshot = await collectContent();
     result.content = snapshot.content;
     result.truncated = snapshot.truncated;
@@ -457,6 +485,8 @@ type NormalizedBrowserActionRequest = {
   profileSessionId: string | null;
   format: PersaiRuntimeBrowserSnapshotFormat;
   optimizeForSpeed: boolean;
+  snapshotSelector: string | null;
+  fullPage: boolean;
   providerId: PersaiRuntimeBrowserProviderId;
   credential: ProviderGatewayBrowserActionRequest["credential"];
 };
@@ -497,6 +527,10 @@ export class ProviderBrowserService {
             timeoutMs: normalized.timeoutMs,
             format: normalized.format,
             optimizeForSpeed: normalized.optimizeForSpeed,
+            ...(normalized.snapshotSelector !== null
+              ? { snapshotSelector: normalized.snapshotSelector }
+              : {}),
+            ...(normalized.fullPage === true ? { fullPage: true } : {}),
             ...(normalized.profileSessionId !== null ? { reuseSession: true } : {})
           }
         })
@@ -526,6 +560,16 @@ export class ProviderBrowserService {
       typeof data.pdfBase64 === "string" && data.pdfBase64.trim().length > 0
         ? data.pdfBase64.trim()
         : null;
+    const artifactBase64 =
+      typeof data.artifactBase64 === "string" && data.artifactBase64.trim().length > 0
+        ? data.artifactBase64.trim()
+        : null;
+    const artifactMimeType =
+      typeof data.artifactMimeType === "string" && data.artifactMimeType.trim().length > 0
+        ? data.artifactMimeType.trim()
+        : pdfBase64 === null
+          ? null
+          : "application/pdf";
     const observedAt = new Date().toISOString();
     const tookMs = Date.now() - startedAt;
     return {
@@ -537,12 +581,14 @@ export class ProviderBrowserService {
         typeof data.title === "string" && data.title.trim().length > 0 ? data.title.trim() : null,
       content,
       truncated: data.truncated === true,
-      elements: pdfBase64 === null ? this.normalizeElements(data.elements) : [],
+      elements:
+        pdfBase64 === null && artifactBase64 === null ? this.normalizeElements(data.elements) : [],
       observedAt,
       tookMs,
       warning: UNTRUSTED_CONTENT_WARNING,
       pdfBase64,
-      artifactMimeType: pdfBase64 === null ? null : "application/pdf",
+      artifactBase64,
+      artifactMimeType,
       externalContent: {
         untrusted: true,
         source: "browser",
@@ -801,6 +847,11 @@ export class ProviderBrowserService {
       typeof input.profileSessionId === "string" && input.profileSessionId.trim().length > 0
         ? input.profileSessionId.trim()
         : null;
+    const snapshotSelector =
+      typeof input.snapshotSelector === "string" && input.snapshotSelector.trim().length > 0
+        ? input.snapshotSelector.trim()
+        : null;
+    const fullPage = input.fullPage === true;
 
     return {
       action: input.action,
@@ -811,6 +862,8 @@ export class ProviderBrowserService {
       profileSessionId,
       format,
       optimizeForSpeed,
+      snapshotSelector,
+      fullPage,
       providerId: input.credential.providerId ?? "browserless",
       credential: {
         toolCode: "browser",

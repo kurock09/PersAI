@@ -365,6 +365,7 @@ describe("AssistantBrowserProfileService", () => {
       originHost: "crm.example",
       providerSessionId: "stale-session-1",
       liveUrl: "https://browserless.test/live/old-pending",
+      originatingChatId: null,
       status: "pending_login",
       lastUsedAt: null,
       expiresAt: null
@@ -393,6 +394,66 @@ describe("AssistantBrowserProfileService", () => {
       (row) => row.status === "pending_login"
     );
     assert.equal(pending.length, 1);
+  });
+
+  test("startLogin removes only same-chat stale pending profiles", async () => {
+    const repository = new InMemoryAssistantBrowserProfileRepository();
+    repository.seed({
+      id: "pending-chat-a",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "crm-a",
+      displayName: "CRM A",
+      loginUrl: "https://crm.example/a-login",
+      originHost: "crm.example",
+      providerSessionId: "session-chat-a",
+      liveUrl: "https://browserless.test/live/a",
+      originatingChatId: "chat-a",
+      status: "pending_login",
+      lastUsedAt: null,
+      expiresAt: null
+    });
+    repository.seed({
+      id: "pending-chat-b",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "crm-b",
+      displayName: "CRM B",
+      loginUrl: "https://crm.example/b-login",
+      originHost: "crm.example",
+      providerSessionId: "session-chat-b",
+      liveUrl: "https://browserless.test/live/b",
+      originatingChatId: "chat-b",
+      status: "pending_login",
+      lastUsedAt: null,
+      expiresAt: null
+    });
+    const browserlessPort = new FakeBrowserlessSessionPort();
+    const service = buildService({ repository, browserlessPort });
+
+    await service.startLogin({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      displayName: "CRM A retry",
+      loginUrl: "https://crm.example/a-login",
+      originatingChatId: "chat-a"
+    });
+
+    assert.deepEqual(
+      browserlessPort.deletedSessions.map((entry) => JSON.parse(entry)),
+      [
+        {
+          providerSessionId: "session-chat-a",
+          browserCredentialSecretId: resolveBrowserToolCredentialSecretId()
+        }
+      ]
+    );
+    assert.equal(await repository.findById("pending-chat-a"), null);
+    assert.notEqual(await repository.findById("pending-chat-b"), null);
+    const pending = (await repository.listByAssistant("assistant-1")).filter(
+      (row) => row.status === "pending_login"
+    );
+    assert.equal(pending.length, 2);
   });
 
   test("resolveProfileForTool returns typed errors for missing, pending, and expired profiles", async () => {

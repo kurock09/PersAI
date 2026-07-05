@@ -1613,6 +1613,7 @@ describe("StreamWebChatTurnService", () => {
             toolPhase: "end",
             toolName: "browser",
             toolCallId: "tool-browser-1",
+            toolRequestedAction: "login",
             isError: false
           };
           yield {
@@ -1719,6 +1720,158 @@ describe("StreamWebChatTurnService", () => {
       liveUrl: "https://browserless.example/live/bitrix",
       loginUrl: "https://example.bitrix24.ru/login"
     });
+  });
+
+  test("does not fire onPendingBrowserLogin when browser snapshot tool ends", async () => {
+    const pendingProfile = {
+      id: "profile-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "bitrix",
+      displayName: "Bitrix24",
+      loginUrl: "https://example.bitrix24.ru/login",
+      originHost: "example.bitrix24.ru",
+      providerSessionId: "session-1",
+      liveUrl: "https://browserless.example/live/bitrix",
+      status: "pending_login" as const,
+      lastUsedAt: null,
+      expiresAt: null,
+      createdAt: new Date("2026-07-05T12:00:00.000Z"),
+      updatedAt: new Date("2026-07-05T12:00:00.000Z")
+    };
+    const pendingLoginEvents: Array<Record<string, unknown>> = [];
+
+    const service = new StreamWebChatTurnService(
+      {
+        createMessage: async (input: Record<string, unknown>) => ({
+          id: "assistant-msg-1",
+          chatId: input.chatId,
+          assistantId: input.assistantId,
+          author: input.author,
+          content: input.content,
+          createdAt: new Date("2026-04-05T12:00:00.000Z")
+        }),
+        findChatById: async (chatId: string) => ({
+          id: chatId,
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: new Date("2026-04-05T12:00:00.000Z"),
+          createdAt: new Date("2026-04-05T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-05T12:00:00.000Z")
+        })
+      } as never,
+      {
+        listByMessageId: async () => []
+      } as never,
+      {
+        releaseWebTurnProcessing: async () => undefined,
+        completeWebTurnProcessing: async () => undefined
+      } as never,
+      {
+        execute: async function* () {
+          yield {
+            type: "tool",
+            toolPhase: "end",
+            toolName: "browser",
+            toolCallId: "tool-browser-1",
+            toolRequestedAction: "snapshot",
+            isError: false
+          };
+          yield {
+            type: "done",
+            respondedAt: "2026-04-05T12:00:01.000Z",
+            finalAnswer: "Done."
+          };
+        }
+      } as never,
+      createWebRuntimeTurnClientServiceMock() as never,
+      {
+        execute: async () => {
+          throw new Error("prepare should not be called in this test");
+        }
+      } as never,
+      {
+        resolveByUserId: async () => {
+          throw new Error("resolve should not be called in this test");
+        }
+      } as never,
+      {
+        recordWebChatTurnUsage: async () => undefined
+      } as never,
+      {
+        recordChatMainReplyEvents: async () => 0
+      } as never,
+      noopRecordToolPathLedgerFromToolInvocationsService,
+      {
+        markUndeliveredArtifactsReconciliationRequired: async () => undefined,
+        deliver: async () => ({ attachments: [] })
+      } as never,
+      createOverviewLatencyTraceServiceMock() as never,
+      createPlatformHttpMetricsServiceMock() as never,
+      createAttachmentObjectAvailabilityServiceMock() as never,
+      createSkillStatePersistenceServiceMock() as never,
+      {
+        attachAcknowledgementMessageId: async () => 0,
+        listOpenJobsForChatContext: async () => [],
+        listOpenJobsForWebChat: async () => []
+      } as never,
+      createAssistantDocumentJobReadServiceMock() as never,
+      createNotificationDeliveryWorkerServiceMock() as never,
+      createAssistantBrowserProfileRepositoryMock(pendingProfile) as never
+    );
+
+    const outcome = await service.streamToCompletion(
+      {
+        chat: {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          surface: "web_chat",
+          surfaceThreadKey: "thread-1",
+          title: "Chat",
+          archivedAt: null,
+          lastMessageAt: null,
+          createdAt: "2026-04-05T12:00:00.000Z",
+          updatedAt: "2026-04-05T12:00:00.000Z"
+        },
+        userMessage: {
+          id: "user-msg-1",
+          chatId: "chat-1",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "take a screenshot",
+          attachments: [],
+          createdAt: "2026-04-05T12:00:00.000Z"
+        },
+        assistant: {
+          id: "assistant-1",
+          workspaceId: "workspace-1"
+        },
+        assistantId: "assistant-1",
+        publishedVersionId: "pub-1",
+        runtimeTier: "paid_shared",
+        quotaDegradeModelOverride: null,
+        quotaDegradeReason: null,
+        userId: "user-1",
+        workspaceId: "workspace-1",
+        workspaceTimezone: "UTC"
+      } as never,
+      {
+        isClientAborted: () => false,
+        onDelta: () => undefined,
+        onThinking: () => undefined,
+        onTool: () => undefined,
+        onDone: () => undefined,
+        onPendingBrowserLogin: (state) => {
+          pendingLoginEvents.push(state as Record<string, unknown>);
+        }
+      }
+    );
+
+    assert.equal(outcome.status, "completed");
+    assert.equal(pendingLoginEvents.length, 0);
   });
 
   test("retries stream web turn after waiting for active compaction conflict", async () => {

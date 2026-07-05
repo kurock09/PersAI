@@ -198,6 +198,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   toolPhase?: "start" | "end";
   toolName?: string;
   toolCallId?: string;
+  toolRequestedAction?: string;
   isError?: boolean;
   activitySource?: "skill" | "user" | "product" | "web";
   activityPhase?: "start";

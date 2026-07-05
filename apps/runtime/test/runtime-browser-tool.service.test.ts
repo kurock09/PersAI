@@ -227,7 +227,7 @@ class FakeProviderGatewayClientService {
       initialUrl: input.url,
       finalUrl: input.url,
       title: "Example",
-      content: input.format === "pdf" ? "" : "<html>hello</html>",
+      content: input.format === "pdf" || input.format === "png" ? "" : "<html>hello</html>",
       truncated: false,
       elements: [],
       observedAt: "2026-07-05T12:00:00.000Z",
@@ -238,7 +238,12 @@ class FakeProviderGatewayClientService {
             pdfBase64: Buffer.from("%PDF-1.4 test").toString("base64"),
             artifactMimeType: "application/pdf"
           }
-        : {}),
+        : input.format === "png"
+          ? {
+              artifactBase64: Buffer.from("png-bytes").toString("base64"),
+              artifactMimeType: "image/png"
+            }
+          : {}),
       externalContent: {
         untrusted: true,
         source: "browser",
@@ -359,6 +364,9 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.equal(schema.properties?.profile !== undefined, true);
   assert.equal(schema.properties?.displayName !== undefined, true);
   assert.equal(schema.properties?.format?.enum?.includes("pdf"), true);
+  assert.equal(schema.properties?.format?.enum?.includes("png"), true);
+  assert.equal(schema.properties?.snapshotSelector !== undefined, true);
+  assert.equal(schema.properties?.fullPage !== undefined, true);
 
   const listResult = await service.executeToolCall({
     bundle,
@@ -468,4 +476,21 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.equal(pdfResult.artifacts[0]?.mimeType, "application/pdf");
   assert.match(pdfResult.payload.page?.content ?? "", /files\.attach/);
   assert.equal(providerGatewayClientService.browserCalls[2]?.format, "pdf");
+
+  const pngResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "snapshot",
+      url: "https://example.com/dashboard",
+      format: "png",
+      fullPage: true
+    }),
+    sessionId: "session-1"
+  });
+  assert.equal(pngResult.isError, false);
+  assert.equal(pngResult.artifacts.length, 1);
+  assert.equal(pngResult.artifacts[0]?.mimeType, "image/png");
+  assert.match(pngResult.payload.page?.content ?? "", /Screenshot saved/);
+  assert.equal(providerGatewayClientService.browserCalls[3]?.format, "png");
+  assert.equal(providerGatewayClientService.browserCalls[3]?.fullPage, true);
 }

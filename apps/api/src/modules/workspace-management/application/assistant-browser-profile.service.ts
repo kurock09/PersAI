@@ -90,6 +90,7 @@ export class AssistantBrowserProfileService {
 
     await this.cleanupStalePendingProfiles(
       input.assistantId,
+      input.originatingChatId ?? null,
       input.browserCredentialSecretId ?? resolveBrowserToolCredentialSecretId()
     );
 
@@ -294,11 +295,19 @@ export class AssistantBrowserProfileService {
 
   private async cleanupStalePendingProfiles(
     assistantId: string,
+    originatingChatId: string | null,
     browserCredentialSecretId: string
   ): Promise<void> {
     const rows = await this.repository.listByAssistant(assistantId);
     for (const row of rows) {
       if (row.status !== "pending_login") {
+        continue;
+      }
+      if (originatingChatId !== null) {
+        if (row.originatingChatId !== originatingChatId) {
+          continue;
+        }
+      } else if (row.originatingChatId !== null) {
         continue;
       }
       try {

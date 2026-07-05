@@ -3,6 +3,10 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-06
+
+- **Change (ADR-138 Wave 2 — audit A+B + image screenshots S7; local, not pushed).** Chat-scoped stale `pending_login` cleanup; mid-stream login modal gated on `toolRequestedAction === "login"`; browser `snapshot` supports `format: png|jpeg|webp` with `snapshotSelector`/`fullPage` through provider-gateway screenshot + shared outbound artifact pipeline. S8 download / S9 upload planned as ADR-138 continuation. Verification gate pending.
+
 ## 2026-07-05
 
 - **Fix (ADR-138 pre-deploy audit — P0/P1; local, not pushed).** `completeLogin` verifies Browserless session before `active`; chat-scoped pending login via `originating_chat_id`; mid-stream SSE `pending_browser_login` opens web modal; Telegram persists login liveUrl in DB; per-assistant browser credential on reconnect/delete/verify; expiry scheduler test. Migrations: `20260706120000_adr138_originating_chat_id_on_browser_profiles`. Verification gate PASS.

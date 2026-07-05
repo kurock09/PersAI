@@ -327,6 +327,8 @@ export class RuntimeBrowserToolService {
         profileSessionId,
         format: request.format ?? null,
         optimizeForSpeed: request.optimizeForSpeed ?? null,
+        snapshotSelector: request.snapshotSelector ?? null,
+        fullPage: request.fullPage ?? null,
         credential: {
           toolCode: "browser",
           secretId: credential.secretRef.id,
@@ -338,19 +340,34 @@ export class RuntimeBrowserToolService {
 
     const artifacts: RuntimeOutputArtifact[] = [];
     let pageContent = providerResult.content;
-    if (
-      typeof providerResult.pdfBase64 === "string" &&
-      providerResult.pdfBase64.trim().length > 0
-    ) {
+    const binaryBase64 =
+      typeof providerResult.pdfBase64 === "string" && providerResult.pdfBase64.trim().length > 0
+        ? providerResult.pdfBase64.trim()
+        : typeof providerResult.artifactBase64 === "string" &&
+            providerResult.artifactBase64.trim().length > 0
+          ? providerResult.artifactBase64.trim()
+          : null;
+    if (binaryBase64 !== null) {
+      const mimeType = providerResult.artifactMimeType ?? "application/octet-stream";
+      const isPdf = mimeType === "application/pdf";
       const artifact = await writeRuntimeOutboundArtifact({
         mediaObjectStorage: this.mediaObjectStorage,
         assistantId: params.bundle.metadata.assistantId,
         workspaceId: params.bundle.metadata.workspaceId,
         sessionId: params.sessionId,
-        buffer: Buffer.from(providerResult.pdfBase64, "base64"),
-        mimeType: providerResult.artifactMimeType ?? "application/pdf",
-        slugSourceText: providerResult.title?.trim() || providerResult.finalUrl || "browser-pdf",
-        filenameHint: this.buildPdfFilenameHint(providerResult.title, providerResult.finalUrl),
+        buffer: Buffer.from(binaryBase64, "base64"),
+        mimeType,
+        slugSourceText:
+          providerResult.title?.trim() ||
+          providerResult.finalUrl ||
+          (isPdf ? "browser-pdf" : "browser-screenshot"),
+        filenameHint: isPdf
+          ? this.buildPdfFilenameHint(providerResult.title, providerResult.finalUrl)
+          : this.buildImageFilenameHint(
+              request.format,
+              providerResult.title,
+              providerResult.finalUrl
+            ),
         kind: "file",
         sourceToolCode: "browser",
         billingFacts: providerResult.billingFacts ?? null,
@@ -365,7 +382,9 @@ export class RuntimeBrowserToolService {
         logger: this.logger
       });
       artifacts.push(artifact);
-      pageContent = `PDF snapshot saved to workspace path "${artifact.storagePath}". Attach it with files.attach using that path.`;
+      pageContent = isPdf
+        ? `PDF snapshot saved to workspace path "${artifact.storagePath}". Attach it with files.attach using that path.`
+        : `Screenshot saved to workspace path "${artifact.storagePath}". Attach it with files.attach using that path.`;
     }
 
     if (profileKey !== null) {
@@ -439,6 +458,28 @@ export class RuntimeBrowserToolService {
     }
   }
 
+  private buildImageFilenameHint(
+    format: RuntimeBrowserRequest["format"],
+    title: string | null,
+    finalUrl: string
+  ): string | null {
+    const ext =
+      format === "jpeg" ? "jpg" : format === "webp" ? "webp" : format === "png" ? "png" : "png";
+    const fromTitle = title
+      ?.trim()
+      .replace(/[^\w.-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    if (fromTitle !== undefined && fromTitle !== null && fromTitle.length > 0) {
+      return `${fromTitle.slice(0, 80)}.${ext}`;
+    }
+    try {
+      const hostname = new URL(finalUrl).hostname.replace(/[^\w.-]+/g, "-");
+      return hostname.length > 0 ? `${hostname}.${ext}` : null;
+    } catch {
+      return null;
+    }
+  }
+
   private readBrowserArguments(
     bundle: AssistantRuntimeBundle,
     args: Record<string, unknown>
@@ -494,6 +535,26 @@ export class RuntimeBrowserToolService {
       return new Error("browser optimizeForSpeed must be a boolean when provided.");
     }
 
+    const snapshotSelector =
+      args.snapshotSelector === undefined || args.snapshotSelector === null
+        ? null
+        : this.asNonEmptyString(args.snapshotSelector);
+    if ("snapshotSelector" in args && args.snapshotSelector !== null && snapshotSelector === null) {
+      return new Error("browser snapshotSelector must be a non-empty string when provided.");
+    }
+    const fullPage =
+      args.fullPage === undefined || args.fullPage === null
+        ? null
+        : typeof args.fullPage === "boolean"
+          ? args.fullPage
+          : null;
+    if ("fullPage" in args && args.fullPage !== null && fullPage === null) {
+      return new Error("browser fullPage must be a boolean when provided.");
+    }
+    if (action === "snapshot" && snapshotSelector !== null && fullPage === true) {
+      return new Error("browser snapshotSelector and fullPage cannot both be set.");
+    }
+
     const url = action === "list_profiles" ? "" : this.asHttpUrl(args.url);
     const maxChars =
       args.maxChars === undefined || args.maxChars === null
@@ -518,7 +579,9 @@ export class RuntimeBrowserToolService {
         operations: [],
         profile,
         format,
-        optimizeForSpeed
+        optimizeForSpeed,
+        snapshotSelector,
+        fullPage
       };
     }
 
@@ -531,7 +594,9 @@ export class RuntimeBrowserToolService {
         operations: [],
         profile,
         format,
-        optimizeForSpeed
+        optimizeForSpeed,
+        snapshotSelector,
+        fullPage
       };
     }
 
@@ -560,7 +625,9 @@ export class RuntimeBrowserToolService {
       profile,
       displayName,
       format,
-      optimizeForSpeed
+      optimizeForSpeed,
+      snapshotSelector,
+      fullPage
     };
   }
 

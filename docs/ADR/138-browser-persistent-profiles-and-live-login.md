@@ -2,7 +2,7 @@
 
 ## Status
 
-**Closed locally 2026-07-05** — slices S0–S6 landed locally; deploy + live acceptance pending. **Push = deploy** at founder closure only.
+**Open for Wave 2 continuation (S7–S9)** — S0–S6 + audit fixes **closed locally 2026-07-05**; **Wave 2 audit residuals A+B + S7 screenshots landed locally 2026-07-06**; deploy + live acceptance pending. **Push = deploy** at founder closure only.
 
 ## Date
 
@@ -27,7 +27,7 @@
 | 9   | Settings UI               | **Integrations** section in assistant settings — site cards **below** messenger grid, thin separator; same `IntegrationCard` visual language; favicon from site origin; status badge; trash delete; reconnect/check |
 | 10  | Stateless browser cutover | **No legacy ephemeral path** — all `browser` calls use profile model or explicit ephemeral only when `profile` omitted **and** action is not reusing stored session; remove catalog prose «sessions are ephemeral»  |
 | 11  | MVP includes              | profiles, `login`, `list_profiles`, `profile` on `act`/`snapshot`, TTL + expiry job, business errors, **`optimizeForSpeed`**, **`format: pdf`** on `snapshot`                                                       |
-| 12  | Out of MVP                | `/unblock` captcha retry — deferred slice after live acceptance                                                                                                                                                     |
+| 12  | Out of MVP                | `/unblock` captcha retry — deferred slice **S10** after live acceptance                                                                                                                                             |
 | 13  | Plan TTL                  | Sliding `expiresAt` from `lastUsedAt`; **30d** Starter / **90d** Scale via plan billing hint `browserProfileTtlDays`                                                                                                |
 
 ### Explicitly rejected (do not reintroduce)
@@ -154,6 +154,7 @@ Web: `use-chat` opens `BrowserLoginModal` when field becomes non-null (including
 | Reuse          | `Browserless.reconnect` / session id on `act`/`snapshot` with `profile`                         |
 | Speed          | Block images/fonts/3p scripts; `domcontentloaded` when `optimizeForSpeed`                       |
 | PDF            | `/pdf` or `page.pdf()` routed when `format: "pdf"`; artifact via storage plane (GCS + manifest) |
+| Image snapshot | `page.screenshot()` when `format: png`/`jpeg`/`webp`; optional `snapshotSelector` or `fullPage`; `artifactBase64` + mime via same outbound pipeline |
 | Telegram login | Same `liveUrl` in outbound text — no web modal                                                  |
 
 Remove single-path assumption in `provider-browser.service.ts`; keep one service, multiple strategies.
@@ -185,7 +186,18 @@ API: `GET /api/v1/assistant/:assistantId/browser-profiles`, `DELETE .../:profile
 | **S4**      | Subagent | Web chat: `pendingBrowserLogin` wired through stream/sync/list; Telegram live URL in channel adapter                                      | API stream tests — **landed locally**                                  |
 | **S5**      | Subagent | Web: `BrowserLoginModal`, auto-open in `use-chat`, settings site cards + i18n                                                             | Web component tests — **landed locally**                               |
 | **S6**      | Subagent | Tool catalog + projection, DATA-MODEL/API-BOUNDARY/TEST-PLAN, golden guards, full verification gate                                       | lint, format, typecheck, focused tests — **landed locally 2026-07-05** |
+| **S7**      | Subagent | **Image snapshots** (`format: png`/`jpeg`/`webp`, `snapshotSelector`, `fullPage`) — same artifact pipeline as PDF via `writeRuntimeOutboundArtifact` | PG + runtime browser tests — **landed locally 2026-07-06** |
+| **S8**      | Subagent | **Browser download** — save linked file from authenticated page to workspace (shared artifact pipeline)                                     | PG + runtime tests — **planned** |
+| **S9**      | Subagent | **Browser upload** — push workspace file into page file input (shared artifact pipeline)                                                  | PG + runtime tests — **planned** |
+| **S10**     | Subagent | `/unblock` captcha retry                                                                                                                  | deferred post-live |
 | **Closure** | Parent   | SESSION-HANDOFF, CHANGELOG, ADR status → closed locally; founder push=deploy                                                              | All gates — **pending push/deploy + live acceptance**                  |
+
+### Wave 2 audit residuals (2026-07-06)
+
+| ID | Fix | Status |
+| --- | --- | --- |
+| **A** | Chat-scoped stale `pending_login` cleanup — `cleanupStalePendingProfiles` only deletes rows matching `originatingChatId` | **landed locally** |
+| **B** | Mid-stream login modal only on `browser` tool end with `toolRequestedAction === "login"` (not `snapshot`/`act`) | **landed locally** |
 
 ## Acceptance (live)
 
@@ -194,9 +206,11 @@ API: `GET /api/v1/assistant/:assistantId/browser-profiles`, `DELETE .../:profile
 3. `snapshot` with `profile` returns authenticated CRM content without re-login.
 4. `optimizeForSpeed` measurably faster than default on same URL (smoke note in handoff).
 5. `snapshot` with `format: "pdf"` delivers PDF artifact attachable via `files.attach`.
-6. After forced expiry → `browser_profile_expired` business error, not stack trace.
-7. Telegram turn returns clickable `liveUrl` text, no modal.
-8. Delete profile from settings removes row and prevents reuse.
+6. `snapshot` with `format: "png"` (or jpeg/webp) delivers image artifact attachable via `files.attach`.
+7. After forced expiry → `browser_profile_expired` business error, not stack trace.
+8. Telegram turn returns clickable `liveUrl` text, no modal.
+9. Delete profile from settings removes row and prevents reuse.
+10. Parallel chats: stale `pending_login` in chat A does not block login modal in chat B.
 
 ## Risks
 

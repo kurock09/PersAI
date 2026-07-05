@@ -241,7 +241,10 @@ export class WebRuntimeStreamClientService {
               toolPhase: "end",
               toolName: event.toolName,
               toolCallId: event.toolCallId,
-              isError: event.isError
+              isError: event.isError,
+              ...(typeof event.toolRequestedAction === "string"
+                ? { toolRequestedAction: event.toolRequestedAction }
+                : {})
             };
             continue;
           case "artifact":

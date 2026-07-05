@@ -1,5 +1,20 @@
 # SESSION-HANDOFF
 
+## 2026-07-06 — ADR-138 Wave 2: audit A+B + image screenshots (S7)
+
+Status: **landed locally; not pushed.** Deploy + live acceptance pending.
+
+**Scope:**
+- **A** Chat-scoped stale `pending_login` cleanup (`originatingChatId` match only).
+- **B** Mid-stream login modal only when runtime streams `toolRequestedAction: "login"` on `browser` tool end.
+- **S7** Image snapshots: `format: png|jpeg|webp`, optional `snapshotSelector` / `fullPage`; PG `page.screenshot` → `artifactBase64`; runtime `writeRuntimeOutboundArtifact` (same pipeline as PDF).
+
+**Out of this slice (ADR-138 continuation):** S8 browser download, S9 browser upload, S10 `/unblock`.
+
+**Verification:** focused API/PG/runtime tests + typecheck — run at session end.
+
+**Next step:** founder commit + push=deploy; live smoke screenshot + cross-chat pending; then S8/S9.
+
 ## 2026-07-06 — ADR-138 pre-deploy audit fixes (P0/P1)
 
 Status: **pushed `9cdffd05`; deploy + live acceptance pending.**

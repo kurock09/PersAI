@@ -7143,6 +7143,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       maxChars: 5000,
       format: null,
       optimizeForSpeed: null,
+      snapshotSelector: null,
+      fullPage: null,
       profileSessionId: null,
       operations: [
         {

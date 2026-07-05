@@ -1277,6 +1277,7 @@ export class StreamWebChatTurnService {
           if (
             chunk.toolPhase === "end" &&
             chunk.toolName === "browser" &&
+            chunk.toolRequestedAction === "login" &&
             chunk.isError !== true &&
             input.callbacks.onPendingBrowserLogin !== undefined
           ) {

@@ -1291,7 +1291,8 @@ export class TurnExecutionService {
                         yield this.createToolFinishedStreamEvent(
                           acceptedTurn,
                           result.toolCall,
-                          result.outcome.exchange.toolResult.isError
+                          result.outcome.exchange.toolResult.isError,
+                          this.readBrowserToolRequestedAction(result.outcome)
                         );
                         if (result.outcome.artifacts !== undefined) {
                           for (const artifact of result.outcome.artifacts) {
@@ -1357,7 +1358,8 @@ export class TurnExecutionService {
                     yield this.createToolFinishedStreamEvent(
                       acceptedTurn,
                       toolCall,
-                      outcome.exchange.toolResult.isError
+                      outcome.exchange.toolResult.isError,
+                      this.readBrowserToolRequestedAction(outcome)
                     );
                     if (outcome.artifacts !== undefined) {
                       for (const artifact of outcome.artifacts) {
@@ -5025,7 +5027,8 @@ export class TurnExecutionService {
   private createToolFinishedStreamEvent(
     acceptedTurn: AcceptedRuntimeTurn,
     toolCall: ProviderGatewayToolCall,
-    isError: boolean
+    isError: boolean,
+    toolRequestedAction?: string
   ): RuntimeTurnStreamEvent {
     return {
       type: "tool_finished",
@@ -5033,8 +5036,23 @@ export class TurnExecutionService {
       sessionId: acceptedTurn.session.sessionId,
       toolCallId: toolCall.id,
       toolName: toolCall.name,
-      isError
+      isError,
+      ...(toolRequestedAction !== undefined ? { toolRequestedAction } : {})
     };
+  }
+
+  private readBrowserToolRequestedAction(outcome: ToolExecutionOutcome): string | undefined {
+    if (outcome.exchange.toolCall.name !== "browser") {
+      return undefined;
+    }
+    try {
+      const parsed = JSON.parse(outcome.exchange.toolResult.content) as {
+        requestedAction?: unknown;
+      };
+      return typeof parsed.requestedAction === "string" ? parsed.requestedAction : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   private createArtifactStreamEvent(

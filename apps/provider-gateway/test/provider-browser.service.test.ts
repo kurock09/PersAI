@@ -251,6 +251,58 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         JSON.stringify({
           type: "application/json",
           data: {
+            initialUrl: "https://example.com/dashboard",
+            finalUrl: "https://example.com/dashboard",
+            title: "Dashboard",
+            content: "",
+            truncated: false,
+            elements: [{ tag: "div", text: "should be dropped" }],
+            artifactBase64: "aGVsbG8tcG5n",
+            artifactMimeType: "image/png"
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    const pngResult = await service.browserAction({
+      action: "snapshot",
+      url: "https://example.com/dashboard",
+      maxChars: null,
+      operations: [],
+      timeoutMs: null,
+      format: "png",
+      fullPage: true,
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-png",
+        providerId: "browserless"
+      }
+    });
+    const pngBody = JSON.parse(String(requests[4]?.init?.body ?? "{}")) as {
+      context?: { format?: string; fullPage?: boolean };
+      code?: string;
+    };
+    assert.equal(pngBody.context?.format, "png");
+    assert.equal(pngBody.context?.fullPage, true);
+    assert.match(pngBody.code ?? "", /page\.screenshot/);
+    assert.equal(pngResult.artifactBase64, "aGVsbG8tcG5n");
+    assert.equal(pngResult.artifactMimeType, "image/png");
+    assert.deepEqual(pngResult.elements, []);
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: {
             initialUrl: "https://crm.example.com/",
             finalUrl: "https://crm.example.com/dashboard",
             title: "CRM",
@@ -281,7 +333,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         providerId: "browserless"
       }
     });
-    const reconnectBody = JSON.parse(String(requests[4]?.init?.body ?? "{}")) as {
+    const reconnectBody = JSON.parse(String(requests[5]?.init?.body ?? "{}")) as {
       code?: string;
       context?: { reuseSession?: boolean };
     };
@@ -289,11 +341,11 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.match(reconnectBody.code ?? "", /urlMatchesHostPathPrefix/);
     assert.match(reconnectBody.code ?? "", /shouldNavigate/);
     assert.equal(
-      requests[4]?.url,
+      requests[5]?.url,
       "https://browserless.example.com/reconnect/session-abc123/function?token=browserless-secret"
     );
     assert.notEqual(
-      requests[4]?.url,
+      requests[5]?.url,
       "https://browserless.example.com/function?token=browserless-secret"
     );
 
@@ -330,7 +382,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     });
     assert.equal(loginResult.providerSessionId, "/reconnect/session-login");
     assert.equal(loginResult.liveUrl, "https://browserless.example.com/live/session-login");
-    const loginBody = JSON.parse(String(requests[5]?.init?.body ?? "{}")) as {
+    const loginBody = JSON.parse(String(requests[6]?.init?.body ?? "{}")) as {
       code?: string;
       context?: { loginUrl?: string };
     };
@@ -364,10 +416,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       }
     });
     assert.equal(
-      requests[6]?.url,
+      requests[7]?.url,
       "https://browserless.example.com/reconnect/session-login/function?token=browserless-secret"
     );
-    const deleteBody = JSON.parse(String(requests[6]?.init?.body ?? "{}")) as { code?: string };
+    const deleteBody = JSON.parse(String(requests[7]?.init?.body ?? "{}")) as { code?: string };
     assert.match(deleteBody.code ?? "", /browser\.close/);
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -398,10 +450,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     });
     assert.deepEqual(verifyResult, { ok: true });
     assert.equal(
-      requests[7]?.url,
+      requests[8]?.url,
       "https://browserless.example.com/reconnect/session-login/function?token=browserless-secret"
     );
-    const verifyBody = JSON.parse(String(requests[7]?.init?.body ?? "{}")) as { code?: string };
+    const verifyBody = JSON.parse(String(requests[8]?.init?.body ?? "{}")) as { code?: string };
     assert.match(verifyBody.code ?? "", /page\.url/);
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {

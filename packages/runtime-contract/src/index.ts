@@ -1567,7 +1567,13 @@ export const PERSAI_RUNTIME_BROWSER_ACTIONS = [
 
 export type PersaiRuntimeBrowserAction = (typeof PERSAI_RUNTIME_BROWSER_ACTIONS)[number];
 
-export const PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS = ["text", "pdf"] as const;
+export const PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS = [
+  "text",
+  "pdf",
+  "png",
+  "jpeg",
+  "webp"
+] as const;
 
 export type PersaiRuntimeBrowserSnapshotFormat =
   (typeof PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS)[number];
@@ -1692,6 +1698,10 @@ export interface RuntimeBrowserRequest {
   displayName?: string | null;
   format?: PersaiRuntimeBrowserSnapshotFormat | null;
   optimizeForSpeed?: boolean | null;
+  /** CSS selector for image snapshot capture (action=snapshot, format=png|jpeg|webp). */
+  snapshotSelector?: string | null;
+  /** Full-page capture for image snapshots when snapshotSelector is omitted. */
+  fullPage?: boolean | null;
 }
 
 export interface RuntimeBrowserInteractiveElement {
@@ -3929,6 +3939,8 @@ export interface ProviderGatewayBrowserActionRequest {
   displayName?: string | null;
   format?: PersaiRuntimeBrowserSnapshotFormat | null;
   optimizeForSpeed?: boolean | null;
+  snapshotSelector?: string | null;
+  fullPage?: boolean | null;
   credential: {
     toolCode: "browser";
     secretId: string;
@@ -3949,6 +3961,7 @@ export interface ProviderGatewayBrowserActionResult {
   tookMs: number;
   warning: string | null;
   pdfBase64?: string | null;
+  artifactBase64?: string | null;
   artifactMimeType?: string | null;
   externalContent: {
     untrusted: true;
@@ -4069,6 +4082,8 @@ export interface RuntimeToolFinishedEvent {
   toolCallId: string;
   toolName: string;
   isError: boolean;
+  /** Present for browser tool completions — mirrors runtime browser `requestedAction`. */
+  toolRequestedAction?: string;
 }
 
 export interface RuntimeCompletedEvent {

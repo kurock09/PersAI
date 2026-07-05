@@ -855,7 +855,17 @@ function createBrowserToolDefinition(
           type: "string",
           enum: [...PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS],
           description:
-            'Snapshot output format. Default "text". Use "pdf" on action="snapshot" to export a PDF artifact attachable via files.attach.'
+            'Snapshot output format. Default "text". Use "pdf", "png", "jpeg", or "webp" on action="snapshot" to export an artifact attachable via files.attach.'
+        },
+        snapshotSelector: {
+          type: "string",
+          description:
+            'Optional CSS selector for action="snapshot" with format png/jpeg/webp. Captures that element only; cannot be combined with fullPage:true.'
+        },
+        fullPage: {
+          type: "boolean",
+          description:
+            "When true on image snapshot (png/jpeg/webp), capture the full scrollable page. Ignored when snapshotSelector is set."
         },
         optimizeForSpeed: {
           type: "boolean",
