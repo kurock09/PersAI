@@ -2,7 +2,7 @@
 
 ## 2026-07-06 — ADR-138 pre-deploy audit fixes (P0/P1)
 
-Status: **landed locally on `466b7b97` baseline; not pushed.** Verification gate PASS (lint, format:check, api/web typecheck, focused ADR-138 tests).
+Status: **pushed `9cdffd05`; deploy + live acceptance pending.**
 
 **Scope (audit BLOCK → clean):**
 - **P0** `completeLogin` → Browserless `verifySession` probe before `active` (PG `/browser-session/verify`, API port, `ConflictException` on unreachable session).
