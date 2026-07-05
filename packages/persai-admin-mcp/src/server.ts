@@ -280,8 +280,7 @@ export function createPersaiAdminMcpServer(
             );
             const docProcessing = documents.some((item) => asRecord(item)?.status === "processing");
             const cardProcessing = cards.some((item) => asRecord(item)?.status === "processing");
-            skillReady =
-              skillFailedItems.length === 0 && !docProcessing && !cardProcessing;
+            skillReady = skillFailedItems.length === 0 && !docProcessing && !cardProcessing;
           }
 
           if (skillFailedItems.length > 0) {
@@ -298,9 +297,7 @@ export function createPersaiAdminMcpServer(
               ? jobs.filter((job) => pending.has(String(asRecord(job)?.id ?? "")))
               : [];
 
-          const trackedJobIds = new Set(
-            trackedJobs.map((job) => String(asRecord(job)?.id ?? ""))
-          );
+          const trackedJobIds = new Set(trackedJobs.map((job) => String(asRecord(job)?.id ?? "")));
           const missingJobIds = [...pending].filter((jobId) => !trackedJobIds.has(jobId));
 
           const incomplete = trackedJobs.filter((job) => {
