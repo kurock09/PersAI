@@ -12,7 +12,6 @@ import { RequestContextStore } from "../src/modules/platform-core/infrastructure
 import { RequestWithPlatformContext } from "../src/modules/platform-core/interface/http/request-http.types";
 import { ResolvedAuthUser } from "../src/modules/identity-access/application/resolved-auth-user.types";
 import { ClerkAuthService } from "../src/modules/identity-access/infrastructure/identity/clerk-auth.service";
-import { ResolveOperatorActorService } from "../src/modules/identity-access/application/resolve-operator-actor.service";
 import { ClerkAuthMiddleware } from "../src/modules/identity-access/interface/http/clerk-auth.middleware";
 import { PrismaService } from "../src/modules/identity-access/infrastructure/persistence/prisma.service";
 
