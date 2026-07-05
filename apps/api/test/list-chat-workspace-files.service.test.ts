@@ -269,6 +269,128 @@ async function run(): Promise<void> {
   });
   assert.equal(pageTwo.files.length, 1);
   assert.equal(pageTwo.nextCursor, null);
+
+  const otherAssistantRoot = "/workspace/assistants/assistant-2/sessions/runtime-session-9";
+  const multiAssistantService = new ListChatWorkspaceFilesService(
+    {
+      async execute({ userId }: { userId: string }) {
+        assert.equal(userId, "user-1");
+        return {
+          assistant: { id: "assistant-1", workspaceId: "workspace-1", handle: "assistant-1" }
+        };
+      }
+    } as never,
+    {
+      async findChatById(chatId: string) {
+        assert.equal(chatId, "chat-1");
+        return {
+          id: "chat-1",
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          surface: "web",
+          surfaceThreadKey: "web-thread-1"
+        };
+      }
+    } as never,
+    {
+      workspaceFileMetadata: {
+        findMany: async () => [
+          {
+            path: `${sessionRoot}/photo.jpg`,
+            mimeType: "image/jpeg",
+            sizeBytes: BigInt(1200),
+            createdAt: new Date("2026-06-20T10:00:00.000Z"),
+            updatedAt: new Date("2026-06-20T10:00:00.000Z")
+          },
+          {
+            path: `${otherAssistantRoot}/deck.pdf`,
+            mimeType: "application/pdf",
+            sizeBytes: BigInt(4096),
+            createdAt: new Date("2026-06-19T10:00:00.000Z"),
+            updatedAt: new Date("2026-06-19T10:00:00.000Z")
+          }
+        ]
+      },
+      assistantChatMessageAttachment: {
+        findMany: async () => [
+          {
+            id: "att-image",
+            messageId: "msg-1",
+            chatId: "chat-1",
+            assistantId: "assistant-1",
+            workspaceId: "workspace-1",
+            attachmentType: "image",
+            storagePath: `${sessionRoot}/photo.jpg`,
+            thumbnailStoragePath: `${sessionRoot}/photo.jpg.thumb.webp`,
+            posterStoragePath: null,
+            originalFilename: "photo.jpg",
+            mimeType: "image/jpeg",
+            sizeBytes: BigInt(1200),
+            processingStatus: "ready",
+            metadata: null,
+            createdAt: new Date("2026-06-20T10:00:00.000Z")
+          },
+          {
+            id: "att-other-assistant",
+            messageId: "msg-9",
+            chatId: "chat-9",
+            assistantId: "assistant-2",
+            workspaceId: "workspace-1",
+            attachmentType: "document",
+            storagePath: `${otherAssistantRoot}/deck.pdf`,
+            thumbnailStoragePath: null,
+            posterStoragePath: null,
+            originalFilename: "deck.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: BigInt(4096),
+            processingStatus: "ready",
+            metadata: null,
+            createdAt: new Date("2026-06-19T10:00:00.000Z")
+          }
+        ]
+      },
+      sandboxWorkspaceGcLease: {
+        findMany: async () => []
+      }
+    } as never,
+    {
+      async resolveByAssistantId(assistantId: string) {
+        assert.equal(assistantId, "assistant-1");
+        return "standard";
+      }
+    } as never,
+    {
+      async execute() {
+        return {
+          session: { sessionId: "runtime-session-1" }
+        };
+      }
+    } as never
+  );
+
+  const activeAssistantOnly = await multiAssistantService.execute({
+    userId: "user-1",
+    chatId: "chat-1",
+    scope: "assistant"
+  });
+  assert.equal(activeAssistantOnly.files.length, 1);
+  assert.equal(activeAssistantOnly.files[0]?.storagePath, `${sessionRoot}/photo.jpg`);
+
+  const entireWorkspace = await multiAssistantService.execute({
+    userId: "user-1",
+    chatId: "chat-1",
+    scope: "workspace"
+  });
+  assert.equal(entireWorkspace.files.length, 2);
+  assert.equal(
+    entireWorkspace.files.some((file) => file.storagePath === `${otherAssistantRoot}/deck.pdf`),
+    true,
+    "workspace scope must include sibling assistant files in the same workspace"
+  );
+  assert.equal(
+    entireWorkspace.files.find((file) => file.storagePath.endsWith("deck.pdf"))?.chatId,
+    "chat-9"
+  );
 }
 
 void run();

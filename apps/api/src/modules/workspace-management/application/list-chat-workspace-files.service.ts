@@ -174,29 +174,19 @@ export class ListChatWorkspaceFilesService {
       this.prisma.assistantChatMessageAttachment.findMany({
         where: {
           workspaceId: assistant.workspaceId,
-          assistantId: assistant.id,
           NOT: { storagePath: null }
         },
-        orderBy: { createdAt: "desc" }
+        orderBy: { createdAt: "desc" },
+        take: MANIFEST_MAX_FETCH
       }),
       this.prisma.sandboxWorkspaceGcLease.findMany({
         where: {
           kind: "session_subtree",
           purgedAt: null,
-          AND: [
-            {
-              metadata: {
-                path: ["workspaceId"],
-                equals: assistant.workspaceId
-              }
-            },
-            {
-              metadata: {
-                path: ["assistantId"],
-                equals: assistant.id
-              }
-            }
-          ]
+          metadata: {
+            path: ["workspaceId"],
+            equals: assistant.workspaceId
+          }
         },
         select: {
           scheduledAt: true,
@@ -205,7 +195,6 @@ export class ListChatWorkspaceFilesService {
       })
     ]);
     const pendingPurgeBySessionRoot = this.buildPendingSessionPurgeMap({
-      assistantId: assistant.id,
       pendingLeases: pendingSessionPurges
     });
     const manifestRows: ManifestRow[] = [];
@@ -461,7 +450,6 @@ export class ListChatWorkspaceFilesService {
   }
 
   private buildPendingSessionPurgeMap(input: {
-    assistantId: string;
     pendingLeases: Array<{ scheduledAt: Date; metadata: unknown }>;
   }): Map<string, Date> {
     const pendingBySessionRoot = new Map<string, Date>();
@@ -474,14 +462,12 @@ export class ListChatWorkspaceFilesService {
         continue;
       }
       const metadata = lease.metadata as Record<string, unknown>;
-      if (metadata.assistantId !== input.assistantId) {
-        continue;
-      }
+      const assistantId = typeof metadata.assistantId === "string" ? metadata.assistantId : null;
       const sessionId = typeof metadata.sessionId === "string" ? metadata.sessionId : null;
-      if (sessionId === null) {
+      if (assistantId === null || sessionId === null) {
         continue;
       }
-      const sessionRoot = buildAssistantSessionRoot(input.assistantId, sessionId);
+      const sessionRoot = buildAssistantSessionRoot(assistantId, sessionId);
       const existing = pendingBySessionRoot.get(sessionRoot);
       if (existing === undefined || lease.scheduledAt > existing) {
         pendingBySessionRoot.set(sessionRoot, lease.scheduledAt);
