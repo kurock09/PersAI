@@ -340,6 +340,42 @@ describe("runtime media request parsing", () => {
     assert.ok(!(parsed instanceof Error));
   });
 
+  test("video_generate accepts acceptedProviderTask for media-job recovery resume", () => {
+    const service = new RuntimeVideoGenerateToolService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never
+    );
+    const parsed = (
+      service as unknown as {
+        readVideoGenerateArguments(args: Record<string, unknown>): unknown;
+      }
+    ).readVideoGenerateArguments({
+      toolCode: "video_generate",
+      action: "generate",
+      prompt: "resume pirate",
+      mode: "talking_avatar",
+      speechText: "Ahoy",
+      speechLanguage: "ru-RU",
+      personaId: "persona-1",
+      acceptedProviderTask: {
+        provider: "heygen",
+        model: "avatar_v",
+        providerTaskId: "17548ce70b234d0fa9c047daa9ce410e",
+        acceptedAt: "2026-07-05T10:46:58.010Z",
+        providerStage: "accepted",
+        taskKind: "talking_avatar"
+      }
+    });
+    assert.ok(!(parsed instanceof Error));
+    assert.equal(
+      (parsed as { acceptedProviderTask?: { providerTaskId?: string } }).acceptedProviderTask
+        ?.providerTaskId,
+      "17548ce70b234d0fa9c047daa9ce410e"
+    );
+  });
+
   test("internal media-job parsing preserves attachment aliases", () => {
     const controller = new InternalRuntimeMediaJobsController(
       {} as never,

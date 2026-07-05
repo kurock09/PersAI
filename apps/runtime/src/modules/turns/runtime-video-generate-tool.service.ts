@@ -1647,7 +1647,8 @@ export class RuntimeVideoGenerateToolService {
         key !== "personaId" &&
         key !== "portraitImageAlias" &&
         key !== "voiceKey" &&
-        key !== "talkingAvatarAspectRatio"
+        key !== "talkingAvatarAspectRatio" &&
+        key !== "acceptedProviderTask"
     );
     if (unknownKeys.length > 0) {
       return new Error(`Unexpected arguments: ${unknownKeys.join(", ")}`);
@@ -1895,6 +1896,16 @@ export class RuntimeVideoGenerateToolService {
       return new Error("talkingAvatarAspectRatio must be one of 16:9, 9:16, 1:1 when provided");
     }
 
+    const acceptedProviderTask: RuntimeAcceptedVideoProviderTask | null =
+      this.parseAcceptedProviderTaskArgument(args.acceptedProviderTask);
+    if (
+      args.acceptedProviderTask !== undefined &&
+      args.acceptedProviderTask !== null &&
+      acceptedProviderTask === null
+    ) {
+      return new Error("acceptedProviderTask must be a valid accepted provider task object");
+    }
+
     // Talking-avatar mode: structural requirements.
     // - speechText: required, non-empty
     // - speechLanguage: required, non-empty
@@ -1942,7 +1953,49 @@ export class RuntimeVideoGenerateToolService {
       personaId,
       portraitImageAlias,
       voiceKey,
-      talkingAvatarAspectRatio
+      talkingAvatarAspectRatio,
+      acceptedProviderTask
+    };
+  }
+
+  private parseAcceptedProviderTaskArgument(
+    value: unknown
+  ): RuntimeAcceptedVideoProviderTask | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const provider =
+      row.provider === "openai" ||
+      row.provider === "runway" ||
+      row.provider === "kling" ||
+      row.provider === "heygen"
+        ? row.provider
+        : null;
+    const providerTaskId = this.asNonEmptyString(row.providerTaskId);
+    if (provider === null || providerTaskId === null || row.providerStage !== "accepted") {
+      return null;
+    }
+    const acceptedAt =
+      typeof row.acceptedAt === "string" && row.acceptedAt.length > 0
+        ? row.acceptedAt
+        : new Date().toISOString();
+    const model =
+      typeof row.model === "string" && row.model.trim().length > 0 ? row.model.trim() : null;
+    const taskKind =
+      typeof row.taskKind === "string" && row.taskKind.trim().length > 0
+        ? row.taskKind.trim()
+        : null;
+    return {
+      provider,
+      model,
+      providerTaskId,
+      acceptedAt,
+      providerStage: "accepted",
+      taskKind
     };
   }
 
