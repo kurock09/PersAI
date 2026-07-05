@@ -21,6 +21,8 @@ Additional active orchestration program: `docs/ADR/134-path-based-workspace-file
 
 Additional orchestration program **closed locally 2026-07-05:** `docs/ADR/135-catalog-tool-projection-and-per-tool-describe.md` (catalog vs full tool projection via per-tool `action:"describe"` (no meta-tool); platform defaults 13 full / 11 catalog; plan `fullProjection` boolean per tool; wire-budget fixture ~8.1k tok savings on 24-tool power-config; Slices S1–S6 landed locally — deploy + live acceptance pending; do not reopen for new scope).
 
+Additional active orchestration program: `docs/ADR/136-operator-api-access-and-cursor-mcp.md` (opened 2026-07-05 — **closed locally 2026-07-05**; deploy + live Cursor acceptance pending; do not reopen for new scope).
+
 ## Repo rules
 
 - ADR-132 has an additional local repair slice landed 2026-07-03: chat delivery for PDF/DOCX/XLSX must be attachment-first and must not wait for best-effort inspect/register/documentLink metadata enrichment; runtime `document.render` / `document.convert` must not recreate the old active `project.json` workflow for ordinary authored/convert outputs.

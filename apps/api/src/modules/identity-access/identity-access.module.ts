@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule, RequestMethod } from "@nestjs/c
 import { PlatformCoreModule } from "../platform-core/platform-core.module";
 import { GetCurrentUserStateService } from "./application/get-current-user-state.service";
 import { ResolveAppUserService } from "./application/resolve-app-user.service";
+import { ResolveOperatorActorService } from "./application/resolve-operator-actor.service";
 import { UpsertOnboardingService } from "./application/upsert-onboarding.service";
 import { UpdateUserPreferencesService } from "./application/update-user-preferences.service";
 import { ResolveComplianceBaselineService } from "./application/resolve-compliance-baseline.service";
@@ -17,6 +18,7 @@ import { MeController } from "./interface/http/me.controller";
   providers: [
     ClerkAuthService,
     ResolveAppUserService,
+    ResolveOperatorActorService,
     ResolveComplianceBaselineService,
     GetCurrentUserStateService,
     UpsertOnboardingService,

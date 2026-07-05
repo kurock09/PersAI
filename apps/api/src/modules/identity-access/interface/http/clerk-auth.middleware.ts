@@ -1,4 +1,5 @@
 import { Injectable, NestMiddleware, UnauthorizedException } from "@nestjs/common";
+import { loadApiConfig } from "@persai/config";
 import { RequestContextStore } from "../../../platform-core/infrastructure/request-context/request-context.store";
 import {
   NextRequestFunction,
@@ -6,8 +7,14 @@ import {
   RequestWithPlatformContext,
   ResponseWithPlatformContext
 } from "../../../platform-core/interface/http/request-http.types";
+import {
+  isOperatorApiAuthConfigured,
+  verifyOperatorApiToken
+} from "../../application/operator-api-auth";
 import { ResolveAppUserService } from "../../application/resolve-app-user.service";
+import { ResolveOperatorActorService } from "../../application/resolve-operator-actor.service";
 import { ClerkAuthService } from "../../infrastructure/identity/clerk-auth.service";
+import type { ResolvedAppUser } from "../../application/resolved-auth-user.types";
 
 const BEARER_PREFIX = "Bearer ";
 
@@ -24,6 +31,7 @@ export class ClerkAuthMiddleware implements NestMiddleware {
   constructor(
     private readonly clerkAuthService: ClerkAuthService,
     private readonly resolveAppUserService: ResolveAppUserService,
+    private readonly resolveOperatorActorService: ResolveOperatorActorService,
     private readonly requestContextStore: RequestContextStore
   ) {}
 
@@ -38,9 +46,37 @@ export class ClerkAuthMiddleware implements NestMiddleware {
     }
 
     const token = authorizationHeader.slice(BEARER_PREFIX.length).trim();
+    const apiConfig = loadApiConfig(process.env);
+
+    if (isOperatorApiAuthConfigured(apiConfig)) {
+      const configuredOperatorToken = apiConfig.PERSAI_OPERATOR_TOKEN?.trim() ?? "";
+      const configuredInternalToken = apiConfig.PERSAI_INTERNAL_API_TOKEN?.trim() ?? "";
+      if (
+        configuredInternalToken.length > 0 &&
+        verifyOperatorApiToken(configuredOperatorToken, configuredInternalToken)
+      ) {
+        throw new UnauthorizedException(
+          "Operator API token must not match PERSAI_INTERNAL_API_TOKEN."
+        );
+      }
+      if (verifyOperatorApiToken(token, configuredOperatorToken)) {
+        const resolvedAppUser = await this.resolveOperatorActorService.resolveActorUser();
+        this.attachResolvedUser(req, resolvedAppUser);
+        next();
+        return;
+      }
+    }
+
     const authenticatedUser = await this.clerkAuthService.resolveAuthenticatedUser(token);
     const resolvedAppUser = await this.resolveAppUserService.resolveOrCreate(authenticatedUser);
+    this.attachResolvedUser(req, resolvedAppUser);
+    next();
+  }
 
+  private attachResolvedUser(
+    req: RequestWithPlatformContext,
+    resolvedAppUser: ResolvedAppUser
+  ): void {
     const requestUser: RequestResolvedAppUser = {
       id: resolvedAppUser.id,
       clerkUserId: resolvedAppUser.clerkUserId,
@@ -59,7 +95,5 @@ export class ClerkAuthMiddleware implements NestMiddleware {
     if (requestContext !== undefined) {
       requestContext.userId = requestUser.id;
     }
-
-    next();
   }
 }

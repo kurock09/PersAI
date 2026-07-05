@@ -113,6 +113,7 @@ Create or update `persai-api-secrets`:
 kubectl -n persai-dev create secret generic persai-api-secrets \
   --from-literal=DATABASE_URL='postgresql://USER:PASSWORD@127.0.0.1:5432/DB_NAME?schema=public' \
   --from-literal=CLERK_SECRET_KEY='sk_test_replace_me' \
+  --from-literal=PERSAI_OPERATOR_TOKEN='replace-with-long-random-operator-token' \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 

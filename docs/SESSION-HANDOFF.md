@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-05 — ADR-136 operator API access + Cursor MCP (S1–S3 closed locally)
+
+Status: **implemented locally; push/deploy in progress.** Baseline SHA: `2739c833`.
+
+What landed (S1–S3):
+
+- **S1 — operator auth:** `PERSAI_OPERATOR_TOKEN`, `PERSAI_OPERATOR_ACTOR_USER_ID`, `PERSAI_OPERATOR_ACTOR_EMAIL` in `@persai/config`; `ClerkAuthMiddleware` operator branch + `ResolveOperatorActorService`; internal-token collision guard; focused `operator-api-auth.test.ts`.
+- **S2 — `@persai/admin-mcp`:** stdio MCP with skill/assistant/chat tools; full scenario pass-through; `chat_smoke` returns transport + attachments + toolInvocations + optional `goal` echo; `chat_fetch_attachment` for preview bytes; hardened `indexing_wait` (requires jobIds/skillId, skill failed detection, missing-job guard).
+- **S3 — dev truth:** `infra/helm/values-dev.yaml` operator actor email `kurock09@gmail.com`; token via `persai-api-secrets` `PERSAI_OPERATOR_TOKEN`; `mcp.json.example` + package README; `API-BOUNDARY.md` + ADR-136 closed locally; RUNBOOK secret key documented.
+
+Dev operator token: store in GKE secret `persai-api-secrets` key `PERSAI_OPERATOR_TOKEN` (not in git). Suggested dev value for founder setup: `persai-dev-operator-mcp-kurock-v1-8f3c2a9e1b4d7f6e`
+
+Verification (AGENTS.md gate): lint, format:check, typecheck, full `pnpm test`, `@persai/admin-mcp` tests — all green. Bugbot audit fixes applied (secretEnv, collision guard, indexing_wait).
+
+Next step: live Cursor MCP acceptance on `api.persai.dev` after deploy + secret apply.
+
 ## 2026-07-05 — ADR-135 catalog tool projection (S1–S6 closed locally)
 
 Status: **implemented locally in the dirty working tree; commit/push/deploy pending.** Baseline SHA in ADR-135: `f6e2f23a`.

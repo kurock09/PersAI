@@ -1,0 +1,51 @@
+# @persai/admin-mcp
+
+Stdio MCP server for PersAI operator workflows (ADR-136): admin Skill authoring, assign/publish, and web chat smoke with attachments.
+
+## Cursor setup
+
+Add to `~/.cursor/mcp.json` (recommended — keeps secrets out of git):
+
+```json
+{
+  "mcpServers": {
+    "persai": {
+      "command": "node",
+      "args": ["C:/Users/alex/Documents/PersAI/packages/persai-admin-mcp/dist/index.js"],
+      "env": {
+        "PERSAI_API_BASE_URL": "https://api.persai.dev",
+        "PERSAI_OPERATOR_TOKEN": "<from helm / dev secret>",
+        "PERSAI_OPERATOR_ACTOR_EMAIL": "kurock09@gmail.com"
+      }
+    }
+  }
+}
+```
+
+Build first: `corepack pnpm --filter @persai/admin-mcp run build`
+
+## Env
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PERSAI_API_BASE_URL` | yes | e.g. `https://api.persai.dev` |
+| `PERSAI_OPERATOR_TOKEN` | yes | Operator bearer (not Clerk) |
+| `PERSAI_OPERATOR_ACTOR_USER_ID` | one of | Founder `app_users.id` |
+| `PERSAI_OPERATOR_ACTOR_EMAIL` | one of | e.g. `kurock09@gmail.com` |
+
+Optional: `PERSAI_MCP_CHAT_TIMEOUT_MS` (default 310000), `PERSAI_MCP_INDEXING_TIMEOUT_MS` (600000).
+
+## Tools
+
+- `skill_upsert`, `skill_get`, `skill_card_upsert`, `skill_document_upload`, `skill_scenario_upsert`
+- `indexing_wait`, `assistant_skills_assign`, `assistant_publish`
+- `chat_stage_attachment`, `chat_smoke`, `chat_fetch_attachment`
+
+`goal` in `chat_smoke` is echoed in the tool result only — not stored in PersAI.
+
+## Typical flow
+
+1. `skill_upsert` → cards → documents → `indexing_wait`
+2. `skill_scenario_upsert` (status active)
+3. `assistant_skills_assign` → `assistant_publish`
+4. `chat_smoke` with `goal` for Cursor-side PASS/FAIL

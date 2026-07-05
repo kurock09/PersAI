@@ -90,6 +90,7 @@ api:
     QUOTA_COST_OR_TOKEN_DRIVING_TOOL_UNITS_DEFAULT: "1000"
     # Only these PersAI AppUser emails may use /api/v1/admin/* (must still pass role checks, e.g. workspace owner).
     PERSAI_ADMIN_ALLOWLIST_EMAILS: "kurock09@gmail.com"
+    PERSAI_OPERATOR_ACTOR_EMAIL: "kurock09@gmail.com"
   secretEnv:
     DATABASE_URL:
       secretName: persai-api-secrets
@@ -112,6 +113,10 @@ api:
     PERSAI_INTERNAL_API_TOKEN:
       secretName: persai-runtime-secrets
       secretKey: PERSAI_INTERNAL_API_TOKEN
+    PERSAI_OPERATOR_TOKEN:
+      secretName: persai-api-secrets
+      secretKey: PERSAI_OPERATOR_TOKEN
+      optional: true
   probes:
     readiness:
       path: /ready

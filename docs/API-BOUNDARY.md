@@ -6,6 +6,16 @@ For exact request and response schemas, use `packages/contracts/openapi.yaml` an
 
 ADR-072 is closed as the historical native migration ADR. ADR-078 is completed as the consolidated follow-through program. ADR-080 defines admin-controlled Knowledge authoring and Skill curation. ADR-081 defines unified user Files. ADR-087 defines unified quota advisories and paid light mode. ADR-088 defines the unified notification platform, control plane, and delivery architecture. ADR-092 defines the active billing contract for split payment-method truth on `GET /api/v1/assistant/billing/subscription` (last payment vs auto-renew), explicit provider-confirmed SBP recurring migration semantics, synchronized provider recurring descriptions, payment-success notification + receipt-link policy, and acceptance that billing notification intents remain queryable via `Admin > Notifications` delivery history APIs. ADR-098 defines the active public trust-page boundary (`/public/site-pages`, `/admin/site-pages`, `/public/geo-hint`), strict market/locale validation, published-variant discovery for public switchers, and the market-aware compliance-version read model behind `/me`.
 
+## Operator API access (ADR-136)
+
+Founder Cursor / MCP workflows use a **machine operator bearer**, not Clerk.
+
+- Env: `PERSAI_OPERATOR_TOKEN` + (`PERSAI_OPERATOR_ACTOR_USER_ID` **or** `PERSAI_OPERATOR_ACTOR_EMAIL`).
+- `ClerkAuthMiddleware` accepts `Authorization: Bearer <operator token>` before Clerk verification and binds `req.resolvedAppUser` to the configured actor `app_users` row.
+- Operator auth covers the same clerk-registered public routes used for admin Skill CRUD (`/api/v1/admin/skills*`), assistant assign/publish (`/api/v1/assistant/skills`, `/api/v1/assistant/publish`), and web chat smoke (`/api/v1/assistant/chat/web`, `/api/v1/assistant/chat/web/stage-attachment`, chat file preview/download).
+- `PERSAI_INTERNAL_API_TOKEN` remains **internal-only** (`/api/v1/internal/*` on `API_INTERNAL_PORT`); it must not authorize operator/admin/chat public routes.
+- MCP package: `packages/persai-admin-mcp` (stdio). Dev defaults in `infra/helm/values-dev.yaml` pin actor email `kurock09@gmail.com`.
+
 ## Public product APIs
 
 Primary public API surface:
