@@ -2,7 +2,7 @@
 
 ## 2026-07-05 — Avatar video recovery + ADR-135 catalog wire persistence (hotfix slice)
 
-Status: **implemented locally; commit/push/deploy pending.** Baseline SHA before slice: `0cb895ab` (origin/main at handoff time). Prior partial fix on main: `cc861287` (mediaJobId checkpoint only — does not recover poll abort or idempotency replay).
+Status: **pushed to origin/main (`a3b9414d`).** Deploy runtime + provider-gateway to `persai-dev` pending.
 
 Root cause of 0/4 avatar video failures on `persai-dev` (runtime `4df4f24f`):
 
