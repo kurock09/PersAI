@@ -600,6 +600,52 @@ export async function runHeyGenProviderClientTest(): Promise<void> {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Test 6d: Poll abort after accept → recoverable PERSAI_VIDEO_POLLING_LOST
+  // ──────────────────────────────────────────────────────────────────────────
+  {
+    globalThis.fetch = (async (input: URL | RequestInfo, _init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
+
+      if (url === "https://api.heygen.com/v3/videos") return makeSubmitResponse("vid-abort-1");
+      if (url === "https://api.heygen.com/v3/videos/vid-abort-1") {
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }
+      throw new Error(`Unexpected fetch in poll-abort test: ${url}`);
+    }) as typeof fetch;
+
+    try {
+      await assert.rejects(
+        () =>
+          client.generateVideo(
+            createBaseRequest({ cachedHeygenAvatarId: "ava-abort", personaId: null }),
+            { credentialValue: MOCK_HEYGEN_API_KEY }
+          ),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.match(error.message, /PERSAI_VIDEO_POLLING_LOST::/);
+          const marker = "PERSAI_VIDEO_POLLING_LOST::";
+          const payload = JSON.parse(
+            error.message.slice(error.message.indexOf(marker) + marker.length)
+          ) as Record<string, unknown>;
+          assert.equal(payload["providerTaskId"], "vid-abort-1");
+          assert.equal(payload["code"], "accepted_primary_unconfirmed");
+          return true;
+        }
+      );
+      console.log(
+        "✓ Test 6d: Poll abort after accept throws recoverable PERSAI_VIDEO_POLLING_LOST"
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Test 6c: Accepted-task checkpoint fires immediately after submit
   // ──────────────────────────────────────────────────────────────────────────
   {

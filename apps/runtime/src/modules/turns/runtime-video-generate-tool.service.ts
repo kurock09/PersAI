@@ -1111,6 +1111,13 @@ export class RuntimeVideoGenerateToolService {
     error: unknown,
     attempt: ResolvedVideoCredentialAttempt
   ): ParsedAcceptedPrimaryUnconfirmed | null {
+    const fromPollingLossMarker = this.parseAcceptedPrimaryUnconfirmedFromPollingLossMarker(
+      error,
+      attempt
+    );
+    if (fromPollingLossMarker !== null) {
+      return fromPollingLossMarker;
+    }
     if (!(error instanceof BadRequestException || error instanceof ServiceUnavailableException)) {
       return null;
     }
@@ -1168,6 +1175,105 @@ export class RuntimeVideoGenerateToolService {
         typeof providerStatus.taskKind === "string" && providerStatus.taskKind.length > 0
           ? providerStatus.taskKind
           : null
+    };
+  }
+
+  private parseAcceptedPrimaryUnconfirmedFromPollingLossMarker(
+    error: unknown,
+    attempt: ResolvedVideoCredentialAttempt
+  ): ParsedAcceptedPrimaryUnconfirmed | null {
+    const message = error instanceof Error ? error.message : null;
+    if (message === null) {
+      return null;
+    }
+    const marker = "PERSAI_VIDEO_POLLING_LOST::";
+    const markerIndex = message.indexOf(marker);
+    if (markerIndex < 0) {
+      return null;
+    }
+    const payloadText = message.slice(markerIndex + marker.length).trim();
+    if (payloadText.length === 0) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(payloadText) as Record<string, unknown>;
+      const providerTaskId =
+        typeof parsed.providerTaskId === "string" && parsed.providerTaskId.trim().length > 0
+          ? parsed.providerTaskId.trim()
+          : null;
+      if (providerTaskId === null) {
+        return null;
+      }
+      const providerFromPayload =
+        parsed.provider === "openai" ||
+        parsed.provider === "runway" ||
+        parsed.provider === "kling" ||
+        parsed.provider === "heygen"
+          ? (parsed.provider as PersaiRuntimeVideoGenerateProviderId)
+          : attempt.providerId;
+      return {
+        providerTaskId,
+        provider: providerFromPayload,
+        model:
+          typeof parsed.model === "string" && parsed.model.trim().length > 0
+            ? parsed.model.trim()
+            : attempt.model,
+        acceptedAt:
+          typeof parsed.acceptedAt === "string" && parsed.acceptedAt.length > 0
+            ? parsed.acceptedAt
+            : new Date().toISOString(),
+        providerStage: "accepted",
+        code: "accepted_primary_unconfirmed",
+        reason:
+          typeof parsed.reason === "string" && parsed.reason.length > 0
+            ? parsed.reason
+            : "provider accepted but polling transport lost",
+        message:
+          typeof parsed.message === "string" && parsed.message.length > 0
+            ? parsed.message
+            : "Polling continuity lost after provider acceptance.",
+        taskKind:
+          typeof parsed.taskKind === "string" && parsed.taskKind.length > 0 ? parsed.taskKind : null
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private isPollingContinuityLossDispatchError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("PERSAI_VIDEO_POLLING_LOST::")) {
+      return true;
+    }
+    if (error instanceof ServiceUnavailableException) {
+      const payload = error.getResponse() as { error?: { code?: string } };
+      if (payload?.error?.code === "accepted_primary_unconfirmed") {
+        return true;
+      }
+    }
+    return /aborted before terminal status|timed out before the video was ready|polling transport lost|polling continuity lost/i.test(
+      message
+    );
+  }
+
+  private buildAcceptedPrimaryUnconfirmedFromRequest(
+    request: RuntimeVideoGenerateRequest,
+    attempt: ResolvedVideoCredentialAttempt
+  ): ParsedAcceptedPrimaryUnconfirmed | null {
+    const acceptedTask = this.readAcceptedTaskHint(request, attempt);
+    if (acceptedTask === null) {
+      return null;
+    }
+    return {
+      providerTaskId: acceptedTask.providerTaskId,
+      provider: acceptedTask.provider,
+      model: acceptedTask.model ?? attempt.model,
+      acceptedAt: acceptedTask.acceptedAt,
+      providerStage: "accepted",
+      code: "accepted_primary_unconfirmed",
+      reason: "provider accepted but polling continuity was lost before delivery completed",
+      message: "Provider task was already accepted; resume polling on retry.",
+      taskKind: acceptedTask.taskKind ?? null
     };
   }
 
@@ -3198,10 +3304,19 @@ export class RuntimeVideoGenerateToolService {
     } catch (dispatchError) {
       const failureMessage =
         dispatchError instanceof Error ? dispatchError.message : "HeyGen video generation failed.";
-      const acceptedPrimaryUnconfirmed = this.parseAcceptedPrimaryUnconfirmed(
+      let acceptedPrimaryUnconfirmed = this.parseAcceptedPrimaryUnconfirmed(
         dispatchError,
         credentialAttempt
       );
+      if (
+        acceptedPrimaryUnconfirmed === null &&
+        this.isPollingContinuityLossDispatchError(dispatchError)
+      ) {
+        acceptedPrimaryUnconfirmed = this.buildAcceptedPrimaryUnconfirmedFromRequest(
+          request,
+          credentialAttempt
+        );
+      }
       if (acceptedPrimaryUnconfirmed !== null) {
         const recoveryMarker = `PERSAI_VIDEO_ACCEPTED_PRIMARY_UNCONFIRMED::${JSON.stringify(acceptedPrimaryUnconfirmed)}`;
         this.logger.warn(

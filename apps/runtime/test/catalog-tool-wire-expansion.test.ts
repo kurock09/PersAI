@@ -303,4 +303,40 @@ export async function runCatalogToolWireExpansionTest(): Promise<void> {
     "catalog-tier full-default tools must dispatch describe before tool-specific services"
   );
   assert.equal(filesDescribeOutcome.payload.toolCode, "files");
+
+  const videoService =
+    buildMinimalTurnExecutionService() as unknown as CatalogWireExpansionAccessor;
+  const videoTurnState = {
+    wireExpandedCatalogToolCodes: new Set<string>(),
+    catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
+  };
+  videoService.recordCatalogToolWireExpansionFromOutcome(videoTurnState, {
+    exchange: { toolResult: { isError: false } },
+    payload: {
+      toolCode: "video_generate",
+      action: "listed_personas",
+      personas: []
+    }
+  });
+  assert.ok(
+    videoTurnState.wireExpandedCatalogToolCodes.has("video_generate"),
+    "video read-only lookups should expand catalog wire for the rest of the turn"
+  );
+
+  const videoTurnStateAfterFailure = {
+    wireExpandedCatalogToolCodes: new Set(["video_generate"]),
+    catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
+  };
+  videoService.recordCatalogToolWireExpansionFromOutcome(videoTurnStateAfterFailure, {
+    exchange: { toolResult: { isError: true } },
+    payload: {
+      toolCode: "video_generate",
+      action: "skipped",
+      reason: "video_generation_failed"
+    }
+  });
+  assert.ok(
+    videoTurnStateAfterFailure.wireExpandedCatalogToolCodes.has("video_generate"),
+    "provider failures must not clear turn-local catalog wire expansion"
+  );
 }

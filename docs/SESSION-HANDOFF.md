@@ -1,5 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-07-05 — Avatar video recovery + ADR-135 catalog wire persistence (hotfix slice)
+
+Status: **implemented locally; commit/push/deploy pending.** Baseline SHA before slice: `0cb895ab` (origin/main at handoff time). Prior partial fix on main: `cc861287` (mediaJobId checkpoint only — does not recover poll abort or idempotency replay).
+
+Root cause of 0/4 avatar video failures on `persai-dev` (runtime `4df4f24f`):
+
+1. **HeyGen poll abort (~86s)** threw generic timeout instead of `PERSAI_VIDEO_POLLING_LOST` / `accepted_primary_unconfirmed` → money charged, no delivery.
+2. **Media-job idempotency** replayed the first failed receipt because `buildMediaJobRunKey` ignored `acceptedProviderTaskId`.
+3. **ADR-135 catalog guard** blocked `video_generate` after provider errors in the same turn (`tool_contract_not_loaded`) because wire expansion cleared on error outcomes and `list_personas` / `describe_avatar_mode` did not expand wire.
+
+What landed locally:
+
+- **provider-gateway:** HeyGen abort during poll → `PERSAI_VIDEO_POLLING_LOST`; Test 6d fixed (no 10m hang).
+- **runtime media-job:** idempotency key salts with `acceptedProviderTaskId` for recovery resume.
+- **runtime video:** parse polling-loss marker; talking-avatar fallback from checkpoint **only** on polling-continuity-loss signals (audit gate).
+- **runtime turn loop:** reorder catalog contract loads before execution; expand wire on describe + video read-only lookups; provider failures do not clear expansion.
+
+Verification: lint ✅, api/web/runtime/provider-gateway typecheck ✅, heygen tests ✅, media-job tests 9/9 ✅, runtime isolated suite ✅.
+
+Next step: commit + push this slice only (exclude admin-mcp dirty tree), deploy runtime + provider-gateway to `persai-dev`, live avatar video smoke.
+
 ## 2026-07-05 — ADR-136 operator API access + Cursor MCP (S1–S3 closed locally)
 
 Status: **implemented locally; push/deploy in progress.** Baseline SHA: `2739c833`.

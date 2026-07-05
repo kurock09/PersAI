@@ -84,6 +84,7 @@ import { RuntimeObservabilityService } from "../observability/runtime-observabil
 import type { RuntimeTurnReceiptSummary } from "./idempotency.service";
 import {
   projectRuntimeNativeTools,
+  resolveModelExposure,
   type NativeToolProjectionOptions,
   type RuntimeNativeToolProjection
 } from "./native-tool-projection";
@@ -132,6 +133,7 @@ import { SessionCompactionService } from "./session-compaction.service";
 import {
   createToolContractNotLoadedPayload,
   executeRuntimeToolContractDescribe,
+  isCatalogReadOnlyToolCall,
   isToolContractDescribeCall,
   isToolLevelContractDescribeCall,
   shouldGuardCatalogToolExecution
@@ -1235,7 +1237,10 @@ export class TurnExecutionService {
                 let durableCompactionExecuted = false;
                 let volatileRefreshNeeded = false;
                 const plannedToolExecutions = this.planToolExecutions(
-                  this.reorderToolCallsDocumentFirst(event.result.toolCalls),
+                  this.reorderToolCallsCatalogContractBeforeExecution(
+                    this.reorderToolCallsDocumentFirst(event.result.toolCalls),
+                    execution.bundle
+                  ),
                   toolBudgetPolicy,
                   iteration
                 );
@@ -2912,7 +2917,10 @@ export class TurnExecutionService {
       let durableCompactionExecuted = false;
       let volatileRefreshNeeded = false;
       const plannedToolExecutions = this.planToolExecutions(
-        this.reorderToolCallsDocumentFirst(providerResult.toolCalls),
+        this.reorderToolCallsCatalogContractBeforeExecution(
+          this.reorderToolCallsDocumentFirst(providerResult.toolCalls),
+          execution.bundle
+        ),
         toolBudgetPolicy,
         iteration
       );
@@ -3129,6 +3137,45 @@ export class TurnExecutionService {
     return [...docCalls, ...otherCalls, ...filesCalls];
   }
 
+  /**
+   * ADR-135 — run catalog contract loaders (describe + catalog read-only actions)
+   * before real execution calls in the same provider tool batch so wire expansion
+   * is visible to later calls in the same iteration.
+   */
+  private reorderToolCallsCatalogContractBeforeExecution(
+    toolCalls: readonly ProviderGatewayToolCall[],
+    bundle: AssistantRuntimeBundle
+  ): readonly ProviderGatewayToolCall[] {
+    const contractLoads: ProviderGatewayToolCall[] = [];
+    const rest: ProviderGatewayToolCall[] = [];
+    for (const toolCall of toolCalls) {
+      if (this.isCatalogContractLoadingCall(bundle, toolCall)) {
+        contractLoads.push(toolCall);
+      } else {
+        rest.push(toolCall);
+      }
+    }
+    if (contractLoads.length === 0 || rest.length === 0) {
+      return toolCalls;
+    }
+    return [...contractLoads, ...rest];
+  }
+
+  private isCatalogContractLoadingCall(
+    bundle: AssistantRuntimeBundle,
+    toolCall: ProviderGatewayToolCall
+  ): boolean {
+    if (isToolLevelContractDescribeCall(toolCall.name, toolCall.arguments)) {
+      return true;
+    }
+    if (!isCatalogReadOnlyToolCall(toolCall.name, toolCall.arguments)) {
+      return false;
+    }
+    const policy =
+      bundle.governance.toolPolicies.find((entry) => entry.toolCode === toolCall.name) ?? null;
+    return policy !== null && resolveModelExposure(policy) === "catalog";
+  }
+
   private findToolExecutionChunkEnd(
     plannedToolExecutions: readonly PlannedToolExecution[],
     startIndex: number
@@ -3241,7 +3288,9 @@ export class TurnExecutionService {
         bundle: execution.bundle,
         toolCode: toolCall.name
       });
-      return this.createToolExecutionOutcome(toolCall, described.payload, false);
+      const outcome = this.createToolExecutionOutcome(toolCall, described.payload, false);
+      this.recordCatalogToolWireExpansionFromOutcome(turnState, outcome);
+      return outcome;
     }
 
     switch (toolCall.name) {
@@ -5004,24 +5053,31 @@ export class TurnExecutionService {
     turnState: TurnExecutionState,
     outcome: ToolExecutionOutcome
   ): void {
-    if (outcome.exchange.toolResult.isError === true) {
-      return;
-    }
     const payload = outcome.payload;
-    if (
-      payload === null ||
-      typeof payload !== "object" ||
-      Array.isArray(payload) ||
-      (payload as { action?: unknown }).action !== "described_contract"
-    ) {
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
       return;
     }
     const toolCode = (payload as { toolCode?: unknown }).toolCode;
     if (typeof toolCode !== "string" || toolCode.trim().length === 0) {
       return;
     }
-    turnState.wireExpandedCatalogToolCodes.add(toolCode);
-    recordCatalogDescribeCall(turnState.catalogToolMetrics);
+    const action = (payload as { action?: unknown }).action;
+    if (action === "described_contract") {
+      turnState.wireExpandedCatalogToolCodes.add(toolCode);
+      recordCatalogDescribeCall(turnState.catalogToolMetrics);
+      return;
+    }
+    if (outcome.exchange.toolResult.isError === true) {
+      return;
+    }
+    if (
+      toolCode === VIDEO_GENERATE_TOOL_CODE &&
+      (action === "listed_personas" ||
+        action === "listed_voices" ||
+        action === "described_avatar_mode")
+    ) {
+      turnState.wireExpandedCatalogToolCodes.add(toolCode);
+    }
   }
 
   private recordToolLoopToolsJsonCharCount(

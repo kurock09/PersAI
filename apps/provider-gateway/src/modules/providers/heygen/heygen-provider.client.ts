@@ -72,11 +72,17 @@ export class HeyGenProviderClient {
     const { signal, dispose } = this.createTimedSignal(
       Math.max(this.config.PROVIDER_GATEWAY_REQUEST_TIMEOUT_MS, HEYGEN_VIDEO_TIMEOUT_MS)
     );
+    let acceptedTaskForRecovery: HeyGenAcceptedTask | null = null;
 
     try {
       const resumedFromAcceptedTask =
         this.normalizeAcceptedTask(input.acceptedTask, model) !== null;
       const acceptedTask = await this.resolveAcceptedTask(input, model, apiKey, signal);
+      acceptedTaskForRecovery = {
+        videoId: acceptedTask.videoId,
+        model: acceptedTask.model,
+        acceptedAt: acceptedTask.acceptedAt
+      };
       if (!resumedFromAcceptedTask && options?.onAcceptedTaskCheckpoint !== undefined) {
         await options.onAcceptedTaskCheckpoint({
           provider: "heygen",
@@ -113,6 +119,11 @@ export class HeyGenProviderClient {
         lazyCreatedHeygenAvatarId: acceptedTask.lazyCreatedAvatarId ?? null
       };
     } catch (error) {
+      if (acceptedTaskForRecovery !== null && (this.isAbortError(error) || signal.aborted)) {
+        throw this.buildPollingLossError(acceptedTaskForRecovery, error, {
+          reason: "polling timed out or was aborted before terminal status"
+        });
+      }
       if (this.isAbortError(error)) {
         throw new Error("HeyGen video generation timed out before the video was ready.");
       }
@@ -663,7 +674,9 @@ export class HeyGenProviderClient {
         transientFetchFailures = 0;
       } catch (error) {
         if (this.isAbortError(error) || signal.aborted) {
-          throw error;
+          throw this.buildPollingLossError(acceptedTask, error, {
+            reason: "polling timed out or was aborted before terminal status"
+          });
         }
         transientFetchFailures += 1;
         this.logTransportError({
@@ -710,6 +723,15 @@ export class HeyGenProviderClient {
       }
       // Any other value (pending, processing, waiting, or undocumented) → in-progress.
       continue;
+    }
+    if (signal.aborted) {
+      throw this.buildPollingLossError(
+        acceptedTask,
+        new DOMException("The operation was aborted.", "AbortError"),
+        {
+          reason: "polling timed out or was aborted before terminal status"
+        }
+      );
     }
     throw new Error("HeyGen video generation polling stopped before a terminal status.");
   }

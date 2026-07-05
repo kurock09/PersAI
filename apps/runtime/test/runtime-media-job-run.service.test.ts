@@ -562,6 +562,101 @@ describe("RuntimeMediaJobRunService", () => {
       );
     }
   });
+
+  test("uses a fresh idempotency key when acceptedProviderTask is present for recovery resume", async () => {
+    const observedRequestIds: string[] = [];
+    const service = new RuntimeMediaJobRunService(
+      {} as never,
+      {} as never,
+      {
+        executeToolCall: async () => ({
+          payload: {
+            toolCode: "video_generate",
+            executionMode: "worker",
+            provider: "heygen",
+            model: "avatar_v",
+            prompt: "resume",
+            requestedSeconds: null,
+            requestedAudioMode: null,
+            requestedInputMode: null,
+            size: null,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: { artifactId: "artifact-video-1", kind: "video" },
+            usage: null,
+            action: "generated",
+            reason: null,
+            warning: null
+          },
+          artifacts: [{ artifactId: "artifact-video-1", kind: "video" }],
+          isError: false
+        })
+      } as never,
+      new RuntimeExecutionAdmissionService(new RuntimeObservabilityService()),
+      {
+        acceptTurn: async (input: RuntimeTurnRequest) => {
+          observedRequestIds.push(input.requestId);
+          return createAcceptedTurn(input);
+        }
+      } as never,
+      {
+        completeAcceptedTurn: async () => ({
+          receiptStatus: "completed",
+          session: { sessionId: "session-1" },
+          leaseReleased: true
+        }),
+        failAcceptedTurn: async () => ({
+          receiptStatus: "failed",
+          session: { sessionId: "session-1" },
+          leaseReleased: true
+        })
+      } as never
+    );
+
+    const baseRequest = createRunRequest("resume");
+    baseRequest.job.kind = "video";
+    baseRequest.directToolExecution = {
+      toolCode: "video_generate",
+      request: {
+        toolCode: "video_generate",
+        action: "generate",
+        prompt: "resume",
+        filename: null,
+        size: null,
+        seconds: null,
+        referenceImageAlias: null,
+        mode: "talking_avatar",
+        speechText: "Hello",
+        speechLanguage: "en-US",
+        personaId: "persona-1"
+      }
+    };
+
+    await service.run(baseRequest);
+
+    const recoveryRequest = structuredClone(baseRequest);
+    const recoveryExec = recoveryRequest.directToolExecution;
+    if (recoveryExec?.toolCode === "video_generate") {
+      recoveryExec.request = {
+        ...recoveryExec.request,
+        acceptedProviderTask: {
+          provider: "heygen",
+          model: "avatar_v",
+          providerTaskId: "heygen-task-1",
+          acceptedAt: "2026-07-05T08:47:41.898Z",
+          providerStage: "accepted",
+          taskKind: "talking_avatar"
+        }
+      };
+    }
+
+    await service.run(recoveryRequest);
+
+    assert.equal(observedRequestIds.length, 2);
+    assert.notEqual(observedRequestIds[0], observedRequestIds[1]);
+    assert.match(observedRequestIds[0] ?? "", /^media-job-run:job-1:/);
+    assert.match(observedRequestIds[1] ?? "", /^media-job-run:job-1:/);
+  });
 });
 
 function createRunRequest(prompt: string): RuntimeMediaJobRunRequest {

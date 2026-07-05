@@ -307,11 +307,33 @@ export class RuntimeMediaJobRunService {
   }
 
   private buildMediaJobRunKey(input: RuntimeMediaJobRunRequest): string {
+    const acceptedProviderTaskId = this.readAcceptedProviderTaskId(input);
     const digest = createHash("sha256")
-      .update(`${input.job.id}:${input.job.sourceUserMessageId}:${input.job.kind}`)
+      .update(
+        `${input.job.id}:${input.job.sourceUserMessageId}:${input.job.kind}:${acceptedProviderTaskId ?? "no-accepted-task"}`
+      )
       .digest("hex")
       .slice(0, 16);
     return `${MEDIA_JOB_RUN_KEY_PREFIX}:${input.job.id}:${digest}`;
+  }
+
+  private readAcceptedProviderTaskId(input: RuntimeMediaJobRunRequest): string | null {
+    const directRequest = input.directToolExecution?.request;
+    if (
+      directRequest === null ||
+      typeof directRequest !== "object" ||
+      Array.isArray(directRequest)
+    ) {
+      return null;
+    }
+    const acceptedTask = (directRequest as unknown as Record<string, unknown>).acceptedProviderTask;
+    if (acceptedTask === null || typeof acceptedTask !== "object" || Array.isArray(acceptedTask)) {
+      return null;
+    }
+    const providerTaskId = (acceptedTask as Record<string, unknown>).providerTaskId;
+    return typeof providerTaskId === "string" && providerTaskId.trim().length > 0
+      ? providerTaskId.trim()
+      : null;
   }
 
   private resolveReplayResult(receipt: AcceptedRuntimeTurn["receipt"]): RuntimeMediaJobRunResult {
