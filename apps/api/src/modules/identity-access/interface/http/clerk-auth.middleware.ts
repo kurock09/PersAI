@@ -1,5 +1,4 @@
 import { Injectable, NestMiddleware, UnauthorizedException } from "@nestjs/common";
-import { loadApiConfig } from "@persai/config";
 import { RequestContextStore } from "../../../platform-core/infrastructure/request-context/request-context.store";
 import {
   NextRequestFunction,
@@ -9,6 +8,7 @@ import {
 } from "../../../platform-core/interface/http/request-http.types";
 import {
   isOperatorApiAuthConfigured,
+  readOperatorApiAuthFromEnv,
   verifyOperatorApiToken
 } from "../../application/operator-api-auth";
 import { ResolveAppUserService } from "../../application/resolve-app-user.service";
@@ -46,11 +46,11 @@ export class ClerkAuthMiddleware implements NestMiddleware {
     }
 
     const token = authorizationHeader.slice(BEARER_PREFIX.length).trim();
-    const apiConfig = loadApiConfig(process.env);
+    const operatorConfig = readOperatorApiAuthFromEnv(process.env);
 
-    if (isOperatorApiAuthConfigured(apiConfig)) {
-      const configuredOperatorToken = apiConfig.PERSAI_OPERATOR_TOKEN?.trim() ?? "";
-      const configuredInternalToken = apiConfig.PERSAI_INTERNAL_API_TOKEN?.trim() ?? "";
+    if (isOperatorApiAuthConfigured(operatorConfig)) {
+      const configuredOperatorToken = operatorConfig.PERSAI_OPERATOR_TOKEN?.trim() ?? "";
+      const configuredInternalToken = process.env.PERSAI_INTERNAL_API_TOKEN?.trim() ?? "";
       if (
         configuredInternalToken.length > 0 &&
         verifyOperatorApiToken(configuredOperatorToken, configuredInternalToken)

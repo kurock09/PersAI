@@ -6,6 +6,14 @@ export type OperatorApiAuthConfig = Pick<
   "PERSAI_OPERATOR_TOKEN" | "PERSAI_OPERATOR_ACTOR_USER_ID" | "PERSAI_OPERATOR_ACTOR_EMAIL"
 >;
 
+export function readOperatorApiAuthFromEnv(env: NodeJS.ProcessEnv): OperatorApiAuthConfig {
+  return {
+    PERSAI_OPERATOR_TOKEN: env.PERSAI_OPERATOR_TOKEN,
+    PERSAI_OPERATOR_ACTOR_USER_ID: env.PERSAI_OPERATOR_ACTOR_USER_ID,
+    PERSAI_OPERATOR_ACTOR_EMAIL: env.PERSAI_OPERATOR_ACTOR_EMAIL
+  };
+}
+
 export function isOperatorApiAuthConfigured(config: OperatorApiAuthConfig): boolean {
   const token = config.PERSAI_OPERATOR_TOKEN?.trim() ?? "";
   if (token.length === 0) {
