@@ -205,6 +205,25 @@ export class IdentityAccessModule implements NestModule {
         path: "api/v1/assistant/integrations/telegram/groups/refresh",
         method: RequestMethod.POST
       },
+      // ADR-138 browser profile settings + live login modal (complete/cancel).
+      // Without explicit ClerkAuthMiddleware registration requests reach the
+      // controller with req.resolvedAppUser === undefined and return 401.
+      {
+        path: "api/v1/assistant/:assistantId/browser-profiles",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/assistant/:assistantId/browser-profiles/:profileId",
+        method: RequestMethod.DELETE
+      },
+      {
+        path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/reconnect",
+        method: RequestMethod.POST
+      },
+      {
+        path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/complete-login",
+        method: RequestMethod.POST
+      },
       { path: "api/v1/admin/abuse-controls/assistants", method: RequestMethod.GET },
       { path: "api/v1/admin/abuse-controls/active-overrides", method: RequestMethod.GET },
       { path: "api/v1/admin/abuse-controls/unblock", method: RequestMethod.POST },

@@ -357,7 +357,24 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     { path: "api/v1/admin/plans/packages", method: RequestMethod.GET },
     { path: "api/v1/admin/plans/packages", method: RequestMethod.POST },
     { path: "api/v1/admin/plans/packages/:id", method: RequestMethod.PATCH },
-    { path: "api/v1/admin/plans/packages/:id", method: RequestMethod.DELETE }
+    { path: "api/v1/admin/plans/packages/:id", method: RequestMethod.DELETE },
+    // ADR-138 browser profile settings + live login modal complete/cancel.
+    {
+      path: "api/v1/assistant/:assistantId/browser-profiles",
+      method: RequestMethod.GET
+    },
+    {
+      path: "api/v1/assistant/:assistantId/browser-profiles/:profileId",
+      method: RequestMethod.DELETE
+    },
+    {
+      path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/reconnect",
+      method: RequestMethod.POST
+    },
+    {
+      path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/complete-login",
+      method: RequestMethod.POST
+    }
   ]) {
     assert.equal(
       hasRoute(consumer.routes, route),
