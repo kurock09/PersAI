@@ -39,9 +39,22 @@ function parseBrowserLoginLiveProxyPath(pathname) {
 function buildUpstreamTargetUrl(upstreamLiveUrl, upstreamPath, search) {
   const upstream = new URL(upstreamLiveUrl);
   if (upstreamPath.length === 0) {
-    return `${upstream.toString()}${search.length > 0 ? search : ""}`;
+    const target = new URL(upstream.toString());
+    if (search.length > 0) {
+      const params = new URLSearchParams(search);
+      params.forEach((value, key) => {
+        target.searchParams.set(key, value);
+      });
+    }
+    return target.toString();
   }
-  const target = new URL(upstreamPath, upstream);
+  const normalizedPath = upstreamPath.startsWith("/") ? upstreamPath : `./${upstreamPath}`;
+  const target = new URL(normalizedPath, upstream);
+  upstream.searchParams.forEach((value, key) => {
+    if (!target.searchParams.has(key)) {
+      target.searchParams.set(key, value);
+    }
+  });
   if (search.length > 0) {
     const params = new URLSearchParams(search);
     params.forEach((value, key) => {

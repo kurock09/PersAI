@@ -47,9 +47,22 @@ export function buildUpstreamTargetUrl(
 ): string {
   const upstream = new URL(upstreamLiveUrl);
   if (upstreamPath.length === 0) {
-    return `${upstream.toString()}${search.length > 0 ? search : ""}`;
+    const target = new URL(upstream.toString());
+    if (search.length > 0) {
+      const params = new URLSearchParams(search);
+      params.forEach((value, key) => {
+        target.searchParams.set(key, value);
+      });
+    }
+    return target.toString();
   }
-  const target = new URL(upstreamPath, upstream);
+  const normalizedPath = upstreamPath.startsWith("/") ? upstreamPath : `./${upstreamPath}`;
+  const target = new URL(normalizedPath, upstream);
+  upstream.searchParams.forEach((value, key) => {
+    if (!target.searchParams.has(key)) {
+      target.searchParams.set(key, value);
+    }
+  });
   if (search.length > 0) {
     const params = new URLSearchParams(search);
     params.forEach((value, key) => {
@@ -155,15 +168,15 @@ export function rewriteBrowserLoginLiveBody(params: {
   const upstreamUrl = new URL(params.upstreamOrigin);
   const upstreamOrigin = upstreamUrl.origin;
   const upstreamWsOrigin = upstreamOrigin.replace(/^http/i, "ws");
-  const proxyPublicBase = params.proxyPublicBase.replace(/\/$/, "");
-  const proxyWsBase = proxyPublicBase.replace(/^http/i, "ws");
+  const proxyRoot = params.proxyPublicBase.replace(/\/$/, "");
+  const proxyWsRoot = proxyRoot.replace(/^https/i, "wss").replace(/^http/i, "ws");
 
   let rewritten = params.body
-    .replaceAll(upstreamOrigin, `${proxyPublicBase}/`)
-    .replaceAll(upstreamWsOrigin, `${proxyWsBase}/`);
+    .replaceAll(upstreamOrigin, proxyRoot)
+    .replaceAll(upstreamWsOrigin, proxyWsRoot);
 
   if (params.contentType?.toLowerCase().includes("text/html")) {
-    rewritten = injectBrowserLoginLiveHtmlBase(rewritten, proxyPublicBase);
+    rewritten = injectBrowserLoginLiveHtmlBase(rewritten, proxyRoot);
   }
 
   return rewritten;
