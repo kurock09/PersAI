@@ -48,8 +48,8 @@ function buildUpstreamTargetUrl(upstreamLiveUrl, upstreamPath, search) {
     }
     return target.toString();
   }
-  const normalizedPath = upstreamPath.startsWith("/") ? upstreamPath : `./${upstreamPath}`;
-  const target = new URL(normalizedPath, upstream);
+  const relativeSegment = upstreamPath.startsWith("/") ? upstreamPath.slice(1) : upstreamPath;
+  const target = new URL(`./${relativeSegment}`, upstream);
   upstream.searchParams.forEach((value, key) => {
     if (!target.searchParams.has(key)) {
       target.searchParams.set(key, value);

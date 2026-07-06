@@ -60,9 +60,13 @@ describe("browser-login-live-proxy", () => {
   });
 
   it("buildUpstreamTargetUrl preserves Browserless auth query on subresources", () => {
-    const upstream = "https://production-sfo.browserless.io/session/abc/live?token=secret";
+    const upstream =
+      "https://production-sfo.browserless.io/session/abc/live/index.html?token=secret";
     expect(buildUpstreamTargetUrl(upstream, "client.js", "")).toBe(
-      "https://production-sfo.browserless.io/session/abc/client.js?token=secret"
+      "https://production-sfo.browserless.io/session/abc/live/client.js?token=secret"
+    );
+    expect(buildUpstreamTargetUrl(upstream, "/client.js", "")).toBe(
+      "https://production-sfo.browserless.io/session/abc/live/client.js?token=secret"
     );
   });
 
