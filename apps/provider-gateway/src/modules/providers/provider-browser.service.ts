@@ -365,28 +365,6 @@ mutation StartLogin($url: String!, $liveUrlTimeoutMs: Float!) {
 }
 `;
 
-const BROWSERLESS_DELETE_SESSION_CODE = String.raw`
-export default async ({ browser }) => {
-  try {
-    await browser.close();
-    return {
-      data: { closed: true },
-      type: "application/json"
-    };
-  } catch (error) {
-    return {
-      data: {
-        closed: false,
-        error: {
-          message: error instanceof Error ? error.message : "Browser session close failed."
-        }
-      },
-      type: "application/json"
-    };
-  }
-};
-`;
-
 type JsonResponse = {
   ok: boolean;
   status: number;
@@ -436,21 +414,16 @@ export class ProviderBrowserService {
         return this.browserScreenshotViaRest(normalized, apiKey, startedAt);
       }
     }
-    // Persistent connect-session (`/e/{cloud}/session/{id}` or legacy
-    // `/session/{id}`): the `/function` REST endpoint returns 404 for these —
-    // Browserless routes them only over BrowserQL on `.../session/bql/{id}`.
-    // Ephemeral sessions and legacy `/reconnect/{id}` profiles keep using
-    // `/function`.
-    if (
-      normalized.profileSessionId !== null &&
-      this.isPersistingSessionProviderSessionId(normalized.profileSessionId)
-    ) {
+    // Persistent connect-session (`/e/{cloud}/session/{id}` or `/session/{id}`)
+    // is the only shape `startLogin` ever stores for a profile. Browserless
+    // routes those sessions only over BrowserQL on `.../session/bql/{id}` —
+    // the `/function` REST endpoint returns 404 for persistent sessions and
+    // there is no other profile-path variant in the system.
+    if (normalized.profileSessionId !== null) {
+      this.assertPersistingProfileSessionId(normalized.profileSessionId);
       return this.runPersistentBrowserActionViaBql(normalized, apiKey, startedAt);
     }
-    const endpoint =
-      normalized.profileSessionId === null
-        ? this.resolveBrowserlessFunctionEndpoint(apiKey)
-        : this.resolveBrowserlessProfileFunctionEndpoint(apiKey, normalized.profileSessionId);
+    const endpoint = this.resolveBrowserlessFunctionEndpoint(apiKey);
     const response = await this.fetchJson(
       endpoint,
       {
@@ -567,7 +540,14 @@ export class ProviderBrowserService {
       );
     }
     const bqlUrl = this.resolveBrowserlessSessionBqlEndpoint(apiKey, normalized.profileSessionId);
-    const waitUntil = normalized.optimizeForSpeed ? "domContentLoaded" : "networkAlmostIdle";
+    // Browserless BQL `WaitUntilGoto` enum accepts:
+    //   commit | domContentLoaded | firstContentfulPaint | firstMeaningfulPaint | load | networkIdle
+    // — there is NO `networkAlmostIdle` value (that name only exists in the
+    // Playwright/Puppeteer JS API used by the `/function` path). Using it
+    // fails the mutation with a schema error and provider-gateway wraps that
+    // as a 502 for the caller. Use `networkIdle` for the default path and
+    // `domContentLoaded` for optimizeForSpeed.
+    const waitUntil = normalized.optimizeForSpeed ? "domContentLoaded" : "networkIdle";
 
     const varDefs: string[] = ["$url: String!"];
     const parts: string[] = [];
@@ -622,7 +602,13 @@ export class ProviderBrowserService {
           break;
         }
         case "select_option": {
-          varDefs.push(`$selector_${idx}: String!`, `$value_${idx}: String!`);
+          // Browserless BQL `select(value)` accepts the union type
+          // `StringOrArray!` (either a single value or a list). Declaring the
+          // variable as `String!` fails schema validation with:
+          //   "Variable $value of type String! used in position expecting
+          //    type StringOrArray!"
+          // — provider-gateway wraps that as a 502 for the caller.
+          varDefs.push(`$selector_${idx}: String!`, `$value_${idx}: StringOrArray!`);
           vars[`selector_${idx}`] = operation.selector;
           vars[`value_${idx}`] = operation.value;
           parts.push(
@@ -654,13 +640,17 @@ export class ProviderBrowserService {
       if (format === "pdf") {
         parts.push(`doc: pdf(printBackground: true) { base64 }`);
       } else if (format === "png" || format === "jpeg" || format === "webp") {
-        const type = format.toUpperCase();
+        // Browserless BQL `ScreenshotType` enum is lower-case (`png`, `jpeg`,
+        // `webp`) — upper-case values fail schema validation and provider-
+        // gateway wraps that error as a 502. The values in our
+        // `PersaiRuntimeBrowserSnapshotFormat` are already lower-case, so
+        // pass them through verbatim.
         const selectorArg =
           normalized.snapshotSelector !== null
             ? `, selector: ${JSON.stringify(normalized.snapshotSelector)}`
             : "";
         parts.push(
-          `shot: screenshot(type: ${type}, fullPage: ${String(normalized.fullPage)}${selectorArg}) { base64 }`
+          `shot: screenshot(type: ${format}, fullPage: ${String(normalized.fullPage)}${selectorArg}) { base64 }`
         );
       } else {
         parts.push(`pageText: text { text }`);
@@ -866,27 +856,16 @@ export class ProviderBrowserService {
       return;
     }
 
-    try {
-      if (this.isPersistingSessionProviderSessionId(providerSessionId)) {
-        const stopUrl = this.resolveBrowserlessSessionStopEndpoint(apiKey, providerSessionId);
-        await this.fetchJson(stopUrl, { method: "DELETE" }, BROWSERLESS_DELETE_SESSION_TIMEOUT_MS);
-        return;
-      }
+    if (!this.isPersistingSessionProviderSessionId(providerSessionId)) {
+      // startLogin only ever stores persistent `/session/{id}` (optionally
+      // prefixed with `/e/{cloud}/`) — any other shape is unroutable garbage
+      // and there is nothing to clean up on the provider side.
+      return;
+    }
 
-      await this.fetchJson(
-        this.resolveBrowserlessProfileFunctionEndpoint(apiKey, providerSessionId),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            code: BROWSERLESS_DELETE_SESSION_CODE,
-            context: {}
-          })
-        },
-        BROWSERLESS_DELETE_SESSION_TIMEOUT_MS
-      );
+    try {
+      const stopUrl = this.resolveBrowserlessSessionStopEndpoint(apiKey, providerSessionId);
+      await this.fetchJson(stopUrl, { method: "DELETE" }, BROWSERLESS_DELETE_SESSION_TIMEOUT_MS);
     } catch {
       // Best-effort provider cleanup.
     }
@@ -1365,17 +1344,6 @@ export class ProviderBrowserService {
     return url.toString();
   }
 
-  private resolveBrowserlessProfileFunctionEndpoint(
-    apiKey: string,
-    providerSessionId: string
-  ): string {
-    const base = this.config.PROVIDER_GATEWAY_BROWSERLESS_BASE_URL.replace(/\/$/, "");
-    const sessionPath = this.normalizeProviderSessionPath(providerSessionId);
-    const url = new URL(`${sessionPath}/function`, `${base}/`);
-    url.searchParams.set("token", apiKey);
-    return url.toString();
-  }
-
   private resolveBrowserlessSessionStopEndpoint(apiKey: string, providerSessionId: string): string {
     const stopPath = this.resolvePersistingSessionStopPath(providerSessionId);
     const url = new URL(stopPath, this.config.PROVIDER_GATEWAY_BROWSERLESS_BASE_URL);
@@ -1435,32 +1403,24 @@ export class ProviderBrowserService {
     return `/${trimmed.replace(/^\/+/, "").replace(/\/$/, "")}`;
   }
 
-  private normalizeProviderSessionPath(providerSessionId: string): string {
-    const trimmed = providerSessionId.trim();
-    if (
-      trimmed.startsWith("wss://") ||
-      trimmed.startsWith("ws://") ||
-      trimmed.startsWith("http://") ||
-      trimmed.startsWith("https://")
-    ) {
-      const normalized = trimmed.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
-      return new URL(normalized).pathname;
-    }
-    if (trimmed.startsWith("/reconnect/")) {
-      return trimmed;
-    }
-    if (/\/session\/connect\//.test(trimmed)) {
-      return trimmed;
-    }
-    if (/\/session\//.test(trimmed)) {
-      return trimmed.replace("/session/", "/session/connect/");
-    }
-    return `/reconnect/${trimmed.replace(/^\/+/, "")}`;
-  }
-
   private isPersistingSessionProviderSessionId(providerSessionId: string): boolean {
     const trimmed = providerSessionId.trim();
     return /\/session\//.test(trimmed);
+  }
+
+  /**
+   * Every browser profile stored by `startLogin` uses a persistent connect
+   * session — the pathname always contains `/session/{id}` (optionally
+   * prefixed with `/e/{cloudEndpointId}/`). Any other shape reaching
+   * `browser-action` means the DB row was hand-mutated or a caller is
+   * inventing paths, and we refuse the request early with a clear reason.
+   */
+  private assertPersistingProfileSessionId(profileSessionId: string): void {
+    if (!this.isPersistingSessionProviderSessionId(profileSessionId)) {
+      throw new BadRequestException(
+        "profileSessionId must be a persistent Browserless connect-session path (e.g. `/e/{cloud}/session/{id}` or `/session/{id}`)."
+      );
+    }
   }
 
   private extractBrowserlessBqlLiveUrl(body: unknown): string | null {

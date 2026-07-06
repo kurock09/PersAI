@@ -269,7 +269,7 @@ class FakePersaiInternalApiClientService {
   touchCalls: Array<{ assistantId: string; workspaceId: string; profileKey: string }> = [];
   resolveOutcome: ResolveBrowserProfileOutcome = {
     ok: true,
-    providerSessionId: "/reconnect/session-1",
+    providerSessionId: "/session/session-1",
     profileId: "profile-1"
   };
   profiles: RuntimeBrowserProfileListItem[] = [
@@ -412,7 +412,7 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.equal(providerGatewayClientService.browserCalls.length, 1);
   assert.equal(
     providerGatewayClientService.browserCalls[0]?.profileSessionId,
-    "/reconnect/session-1"
+    "/session/session-1"
   );
   assert.equal("profile" in (providerGatewayClientService.browserCalls[0] ?? {}), false);
   assert.equal(providerGatewayClientService.browserCalls[0]?.optimizeForSpeed, true);
@@ -421,7 +421,7 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   providerGatewayClientService.browserActionError = new Error("browserless exploded");
   persaiInternalApiClientService.resolveOutcome = {
     ok: true,
-    providerSessionId: "/reconnect/session-1",
+    providerSessionId: "/session/session-1",
     profileId: "profile-1"
   };
   const pgFailureResult = await service.executeToolCall({
@@ -459,7 +459,7 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
 
   persaiInternalApiClientService.resolveOutcome = {
     ok: true,
-    providerSessionId: "/reconnect/session-1",
+    providerSessionId: "/session/session-1",
     profileId: "profile-1"
   };
   const pdfResult = await service.executeToolCall({

@@ -382,111 +382,27 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.equal(webpResult.artifactBase64, "aGVsbG8td2VicA==");
     assert.equal(webpResult.artifactMimeType, "image/webp");
 
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      return new Response(
-        JSON.stringify({
-          type: "application/json",
-          data: {
-            initialUrl: "https://crm.example.com/",
-            finalUrl: "https://crm.example.com/dashboard",
-            title: "CRM",
-            content: "Authenticated CRM content",
-            truncated: false,
-            elements: []
+    // Any non-persistent `profileSessionId` must be rejected: `startLogin`
+    // only ever stores `/e/{cloud}/session/{id}` or `/session/{id}`, so a
+    // stray shape like `/reconnect/{id}` is unroutable garbage and we refuse
+    // it up-front rather than falling back to a legacy `/function` path.
+    await assert.rejects(
+      () =>
+        service.browserAction({
+          action: "snapshot",
+          url: "https://crm.example.com/dashboard",
+          maxChars: null,
+          operations: [],
+          timeoutMs: null,
+          profileSessionId: "/reconnect/session-abc123",
+          credential: {
+            toolCode: "browser",
+            secretId: "secret-reconnect",
+            providerId: "browserless"
           }
         }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    }) as typeof fetch;
-
-    await service.browserAction({
-      action: "snapshot",
-      url: "https://crm.example.com/dashboard",
-      maxChars: null,
-      operations: [],
-      timeoutMs: null,
-      profileSessionId: "/reconnect/session-abc123",
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-reconnect",
-        providerId: "browserless"
-      }
-    });
-    const reconnectBody = JSON.parse(String(requests[6]?.init?.body ?? "{}")) as {
-      code?: string;
-      context?: { reuseSession?: boolean };
-    };
-    assert.equal(reconnectBody.context?.reuseSession, true);
-    assert.match(reconnectBody.code ?? "", /urlMatchesHostPathPrefix/);
-    assert.match(reconnectBody.code ?? "", /shouldNavigate/);
-    assert.equal(
-      requests[6]?.url,
-      "https://browserless.example.com/reconnect/session-abc123/function?token=browserless-secret"
+      BadRequestException
     );
-    assert.notEqual(
-      requests[6]?.url,
-      "https://browserless.example.com/function?token=browserless-secret"
-    );
-
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      return new Response(
-        JSON.stringify({
-          type: "application/json",
-          data: {
-            initialUrl: "https://crm.example.com/invoice",
-            finalUrl: "https://crm.example.com/invoice",
-            title: "Invoice",
-            content: "",
-            truncated: false,
-            elements: [],
-            pdfBase64: "JVBERi0xLjQK"
-          }
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    }) as typeof fetch;
-
-    await service.browserAction({
-      action: "snapshot",
-      url: "https://crm.example.com/invoice",
-      maxChars: null,
-      operations: [],
-      timeoutMs: null,
-      format: "pdf",
-      profileSessionId: "/reconnect/session-abc123",
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-reconnect-pdf",
-        providerId: "browserless"
-      }
-    });
-    const profilePdfBody = JSON.parse(String(requests[7]?.init?.body ?? "{}")) as {
-      context?: { format?: string };
-      code?: string;
-    };
-    assert.equal(profilePdfBody.context?.format, "pdf");
-    assert.match(profilePdfBody.code ?? "", /page\.pdf/);
-    assert.equal(
-      requests[7]?.url,
-      "https://browserless.example.com/reconnect/session-abc123/function?token=browserless-secret"
-    );
-    assert.notEqual(requests[7]?.url.includes("/pdf?"), true);
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =
@@ -546,21 +462,21 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.equal(loginResult.providerSessionId, "/session/session-login");
     assert.equal(loginResult.liveUrl, "https://browserless.example.com/live/session-login");
     assert.equal(
-      requests[8]?.url,
+      requests[6]?.url,
       "https://browserless.example.com/session?token=browserless-secret"
     );
-    assert.equal(requests[8]?.init?.method, "POST");
-    const createSessionBody = JSON.parse(String(requests[8]?.init?.body ?? "{}")) as {
+    assert.equal(requests[6]?.init?.method, "POST");
+    const createSessionBody = JSON.parse(String(requests[6]?.init?.body ?? "{}")) as {
       ttl?: number;
       stealth?: boolean;
     };
     assert.equal(createSessionBody.stealth, true);
     assert.equal(createSessionBody.ttl, 30 * 24 * 60 * 60 * 1000);
     assert.equal(
-      requests[9]?.url,
+      requests[7]?.url,
       "https://browserless.example.com/session/bql/session-login?token=browserless-secret"
     );
-    const loginBqlBody = JSON.parse(String(requests[9]?.init?.body ?? "{}")) as {
+    const loginBqlBody = JSON.parse(String(requests[7]?.init?.body ?? "{}")) as {
       query?: string;
       variables?: { url?: string; liveUrlTimeoutMs?: number };
     };
@@ -599,10 +515,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       }
     });
     assert.equal(
-      requests[10]?.url,
+      requests[8]?.url,
       "https://browserless.example.com/session/session-login?token=browserless-secret&force=true"
     );
-    assert.equal(requests[10]?.init?.method, "DELETE");
+    assert.equal(requests[8]?.init?.method, "DELETE");
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =
@@ -634,10 +550,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     });
     assert.deepEqual(verifyResult, { ok: true });
     assert.equal(
-      requests[11]?.url,
+      requests[9]?.url,
       "https://browserless.example.com/session/bql/session-login?token=browserless-secret"
     );
-    const verifyBody = JSON.parse(String(requests[11]?.init?.body ?? "{}")) as { query?: string };
+    const verifyBody = JSON.parse(String(requests[9]?.init?.body ?? "{}")) as { query?: string };
     assert.match(verifyBody.query ?? "", /__typename/);
 
     // Persistent connect-session (`/session/{id}` — or `/e/{cloud}/session/{id}`
@@ -679,10 +595,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       }
     });
     assert.equal(
-      requests[12]?.url,
+      requests[10]?.url,
       "https://browserless.example.com/session/bql/session-login?token=browserless-secret"
     );
-    const persistentBody = JSON.parse(String(requests[12]?.init?.body ?? "{}")) as {
+    const persistentBody = JSON.parse(String(requests[10]?.init?.body ?? "{}")) as {
       query?: string;
       variables?: Record<string, unknown>;
     };

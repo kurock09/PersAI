@@ -1,5 +1,65 @@
 # SESSION-HANDOFF
 
+## 2026-07-07 — ADR-138 correction #3: real 502 root cause on active profile — BQL schema mismatches + dead-code cutover
+
+Status: **local; deploy + live acceptance pending.**
+
+**Task scope:** correction #2 (SHA `404bea24`) added the BQL routing for `browser-action` on persistent profiles but *did not live-verify the actual mutation Browserless would accept*. Live retry from the founder (persai-admin-v4 session, deployed pg `404bea24`) still returned `502 { warning: "browserless exploded" }` on every `browser` call with a profile. A live BQL probe from the api pod on the real profile confirmed three separate schema mismatches inside my `runPersistentBrowserActionViaBql`, plus a dead-code branch for a fictional legacy `/reconnect/{id}` shape:
+
+1. `goto(waitUntil: networkAlmostIdle)` — invalid enum. Browserless BQL `WaitUntilGoto` accepts only `commit | domContentLoaded | firstContentfulPaint | firstMeaningfulPaint | load | networkIdle`. `networkAlmostIdle` is the Playwright/Puppeteer JS-API value used by the `/function` path — my BQL code copy-pasted it verbatim. Live probe: `"Value \"networkAlmostIdle\" does not exist in \"WaitUntilGoto\" enum. Did you mean the enum value \"networkIdle\"?"` — provider-gateway wrapped that as a 502.
+2. `screenshot(type: PNG|JPEG|WEBP)` — invalid enum. `ScreenshotType` is lower-case (`png | jpeg | webp`). My code was doing `format.toUpperCase()`. Live probe: `"Value \"PNG\" does not exist in \"ScreenshotType\" enum. Did you mean the enum value \"png\" or \"jpeg\"?"` — again wrapped as 502.
+3. `select(value: String!)` — wrong variable type. `select.value` in Browserless BQL is `StringOrArray!`. Live probe: `"Variable \"$value\" of type \"String!\" used in position expecting type \"StringOrArray!\""` — 502.
+
+Live-verified as OK (no fix needed): `pdf(printBackground: true) { base64 }`, `screenshot(type: png|jpeg|webp, fullPage: bool, [selector])` (lower-case), `waitForSelector(selector, timeout)`, `waitForTimeout(time)`, `evaluate(content) { value }`, `click(selector)`, `text { text }`, `title { title }`, `url { url }`.
+
+Additionally: correction #2 kept a defensive `/function` fallback branch for a fictional `legacy /reconnect/{id} profile path`. `startLogin` has *never* stored `/reconnect/{id}` in production — every profile row it writes is `/e/{cloud}/session/{id}` (or the legacy fixture-only `/session/{id}`). The `/reconnect/` branch was dead code and dead tests; keeping them meant any non-persisting `profileSessionId` (garbage / hand-mutated row) silently hit `/function` instead of failing loud.
+
+**Fix (`provider-browser.service.ts`):**
+- `waitUntil`: `optimizeForSpeed ? "domContentLoaded" : "networkAlmostIdle"` → `optimizeForSpeed ? "domContentLoaded" : "networkIdle"`.
+- Screenshot: `type: ${format.toUpperCase()}` → `type: ${format}` (values are already lower-case per `PersaiRuntimeBrowserSnapshotFormat`).
+- `select_option`: `$value_${idx}: String!` → `$value_${idx}: StringOrArray!`.
+- `browserAction` conditional simplified: `if (profileSessionId !== null) → runPersistentBrowserActionViaBql`. Non-persisting `profileSessionId` now throws a loud `BadRequestException` via `assertPersistingProfileSessionId` — no silent `/function` fallback.
+- `deleteSession`: non-persisting `providerSessionId` returns early (nothing to clean up on the provider side) instead of hitting a dead `/function` path.
+- Removed: `BROWSERLESS_DELETE_SESSION_CODE` sandbox script, `resolveBrowserlessProfileFunctionEndpoint`, `normalizeProviderSessionPath` — all only served the dead `/reconnect/` and non-persisting profile paths.
+- `isPersistingSessionProviderSessionId` retained as an internal predicate + new `assertPersistingProfileSessionId` throw-guard for callers.
+
+**Fix (`test/provider-browser.service.test.ts`):**
+- Removed two `/reconnect/session-abc123` fixture blocks (previously asserted `/function` fallback). New assertion: `browserAction` with `profileSessionId: "/reconnect/session-abc123"` **rejects with `BadRequestException`**.
+- Renumbered `requests[N]` after the removal (indices 6..10, no gaps).
+
+**Fix (`apps/runtime/test/runtime-browser-tool.service.test.ts`):** all `/reconnect/session-1` fixtures → `/session/session-1` (matches the shape `startLogin` actually stores).
+
+**Live BQL probe evidence (persai-admin-v4 on real prod, deployed pg `404bea24`, before this fix):**
+- profile `provider_session_id = /e/{cloud}/session/0d19d13...`
+- `mutation { goto(url:"https://persai.dev/", waitUntil:networkAlmostIdle, timeout:25000) { status } … }` → **200 with `errors: [{message: "Value \"networkAlmostIdle\" does not exist in \"WaitUntilGoto\" enum. ..."}]`** — provider-gateway wraps as 502.
+- After swapping `networkAlmostIdle → networkIdle`: `→ 200 { data: { goto: { status: 200 }, pageTitle: { title: "PersAI" }, pageUrl: { url: "https://persai.dev/app" }, pageText: { text: "…full authenticated chat content…" } } }`.
+- Screenshot `type: PNG` → schema error; `type: png` → 200 with base64 payload. Same for `type: webp` and `type: jpeg`.
+- `select(value: String)` → schema error; `select(value: StringOrArray!)` → schema-valid (runtime error only for an actually-missing `<select>` on the page, which is correct behaviour).
+
+**Verification (local, AGENTS gate):**
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-browser.service.test.ts` PASS (including the new `assert.rejects(BadRequestException)` for stray `/reconnect/`).
+- `corepack pnpm --filter @persai/provider-gateway run test` PASS (full suite).
+- `corepack pnpm --filter @persai/runtime run test` PASS.
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` PASS.
+- `corepack pnpm --filter @persai/runtime run typecheck` PASS.
+- `corepack pnpm --filter @persai/provider-gateway --filter @persai/runtime run lint` PASS (`--max-warnings=0`).
+- `corepack pnpm run format:check` PASS.
+
+**Risks/residuals:**
+- Persistent-path `type` semantics: BQL `type(selector, text)` appends text; the pre-clear `evaluate` is best-effort (matches the `/function` path's own trade-off).
+- Persistent-path `press` still synthesised via `evaluate` + `KeyboardEvent` — strict keyboard-driven pages may need a native `press`-mutation port later.
+- Persistent-path `elements: []` — snapshot-side interactive-elements hint list is still not ported to BQL (out of scope for this correction).
+- 429 "session already being accessed by another client" — not retried; realistic for single-tool-per-turn.
+
+**Files touched:**
+- `apps/provider-gateway/src/modules/providers/provider-browser.service.ts`
+- `apps/provider-gateway/test/provider-browser.service.test.ts`
+- `apps/runtime/test/runtime-browser-tool.service.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+**Next step:** commit + push (= deploy); after rollout, retry `browser` tool with `profile: "persai-admin-v4"` in the chat — `snapshot` must return page content and screenshots/PDF must return a base64 payload instead of 502.
+
 ## 2026-07-07 — ADR-138 correction #2: persistent-session `browser-action` via BQL (kills 502 on active profile)
 
 Status: **local; deploy + live acceptance pending.**
