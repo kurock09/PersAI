@@ -5,6 +5,8 @@
 
 ## 2026-07-06
 
+- **Fix (browser login modal — live WS proxy reconnect loop / black modal; pushed `d2f03e93`).** Pod-proven diagnosis: server-side `proxy.ws` → Browserless is reliable (101 on a fresh session regardless of cookie/`permessage-deflate`/xfwd/500ms delay); prior 400s were session-TTL expiry. Real failure was end-to-end: `server.mjs` had **no `proxy.on('error')`** listener (upstream failures became a silent 1006) and re-resolved the upstream live URL on **every** reconnect (internal fetch + Clerk `getToken` ~1.5s), so the live client's reconnects kept losing the handshake race → permanent black modal. Hardened `apps/web/server.mjs`: `proxy.on('error')` (log + 502 + close), client upgrade-socket error handler, 30s TTL upstream-URL cache with invalidate-on-error + ws error callback, `proxyTimeout: 20000`. `node --check` + 18 browser-login web tests + web typecheck/lint/prettier PASS. Deploy + live acceptance pending.
+
 - **Fix (browser login modal — `0.0.0.0` origin; pushed `679d78f4`).** Pod-proven: trailing-slash redirect used `requestUrl.toString()` inside web pod → `https://0.0.0.0:3000/api/browser-login-live/...`; `buildProxyPublicBase` lacked `Host`/`PERSAI_WEB_BASE_URL` fallback. Removed BFF trailing-slash redirect; added `resolveProxyPublicOrigin` + client URL normalize; `PERSAI_WEB_BASE_URL` on web helm env. Full gate PASS.
 
 - **Fix (files vision re-view + model instructions; pushed `679d78f4`).** `files.preview` on image/PDF uses plan visual byte limit (ignores model `maxBytes:4096`). Catalog/bootstrap/native projection/Working Files teach current-message vision vs `files.preview` for earlier chat/workspace paths.

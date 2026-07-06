@@ -1,5 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-07-06 — Browser login modal: live WS proxy reconnect loop (black modal)
+
+Status: **pushed `d2f03e93`; deploy + live acceptance pending.**
+
+**Task scope:** verify Composer's ADR-138 work and fix the persistent black-screen / "Connection lost" reconnect loop in `BrowserLoginModal`. Out of scope: ADR-138 S8–S10, provider-gateway/runtime changes.
+
+**Pod-proven diagnosis (persai-dev, live fresh session):**
+- `direct` browser → Browserless WS = OPEN; `proxy` browser → persai.dev WS = 1006 (variable 0.6–1.3s, sometimes 9s hang).
+- In-pod isolated `proxy.ws` → Browserless returns **101** on a **fresh** session with big Clerk cookie + `permessage-deflate` + GCLB `x-forwarded-*` + 500ms pre-dial delay. Earlier in-pod 400s were **session-TTL expiry** (liveUrl `t=900000` = 15min), not a header/proxy bug — server-side proxy is sound.
+- GCLB forwards WS + relays upstream responses (raw local handshake got a clean pod-origin `502` via `Via: 1.1 google`).
+- Browser-side internal resolve = ~450ms/200; `server.mjs`-side resolve = ~1.7s (internal fetch + Clerk `getToken`), completing **after** the client already 1006'd.
+- Root cause: no `proxy.on('error')` (silent 1006) + per-reconnect slow resolve → live client's reconnect loop never wins the handshake race → black modal.
+
+**Fix (`apps/web/server.mjs` only):** `proxy.on('error')` (log real cause, 502 + close); client upgrade-socket `error` handler; 30s TTL in-memory cache of resolved upstream live URL (invalidate on upstream/socket error, ws error callback drops stale URL); `proxyTimeout: 20000`.
+
+**Verification (local):** `node --check` PASS; `browser-login-live-proxy` + `browser-login-live-url` + `browser-login-modal` tests = 18 PASS; `@persai/web` typecheck PASS; web lint PASS; prettier PASS.
+
+**Risks/residuals:** the exact source of the client/LB handshake-window cut (~0.6–1.3s) through GCLB is not fully pinned; the new `proxy.on('error')` logging will surface the true upstream error post-deploy if the reconnect loop persists. The 30s cache can serve a rotated liveUrl for up to 30s after a re-login (bounded; invalidated on error).
+
+**Next step:** after deploy, live-smoke the modal on persai.dev with a fresh login session; watch web pod logs for `[browser-login-live-ws]`; if still failing, use the now-logged upstream error to iterate.
+
 ## 2026-07-06 — Browser login modal origin + files vision re-view
 
 Status: **pushed `679d78f4`; deploy + live acceptance pending.**
