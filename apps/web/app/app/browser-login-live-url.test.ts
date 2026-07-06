@@ -20,7 +20,21 @@ describe("browser-login-live-url", () => {
       loginUrl: "https://crm.example.com/login"
     };
     expect(withWebBrowserLoginLiveProxy(pending, "assistant-1").liveUrl).toBe(
-      "/api/browser-login-live/assistant-1/profile-1/"
+      "/api/browser-login-live/assistant-1/profile-1/?token=abc"
+    );
+  });
+
+  it("preserves Browserless live session query on proxied modal URL", () => {
+    const pending = {
+      profileId: "9eef9e66-8e97-47e6-b986-fc094146b953",
+      profileKey: "admin",
+      displayName: "PersAI Admin",
+      liveUrl:
+        "https://production-sfo.browserless.io/e/abc/live/index.html?i=e039d162bd091dd30ba2523a8714d15e&t=900000&showBrowserInterface=false",
+      loginUrl: "https://persai.dev/"
+    };
+    expect(withWebBrowserLoginLiveProxy(pending, "assistant-1").liveUrl).toBe(
+      "/api/browser-login-live/assistant-1/9eef9e66-8e97-47e6-b986-fc094146b953/?i=e039d162bd091dd30ba2523a8714d15e&t=900000&showBrowserInterface=false"
     );
   });
 

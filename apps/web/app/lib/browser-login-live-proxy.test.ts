@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   buildProxyPublicBase,
   buildUpstreamTargetUrl,
+  ensureBrowserLoginLiveProxyTrailingSlash,
   normalizeBrowserLoginLiveProxyUrl,
   resolveProxyPublicOrigin,
   rewriteBrowserLoginLiveBody
@@ -68,6 +69,14 @@ describe("browser-login-live-proxy", () => {
     expect(buildUpstreamTargetUrl(upstream, "/client.js", "")).toBe(
       "https://production-sfo.browserless.io/session/abc/live/client.js?token=secret"
     );
+  });
+
+  it("ensureBrowserLoginLiveProxyTrailingSlash keeps upstream search params", () => {
+    expect(
+      ensureBrowserLoginLiveProxyTrailingSlash(
+        "/api/browser-login-live/a/9eef9e66-8e97-47e6-b986-fc094146b953?i=abc&t=900000"
+      )
+    ).toBe("/api/browser-login-live/a/9eef9e66-8e97-47e6-b986-fc094146b953/?i=abc&t=900000");
   });
 
   it("rewriteBrowserLoginLiveBody avoids double slashes after origin rewrite", () => {

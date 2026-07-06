@@ -12,8 +12,26 @@ export function isBrowserLoginProfileId(profileId: string): boolean {
   return BROWSER_LOGIN_PROFILE_ID_PATTERN.test(profileId);
 }
 
-export function buildBrowserLoginLiveProxyUrl(assistantId: string, profileId: string): string {
-  return `${PROXY_PATH_PREFIX}/${encodeURIComponent(assistantId)}/${encodeURIComponent(profileId)}/`;
+export function extractBrowserLoginLiveUpstreamSearch(liveUrl: string): string {
+  try {
+    const parsed = new URL(liveUrl);
+    return parsed.search;
+  } catch {
+    return "";
+  }
+}
+
+export function buildBrowserLoginLiveProxyUrl(
+  assistantId: string,
+  profileId: string,
+  upstreamSearch = ""
+): string {
+  const path = `${PROXY_PATH_PREFIX}/${encodeURIComponent(assistantId)}/${encodeURIComponent(profileId)}/`;
+  if (upstreamSearch.length === 0) {
+    return path;
+  }
+  const search = upstreamSearch.startsWith("?") ? upstreamSearch : `?${upstreamSearch}`;
+  return `${path}${search}`;
 }
 
 export function withWebBrowserLoginLiveProxy(
@@ -23,20 +41,26 @@ export function withWebBrowserLoginLiveProxy(
   if (typeof assistantId !== "string" || assistantId.trim().length === 0) {
     return pending;
   }
+  const upstreamSearch = extractBrowserLoginLiveUpstreamSearch(pending.liveUrl);
   if (
     pending.liveUrl.startsWith(`${PROXY_PATH_PREFIX}/`) ||
     normalizeBrowserLoginLiveProxyUrl(pending.liveUrl).startsWith(`${PROXY_PATH_PREFIX}/`)
   ) {
+    const normalized = normalizeBrowserLoginLiveProxyUrl(pending.liveUrl);
+    const proxied =
+      upstreamSearch.length > 0 && !normalized.includes("?")
+        ? buildBrowserLoginLiveProxyUrl(assistantId, pending.profileId, upstreamSearch)
+        : normalized;
     return {
       ...pending,
-      liveUrl: ensureBrowserLoginLiveProxyTrailingSlash(
-        normalizeBrowserLoginLiveProxyUrl(pending.liveUrl)
-      )
+      liveUrl: ensureBrowserLoginLiveProxyTrailingSlash(proxied)
     };
   }
   return {
     ...pending,
-    liveUrl: buildBrowserLoginLiveProxyUrl(assistantId, pending.profileId)
+    liveUrl: ensureBrowserLoginLiveProxyTrailingSlash(
+      buildBrowserLoginLiveProxyUrl(assistantId, pending.profileId, upstreamSearch)
+    )
   };
 }
 
