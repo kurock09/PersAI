@@ -183,6 +183,10 @@ async function handleBrowserLoginLiveUpgrade(req, socket, head) {
     );
     const target = new URL(targetUrl);
     req.url = `${target.pathname}${target.search}`;
+    // Cookies are only for the internal PersAI resolve above. Do not forward
+    // Clerk/PersAI auth material to Browserless during the raw WS upgrade.
+    delete req.headers.cookie;
+    delete req.headers.authorization;
     proxy.ws(
       req,
       socket,

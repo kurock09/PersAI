@@ -2,7 +2,7 @@
 
 ## 2026-07-06 — Browser login modal: live WS proxy reconnect loop (black modal)
 
-Status: **pushed `d2f03e93`; deploy + live acceptance pending.**
+Status: **follow-up cookie-strip fix; deploy + live acceptance pending.**
 
 **Task scope:** verify Composer's ADR-138 work and fix the persistent black-screen / "Connection lost" reconnect loop in `BrowserLoginModal`. Out of scope: ADR-138 S8–S10, provider-gateway/runtime changes.
 
@@ -12,10 +12,11 @@ Status: **pushed `d2f03e93`; deploy + live acceptance pending.**
 - GCLB forwards WS + relays upstream responses (raw local handshake got a clean pod-origin `502` via `Via: 1.1 google`).
 - Browser-side internal resolve = ~450ms/200; `server.mjs`-side resolve = ~1.7s (internal fetch + Clerk `getToken`), completing **after** the client already 1006'd.
 - Root cause: no `proxy.on('error')` (silent 1006) + per-reconnect slow resolve → live client's reconnect loop never wins the handshake race → black modal.
+- Follow-up live check after `d2f03e93`: direct Browserless link works when the local browser has VPN, confirming Browserless itself is healthy and the proxy is still required for non-VPN/Russia access. External HTTP/1.1 `curl` through GCLB can receive `101 Switching Protocols` from the proxied path, while the in-browser modal still closes as `1006`; the remaining difference is the browser's PersAI/Clerk cookie-bearing WS upgrade. The local follow-up strips `cookie` and `authorization` after the internal resolve and before forwarding the raw WS upgrade to Browserless.
 
-**Fix (`apps/web/server.mjs` only):** `proxy.on('error')` (log real cause, 502 + close); client upgrade-socket `error` handler; 30s TTL in-memory cache of resolved upstream live URL (invalidate on upstream/socket error, ws error callback drops stale URL); `proxyTimeout: 20000`.
+**Fix (`apps/web/server.mjs` only):** `proxy.on('error')` (log real cause, 502 + close); client upgrade-socket `error` handler; 30s TTL in-memory cache of resolved upstream live URL (invalidate on upstream/socket error, ws error callback drops stale URL); `proxyTimeout: 20000`; follow-up strips PersAI auth headers before the upstream Browserless WS handshake.
 
-**Verification (local):** `node --check` PASS; `browser-login-live-proxy` + `browser-login-live-url` + `browser-login-modal` tests = 18 PASS; `@persai/web` typecheck PASS; web lint PASS; prettier PASS.
+**Verification (local):** `node --check` PASS; `browser-login-live-proxy` + `browser-login-live-url` + `browser-login-modal` tests = 18 PASS; `@persai/web` typecheck PASS; web lint PASS; prettier PASS. Follow-up cookie-strip local check: `node --check` PASS; focused 18 browser-login web tests PASS.
 
 **Risks/residuals:** the exact source of the client/LB handshake-window cut (~0.6–1.3s) through GCLB is not fully pinned; the new `proxy.on('error')` logging will surface the true upstream error post-deploy if the reconnect loop persists. The 30s cache can serve a rotated liveUrl for up to 30s after a re-login (bounded; invalidated on error).
 
