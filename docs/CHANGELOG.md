@@ -5,9 +5,9 @@
 
 ## 2026-07-06
 
-- **Fix (browser login modal — `0.0.0.0` origin; local, push pending).** Pod-proven: trailing-slash redirect used `requestUrl.toString()` inside web pod → `https://0.0.0.0:3000/api/browser-login-live/...`; `buildProxyPublicBase` lacked `Host`/`PERSAI_WEB_BASE_URL` fallback. Removed BFF trailing-slash redirect; added `resolveProxyPublicOrigin` + client URL normalize; `PERSAI_WEB_BASE_URL` on web helm env. Full gate PASS.
+- **Fix (browser login modal — `0.0.0.0` origin; pushed `679d78f4`).** Pod-proven: trailing-slash redirect used `requestUrl.toString()` inside web pod → `https://0.0.0.0:3000/api/browser-login-live/...`; `buildProxyPublicBase` lacked `Host`/`PERSAI_WEB_BASE_URL` fallback. Removed BFF trailing-slash redirect; added `resolveProxyPublicOrigin` + client URL normalize; `PERSAI_WEB_BASE_URL` on web helm env. Full gate PASS.
 
-- **Fix (files vision re-view + model instructions; local, push pending).** `files.preview` on image/PDF uses plan visual byte limit (ignores model `maxBytes:4096`). Catalog/bootstrap/native projection/Working Files teach current-message vision vs `files.preview` for earlier chat/workspace paths.
+- **Fix (files vision re-view + model instructions; pushed `679d78f4`).** `files.preview` on image/PDF uses plan visual byte limit (ignores model `maxBytes:4096`). Catalog/bootstrap/native projection/Working Files teach current-message vision vs `files.preview` for earlier chat/workspace paths.
 
 - **Fix (ADR-138 — Browserless Session API login + REST artifact routing).** `startLogin` uses `POST /session` + BQL `liveURL` (not CDP in `/function`). Ephemeral `snapshot` pdf/png/jpeg/webp (no `snapshotSelector`) use REST `/pdf` or `/screenshot`; profile/`snapshotSelector` keep session `/function`. Legacy `/reconnect/{id}` still supported. Profile reuse via `/session/connect/{id}/function` remains **unverified against Browserless public docs** — live smoke pending.
 

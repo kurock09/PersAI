@@ -2,7 +2,7 @@
 
 ## 2026-07-06 — Browser login modal origin + files vision re-view
 
-Status: **commit + push pending this slice; deploy + live acceptance pending.**
+Status: **pushed `679d78f4`; deploy + live acceptance pending.**
 
 **Browser login (prod diagnosis on pod `3bd27a91`):** iframe chain was Next strip trailing slash → route `Response.redirect(requestUrl.toString(), 308)` with internal `http://0.0.0.0:3000` → browser navigated to `https://0.0.0.0:3000/api/browser-login-live/...`. `buildProxyPublicBase` also fell back to `requestUrl.origin` when GCE omitted `X-Forwarded-Host`.
 
