@@ -9,7 +9,6 @@ const isProtectedRoute = createRouteMatcher([
   // long-lived tabs. Treat it the same as `/api/assistant-file(.*)`.
   "/api/assistant-document(.*)",
   "/api/browser-login-live(.*)",
-  "/api/internal/browser-login-live-upstream(.*)",
   "/api/support-attachment(.*)",
   "/api/admin-support-attachment(.*)",
   "/api/support-ticket(.*)"
