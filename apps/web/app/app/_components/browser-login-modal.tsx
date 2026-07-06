@@ -10,13 +10,15 @@ import {
   completeAssistantBrowserLogin,
   type PendingBrowserLoginState
 } from "../assistant-api-client";
+import { ensureBrowserLoginLiveProxyTrailingSlash } from "../browser-login-live-url";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
 
 interface BrowserLoginModalProps {
   open: boolean;
   assistantId: string | null | undefined;
   pendingBrowserLogin: PendingBrowserLoginState | null;
-  onClose: () => void;
+  onDismiss: () => void;
+  onCancel: () => void;
   onCompleted?: (() => void) | undefined;
 }
 
@@ -24,7 +26,8 @@ export function BrowserLoginModal({
   open,
   assistantId,
   pendingBrowserLogin,
-  onClose,
+  onDismiss,
+  onCancel,
   onCompleted
 }: BrowserLoginModalProps) {
   const { getToken } = useAuth();
@@ -33,7 +36,7 @@ export function BrowserLoginModal({
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [iframeReloadKey, setIframeReloadKey] = useState(0);
 
-  useHistoryBackToClose(open, onClose);
+  useHistoryBackToClose(open, onDismiss);
 
   useEffect(() => {
     if (!open) {
@@ -57,19 +60,19 @@ export function BrowserLoginModal({
     try {
       await completeAssistantBrowserLogin(token, assistantId, pendingBrowserLogin.profileId);
       onCompleted?.();
-      onClose();
+      onDismiss();
     } catch {
       setCompleteError(t("browserLoginCompleteFailed"));
     } finally {
       setCompleting(false);
     }
-  }, [assistantId, completing, getToken, onClose, onCompleted, pendingBrowserLogin, t]);
+  }, [assistantId, completing, getToken, onDismiss, onCompleted, pendingBrowserLogin, t]);
 
   if (!open || pendingBrowserLogin === null || typeof document === "undefined") {
     return null;
   }
 
-  const liveUrl = pendingBrowserLogin.liveUrl;
+  const liveUrl = ensureBrowserLoginLiveProxyTrailingSlash(pendingBrowserLogin.liveUrl);
 
   return createPortal(
     <div
@@ -98,8 +101,8 @@ export function BrowserLoginModal({
           </button>
           <button
             type="button"
-            onClick={onClose}
-            aria-label={t("browserLoginCancel")}
+            onClick={onDismiss}
+            aria-label={t("browserLoginClose")}
             className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/70 text-text-muted transition hover:bg-surface-hover hover:text-text"
           >
             <X className="h-4 w-4" />
@@ -135,7 +138,7 @@ export function BrowserLoginModal({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={onCancel}
               disabled={completing}
               className="inline-flex min-h-9 items-center justify-center rounded-lg border border-border/70 px-3 text-xs font-medium text-text transition hover:bg-surface-hover disabled:opacity-50"
             >

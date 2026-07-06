@@ -599,6 +599,7 @@
     "openVideo": "Открыть видео",
     "lightboxClose": "Закрыть",
     "browserLoginReload": "Обновить страницу входа",
+    "browserLoginClose": "Закрыть",
     "browserLoginCancel": "Отмена",
     "browserLoginDone": "Готово",
     "browserLoginOpenExternal": "Открыть в браузере",

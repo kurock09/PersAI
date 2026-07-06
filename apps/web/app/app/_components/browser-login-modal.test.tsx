@@ -42,7 +42,8 @@ describe("BrowserLoginModal", () => {
         open
         assistantId="assistant-1"
         pendingBrowserLogin={pendingBrowserLogin}
-        onClose={vi.fn()}
+        onDismiss={vi.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -60,7 +61,8 @@ describe("BrowserLoginModal", () => {
         open
         assistantId="assistant-1"
         pendingBrowserLogin={pendingBrowserLogin}
-        onClose={vi.fn()}
+        onDismiss={vi.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -72,14 +74,15 @@ describe("BrowserLoginModal", () => {
   it("calls complete login API when Done is pressed", async () => {
     completeAssistantBrowserLogin.mockResolvedValue({});
     const onCompleted = vi.fn();
-    const onClose = vi.fn();
+    const onDismiss = vi.fn();
 
     render(
       <BrowserLoginModal
         open
         assistantId="assistant-1"
         pendingBrowserLogin={pendingBrowserLogin}
-        onClose={onClose}
+        onDismiss={onDismiss}
+        onCancel={vi.fn()}
         onCompleted={onCompleted}
       />
     );
@@ -94,6 +97,44 @@ describe("BrowserLoginModal", () => {
       );
     });
     expect(onCompleted).toHaveBeenCalled();
-    expect(onClose).toHaveBeenCalled();
+    expect(onDismiss).toHaveBeenCalled();
+  });
+
+  it("dismisses on header close without cancel", () => {
+    const onDismiss = vi.fn();
+    const onCancel = vi.fn();
+
+    render(
+      <BrowserLoginModal
+        open
+        assistantId="assistant-1"
+        pendingBrowserLogin={pendingBrowserLogin}
+        onDismiss={onDismiss}
+        onCancel={onCancel}
+      />
+    );
+
+    fireEvent.click(screen.getByLabelText("browserLoginClose"));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("cancels from footer without dismiss", () => {
+    const onDismiss = vi.fn();
+    const onCancel = vi.fn();
+
+    render(
+      <BrowserLoginModal
+        open
+        assistantId="assistant-1"
+        pendingBrowserLogin={pendingBrowserLogin}
+        onDismiss={onDismiss}
+        onCancel={onCancel}
+      />
+    );
+
+    fireEvent.click(screen.getByText("browserLoginCancel"));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 });

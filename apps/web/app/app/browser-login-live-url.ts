@@ -1,4 +1,5 @@
 import type { PendingBrowserLoginState } from "./assistant-api-client";
+import { ensureBrowserLoginLiveProxyTrailingSlash } from "@/app/lib/browser-login-live-proxy";
 
 const PROXY_PATH_PREFIX = "/api/browser-login-live";
 const BROWSER_LOGIN_PROFILE_ID_PATTERN =
@@ -20,10 +21,15 @@ export function withWebBrowserLoginLiveProxy(
     return pending;
   }
   if (pending.liveUrl.startsWith(`${PROXY_PATH_PREFIX}/`)) {
-    return pending;
+    return {
+      ...pending,
+      liveUrl: ensureBrowserLoginLiveProxyTrailingSlash(pending.liveUrl)
+    };
   }
   return {
     ...pending,
     liveUrl: buildBrowserLoginLiveProxyUrl(assistantId, pending.profileId)
   };
 }
+
+export { ensureBrowserLoginLiveProxyTrailingSlash };

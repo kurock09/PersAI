@@ -1077,7 +1077,8 @@ export function ChatArea({
         open={chat.browserLoginModalOpen}
         assistantId={assistantId}
         pendingBrowserLogin={chat.pendingBrowserLogin}
-        onClose={() => void chat.abortBrowserLogin()}
+        onDismiss={chat.dismissBrowserLogin}
+        onCancel={() => void chat.abortBrowserLogin()}
         onCompleted={chat.clearPendingBrowserLogin}
       />
     </div>

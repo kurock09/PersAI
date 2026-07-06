@@ -24,14 +24,17 @@ describe("browser-login-live-url", () => {
     );
   });
 
-  it("leaves already-proxied liveUrl unchanged", () => {
+  it("adds trailing slash to already-proxied root liveUrl", () => {
     const pending = {
-      profileId: "profile-1",
+      profileId: "9eef9e66-8e97-47e6-b986-fc094146b953",
       profileKey: "bitrix",
       displayName: "Bitrix",
-      liveUrl: "/api/browser-login-live/assistant-1/profile-1",
+      liveUrl:
+        "/api/browser-login-live/c2df1500-ec77-4224-891d-efc32a16c810/9eef9e66-8e97-47e6-b986-fc094146b953",
       loginUrl: "https://crm.example.com/login"
     };
-    expect(withWebBrowserLoginLiveProxy(pending, "assistant-1")).toEqual(pending);
+    expect(withWebBrowserLoginLiveProxy(pending, "assistant-1").liveUrl).toBe(
+      "/api/browser-login-live/c2df1500-ec77-4224-891d-efc32a16c810/9eef9e66-8e97-47e6-b986-fc094146b953/"
+    );
   });
 });

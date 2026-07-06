@@ -6407,7 +6407,8 @@ export function AssistantSettings({
         open={settingsBrowserLogin !== null}
         assistantId={assistant?.id}
         pendingBrowserLogin={settingsBrowserLogin}
-        onClose={() => setSettingsBrowserLogin(null)}
+        onDismiss={() => setSettingsBrowserLogin(null)}
+        onCancel={() => setSettingsBrowserLogin(null)}
         onCompleted={() => {
           setSettingsBrowserLogin(null);
           void refreshBrowserProfiles();

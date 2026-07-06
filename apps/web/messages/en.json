@@ -599,6 +599,7 @@
     "openVideo": "Open video",
     "lightboxClose": "Close image",
     "browserLoginReload": "Reload login page",
+    "browserLoginClose": "Close",
     "browserLoginCancel": "Cancel",
     "browserLoginDone": "Done",
     "browserLoginOpenExternal": "Open in browser",
