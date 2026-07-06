@@ -2,7 +2,7 @@
 
 ## 2026-07-06 — ADR-138 Browserless Session API login + REST artifact routing
 
-Status: **pushed `ae478f13`; deploy + live acceptance pending.**
+Status: **pushed `aae697cc` (fix) + `d20ddeac` (handoff); deploy + live acceptance pending.**
 
 **Root cause:** `startLogin` called CDP `Browserless.liveURL` from `/function` sandbox — command not available there. Ephemeral PDF/png/jpeg/webp used `/function` where Browserless docs recommend REST `/pdf` and `/screenshot`.
 
