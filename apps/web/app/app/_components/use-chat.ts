@@ -34,7 +34,8 @@ import {
   type WebChatTurnStatusState,
   type WebChatUxIssue,
   parsePendingBrowserLoginState,
-  type PendingBrowserLoginState
+  type PendingBrowserLoginState,
+  deleteAssistantBrowserProfile
 } from "../assistant-api-client";
 import type { RuntimeTodoItem, RuntimeTurnToolInvocation } from "@persai/runtime-contract";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
@@ -143,6 +144,7 @@ export interface UseChatReturn {
   browserLoginModalOpen: boolean;
   dismissBrowserLogin: () => void;
   reopenBrowserLogin: () => void;
+  abortBrowserLogin: () => Promise<void>;
   clearPendingBrowserLogin: () => void;
   send: (text: string, files?: File[], options?: ChatSendOptions) => Promise<void>;
   sendWelcome: (locale: string) => Promise<void>;
@@ -1171,6 +1173,23 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   const clearPendingBrowserLogin = useCallback(() => {
     applyPendingBrowserLoginForThread(assistantScopedThreadKey, null);
   }, [applyPendingBrowserLoginForThread, assistantScopedThreadKey]);
+  const abortBrowserLogin = useCallback(async () => {
+    const pending = pendingBrowserLoginByThreadRef.current.get(assistantScopedThreadKey) ?? null;
+    const assistantId = options?.assistantId;
+    if (pending !== null && typeof assistantId === "string" && assistantId.length > 0) {
+      try {
+        const token = await getToken();
+        if (token) {
+          await deleteAssistantBrowserProfile(token, assistantId, pending.profileId);
+        }
+      } catch {
+        // Best-effort provider cleanup; still clear local pending-login state.
+      }
+    }
+    browserLoginDismissedByThreadRef.current.delete(assistantScopedThreadKey);
+    setBrowserLoginDismissedState(false);
+    applyPendingBrowserLoginForThread(assistantScopedThreadKey, null);
+  }, [applyPendingBrowserLoginForThread, assistantScopedThreadKey, getToken, options?.assistantId]);
   currentThreadKeyRef.current = assistantScopedThreadKey;
   const setThreadPendingSend = useCallback(
     (targetThreadKey: string, next: PendingSendSlot | null) => {
@@ -4616,6 +4635,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     browserLoginModalOpen: pendingBrowserLogin !== null && !browserLoginDismissed,
     dismissBrowserLogin,
     reopenBrowserLogin,
+    abortBrowserLogin,
     clearPendingBrowserLogin,
     send,
     sendWelcome,

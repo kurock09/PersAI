@@ -35,6 +35,8 @@ const UNTRUSTED_CONTENT_WARNING =
 
 /** Default Browserless reconnect TTL for profile login sessions (30 days). */
 const DEFAULT_BROWSER_PROFILE_RECONNECT_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
+/** BQL liveURL default is 30s; give users time to complete manual login. */
+const DEFAULT_BROWSER_LOGIN_LIVE_URL_TIMEOUT_MS = 15 * 60 * 1000;
 
 const BROWSERLESS_DELETE_SESSION_TIMEOUT_MS = 15_000;
 const BROWSERLESS_VERIFY_SESSION_TIMEOUT_MS = 15_000;
@@ -353,11 +355,11 @@ export default async ({ page, context }) => {
 `;
 
 const BROWSERLESS_START_LOGIN_BQL = `
-mutation StartLogin($url: String!) {
+mutation StartLogin($url: String!, $liveUrlTimeoutMs: Float!) {
   goto(url: $url, waitUntil: networkIdle) {
     status
   }
-  liveURL(interactable: true) {
+  liveURL(interactable: true, timeout: $liveUrlTimeoutMs) {
     liveURL
   }
 }
@@ -589,6 +591,10 @@ export class ProviderBrowserService {
       );
     }
 
+    const liveUrlTimeoutMs = Math.max(
+      5 * 60 * 1000,
+      Math.min(DEFAULT_BROWSER_LOGIN_LIVE_URL_TIMEOUT_MS, normalized.reconnectTimeoutMs)
+    );
     const bqlResponse = await this.fetchJson(
       browserQL,
       {
@@ -599,7 +605,8 @@ export class ProviderBrowserService {
         body: JSON.stringify({
           query: BROWSERLESS_START_LOGIN_BQL,
           variables: {
-            url: normalized.loginUrl
+            url: normalized.loginUrl,
+            liveUrlTimeoutMs
           }
         })
       },

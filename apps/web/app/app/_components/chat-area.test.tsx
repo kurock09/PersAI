@@ -124,6 +124,7 @@ function createChat(
     pendingBrowserLogin: null,
     browserLoginModalOpen: false,
     dismissBrowserLogin: vi.fn(),
+    abortBrowserLogin: vi.fn().mockResolvedValue(undefined),
     reopenBrowserLogin: vi.fn(),
     clearPendingBrowserLogin: vi.fn(),
     isStreaming,

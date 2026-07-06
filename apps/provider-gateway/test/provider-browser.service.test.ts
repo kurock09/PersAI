@@ -558,10 +558,12 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     );
     const loginBqlBody = JSON.parse(String(requests[9]?.init?.body ?? "{}")) as {
       query?: string;
-      variables?: { url?: string };
+      variables?: { url?: string; liveUrlTimeoutMs?: number };
     };
     assert.match(loginBqlBody.query ?? "", /liveURL/);
+    assert.match(loginBqlBody.query ?? "", /timeout:\s*\$liveUrlTimeoutMs/);
     assert.equal(loginBqlBody.variables?.url, "https://crm.example.com/login");
+    assert.equal(loginBqlBody.variables?.liveUrlTimeoutMs, 15 * 60 * 1000);
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =

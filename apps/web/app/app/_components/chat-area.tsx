@@ -1031,13 +1031,22 @@ export function ChatArea({
                 {t("browserLoginContinueHint")}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={chat.reopenBrowserLogin}
-              className="shrink-0 cursor-pointer rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-white transition hover:bg-accent-hover"
-            >
-              {t("browserLoginContinue")}
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void chat.abortBrowserLogin()}
+                className="cursor-pointer rounded-lg border border-border/70 px-2.5 py-1 text-[11px] font-medium text-text-muted transition hover:bg-surface-hover hover:text-text"
+              >
+                {t("browserLoginCancel")}
+              </button>
+              <button
+                type="button"
+                onClick={chat.reopenBrowserLogin}
+                className="cursor-pointer rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-white transition hover:bg-accent-hover"
+              >
+                {t("browserLoginContinue")}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1068,7 +1077,7 @@ export function ChatArea({
         open={chat.browserLoginModalOpen}
         assistantId={assistantId}
         pendingBrowserLogin={chat.pendingBrowserLogin}
-        onClose={chat.dismissBrowserLogin}
+        onClose={() => void chat.abortBrowserLogin()}
         onCompleted={chat.clearPendingBrowserLogin}
       />
     </div>
