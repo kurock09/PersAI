@@ -13,7 +13,73 @@ const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
-const proxy = httpProxy.createProxyServer({ ws: true, changeOrigin: true, secure: true });
+const proxy = httpProxy.createProxyServer({
+  ws: true,
+  changeOrigin: true,
+  secure: true,
+  proxyTimeout: 20000
+});
+
+// Browserless live sessions are stable for the profile's live window, but the
+// live client reconnects frequently. Re-resolving the upstream URL on every
+// reconnect meant each WS handshake blocked on an internal fetch + Clerk token
+// mint (~1.5s), which repeatedly lost the race against the browser/LB handshake
+// window and produced a permanent reconnect loop (black modal). Cache the
+// resolved upstream briefly so reconnects complete their handshake immediately.
+const UPSTREAM_CACHE_TTL_MS = 30000;
+const upstreamLiveUrlCache = new Map();
+
+function cacheKeyFor(assistantId, profileId) {
+  return `${assistantId}/${profileId}`;
+}
+
+function readCachedUpstreamLiveUrl(assistantId, profileId) {
+  const entry = upstreamLiveUrlCache.get(cacheKeyFor(assistantId, profileId));
+  if (!entry) {
+    return null;
+  }
+  if (entry.expiresAt <= Date.now()) {
+    upstreamLiveUrlCache.delete(cacheKeyFor(assistantId, profileId));
+    return null;
+  }
+  return entry.url;
+}
+
+function writeCachedUpstreamLiveUrl(assistantId, profileId, url) {
+  upstreamLiveUrlCache.set(cacheKeyFor(assistantId, profileId), {
+    url,
+    expiresAt: Date.now() + UPSTREAM_CACHE_TTL_MS
+  });
+}
+
+function invalidateCachedUpstreamLiveUrl(assistantId, profileId) {
+  upstreamLiveUrlCache.delete(cacheKeyFor(assistantId, profileId));
+}
+
+// Without an error listener, any upstream WS failure surfaces as an unhandled
+// EventEmitter 'error' and the client just sees a silent 1006. Log the real
+// cause and close the client socket cleanly instead.
+proxy.on("error", (error, _req, resOrSocket) => {
+  console.error("[browser-login-live-ws] proxy error", error);
+  if (!resOrSocket) {
+    return;
+  }
+  try {
+    if (typeof resOrSocket.writeHead === "function" && !resOrSocket.headersSent) {
+      resOrSocket.writeHead(502);
+      resOrSocket.end("Bad Gateway");
+      return;
+    }
+    if (typeof resOrSocket.write === "function" && resOrSocket.writable) {
+      resOrSocket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+    }
+  } catch {
+    // socket already gone
+  }
+  if (typeof resOrSocket.destroy === "function") {
+    resOrSocket.destroy();
+  }
+});
 
 const BROWSER_LOGIN_PROFILE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -65,6 +131,10 @@ function buildUpstreamTargetUrl(upstreamLiveUrl, upstreamPath, search) {
 }
 
 async function resolveUpstreamLiveUrl(req, assistantId, profileId) {
+  const cached = readCachedUpstreamLiveUrl(assistantId, profileId);
+  if (cached) {
+    return cached;
+  }
   const resolveUrl = `http://127.0.0.1:${port}/api/internal/browser-login-live-upstream/${encodeURIComponent(assistantId)}/${encodeURIComponent(profileId)}`;
   const response = await fetch(resolveUrl, {
     headers: {
@@ -80,7 +150,9 @@ async function resolveUpstreamLiveUrl(req, assistantId, profileId) {
   if (typeof payload.upstreamLiveUrl !== "string" || payload.upstreamLiveUrl.trim().length === 0) {
     throw new Error("live-upstream missing url");
   }
-  return payload.upstreamLiveUrl.trim();
+  const resolved = payload.upstreamLiveUrl.trim();
+  writeCachedUpstreamLiveUrl(assistantId, profileId, resolved);
+  return resolved;
 }
 
 async function handleBrowserLoginLiveUpgrade(req, socket, head) {
@@ -89,6 +161,14 @@ async function handleBrowserLoginLiveUpgrade(req, socket, head) {
   if (proxyPath === null) {
     return false;
   }
+
+  // The raw upgrade socket outlives the async resolve below; without an error
+  // listener a mid-handshake reset would crash the process instead of failing
+  // this one connection.
+  socket.on("error", (error) => {
+    console.error("[browser-login-live-ws] client socket error", error);
+    invalidateCachedUpstreamLiveUrl(proxyPath.assistantId, proxyPath.profileId);
+  });
 
   try {
     const upstreamLiveUrl = await resolveUpstreamLiveUrl(
@@ -103,14 +183,29 @@ async function handleBrowserLoginLiveUpgrade(req, socket, head) {
     );
     const target = new URL(targetUrl);
     req.url = `${target.pathname}${target.search}`;
-    proxy.ws(req, socket, head, {
-      target: target.origin,
-      secure: target.protocol === "wss:"
-    });
+    proxy.ws(
+      req,
+      socket,
+      head,
+      {
+        target: target.origin,
+        secure: false
+      },
+      (error) => {
+        if (error) {
+          // A failed upstream handshake usually means the cached live URL is
+          // stale (session rotated). Drop it so the next reconnect re-resolves.
+          invalidateCachedUpstreamLiveUrl(proxyPath.assistantId, proxyPath.profileId);
+        }
+      }
+    );
     return true;
   } catch (error) {
     console.error("[browser-login-live-ws]", error);
-    socket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+    invalidateCachedUpstreamLiveUrl(proxyPath.assistantId, proxyPath.profileId);
+    if (socket.writable) {
+      socket.write("HTTP/1.1 502 Bad Gateway\r\n\r\n");
+    }
     socket.destroy();
     return true;
   }
