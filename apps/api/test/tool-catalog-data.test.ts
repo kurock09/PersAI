@@ -164,7 +164,9 @@ function testFilesCatalogRowUsesExactListedPaths(): void {
   const row = rows[0];
   const text = `${row.modelDescription}\n${row.modelUsageGuidance}`;
   assert.ok(
-    text.includes("the runtime prepends the real current session root"),
+    /runtime prepends the (real )?current session root|runtime prepends the session root/i.test(
+      text
+    ),
     "files guidance must teach runtime-owned current session root resolution"
   );
   assert.ok(
@@ -178,6 +180,19 @@ function testFilesCatalogRowUsesExactListedPaths(): void {
   assert.ok(
     text.includes('files({action:"write", requestedName:"draft.txt"'),
     "files guidance must teach requestedName for new writes"
+  );
+  assert.ok(
+    text.includes('files({action:"preview", path:"/workspace/.../photo.png"})'),
+    "files guidance must teach image visual preview"
+  );
+  assert.ok(
+    /current.user message|current-message/i.test(text) &&
+      /files\.preview|action:"preview"/i.test(text),
+    "files guidance must distinguish current-message vision from files.preview re-view"
+  );
+  assert.ok(
+    /Never.*files\.read.*image/i.test(text),
+    "files guidance must forbid files.read on images"
   );
   assert.ok(
     /Seven actions: list, read, preview, write, delete, attach, search/i.test(text),

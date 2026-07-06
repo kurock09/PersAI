@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-06 — Browser login modal origin + files vision re-view
+
+Status: **commit + push pending this slice; deploy + live acceptance pending.**
+
+**Browser login (prod diagnosis on pod `3bd27a91`):** iframe chain was Next strip trailing slash → route `Response.redirect(requestUrl.toString(), 308)` with internal `http://0.0.0.0:3000` → browser navigated to `https://0.0.0.0:3000/api/browser-login-live/...`. `buildProxyPublicBase` also fell back to `requestUrl.origin` when GCE omitted `X-Forwarded-Host`.
+
+**Fix (web):** remove trailing-slash redirect from BFF route; `resolveProxyPublicOrigin` (forwarded → `Host` → `PERSAI_WEB_BASE_URL`); client `normalizeBrowserLoginLiveProxyUrl`; helm `PERSAI_WEB_BASE_URL` on web pod.
+
+**Files vision (runtime/api):** `files.preview` image/PDF ignores model `maxBytes`; catalog + bootstrap + native projection + Working Files footer teach `files({action:"preview"})` for earlier-chat/workspace images; collision-safe/`replace` kept in within-cap `modelDescription`.
+
+**Verification (local):** lint PASS; format:check PASS; typecheck PASS (api/web/runtime); `pnpm test` PASS; `pnpm test:step2` PASS (865 web); `pnpm build` PASS.
+
+**Next step:** deploy web (+ api/runtime if images rebuilt); live smoke browser login modal on persai.dev; re-view workspace/chat image via `files.preview`.
+
 ## 2026-07-06 — ADR-138 Browserless Session API login + REST artifact routing
 
 Status: **pushed `aae697cc` (fix) + `d20ddeac` (handoff); deploy + live acceptance pending.**

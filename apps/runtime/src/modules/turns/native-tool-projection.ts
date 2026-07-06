@@ -1657,7 +1657,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "string",
           enum: [...PERSAI_RUNTIME_FILES_TOOL_ACTIONS],
           description:
-            'One files action: "list", "read", "preview", "write", "delete", "attach", or "search". For new files use action="write" with requestedName or a relative path; runtime resolves it under the current session root. Use exact `/workspace/...` paths for listed/existing files. `write` persists only — not chat delivery. `search` requires `query`. `attach` delivers an existing workspace file to chat; call it with the exact path before claiming the user received the file.'
+            'One files action: "list", "read", "preview", "write", "delete", "attach", or "search". Visual re-view of image/* or PDF from Working Files or earlier chat → action="preview" with exact path (no maxBytes). Text files → action="read". Current-message attachments are already visible — no tool. `write` persists only — not chat delivery. `search` requires `query`. `attach` delivers an existing file; call before claiming the user received it.'
         },
         query: {
           type: "string",
@@ -1697,7 +1697,7 @@ function createFilesToolDefinition(policy: RuntimeToolPolicy): ProviderGatewayTo
           type: "integer",
           minimum: 1,
           description:
-            'Optional byte cap for action="read" or action="preview". Capped server-side.'
+            'Optional byte cap for action="read" or text-only action="preview" on non-image files. Ignored for image/PDF visual preview (plan limit applies). Capped server-side.'
         },
         maxDepth: {
           type: "integer",

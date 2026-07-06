@@ -2222,7 +2222,7 @@ export class TurnExecutionService {
       lines.push("");
     }
     lines.push(
-      "Recover a forgotten path with `files.list`, then `files.search` for natural-language lookup, then `files.read` / `files.preview`. If the user refers to a file not listed here, do not assume it is unavailable until you try those tools."
+      "Vision: images/PDF in the **current user message** are already visible — no tool. For an image/PDF from **earlier in the chat** or listed below, call `files({action:'preview', path})` with the exact `path` (never `files.read` on images). Text files → `files.read`. Recover a missing path with `files.list`, then `files.search`, then preview/read."
     );
     lines.push(
       "Do not send files or claim delivery/preparation unless the user explicitly asks and the current turn returns the matching tool result."

@@ -3,7 +3,6 @@ import {
   buildProxyPublicBase,
   buildProxyResponseHeaders,
   buildUpstreamTargetUrl,
-  browserLoginLiveProxyRootNeedsTrailingSlash,
   parseBrowserLoginLiveProxyPath,
   readApiBaseUrl,
   rewriteBrowserLoginLiveBody,
@@ -46,10 +45,6 @@ async function resolveUpstreamLiveUrl(
 
 async function proxyBrowserLoginLive(request: Request): Promise<Response> {
   const requestUrl = new URL(request.url);
-  if (browserLoginLiveProxyRootNeedsTrailingSlash(requestUrl.pathname)) {
-    requestUrl.pathname = `${requestUrl.pathname}/`;
-    return Response.redirect(requestUrl.toString(), 308);
-  }
   const proxyPath = parseBrowserLoginLiveProxyPath(requestUrl.pathname);
   if (proxyPath === null) {
     return Response.json({ error: "Invalid browser login live proxy path." }, { status: 400 });

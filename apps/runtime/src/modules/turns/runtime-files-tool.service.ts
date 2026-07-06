@@ -20,11 +20,13 @@ import {
   resolveFilePreviewCapSource
 } from "./runtime-file-preview-hydration";
 import { readFilesToolEffectivePreviewLimits } from "./runtime-file-capabilities";
+import { DEFAULT_MAX_FILE_PREVIEW_BYTES } from "@persai/config";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { RuntimeStoragePlaneFilesService } from "./runtime-storage-plane-files.service";
 
 const DEFAULT_READ_MAX_BYTES = 1_048_576;
-const DEFAULT_PREVIEW_MAX_BYTES = 256 * 1024;
+/** Text head-peek default for `files.preview` on non-visual files; ignored for image/PDF vision. */
+const DEFAULT_TEXT_PREVIEW_MAX_BYTES = 256 * 1024;
 const DEFAULT_LIST_MAX_DEPTH = 1;
 
 type FilesScope = "chat" | "assistant" | "workspace";
@@ -406,7 +408,7 @@ export class RuntimeFilesToolService {
       const filesPolicy =
         params.bundle.governance.toolPolicies.find((entry) => entry.toolCode === "files") ?? null;
       const limits = readFilesToolEffectivePreviewLimits(filesPolicy);
-      const effectiveMaxPreviewBytes = Math.min(request.maxBytes, limits.effectiveMaxPreviewBytes);
+      const effectiveMaxPreviewBytes = limits.effectiveMaxPreviewBytes;
       const hydration = await buildFilePreviewBlocks({
         downloadBytes: () =>
           this.mediaObjectStorage.downloadByWorkspacePath({
@@ -431,7 +433,7 @@ export class RuntimeFilesToolService {
             reason: hydration.reason,
             warning:
               hydration.reason === "preview_size_limit"
-                ? `File exceeds the effective preview byte limit (${String(effectiveMaxPreviewBytes)}). Use files.read for text when supported.`
+                ? `File exceeds the plan visual preview byte limit (${String(effectiveMaxPreviewBytes)}).`
                 : hydration.reason === "preview_unsupported"
                   ? "Visual preview is only available for images and native PDF files under the preview byte limit."
                   : "Failed to download the file for visual preview.",
@@ -857,8 +859,8 @@ export class RuntimeFilesToolService {
         }
         const maxBytes =
           typeof row.maxBytes === "number" && Number.isInteger(row.maxBytes) && row.maxBytes > 0
-            ? Math.min(row.maxBytes, DEFAULT_PREVIEW_MAX_BYTES)
-            : DEFAULT_PREVIEW_MAX_BYTES;
+            ? Math.min(row.maxBytes, DEFAULT_MAX_FILE_PREVIEW_BYTES)
+            : DEFAULT_TEXT_PREVIEW_MAX_BYTES;
         return {
           action: "preview",
           path,

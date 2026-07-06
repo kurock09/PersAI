@@ -37,4 +37,18 @@ describe("browser-login-live-url", () => {
       "/api/browser-login-live/c2df1500-ec77-4224-891d-efc32a16c810/9eef9e66-8e97-47e6-b986-fc094146b953/"
     );
   });
+
+  it("strips internal pod origin from proxied liveUrl", () => {
+    const pending = {
+      profileId: "cbb32094-2798-4dc4-887c-4c3f678851b3",
+      profileKey: "admin",
+      displayName: "PersAI Admin",
+      liveUrl:
+        "https://0.0.0.0:3000/api/browser-login-live/c2df1500-ec77-4224-891d-efc32a16c810/cbb32094-2798-4dc4-887c-4c3f678851b3/",
+      loginUrl: "https://persai.dev/"
+    };
+    expect(withWebBrowserLoginLiveProxy(pending, "assistant-1").liveUrl).toBe(
+      "/api/browser-login-live/c2df1500-ec77-4224-891d-efc32a16c810/cbb32094-2798-4dc4-887c-4c3f678851b3/"
+    );
+  });
 });

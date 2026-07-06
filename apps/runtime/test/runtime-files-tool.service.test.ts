@@ -46,6 +46,12 @@ function createBundle(): AssistantRuntimeBundle {
 function createService(
   input: {
     apiClient?: Record<string, unknown>;
+    mediaObjectStorage?: {
+      downloadByWorkspacePath?: (input: {
+        workspaceId: string;
+        storagePath: string;
+      }) => Promise<Buffer | null>;
+    };
     storagePlane?: {
       readTextFile?: RuntimeStoragePlaneFilesService["readTextFile"];
       writeTextFile?: RuntimeStoragePlaneFilesService["writeTextFile"];
@@ -110,10 +116,14 @@ function createService(
     storagePlaneFilesService.attachPersistedWorkspaceFile =
       input.storagePlane.attachPersistedWorkspaceFile;
   }
+  const previewMediaObjectStorage = {
+    ...createFakeMediaObjectStorageForRead(),
+    ...input.mediaObjectStorage
+  };
   return new RuntimeFilesToolService(
     persaiInternalApiClientService as never,
     storagePlaneFilesService,
-    createFakeMediaObjectStorageForRead() as never
+    previewMediaObjectStorage as never
   );
 }
 
@@ -879,7 +889,7 @@ test("files.write /tmp path returns scratch_path_unsupported", async () => {
   assert.equal(upsertCalled, false);
 });
 
-test("files.write session-root upsert failure is swallowed; write still succeeds", async () => {
+test("files.write session-root upsert failure fails the write honestly", async () => {
   const service = inlineFilesService({
     async upsertWorkspaceFileMetadata() {
       throw new Error("api down");
@@ -905,8 +915,8 @@ test("files.write session-root upsert failure is swallowed; write still succeeds
     messageId: null
   });
 
-  assert.equal(result.isError, false);
-  assert.equal(result.payload.action, "written");
+  assert.equal(result.isError, true);
+  assert.equal(result.payload.reason, "files_failed");
 });
 
 test("files.delete session-root path deletes manifest via storage plane", async () => {
@@ -1027,4 +1037,42 @@ test("files.search calls manifest search API and returns matched items", async (
   assert.equal(items?.[0]?.shortDescription, "Q2 revenue spreadsheet");
   assert.equal(result.discoveredFileHandles?.[0]?.semanticSummaryHint, "Q2 revenue spreadsheet");
   assert.equal(result.discoveredFileHandles?.[0]?.aliases?.[0], "found file #1");
+});
+
+test("files.preview ignores model maxBytes for image visual preview", async () => {
+  const imagePath = wp("shots/ui.png");
+  const pngBytes = Buffer.alloc(425 * 1024, 0xff);
+  const service = createService({
+    apiClient: {
+      async getWorkspaceFileMetadata() {
+        return attachMetadata(imagePath, "image/png", pngBytes.length);
+      }
+    },
+    mediaObjectStorage: {
+      async downloadByWorkspacePath() {
+        return pngBytes;
+      }
+    }
+  });
+
+  const result = await service.executeToolCall({
+    bundle: createBundle(),
+    toolCall: {
+      id: "tc-preview-image",
+      name: "files",
+      arguments: { action: "preview", path: imagePath, maxBytes: 4096 }
+    },
+    sessionId: "session-1",
+    requestId: "request-1",
+    channel: "web",
+    chatId: "chat-1",
+    externalThreadKey: null,
+    messageId: null
+  });
+
+  assert.equal(result.isError, false);
+  assert.equal(result.payload.action, "previewed");
+  assert.ok(
+    Array.isArray(result.pendingFilePreviewBlocks) && result.pendingFilePreviewBlocks.length > 0
+  );
 });

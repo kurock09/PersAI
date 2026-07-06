@@ -287,7 +287,10 @@ async function run(): Promise<void> {
     FILES_CATALOG_ROW?.modelDescription ?? "",
     "files description must flow from the catalog owner without a runtime-policy shadow override"
   );
-  assert.match(filesPolicy?.description ?? "", /exact path from the Working Files block/);
+  assert.match(filesPolicy?.description ?? "", /action:'preview'|action:"preview"/);
+  assert.match(filesPolicy?.description ?? "", /Working Files block/);
+  assert.match(filesPolicy?.usageGuidance ?? "", /Vision — when to call preview vs nothing/);
+  assert.match(filesPolicy?.usageGuidance ?? "", /earlier in the chat/);
   assert.match(
     filesPolicy?.description ?? "",
     /never reconstruct paths from displayName\/filename/

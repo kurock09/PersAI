@@ -234,10 +234,8 @@ describe("TurnExecutionService working files developer section", () => {
     );
     assert.match(section ?? "", /Address files by the exact `path` shown above/);
     assert.match(section ?? "", /Do not reconstruct a path from displayName\/filename/);
-    assert.match(
-      section ?? "",
-      /Recover a forgotten path with `files\.list`, then `files\.search`/
-    );
+    assert.match(section ?? "", /Vision: images\/PDF in the \*\*current user message\*\*/);
+    assert.match(section ?? "", /files\(\{action:'preview', path\}\)/);
   });
 
   test("keeps both same-name files visible and disambiguates them", () => {
@@ -499,10 +497,7 @@ describe("TurnExecutionService working files developer section", () => {
         `\\| final-client-brief\\.docx \\| path=${wp("final-client-brief.docx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\| .*current source \\| Current source document for the new branded PDF\\.`
       )
     );
-    assert.match(
-      section ?? "",
-      /Recover a forgotten path with `files\.list`, then `files\.search`/i
-    );
+    assert.match(section ?? "", /Vision: images\/PDF in the \*\*current user message\*\*/i);
     assert.match(section ?? "", /Do not send files or claim delivery\/preparation/i);
     assert.doesNotMatch(section ?? "", /fileRef|objectKey|attachmentId|contentPreview/);
   });
@@ -533,7 +528,7 @@ describe("TurnExecutionService working files developer section", () => {
         `cwd: ${TEST_SESSION_ROOT}/`,
         "Shell/exec already run in this directory — omit `shell.cwd` / `exec.cwd` and do not `cd` here again; use relative paths or the exact file `path` values below.",
         "",
-        "Recover a forgotten path with `files.list`, then `files.search` for natural-language lookup, then `files.read` / `files.preview`. If the user refers to a file not listed here, do not assume it is unavailable until you try those tools.",
+        "Vision: images/PDF in the **current user message** are already visible — no tool. For an image/PDF from **earlier in the chat** or listed below, call `files({action:'preview', path})` with the exact `path` (never `files.read` on images). Text files → `files.read`. Recover a missing path with `files.list`, then `files.search`, then preview/read.",
         "Do not send files or claim delivery/preparation unless the user explicitly asks and the current turn returns the matching tool result."
       ].join("\n")
     );

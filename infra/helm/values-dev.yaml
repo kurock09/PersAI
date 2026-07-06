@@ -222,6 +222,7 @@ web:
     NEXT_PUBLIC_CLERK_SIGN_UP_URL: "/sign-up"
     NEXT_PUBLIC_API_BASE_URL: "/api/v1"
     PERSAI_WEB_API_PROXY_TARGET: "http://api:3001"
+    PERSAI_WEB_BASE_URL: "https://persai.dev"
   secretEnv:
     CLERK_SECRET_KEY:
       secretName: persai-api-secrets

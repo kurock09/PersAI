@@ -65,30 +65,72 @@ export function browserLoginLiveProxyRootNeedsTrailingSlash(pathname: string): b
   );
 }
 
-export function ensureBrowserLoginLiveProxyTrailingSlash(url: string): string {
-  if (!url.startsWith("/api/browser-login-live/")) {
+export const BROWSER_LOGIN_LIVE_PROXY_PATH_PREFIX = "/api/browser-login-live";
+
+export function isInternalBrowserLoginProxyHost(host: string): boolean {
+  const hostname = host.split(":")[0]?.toLowerCase() ?? "";
+  return hostname === "0.0.0.0" || hostname === "127.0.0.1" || hostname === "localhost";
+}
+
+/** Strip accidental absolute origins (e.g. pod bind `0.0.0.0:3000`) from proxied modal URLs. */
+export function normalizeBrowserLoginLiveProxyUrl(url: string): string {
+  if (url.startsWith(`${BROWSER_LOGIN_LIVE_PROXY_PATH_PREFIX}/`)) {
     return url;
   }
   try {
-    const parsed = new URL(url, "https://persai.dev");
+    const parsed = new URL(url);
+    if (parsed.pathname.startsWith(`${BROWSER_LOGIN_LIVE_PROXY_PATH_PREFIX}/`)) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    return url;
+  }
+  return url;
+}
+
+export function ensureBrowserLoginLiveProxyTrailingSlash(url: string): string {
+  const relative = normalizeBrowserLoginLiveProxyUrl(url);
+  if (!relative.startsWith(`${BROWSER_LOGIN_LIVE_PROXY_PATH_PREFIX}/`)) {
+    return url;
+  }
+  try {
+    const parsed = new URL(relative, "https://persai.dev");
     if (!browserLoginLiveProxyRootNeedsTrailingSlash(parsed.pathname)) {
-      return url;
+      return relative;
     }
     parsed.pathname = `${parsed.pathname}/`;
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
-    return url.endsWith("/") ? url : `${url}/`;
+    return relative.endsWith("/") ? relative : `${relative}/`;
   }
 }
+
+export function resolveProxyPublicOrigin(request: Request): string {
+  const requestUrl = new URL(request.url);
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+  const host = request.headers.get("host")?.split(",")[0]?.trim();
+  if (host && !isInternalBrowserLoginProxyHost(host)) {
+    const proto =
+      forwardedProto ??
+      (requestUrl.protocol === "https:" ? "https" : host.endsWith(".dev") ? "https" : "http");
+    return `${proto}://${host}`;
+  }
+  const configured = process.env.PERSAI_WEB_BASE_URL?.trim().replace(/\/$/, "");
+  if (configured) {
+    return configured;
+  }
+  return requestUrl.origin;
+}
+
 export function buildProxyPublicBase(
   request: Request,
   proxyPath: BrowserLoginLiveProxyPath
 ): string {
-  const requestUrl = new URL(request.url);
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-  const origin =
-    forwardedProto && forwardedHost ? `${forwardedProto}://${forwardedHost}` : requestUrl.origin;
+  const origin = resolveProxyPublicOrigin(request);
   return `${origin}/api/browser-login-live/${encodeURIComponent(proxyPath.assistantId)}/${encodeURIComponent(proxyPath.profileId)}/`;
 }
 

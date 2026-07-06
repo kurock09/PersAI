@@ -355,25 +355,36 @@ GOTCHAS:
     description:
       "Path-driven workspace file operations: list, read, preview, write, delete, attach.",
     modelDescription:
-      "Path-driven file operations on the workspace storage plane under the assistant's current session root. For new files, pass `requestedName` or a relative path — the runtime prepends the real current session root and returns the final path; the model must not construct assistant/session IDs itself. For existing files, use the exact path from the Working Files block, `files.list`, or a prior tool result — never reconstruct paths from displayName/filename. Writes are collision-safe by default (a new sibling name on collision), with `replace: true` as the exact-overwrite opt-in. `files.write` persists only; call `files.attach(path)` in the same turn before telling the user the file was delivered.",
-    modelUsageGuidance: `WHEN TO USE: Any workspace file work on the storage plane — list, read, preview, write, delete, attach a file to chat, or search by name/path/description. \`files.*\` reads and writes committed \`/workspace/...\` paths (GCS+manifest); it does not execute in the sandbox pod.
+      "Path-driven workspace file operations (list, read, preview, write, delete, attach). Re-view an earlier chat or workspace image/PDF via files({action:'preview', path}) using the exact path from the Working Files block — current-message attachments are already in vision context without a tool; never use files.read on images. For new files, pass `requestedName` or a relative path — the runtime prepends the real current session root and returns the final path; the model must not construct assistant/session IDs itself. For existing files, use the exact path from the Working Files block, files.list, or a prior tool result — never reconstruct paths from displayName/filename. Writes are collision-safe by default; pass `replace: true` as the exact-overwrite opt-in. `files.write` persists only; call files.attach(path) in the same turn before telling the user the file was delivered.",
+    modelUsageGuidance: `WHEN TO USE: Any workspace file work on the storage plane — list, read, preview, write, delete, attach, or search by name/path/description.
+
+**Vision — when to call preview vs nothing:**
+- User attached image/PDF **in this message** → already in your vision context; answer directly; **no** files tool.
+- User refers to an image/PDF from **earlier in the chat** or **only in workspace** ("that screenshot", "the logo above", "photo I sent", Working Files row with image/png) → \`files({action:"preview", path:"/workspace/.../exact-path"})\` with the path copied from Working Files, \`files.list\`, \`files.search\`, or a prior tool result.
+- Text file (csv, md, log, json, code) → \`files({action:"read", path})\` (optional \`maxBytes\` for a large file head-peek).
+- **Never** \`files.read\` on \`image/*\` — read is text-only and does not show pixels. **Never** pass \`maxBytes\` on visual \`preview\` (plan visual limit applies).
+
+\`files.*\` reads and writes committed \`/workspace/...\` paths (GCS+manifest); it does not execute in the sandbox pod.
 EXAMPLES:
 - files({action:"list"}) — list the current session root.
 - files({action:"list", path:"/workspace/assistants/..."}) — widen only by an exact parent path copied from tools or Working Files.
-- files({action:"read", path:"/workspace/.../report.csv"}) — read by exact copied path.
-- files({action:"preview", path:"/workspace/.../notes.md", maxBytes:4096}) — peek at the head of a large file by exact copied path.
+- files({action:"read", path:"/workspace/.../report.csv"}) — read text by exact copied path.
+- files({action:"read", path:"/workspace/.../notes.md", maxBytes:4096}) — peek at the head of a large text file.
+- files({action:"preview", path:"/workspace/.../photo.png"}) — visual re-view of an image (vision); do not pass maxBytes.
+- files({action:"preview", path:"/workspace/.../scan.pdf"}) — visual re-view of a PDF under the plan preview byte limit.
 - files({action:"write", requestedName:"draft.txt", content:"hello"}) — create a new current-session file; runtime returns the final path (not a chat attachment).
 - files({action:"attach", path:"/workspace/.../draft.txt"}) — deliver that persisted file to chat in the same turn.
 - files({action:"delete", path:"/workspace/.../tmp.bin"}) — remove a file by exact copied path.
 - files({action:"search", query:"invoice"}) — look up a file by filename, path, or cached description.
 GOTCHAS:
 - Seven actions: list, read, preview, write, delete, attach, search — search matches query tokens against path, filename, and cached shortDescription.
+- **Vision:** \`preview\` on \`image/*\` or PDF injects visual content for the model; \`read\` is text-only and does not show images. For images/PDF do not pass \`maxBytes\` on \`preview\` (plan-owned visual limit applies).
 - **Delivery contract:** \`files.write\` saves to the workspace manifest only — the user does not receive a chat attachment or downloadable delivery from write alone. Before saying the file is ready, sent, attached, or delivered, call \`files.attach(path)\` with the exact path from this turn's write, shell, or exec result.
 - \`files.attach\` delivers an EXISTING persisted file — never regenerates content. Attach only this turn's new output, a file the user explicitly asked to resend, or a path they named; never unrelated session files. If the file is not yet written, finish write/shell/exec first, then attach in the same turn.
 - \`document.render\` / \`document.convert\` auto-deliver PDF/DOCX/XLSX in chat; plain \`.txt\`, \`.csv\`, and other non-document outputs always need explicit \`files.attach\`.
 - Never spell assistant/session IDs; the runtime resolves the current session root for you.
 - Do not reconstruct upload paths from displayName/filename; uploads may be sanitized, renamed, or collision-suffixed. Use \`/tmp/\` for ephemeral scratch the user should not see.
-- \`maxBytes\` caps returned bytes for read/preview; \`maxDepth\` bounds recursion for list. Server-side limits still apply.`,
+- \`maxBytes\` caps text returned by \`read\` or text-only \`preview\`; it does not apply to image/PDF visual \`preview\`. \`maxDepth\` bounds recursion for list. Server-side limits still apply.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"

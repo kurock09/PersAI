@@ -607,7 +607,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(files?.description ?? "", /runtime prepends the real current session root/i);
   assert.match(files?.description ?? "", /must not construct assistant\/session IDs/i);
-  assert.match(files?.description ?? "", /exact path from the Working Files block/);
+  assert.match(files?.description ?? "", /files\(\{action:'preview', path\}\)|action="preview"/i);
+  assert.match(files?.description ?? "", /current.user message|current-message/i);
   // ADR-130 Slice 2: the anti-reconstruct rule is owned by the (within-cap)
   // model description; the longer guidance restatement ("Do not reconstruct
   // upload paths…") falls past TOOL_DESCRIPTION_CAP after the ownership move and
