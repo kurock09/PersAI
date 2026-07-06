@@ -8,6 +8,8 @@ const isProtectedRoute = createRouteMatcher([
   // Bearer token to the API, with a same-origin fresh-token fallback for
   // long-lived tabs. Treat it the same as `/api/assistant-file(.*)`.
   "/api/assistant-document(.*)",
+  "/api/browser-login-live(.*)",
+  "/api/internal/browser-login-live-upstream(.*)",
   "/api/support-attachment(.*)",
   "/api/admin-support-attachment(.*)",
   "/api/support-ticket(.*)"

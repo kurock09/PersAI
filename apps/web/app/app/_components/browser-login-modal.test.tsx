@@ -54,6 +54,21 @@ describe("BrowserLoginModal", () => {
     expect(screen.getByTestId("browser-login-complete")).toHaveTextContent("browserLoginDone");
   });
 
+  it("reloads iframe when reload is pressed", () => {
+    render(
+      <BrowserLoginModal
+        open
+        assistantId="assistant-1"
+        pendingBrowserLogin={pendingBrowserLogin}
+        onClose={vi.fn()}
+      />
+    );
+
+    const iframe = screen.getByTestId("browser-login-iframe");
+    fireEvent.click(screen.getByTestId("browser-login-reload"));
+    expect(screen.getByTestId("browser-login-iframe")).not.toBe(iframe);
+  });
+
   it("calls complete login API when Done is pressed", async () => {
     completeAssistantBrowserLogin.mockResolvedValue({});
     const onCompleted = vi.fn();

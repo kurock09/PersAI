@@ -134,6 +134,24 @@ export class AssistantBrowserProfilesController {
     };
   }
 
+  @Get("assistant/:assistantId/browser-profiles/:profileId/live-upstream")
+  async resolveLiveUpstream(
+    @Req() req: RequestWithPlatformContext,
+    @Param("assistantId") assistantId: string,
+    @Param("profileId") profileId: string
+  ): Promise<{ requestId: string | null; upstreamLiveUrl: string }> {
+    const context = await this.resolveAssistantContext(req, assistantId);
+    const result = await this.assistantBrowserProfileService.resolveLiveUpstreamForProfile({
+      profileId,
+      assistantId: context.assistantId,
+      workspaceId: context.workspaceId
+    });
+    return {
+      requestId: req.requestId ?? null,
+      upstreamLiveUrl: result.upstreamLiveUrl
+    };
+  }
+
   private async resolveAssistantContext(req: RequestWithPlatformContext, assistantId: string) {
     const userId = this.resolveRequestUserId(req);
     return this.resolveActiveAssistantService.execute({ userId, assistantId });

@@ -111,6 +111,7 @@ import {
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
 import { BrowserLoginModal } from "./browser-login-modal";
+import { withWebBrowserLoginLiveProxy } from "../browser-login-live-url";
 import { VoicePreviewButton } from "../../_components/voice-preview-button";
 import { AssistantSupportSection } from "./assistant-support-section";
 import { userFieldClassName, userPillButtonClassName } from "./form-ui";
@@ -2079,7 +2080,10 @@ export function AssistantSettings({
       if (!token) return;
       setBrowserProfilesActionId(profile.id);
       try {
-        const pending = await reconnectAssistantBrowserProfile(token, assistant.id, profile.id);
+        const pending = withWebBrowserLoginLiveProxy(
+          await reconnectAssistantBrowserProfile(token, assistant.id, profile.id),
+          assistant.id
+        );
         setSettingsBrowserLogin(pending);
         await refreshBrowserProfiles();
       } finally {

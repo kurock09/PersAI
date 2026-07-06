@@ -374,6 +374,10 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     {
       path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/complete-login",
       method: RequestMethod.POST
+    },
+    {
+      path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/live-upstream",
+      method: RequestMethod.GET
     }
   ]) {
     assert.equal(

@@ -277,6 +277,25 @@ export class AssistantBrowserProfileService {
     return { deleted: true };
   }
 
+  async resolveLiveUpstreamForProfile(input: {
+    profileId: string;
+    assistantId: string;
+    workspaceId: string;
+  }): Promise<{ upstreamLiveUrl: string }> {
+    const row = await this.requireOwnedProfile(
+      input.profileId,
+      input.assistantId,
+      input.workspaceId
+    );
+    if (row.status !== "pending_login") {
+      throw new NotFoundException("Browser profile is not awaiting live login.");
+    }
+    if (typeof row.liveUrl !== "string" || row.liveUrl.trim().length === 0) {
+      throw new NotFoundException("Browser profile live URL is unavailable.");
+    }
+    return { upstreamLiveUrl: row.liveUrl.trim() };
+  }
+
   async touchProfile(input: {
     assistantId: string;
     workspaceId: string;

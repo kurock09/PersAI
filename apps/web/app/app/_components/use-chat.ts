@@ -37,6 +37,7 @@ import {
   type PendingBrowserLoginState,
   deleteAssistantBrowserProfile
 } from "../assistant-api-client";
+import { withWebBrowserLoginLiveProxy } from "../browser-login-live-url";
 import type { RuntimeTodoItem, RuntimeTurnToolInvocation } from "@persai/runtime-contract";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
 import type { ActivityEvent } from "./activity-badge";
@@ -1153,14 +1154,17 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         pendingBrowserLoginByThreadRef.current.delete(targetThreadKey);
         browserLoginDismissedByThreadRef.current.delete(targetThreadKey);
       } else {
-        pendingBrowserLoginByThreadRef.current.set(targetThreadKey, next);
+        pendingBrowserLoginByThreadRef.current.set(
+          targetThreadKey,
+          withWebBrowserLoginLiveProxy(next, options?.assistantId)
+        );
         browserLoginDismissedByThreadRef.current.delete(targetThreadKey);
       }
       if (currentThreadKeyRef.current === targetThreadKey) {
         syncPendingBrowserLoginForThread(targetThreadKey);
       }
     },
-    [syncPendingBrowserLoginForThread]
+    [options?.assistantId, syncPendingBrowserLoginForThread]
   );
   const dismissBrowserLogin = useCallback(() => {
     browserLoginDismissedByThreadRef.current.set(assistantScopedThreadKey, true);

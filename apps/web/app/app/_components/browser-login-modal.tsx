@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "@clerk/nextjs";
-import { ExternalLink, Loader2, X } from "lucide-react";
+import { ExternalLink, Loader2, RotateCw, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import {
@@ -31,6 +31,7 @@ export function BrowserLoginModal({
   const t = useTranslations("chat");
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
+  const [iframeReloadKey, setIframeReloadKey] = useState(0);
 
   useHistoryBackToClose(open, onClose);
 
@@ -38,6 +39,7 @@ export function BrowserLoginModal({
     if (!open) {
       setCompleting(false);
       setCompleteError(null);
+      setIframeReloadKey(0);
     }
   }, [open, pendingBrowserLogin?.profileId]);
 
@@ -84,18 +86,30 @@ export function BrowserLoginModal({
           </p>
           <p className="truncate text-xs text-text-muted">{pendingBrowserLogin.loginUrl}</p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={t("browserLoginCancel")}
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/70 text-text-muted transition hover:bg-surface-hover hover:text-text"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setIframeReloadKey((key) => key + 1)}
+            aria-label={t("browserLoginReload")}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition hover:bg-surface-hover hover:text-text"
+            data-testid="browser-login-reload"
+          >
+            <RotateCw className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("browserLoginCancel")}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/70 text-text-muted transition hover:bg-surface-hover hover:text-text"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
       <div className="relative min-h-0 flex-1 bg-surface">
         <iframe
+          key={iframeReloadKey}
           title={pendingBrowserLogin.displayName}
           src={liveUrl}
           className="h-full w-full border-0"

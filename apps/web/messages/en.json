@@ -598,6 +598,7 @@
     "presentationDownloadPptxClose": "Close",
     "openVideo": "Open video",
     "lightboxClose": "Close image",
+    "browserLoginReload": "Reload login page",
     "browserLoginCancel": "Cancel",
     "browserLoginDone": "Done",
     "browserLoginOpenExternal": "Open in browser",

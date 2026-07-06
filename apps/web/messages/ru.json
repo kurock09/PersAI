@@ -598,6 +598,7 @@
     "presentationDownloadPptxClose": "Закрыть",
     "openVideo": "Открыть видео",
     "lightboxClose": "Закрыть",
+    "browserLoginReload": "Обновить страницу входа",
     "browserLoginCancel": "Отмена",
     "browserLoginDone": "Готово",
     "browserLoginOpenExternal": "Открыть в браузере",
