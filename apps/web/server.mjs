@@ -11,6 +11,9 @@ const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 const proxy = httpProxy.createProxyServer({ ws: true, changeOrigin: true, secure: true });
 
+const BROWSER_LOGIN_PROFILE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function parseBrowserLoginLiveProxyPath(pathname) {
   const match = /^\/api\/browser-login-live\/([^/]+)\/([^/]+)(?:\/(.*))?$/.exec(pathname);
   if (!match) {
@@ -18,7 +21,7 @@ function parseBrowserLoginLiveProxyPath(pathname) {
   }
   const assistantId = decodeURIComponent(match[1] ?? "");
   const profileId = decodeURIComponent(match[2] ?? "");
-  if (assistantId.length === 0 || profileId.length === 0) {
+  if (assistantId.length === 0 || !BROWSER_LOGIN_PROFILE_ID_PATTERN.test(profileId)) {
     return null;
   }
   const rest = match[3] ?? "";

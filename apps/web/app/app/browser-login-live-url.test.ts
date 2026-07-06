@@ -7,7 +7,7 @@ import {
 describe("browser-login-live-url", () => {
   it("builds same-origin proxy path for assistant profile", () => {
     expect(buildBrowserLoginLiveProxyUrl("assistant-1", "profile-1")).toBe(
-      "/api/browser-login-live/assistant-1/profile-1"
+      "/api/browser-login-live/assistant-1/profile-1/"
     );
   });
 
@@ -20,7 +20,7 @@ describe("browser-login-live-url", () => {
       loginUrl: "https://crm.example.com/login"
     };
     expect(withWebBrowserLoginLiveProxy(pending, "assistant-1").liveUrl).toBe(
-      "/api/browser-login-live/assistant-1/profile-1"
+      "/api/browser-login-live/assistant-1/profile-1/"
     );
   });
 

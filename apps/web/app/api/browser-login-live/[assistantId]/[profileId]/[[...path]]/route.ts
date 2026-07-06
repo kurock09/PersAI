@@ -123,7 +123,8 @@ async function proxyBrowserLoginLive(request: Request): Promise<Response> {
   const rewritten = rewriteBrowserLoginLiveBody({
     body: rawBody,
     upstreamOrigin,
-    proxyPublicBase
+    proxyPublicBase,
+    contentType
   });
   outHeaders.set("Content-Type", contentType ?? "text/html; charset=utf-8");
   return new Response(rewritten, {

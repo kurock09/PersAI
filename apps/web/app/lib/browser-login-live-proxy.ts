@@ -15,6 +15,13 @@ export type BrowserLoginLiveProxyPath = {
   upstreamPath: string;
 };
 
+const BROWSER_LOGIN_PROFILE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function isBrowserLoginProfileId(profileId: string): boolean {
+  return BROWSER_LOGIN_PROFILE_ID_PATTERN.test(profileId);
+}
+
 export function parseBrowserLoginLiveProxyPath(pathname: string): BrowserLoginLiveProxyPath | null {
   const match = /^\/api\/browser-login-live\/([^/]+)\/([^/]+)(?:\/(.*))?$/.exec(pathname);
   if (!match) {
@@ -22,7 +29,7 @@ export function parseBrowserLoginLiveProxyPath(pathname: string): BrowserLoginLi
   }
   const assistantId = decodeURIComponent(match[1] ?? "");
   const profileId = decodeURIComponent(match[2] ?? "");
-  if (assistantId.length === 0 || profileId.length === 0) {
+  if (assistantId.length === 0 || !isBrowserLoginProfileId(profileId)) {
     return null;
   }
   const rest = match[3] ?? "";
@@ -61,13 +68,26 @@ export function buildProxyPublicBase(
   const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
   const origin =
     forwardedProto && forwardedHost ? `${forwardedProto}://${forwardedHost}` : requestUrl.origin;
-  return `${origin}/api/browser-login-live/${encodeURIComponent(proxyPath.assistantId)}/${encodeURIComponent(proxyPath.profileId)}`;
+  return `${origin}/api/browser-login-live/${encodeURIComponent(proxyPath.assistantId)}/${encodeURIComponent(proxyPath.profileId)}/`;
+}
+
+export function injectBrowserLoginLiveHtmlBase(html: string, proxyPublicBase: string): string {
+  const baseHref = `${proxyPublicBase.replace(/\/$/, "")}/`;
+  const baseTag = `<base href="${baseHref}">`;
+  if (/<base\s/i.test(html)) {
+    return html.replace(/<base\s[^>]*>/i, baseTag);
+  }
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (headTag) => `${headTag}${baseTag}`);
+  }
+  return `${baseTag}${html}`;
 }
 
 export function rewriteBrowserLoginLiveBody(params: {
   body: string;
   upstreamOrigin: string;
   proxyPublicBase: string;
+  contentType?: string | null;
 }): string {
   const upstreamUrl = new URL(params.upstreamOrigin);
   const upstreamOrigin = upstreamUrl.origin;
@@ -75,9 +95,15 @@ export function rewriteBrowserLoginLiveBody(params: {
   const proxyPublicBase = params.proxyPublicBase.replace(/\/$/, "");
   const proxyWsBase = proxyPublicBase.replace(/^http/i, "ws");
 
-  return params.body
-    .replaceAll(upstreamOrigin, proxyPublicBase)
-    .replaceAll(upstreamWsOrigin, proxyWsBase);
+  let rewritten = params.body
+    .replaceAll(upstreamOrigin, `${proxyPublicBase}/`)
+    .replaceAll(upstreamWsOrigin, `${proxyWsBase}/`);
+
+  if (params.contentType?.toLowerCase().includes("text/html")) {
+    rewritten = injectBrowserLoginLiveHtmlBase(rewritten, proxyPublicBase);
+  }
+
+  return rewritten;
 }
 
 export function buildProxyResponseHeaders(
