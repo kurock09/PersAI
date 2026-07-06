@@ -31,6 +31,8 @@ RUN pnpm --filter @persai/web run build
 
 WORKDIR /workspace/apps/web
 
+ENV NODE_ENV=production
+
 EXPOSE 3000
 
 CMD ["pnpm", "start"]

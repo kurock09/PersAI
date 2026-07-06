@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node server.mjs",
     "build": "next build",
-    "start": "node server.mjs",
+    "start": "NODE_ENV=production node server.mjs",
     "lint": "eslint --max-warnings=0 --ext .ts,.tsx app next.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts"

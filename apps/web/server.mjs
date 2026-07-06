@@ -3,8 +3,8 @@ import { parse } from "node:url";
 import httpProxy from "http-proxy";
 import next from "next";
 
-const dev = process.env.NODE_ENV !== "production";
-const hostname = process.env.HOSTNAME ?? "0.0.0.0";
+const dev = process.env.NODE_ENV === "development";
+const hostname = process.env.WEB_BIND_HOST ?? "0.0.0.0";
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 
 const app = next({ dev, hostname, port });
