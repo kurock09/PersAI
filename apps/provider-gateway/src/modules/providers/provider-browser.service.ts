@@ -352,75 +352,15 @@ export default async ({ page, context }) => {
 };
 `;
 
-const BROWSERLESS_START_LOGIN_CODE = String.raw`
-export default async ({ page, context }) => {
-  const timeoutMs =
-    Number.isInteger(context.timeoutMs) && Number(context.timeoutMs) > 0
-      ? Number(context.timeoutMs)
-      : 120000;
-  const reconnectTimeoutMs =
-    Number.isInteger(context.reconnectTimeoutMs) && Number(context.reconnectTimeoutMs) > 0
-      ? Number(context.reconnectTimeoutMs)
-      : ${String(DEFAULT_BROWSER_PROFILE_RECONNECT_TIMEOUT_MS)};
-
-  try {
-    await page.goto(context.loginUrl, { waitUntil: "networkidle2", timeout: timeoutMs });
-    const cdp = await page.createCDPSession();
-    const liveUrlResponse = await cdp.send("Browserless.liveURL", { interactable: true });
-    const reconnectResponse = await cdp.send("Browserless.reconnect", {
-      timeout: reconnectTimeoutMs
-    });
-
-    if (reconnectResponse && reconnectResponse.error) {
-      const reconnectError = reconnectResponse.error;
-      throw new Error(
-        typeof reconnectError.message === "string"
-          ? reconnectError.message
-          : "Browserless reconnect failed."
-      );
-    }
-
-    const liveUrl =
-      (liveUrlResponse &&
-        (liveUrlResponse.liveURL || liveUrlResponse.liveUrl || liveUrlResponse.url)) ||
-      null;
-    const browserWSEndpoint =
-      reconnectResponse &&
-      (reconnectResponse.browserWSEndpoint || reconnectResponse.webSocketDebuggerUrl);
-
-    if (typeof liveUrl !== "string" || liveUrl.trim().length === 0) {
-      throw new Error("Browserless liveURL response did not include a live URL.");
-    }
-    if (typeof browserWSEndpoint !== "string" || browserWSEndpoint.trim().length === 0) {
-      throw new Error("Browserless reconnect response did not include a reconnect endpoint.");
-    }
-
-    let providerSessionId = browserWSEndpoint.trim();
-    if (providerSessionId.startsWith("http://") || providerSessionId.startsWith("https://")) {
-      providerSessionId = new URL(providerSessionId).pathname;
-    }
-    if (!providerSessionId.startsWith("/reconnect/")) {
-      providerSessionId = "/reconnect/" + providerSessionId.replace(/^\/+/, "");
-    }
-
-    return {
-      data: {
-        providerSessionId,
-        liveUrl: liveUrl.trim()
-      },
-      type: "application/json"
-    };
-  } catch (error) {
-    return {
-      data: {
-        error: {
-          message: error instanceof Error ? error.message : "Browser login session failed."
-        }
-      },
-      type: "application/json"
-    };
+const BROWSERLESS_START_LOGIN_BQL = `
+mutation StartLogin($url: String!) {
+  goto(url: $url, waitUntil: networkIdle) {
+    status
   }
-};
+  liveURL(interactable: true) {
+    liveURL
+  }
+}
 `;
 
 const BROWSERLESS_DELETE_SESSION_CODE = String.raw`
@@ -506,10 +446,23 @@ export class ProviderBrowserService {
       normalized.credential.secretId
     );
     const startedAt = Date.now();
+    if (normalized.action === "snapshot" && normalized.profileSessionId === null) {
+      if (normalized.format === "pdf") {
+        return this.browserPdfViaRest(normalized, apiKey, startedAt);
+      }
+      if (
+        (normalized.format === "png" ||
+          normalized.format === "jpeg" ||
+          normalized.format === "webp") &&
+        normalized.snapshotSelector === null
+      ) {
+        return this.browserScreenshotViaRest(normalized, apiKey, startedAt);
+      }
+    }
     const endpoint =
       normalized.profileSessionId === null
         ? this.resolveBrowserlessFunctionEndpoint(apiKey)
-        : this.resolveBrowserlessReconnectFunctionEndpoint(apiKey, normalized.profileSessionId);
+        : this.resolveBrowserlessProfileFunctionEndpoint(apiKey, normalized.profileSessionId);
     const response = await this.fetchJson(
       endpoint,
       {
@@ -609,43 +562,61 @@ export class ProviderBrowserService {
     const apiKey = await this.persaiInternalApiClientService.resolveSecretValue(
       normalized.credential.secretId
     );
-    const response = await this.fetchJson(
-      this.resolveBrowserlessFunctionEndpoint(apiKey),
+    const createResponse = await this.fetchJson(
+      this.resolveBrowserlessSessionCreateEndpoint(apiKey),
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          code: BROWSERLESS_START_LOGIN_CODE,
-          context: {
-            loginUrl: normalized.loginUrl,
-            timeoutMs: normalized.timeoutMs,
-            reconnectTimeoutMs: normalized.reconnectTimeoutMs
+          ttl: normalized.reconnectTimeoutMs,
+          stealth: true
+        })
+      },
+      normalized.timeoutMs
+    );
+    if (!createResponse.ok) {
+      throw new BadGatewayException(this.extractErrorMessage(createResponse.body, "Browserless"));
+    }
+
+    const session = this.asObject(createResponse.body);
+    const sessionId = typeof session?.id === "string" ? session.id.trim() : "";
+    const browserQL = typeof session?.browserQL === "string" ? session.browserQL.trim() : "";
+    if (sessionId.length === 0 || browserQL.length === 0) {
+      throw new BadGatewayException(
+        "Browserless session API returned an invalid session response."
+      );
+    }
+
+    const bqlResponse = await this.fetchJson(
+      browserQL,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          query: BROWSERLESS_START_LOGIN_BQL,
+          variables: {
+            url: normalized.loginUrl
           }
         })
       },
       normalized.timeoutMs
     );
-    if (!response.ok) {
-      throw new BadGatewayException(this.extractErrorMessage(response.body, "Browserless"));
+    if (!bqlResponse.ok) {
+      throw new BadGatewayException(this.extractErrorMessage(bqlResponse.body, "Browserless"));
     }
 
-    const payload = this.asObject(response.body);
-    const data = this.asObject(payload?.data);
-    const error = this.asObject(data?.error);
-    if (typeof error?.message === "string" && error.message.trim().length > 0) {
-      throw new BadGatewayException(error.message.trim());
-    }
-    if (payload?.type !== "application/json" || data === null) {
-      throw new BadGatewayException(
-        "Browserless function API returned an invalid browser login response."
-      );
+    const liveUrl = this.extractBrowserlessBqlLiveUrl(bqlResponse.body);
+    if (liveUrl === null) {
+      throw new BadGatewayException("Browserless liveURL response did not include a live URL.");
     }
 
     return {
-      providerSessionId: this.readNonEmptyString(data.providerSessionId, "providerSessionId"),
-      liveUrl: this.readNonEmptyString(data.liveUrl, "liveUrl")
+      providerSessionId: `/session/${sessionId}`,
+      liveUrl
     };
   }
 
@@ -671,8 +642,14 @@ export class ProviderBrowserService {
     }
 
     try {
+      if (this.isPersistingSessionProviderSessionId(providerSessionId)) {
+        const stopUrl = this.resolveBrowserlessSessionStopEndpoint(apiKey, providerSessionId);
+        await this.fetchJson(stopUrl, { method: "DELETE" }, BROWSERLESS_DELETE_SESSION_TIMEOUT_MS);
+        return;
+      }
+
       await this.fetchJson(
-        this.resolveBrowserlessReconnectFunctionEndpoint(apiKey, providerSessionId),
+        this.resolveBrowserlessProfileFunctionEndpoint(apiKey, providerSessionId),
         {
           method: "POST",
           headers: {
@@ -708,7 +685,7 @@ export class ProviderBrowserService {
       input.credential.secretId.trim()
     );
     const response = await this.fetchJson(
-      this.resolveBrowserlessReconnectFunctionEndpoint(apiKey, providerSessionId),
+      this.resolveBrowserlessProfileFunctionEndpoint(apiKey, providerSessionId),
       {
         method: "POST",
         headers: {
@@ -998,7 +975,161 @@ export class ProviderBrowserService {
     return url.toString();
   }
 
-  private resolveBrowserlessReconnectFunctionEndpoint(
+  private resolveBrowserlessPdfEndpoint(apiKey: string): string {
+    const url = new URL("/pdf", this.config.PROVIDER_GATEWAY_BROWSERLESS_BASE_URL);
+    url.searchParams.set("token", apiKey);
+    return url.toString();
+  }
+
+  private resolveBrowserlessScreenshotEndpoint(apiKey: string): string {
+    const url = new URL("/screenshot", this.config.PROVIDER_GATEWAY_BROWSERLESS_BASE_URL);
+    url.searchParams.set("token", apiKey);
+    return url.toString();
+  }
+
+  private buildBrowserlessGotoOptions(normalized: NormalizedBrowserActionRequest): {
+    waitUntil: string;
+    timeout: number;
+  } {
+    return {
+      waitUntil: normalized.optimizeForSpeed ? "domcontentloaded" : "networkidle2",
+      timeout: normalized.timeoutMs
+    };
+  }
+
+  private async browserPdfViaRest(
+    normalized: NormalizedBrowserActionRequest,
+    apiKey: string,
+    startedAt: number
+  ): Promise<ProviderGatewayBrowserActionResult> {
+    const response = await this.fetchBinary(
+      this.resolveBrowserlessPdfEndpoint(apiKey),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          url: normalized.url,
+          gotoOptions: this.buildBrowserlessGotoOptions(normalized),
+          options: {
+            printBackground: true
+          }
+        })
+      },
+      normalized.timeoutMs
+    );
+    if (!response.ok || response.buffer === null) {
+      throw new BadGatewayException(this.extractErrorMessage(response.body, "Browserless PDF"));
+    }
+
+    const observedAt = new Date().toISOString();
+    const tookMs = Date.now() - startedAt;
+    const pdfBase64 = response.buffer.toString("base64");
+    return {
+      provider: normalized.providerId,
+      action: normalized.action,
+      initialUrl: normalized.url,
+      finalUrl: normalized.url,
+      title: null,
+      content: "",
+      truncated: false,
+      elements: [],
+      observedAt,
+      tookMs,
+      warning: UNTRUSTED_CONTENT_WARNING,
+      pdfBase64,
+      artifactBase64: null,
+      artifactMimeType: "application/pdf",
+      externalContent: {
+        untrusted: true,
+        source: "browser",
+        provider: normalized.providerId
+      },
+      billingFacts: buildToolPathTimeBillingFacts({
+        providerKey: normalized.providerId,
+        durationMs: tookMs,
+        occurredAt: observedAt
+      })
+    };
+  }
+
+  private async browserScreenshotViaRest(
+    normalized: NormalizedBrowserActionRequest,
+    apiKey: string,
+    startedAt: number
+  ): Promise<ProviderGatewayBrowserActionResult> {
+    const screenshotType = normalized.format;
+    const body: Record<string, unknown> = {
+      url: normalized.url,
+      gotoOptions: this.buildBrowserlessGotoOptions(normalized),
+      options: {
+        fullPage: normalized.fullPage,
+        type: screenshotType,
+        ...(screenshotType === "jpeg" || screenshotType === "webp" ? { quality: 80 } : {})
+      }
+    };
+
+    const response = await this.fetchBinary(
+      this.resolveBrowserlessScreenshotEndpoint(apiKey),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      },
+      normalized.timeoutMs
+    );
+    if (!response.ok || response.buffer === null) {
+      throw new BadGatewayException(
+        this.extractErrorMessage(response.body, "Browserless screenshot")
+      );
+    }
+
+    const observedAt = new Date().toISOString();
+    const tookMs = Date.now() - startedAt;
+    const artifactBase64 = response.buffer.toString("base64");
+    return {
+      provider: normalized.providerId,
+      action: normalized.action,
+      initialUrl: normalized.url,
+      finalUrl: normalized.url,
+      title: null,
+      content: "",
+      truncated: false,
+      elements: [],
+      observedAt,
+      tookMs,
+      warning: UNTRUSTED_CONTENT_WARNING,
+      pdfBase64: null,
+      artifactBase64,
+      artifactMimeType:
+        screenshotType === "jpeg"
+          ? "image/jpeg"
+          : screenshotType === "webp"
+            ? "image/webp"
+            : "image/png",
+      externalContent: {
+        untrusted: true,
+        source: "browser",
+        provider: normalized.providerId
+      },
+      billingFacts: buildToolPathTimeBillingFacts({
+        providerKey: normalized.providerId,
+        durationMs: tookMs,
+        occurredAt: observedAt
+      })
+    };
+  }
+
+  private resolveBrowserlessSessionCreateEndpoint(apiKey: string): string {
+    const url = new URL("/session", this.config.PROVIDER_GATEWAY_BROWSERLESS_BASE_URL);
+    url.searchParams.set("token", apiKey);
+    return url.toString();
+  }
+
+  private resolveBrowserlessProfileFunctionEndpoint(
     apiKey: string,
     providerSessionId: string
   ): string {
@@ -1009,15 +1140,67 @@ export class ProviderBrowserService {
     return url.toString();
   }
 
+  private resolveBrowserlessSessionStopEndpoint(apiKey: string, providerSessionId: string): string {
+    const sessionId = this.extractProviderSessionId(providerSessionId);
+    const url = new URL(`/session/${sessionId}`, this.config.PROVIDER_GATEWAY_BROWSERLESS_BASE_URL);
+    url.searchParams.set("token", apiKey);
+    url.searchParams.set("force", "true");
+    return url.toString();
+  }
+
   private normalizeProviderSessionPath(providerSessionId: string): string {
     const trimmed = providerSessionId.trim();
+    if (trimmed.startsWith("wss://") || trimmed.startsWith("ws://")) {
+      return new URL(trimmed.replace(/^wss:/, "https:").replace(/^ws:/, "http:")).pathname;
+    }
     if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
       return new URL(trimmed).pathname;
+    }
+    if (trimmed.startsWith("/session/connect/")) {
+      return trimmed;
+    }
+    if (trimmed.startsWith("/session/")) {
+      const sessionId = trimmed.replace(/^\/session\//, "").replace(/^\/+/, "");
+      return `/session/connect/${sessionId}`;
     }
     if (trimmed.startsWith("/reconnect/")) {
       return trimmed;
     }
     return `/reconnect/${trimmed.replace(/^\/+/, "")}`;
+  }
+
+  private isPersistingSessionProviderSessionId(providerSessionId: string): boolean {
+    const trimmed = providerSessionId.trim();
+    return (
+      trimmed.includes("/session/connect/") ||
+      (trimmed.startsWith("/session/") && !trimmed.startsWith("/session/connect/"))
+    );
+  }
+
+  private extractProviderSessionId(providerSessionId: string): string {
+    const trimmed = providerSessionId.trim();
+    const match = trimmed.match(/\/(?:session\/connect\/|session\/|reconnect\/)([^/?]+)/);
+    if (match?.[1]) {
+      return match[1];
+    }
+    return trimmed.replace(/^\/+/, "");
+  }
+
+  private extractBrowserlessBqlLiveUrl(body: unknown): string | null {
+    const root = this.asObject(body);
+    const errors = root?.errors;
+    if (Array.isArray(errors) && errors.length > 0) {
+      const first = this.asObject(errors[0]);
+      const message =
+        typeof first?.message === "string" && first.message.trim().length > 0
+          ? first.message.trim()
+          : "Browserless BQL request failed.";
+      throw new BadGatewayException(message);
+    }
+    const data = this.asObject(root?.data);
+    const liveUrlNode = this.asObject(data?.liveURL);
+    const liveUrl = liveUrlNode?.liveURL;
+    return typeof liveUrl === "string" && liveUrl.trim().length > 0 ? liveUrl.trim() : null;
   }
 
   private normalizeElements(value: unknown): RuntimeBrowserInteractiveElement[] {
@@ -1086,6 +1269,53 @@ export class ProviderBrowserService {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  private async fetchBinary(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number
+  ): Promise<{ ok: boolean; status: number; buffer: Buffer | null; body: unknown }> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: controller.signal
+      });
+      const contentType = response.headers.get("content-type") ?? "";
+      if (response.ok && this.isBinaryArtifactContentType(contentType)) {
+        const arrayBuffer = await response.arrayBuffer();
+        return {
+          ok: response.ok,
+          status: response.status,
+          buffer: Buffer.from(arrayBuffer),
+          body: null
+        };
+      }
+      return {
+        ok: response.ok,
+        status: response.status,
+        buffer: null,
+        body: await this.readBody(response)
+      };
+    } catch (error) {
+      if (this.isAbortError(error)) {
+        throw new BadGatewayException(`Browserless request timed out after ${timeoutMs}ms.`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  private isBinaryArtifactContentType(contentType: string): boolean {
+    return (
+      contentType.includes("application/pdf") ||
+      contentType.includes("image/png") ||
+      contentType.includes("image/jpeg") ||
+      contentType.includes("image/webp")
+    );
   }
 
   private async readBody(response: Response): Promise<unknown> {

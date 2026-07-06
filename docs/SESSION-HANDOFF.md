@@ -1,8 +1,20 @@
 # SESSION-HANDOFF
 
+## 2026-07-06 — ADR-138 Browserless Session API login + REST artifact routing
+
+Status: **pushed (SHA pending commit); deploy + live acceptance pending.**
+
+**Root cause:** `startLogin` called CDP `Browserless.liveURL` from `/function` sandbox — command not available there. Ephemeral PDF/png/jpeg/webp used `/function` where Browserless docs recommend REST `/pdf` and `/screenshot`.
+
+**Fix:** `POST /session` + BQL `liveURL` on `session.browserQL`; store `/session/{id}`; ephemeral `snapshot` pdf/png/jpeg/webp (no `snapshotSelector`) → REST; profile/`snapshotSelector` still use session `/function` path (doc alignment for profile reuse **unverified** — needs live smoke).
+
+**Verification (local):** lint PASS; format:check PASS; typecheck PASS; build PASS; `@persai/provider-gateway` + `@persai/runtime` tests PASS; web 853/853 with `--no-file-parallelism` (parallel run flaky timeouts on this host); `prisma:migrate:check` FAIL local DB (`20260501120000` failed migration — env, not this slice).
+
+**Next step:** deploy; live smoke login modal + ephemeral screenshot/pdf + profile snapshot/act; decide profile reuse path (BQL vs undocumented `.../function`).
+
 ## 2026-07-06 — ADR-138 Wave 2: audit A+B + image screenshots (S7)
 
-Status: **landed locally; not pushed.** Deploy + live acceptance pending.
+Status: **pushed `d3bdd6f9`; deploy + live acceptance pending.**
 
 **Scope:**
 - **A** Chat-scoped stale `pending_login` cleanup (`originatingChatId` match only).
@@ -11,9 +23,7 @@ Status: **landed locally; not pushed.** Deploy + live acceptance pending.
 
 **Out of this slice (ADR-138 continuation):** S8 browser download, S9 browser upload, S10 `/unblock`.
 
-**Verification:** focused API/PG/runtime tests + typecheck — run at session end.
-
-**Next step:** founder commit + push=deploy; live smoke screenshot + cross-chat pending; then S8/S9.
+**Next step:** Session API login fix push; live smoke screenshot + login + PDF.
 
 ## 2026-07-06 — ADR-138 pre-deploy audit fixes (P0/P1)
 

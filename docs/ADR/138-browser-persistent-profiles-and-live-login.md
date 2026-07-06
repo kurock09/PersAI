@@ -150,12 +150,16 @@ Web: `use-chat` opens `BrowserLoginModal` when field becomes non-null (including
 
 | Concern        | Endpoint / mechanism                                                                            |
 | -------------- | ----------------------------------------------------------------------------------------------- |
-| Login + live   | Session API or BQL `liveURL(interactable: true)` after `goto(loginUrl)`                         |
-| Reuse          | `Browserless.reconnect` / session id on `act`/`snapshot` with `profile`                         |
+| Login + live   | `POST /session` (Persisting State, `stealth: true`) → BQL `goto` + `liveURL` on `session.browserQL` |
+| Reuse          | `/session/connect/{id}/function` for `act`/`snapshot` with `profile`; legacy `/reconnect/{id}/function` still supported |
+| Delete         | `DELETE session.stop` for persisting sessions; legacy reconnect close via `/function`           |
 | Speed          | Block images/fonts/3p scripts; `domcontentloaded` when `optimizeForSpeed`                       |
-| PDF            | `/pdf` or `page.pdf()` routed when `format: "pdf"`; artifact via storage plane (GCS + manifest) |
+| PDF            | Ephemeral: REST `POST /pdf`; with `profile`: `page.pdf()` in session `/function` |
+| Image snapshot | Ephemeral `png`/`jpeg`/`webp` without `snapshotSelector`: REST `POST /screenshot`; `snapshotSelector` or profile: session `/function` + `page.screenshot()` |
 | Image snapshot | `page.screenshot()` when `format: png`/`jpeg`/`webp`; optional `snapshotSelector` or `fullPage`; `artifactBase64` + mime via same outbound pipeline |
 | Telegram login | Same `liveUrl` in outbound text — no web modal                                                  |
+
+Do not call `Browserless.liveURL` from `/function` — live URL is obtained via BQL (or CDP on a WebSocket session), not from the function sandbox.
 
 Remove single-path assumption in `provider-browser.service.ts`; keep one service, multiple strategies.
 
@@ -181,7 +185,7 @@ API: `GET /api/v1/assistant/:assistantId/browser-profiles`, `DELETE .../:profile
 | ----------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | **S0**      | Subagent | ADR (this doc), `runtime-contract` types/constants, Prisma model + migration, `AGENTS.md` pointer                                         | `runtime-contract` typecheck; `prisma validate` — **landed locally**   |
 | **S1**      | Subagent | API profile repository + services (`create/login/complete/list/delete/touch/expire`), internal runtime routes, scheduler job registration | Focused API tests — **landed locally**                                 |
-| **S2**      | Subagent | Provider-gateway: reconnect, liveURL login, optimizeForSpeed, pdf snapshot path                                                           | `provider-browser.service.test.ts` green — **landed locally**          |
+| **S2**      | Subagent | Provider-gateway: Session API login (`POST /session` + BQL `liveURL`), persisting-session reconnect (`/session/connect/{id}/function`), legacy `/reconnect` compat, optimizeForSpeed, pdf snapshot path | `provider-browser.service.test.ts` green — **landed locally** (Session API cutover 2026-07-06) |
 | **S3**      | Subagent | Runtime `browser` tool: all actions, API client for profile resolve, remove ephemeral-only flow                                           | Runtime browser tests — **landed locally**                             |
 | **S4**      | Subagent | Web chat: `pendingBrowserLogin` wired through stream/sync/list; Telegram live URL in channel adapter                                      | API stream tests — **landed locally**                                  |
 | **S5**      | Subagent | Web: `BrowserLoginModal`, auto-open in `use-chat`, settings site cards + i18n                                                             | Web component tests — **landed locally**                               |

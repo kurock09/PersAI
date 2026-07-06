@@ -5,7 +5,9 @@
 
 ## 2026-07-06
 
-- **Change (ADR-138 Wave 2 — audit A+B + image screenshots S7; local, not pushed).** Chat-scoped stale `pending_login` cleanup; mid-stream login modal gated on `toolRequestedAction === "login"`; browser `snapshot` supports `format: png|jpeg|webp` with `snapshotSelector`/`fullPage` through provider-gateway screenshot + shared outbound artifact pipeline. S8 download / S9 upload planned as ADR-138 continuation. Verification gate pending.
+- **Fix (ADR-138 — Browserless Session API login + REST artifact routing).** `startLogin` uses `POST /session` + BQL `liveURL` (not CDP in `/function`). Ephemeral `snapshot` pdf/png/jpeg/webp (no `snapshotSelector`) use REST `/pdf` or `/screenshot`; profile/`snapshotSelector` keep session `/function`. Legacy `/reconnect/{id}` still supported. Profile reuse via `/session/connect/{id}/function` remains **unverified against Browserless public docs** — live smoke pending.
+
+- **Change (ADR-138 Wave 2 — audit A+B + image screenshots S7; pushed `d3bdd6f9`).** Chat-scoped stale `pending_login` cleanup; mid-stream login modal gated on `toolRequestedAction === "login"`; browser `snapshot` supports `format: png|jpeg|webp` with `snapshotSelector`/`fullPage` through provider-gateway screenshot + shared outbound artifact pipeline. S8 download / S9 upload planned as ADR-138 continuation.
 
 ## 2026-07-05
 

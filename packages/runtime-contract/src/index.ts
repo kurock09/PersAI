@@ -3983,7 +3983,7 @@ export interface ProviderGatewayBrowserSessionStartLoginRequest {
 }
 
 export interface ProviderGatewayBrowserSessionStartLoginResult {
-  /** Browserless reconnect path (for example `/reconnect/{id}`) stored by API for session reuse. */
+  /** Browserless persisting-session id path (`/session/{id}`) or legacy standard-session reconnect path (`/reconnect/{id}`). */
   providerSessionId: string;
   liveUrl: string;
 }

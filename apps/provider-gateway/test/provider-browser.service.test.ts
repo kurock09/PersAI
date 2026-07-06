@@ -198,6 +198,14 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       requests.push(init === undefined ? { url } : { url, init });
+      if (url.includes("/pdf?")) {
+        return new Response(Buffer.from("JVBERi0xLjQK", "base64"), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/pdf"
+          }
+        });
+      }
       return new Response(
         JSON.stringify({
           type: "application/json",
@@ -233,12 +241,15 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         providerId: "browserless"
       }
     });
+    assert.equal(requests[3]?.url, "https://browserless.example.com/pdf?token=browserless-secret");
     const pdfBody = JSON.parse(String(requests[3]?.init?.body ?? "{}")) as {
-      context?: { format?: string };
-      code?: string;
+      url?: string;
+      options?: { printBackground?: boolean };
+      gotoOptions?: { waitUntil?: string };
     };
-    assert.equal(pdfBody.context?.format, "pdf");
-    assert.match(pdfBody.code ?? "", /page\.pdf/);
+    assert.equal(pdfBody.url, "https://example.com/report");
+    assert.equal(pdfBody.options?.printBackground, true);
+    assert.equal(pdfBody.gotoOptions?.waitUntil, "networkidle2");
     assert.equal(pdfResult.pdfBase64, "JVBERi0xLjQK");
     assert.equal(pdfResult.artifactMimeType, "application/pdf");
     assert.deepEqual(pdfResult.elements, []);
@@ -247,6 +258,14 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       requests.push(init === undefined ? { url } : { url, init });
+      if (url.includes("/screenshot?")) {
+        return new Response(Buffer.from("aGVsbG8tcG5n", "base64"), {
+          status: 200,
+          headers: {
+            "Content-Type": "image/png"
+          }
+        });
+      }
       return new Response(
         JSON.stringify({
           type: "application/json",
@@ -284,16 +303,84 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         providerId: "browserless"
       }
     });
+    assert.equal(
+      requests[4]?.url,
+      "https://browserless.example.com/screenshot?token=browserless-secret"
+    );
     const pngBody = JSON.parse(String(requests[4]?.init?.body ?? "{}")) as {
-      context?: { format?: string; fullPage?: boolean };
-      code?: string;
+      url?: string;
+      options?: { fullPage?: boolean; type?: string };
+      gotoOptions?: { waitUntil?: string };
     };
-    assert.equal(pngBody.context?.format, "png");
-    assert.equal(pngBody.context?.fullPage, true);
-    assert.match(pngBody.code ?? "", /page\.screenshot/);
+    assert.equal(pngBody.url, "https://example.com/dashboard");
+    assert.equal(pngBody.options?.type, "png");
+    assert.equal(pngBody.options?.fullPage, true);
+    assert.equal(pngBody.gotoOptions?.waitUntil, "networkidle2");
     assert.equal(pngResult.artifactBase64, "aGVsbG8tcG5n");
     assert.equal(pngResult.artifactMimeType, "image/png");
     assert.deepEqual(pngResult.elements, []);
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      if (url.includes("/screenshot?")) {
+        return new Response(Buffer.from("aGVsbG8td2VicA==", "base64"), {
+          status: 200,
+          headers: {
+            "Content-Type": "image/webp"
+          }
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: {
+            initialUrl: "https://example.com/dashboard",
+            finalUrl: "https://example.com/dashboard",
+            title: "Dashboard",
+            content: "",
+            truncated: false,
+            elements: [{ tag: "div", text: "should be dropped" }],
+            artifactBase64: "aGVsbG8td2VicA==",
+            artifactMimeType: "image/webp"
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    const webpResult = await service.browserAction({
+      action: "snapshot",
+      url: "https://example.com/hero",
+      maxChars: null,
+      operations: [],
+      timeoutMs: null,
+      format: "webp",
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-webp",
+        providerId: "browserless"
+      }
+    });
+    assert.equal(
+      requests[5]?.url,
+      "https://browserless.example.com/screenshot?token=browserless-secret"
+    );
+    const webpBody = JSON.parse(String(requests[5]?.init?.body ?? "{}")) as {
+      url?: string;
+      options?: { type?: string; quality?: number };
+    };
+    assert.equal(webpBody.url, "https://example.com/hero");
+    assert.equal(webpBody.options?.type, "webp");
+    assert.equal(webpBody.options?.quality, 80);
+    assert.equal(webpResult.artifactBase64, "aGVsbG8td2VicA==");
+    assert.equal(webpResult.artifactMimeType, "image/webp");
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =
@@ -333,7 +420,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         providerId: "browserless"
       }
     });
-    const reconnectBody = JSON.parse(String(requests[5]?.init?.body ?? "{}")) as {
+    const reconnectBody = JSON.parse(String(requests[6]?.init?.body ?? "{}")) as {
       code?: string;
       context?: { reuseSession?: boolean };
     };
@@ -341,11 +428,11 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.match(reconnectBody.code ?? "", /urlMatchesHostPathPrefix/);
     assert.match(reconnectBody.code ?? "", /shouldNavigate/);
     assert.equal(
-      requests[5]?.url,
+      requests[6]?.url,
       "https://browserless.example.com/reconnect/session-abc123/function?token=browserless-secret"
     );
     assert.notEqual(
-      requests[5]?.url,
+      requests[6]?.url,
       "https://browserless.example.com/function?token=browserless-secret"
     );
 
@@ -357,8 +444,80 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         JSON.stringify({
           type: "application/json",
           data: {
-            providerSessionId: "/reconnect/session-login",
-            liveUrl: "https://browserless.example.com/live/session-login"
+            initialUrl: "https://crm.example.com/invoice",
+            finalUrl: "https://crm.example.com/invoice",
+            title: "Invoice",
+            content: "",
+            truncated: false,
+            elements: [],
+            pdfBase64: "JVBERi0xLjQK"
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    await service.browserAction({
+      action: "snapshot",
+      url: "https://crm.example.com/invoice",
+      maxChars: null,
+      operations: [],
+      timeoutMs: null,
+      format: "pdf",
+      profileSessionId: "/reconnect/session-abc123",
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-reconnect-pdf",
+        providerId: "browserless"
+      }
+    });
+    const profilePdfBody = JSON.parse(String(requests[7]?.init?.body ?? "{}")) as {
+      context?: { format?: string };
+      code?: string;
+    };
+    assert.equal(profilePdfBody.context?.format, "pdf");
+    assert.match(profilePdfBody.code ?? "", /page\.pdf/);
+    assert.equal(
+      requests[7]?.url,
+      "https://browserless.example.com/reconnect/session-abc123/function?token=browserless-secret"
+    );
+    assert.notEqual(requests[7]?.url.includes("/pdf?"), true);
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      if (url.includes("/session?")) {
+        return new Response(
+          JSON.stringify({
+            id: "session-login",
+            connect:
+              "wss://browserless.example.com/session/connect/session-login?token=browserless-secret",
+            stop: "https://browserless.example.com/session/session-login?token=browserless-secret",
+            browserQL:
+              "https://browserless.example.com/session/bql/session-login?token=browserless-secret",
+            ttl: 2592000000
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json"
+            }
+          }
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          data: {
+            goto: { status: 200 },
+            liveURL: {
+              liveURL: "https://browserless.example.com/live/session-login"
+            }
           }
         }),
         {
@@ -380,19 +539,37 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         providerId: "browserless"
       }
     });
-    assert.equal(loginResult.providerSessionId, "/reconnect/session-login");
+    assert.equal(loginResult.providerSessionId, "/session/session-login");
     assert.equal(loginResult.liveUrl, "https://browserless.example.com/live/session-login");
-    const loginBody = JSON.parse(String(requests[6]?.init?.body ?? "{}")) as {
-      code?: string;
-      context?: { loginUrl?: string };
+    assert.equal(
+      requests[8]?.url,
+      "https://browserless.example.com/session?token=browserless-secret"
+    );
+    assert.equal(requests[8]?.init?.method, "POST");
+    const createSessionBody = JSON.parse(String(requests[8]?.init?.body ?? "{}")) as {
+      ttl?: number;
+      stealth?: boolean;
     };
-    assert.match(loginBody.code ?? "", /Browserless\.liveURL/);
-    assert.equal(loginBody.context?.loginUrl, "https://crm.example.com/login");
+    assert.equal(createSessionBody.stealth, true);
+    assert.equal(createSessionBody.ttl, 30 * 24 * 60 * 60 * 1000);
+    assert.equal(
+      requests[9]?.url,
+      "https://browserless.example.com/session/bql/session-login?token=browserless-secret"
+    );
+    const loginBqlBody = JSON.parse(String(requests[9]?.init?.body ?? "{}")) as {
+      query?: string;
+      variables?: { url?: string };
+    };
+    assert.match(loginBqlBody.query ?? "", /liveURL/);
+    assert.equal(loginBqlBody.variables?.url, "https://crm.example.com/login");
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       requests.push(init === undefined ? { url } : { url, init });
+      if (url.includes("/session/session-login?")) {
+        return new Response(null, { status: 204 });
+      }
       return new Response(
         JSON.stringify({
           type: "application/json",
@@ -408,7 +585,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     }) as typeof fetch;
 
     await service.deleteSession({
-      providerSessionId: "/reconnect/session-login",
+      providerSessionId: "/session/session-login",
       credential: {
         toolCode: "browser",
         secretId: "secret-delete",
@@ -416,11 +593,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       }
     });
     assert.equal(
-      requests[7]?.url,
-      "https://browserless.example.com/reconnect/session-login/function?token=browserless-secret"
+      requests[10]?.url,
+      "https://browserless.example.com/session/session-login?token=browserless-secret&force=true"
     );
-    const deleteBody = JSON.parse(String(requests[7]?.init?.body ?? "{}")) as { code?: string };
-    assert.match(deleteBody.code ?? "", /browser\.close/);
+    assert.equal(requests[10]?.init?.method, "DELETE");
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =
@@ -441,7 +617,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     }) as typeof fetch;
 
     const verifyResult = await service.verifySession({
-      providerSessionId: "/reconnect/session-login",
+      providerSessionId: "/session/session-login",
       credential: {
         toolCode: "browser",
         secretId: "secret-verify",
@@ -450,11 +626,54 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     });
     assert.deepEqual(verifyResult, { ok: true });
     assert.equal(
-      requests[8]?.url,
-      "https://browserless.example.com/reconnect/session-login/function?token=browserless-secret"
+      requests[11]?.url,
+      "https://browserless.example.com/session/connect/session-login/function?token=browserless-secret"
     );
-    const verifyBody = JSON.parse(String(requests[8]?.init?.body ?? "{}")) as { code?: string };
+    const verifyBody = JSON.parse(String(requests[11]?.init?.body ?? "{}")) as { code?: string };
     assert.match(verifyBody.code ?? "", /page\.url/);
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: {
+            initialUrl: "https://crm.example.com/dashboard",
+            finalUrl: "https://crm.example.com/dashboard",
+            title: "CRM",
+            content: "Authenticated CRM content",
+            truncated: false,
+            elements: []
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    await service.browserAction({
+      action: "snapshot",
+      url: "https://crm.example.com/dashboard",
+      maxChars: null,
+      operations: [],
+      timeoutMs: null,
+      profileSessionId: "/session/session-login",
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-session-snapshot",
+        providerId: "browserless"
+      }
+    });
+    assert.equal(
+      requests[12]?.url,
+      "https://browserless.example.com/session/connect/session-login/function?token=browserless-secret"
+    );
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =
