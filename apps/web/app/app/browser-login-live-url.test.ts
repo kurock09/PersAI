@@ -7,7 +7,7 @@ import {
 describe("browser-login-live-url", () => {
   it("builds same-origin proxy path for assistant profile", () => {
     expect(buildBrowserLoginLiveProxyUrl("assistant-1", "profile-1")).toBe(
-      "/api/browser-login-live/assistant-1/profile-1/"
+      "/api/browser-login-live/assistant-1/profile-1/index.html"
     );
   });
 
@@ -20,7 +20,7 @@ describe("browser-login-live-url", () => {
       loginUrl: "https://crm.example.com/login"
     };
     expect(withWebBrowserLoginLiveProxy(pending, "assistant-1").liveUrl).toBe(
-      "/api/browser-login-live/assistant-1/profile-1/?token=abc"
+      "/api/browser-login-live/assistant-1/profile-1/index.html?token=abc"
     );
   });
 
@@ -34,11 +34,11 @@ describe("browser-login-live-url", () => {
       loginUrl: "https://persai.dev/"
     };
     expect(withWebBrowserLoginLiveProxy(pending, "assistant-1").liveUrl).toBe(
-      "/api/browser-login-live/assistant-1/9eef9e66-8e97-47e6-b986-fc094146b953/?i=e039d162bd091dd30ba2523a8714d15e&t=900000&showBrowserInterface=false"
+      "/api/browser-login-live/assistant-1/9eef9e66-8e97-47e6-b986-fc094146b953/index.html?i=e039d162bd091dd30ba2523a8714d15e&t=900000&showBrowserInterface=false"
     );
   });
 
-  it("adds trailing slash to already-proxied root liveUrl", () => {
+  it("adds stable index entry path to already-proxied root liveUrl", () => {
     const pending = {
       profileId: "9eef9e66-8e97-47e6-b986-fc094146b953",
       profileKey: "bitrix",
@@ -48,7 +48,7 @@ describe("browser-login-live-url", () => {
       loginUrl: "https://crm.example.com/login"
     };
     expect(withWebBrowserLoginLiveProxy(pending, "assistant-1").liveUrl).toBe(
-      "/api/browser-login-live/c2df1500-ec77-4224-891d-efc32a16c810/9eef9e66-8e97-47e6-b986-fc094146b953/"
+      "/api/browser-login-live/c2df1500-ec77-4224-891d-efc32a16c810/9eef9e66-8e97-47e6-b986-fc094146b953/index.html"
     );
   });
 
@@ -62,7 +62,7 @@ describe("browser-login-live-url", () => {
       loginUrl: "https://persai.dev/"
     };
     expect(withWebBrowserLoginLiveProxy(pending, "assistant-1").liveUrl).toBe(
-      "/api/browser-login-live/c2df1500-ec77-4224-891d-efc32a16c810/cbb32094-2798-4dc4-887c-4c3f678851b3/"
+      "/api/browser-login-live/c2df1500-ec77-4224-891d-efc32a16c810/cbb32094-2798-4dc4-887c-4c3f678851b3/index.html"
     );
   });
 });

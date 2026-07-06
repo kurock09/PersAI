@@ -1,5 +1,6 @@
 import type { PendingBrowserLoginState } from "./assistant-api-client";
 import {
+  ensureBrowserLoginLiveProxyEntryPath,
   ensureBrowserLoginLiveProxyTrailingSlash,
   normalizeBrowserLoginLiveProxyUrl
 } from "@/app/lib/browser-login-live-proxy";
@@ -26,7 +27,7 @@ export function buildBrowserLoginLiveProxyUrl(
   profileId: string,
   upstreamSearch = ""
 ): string {
-  const path = `${PROXY_PATH_PREFIX}/${encodeURIComponent(assistantId)}/${encodeURIComponent(profileId)}/`;
+  const path = `${PROXY_PATH_PREFIX}/${encodeURIComponent(assistantId)}/${encodeURIComponent(profileId)}/index.html`;
   if (upstreamSearch.length === 0) {
     return path;
   }
@@ -53,15 +54,15 @@ export function withWebBrowserLoginLiveProxy(
         : normalized;
     return {
       ...pending,
-      liveUrl: ensureBrowserLoginLiveProxyTrailingSlash(proxied)
+      liveUrl: ensureBrowserLoginLiveProxyEntryPath(proxied)
     };
   }
   return {
     ...pending,
-    liveUrl: ensureBrowserLoginLiveProxyTrailingSlash(
+    liveUrl: ensureBrowserLoginLiveProxyEntryPath(
       buildBrowserLoginLiveProxyUrl(assistantId, pending.profileId, upstreamSearch)
     )
   };
 }
 
-export { ensureBrowserLoginLiveProxyTrailingSlash };
+export { ensureBrowserLoginLiveProxyEntryPath, ensureBrowserLoginLiveProxyTrailingSlash };

@@ -78,6 +78,12 @@ export function browserLoginLiveProxyRootNeedsTrailingSlash(pathname: string): b
   );
 }
 
+function browserLoginLiveProxyRootMatch(pathname: string): RegExpMatchArray | null {
+  return /^\/api\/browser-login-live\/[^/]+\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/?$/i.exec(
+    pathname
+  );
+}
+
 export const BROWSER_LOGIN_LIVE_PROXY_PATH_PREFIX = "/api/browser-login-live";
 
 export function isInternalBrowserLoginProxyHost(host: string): boolean {
@@ -115,6 +121,23 @@ export function ensureBrowserLoginLiveProxyTrailingSlash(url: string): string {
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
     return relative.endsWith("/") ? relative : `${relative}/`;
+  }
+}
+
+export function ensureBrowserLoginLiveProxyEntryPath(url: string): string {
+  const relative = normalizeBrowserLoginLiveProxyUrl(url);
+  if (!relative.startsWith(`${BROWSER_LOGIN_LIVE_PROXY_PATH_PREFIX}/`)) {
+    return url;
+  }
+  try {
+    const parsed = new URL(relative, "https://persai.dev");
+    if (browserLoginLiveProxyRootMatch(parsed.pathname) === null) {
+      return relative;
+    }
+    parsed.pathname = `${parsed.pathname.replace(/\/$/, "")}/index.html`;
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return relative.replace(/\/?([?#]|$)/, "/index.html$1");
   }
 }
 
