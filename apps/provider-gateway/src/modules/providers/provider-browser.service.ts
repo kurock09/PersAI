@@ -517,6 +517,44 @@ export class ProviderBrowserService {
   }
 
   /**
+   * Format BQL runtime errors (per-op failures such as selector timeouts)
+   * into a single human-readable line the model can see alongside the
+   * extracted page data. Returns `null` when there are no errors to report.
+   *
+   * BQL returns `200 { data: {...}, errors: [{ path: ["op_N"], message }] }`
+   * for per-op runtime failures. Unlike schema errors, these do not
+   * invalidate the whole response — `title`, `url`, `text`, `screenshot`
+   * etc. still resolve. Treating them as fatal 502s (which the initial
+   * BQL port did) kills every `act` call whose first selector doesn't
+   * happen to match, even though the page was reached and other data is
+   * available. This matches the try/catch-per-op semantics of the
+   * legacy `/function` path.
+   */
+  private formatBqlOperationErrors(errors: unknown[]): string | null {
+    if (errors.length === 0) {
+      return null;
+    }
+    const parts: string[] = [];
+    for (const raw of errors) {
+      const err = this.asObject(raw);
+      if (err === null) continue;
+      const message =
+        typeof err.message === "string" && err.message.trim().length > 0
+          ? err.message.trim()
+          : null;
+      const path = Array.isArray(err.path)
+        ? err.path.filter((p): p is string => typeof p === "string").join(".")
+        : "";
+      if (message === null) continue;
+      parts.push(path.length > 0 ? `${path}: ${message}` : message);
+    }
+    if (parts.length === 0) {
+      return null;
+    }
+    return `Browserless BQL operation warnings: ${parts.join("; ")}`;
+  }
+
+  /**
    * Persistent-profile browser action runner.
    *
    * Browserless persistent connect-sessions (`/e/{cloud}/session/{id}`) do not
@@ -673,18 +711,29 @@ export class ProviderBrowserService {
     }
     const root = this.asObject(response.body);
     const errors = Array.isArray(root?.errors) ? (root.errors as unknown[]) : [];
-    if (errors.length > 0) {
-      const first = this.asObject(errors[0]);
-      const message =
-        typeof first?.message === "string" && first.message.trim().length > 0
-          ? first.message.trim()
-          : "Browserless BQL request failed.";
-      throw new BadGatewayException(message);
-    }
     const data = this.asObject(root?.data);
     if (data === null) {
+      // No data at all → schema-level or session-level failure; surface the
+      // first BQL error (e.g. `Value "networkAlmostIdle" does not exist in
+      // "WaitUntilGoto" enum`) or a generic message.
+      if (errors.length > 0) {
+        const first = this.asObject(errors[0]);
+        const message =
+          typeof first?.message === "string" && first.message.trim().length > 0
+            ? first.message.trim()
+            : "Browserless BQL request failed.";
+        throw new BadGatewayException(message);
+      }
       throw new BadGatewayException("Browserless BQL request returned no data.");
     }
+    // Partial-data case: BQL returns `200 { data: {...}, errors: [{path}] }`
+    // when a specific operation fails at runtime (e.g. a `click`/`type`
+    // selector times out because the page doesn't render that element). All
+    // other fields still resolve. This is the direct analogue of the
+    // `/function` path's try/catch-per-op semantics — so we surface these
+    // runtime errors as an `operationWarnings` string appended to the
+    // untrusted-content warning, and return the extracted data.
+    const operationWarning = this.formatBqlOperationErrors(errors);
 
     const titleNode = this.asObject(data.pageTitle);
     const urlNode = this.asObject(data.pageUrl);
@@ -730,7 +779,10 @@ export class ProviderBrowserService {
       elements: [],
       observedAt,
       tookMs,
-      warning: UNTRUSTED_CONTENT_WARNING,
+      warning:
+        operationWarning !== null
+          ? `${UNTRUSTED_CONTENT_WARNING} ${operationWarning}`
+          : UNTRUSTED_CONTENT_WARNING,
       pdfBase64,
       artifactBase64,
       artifactMimeType: pdfBase64 !== null ? "application/pdf" : artifactMimeType,

@@ -609,6 +609,62 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.equal(persistentSnapshot.finalUrl, "https://crm.example.com/dashboard");
     assert.equal(persistentSnapshot.content, "Authenticated CRM content");
 
+    // Persistent-profile `act` with an operation whose selector times out on
+    // the live page: Browserless BQL returns `200 { data: {...partial},
+    // errors: [{ path: ["op_0"], message }] }`. The response MUST NOT be
+    // treated as a fatal 502 — the model needs to see the extracted title/
+    // url/text plus a `warning` describing the per-op runtime failure.
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          data: {
+            goto: { status: 200 },
+            op_0: null,
+            pageTitle: { title: "CRM" },
+            pageUrl: { url: "https://crm.example.com/dashboard" },
+            pageText: { text: "Authenticated CRM content" }
+          },
+          errors: [
+            {
+              message: 'Timeout of 5000ms reached waiting for DOM selector "#missing"',
+              path: ["op_0"]
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }) as typeof fetch;
+
+    const partialResult = await service.browserAction({
+      action: "act",
+      url: "https://crm.example.com/dashboard",
+      maxChars: null,
+      operations: [
+        {
+          kind: "click",
+          selector: "#missing"
+        }
+      ],
+      timeoutMs: null,
+      profileSessionId: "/session/session-login",
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-session-partial",
+        providerId: "browserless"
+      }
+    });
+    assert.equal(partialResult.title, "CRM");
+    assert.equal(partialResult.finalUrl, "https://crm.example.com/dashboard");
+    assert.match(partialResult.warning ?? "", /Browser-rendered page content is untrusted/);
+    assert.match(partialResult.warning ?? "", /Browserless BQL operation warnings/);
+    assert.match(partialResult.warning ?? "", /op_0: Timeout of 5000ms/);
+
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
