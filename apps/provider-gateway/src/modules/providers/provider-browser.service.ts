@@ -387,31 +387,6 @@ export default async ({ browser }) => {
 };
 `;
 
-const BROWSERLESS_VERIFY_SESSION_CODE = String.raw`
-export default async ({ page }) => {
-  try {
-    const url = await page.url();
-    if (typeof url !== "string" || url.trim().length === 0) {
-      throw new Error("Browser session returned an empty page URL.");
-    }
-    return {
-      data: { ok: true, url: url.trim() },
-      type: "application/json"
-    };
-  } catch (error) {
-    return {
-      data: {
-        ok: false,
-        error: {
-          message: error instanceof Error ? error.message : "Browser session verify failed."
-        }
-      },
-      type: "application/json"
-    };
-  }
-};
-`;
-
 type JsonResponse = {
   ok: boolean;
   status: number;
@@ -585,9 +560,27 @@ export class ProviderBrowserService {
     const session = this.asObject(createResponse.body);
     const sessionId = typeof session?.id === "string" ? session.id.trim() : "";
     const browserQL = typeof session?.browserQL === "string" ? session.browserQL.trim() : "";
-    if (sessionId.length === 0 || browserQL.length === 0) {
+    const stopUrlRaw = typeof session?.stop === "string" ? session.stop.trim() : "";
+    if (sessionId.length === 0 || browserQL.length === 0 || stopUrlRaw.length === 0) {
       throw new BadGatewayException(
         "Browserless session API returned an invalid session response."
+      );
+    }
+    // Store the canonical routable path (may include /e/{cloudEndpointId}/ prefix on
+    // multi-cloud plans). All later derivations (connect/bql/stop) work off this
+    // pathname so we don't lose the cloud endpoint id that Browserless uses to
+    // route the persistent session.
+    let providerSessionPath: string;
+    try {
+      providerSessionPath = new URL(stopUrlRaw).pathname.replace(/\/$/, "");
+    } catch {
+      throw new BadGatewayException(
+        "Browserless session API returned an invalid session stop URL."
+      );
+    }
+    if (providerSessionPath.length === 0 || !providerSessionPath.includes(`/session/`)) {
+      throw new BadGatewayException(
+        "Browserless session API returned an invalid session stop URL."
       );
     }
 
@@ -622,7 +615,7 @@ export class ProviderBrowserService {
     }
 
     return {
-      providerSessionId: `/session/${sessionId}`,
+      providerSessionId: providerSessionPath,
       liveUrl
     };
   }
@@ -691,16 +684,22 @@ export class ProviderBrowserService {
     const apiKey = await this.persaiInternalApiClientService.resolveSecretValue(
       input.credential.secretId.trim()
     );
+
+    // Browserless does not expose a `/function` REST endpoint for persistent connect
+    // sessions — every `/function` variant returns 404 "Not Found" (or opens a
+    // fresh browser and ignores the session hint). To probe liveness we hit the
+    // BrowserQL endpoint for the session with a schema-only query; a 200 with a
+    // typed data payload proves the persistent session is still routed by
+    // Browserless. A 404 (or non-2xx) means the session has been evicted.
     const response = await this.fetchJson(
-      this.resolveBrowserlessProfileFunctionEndpoint(apiKey, providerSessionId),
+      this.resolveBrowserlessSessionBqlEndpoint(apiKey, providerSessionId),
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          code: BROWSERLESS_VERIFY_SESSION_CODE,
-          context: {}
+          query: "query { __typename }"
         })
       },
       BROWSERLESS_VERIFY_SESSION_TIMEOUT_MS
@@ -711,12 +710,17 @@ export class ProviderBrowserService {
 
     const payload = this.asObject(response.body);
     const data = this.asObject(payload?.data);
-    const error = this.asObject(data?.error);
-    if (typeof error?.message === "string" && error.message.trim().length > 0) {
-      throw new BadGatewayException(error.message.trim());
-    }
-    if (payload?.type !== "application/json" || data === null || data.ok !== true) {
-      throw new BadGatewayException("Browserless session is not reachable.");
+    if (data === null || data.__typename !== "Query") {
+      const errorList = Array.isArray(payload?.errors) ? payload?.errors : [];
+      const firstErrorMessage =
+        errorList
+          .map((entry) => {
+            const row = this.asObject(entry);
+            const message = row?.message;
+            return typeof message === "string" && message.trim().length > 0 ? message.trim() : null;
+          })
+          .find((message) => message !== null) ?? null;
+      throw new BadGatewayException(firstErrorMessage ?? "Browserless session is not reachable.");
     }
 
     return { ok: true };
@@ -1148,49 +1152,90 @@ export class ProviderBrowserService {
   }
 
   private resolveBrowserlessSessionStopEndpoint(apiKey: string, providerSessionId: string): string {
-    const sessionId = this.extractProviderSessionId(providerSessionId);
-    const url = new URL(`/session/${sessionId}`, this.config.PROVIDER_GATEWAY_BROWSERLESS_BASE_URL);
+    const stopPath = this.resolvePersistingSessionStopPath(providerSessionId);
+    const url = new URL(stopPath, this.config.PROVIDER_GATEWAY_BROWSERLESS_BASE_URL);
     url.searchParams.set("token", apiKey);
     url.searchParams.set("force", "true");
     return url.toString();
   }
 
+  private resolveBrowserlessSessionBqlEndpoint(apiKey: string, providerSessionId: string): string {
+    const bqlPath = this.resolvePersistingSessionBqlPath(providerSessionId);
+    const base = this.config.PROVIDER_GATEWAY_BROWSERLESS_BASE_URL.replace(/\/$/, "");
+    const url = new URL(bqlPath, `${base}/`);
+    url.searchParams.set("token", apiKey);
+    return url.toString();
+  }
+
+  /**
+   * Return the routable Browserless stop path (e.g. `/e/{cloud}/session/{id}`
+   * or the legacy `/session/{id}`). Called only for persisting sessions.
+   */
+  private resolvePersistingSessionStopPath(providerSessionId: string): string {
+    const path = this.persistingSessionPath(providerSessionId);
+    // Browserless routes stop and connect under distinct segments off the same
+    // session id. `path` here is guaranteed to contain `/session/{id}` (with
+    // optional cloudEndpointId prefix); if it already includes `/connect/` we
+    // strip that segment for the stop request.
+    return path.replace("/session/connect/", "/session/");
+  }
+
+  private resolvePersistingSessionBqlPath(providerSessionId: string): string {
+    const path = this.persistingSessionPath(providerSessionId);
+    return path.replace("/session/connect/", "/session/").replace("/session/", "/session/bql/");
+  }
+
+  /**
+   * Returns the persistent session pathname (with optional /e/{cloud}/ prefix)
+   * suitable as a base for connect/bql/stop derivations. Accepts:
+   * - `wss://host/e/{cloud}/session/connect/{id}?...` or `https://` variants
+   * - `/e/{cloud}/session/{id}` (new canonical form stored by startLogin)
+   * - `/e/{cloud}/session/connect/{id}`
+   * - legacy `/session/{id}` / `/session/connect/{id}` (test/dev fixtures).
+   */
+  private persistingSessionPath(providerSessionId: string): string {
+    const trimmed = providerSessionId.trim();
+    if (trimmed.length === 0) {
+      throw new BadRequestException("providerSessionId must be a non-empty string");
+    }
+    if (
+      trimmed.startsWith("wss://") ||
+      trimmed.startsWith("ws://") ||
+      trimmed.startsWith("http://") ||
+      trimmed.startsWith("https://")
+    ) {
+      const normalized = trimmed.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+      return new URL(normalized).pathname.replace(/\/$/, "");
+    }
+    return `/${trimmed.replace(/^\/+/, "").replace(/\/$/, "")}`;
+  }
+
   private normalizeProviderSessionPath(providerSessionId: string): string {
     const trimmed = providerSessionId.trim();
-    if (trimmed.startsWith("wss://") || trimmed.startsWith("ws://")) {
-      return new URL(trimmed.replace(/^wss:/, "https:").replace(/^ws:/, "http:")).pathname;
-    }
-    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-      return new URL(trimmed).pathname;
-    }
-    if (trimmed.startsWith("/session/connect/")) {
-      return trimmed;
-    }
-    if (trimmed.startsWith("/session/")) {
-      const sessionId = trimmed.replace(/^\/session\//, "").replace(/^\/+/, "");
-      return `/session/connect/${sessionId}`;
+    if (
+      trimmed.startsWith("wss://") ||
+      trimmed.startsWith("ws://") ||
+      trimmed.startsWith("http://") ||
+      trimmed.startsWith("https://")
+    ) {
+      const normalized = trimmed.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+      return new URL(normalized).pathname;
     }
     if (trimmed.startsWith("/reconnect/")) {
       return trimmed;
+    }
+    if (/\/session\/connect\//.test(trimmed)) {
+      return trimmed;
+    }
+    if (/\/session\//.test(trimmed)) {
+      return trimmed.replace("/session/", "/session/connect/");
     }
     return `/reconnect/${trimmed.replace(/^\/+/, "")}`;
   }
 
   private isPersistingSessionProviderSessionId(providerSessionId: string): boolean {
     const trimmed = providerSessionId.trim();
-    return (
-      trimmed.includes("/session/connect/") ||
-      (trimmed.startsWith("/session/") && !trimmed.startsWith("/session/connect/"))
-    );
-  }
-
-  private extractProviderSessionId(providerSessionId: string): string {
-    const trimmed = providerSessionId.trim();
-    const match = trimmed.match(/\/(?:session\/connect\/|session\/|reconnect\/)([^/?]+)/);
-    if (match?.[1]) {
-      return match[1];
-    }
-    return trimmed.replace(/^\/+/, "");
+    return /\/session\//.test(trimmed);
   }
 
   private extractBrowserlessBqlLiveUrl(body: unknown): string | null {

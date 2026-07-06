@@ -1,5 +1,43 @@
 # SESSION-HANDOFF
 
+## 2026-07-07 — ADR-138 correction: Browserless persistent-session verify (BQL) + cloudEndpointId preservation
+
+Status: **local; deploy + live acceptance pending.**
+
+**Task scope:** correct the ADR-138 provider-gateway seam that Composer landed. Two live-observed bugs on the deployed dev cluster: (1) `POST /session` returns `stop = https://production-sfo.browserless.io/e/{cloudEndpointId}/session/{id}` on multi-cloud plans, but `startLogin` stored only `/session/{id}`, dropping the `cloudEndpointId` prefix that Browserless requires to route every subsequent call (BQL, connect, stop); (2) `verifySession` (which gates `completeLogin` → `active`) hit `/session/connect/{id}/function`, but the `/function` REST endpoint returns **404 Not Found** for persistent connect-sessions — the only durable liveness probe for a persistent session is a BrowserQL schema query (`query { __typename }`) against the per-session `session.browserQL` endpoint. Together these caused `completeLogin` to reject valid live sessions and any stop/reconnect derivations to hit the wrong host path. Out of scope: web/proxy modal work (already landed in `d2f03e93`/`08502713`/`644106bf`).
+
+**Fix (provider-gateway `provider-browser.service.ts`):**
+- `startLogin` now parses `session.stop` from the Browserless response and stores `providerSessionId = new URL(session.stop).pathname` (canonical routable path, preserves `/e/{cloudEndpointId}/session/{id}` when present; falls back to legacy `/session/{id}` when absent, keeps fixtures/dev-plan compatibility).
+- New `persistingSessionPath(providerSessionId)` helper accepts `wss://…`, `ws://…`, `https://…`, `http://…`, `/e/{cloud}/session/{id}`, `/e/{cloud}/session/connect/{id}`, and legacy `/session/{id}` / `/session/connect/{id}` shapes and returns the canonical pathname with cloudEndpointId prefix intact.
+- New `resolvePersistingSessionStopPath` / `resolvePersistingSessionBqlPath` derive stop and BQL endpoints off the shared session base, so `/e/{cloudEndpointId}/` never has to be re-derived.
+- `verifySession` now targets `.../session/bql/{id}?token=…` with `POST { query: "query { __typename }" }` and treats a `200` with `data.__typename === "Query"` as live. Non-2xx or missing typename → `BadGatewayException` with the first BQL error message. Removed the dead `BROWSERLESS_VERIFY_SESSION_CODE` sandbox script and dead `extractProviderSessionId` helper (both artifacts of the old `/function` probe path).
+- `normalizeProviderSessionPath` (used by `reconnectLogin` / `deleteSession` fallback path) rewritten to handle absolute WS/HTTP URLs plus both `/e/{cloud}/session/{id}` and legacy `/session/{id}` shapes without losing the cloud endpoint.
+- `isPersistingSessionProviderSessionId` collapses to a single `/session/` substring test.
+
+**Fix (`test/provider-browser.service.test.ts`):** `startLogin` fixture asserts stored `providerSessionId = "/session/session-login"` (legacy fixture, no cloud endpoint id — real prod has the `/e/{cloud}/` prefix from real `session.stop`). `verifySession` fixture flipped to a BrowserQL response (`{ data: { __typename: "Query" } }`); the expected `fetch` URL is now `.../session/bql/session-login?token=browserless-secret` with a `{"query":"query { __typename }"}` body.
+
+**Verification (local, AGENTS gate):**
+- Provider-gateway focused test: `runProviderBrowserServiceTest` PASS.
+- API focused ADR-138 tests: `assistant-browser-profile` + `extract-pending-browser-login-from-turn` + `resolve-pending-browser-login-for-web-chat` + `runtime-browser` + `tool-catalog-data` — 13/13 PASS.
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` PASS.
+- `corepack pnpm --filter @persai/api run typecheck` PASS.
+- `corepack pnpm --filter @persai/web run typecheck` PASS.
+- `corepack pnpm -r --if-present run lint` PASS.
+- `corepack pnpm run format:check` PASS (after `prettier --write` on `provider-browser.service.ts`).
+
+**Risks/residuals:**
+- Dev/test plans without a multi-cloud endpoint still receive `stop = https://host/session/{id}`; both `startLogin` and helpers handle that shape and no behavioral change is expected there.
+- BQL `__typename` probe is the minimum-cost liveness check; if a specific plan starts rejecting `__typename` (e.g. custom schema gating), verify will fail-closed with the upstream error message, which is the correct signal to force a fresh login.
+- Legacy `providerSessionId` rows persisted before this fix (shape `/session/{id}` for multi-cloud sessions) will fail BQL/stop until the assistant re-logs in; expiry scheduler + reconnect flow already handle that path by starting a new session.
+
+**Files touched:**
+- `apps/provider-gateway/src/modules/providers/provider-browser.service.ts`
+- `apps/provider-gateway/test/provider-browser.service.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+**Next step:** commit + push (= deploy); after rollout, click **Готово** on a live ADR-138 login modal — `completeLogin` → `verifySession` must succeed against the real multi-cloud endpoint (previously 404 on `/function`); confirm active profile appears in Settings; then close out ADR-138 deploy acceptance.
+
 ## 2026-07-06 — Browser login modal: live WS proxy reconnect loop (black modal)
 
 Status: **follow-up stable `index.html` entry fix; deploy + live acceptance pending.**

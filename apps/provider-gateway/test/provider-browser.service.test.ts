@@ -539,6 +539,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         providerId: "browserless"
       }
     });
+    // Provider-gateway stores the canonical routable path derived from the
+    // `session.stop` URL. This preserves any /e/{cloudEndpointId}/ prefix that
+    // Browserless multi-cloud plans include (real prod), while remaining
+    // compatible with fixtures that omit it (this test).
     assert.equal(loginResult.providerSessionId, "/session/session-login");
     assert.equal(loginResult.liveUrl, "https://browserless.example.com/live/session-login");
     assert.equal(
@@ -604,10 +608,12 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       requests.push(init === undefined ? { url } : { url, init });
+      // Persistent-session verify hits the BrowserQL endpoint with a
+      // schema-only `__typename` query — Browserless returns 200 with a
+      // typed data payload only when the session is still routed.
       return new Response(
         JSON.stringify({
-          type: "application/json",
-          data: { ok: true, url: "https://crm.example.com/dashboard" }
+          data: { __typename: "Query" }
         }),
         {
           status: 200,
@@ -629,10 +635,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.deepEqual(verifyResult, { ok: true });
     assert.equal(
       requests[11]?.url,
-      "https://browserless.example.com/session/connect/session-login/function?token=browserless-secret"
+      "https://browserless.example.com/session/bql/session-login?token=browserless-secret"
     );
-    const verifyBody = JSON.parse(String(requests[11]?.init?.body ?? "{}")) as { code?: string };
-    assert.match(verifyBody.code ?? "", /page\.url/);
+    const verifyBody = JSON.parse(String(requests[11]?.init?.body ?? "{}")) as { query?: string };
+    assert.match(verifyBody.query ?? "", /__typename/);
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =
