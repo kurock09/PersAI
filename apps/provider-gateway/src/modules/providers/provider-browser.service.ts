@@ -436,6 +436,17 @@ export class ProviderBrowserService {
         return this.browserScreenshotViaRest(normalized, apiKey, startedAt);
       }
     }
+    // Persistent connect-session (`/e/{cloud}/session/{id}` or legacy
+    // `/session/{id}`): the `/function` REST endpoint returns 404 for these —
+    // Browserless routes them only over BrowserQL on `.../session/bql/{id}`.
+    // Ephemeral sessions and legacy `/reconnect/{id}` profiles keep using
+    // `/function`.
+    if (
+      normalized.profileSessionId !== null &&
+      this.isPersistingSessionProviderSessionId(normalized.profileSessionId)
+    ) {
+      return this.runPersistentBrowserActionViaBql(normalized, apiKey, startedAt);
+    }
     const endpoint =
       normalized.profileSessionId === null
         ? this.resolveBrowserlessFunctionEndpoint(apiKey)
@@ -519,6 +530,220 @@ export class ProviderBrowserService {
       pdfBase64,
       artifactBase64,
       artifactMimeType,
+      externalContent: {
+        untrusted: true,
+        source: "browser",
+        provider: normalized.providerId
+      },
+      billingFacts: buildToolPathTimeBillingFacts({
+        providerKey: normalized.providerId,
+        durationMs: tookMs,
+        occurredAt: observedAt
+      })
+    };
+  }
+
+  /**
+   * Persistent-profile browser action runner.
+   *
+   * Browserless persistent connect-sessions (`/e/{cloud}/session/{id}`) do not
+   * expose the `/function` REST endpoint that ephemeral sessions do — every
+   * `/function` variant returns 404. The supported way to drive them is via the
+   * BrowserQL endpoint at `.../session/bql/{id}` with mutation chains such as
+   * `goto → click/type/... → title/url/text/screenshot/pdf`. This method builds
+   * that mutation dynamically from the normalized action request and coerces
+   * the response back into the same `ProviderGatewayBrowserActionResult` shape
+   * the `/function` path produces (with `elements: []` — the interactive-elements
+   * probe is not ported to BQL yet and can be added via `evaluate` later).
+   */
+  private async runPersistentBrowserActionViaBql(
+    normalized: NormalizedBrowserActionRequest,
+    apiKey: string,
+    startedAt: number
+  ): Promise<ProviderGatewayBrowserActionResult> {
+    if (normalized.profileSessionId === null) {
+      throw new BadRequestException(
+        "profileSessionId is required for persistent-session browser action"
+      );
+    }
+    const bqlUrl = this.resolveBrowserlessSessionBqlEndpoint(apiKey, normalized.profileSessionId);
+    const waitUntil = normalized.optimizeForSpeed ? "domContentLoaded" : "networkAlmostIdle";
+
+    const varDefs: string[] = ["$url: String!"];
+    const parts: string[] = [];
+    const vars: Record<string, unknown> = { url: normalized.url };
+
+    if (normalized.optimizeForSpeed) {
+      parts.push(`reject(type: [image, font, media], enabled: true) { time }`);
+    }
+
+    parts.push(
+      `goto(url: $url, waitUntil: ${waitUntil}, timeout: ${String(normalized.timeoutMs)}) { status }`
+    );
+
+    normalized.operations.forEach((operation, index) => {
+      const idx = String(index);
+      switch (operation.kind) {
+        case "click": {
+          varDefs.push(`$selector_${idx}: String!`);
+          vars[`selector_${idx}`] = operation.selector;
+          parts.push(`op_${idx}: click(selector: $selector_${idx}) { time }`);
+          break;
+        }
+        case "type": {
+          varDefs.push(`$selector_${idx}: String!`, `$text_${idx}: String!`);
+          vars[`selector_${idx}`] = operation.selector;
+          vars[`text_${idx}`] = operation.text;
+          // BQL `type` appends without clearing. Clear via evaluate() first so
+          // the model's `type` op replaces existing value (parity with the
+          // /function path which pre-clears `element.value` before typing).
+          const clearScript = `try { const el = document.querySelector(${JSON.stringify(
+            operation.selector
+          )}); if (el && "value" in el) { el.value = ""; el.dispatchEvent(new Event("input", {bubbles:true})); el.dispatchEvent(new Event("change", {bubbles:true})); } } catch (_) {}`;
+          varDefs.push(`$clearScript_${idx}: String!`);
+          vars[`clearScript_${idx}`] = clearScript;
+          parts.push(`op_${idx}_clear: evaluate(content: $clearScript_${idx}) { value }`);
+          parts.push(`op_${idx}: type(text: $text_${idx}, selector: $selector_${idx}) { time }`);
+          break;
+        }
+        case "press": {
+          // Persistent-session BQL has no dedicated `keyboard.press` mutation; drive
+          // the key event via evaluate() as a best-effort compatibility layer.
+          varDefs.push(`$key_${idx}: String!`);
+          vars[`key_${idx}`] = operation.key;
+          const pressScript = `try { const el = document.activeElement || document.body; const ev = new KeyboardEvent("keydown", { key: ${JSON.stringify(
+            operation.key
+          )}, bubbles: true }); el.dispatchEvent(ev); const evUp = new KeyboardEvent("keyup", { key: ${JSON.stringify(
+            operation.key
+          )}, bubbles: true }); el.dispatchEvent(evUp); } catch (_) {}`;
+          varDefs.push(`$pressScript_${idx}: String!`);
+          vars[`pressScript_${idx}`] = pressScript;
+          parts.push(`op_${idx}: evaluate(content: $pressScript_${idx}) { value }`);
+          break;
+        }
+        case "select_option": {
+          varDefs.push(`$selector_${idx}: String!`, `$value_${idx}: String!`);
+          vars[`selector_${idx}`] = operation.selector;
+          vars[`value_${idx}`] = operation.value;
+          parts.push(
+            `op_${idx}: select(selector: $selector_${idx}, value: $value_${idx}) { time }`
+          );
+          break;
+        }
+        case "wait_for_selector": {
+          varDefs.push(`$selector_${idx}: String!`);
+          vars[`selector_${idx}`] = operation.selector;
+          const timeout = operation.timeoutMs ?? 5000;
+          parts.push(
+            `op_${idx}: waitForSelector(selector: $selector_${idx}, timeout: ${String(timeout)}) { time }`
+          );
+          break;
+        }
+        case "wait_for_timeout": {
+          parts.push(`op_${idx}: waitForTimeout(time: ${String(operation.timeoutMs)}) { time }`);
+          break;
+        }
+      }
+    });
+
+    parts.push(`pageTitle: title { title }`);
+    parts.push(`pageUrl: url { url }`);
+
+    const format = normalized.format;
+    if (normalized.action === "snapshot") {
+      if (format === "pdf") {
+        parts.push(`doc: pdf(printBackground: true) { base64 }`);
+      } else if (format === "png" || format === "jpeg" || format === "webp") {
+        const type = format.toUpperCase();
+        const selectorArg =
+          normalized.snapshotSelector !== null
+            ? `, selector: ${JSON.stringify(normalized.snapshotSelector)}`
+            : "";
+        parts.push(
+          `shot: screenshot(type: ${type}, fullPage: ${String(normalized.fullPage)}${selectorArg}) { base64 }`
+        );
+      } else {
+        parts.push(`pageText: text { text }`);
+      }
+    }
+
+    const query = `mutation BrowserAction(${varDefs.join(", ")}) {\n  ${parts.join("\n  ")}\n}`;
+
+    const response = await this.fetchJson(
+      bqlUrl,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, variables: vars })
+      },
+      normalized.timeoutMs
+    );
+    if (!response.ok) {
+      throw new BadGatewayException(this.extractErrorMessage(response.body, "Browserless BQL"));
+    }
+    const root = this.asObject(response.body);
+    const errors = Array.isArray(root?.errors) ? (root.errors as unknown[]) : [];
+    if (errors.length > 0) {
+      const first = this.asObject(errors[0]);
+      const message =
+        typeof first?.message === "string" && first.message.trim().length > 0
+          ? first.message.trim()
+          : "Browserless BQL request failed.";
+      throw new BadGatewayException(message);
+    }
+    const data = this.asObject(root?.data);
+    if (data === null) {
+      throw new BadGatewayException("Browserless BQL request returned no data.");
+    }
+
+    const titleNode = this.asObject(data.pageTitle);
+    const urlNode = this.asObject(data.pageUrl);
+    const textNode = this.asObject(data.pageText);
+    const shotNode = this.asObject(data.shot);
+    const docNode = this.asObject(data.doc);
+
+    const title =
+      typeof titleNode?.title === "string" && titleNode.title.trim().length > 0
+        ? titleNode.title.trim()
+        : null;
+    const finalUrl =
+      typeof urlNode?.url === "string" && urlNode.url.trim().length > 0
+        ? urlNode.url.trim()
+        : normalized.url;
+    const rawText = typeof textNode?.text === "string" ? textNode.text : "";
+    const truncated = rawText.length > normalized.maxChars;
+    const content = truncated ? rawText.slice(0, normalized.maxChars).trimEnd() : rawText.trim();
+
+    const pdfBase64 =
+      typeof docNode?.base64 === "string" && docNode.base64.length > 0 ? docNode.base64 : null;
+    const artifactBase64 =
+      typeof shotNode?.base64 === "string" && shotNode.base64.length > 0 ? shotNode.base64 : null;
+    const artifactMimeType =
+      artifactBase64 !== null
+        ? format === "jpeg"
+          ? "image/jpeg"
+          : format === "webp"
+            ? "image/webp"
+            : "image/png"
+        : null;
+
+    const observedAt = new Date().toISOString();
+    const tookMs = Date.now() - startedAt;
+    return {
+      provider: normalized.providerId,
+      action: normalized.action,
+      initialUrl: normalized.url,
+      finalUrl,
+      title,
+      content: normalized.action === "snapshot" && format === "text" ? content : "",
+      truncated: normalized.action === "snapshot" && format === "text" ? truncated : false,
+      elements: [],
+      observedAt,
+      tookMs,
+      warning: UNTRUSTED_CONTENT_WARNING,
+      pdfBase64,
+      artifactBase64,
+      artifactMimeType: pdfBase64 !== null ? "application/pdf" : artifactMimeType,
       externalContent: {
         untrusted: true,
         source: "browser",

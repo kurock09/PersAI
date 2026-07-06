@@ -640,20 +640,20 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     const verifyBody = JSON.parse(String(requests[11]?.init?.body ?? "{}")) as { query?: string };
     assert.match(verifyBody.query ?? "", /__typename/);
 
+    // Persistent connect-session (`/session/{id}` — or `/e/{cloud}/session/{id}`
+    // in real prod) drives `browser-action` through BrowserQL, not `/function`
+    // (Browserless `/function` returns 404 for persistent sessions).
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       requests.push(init === undefined ? { url } : { url, init });
       return new Response(
         JSON.stringify({
-          type: "application/json",
           data: {
-            initialUrl: "https://crm.example.com/dashboard",
-            finalUrl: "https://crm.example.com/dashboard",
-            title: "CRM",
-            content: "Authenticated CRM content",
-            truncated: false,
-            elements: []
+            goto: { status: 200 },
+            pageTitle: { title: "CRM" },
+            pageUrl: { url: "https://crm.example.com/dashboard" },
+            pageText: { text: "Authenticated CRM content" }
           }
         }),
         {
@@ -665,7 +665,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       );
     }) as typeof fetch;
 
-    await service.browserAction({
+    const persistentSnapshot = await service.browserAction({
       action: "snapshot",
       url: "https://crm.example.com/dashboard",
       maxChars: null,
@@ -680,8 +680,18 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     });
     assert.equal(
       requests[12]?.url,
-      "https://browserless.example.com/session/connect/session-login/function?token=browserless-secret"
+      "https://browserless.example.com/session/bql/session-login?token=browserless-secret"
     );
+    const persistentBody = JSON.parse(String(requests[12]?.init?.body ?? "{}")) as {
+      query?: string;
+      variables?: Record<string, unknown>;
+    };
+    assert.match(persistentBody.query ?? "", /goto\(url: \$url/);
+    assert.match(persistentBody.query ?? "", /pageText: text \{ text \}/);
+    assert.equal(persistentBody.variables?.url, "https://crm.example.com/dashboard");
+    assert.equal(persistentSnapshot.title, "CRM");
+    assert.equal(persistentSnapshot.finalUrl, "https://crm.example.com/dashboard");
+    assert.equal(persistentSnapshot.content, "Authenticated CRM content");
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =

@@ -1,5 +1,57 @@
 # SESSION-HANDOFF
 
+## 2026-07-07 — ADR-138 correction #2: persistent-session `browser-action` via BQL (kills 502 on active profile)
+
+Status: **local; deploy + live acceptance pending.**
+
+**Task scope:** the ADR-138 correction landed in `89c2e1fc` fixed `verifySession` (routing + BQL) but did not touch `browser-action` (`snapshot` / `act`). Live probe on the deployed dev cluster confirmed: assistant with `profile: "persai-admin"` (which is stored correctly as `/e/{cloudEndpointId}/session/{id}`, BQL `verify` = 200 `{ok:true}` — session healthy) still received `502 Bad Gateway { message: "Not Found: Please verify the endpoint URL, the HTTP method (e.g., POST, GET), and check that your Content-Type header is supported (e.g., application/json). See: https://docs.browserless.io/rest-apis/intro" }`. Root cause identical to the earlier `verifySession` bug: `provider-gateway` sent `browser-action` for a persistent profile to `POST .../session/connect/{id}/function`, but Browserless persistent connect-sessions do not expose a `/function` REST endpoint at all — every variant returns 404. The supported path is BrowserQL on `.../session/bql/{id}`.
+
+**Fix (`provider-browser.service.ts`):**
+- `browserAction` now routes persistent profiles (`isPersistingSessionProviderSessionId(profileSessionId) === true`) to `runPersistentBrowserActionViaBql`. Ephemeral (`profileSessionId === null`) still uses `/function`; legacy `/reconnect/{id}` profiles also stay on `/function` (they are not persistent sessions, and the historical fixture is preserved).
+- New `runPersistentBrowserActionViaBql` builds a single BQL mutation dynamically:
+  - Optional `reject(type: [image, font, media], enabled: true)` for `optimizeForSpeed`.
+  - `goto(url, waitUntil, timeout)` with `domContentLoaded` (speed) or `networkAlmostIdle` (default) waitUntil.
+  - Operations chain: `click`, `type` (pre-cleared via `evaluate` to match the `/function` value-reset semantics), `select`, `waitForSelector`, `waitForTimeout`. `press` runs through `evaluate` + `KeyboardEvent` because persistent-session BQL has no dedicated key mutation.
+  - `title { title }` + `url { url }` always for metadata parity with `/function`.
+  - Format-branch extractor: `pageText: text { text }` (default), `shot: screenshot(type, fullPage, [selector])` for `png`/`jpeg`/`webp`, `doc: pdf(printBackground: true)` for PDF.
+- Result coerced back into the same `ProviderGatewayBrowserActionResult` shape as the `/function` path. `elements: []` on the persistent path — interactive-elements list is not ported to BQL yet (parity-safe: model gets everything except click-target hints; can be added later via `evaluate` + `mapSelector`).
+- The old `resolveBrowserlessProfileFunctionEndpoint` is preserved for legacy `/reconnect/{id}` and best-effort `deleteSession` cleanup.
+
+**Fix (`test/provider-browser.service.test.ts`):**
+- Fixture for `profileSessionId: "/session/session-login"` (persistent) flipped from `/function` response to a BQL response (`{ data: { goto:{status:200}, pageTitle:{title:"CRM"}, pageUrl:{url:...}, pageText:{text:"Authenticated CRM content"} } }`).
+- Expected `fetch` URL now `https://browserless.example.com/session/bql/session-login?token=browserless-secret`, expected body includes the BQL mutation with `goto(url: $url` and `pageText: text { text }`, and variables carry `url: "https://crm.example.com/dashboard"`.
+- Persistent-snapshot result asserted: `title = "CRM"`, `finalUrl = "https://crm.example.com/dashboard"`, `content = "Authenticated CRM content"`.
+- Legacy `/reconnect/session-abc123` assertions untouched — that path continues to use `/function`.
+
+**Live BQL probe evidence (persai-admin session, deployed pg `89c2e1fc`, before this fix):**
+- `POST /api/v1/providers/browser-session/verify` → `200 { ok: true }` (BQL `__typename` — confirms session healthy).
+- `POST /api/v1/providers/browser-action` with `profileSessionId = /e/{cloud}/session/{id}` → `502 { message: "Not Found: Please verify the endpoint URL, the HTTP method (e.g., POST, GET), and check that your Content-Type header is supported (e.g., application/json). ..." }` (Browserless `/function` 404 → provider-gateway maps to 502).
+- Direct BQL on the same session: `mutation { goto(url:"https://persai.dev/", waitUntil:firstMeaningfulPaint, timeout:25000) { status } pageTitle: title { title } pageUrl: url { url } pageText: text { text } }` → `200 { data: { goto:{status:200}, pageTitle:{title:"PersAI"}, pageUrl:{url:"https://persai.dev/app"}, pageText:{text:"Nica\n\nАктивен\n..."} } }` (session **authenticated** and BQL fully functional; assistant chat title/text visible).
+- Direct `screenshot(fullPage:false,type:png)` → 200, ~7.6KB base64. `pdf` → 200, ~1.1KB base64.
+- Concurrent BQL requests to the same persistent session return 429 (`Session ID ... is already being accessed by another client`) — expected single-consumer behavior; `browser-action` runs single-shot so this is not exercised in the tool loop.
+
+**Verification (local, AGENTS gate):**
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-browser.service.test.ts` → all pass (including new persistent-session BQL assertions).
+- `corepack pnpm --filter @persai/provider-gateway run typecheck` PASS.
+- `corepack pnpm --filter @persai/api run typecheck` PASS.
+- `corepack pnpm --filter @persai/web run typecheck` PASS.
+- `corepack pnpm -r --if-present run lint` PASS.
+- `corepack pnpm run format:check` PASS (after `prettier --write` on the two touched files).
+
+**Risks/residuals:**
+- Persistent-path `elements: []` — model no longer receives the interactive-elements hint list for profile-based snapshots. `act` still works (operations run through BQL mutations), only the `snapshot`-side hint set is empty. Follow-up can port element-enumeration to BQL via `mapSelector` or `evaluate`.
+- `type` op uses `evaluate` to clear the field before `type()` — this is a best-effort DOM-level reset; if a page uses controlled React inputs with strict setters, the initial `value = ""` may be visually cleared but not synchronously de-registered. Same trade-off is present in the `/function` path.
+- `press` op runs through `evaluate` synthesized `KeyboardEvent`; strict keyboard-driven pages (native form submit via `Enter`) may need site-specific handling.
+- 429 "already being accessed by another client" not retried — a live modal or a parallel tool call could race; realistic for single-tool-per-turn is a non-issue. Consider adding bounded retry with backoff later.
+
+**Files touched:**
+- `apps/provider-gateway/src/modules/providers/provider-browser.service.ts`
+- `apps/provider-gateway/test/provider-browser.service.test.ts`
+- `docs/SESSION-HANDOFF.md`
+- `docs/CHANGELOG.md`
+
+**Next step:** commit + push (= deploy); after rollout, retry `browser` tool with `profile: "persai-admin"` in the chat — `snapshot` must now return page content instead of 502.
+
 ## 2026-07-07 — ADR-138 correction: Browserless persistent-session verify (BQL) + cloudEndpointId preservation
 
 Status: **local; deploy + live acceptance pending.**
