@@ -20,6 +20,7 @@ import type {
   StartBrowserLoginOutcome
 } from "../src/modules/turns/persai-internal-api.client.service";
 import type { ProviderGatewayClientService } from "../src/modules/turns/provider-gateway.client.service";
+import { ProviderGatewayHttpError } from "../src/modules/turns/provider-gateway.client.service";
 
 const KNOWLEDGE_ACCESS_CONFIG = {
   searchToolCode: "knowledge_search",
@@ -230,11 +231,16 @@ function createToolCall(argumentsObject: Record<string, unknown>): ProviderGatew
 class FakeProviderGatewayClientService {
   browserCalls: ProviderGatewayBrowserActionRequest[] = [];
   browserActionError: Error | null = null;
+  browserActionErrorsBeforeSuccess = 0;
 
   async browserAction(
     input: ProviderGatewayBrowserActionRequest
   ): Promise<ProviderGatewayBrowserActionResult> {
     this.browserCalls.push(input);
+    if (this.browserActionErrorsBeforeSuccess > 0) {
+      this.browserActionErrorsBeforeSuccess -= 1;
+      throw new ProviderGatewayHttpError(502, "Provider gateway request failed with status 502.");
+    }
     if (this.browserActionError !== null) {
       throw this.browserActionError;
     }
@@ -631,3 +637,58 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.equal(persaiInternalApiClientService.openLiveCalls.length, 1);
   assert.equal(persaiInternalApiClientService.openLiveCalls[0]?.profileKey, "lavka");
 }
+
+async function testPersistentBrowserQueueAndDefaults() {
+  const bundle = createBundle();
+  const providerGatewayClientService = new FakeProviderGatewayClientService();
+  const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
+  persaiInternalApiClientService.resolveOutcome = {
+    ok: true,
+    providerSessionId: "/session/session-queue",
+    profileId: "profile-1",
+    capabilityPolicy: createPersistentCapabilityPolicy("lavka")
+  };
+  const service = new RuntimeBrowserToolService(
+    providerGatewayClientService as unknown as ProviderGatewayClientService,
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    createFakeMediaObjectStorageForOutboundWrite() as never
+  );
+
+  const first = service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "snapshot",
+      url: "https://lavka.yandex.ru/",
+      profile: "lavka"
+    }),
+    sessionId: "session-1"
+  });
+  const second = service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "snapshot",
+      url: "https://lavka.yandex.ru/catalog",
+      profile: "lavka"
+    }),
+    sessionId: "session-1"
+  });
+  await Promise.all([first, second]);
+  assert.equal(providerGatewayClientService.browserCalls.length, 2);
+  assert.equal(providerGatewayClientService.browserCalls[0]?.optimizeForSpeed, true);
+  assert.equal(providerGatewayClientService.browserCalls[1]?.optimizeForSpeed, true);
+
+  providerGatewayClientService.browserActionErrorsBeforeSuccess = 1;
+  const retryResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "snapshot",
+      url: "https://lavka.yandex.ru/",
+      profile: "lavka"
+    }),
+    sessionId: "session-1"
+  });
+  assert.equal(retryResult.isError, false);
+  assert.equal(providerGatewayClientService.browserCalls.length, 4);
+}
+
+void testPersistentBrowserQueueAndDefaults();

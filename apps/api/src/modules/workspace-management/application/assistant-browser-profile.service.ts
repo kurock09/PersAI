@@ -99,10 +99,47 @@ export class AssistantBrowserProfileService {
       throw new BadRequestException("loginUrl must be a valid http(s) URL with a hostname.");
     }
 
+    const browserCredentialSecretId =
+      input.browserCredentialSecretId ?? resolveBrowserToolCredentialSecretId();
+    const reusable = await this.repository.findReusableByAssistantAndOriginHost(
+      input.assistantId,
+      originHost,
+      input.originatingChatId ?? null
+    );
+    if (reusable !== null) {
+      await this.cleanupDuplicateProfilesForOriginHost(
+        input.assistantId,
+        originHost,
+        reusable.id,
+        browserCredentialSecretId
+      );
+      if (reusable.status === "active") {
+        try {
+          const opened = await this.openLiveView({
+            profileId: reusable.id,
+            assistantId: input.assistantId,
+            workspaceId: input.workspaceId,
+            browserCredentialSecretId
+          });
+          return {
+            profileId: opened.profileId,
+            profileKey: opened.profileKey,
+            displayName: opened.displayName,
+            liveUrl: opened.liveUrl,
+            loginUrl: opened.loginUrl,
+            status: opened.status
+          };
+        } catch {
+          return this.startPendingLoginForExistingProfile(reusable, browserCredentialSecretId);
+        }
+      }
+      return this.startPendingLoginForExistingProfile(reusable, browserCredentialSecretId);
+    }
+
     await this.cleanupStalePendingProfiles(
       input.assistantId,
       input.originatingChatId ?? null,
-      input.browserCredentialSecretId ?? resolveBrowserToolCredentialSecretId()
+      browserCredentialSecretId
     );
 
     const baseKey = generateBrowserProfileKeyBase(displayName, input.assistantId);
@@ -470,6 +507,31 @@ export class AssistantBrowserProfileService {
         });
       } catch {
         // Best-effort provider cleanup before removing stale pending rows.
+      }
+      await this.repository.deleteById(row.id);
+    }
+  }
+
+  private async cleanupDuplicateProfilesForOriginHost(
+    assistantId: string,
+    originHost: string,
+    keepProfileId: string,
+    browserCredentialSecretId: string
+  ): Promise<void> {
+    const rows = await this.repository.listByAssistant(assistantId);
+    for (const row of rows) {
+      if (row.id === keepProfileId || row.originHost !== originHost) {
+        continue;
+      }
+      if (row.status !== "pending_login" && row.status !== "expired") {
+        continue;
+      }
+      try {
+        await this.browserlessSessionPort.deleteSession(row.providerSessionId, {
+          browserCredentialSecretId
+        });
+      } catch {
+        // Best-effort provider cleanup before removing duplicate rows.
       }
       await this.repository.deleteById(row.id);
     }

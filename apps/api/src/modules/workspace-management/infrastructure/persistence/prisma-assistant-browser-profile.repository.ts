@@ -79,6 +79,47 @@ export class PrismaAssistantBrowserProfileRepository implements AssistantBrowser
     return row ? this.mapToDomain(row) : null;
   }
 
+  async findReusableByAssistantAndOriginHost(
+    assistantId: string,
+    originHost: string,
+    originatingChatId?: string | null
+  ): Promise<AssistantBrowserProfileRow | null> {
+    const active = await this.prisma.assistantBrowserProfile.findFirst({
+      where: {
+        assistantId,
+        originHost,
+        status: "active"
+      },
+      orderBy: [{ lastUsedAt: "desc" }, { updatedAt: "desc" }, { createdAt: "desc" }]
+    });
+    if (active !== null) {
+      return this.mapToDomain(active);
+    }
+    if (typeof originatingChatId === "string" && originatingChatId.trim().length > 0) {
+      const pendingForChat = await this.prisma.assistantBrowserProfile.findFirst({
+        where: {
+          assistantId,
+          originHost,
+          originatingChatId: originatingChatId.trim(),
+          status: "pending_login"
+        },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }]
+      });
+      if (pendingForChat !== null) {
+        return this.mapToDomain(pendingForChat);
+      }
+    }
+    const pending = await this.prisma.assistantBrowserProfile.findFirst({
+      where: {
+        assistantId,
+        originHost,
+        status: "pending_login"
+      },
+      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }]
+    });
+    return pending ? this.mapToDomain(pending) : null;
+  }
+
   async create(input: CreateAssistantBrowserProfileInput): Promise<AssistantBrowserProfileRow> {
     const row = await this.prisma.assistantBrowserProfile.create({
       data: {

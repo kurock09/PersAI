@@ -83,11 +83,92 @@ function resolveTestProxyCountryForUrl(url: string): "RU" | null {
   return isRuHostname ? "RU" : null;
 }
 
+// Shared in-page ranking for Yandex grocery surfaces (Lavka/Market/Eda):
+// search + product-card controls outrank header/nav chrome before the top-N cap.
+const BROWSERLESS_INTERACTIVE_ELEMENT_SELECTION_HELPERS = String.raw`
+  const isYandexGroceryPage = () => {
+    const host = window.location.hostname.toLowerCase();
+    return (
+      host === "lavka.yandex.ru" ||
+      host.endsWith(".lavka.yandex.ru") ||
+      host === "market.yandex.ru" ||
+      host === "eda.yandex.ru"
+    );
+  };
+  const scoreInteractiveElement = (element) => {
+    if (!isYandexGroceryPage()) {
+      return 0;
+    }
+    const testId = (element.getAttribute("data-testid") ?? "").toLowerCase();
+    const dataType = (element.getAttribute("data-type") ?? "").toLowerCase();
+    const ariaLabel = (element.getAttribute("aria-label") ?? "").toLowerCase();
+    const placeholder =
+      "placeholder" in element && typeof element.placeholder === "string"
+        ? element.placeholder.toLowerCase()
+        : "";
+    const href =
+      element instanceof HTMLAnchorElement && typeof element.href === "string"
+        ? element.href.toLowerCase()
+        : "";
+    const inputType =
+      element.tagName.toLowerCase() === "input"
+        ? (element.getAttribute("type") ?? "").toLowerCase()
+        : "";
+    const role = (element.getAttribute("role") ?? "").toLowerCase();
+    const inProductCard = element.closest('[data-testid="product-card"]') !== null;
+    if (
+      testId.includes("search") ||
+      inputType === "search" ||
+      role === "searchbox" ||
+      placeholder.includes("поиск") ||
+      placeholder.includes("найти") ||
+      ariaLabel.includes("поиск") ||
+      ariaLabel.includes("найти")
+    ) {
+      return 100;
+    }
+    if (testId === "add-spin-button" || testId === "remove-spin-button") {
+      return 95;
+    }
+    if (inProductCard && testId === "keyboard-input") {
+      return 92;
+    }
+    if (dataType === "product-card-link") {
+      return 90;
+    }
+    if (inProductCard && element.tagName.toLowerCase() === "a") {
+      return 88;
+    }
+    if (href.includes("/good/")) {
+      return 85;
+    }
+    if (inProductCard) {
+      return 82;
+    }
+    if (href.includes("/catalog") || testId.includes("category")) {
+      return 55;
+    }
+    if (element.closest("header, nav, [role=\\"navigation\\"], footer")) {
+      return 5;
+    }
+    return 35;
+  };
+  const takeRankedInteractiveElements = (elements, maxElements) =>
+    elements
+      .map((element, index) => ({ element, index, score: scoreInteractiveElement(element) }))
+      .sort((left, right) =>
+        right.score !== left.score ? right.score - left.score : left.index - right.index
+      )
+      .slice(0, maxElements)
+      .map((entry) => entry.element);
+`;
+
 /**
  * Shared Browserless /function script for snapshot and act.
  * Works on fresh sessions and on reconnect sessions (same page contract).
  */
-const BROWSERLESS_FUNCTION_CODE = String.raw`
+const BROWSERLESS_FUNCTION_CODE =
+  String.raw`
 export default async ({ page, context }) => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const maxChars =
@@ -135,13 +216,17 @@ export default async ({ page, context }) => {
         const style = window.getComputedStyle(element);
         return style.visibility !== "hidden" && style.display !== "none";
       };
-      const nodes = Array.from(
-        document.querySelectorAll(
-          'a, button, input, textarea, select, [role="button"], [role="link"]'
-        )
-      )
-        .filter(isVisibleInPage)
-        .slice(0, maxElements);
+` +
+  BROWSERLESS_INTERACTIVE_ELEMENT_SELECTION_HELPERS +
+  String.raw`
+      const nodes = takeRankedInteractiveElements(
+        Array.from(
+          document.querySelectorAll(
+            'a, button, input, textarea, select, [role="button"], [role="link"]'
+          )
+        ).filter(isVisibleInPage),
+        maxElements
+      );
       const normalizeTextInPage = (value) =>
         typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
       const buildSelector = (element) => {
@@ -157,7 +242,8 @@ export default async ({ page, context }) => {
           ["name", element.getAttribute("name")],
           ["aria-label", element.getAttribute("aria-label")],
           ["placeholder", element.getAttribute("placeholder")],
-          ["data-testid", element.getAttribute("data-testid")]
+          ["data-testid", element.getAttribute("data-testid")],
+          ["data-type", element.getAttribute("data-type")]
         ];
         for (const candidate of attrCandidates) {
           const attr = candidate[0];
@@ -449,15 +535,16 @@ export default async ({ page, context }) => {
 };
 `;
 
-const BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT = String.raw`
+const BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT =
+  String.raw`
 (() => {
   // Plain document-order querySelectorAll puts header/nav/footer chrome
   // ahead of catalog/product content on almost every real page, so an
   // unfiltered top-N cap mostly returns menu links instead of the elements
   // the model actually needs (live-validated on Yandex Lavka: product
   // add-to-cart controls never made it into a 25-element unfiltered top-N).
-  // Filtering to currently-visible elements first — before the cap — fixes
-  // the actual cause instead of just raising the number.
+  // Visibility filtering removes hidden chrome; on Yandex grocery hosts we
+  // also rank search + product-card controls ahead of nav before this cap.
   const isVisibleInPage = (element) => {
     if (element.getClientRects().length === 0) {
       return false;
@@ -465,13 +552,17 @@ const BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT = String.raw`
     const style = window.getComputedStyle(element);
     return style.visibility !== "hidden" && style.display !== "none";
   };
-  const nodes = Array.from(
-    document.querySelectorAll(
-      'a, button, input, textarea, select, [role="button"], [role="link"]'
-    )
-  )
-    .filter(isVisibleInPage)
-    .slice(0, ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)});
+` +
+  BROWSERLESS_INTERACTIVE_ELEMENT_SELECTION_HELPERS +
+  String.raw`
+  const nodes = takeRankedInteractiveElements(
+    Array.from(
+      document.querySelectorAll(
+        'a, button, input, textarea, select, [role="button"], [role="link"]'
+      )
+    ).filter(isVisibleInPage),
+    ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)}
+  );
   const normalizeTextInPage = (value) =>
     typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
   const cssEscape =
@@ -487,7 +578,8 @@ const BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT = String.raw`
       ["name", element.getAttribute("name")],
       ["aria-label", element.getAttribute("aria-label")],
       ["placeholder", element.getAttribute("placeholder")],
-      ["data-testid", element.getAttribute("data-testid")]
+      ["data-testid", element.getAttribute("data-testid")],
+      ["data-type", element.getAttribute("data-type")]
     ];
     for (const candidate of attrCandidates) {
       const attr = candidate[0];
@@ -554,6 +646,7 @@ type JsonResponse = {
   ok: boolean;
   status: number;
   body: unknown;
+  headers: Headers;
 };
 
 type NormalizedBrowserActionRequest = {
@@ -583,6 +676,10 @@ type NormalizedBrowserSessionCapabilityRequest = {
 @Injectable()
 export class ProviderBrowserService {
   private readonly logger = new Logger(ProviderBrowserService.name);
+  // ADR-139: persistent BrowserQL is single-consumer per session — parallel
+  // BQL mutations against the same providerSessionId saturate Browserless's
+  // queue and surface as 429 even when plan concurrency is not exhausted.
+  private readonly persistentSessionBqlTail = new Map<string, Promise<void>>();
 
   constructor(
     @Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig,
@@ -945,7 +1042,8 @@ export class ProviderBrowserService {
       `[persistent-bql] action=${normalized.action} profile=${normalized.profileSessionId} proxy=${String(capabilityPolicy.proxy !== null)} stealth=${String(capabilityPolicy.stealth)} operations=${normalized.operations.length}`
     );
 
-    const response = await this.fetchJsonWithRateLimitRetry(
+    const response = await this.fetchPersistentSessionBqlJson(
+      normalized.profileSessionId,
       bqlUrl,
       {
         method: "POST",
@@ -1084,7 +1182,7 @@ export class ProviderBrowserService {
     const apiKey = await this.persaiInternalApiClientService.resolveSecretValue(
       normalized.credential.secretId
     );
-    const createResponse = await this.fetchJson(
+    const createResponse = await this.fetchJsonWithRateLimitRetry(
       this.resolveBrowserlessSessionCreateEndpoint(
         apiKey,
         normalized.capabilityPolicy,
@@ -1137,7 +1235,8 @@ export class ProviderBrowserService {
       5 * 60 * 1000,
       Math.min(DEFAULT_BROWSER_LOGIN_LIVE_URL_TIMEOUT_MS, normalized.reconnectTimeoutMs)
     );
-    const bqlResponse = await this.fetchJson(
+    const bqlResponse = await this.fetchPersistentSessionBqlJson(
+      providerSessionPath,
       this.augmentBrowserlessSessionBqlUrl(
         browserQL,
         normalized.capabilityPolicy,
@@ -1229,7 +1328,8 @@ export class ProviderBrowserService {
     // BrowserQL endpoint for the session with a schema-only query; a 200 with a
     // typed data payload proves the persistent session is still routed by
     // Browserless. A 404 (or non-2xx) means the session has been evicted.
-    const response = await this.fetchJson(
+    const response = await this.fetchPersistentSessionBqlJson(
+      normalized.providerSessionId,
       this.resolveBrowserlessSessionBqlEndpoint(
         apiKey,
         normalized.providerSessionId,
@@ -1304,7 +1404,8 @@ export class ProviderBrowserService {
       capabilityPolicy,
       targetUrl
     );
-    const response = await this.fetchJson(
+    const response = await this.fetchPersistentSessionBqlJson(
+      providerSessionId,
       bqlUrl,
       {
         method: "POST",
@@ -2182,7 +2283,8 @@ export class ProviderBrowserService {
       return {
         ok: response.ok,
         status: response.status,
-        body: await this.readBody(response)
+        body: await this.readBody(response),
+        headers: response.headers
       };
     } catch (error) {
       if (this.isAbortError(error)) {
@@ -2194,14 +2296,63 @@ export class ProviderBrowserService {
     }
   }
 
-  // ADR-139 D13: a live test surfaced repeated act/snapshot failures that
-  // D12's new logging revealed were plain `429 Too many requests` from
-  // Browserless's own concurrency queue (see Browserless enterprise docs —
-  // 429 means "queue is full", not a crash, fingerprint, or session-death
-  // issue). Browserless's own guidance is to back off and retry, so a short
-  // bounded retry here absorbs transient queue pressure instead of
-  // surfacing every 429 straight to the model as a hard tool failure.
-  private static readonly RATE_LIMIT_RETRY_DELAYS_MS = [600, 1500];
+  // ADR-139 D13/D14: live tests surfaced `429 Too many requests` from
+  // Browserless's built-in queue (see Browserless enterprise docs — 429 means
+  // the concurrency queue is full). Browserless's guidance is to back off and
+  // retry; D14 also serializes persistent-session BQL so parallel model tool
+  // calls cannot hammer the same single-consumer session endpoint.
+  private static readonly RATE_LIMIT_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000];
+  private static readonly RATE_LIMIT_RETRY_DELAY_CAP_MS = 30_000;
+
+  private enqueuePersistentSessionBql<T>(
+    providerSessionId: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const sessionKey = providerSessionId.trim();
+    const previous = this.persistentSessionBqlTail.get(sessionKey) ?? Promise.resolve();
+    const result = previous.catch(() => undefined).then(operation);
+    const tail = result.then(
+      () => undefined,
+      () => undefined
+    );
+    this.persistentSessionBqlTail.set(sessionKey, tail);
+    void tail.finally(() => {
+      if (this.persistentSessionBqlTail.get(sessionKey) === tail) {
+        this.persistentSessionBqlTail.delete(sessionKey);
+      }
+    });
+    return result;
+  }
+
+  private fetchPersistentSessionBqlJson(
+    providerSessionId: string,
+    url: string,
+    init: RequestInit,
+    timeoutMs: number
+  ): Promise<JsonResponse> {
+    return this.enqueuePersistentSessionBql(providerSessionId, () =>
+      this.fetchJsonWithRateLimitRetry(url, init, timeoutMs)
+    );
+  }
+
+  private resolveRateLimitRetryDelayMs(response: JsonResponse, attemptIndex: number): number {
+    const retryAfter = response.headers.get("retry-after");
+    if (retryAfter !== null && retryAfter.trim().length > 0) {
+      const asSeconds = Number(retryAfter.trim());
+      if (Number.isFinite(asSeconds) && asSeconds > 0) {
+        return Math.min(asSeconds * 1000, ProviderBrowserService.RATE_LIMIT_RETRY_DELAY_CAP_MS);
+      }
+      const asDate = Date.parse(retryAfter);
+      if (Number.isFinite(asDate)) {
+        return Math.min(
+          Math.max(0, asDate - Date.now()),
+          ProviderBrowserService.RATE_LIMIT_RETRY_DELAY_CAP_MS
+        );
+      }
+    }
+    const fallback = ProviderBrowserService.RATE_LIMIT_RETRY_DELAYS_MS[attemptIndex];
+    return fallback ?? ProviderBrowserService.RATE_LIMIT_RETRY_DELAYS_MS.at(-1) ?? 8000;
+  }
 
   private async fetchJsonWithRateLimitRetry(
     url: string,
@@ -2219,8 +2370,8 @@ export class ProviderBrowserService {
         return response;
       }
       lastResponse = response;
-      const delayMs = ProviderBrowserService.RATE_LIMIT_RETRY_DELAYS_MS[attempt];
-      if (delayMs === undefined) {
+      const delayMs = this.resolveRateLimitRetryDelayMs(response, attempt);
+      if (attempt >= ProviderBrowserService.RATE_LIMIT_RETRY_DELAYS_MS.length) {
         break;
       }
       this.logger.warn(

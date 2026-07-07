@@ -1,5 +1,41 @@
 # SESSION-HANDOFF
 
+## 2026-07-08 — ADR-139 browser queue pressure, Lavka element ranking, login dedupe
+
+Status: **implemented locally, pushed to `main` (deploy pending founder-controlled push → GitOps pin).**
+
+**Baseline SHA:** `92640765` on `main` before this slice.
+
+**Task scope:** close the live Lavka/browser friction arc without reopening closed ADR programs: (1) stop model-facing `browser_failed` retry storms from Browserless `429`/single-consumer session overlap, (2) rank Yandex grocery catalog elements so product cards and search beat nav chrome in `page.elements`, (3) fix login-modal auth gaps and duplicate profile creation on repeated `login`, (4) tighten model guidance for serialized profile-backed browser calls and one-`act` chaining.
+
+**What changed:**
+
+- **provider-gateway:** per-`providerSessionId` BQL serialization queue; stronger `429` backoff (`1s/2s/4s/8s`, optional `Retry-After`); Yandex grocery host heuristic ranks search + `product-card` / `add-spin-button` / `product-card-link` controls ahead of header/nav before the 60-cap; `data-type` added to stable selector building.
+- **runtime:** mirrors per-session browser queue + in-tool transport retry before surfacing `browser_failed`; defaults `optimizeForSpeed: true` for profile-backed `snapshot`/`act`; prompt guidance teaches serialized profile calls and no immediate transport retries.
+- **api:** Clerk middleware now allows `open-live` / `dismiss-live`; `startLogin` reuses active/pending profile rows by `originHost` instead of spawning duplicate Browserless sessions.
+- **catalog/docs:** browser gotchas for serialized profile calls; tool-catalog queue guidance.
+
+**Verification (PASS except local-only env blockers):**
+
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm run typecheck`
+- `corepack pnpm run test`
+- `corepack pnpm run test:step2`
+- `corepack pnpm run build`
+- `helm lint infra/helm -f infra/helm/values-dev.yaml` + `helm template`
+- **SKIP (local env):** `prisma:migrate:check` — local Postgres has pre-existing failed migration `20260501120000_adr079_knowledge_skills_foundation` (CI uses fresh DB)
+
+**Risks/residuals:**
+
+- In-memory per-session queues do **not** cross `provider-gateway` replicas (dev runs 2); distributed lock or temporary `replicaCount: 1` may still be needed if cross-pod races persist after deploy.
+- Yandex element ranking is host-heuristic, not full viewport-distance ranking; other sites unchanged.
+- Deploy + live Lavka acceptance still required.
+
+**Next recommended step:** deploy `api` + `runtime` + `provider-gateway`; live-validate Lavka catalog `page.elements` includes `add-spin-button` and that rapid model browser calls no longer 429-storm.
+
+---
+
 ## 2026-07-07 — ADR-139 Browserless capability policy, persistent elements, and recovery-owned reauth
 
 Status: **D1–D11 deployed and live-tested (latest confirmed image `provider-gateway:2c69b546...` via `kubectl describe pod`). D12 (fixed the real logging gap) deployed and live-verified (image `9cafc072...`) by the parent agent driving the live chat directly. D13 (found + fixed the actual root cause behind the recurring "gateway 502"/"type crashes" reports: plain Browserless `429` queue pressure, with a bounded retry) is local, not yet pushed.**

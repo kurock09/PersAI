@@ -98,6 +98,55 @@ class InMemoryAssistantBrowserProfileRepository implements AssistantBrowserProfi
     return row ? { ...row } : null;
   }
 
+  async findReusableByAssistantAndOriginHost(
+    assistantId: string,
+    originHost: string,
+    originatingChatId?: string | null
+  ): Promise<AssistantBrowserProfileRow | null> {
+    const active = [...this.rows.values()]
+      .filter(
+        (row) =>
+          row.assistantId === assistantId &&
+          row.originHost === originHost &&
+          row.status === "active"
+      )
+      .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime());
+    if (active[0] !== undefined) {
+      return { ...active[0] };
+    }
+    if (typeof originatingChatId === "string" && originatingChatId.trim().length > 0) {
+      const pendingForChat = [...this.rows.values()]
+        .filter(
+          (row) =>
+            row.assistantId === assistantId &&
+            row.originHost === originHost &&
+            row.status === "pending_login" &&
+            row.originatingChatId === originatingChatId.trim()
+        )
+        .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime());
+      if (pendingForChat[0] !== undefined) {
+        return { ...pendingForChat[0] };
+      }
+    }
+    const pending = [...this.rows.values()]
+      .filter(
+        (row) =>
+          row.assistantId === assistantId &&
+          row.originHost === originHost &&
+          row.status === "pending_login"
+      )
+      .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime());
+    const row = pending[0];
+    return row ? { ...row } : null;
+  }
+
+  async updateLiveUrl(id: string, liveUrl: string | null): Promise<void> {
+    const row = this.rows.get(id);
+    if (row) {
+      row.liveUrl = liveUrl;
+    }
+  }
+
   async create(input: {
     assistantId: string;
     workspaceId: string;
@@ -210,9 +259,16 @@ class FakeBrowserlessSessionPort implements BrowserlessSessionPort {
     browserCredentialSecretId?: string;
   }> = [];
   readonly deletedSessions: string[] = [];
+  readonly openLiveCalls: Array<{
+    providerSessionId: string;
+    targetUrl: string;
+    capabilityPolicy: PersistentBrowserCapabilityPolicy;
+    browserCredentialSecretId?: string;
+  }> = [];
   private loginCounter = 0;
   verifySessionShouldFail = false;
   startLoginShouldFail = false;
+  openLiveShouldFail = false;
 
   async startLogin(input: {
     loginUrl: string;
@@ -243,6 +299,19 @@ class FakeBrowserlessSessionPort implements BrowserlessSessionPort {
       throw new Error("Browser session is not reachable.");
     }
     return { ok: true };
+  }
+
+  async openLive(input: {
+    providerSessionId: string;
+    targetUrl: string;
+    capabilityPolicy: PersistentBrowserCapabilityPolicy;
+    browserCredentialSecretId?: string;
+  }): Promise<{ liveUrl: string }> {
+    this.openLiveCalls.push(input);
+    if (this.openLiveShouldFail) {
+      throw new Error("Browser live view could not be opened.");
+    }
+    return { liveUrl: `https://browserless.test/live/reopen/${input.providerSessionId}` };
   }
 
   async deleteSession(
@@ -335,6 +404,87 @@ describe("resolveBrowserProfileTtlDays", () => {
 });
 
 describe("AssistantBrowserProfileService", () => {
+  test("startLogin reuses an active profile for the same originHost via openLive", async () => {
+    const repository = new InMemoryAssistantBrowserProfileRepository();
+    repository.seed({
+      id: "active-lavka",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "lavka",
+      displayName: "Яндекс Лавка",
+      loginUrl: "https://lavka.yandex.ru/cart",
+      originHost: "lavka.yandex.ru",
+      providerSessionId: "session-lavka",
+      liveUrl: null,
+      status: "active",
+      lastUsedAt: null,
+      expiresAt: null
+    });
+    const browserlessPort = new FakeBrowserlessSessionPort();
+    const service = buildService({ repository, browserlessPort });
+
+    const result = await service.startLogin({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      displayName: "Яндекс Лавка новый",
+      loginUrl: "https://lavka.yandex.ru/cart"
+    });
+
+    assert.equal(result.profileId, "active-lavka");
+    assert.equal(result.profileKey, "lavka");
+    assert.equal(result.status, "active");
+    assert.equal(browserlessPort.startLoginCalls.length, 0);
+    assert.equal(browserlessPort.openLiveCalls.length, 1);
+    assert.equal(browserlessPort.openLiveCalls[0]?.providerSessionId, "session-lavka");
+    assert.equal(
+      (await repository.listByAssistant("assistant-1")).length,
+      1,
+      "must not create a duplicate profile row"
+    );
+  });
+
+  test("startLogin reuses pending profile for the same originHost instead of creating a new session row", async () => {
+    const repository = new InMemoryAssistantBrowserProfileRepository();
+    repository.seed({
+      id: "stale-pending-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "old-pending",
+      displayName: "Old Pending",
+      loginUrl: "https://crm.example/old-login",
+      originHost: "crm.example",
+      providerSessionId: "stale-session-1",
+      liveUrl: "https://browserless.test/live/old-pending",
+      originatingChatId: null,
+      status: "pending_login",
+      lastUsedAt: null,
+      expiresAt: null
+    });
+    const browserlessPort = new FakeBrowserlessSessionPort();
+    const service = buildService({ repository, browserlessPort });
+
+    const result = await service.startLogin({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      displayName: "CRM",
+      loginUrl: "https://crm.example/login"
+    });
+
+    assert.equal(result.profileId, "stale-pending-1");
+    assert.equal(result.profileKey, "old-pending");
+    assert.equal(browserlessPort.startLoginCalls.length, 1);
+    assert.deepEqual(
+      browserlessPort.deletedSessions.map((entry) => JSON.parse(entry)),
+      [
+        {
+          providerSessionId: "stale-session-1",
+          browserCredentialSecretId: resolveBrowserToolCredentialSecretId()
+        }
+      ]
+    );
+    assert.equal((await repository.listByAssistant("assistant-1")).length, 1);
+  });
+
   test("startLogin creates pending profile with deduped profileKey", async () => {
     const repository = new InMemoryAssistantBrowserProfileRepository();
     repository.seed({
@@ -389,7 +539,7 @@ describe("AssistantBrowserProfileService", () => {
     assert.equal(browserlessPort.startLoginCalls[0]?.reconnectTimeoutMs, 90 * 24 * 60 * 60 * 1000);
   });
 
-  test("startLogin removes stale pending profiles before creating a new one", async () => {
+  test("startLogin removes stale pending profiles in other chats before creating a new one", async () => {
     const repository = new InMemoryAssistantBrowserProfileRepository();
     repository.seed({
       id: "stale-pending-1",
@@ -397,8 +547,8 @@ describe("AssistantBrowserProfileService", () => {
       workspaceId: "workspace-1",
       profileKey: "old-pending",
       displayName: "Old Pending",
-      loginUrl: "https://crm.example/old-login",
-      originHost: "crm.example",
+      loginUrl: "https://shop.example/old-login",
+      originHost: "shop.example",
       providerSessionId: "stale-session-1",
       liveUrl: "https://browserless.test/live/old-pending",
       originatingChatId: null,
@@ -412,8 +562,8 @@ describe("AssistantBrowserProfileService", () => {
     await service.startLogin({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
-      displayName: "CRM",
-      loginUrl: "https://crm.example/login"
+      displayName: "Bitrix",
+      loginUrl: "https://bitrix.example/login"
     });
 
     assert.deepEqual(
@@ -430,9 +580,10 @@ describe("AssistantBrowserProfileService", () => {
       (row) => row.status === "pending_login"
     );
     assert.equal(pending.length, 1);
+    assert.equal(pending[0]?.originHost, "bitrix.example");
   });
 
-  test("startLogin removes only same-chat stale pending profiles", async () => {
+  test("startLogin reuses same-chat pending profile and drops duplicate origin rows", async () => {
     const repository = new InMemoryAssistantBrowserProfileRepository();
     repository.seed({
       id: "pending-chat-a",
@@ -475,21 +626,17 @@ describe("AssistantBrowserProfileService", () => {
       originatingChatId: "chat-a"
     });
 
-    assert.deepEqual(
-      browserlessPort.deletedSessions.map((entry) => JSON.parse(entry)),
-      [
-        {
-          providerSessionId: "session-chat-a",
-          browserCredentialSecretId: resolveBrowserToolCredentialSecretId()
-        }
-      ]
-    );
-    assert.equal(await repository.findById("pending-chat-a"), null);
-    assert.notEqual(await repository.findById("pending-chat-b"), null);
+    const deletedProviderSessionIds = browserlessPort.deletedSessions
+      .map((entry) => JSON.parse(entry).providerSessionId as string)
+      .sort();
+    assert.deepEqual(deletedProviderSessionIds, ["session-chat-a", "session-chat-b"]);
+    assert.notEqual(await repository.findById("pending-chat-a"), null);
+    assert.equal(await repository.findById("pending-chat-b"), null);
     const pending = (await repository.listByAssistant("assistant-1")).filter(
       (row) => row.status === "pending_login"
     );
-    assert.equal(pending.length, 2);
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0]?.id, "pending-chat-a");
   });
 
   test("resolveProfileForTool returns pending login state for existing pending profiles", async () => {

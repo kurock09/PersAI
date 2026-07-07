@@ -46,6 +46,11 @@ export interface AssistantBrowserProfileRepository {
     assistantId: string,
     chatId: string
   ): Promise<AssistantBrowserProfileRow | null>;
+  findReusableByAssistantAndOriginHost(
+    assistantId: string,
+    originHost: string,
+    originatingChatId?: string | null
+  ): Promise<AssistantBrowserProfileRow | null>;
   create(input: CreateAssistantBrowserProfileInput): Promise<AssistantBrowserProfileRow>;
   updateStatus(id: string, status: AssistantBrowserProfileStatus): Promise<void>;
   updatePendingLoginSession(

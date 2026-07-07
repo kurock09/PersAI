@@ -147,6 +147,8 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     // a stale hardcoded 25 — see ADR-139 D11.
     assert.match(snapshotBody.code ?? "", /getClientRects\(\)\.length === 0/);
     assert.match(snapshotBody.code ?? "", /\.filter\(isVisibleInPage\)/);
+    assert.match(snapshotBody.code ?? "", /takeRankedInteractiveElements/);
+    assert.match(snapshotBody.code ?? "", /scoreInteractiveElement/);
     assert.match(snapshotBody.code ?? "", /\}, 60\);/);
     assert.deepEqual(snapshotBody.context, {
       url: "https://example.com/",
@@ -692,7 +694,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     );
     assert.match(interactiveElementsScript, /getClientRects\(\)\.length === 0/);
     assert.match(interactiveElementsScript, /\.filter\(isVisibleInPage\)/);
-    assert.match(interactiveElementsScript, /\.slice\(0, 60\)/);
+    assert.match(interactiveElementsScript, /takeRankedInteractiveElements/);
+    assert.match(interactiveElementsScript, /isYandexGroceryPage/);
+    assert.match(interactiveElementsScript, /add-spin-button/);
+    assert.match(interactiveElementsScript, /,\s*60\s*\)/);
     assert.match(persistentBody.query ?? "", /userAgent\(userAgent: "[^"]*Chrome[^"]*"\)/);
     assert.doesNotMatch(persistentBody.query ?? "", /Headless/i);
     assert.match(
@@ -704,6 +709,73 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.equal(persistentSnapshot.finalUrl, "https://crm.example.com/dashboard");
     assert.equal(persistentSnapshot.content, "Authenticated CRM content");
     assert.equal(persistentSnapshot.elements[0]?.selector, "#crm-search");
+
+    // ADR-139 D14: persistent BrowserQL is single-consumer — parallel tool
+    // calls against the same providerSessionId must not overlap BQL HTTP.
+    let persistentBqlInFlight = 0;
+    let persistentBqlMaxInFlight = 0;
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      if (url.includes("/session/bql/")) {
+        persistentBqlInFlight += 1;
+        persistentBqlMaxInFlight = Math.max(persistentBqlMaxInFlight, persistentBqlInFlight);
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        persistentBqlInFlight -= 1;
+      }
+      return new Response(
+        JSON.stringify({
+          data: {
+            goto: { status: 200 },
+            pageTitle: { title: "CRM" },
+            pageUrl: { url: "https://crm.example.com/dashboard" },
+            pageText: { text: "Serialized CRM content" },
+            pageElements: { value: "[]" }
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    const [serializedSnapshotA, serializedSnapshotB] = await Promise.all([
+      service.browserAction({
+        action: "snapshot",
+        url: "https://crm.example.com/dashboard",
+        maxChars: null,
+        operations: [],
+        timeoutMs: null,
+        profileSessionId: "/session/session-login",
+        capabilityPolicy: createPersistentCapabilityPolicy("crm"),
+        credential: {
+          toolCode: "browser",
+          secretId: "secret-session-serialize-a",
+          providerId: "browserless"
+        }
+      }),
+      service.browserAction({
+        action: "snapshot",
+        url: "https://crm.example.com/dashboard",
+        maxChars: null,
+        operations: [],
+        timeoutMs: null,
+        profileSessionId: "/session/session-login",
+        capabilityPolicy: createPersistentCapabilityPolicy("crm"),
+        credential: {
+          toolCode: "browser",
+          secretId: "secret-session-serialize-b",
+          providerId: "browserless"
+        }
+      })
+    ]);
+    assert.equal(persistentBqlMaxInFlight, 1);
+    assert.equal(serializedSnapshotA.content, "Serialized CRM content");
+    assert.equal(serializedSnapshotB.content, "Serialized CRM content");
 
     // Persistent-profile `act` with an operation whose selector times out on
     // the live page: Browserless BQL returns `200 { data: {...partial},
@@ -1237,10 +1309,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         }),
       BadGatewayException
     );
-    // 1 initial attempt + 2 retries (RATE_LIMIT_RETRY_DELAYS_MS has 2
+    // 1 initial attempt + 4 retries (RATE_LIMIT_RETRY_DELAYS_MS has 4
     // entries) — exhausting retries still surfaces as a normal gateway
     // failure rather than retrying forever.
-    assert.equal(persistentRateLimitedAttempts, 3);
+    assert.equal(persistentRateLimitedAttempts, 5);
   } finally {
     globalThis.fetch = originalFetch;
   }

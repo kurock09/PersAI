@@ -257,6 +257,7 @@ GOTCHAS:
 - Persistent-profile stealth and residential-proxy policy are platform-owned. Never invent proxy or stealth settings as browser arguments or chat instructions.
 - If \`act\` returns per-operation warnings, continue from the returned page state/\`page.elements\` and retry only when the observed page supports it; do not jump to "bot protection", "profile expired", or similar from one failed selector.
 - A transient BQL/reconnect/429 failure is not proof that a profile expired. Speak from structured runtime/API reason codes for pending login, user re-auth, or expired-profile states.
+- Platform serializes profile-backed \`snapshot\`/\`act\` per saved session. Do not issue parallel browser calls for the same \`profile\`; chain interactions into one \`act\` or wait for the previous call to finish instead of retrying immediately after a transport failure.
 - Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to missing profile, pending login, or user re-auth state.
 - On ordinary web chat, login and re-auth stay product-owned UI state. Do not paste Browserless live login URLs into the assistant reply.
 - \`optimizeForSpeed:true\` on \`snapshot\`/\`act\` speeds table scraping (blocks heavy assets).

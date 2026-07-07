@@ -15,6 +15,7 @@ import {
   type PersaiRuntimeBrowserAction,
   type PersaiRuntimeBrowserProviderId,
   type PersaiRuntimeBrowserSnapshotFormat,
+  type ProviderGatewayBrowserActionRequest,
   type ProviderGatewayToolCall,
   type RuntimeBrowserOperation,
   type RuntimeBrowserRequest,
@@ -24,7 +25,10 @@ import {
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
-import { ProviderGatewayClientService } from "./provider-gateway.client.service";
+import {
+  ProviderGatewayClientService,
+  ProviderGatewayHttpError
+} from "./provider-gateway.client.service";
 import {
   executeRuntimeToolContractDescribe,
   isToolContractDescribeCall
@@ -40,6 +44,12 @@ export interface RuntimeBrowserToolExecutionResult {
 @Injectable()
 export class RuntimeBrowserToolService {
   private readonly logger = new Logger(RuntimeBrowserToolService.name);
+  // ADR-139: Browserless persistent sessions are single-consumer. Serialize
+  // profile-backed page actions per providerSessionId so overlapping model
+  // tool calls wait for the previous BQL chain instead of racing and surfacing
+  // 429/502 as immediate browser_failed retries.
+  private readonly persistentBrowserActionTail = new Map<string, Promise<void>>();
+  private static readonly BROWSER_TRANSPORT_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000];
 
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
@@ -455,32 +465,42 @@ export class RuntimeBrowserToolService {
     }
 
     const workerConfig = this.resolveWorkerToolConfig(params.bundle, "browser");
+    const optimizeForSpeed = request.optimizeForSpeed ?? (profileSessionId !== null ? true : null);
     this.logger.log(
       `[browser-action] action=${request.action} url=${request.url} profile=${
         profileSessionId !== null ? "set" : "none"
       } operations=${request.operations.length}`
     );
-    const providerResult = await this.providerGatewayClientService.browserAction(
-      {
-        action: request.action,
-        url: request.url,
-        maxChars: request.maxChars,
-        operations: request.operations,
-        timeoutMs: workerConfig?.timeoutMs ?? null,
-        profileSessionId,
-        capabilityPolicy,
-        format: request.format ?? null,
-        optimizeForSpeed: request.optimizeForSpeed ?? null,
-        snapshotSelector: request.snapshotSelector ?? null,
-        fullPage: request.fullPage ?? null,
-        credential: {
-          toolCode: "browser",
-          secretId: credential.secretRef.id,
-          providerId
-        }
-      },
-      workerConfig === null ? undefined : { timeoutMs: workerConfig.timeoutMs }
-    );
+    const browserActionRequest: ProviderGatewayBrowserActionRequest = {
+      action: request.action,
+      url: request.url,
+      maxChars: request.maxChars,
+      operations: request.operations,
+      timeoutMs: workerConfig?.timeoutMs ?? null,
+      profileSessionId,
+      capabilityPolicy,
+      format: request.format ?? null,
+      optimizeForSpeed,
+      snapshotSelector: request.snapshotSelector ?? null,
+      fullPage: request.fullPage ?? null,
+      credential: {
+        toolCode: "browser",
+        secretId: credential.secretRef.id,
+        providerId
+      }
+    };
+    const providerResult =
+      profileSessionId !== null
+        ? await this.enqueuePersistentBrowserAction(profileSessionId, () =>
+            this.browserActionWithTransportRetry(
+              browserActionRequest,
+              workerConfig === null ? undefined : { timeoutMs: workerConfig.timeoutMs }
+            )
+          )
+        : await this.browserActionWithTransportRetry(
+            browserActionRequest,
+            workerConfig === null ? undefined : { timeoutMs: workerConfig.timeoutMs }
+          );
 
     const artifacts: RuntimeOutputArtifact[] = [];
     let pageContent = providerResult.content;
@@ -586,6 +606,67 @@ export class RuntimeBrowserToolService {
       default:
         return "Browser profile could not be used.";
     }
+  }
+
+  private enqueuePersistentBrowserAction<T>(
+    providerSessionId: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const sessionKey = providerSessionId.trim();
+    const previous = this.persistentBrowserActionTail.get(sessionKey) ?? Promise.resolve();
+    const result = previous.catch(() => undefined).then(operation);
+    const tail = result.then(
+      () => undefined,
+      () => undefined
+    );
+    this.persistentBrowserActionTail.set(sessionKey, tail);
+    void tail.finally(() => {
+      if (this.persistentBrowserActionTail.get(sessionKey) === tail) {
+        this.persistentBrowserActionTail.delete(sessionKey);
+      }
+    });
+    return result;
+  }
+
+  private async browserActionWithTransportRetry(
+    input: Parameters<ProviderGatewayClientService["browserAction"]>[0],
+    options?: Parameters<ProviderGatewayClientService["browserAction"]>[1]
+  ): Promise<Awaited<ReturnType<ProviderGatewayClientService["browserAction"]>>> {
+    for (
+      let attempt = 0;
+      attempt <= RuntimeBrowserToolService.BROWSER_TRANSPORT_RETRY_DELAYS_MS.length;
+      attempt++
+    ) {
+      try {
+        return await this.providerGatewayClientService.browserAction(input, options);
+      } catch (error) {
+        if (!(error instanceof ProviderGatewayHttpError)) {
+          throw error;
+        }
+        const retryableStatus =
+          error.httpStatus === 429 ||
+          error.httpStatus === 502 ||
+          error.httpStatus === 503 ||
+          error.httpStatus === 408;
+        if (!retryableStatus) {
+          throw error;
+        }
+        if (attempt >= RuntimeBrowserToolService.BROWSER_TRANSPORT_RETRY_DELAYS_MS.length) {
+          throw error;
+        }
+        const delayMs =
+          RuntimeBrowserToolService.BROWSER_TRANSPORT_RETRY_DELAYS_MS[attempt] ?? 8000;
+        this.logger.warn(
+          `[browser-action] transport status=${String(error.httpStatus)} profileSession=${
+            input.profileSessionId ?? "none"
+          }, retrying in ${String(delayMs)}ms (attempt ${String(attempt + 1)}/${String(
+            RuntimeBrowserToolService.BROWSER_TRANSPORT_RETRY_DELAYS_MS.length + 1
+          )})`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    return await this.providerGatewayClientService.browserAction(input, options);
   }
 
   private buildPdfFilenameHint(title: string | null, finalUrl: string): string | null {

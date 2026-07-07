@@ -835,7 +835,7 @@ function createBrowserToolDefinition(
           type: "string",
           enum: ["describe", ...bundle.runtime.browser.actions],
           description:
-            'Use "describe" to load the full tool contract. Use "list_profiles" to list saved browser sessions, "login" to start product-owned live login or re-auth, "open_live" to reopen the live browser window for an existing profile (captcha, confirmation, or re-auth), "snapshot" to inspect a page, or "act" to perform bounded browser operations before returning a fresh snapshot. For saved profiles, stealth/proxy policy is platform-owned, not a model argument. Profile-backed text snapshots and acts may return page.elements with up to ' +
+            'Use "describe" to load the full tool contract. Use "list_profiles" first. If a saved profile already exists for the target site, never call "login" again — use "open_live" with that profileKey (captcha, confirmation, or re-auth) or "snapshot"/"act" when the profile is active. Call "login" only when "list_profiles" shows no profile for that site origin. "login" reopens the same site profile when one already exists, but repeated "login" still wastes Browserless concurrency slots while the live window is unavailable. "snapshot" inspects a page; "act" performs bounded browser operations before returning a fresh snapshot. For saved profiles, stealth/proxy policy is platform-owned, not a model argument. Profile-backed calls are serialized per session by the platform — do not issue parallel snapshot/act calls for the same profile; chain steps into one act or wait for the previous call to finish instead of retrying immediately after a transport failure. Profile-backed text snapshots and acts may return page.elements with up to ' +
             String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS) +
             " currently-visible interactive controls and reusable CSS selectors; prefer those selectors on follow-up acts. If act returns per-operation warnings, continue from the observed page state/elements and speak from structured runtime/API reason codes for re-auth or expiry. Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to that state."
         },
@@ -873,7 +873,7 @@ function createBrowserToolDefinition(
         optimizeForSpeed: {
           type: "boolean",
           description:
-            "When true, prefer faster page load (block heavy assets, domcontentloaded). Supported on snapshot and act."
+            "When true, prefer faster page load (block heavy assets, domcontentloaded). Defaults to true for profile-backed snapshot/act when omitted."
         },
         maxChars: {
           type: "integer",
