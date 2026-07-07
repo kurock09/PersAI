@@ -1,4 +1,10 @@
-import { BadGatewayException, BadRequestException, Inject, Injectable } from "@nestjs/common";
+import {
+  BadGatewayException,
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger
+} from "@nestjs/common";
 import type { ProviderGatewayConfig } from "@persai/config";
 import {
   buildToolPathTimeBillingFacts,
@@ -545,6 +551,8 @@ type NormalizedBrowserSessionCapabilityRequest = {
 
 @Injectable()
 export class ProviderBrowserService {
+  private readonly logger = new Logger(ProviderBrowserService.name);
+
   constructor(
     @Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService
@@ -884,6 +892,9 @@ export class ProviderBrowserService {
     }
 
     const query = `mutation BrowserAction(${varDefs.join(", ")}) {\n  ${parts.join("\n  ")}\n}`;
+    this.logger.debug(
+      `[persistent-bql] profile=${normalized.profileSessionId} proxy=${String(capabilityPolicy.proxy !== null)} stealth=${String(capabilityPolicy.stealth)} operations=${normalized.operations.length}`
+    );
 
     const response = await this.fetchJson(
       bqlUrl,
@@ -899,6 +910,21 @@ export class ProviderBrowserService {
     }
     const root = this.asObject(response.body);
     const errors = Array.isArray(root?.errors) ? (root.errors as unknown[]) : [];
+    if (errors.length > 0) {
+      // Logged unconditionally, before fatal/warning classification, so a
+      // silently-tolerated capability error (e.g. `proxy` executing without
+      // throwing but not actually applying, per D9) is still visible
+      // server-side instead of only being discoverable via an external
+      // IP/fingerprint check on the live page.
+      this.logger.warn(
+        `[persistent-bql] BrowserQL errors: ${JSON.stringify(
+          errors.map((entry) => {
+            const errorObject = this.asObject(entry);
+            return { path: errorObject?.path ?? null, message: errorObject?.message ?? null };
+          })
+        )}`
+      );
+    }
     const data = this.asObject(root?.data);
     if (data === null) {
       // No data at all → schema-level or session-level failure; surface the
