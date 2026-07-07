@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { PERSAI_WEB_BROWSER_LOGIN_CONTINUE_URL } from "@persai/runtime-contract";
 import { stringifyToolResultPayloadForModel } from "../src/modules/turns/sanitize-tool-result-for-model";
 
 export async function runSanitizeToolResultForModelTest(): Promise<void> {
@@ -324,5 +325,34 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     };
     assert.equal(parsed.toolCode, "tts");
     assert.equal(parsed.artifact, null);
+  }
+
+  // Browser login tool results must not expose internal liveUrl to the model.
+  {
+    const payload = {
+      toolCode: "browser" as const,
+      executionMode: "worker" as const,
+      action: "login" as const,
+      login: {
+        profileId: "prof-lavka",
+        displayName: "Яндекс Лавка",
+        liveUrl: "https://production-sfo.browserless.io/e/abc/live/index.html?i=secret"
+      },
+      pendingBrowserLogin: {
+        profileId: "prof-lavka",
+        displayName: "Яндекс Лавка",
+        liveUrl: "https://production-sfo.browserless.io/e/abc/live/index.html?i=secret"
+      }
+    };
+    const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
+      login: Record<string, unknown>;
+      pendingBrowserLogin: Record<string, unknown>;
+      webBrowserLogin: { continueUrl: string; displayName: string; delivery: string };
+    };
+    assert.equal(parsed.login.liveUrl, undefined);
+    assert.equal(parsed.pendingBrowserLogin.liveUrl, undefined);
+    assert.equal(parsed.webBrowserLogin.continueUrl, PERSAI_WEB_BROWSER_LOGIN_CONTINUE_URL);
+    assert.equal(parsed.webBrowserLogin.displayName, "Яндекс Лавка");
+    assert.match(parsed.webBrowserLogin.delivery, /Never paste internal Browserless/);
   }
 }

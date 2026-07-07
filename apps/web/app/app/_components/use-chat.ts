@@ -1179,6 +1179,11 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
   }, [applyPendingBrowserLoginForThread, assistantScopedThreadKey]);
   const abortBrowserLogin = useCallback(async () => {
     const pending = pendingBrowserLoginByThreadRef.current.get(assistantScopedThreadKey) ?? null;
+    if (pending?.completionMode === "assist") {
+      browserLoginDismissedByThreadRef.current.set(assistantScopedThreadKey, true);
+      setBrowserLoginDismissedState(true);
+      return;
+    }
     const assistantId = options?.assistantId;
     if (pending !== null && typeof assistantId === "string" && assistantId.length > 0) {
       try {

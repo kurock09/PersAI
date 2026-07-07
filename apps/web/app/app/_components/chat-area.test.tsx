@@ -360,7 +360,8 @@ describe("ChatArea", () => {
             profileKey: "bitrix",
             displayName: "Bitrix24",
             liveUrl: "https://browserless.example/live/bitrix",
-            loginUrl: "https://bitrix.example/login"
+            loginUrl: "https://bitrix.example/login",
+            completionMode: "login"
           },
           browserLoginModalOpen: false,
           abortBrowserLogin,
@@ -373,6 +374,33 @@ describe("ChatArea", () => {
     expect(screen.getByText("browserLoginContinueHint")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "browserLoginContinue" }));
     expect(reopenBrowserLogin).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "browserLoginCancel" }));
+    await waitFor(() => {
+      expect(abortBrowserLogin).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("routes assist-mode browser banner cancel through abortBrowserLogin for dismiss-only handling", async () => {
+    const abortBrowserLogin = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ChatArea
+        chat={{
+          ...createChat("Hello", { isStreaming: false }),
+          pendingBrowserLogin: {
+            profileId: "profile-1",
+            profileKey: "lavka",
+            displayName: "Lavka",
+            liveUrl: "https://browserless.example/live/lavka",
+            loginUrl: "https://lavka.yandex.ru/",
+            completionMode: "assist"
+          },
+          browserLoginModalOpen: false,
+          abortBrowserLogin,
+          reopenBrowserLogin: vi.fn()
+        }}
+      />
+    );
+
     fireEvent.click(screen.getByRole("button", { name: "browserLoginCancel" }));
     await waitFor(() => {
       expect(abortBrowserLogin).toHaveBeenCalledTimes(1);

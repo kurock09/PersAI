@@ -5,6 +5,10 @@
 
 ## 2026-07-08
 
+- **Fix (ADR-139 — pageElements evaluate SyntaxError regression; pushed `679d4421`).** Broken quote escaping in the Yandex grocery `closest()` selector made every persistent text `snapshot`/`act` fail with `pageElements SyntaxError` and gateway 502 after `51d4dc29`; png/live paths were unaffected.
+
+- **Fix + feature (ADR-139 follow-through — openLive white screen, assist cancel UX, `click_at`; local, not pushed).** **provider-gateway:** `openLive` BQL now navigates to `loginUrl` (`domContentLoaded` + 3s settle) before `liveURL` so reopening an active saved profile no longer shows a blank live view; `startLogin` aligned to the same goto policy (was `networkIdle`); new `click_at {x,y}` act operation for viewport coordinate clicks when selectors fail. **runtime/web:** tool schema teaches `click_at` from png coordinates; chat `abortBrowserLogin` deletes a profile only for `completionMode: "login"` — assist/view-existing cancel just dismisses the banner.
+
 - **Fix (ADR-139 follow-through — browser queue pressure, Lavka element ranking, login dedupe; pushed).** Closed the live Lavka friction arc without reopening closed programs. **provider-gateway:** serializes persistent BQL per `providerSessionId`, strengthens `429` backoff, and ranks Yandex grocery (`lavka.yandex.ru`, `market.yandex.ru`, `eda.yandex.ru`) search + product-card controls (`add-spin-button`, `product-card-link`, `/good/` links) ahead of nav chrome before the 60-element cap; adds `data-type` to stable selector building. **runtime:** mirrors per-session browser queue + transport retry before `browser_failed`, defaults `optimizeForSpeed: true` for profile-backed `snapshot`/`act`, and updates prompt/catalog guidance for serialized profile calls. **api:** Clerk routes for `open-live`/`dismiss-live`; `startLogin` reuses active/pending profiles by `originHost` instead of spawning duplicate Browserless sessions. Full workspace lint, format, typecheck, test, test:step2, build, and helm lint/template pass locally; local-only `prisma:migrate:check` skipped due to pre-existing failed migration in dev Postgres.
 
 ## 2026-07-07

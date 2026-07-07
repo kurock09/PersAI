@@ -419,6 +419,10 @@ export default async ({ page, context }) => {
             await page.click(operation.selector);
             await waitAfterMutation();
             break;
+          case "click_at":
+            await page.mouse.click(operation.x, operation.y);
+            await waitAfterMutation();
+            break;
           case "type":
             await page.focus(operation.selector);
             await page.$eval(operation.selector, (element) => {
@@ -941,6 +945,13 @@ export class ProviderBrowserService {
           parts.push(`op_${idx}: click(selector: $selector_${idx}) { time }`);
           break;
         }
+        case "click_at": {
+          const script = this.buildClickAtEvaluateScript(operation.x, operation.y);
+          varDefs.push(`$clickAtScript_${idx}: String!`);
+          vars[`clickAtScript_${idx}`] = script;
+          parts.push(`op_${idx}: evaluate(content: $clickAtScript_${idx}) { value }`);
+          break;
+        }
         case "type": {
           varDefs.push(`$selector_${idx}: String!`, `$text_${idx}: String!`);
           vars[`selector_${idx}`] = operation.selector;
@@ -1415,6 +1426,7 @@ export class ProviderBrowserService {
         body: JSON.stringify({
           query: this.buildBrowserlessOpenLiveMutation(capabilityPolicy, targetUrl),
           variables: {
+            url: targetUrl,
             liveUrlTimeoutMs
           }
         })
@@ -1817,7 +1829,8 @@ export class ProviderBrowserService {
   ): string {
     const parts = [
       ...this.buildBrowserlessCapabilityPolicyMutations(capabilityPolicy, loginUrl),
-      `goto(url: $url, waitUntil: networkIdle) { status }`,
+      `goto(url: $url, waitUntil: domContentLoaded) { status }`,
+      `settleAfterGoto: waitForTimeout(time: 3000) { time }`,
       `liveURL(interactable: true, timeout: $liveUrlTimeoutMs) { liveURL }`
     ];
     return `mutation StartLogin($url: String!, $liveUrlTimeoutMs: Float!) {\n  ${parts.join("\n  ")}\n}`;
@@ -1829,9 +1842,15 @@ export class ProviderBrowserService {
   ): string {
     const parts = [
       ...this.buildBrowserlessCapabilityPolicyMutations(capabilityPolicy, targetUrl),
+      `goto(url: $url, waitUntil: domContentLoaded) { status }`,
+      `settleAfterGoto: waitForTimeout(time: 3000) { time }`,
       `liveURL(interactable: true, timeout: $liveUrlTimeoutMs) { liveURL }`
     ];
-    return `mutation OpenLive($liveUrlTimeoutMs: Float!) {\n  ${parts.join("\n  ")}\n}`;
+    return `mutation OpenLive($url: String!, $liveUrlTimeoutMs: Float!) {\n  ${parts.join("\n  ")}\n}`;
+  }
+
+  private buildClickAtEvaluateScript(x: number, y: number): string {
+    return `(() => { const x = ${String(x)}; const y = ${String(y)}; const target = document.elementFromPoint(x, y); if (!target) { throw new Error("No element at click coordinates"); } const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y }; target.dispatchEvent(new PointerEvent("pointerdown", opts)); target.dispatchEvent(new MouseEvent("mousedown", opts)); target.dispatchEvent(new PointerEvent("pointerup", opts)); target.dispatchEvent(new MouseEvent("mouseup", opts)); target.dispatchEvent(new MouseEvent("click", opts)); return true; })()`;
   }
 
   private normalizeOperation(operation: unknown, index: number): RuntimeBrowserOperation {
@@ -1855,6 +1874,12 @@ export class ProviderBrowserService {
         return {
           kind,
           selector: this.readNonEmptyString(row.selector, `operations[${String(index)}].selector`)
+        };
+      case "click_at":
+        return {
+          kind,
+          x: this.readViewportCoordinate(row.x, `operations[${String(index)}].x`),
+          y: this.readViewportCoordinate(row.y, `operations[${String(index)}].y`)
         };
       case "type":
         return {
@@ -2467,6 +2492,13 @@ export class ProviderBrowserService {
       throw new BadRequestException(
         `${field} must be an integer between 0 and ${String(MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS)}`
       );
+    }
+    return Number(value);
+  }
+
+  private readViewportCoordinate(value: unknown, field: string): number {
+    if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 10_000) {
+      throw new BadRequestException(`${field} must be an integer between 0 and 10000`);
     }
     return Number(value);
   }

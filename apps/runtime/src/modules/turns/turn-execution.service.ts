@@ -2158,6 +2158,11 @@ export class TurnExecutionService {
         "Do not reveal private owner context to other group participants."
       );
     }
+    lines.push(
+      "Browser login cannot be completed inside Telegram.",
+      "When browser.login or browser.open_live succeeds, tell the user you opened login for that site and they must continue on PersAI web at https://persai.dev only.",
+      "Never paste internal Browserless or live browser URLs in Telegram replies."
+    );
     return lines.join("\n");
   }
 

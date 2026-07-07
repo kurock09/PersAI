@@ -5,6 +5,8 @@ import type {
 } from "@persai/runtime-bundle";
 import {
   DEFAULT_RUNTIME_BROWSER_MAX_CHARS,
+  DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH,
+  DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT,
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
@@ -548,7 +550,7 @@ export class RuntimeBrowserToolService {
       artifacts.push(artifact);
       pageContent = isPdf
         ? `PDF snapshot saved to workspace path "${artifact.storagePath}". Attach it with files.attach using that path.`
-        : `Screenshot saved to workspace path "${artifact.storagePath}". Attach it with files.attach using that path.`;
+        : `Screenshot saved to workspace path "${artifact.storagePath}" (${String(DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH)}x${String(DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT)} viewport). Use files.preview on that path to read click_at x,y coordinates, or files.attach to deliver it.`;
     }
 
     if (profileKey !== null) {
@@ -907,6 +909,18 @@ export class RuntimeBrowserToolService {
           operations.push({ kind, selector });
           break;
         }
+        case "click_at": {
+          const x = this.readViewportCoordinate(row.x);
+          const y = this.readViewportCoordinate(row.y);
+          if (x instanceof Error) {
+            return x;
+          }
+          if (y instanceof Error) {
+            return y;
+          }
+          operations.push({ kind, x, y });
+          break;
+        }
         case "type": {
           const selector = this.asNonEmptyString(row.selector);
           if (selector === null || typeof row.text !== "string") {
@@ -1040,5 +1054,12 @@ export class RuntimeBrowserToolService {
 
   private asNonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+  }
+
+  private readViewportCoordinate(value: unknown): number | Error {
+    if (!Number.isInteger(value) || Number(value) < 0 || Number(value) > 10_000) {
+      return new Error("browser click_at operation requires integer x and y between 0 and 10000.");
+    }
+    return Number(value);
   }
 }

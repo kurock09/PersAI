@@ -626,6 +626,21 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.match(invalidScrollResult.payload.warning ?? "", /scroll operation selector/);
   assert.equal(providerGatewayClientService.browserCalls.length, 5);
 
+  const clickAtResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "act",
+      url: "https://example.com/catalog",
+      profile: "lavka",
+      operations: [{ kind: "click_at", x: 120, y: 340 }]
+    }),
+    sessionId: "session-1"
+  });
+  assert.equal(clickAtResult.isError, false);
+  assert.deepEqual(providerGatewayClientService.browserCalls[5]?.operations, [
+    { kind: "click_at", x: 120, y: 340 }
+  ]);
+
   const openLiveResult = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({ action: "open_live", profile: "lavka" }),

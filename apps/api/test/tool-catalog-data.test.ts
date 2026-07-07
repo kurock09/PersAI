@@ -232,6 +232,17 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
     /Do not paste Browserless live login URLs into the assistant reply/i,
     "browser guidance must forbid pasting Browserless live login URLs into ordinary web chat"
   );
+  assert.match(text, /click_at/i, "browser guidance must document click_at viewport clicks");
+  assert.match(
+    text,
+    /files\(\{action:"preview"/i,
+    "browser guidance must teach files.preview before click_at coordinates"
+  );
+  assert.match(
+    text,
+    /1280x720/i,
+    "browser guidance must pin the browser viewport size for coordinate clicks"
+  );
   assert.doesNotMatch(
     text,
     /\bliveUrl\b/,

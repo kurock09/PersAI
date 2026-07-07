@@ -613,11 +613,13 @@ export async function runNativeToolProjectionTest(): Promise<void> {
       action?: { description?: string };
       displayName?: { description?: string };
       profile?: { description?: string };
+      format?: { description?: string };
       operations?: {
         description?: string;
         items?: {
           properties?: {
             selector?: { description?: string };
+            x?: { description?: string };
           };
         };
       };
@@ -629,12 +631,17 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   const browserOperationsDescription = browserSchema.properties?.operations?.description ?? "";
   const browserSelectorDescription =
     browserSchema.properties?.operations?.items?.properties?.selector?.description ?? "";
+  const browserFormatDescription = browserSchema.properties?.format?.description ?? "";
+  const browserClickAtXDescription =
+    browserSchema.properties?.operations?.items?.properties?.x?.description ?? "";
   const browserSchemaText = [
     browserActionDescription,
     browserDisplayNameDescription,
     browserProfileDescription,
     browserOperationsDescription,
-    browserSelectorDescription
+    browserSelectorDescription,
+    browserFormatDescription,
+    browserClickAtXDescription
   ].join("\n");
   assert.match(
     browserActionDescription,
@@ -695,6 +702,26 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     browserOperationsDescription,
     /insert kind="wait_for_selector".*then continue the chain/i,
     "browser operations schema must teach chaining wait_for_selector after content-opening steps instead of a separate snapshot"
+  );
+  assert.match(
+    browserOperationsDescription,
+    /files\(\{action:"preview"/i,
+    "browser operations schema must teach files.preview before click_at"
+  );
+  assert.match(
+    browserOperationsDescription,
+    /1280x720/i,
+    "browser operations schema must pin the viewport size for coordinate clicks"
+  );
+  assert.match(
+    browserFormatDescription,
+    /1280x720/i,
+    "browser format schema must document viewport size for png coordinate mapping"
+  );
+  assert.match(
+    browserClickAtXDescription,
+    /files\.preview/i,
+    "browser click_at x schema must reference files.preview"
   );
   assert.match(
     browserSelectorDescription,

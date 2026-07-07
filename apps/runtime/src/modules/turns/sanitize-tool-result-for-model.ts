@@ -39,6 +39,8 @@
  * presentation-only token.
  */
 
+import { PERSAI_WEB_BROWSER_LOGIN_CONTINUE_URL } from "@persai/runtime-contract";
+
 const MODEL_VISIBLE_ARTIFACT_FIELDS = new Set(["kind", "mimeType", "voiceNote", "caption"]);
 export const MAX_MODEL_VISIBLE_FILES_CONTENT_CHARS = 16_000;
 
@@ -157,6 +159,9 @@ function modelFacingReplacer(_key: string, value: unknown): unknown {
   if (isRuntimeFilesToolResultShape(candidate)) {
     return sanitizeFilesToolResultForModel(candidate);
   }
+  if (isRuntimeBrowserToolResultShape(candidate)) {
+    return sanitizeBrowserToolResultForModel(candidate);
+  }
   if (!isRuntimeOutputArtifactShape(candidate)) {
     return value;
   }
@@ -169,16 +174,76 @@ function modelFacingReplacer(_key: string, value: unknown): unknown {
   return sanitized;
 }
 
+function isRuntimeBrowserToolResultShape(value: Record<string, unknown>): boolean {
+  return value.toolCode === "browser" && value.executionMode === "worker";
+}
+
+function redactBrowserLiveUrlFields(
+  value: Record<string, unknown> | null
+): Record<string, unknown> | null {
+  if (value === null) {
+    return null;
+  }
+  const rest = { ...value };
+  delete rest.liveUrl;
+  return rest;
+}
+
+function sanitizeBrowserToolResultForModel(
+  value: Record<string, unknown>
+): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = { ...value };
+  if (
+    sanitized.login !== null &&
+    typeof sanitized.login === "object" &&
+    !Array.isArray(sanitized.login)
+  ) {
+    sanitized.login = redactBrowserLiveUrlFields(sanitized.login as Record<string, unknown>);
+  }
+  if (
+    sanitized.pendingBrowserLogin !== null &&
+    typeof sanitized.pendingBrowserLogin === "object" &&
+    !Array.isArray(sanitized.pendingBrowserLogin)
+  ) {
+    sanitized.pendingBrowserLogin = redactBrowserLiveUrlFields(
+      sanitized.pendingBrowserLogin as Record<string, unknown>
+    );
+  }
+
+  const pending =
+    sanitized.pendingBrowserLogin !== null &&
+    typeof sanitized.pendingBrowserLogin === "object" &&
+    !Array.isArray(sanitized.pendingBrowserLogin)
+      ? (sanitized.pendingBrowserLogin as Record<string, unknown>)
+      : sanitized.login !== null &&
+          typeof sanitized.login === "object" &&
+          !Array.isArray(sanitized.login)
+        ? (sanitized.login as Record<string, unknown>)
+        : null;
+  const displayName =
+    typeof pending?.displayName === "string" && pending.displayName.trim().length > 0
+      ? pending.displayName.trim()
+      : typeof sanitized.displayName === "string" && sanitized.displayName.trim().length > 0
+        ? sanitized.displayName.trim()
+        : null;
+  const shouldAttachWebLoginDelivery =
+    sanitized.action === "login" ||
+    sanitized.action === "opened_live" ||
+    sanitized.requestedAction === "open_live" ||
+    sanitized.pendingBrowserLogin !== null;
+  if (shouldAttachWebLoginDelivery) {
+    sanitized.webBrowserLogin = {
+      continueUrl: PERSAI_WEB_BROWSER_LOGIN_CONTINUE_URL,
+      ...(displayName === null ? {} : { displayName }),
+      delivery:
+        "Product-owned browser login is not completed inside Telegram chat. Tell the user you opened/reopened login for this site and they must continue in PersAI web at continueUrl only. Never paste internal Browserless/live browser URLs."
+    };
+  }
+  return sanitized;
+}
+
 /**
  * Serialize a tool-result payload to the JSON string the model will see.
- * Equivalent to `JSON.stringify(payload)` for every payload field except
- * `RuntimeOutputArtifact`-shaped objects (anywhere in the tree), where
- * presentation-only fields are stripped so the model cannot quote them.
- *
- * Returns the same string `JSON.stringify(payload)` would have returned
- * if the payload contains no artifact-shaped objects, so call sites that
- * use this helper can be refactored from `JSON.stringify(payload)` with
- * no behavior change for non-artifact-bearing tool results.
  */
 export function stringifyToolResultPayloadForModel(payload: unknown): string {
   return JSON.stringify(payload, modelFacingReplacer);

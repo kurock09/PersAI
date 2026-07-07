@@ -1,5 +1,33 @@
 # SESSION-HANDOFF
 
+## 2026-07-08 — ADR-139 openLive white screen, assist cancel UX, click_at
+
+Status: **implemented locally, not pushed.**
+
+**Baseline SHA:** `679d4421` on `main` (pageElements SyntaxError hotfix).
+
+**Task scope:** (1) fix white live modal when reopening an active saved Lavka profile — `openLive` must navigate to `loginUrl` before `liveURL`, (2) stop assist-mode banner/modal cancel from deleting the profile, (3) add `click_at` viewport coordinate clicks for vision/hybrid fallback.
+
+**What changed:**
+
+- **provider-gateway:** `openLive` BQL now `goto(loginUrl)` + 3s settle before `liveURL`; `startLogin` aligned to `domContentLoaded` + settle (was `networkIdle`); new `click_at` operation via evaluate/mouse click.
+- **runtime-contract + runtime:** `click_at {x,y}` operation kind + tool schema guidance.
+- **web:** `abortBrowserLogin` dismisses only when `completionMode === "assist"`; delete profile only for new `login` pending.
+
+**Verification (PASS):** provider-gateway browser test, runtime browser test, chat-area vitest, lint, typecheck (provider-gateway/runtime/web).
+
+**Next recommended step:** deploy `provider-gateway` + `runtime` + `web`; live-validate Lavka settings-card modal shows the site (not white) and assist-banner Cancel does not delete profile `a-c2df1500`.
+
+---
+
+## 2026-07-08 — ADR-139 pageElements SyntaxError hotfix (pushed)
+
+Status: **pushed to `main` (`679d4421`).**
+
+**What changed:** fixed broken quote escaping in Yandex grocery `closest()` selector inside the persistent `pageElements` evaluate script — was causing every text snapshot/act to fail with SyntaxError → gateway 502 after `51d4dc29`.
+
+---
+
 ## 2026-07-08 — ADR-139 browser queue pressure, Lavka element ranking, login dedupe
 
 Status: **implemented locally, pushed to `main` (deploy pending founder-controlled push → GitOps pin).**

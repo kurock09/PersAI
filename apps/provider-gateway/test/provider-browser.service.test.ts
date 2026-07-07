@@ -539,6 +539,8 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     );
     assert.match(loginBqlBody.query ?? "", /liveURL/);
     assert.match(loginBqlBody.query ?? "", /timeout:\s*\$liveUrlTimeoutMs/);
+    assert.match(loginBqlBody.query ?? "", /goto\(url: \$url, waitUntil: domContentLoaded\)/);
+    assert.match(loginBqlBody.query ?? "", /settleAfterGoto: waitForTimeout\(time: 3000\)/);
     assert.equal(loginBqlBody.variables?.url, "https://crm.example.com/login");
     assert.equal(loginBqlBody.variables?.liveUrlTimeoutMs, 15 * 60 * 1000);
 
@@ -614,6 +616,48 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     const verifyBody = JSON.parse(String(requests[9]?.init?.body ?? "{}")) as { query?: string };
     assert.match(verifyBody.query ?? "", /__typename/);
 
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          data: {
+            goto: { status: 200 },
+            settleAfterGoto: { time: 3000 },
+            liveURL: { liveURL: "https://browserless.example.com/live/session-login" }
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    const openLiveResult = await service.openLiveSession({
+      providerSessionId: "/session/session-login",
+      targetUrl: "https://lavka.yandex.ru/",
+      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
+      timeoutMs: null,
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-open-live",
+        providerId: "browserless"
+      }
+    });
+    assert.equal(openLiveResult.liveUrl, "https://browserless.example.com/live/session-login");
+    const openLiveBody = JSON.parse(String(requests[10]?.init?.body ?? "{}")) as {
+      query?: string;
+      variables?: { url?: string; liveUrlTimeoutMs?: number };
+    };
+    assert.match(openLiveBody.query ?? "", /goto\(url: \$url, waitUntil: domContentLoaded\)/);
+    assert.match(openLiveBody.query ?? "", /settleAfterGoto: waitForTimeout\(time: 3000\)/);
+    assert.match(openLiveBody.query ?? "", /liveURL/);
+    assert.equal(openLiveBody.variables?.url, "https://lavka.yandex.ru/");
+
     // Persistent connect-session (`/session/{id}` — or `/e/{cloud}/session/{id}`
     // in real prod) drives `browser-action` through BrowserQL, not `/function`
     // (Browserless `/function` returns 404 for persistent sessions).
@@ -668,10 +712,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       }
     });
     assert.match(
-      requests[10]?.url ?? "",
+      requests[11]?.url ?? "",
       /^https:\/\/browserless\.example\.com\/session\/bql\/session-login\?.*token=browserless-secret.*proxy=residential/
     );
-    const persistentBody = JSON.parse(String(requests[10]?.init?.body ?? "{}")) as {
+    const persistentBody = JSON.parse(String(requests[11]?.init?.body ?? "{}")) as {
       query?: string;
       variables?: Record<string, unknown>;
     };

@@ -1569,6 +1569,7 @@ export const PERSAI_RUNTIME_BROWSER_ACTIONS = [
 /** Default persistent-browser viewport (replaces Browserless's ~1300×933 fleet default). */
 export const DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH = 1280;
 export const DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT = 720;
+export const PERSAI_WEB_BROWSER_LOGIN_CONTINUE_URL = "https://persai.dev";
 
 export type PersaiRuntimeBrowserAction = (typeof PERSAI_RUNTIME_BROWSER_ACTIONS)[number];
 
@@ -1675,6 +1676,7 @@ export const MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS = 60;
 
 export const PERSAI_RUNTIME_BROWSER_OPERATION_KINDS = [
   "click",
+  "click_at",
   "type",
   "press",
   "select_option",
@@ -1689,6 +1691,12 @@ export type PersaiRuntimeBrowserOperationKind =
 export interface RuntimeBrowserClickOperation {
   kind: "click";
   selector: string;
+}
+
+export interface RuntimeBrowserClickAtOperation {
+  kind: "click_at";
+  x: number;
+  y: number;
 }
 
 export interface RuntimeBrowserTypeOperation {
@@ -1731,6 +1739,7 @@ export interface RuntimeBrowserScrollOperation {
 
 export type RuntimeBrowserOperation =
   | RuntimeBrowserClickOperation
+  | RuntimeBrowserClickAtOperation
   | RuntimeBrowserTypeOperation
   | RuntimeBrowserPressOperation
   | RuntimeBrowserSelectOptionOperation

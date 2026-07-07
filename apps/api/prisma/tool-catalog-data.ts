@@ -245,12 +245,14 @@ EXAMPLES:
 - browser({action:"open_live", profile:"profileKey"}) — reopen the product-owned live browser window for an existing saved profile when the user must solve a captcha, confirm an action, or re-authenticate in the browser.
 - browser({action:"snapshot", url:"…", profile:"profileKey"}) — inspect an authenticated page with a saved session; text results may include page.elements with reusable CSS selectors (up to 60 currently-visible interactive controls).
 - browser({action:"act", url:"…", profile:"profileKey", operations:[…]}) — bounded interaction using selectors copied from page.elements when available, then a fresh snapshot.
+- browser({action:"act", url:"…", profile:"profileKey", operations:[{kind:"click_at", x:640, y:360}]}) — viewport click when selectors fail; x/y must come from a png read via files.preview (see GOTCHAS).
 - browser({action:"snapshot", url:"…", profile:"profileKey", format:"pdf"}) — export a PDF artifact; deliver via files.attach.
-- browser({action:"snapshot", url:"…", format:"png", fullPage:true}) — screenshot artifact (png/jpeg/webp); deliver via files.attach.
+- browser({action:"snapshot", url:"…", format:"png"}) — viewport screenshot artifact (fixed 1280x720); use files.preview on the returned workspace path to read click coordinates before click_at.
 GOTCHAS:
 - Prefer \`snapshot\` first to inspect the page. Use \`act\` only when interaction is required.
 - Pass \`profile\` on \`snapshot\`/\`act\` to reuse cookies; omit \`profile\` only for public pages.
 - Profile-backed text \`snapshot\` and \`act\` may return \`page.elements\` with up to 60 currently-visible interactive controls and reusable CSS selectors. Prefer those selectors in follow-up \`act\` calls instead of guessing new selectors.
+- Vision fallback for stubborn controls: \`snapshot\` with \`format:"png"\` (browser viewport is fixed 1280x720; keep \`fullPage:false\` when you need click coordinates) → \`files({action:"preview", path:"<workspace path from screenshot result>"})\` to read the target control center in that image → \`act\` with \`kind:"click_at"\` using those viewport x,y integers. Do not guess coordinates from text layout.
 - Chain a full interaction into one \`act\` call instead of one operation per call: \`operations\` runs its steps in order in a single call. When a step opens new content (click loads a product page, expands a panel, triggers client-side navigation), add \`kind:"wait_for_selector"\` for a selector on that new content right after it, then continue the chain in the same call (e.g. click a search result → wait_for_selector on the add-to-cart control → click it) instead of stopping to take a separate snapshot.
 - For saved profiles, keep \`act\` selector-based. Do not use \`press\`/\`Enter\` as a shortcut — persistent Browserless sessions reject keyboard-press operations.
 - If a page (catalog, feed, search results) renders but shows an empty or placeholder list right after navigation, add a \`kind:"scroll"\` operation (optionally with a \`selector\`) before re-reading content — many sites only populate cards once scrolled into view.
