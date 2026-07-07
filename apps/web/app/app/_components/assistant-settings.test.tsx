@@ -325,7 +325,9 @@ describe("integrations section", () => {
     });
     expect(await screen.findByText("Bitrix24")).toBeInTheDocument();
     expect(screen.getByText("bitrix.example")).toBeInTheDocument();
-    expect(screen.getByText("Active")).toBeInTheDocument();
+    // Active profiles use the green status dot only — no duplicate "Active" label.
+    expect(screen.queryByText("Active")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Bitrix24/i })).toBeInTheDocument();
   });
 
   it("renders integrations cards and moves reminder delivery into tasks", async () => {
