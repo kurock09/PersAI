@@ -179,6 +179,16 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
   );
   assert.match(
     text,
+    /Do not use `press`\/`Enter` as a shortcut.*persistent Browserless sessions reject/i,
+    "browser guidance must forbid press/Enter on saved profiles because persistent Browserless rejects it"
+  );
+  assert.match(
+    text,
+    /kind:"scroll".*before re-reading content/i,
+    'browser guidance must point the model at kind:"scroll" for empty/placeholder catalog-style pages'
+  );
+  assert.match(
+    text,
     /per-operation warnings/i,
     "browser guidance must mention per-operation warnings from act"
   );

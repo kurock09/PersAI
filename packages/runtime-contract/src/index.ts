@@ -1664,7 +1664,8 @@ export const PERSAI_RUNTIME_BROWSER_OPERATION_KINDS = [
   "press",
   "select_option",
   "wait_for_selector",
-  "wait_for_timeout"
+  "wait_for_timeout",
+  "scroll"
 ] as const;
 
 export type PersaiRuntimeBrowserOperationKind =
@@ -1703,13 +1704,24 @@ export interface RuntimeBrowserWaitForTimeoutOperation {
   timeoutMs: number;
 }
 
+/**
+ * Scrolls a selector into view, or scrolls the viewport down by one page
+ * height when no selector is given. Needed for virtualized/lazy-loaded grids
+ * (e.g. product catalogs) that only populate cards once the user scrolls.
+ */
+export interface RuntimeBrowserScrollOperation {
+  kind: "scroll";
+  selector: string | null;
+}
+
 export type RuntimeBrowserOperation =
   | RuntimeBrowserClickOperation
   | RuntimeBrowserTypeOperation
   | RuntimeBrowserPressOperation
   | RuntimeBrowserSelectOptionOperation
   | RuntimeBrowserWaitForSelectorOperation
-  | RuntimeBrowserWaitForTimeoutOperation;
+  | RuntimeBrowserWaitForTimeoutOperation
+  | RuntimeBrowserScrollOperation;
 
 export interface RuntimeBrowserConfig {
   toolCode: "browser";

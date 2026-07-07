@@ -135,6 +135,13 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       };
     };
     assert.match(snapshotBody.code ?? "", /page\.goto/);
+    // "networkidle2" hangs indefinitely on SPAs with persistent background
+    // traffic (live-tracking sockets, polling, analytics beacons) — goto
+    // must always use domcontentloaded, with a short bounded settle window
+    // instead of gambling the whole request on network silence.
+    assert.doesNotMatch(snapshotBody.code ?? "", /networkidle2/);
+    assert.match(snapshotBody.code ?? "", /const waitUntil = "domcontentloaded"/);
+    assert.match(snapshotBody.code ?? "", /settleAfterGotoMs/);
     assert.deepEqual(snapshotBody.context, {
       url: "https://example.com/",
       action: "snapshot",
@@ -282,7 +289,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     };
     assert.equal(pdfBody.url, "https://example.com/report");
     assert.equal(pdfBody.options?.printBackground, true);
-    assert.equal(pdfBody.gotoOptions?.waitUntil, "networkidle2");
+    assert.equal(pdfBody.gotoOptions?.waitUntil, "domcontentloaded");
     assert.equal(pdfResult.pdfBase64, "JVBERi0xLjQK");
     assert.equal(pdfResult.artifactMimeType, "application/pdf");
     assert.deepEqual(pdfResult.elements, []);
@@ -348,7 +355,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.equal(pngBody.url, "https://example.com/dashboard");
     assert.equal(pngBody.options?.type, "png");
     assert.equal(pngBody.options?.fullPage, true);
-    assert.equal(pngBody.gotoOptions?.waitUntil, "networkidle2");
+    assert.equal(pngBody.gotoOptions?.waitUntil, "domcontentloaded");
     assert.equal(pngResult.artifactBase64, "aGVsbG8tcG5n");
     assert.equal(pngResult.artifactMimeType, "image/png");
     assert.deepEqual(pngResult.elements, []);
@@ -654,7 +661,13 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       query?: string;
       variables?: Record<string, unknown>;
     };
-    assert.match(persistentBody.query ?? "", /goto\(url: \$url/);
+    assert.match(persistentBody.query ?? "", /goto\(url: \$url, waitUntil: domContentLoaded/);
+    // "networkIdle" is Browserless's own "use with caution" wait condition —
+    // real-world pages with persistent background traffic never satisfy it,
+    // turning navigation into a hard timeoutMs failure. Always navigate on
+    // domContentLoaded and settle briefly afterward instead.
+    assert.doesNotMatch(persistentBody.query ?? "", /waitUntil: networkIdle/);
+    assert.match(persistentBody.query ?? "", /settleAfterGoto: waitForTimeout\(time: 3000\)/);
     assert.match(persistentBody.query ?? "", /pageText: text \{ text \}/);
     assert.match(persistentBody.query ?? "", /pageElements: evaluate/);
     assert.match(persistentBody.query ?? "", /proxy\(network: residential, sticky: true\)/);
@@ -836,6 +849,88 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       requests.push(init === undefined ? { url } : { url, init });
       return new Response(
         JSON.stringify({
+          data: {
+            goto: { status: 200 },
+            settleAfterGoto: { time: 3000 },
+            op_0: { value: null },
+            pageTitle: { title: "Catalog" },
+            pageUrl: { url: "https://lavka.example.com/catalog/water" },
+            pageText: { text: "Baikal water 430ml" },
+            pageElements: { value: JSON.stringify([]) }
+          }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }) as typeof fetch;
+
+    await service.browserAction({
+      action: "act",
+      url: "https://lavka.example.com/catalog/water",
+      maxChars: null,
+      operations: [
+        {
+          kind: "scroll",
+          selector: null
+        }
+      ],
+      timeoutMs: null,
+      profileSessionId: "/session/session-login",
+      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-session-scroll",
+        providerId: "browserless"
+      }
+    });
+    const scrollBqlBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
+      query?: string;
+      variables?: Record<string, unknown>;
+    };
+    // No native selector → scroll one viewport down via evaluate(), not the
+    // BQL `scroll` mutation, so behavior matches the ephemeral `/function`
+    // path exactly regardless of its exact required-argument combination.
+    assert.match(scrollBqlBody.query ?? "", /op_0: evaluate\(content: \$scrollScript_0\)/);
+    assert.match(
+      String(scrollBqlBody.variables?.scrollScript_0 ?? ""),
+      /window\.scrollBy\(0, window\.innerHeight\)/
+    );
+
+    await service.browserAction({
+      action: "act",
+      url: "https://lavka.example.com/catalog/water",
+      maxChars: null,
+      operations: [
+        {
+          kind: "scroll",
+          selector: "#product-card"
+        }
+      ],
+      timeoutMs: null,
+      profileSessionId: "/session/session-login",
+      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-session-scroll-selector",
+        providerId: "browserless"
+      }
+    });
+    const scrollSelectorBqlBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
+      variables?: Record<string, unknown>;
+    };
+    assert.match(
+      String(scrollSelectorBqlBody.variables?.scrollScript_0 ?? ""),
+      /querySelector\("#product-card"\)\?\.scrollIntoView/
+    );
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
           type: "application/json",
           data: {
             initialUrl: "https://example.com/",
@@ -854,6 +949,28 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         }
       );
     }) as typeof fetch;
+
+    await service.browserAction({
+      action: "act",
+      url: "https://example.com",
+      maxChars: null,
+      operations: [
+        {
+          kind: "scroll",
+          selector: null
+        }
+      ],
+      timeoutMs: null,
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-scroll-ephemeral",
+        providerId: "browserless"
+      }
+    });
+    const scrollEphemeralBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
+      context?: { operations?: Array<Record<string, unknown>> };
+    };
+    assert.deepEqual(scrollEphemeralBody.context?.operations, [{ kind: "scroll", selector: null }]);
 
     await assert.rejects(
       () =>
@@ -875,6 +992,55 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
           }
         }),
       BadRequestException
+    );
+
+    // ADR-139 D8 test-scoped v0 heuristic: persistent-session goto targets on
+    // a `.ru` hostname request `country: RU` on the sticky residential proxy
+    // mutation instead of leaving country selection to Browserless's
+    // automatic pool choice.
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          data: {
+            goto: { status: 200 },
+            pageTitle: { title: "Lavka" },
+            pageUrl: { url: "https://lavka.yandex.ru/catalog" },
+            pageText: { text: "Catalog content" },
+            pageElements: { value: JSON.stringify([]) }
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    await service.browserAction({
+      action: "snapshot",
+      url: "https://lavka.yandex.ru/catalog",
+      maxChars: null,
+      operations: [],
+      timeoutMs: null,
+      profileSessionId: "/session/session-login",
+      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-ru-proxy",
+        providerId: "browserless"
+      }
+    });
+    const ruProxyBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
+      query?: string;
+    };
+    assert.match(
+      ruProxyBody.query ?? "",
+      /proxy\(network: residential, sticky: true, country: RU\)/
     );
 
     globalThis.fetch = (async () => {

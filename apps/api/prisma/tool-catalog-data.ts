@@ -250,6 +250,8 @@ GOTCHAS:
 - Prefer \`snapshot\` first to inspect the page. Use \`act\` only when interaction is required.
 - Pass \`profile\` on \`snapshot\`/\`act\` to reuse cookies; omit \`profile\` only for public pages.
 - Profile-backed text \`snapshot\` and \`act\` may return \`page.elements\` with reusable CSS selectors. Prefer those selectors in follow-up \`act\` calls instead of guessing new selectors.
+- For saved profiles, keep \`act\` selector-based. Do not use \`press\`/\`Enter\` as a shortcut — persistent Browserless sessions reject keyboard-press operations.
+- If a page (catalog, feed, search results) renders but shows an empty or placeholder list right after navigation, add a \`kind:"scroll"\` operation (optionally with a \`selector\`) before re-reading content — many sites only populate cards once scrolled into view.
 - Persistent-profile stealth and residential-proxy policy are platform-owned. Never invent proxy or stealth settings as browser arguments or chat instructions.
 - If \`act\` returns per-operation warnings, continue from the returned page state/\`page.elements\` and retry only when the observed page supports it; do not jump to "bot protection", "profile expired", or similar from one failed selector.
 - A transient BQL/reconnect/429 failure is not proof that a profile expired. Speak from structured runtime/API reason codes for pending login, user re-auth, or expired-profile states.

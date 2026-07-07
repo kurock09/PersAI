@@ -561,4 +561,38 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.match(pngResult.payload.page?.content ?? "", /Screenshot saved/);
   assert.equal(providerGatewayClientService.browserCalls[3]?.format, "png");
   assert.equal(providerGatewayClientService.browserCalls[3]?.fullPage, true);
+
+  // "scroll" is needed for virtualized/lazy-loaded catalogs and feeds that
+  // only populate cards once scrolled into view — with or without a selector.
+  const scrollResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "act",
+      url: "https://example.com/catalog",
+      operations: [
+        { kind: "scroll", selector: null },
+        { kind: "scroll", selector: "#card-3" }
+      ]
+    }),
+    sessionId: "session-1"
+  });
+  assert.equal(scrollResult.isError, false);
+  assert.deepEqual(providerGatewayClientService.browserCalls[4]?.operations, [
+    { kind: "scroll", selector: null },
+    { kind: "scroll", selector: "#card-3" }
+  ]);
+
+  const invalidScrollResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "act",
+      url: "https://example.com/catalog",
+      operations: [{ kind: "scroll", selector: "" }]
+    }),
+    sessionId: "session-1"
+  });
+  assert.equal(invalidScrollResult.isError, true);
+  assert.equal(invalidScrollResult.payload.reason, "invalid_arguments");
+  assert.match(invalidScrollResult.payload.warning ?? "", /scroll operation selector/);
+  assert.equal(providerGatewayClientService.browserCalls.length, 5);
 }

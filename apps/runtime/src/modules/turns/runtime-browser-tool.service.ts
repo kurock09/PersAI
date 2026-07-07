@@ -746,6 +746,18 @@ export class RuntimeBrowserToolService {
           operations.push({ kind, timeoutMs });
           break;
         }
+        case "scroll": {
+          if (row.selector !== undefined && row.selector !== null) {
+            const selector = this.asNonEmptyString(row.selector);
+            if (selector === null) {
+              return new Error("browser scroll operation selector must be a non-empty string.");
+            }
+            operations.push({ kind, selector });
+          } else {
+            operations.push({ kind, selector: null });
+          }
+          break;
+        }
       }
     }
     return operations;

@@ -673,13 +673,28 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     browserOperationsDescription,
-    /Prefer selectors copied from the latest page\.elements/i,
+    /Prefer (CSS )?selectors copied from the latest page\.elements/i,
     "browser operations schema must prefer selectors copied from page.elements"
+  );
+  assert.match(
+    browserOperationsDescription,
+    /do not use kind="press".*persistent Browserless sessions reject/i,
+    "browser operations schema must forbid press on saved profiles because persistent Browserless rejects it"
+  );
+  assert.match(
+    browserOperationsDescription,
+    /kind="scroll".*before re-reading content/i,
+    'browser operations schema must point the model at kind="scroll" for empty/placeholder catalog-style pages'
   );
   assert.match(
     browserSelectorDescription,
     /Prefer selectors copied from page\.elements/i,
     "browser selector schema must reinforce page.elements selector reuse"
+  );
+  assert.match(
+    browserSelectorDescription,
+    /Optional for kind="scroll".*scrolls that element into view/i,
+    "browser selector schema must document optional scroll-into-view semantics"
   );
   assert.doesNotMatch(
     browserSchemaText,

@@ -47,6 +47,32 @@ const PROVIDER_GATEWAY_BROWSER_EXECUTION_ACTIONS = [
   "act"
 ] as const satisfies readonly PersaiRuntimeBrowserAction[];
 
+/** Russian-market hostname suffixes recognized by the v0 domain-based proxy-country test heuristic. */
+const TEST_PROXY_COUNTRY_RU_HOSTNAME_SUFFIXES = [".ru", ".xn--p1ai"];
+
+/**
+ * Test-scoped v0 proxy-country heuristic (ADR-139 D8): when the goto target
+ * is a Russian-market domain (`.ru` / punycode `.рф`), request the sticky
+ * residential proxy's `country: RU` BQL argument instead of leaving country
+ * selection to Browserless's automatic pool choice. Deliberately narrow —
+ * only RU, only inferred from the target hostname — while the real
+ * production geo signal (platform-owned per-assistant setting vs. any
+ * per-end-user IP) is still open. See ADR-139 D8 for the full reasoning and
+ * why this must not be extended ad hoc without revisiting that decision.
+ */
+function resolveTestProxyCountryForUrl(url: string): "RU" | null {
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  const isRuHostname = TEST_PROXY_COUNTRY_RU_HOSTNAME_SUFFIXES.some((suffix) =>
+    hostname.endsWith(suffix)
+  );
+  return isRuHostname ? "RU" : null;
+}
+
 /**
  * Shared Browserless /function script for snapshot and act.
  * Works on fresh sessions and on reconnect sessions (same page contract).
@@ -64,7 +90,15 @@ export default async ({ page, context }) => {
       : 120000;
   const operations = Array.isArray(context.operations) ? context.operations : [];
   const optimizeForSpeed = context.optimizeForSpeed === true;
-  const waitUntil = optimizeForSpeed ? "domcontentloaded" : "networkidle2";
+  // A "wait for network to go idle" goto strategy hangs indefinitely on
+  // real-world SPAs that hold persistent background connections (live-
+  // tracking sockets, polling, analytics beacons) and never actually go
+  // idle, turning ordinary navigation into a hard timeoutMs failure. Always
+  // navigate on domcontentloaded, then take a short bounded settle window
+  // (not the full budget) to let async JS-rendered content populate before
+  // reading the page.
+  const waitUntil = "domcontentloaded";
+  const settleAfterGotoMs = optimizeForSpeed ? 0 : 3000;
   const format = typeof context.format === "string" ? context.format : "text";
 
   const result = {
@@ -243,11 +277,26 @@ export default async ({ page, context }) => {
 
     if (shouldNavigate) {
       await page.goto(targetUrl, { waitUntil, timeout: timeoutMs });
+      if (settleAfterGotoMs > 0) {
+        await sleep(settleAfterGotoMs);
+      }
     }
     result.finalUrl = page.url();
 
     for (const operation of operations) {
       switch (operation.kind) {
+        case "scroll":
+          if (typeof operation.selector === "string" && operation.selector.length > 0) {
+            await page.$eval(operation.selector, (element) => {
+              element.scrollIntoView({ behavior: "instant", block: "center" });
+            });
+          } else {
+            await page.evaluate(() => {
+              window.scrollBy(0, window.innerHeight);
+            });
+          }
+          await waitAfterMutation();
+          break;
         case "click":
           await page.click(operation.selector);
           await waitAfterMutation();
@@ -666,11 +715,17 @@ export class ProviderBrowserService {
     // Browserless BQL `WaitUntilGoto` enum accepts:
     //   commit | domContentLoaded | firstContentfulPaint | firstMeaningfulPaint | load | networkIdle
     // — there is NO `networkAlmostIdle` value (that name only exists in the
-    // Playwright/Puppeteer JS API used by the `/function` path). Using it
-    // fails the mutation with a schema error and provider-gateway wraps that
-    // as a 502 for the caller. Use `networkIdle` for the default path and
-    // `domContentLoaded` for optimizeForSpeed.
-    const waitUntil = normalized.optimizeForSpeed ? "domContentLoaded" : "networkIdle";
+    // Playwright/Puppeteer JS API used by the `/function` path).
+    //
+    // `networkIdle` ("no more than 2 connections for 500ms") is documented by
+    // Browserless itself as "use with caution": real-world sites with
+    // persistent background traffic (live-tracking sockets, polling,
+    // analytics beacons — e.g. delivery-ETA apps) may never satisfy it, which
+    // turns the entire goto into a hard failure at `timeoutMs`. Always
+    // navigate on `domContentLoaded` and take a short bounded settle step
+    // afterward instead of gambling the whole request on network silence.
+    const waitUntil = "domContentLoaded";
+    const settleAfterGotoMs = normalized.optimizeForSpeed ? 0 : 3000;
 
     const varDefs: string[] = ["$url: String!"];
     const parts: string[] = [];
@@ -683,7 +738,7 @@ export class ProviderBrowserService {
       );
     }
     this.assertSupportedPersistentCapabilityPolicy(capabilityPolicy);
-    parts.push(...this.buildBrowserlessCapabilityPolicyMutations(capabilityPolicy));
+    parts.push(...this.buildBrowserlessCapabilityPolicyMutations(capabilityPolicy, normalized.url));
 
     if (normalized.optimizeForSpeed) {
       parts.push(`reject(type: [image, font, media], enabled: true) { time }`);
@@ -692,6 +747,9 @@ export class ProviderBrowserService {
     parts.push(
       `goto(url: $url, waitUntil: ${waitUntil}, timeout: ${String(normalized.timeoutMs)}) { status }`
     );
+    if (settleAfterGotoMs > 0) {
+      parts.push(`settleAfterGoto: waitForTimeout(time: ${String(settleAfterGotoMs)}) { time }`);
+    }
 
     normalized.operations.forEach((operation, index) => {
       const idx = String(index);
@@ -748,6 +806,21 @@ export class ProviderBrowserService {
         }
         case "wait_for_timeout": {
           parts.push(`op_${idx}: waitForTimeout(time: ${String(operation.timeoutMs)}) { time }`);
+          break;
+        }
+        case "scroll": {
+          // Implemented via evaluate() rather than BQL's native `scroll`
+          // mutation so the no-selector "scroll one viewport down" case has
+          // exactly the same semantics as the `/function` (ephemeral) path,
+          // instead of depending on the native mutation's exact required
+          // argument combination when no selector is given.
+          const script =
+            typeof operation.selector === "string" && operation.selector.length > 0
+              ? `try { document.querySelector(${JSON.stringify(operation.selector)})?.scrollIntoView({behavior:"instant", block:"center"}); } catch (_) {}`
+              : `window.scrollBy(0, window.innerHeight);`;
+          varDefs.push(`$scrollScript_${idx}: String!`);
+          vars[`scrollScript_${idx}`] = script;
+          parts.push(`op_${idx}: evaluate(content: $scrollScript_${idx}) { value }`);
           break;
         }
       }
@@ -955,7 +1028,10 @@ export class ProviderBrowserService {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          query: this.buildBrowserlessStartLoginMutation(normalized.capabilityPolicy),
+          query: this.buildBrowserlessStartLoginMutation(
+            normalized.capabilityPolicy,
+            normalized.loginUrl
+          ),
           variables: {
             url: normalized.loginUrl,
             liveUrlTimeoutMs
@@ -1402,7 +1478,8 @@ export class ProviderBrowserService {
   }
 
   private buildBrowserlessCapabilityPolicyMutations(
-    capabilityPolicy: PersistentBrowserCapabilityPolicy
+    capabilityPolicy: PersistentBrowserCapabilityPolicy,
+    targetUrl: string
   ): string[] {
     const proxy = capabilityPolicy.proxy;
     if (proxy === null) {
@@ -1413,14 +1490,17 @@ export class ProviderBrowserService {
         'Persistent browser capability policy with proxy.provider="external" is not supported yet.'
       );
     }
-    return [`proxy(network: residential, sticky: true) { time }`];
+    const testProxyCountry = resolveTestProxyCountryForUrl(targetUrl);
+    const countryArg = testProxyCountry === null ? "" : `, country: ${testProxyCountry}`;
+    return [`proxy(network: residential, sticky: true${countryArg}) { time }`];
   }
 
   private buildBrowserlessStartLoginMutation(
-    capabilityPolicy: PersistentBrowserCapabilityPolicy
+    capabilityPolicy: PersistentBrowserCapabilityPolicy,
+    loginUrl: string
   ): string {
     const parts = [
-      ...this.buildBrowserlessCapabilityPolicyMutations(capabilityPolicy),
+      ...this.buildBrowserlessCapabilityPolicyMutations(capabilityPolicy, loginUrl),
       `goto(url: $url, waitUntil: networkIdle) { status }`,
       `liveURL(interactable: true, timeout: $liveUrlTimeoutMs) { liveURL }`
     ];
@@ -1480,6 +1560,14 @@ export class ProviderBrowserService {
           kind,
           timeoutMs: this.readWaitTimeout(row.timeoutMs, `operations[${String(index)}].timeoutMs`)
         };
+      case "scroll":
+        return {
+          kind,
+          selector:
+            row.selector === null || row.selector === undefined
+              ? null
+              : this.readNonEmptyString(row.selector, `operations[${String(index)}].selector`)
+        };
     }
     throw new BadRequestException(`operations[${String(index)}].kind is invalid`);
   }
@@ -1506,8 +1594,11 @@ export class ProviderBrowserService {
     waitUntil: string;
     timeout: number;
   } {
+    // See runPersistentBrowserActionViaBql / BROWSERLESS_FUNCTION_CODE for why
+    // "networkidle2" is not used as a default: it can hang for the full
+    // timeoutMs on pages with persistent background traffic.
     return {
-      waitUntil: normalized.optimizeForSpeed ? "domcontentloaded" : "networkidle2",
+      waitUntil: "domcontentloaded",
       timeout: normalized.timeoutMs
     };
   }

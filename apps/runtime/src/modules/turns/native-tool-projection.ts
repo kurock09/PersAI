@@ -882,7 +882,7 @@ function createBrowserToolDefinition(
           type: "array",
           maxItems: MAX_RUNTIME_BROWSER_OPERATIONS,
           description:
-            'Required for action="act". Each step is one bounded browser operation using a CSS selector or keyboard input. Prefer selectors copied from the latest page.elements when available.',
+            'Required for action="act". Each step is one bounded browser operation. Prefer CSS selectors copied from the latest page.elements when available. For saved profiles, stay selector-based and do not use kind="press" — persistent Browserless sessions reject keyboard-press operations. If a page (e.g. a product catalog or feed) shows an empty or placeholder list right after navigation, use kind="scroll" before re-reading content — many sites only populate cards once scrolled into view.',
           items: {
             type: "object",
             additionalProperties: false,
@@ -895,7 +895,7 @@ function createBrowserToolDefinition(
               selector: {
                 type: "string",
                 description:
-                  "CSS selector for click/type/select/wait_for_selector operations. Prefer selectors copied from page.elements."
+                  'CSS selector for click/type/select/wait_for_selector operations. Prefer selectors copied from page.elements. Optional for kind="scroll": scrolls that element into view, or scrolls the viewport down by one page when omitted — use this on catalog/list pages where cards only populate once scrolled into view.'
               },
               text: {
                 type: "string",
@@ -903,7 +903,8 @@ function createBrowserToolDefinition(
               },
               key: {
                 type: "string",
-                description: 'Keyboard key to press when kind="press", for example "Enter".'
+                description:
+                  'Keyboard key to press when kind="press", for example "Enter". Do not use kind="press" when profile is set; persistent Browserless sessions reject it.'
               },
               value: {
                 type: "string",
