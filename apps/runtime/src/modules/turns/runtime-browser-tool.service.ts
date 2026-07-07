@@ -169,6 +169,20 @@ export class RuntimeBrowserToolService {
       return await this.executeBrowserPageAction(params, request, providerId, credential);
     } catch (error) {
       const warning = error instanceof Error ? error.message : "Browser action failed.";
+      // This catch previously discarded the real failure reason entirely —
+      // the model-facing result only ever said "browser_failed" with a
+      // generic warning, and nothing was logged, so a live 400/502 report
+      // from a real test session had zero trace in `kubectl logs` on either
+      // runtime or provider-gateway (ADR-139 D12: found only by noticing an
+      // unrelated same-shaped BadRequestException from a different subsystem
+      // and reasoning backward — this call site itself was silent).
+      this.logger.warn(
+        `[browser-action] failed action=${request.action} url=${request.url} profile=${
+          request.profile !== undefined && request.profile !== null && request.profile.length > 0
+            ? "set"
+            : "none"
+        }: ${warning}`
+      );
       return {
         payload: {
           toolCode: "browser",
@@ -212,6 +226,7 @@ export class RuntimeBrowserToolService {
     } catch (error) {
       const warning =
         error instanceof Error ? error.message : "Browser profiles could not be listed.";
+      this.logger.warn(`[browser-action] list_profiles failed: ${warning}`);
       return {
         payload: {
           toolCode: "browser",
@@ -342,6 +357,11 @@ export class RuntimeBrowserToolService {
     }
 
     const workerConfig = this.resolveWorkerToolConfig(params.bundle, "browser");
+    this.logger.log(
+      `[browser-action] action=${request.action} url=${request.url} profile=${
+        profileSessionId !== null ? "set" : "none"
+      } operations=${request.operations.length}`
+    );
     const providerResult = await this.providerGatewayClientService.browserAction(
       {
         action: request.action,

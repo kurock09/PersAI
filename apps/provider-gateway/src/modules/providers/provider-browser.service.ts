@@ -616,6 +616,9 @@ export class ProviderBrowserService {
       return this.runPersistentBrowserActionViaBql(normalized, apiKey, startedAt);
     }
     const endpoint = this.resolveBrowserlessFunctionEndpoint(apiKey);
+    this.logger.log(
+      `[ephemeral-function] action=${normalized.action} url=${normalized.url} operations=${normalized.operations.length}`
+    );
     const response = await this.fetchJson(
       endpoint,
       {
@@ -644,13 +647,18 @@ export class ProviderBrowserService {
       normalized.timeoutMs
     );
     if (!response.ok) {
-      throw new BadGatewayException(this.extractErrorMessage(response.body, "Browserless"));
+      const message = this.extractErrorMessage(response.body, "Browserless");
+      this.logger.warn(
+        `[ephemeral-function] transport failure status=${response.status}: ${message}`
+      );
+      throw new BadGatewayException(message);
     }
 
     const payload = this.asObject(response.body);
     const data = this.asObject(payload?.data);
     const error = this.asObject(data?.error);
     if (typeof error?.message === "string" && error.message.trim().length > 0) {
+      this.logger.warn(`[ephemeral-function] script-level fatal error: ${error.message.trim()}`);
       throw new BadGatewayException(error.message.trim());
     }
     if (payload?.type !== "application/json" || data === null) {
@@ -919,8 +927,12 @@ export class ProviderBrowserService {
     }
 
     const query = `mutation BrowserAction(${varDefs.join(", ")}) {\n  ${parts.join("\n  ")}\n}`;
-    this.logger.debug(
-      `[persistent-bql] profile=${normalized.profileSessionId} proxy=${String(capabilityPolicy.proxy !== null)} stealth=${String(capabilityPolicy.stealth)} operations=${normalized.operations.length}`
+    // `debug` is filtered out under this cluster's default LOG_LEVEL=info
+    // (ADR-139 D12 — the original D10 debug line never actually appeared in
+    // `kubectl logs` for any live test), so this per-call summary uses `log`
+    // instead to actually be visible.
+    this.logger.log(
+      `[persistent-bql] action=${normalized.action} profile=${normalized.profileSessionId} proxy=${String(capabilityPolicy.proxy !== null)} stealth=${String(capabilityPolicy.stealth)} operations=${normalized.operations.length}`
     );
 
     const response = await this.fetchJson(
@@ -933,7 +945,14 @@ export class ProviderBrowserService {
       normalized.timeoutMs
     );
     if (!response.ok) {
-      throw new BadGatewayException(this.extractErrorMessage(response.body, "Browserless BQL"));
+      const message = this.extractErrorMessage(response.body, "Browserless BQL");
+      // This HTTP-transport-level failure branch (Browserless itself
+      // returning a non-2xx, e.g. a raw 502) was the one D10 missed
+      // entirely — D10 only logged GraphQL-level `errors[]` on a 200
+      // response, so a real live 400/502 test round left zero trace in
+      // `kubectl logs` on this side (ADR-139 D12).
+      this.logger.warn(`[persistent-bql] transport failure status=${response.status}: ${message}`);
+      throw new BadGatewayException(message);
     }
     const root = this.asObject(response.body);
     const errors = Array.isArray(root?.errors) ? (root.errors as unknown[]) : [];
