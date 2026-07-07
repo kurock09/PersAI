@@ -1,5 +1,6 @@
 import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import type {
+  PersistentBrowserCapabilityPolicy,
   ProviderGatewayBrowserSessionDeleteRequest,
   ProviderGatewayBrowserSessionStartLoginRequest,
   ProviderGatewayBrowserSessionStartLoginResult,
@@ -15,6 +16,7 @@ export class BrowserlessProviderGatewayClient {
   async startLogin(input: {
     loginUrl: string;
     reconnectTimeoutMs?: number | null;
+    capabilityPolicy: PersistentBrowserCapabilityPolicy;
     browserCredentialSecretId?: string;
   }): Promise<ProviderGatewayBrowserSessionStartLoginResult> {
     const baseUrl = (process.env["PERSAI_PROVIDER_GATEWAY_BASE_URL"] ?? "").trim();
@@ -29,6 +31,7 @@ export class BrowserlessProviderGatewayClient {
       loginUrl: input.loginUrl,
       timeoutMs: null,
       reconnectTimeoutMs: input.reconnectTimeoutMs ?? null,
+      capabilityPolicy: input.capabilityPolicy,
       credential: {
         toolCode: "browser",
         secretId: input.browserCredentialSecretId ?? TOOL_CREDENTIAL_IDS.tool_browser,
@@ -65,14 +68,23 @@ export class BrowserlessProviderGatewayClient {
     };
 
     try {
-      await this.postJson(url, requestBody, 15_000);
-    } catch {
-      // Best-effort provider cleanup.
+      const response = await this.postJson(url, requestBody, 15_000);
+      if (!response.ok) {
+        throw new ServiceUnavailableException(
+          this.extractErrorMessage(response.body, "Browser session delete failed.")
+        );
+      }
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) {
+        throw error;
+      }
+      throw new ServiceUnavailableException("Browser session delete failed.");
     }
   }
 
   async verifySession(input: {
     providerSessionId: string;
+    capabilityPolicy: PersistentBrowserCapabilityPolicy;
     browserCredentialSecretId?: string;
   }): Promise<ProviderGatewayBrowserSessionVerifyResult> {
     const baseUrl = (process.env["PERSAI_PROVIDER_GATEWAY_BASE_URL"] ?? "").trim();
@@ -85,6 +97,7 @@ export class BrowserlessProviderGatewayClient {
     const url = new URL("/api/v1/providers/browser-session/verify", baseUrl).toString();
     const requestBody: ProviderGatewayBrowserSessionVerifyRequest = {
       providerSessionId: input.providerSessionId,
+      capabilityPolicy: input.capabilityPolicy,
       credential: {
         toolCode: "browser",
         secretId: input.browserCredentialSecretId ?? TOOL_CREDENTIAL_IDS.tool_browser,

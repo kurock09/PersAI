@@ -8,6 +8,7 @@ import {
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
+  type PersistentBrowserCapabilityPolicy,
   MIN_RUNTIME_BROWSER_MAX_CHARS,
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
   PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS,
@@ -189,24 +190,43 @@ export class RuntimeBrowserToolService {
     bundle: AssistantRuntimeBundle,
     request: RuntimeBrowserRequest
   ): Promise<RuntimeBrowserToolExecutionResult> {
-    const profiles = await this.persaiInternalApiClientService.listBrowserProfiles({
-      assistantId: bundle.metadata.assistantId
-    });
-    return {
-      payload: {
-        toolCode: "browser",
-        executionMode: "worker",
-        provider: null,
-        requestedAction: request.action,
-        page: null,
-        action: "listed_profiles",
-        reason: null,
-        warning: null,
-        profiles
-      },
-      artifacts: [],
-      isError: false
-    };
+    try {
+      const profiles = await this.persaiInternalApiClientService.listBrowserProfiles({
+        assistantId: bundle.metadata.assistantId
+      });
+      return {
+        payload: {
+          toolCode: "browser",
+          executionMode: "worker",
+          provider: null,
+          requestedAction: request.action,
+          page: null,
+          action: "listed_profiles",
+          reason: null,
+          warning: null,
+          profiles
+        },
+        artifacts: [],
+        isError: false
+      };
+    } catch (error) {
+      const warning =
+        error instanceof Error ? error.message : "Browser profiles could not be listed.";
+      return {
+        payload: {
+          toolCode: "browser",
+          executionMode: "worker",
+          provider: null,
+          requestedAction: request.action,
+          page: null,
+          action: "skipped",
+          reason: "browser_failed",
+          warning
+        },
+        artifacts: [],
+        isError: true
+      };
+    }
   }
 
   private async executeLogin(
@@ -291,6 +311,7 @@ export class RuntimeBrowserToolService {
     credential: AssistantRuntimeBundleToolCredentialRef
   ): Promise<RuntimeBrowserToolExecutionResult> {
     let profileSessionId: string | null = null;
+    let capabilityPolicy: PersistentBrowserCapabilityPolicy | null = null;
     const profileKey = request.profile?.trim() || null;
     if (profileKey !== null) {
       const resolved = await this.persaiInternalApiClientService.resolveBrowserProfile({
@@ -307,13 +328,17 @@ export class RuntimeBrowserToolService {
             page: null,
             action: "skipped",
             reason: resolved.reason,
-            warning: this.profileErrorWarning(resolved.reason)
+            warning: this.profileErrorWarning(resolved.reason),
+            ...(resolved.pendingBrowserLogin === undefined
+              ? {}
+              : { pendingBrowserLogin: resolved.pendingBrowserLogin })
           },
           artifacts: [],
-          isError: true
+          isError: resolved.pendingBrowserLogin === undefined
         };
       }
       profileSessionId = resolved.providerSessionId;
+      capabilityPolicy = resolved.capabilityPolicy;
     }
 
     const workerConfig = this.resolveWorkerToolConfig(params.bundle, "browser");
@@ -325,6 +350,7 @@ export class RuntimeBrowserToolService {
         operations: request.operations,
         timeoutMs: workerConfig?.timeoutMs ?? null,
         profileSessionId,
+        capabilityPolicy,
         format: request.format ?? null,
         optimizeForSpeed: request.optimizeForSpeed ?? null,
         snapshotSelector: request.snapshotSelector ?? null,
@@ -434,9 +460,11 @@ export class RuntimeBrowserToolService {
       case "browser_profile_not_found":
         return "No saved browser profile matches that profileKey. Run browser login first.";
       case "browser_profile_expired":
-        return "The saved browser session expired. Run browser login again to reconnect.";
+        return "The saved browser profile is no longer usable. Run browser login again.";
       case "browser_profile_pending_login":
-        return "Login is not finished yet. Open the live login window and press Done when finished.";
+        return "This saved browser profile is still waiting for login completion. Reopen the product login prompt and press Done when finished.";
+      case "browser_profile_needs_user_reauth":
+        return "This saved browser profile needs user re-authentication. Reopen the product login prompt for this profile.";
       default:
         return "Browser profile could not be used.";
     }

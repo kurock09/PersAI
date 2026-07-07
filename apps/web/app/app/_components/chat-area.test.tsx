@@ -348,6 +348,37 @@ describe("ChatArea", () => {
     expect(screen.getByText("voiceTranscriptionEmptyGuidance")).toBeInTheDocument();
   });
 
+  it("shows the browser re-login banner and routes its actions through chat state", async () => {
+    const abortBrowserLogin = vi.fn().mockResolvedValue(undefined);
+    const reopenBrowserLogin = vi.fn();
+    render(
+      <ChatArea
+        chat={{
+          ...createChat("Hello", { isStreaming: false }),
+          pendingBrowserLogin: {
+            profileId: "profile-1",
+            profileKey: "bitrix",
+            displayName: "Bitrix24",
+            liveUrl: "https://browserless.example/live/bitrix",
+            loginUrl: "https://bitrix.example/login"
+          },
+          browserLoginModalOpen: false,
+          abortBrowserLogin,
+          reopenBrowserLogin
+        }}
+      />
+    );
+
+    expect(screen.getByText("Bitrix24")).toBeInTheDocument();
+    expect(screen.getByText("browserLoginContinueHint")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "browserLoginContinue" }));
+    expect(reopenBrowserLogin).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "browserLoginCancel" }));
+    await waitFor(() => {
+      expect(abortBrowserLogin).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("shows localized provider failure guidance", () => {
     render(
       <ChatArea

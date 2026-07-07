@@ -7146,6 +7146,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       snapshotSelector: null,
       fullPage: null,
       profileSessionId: null,
+      capabilityPolicy: null,
       operations: [
         {
           kind: "click",

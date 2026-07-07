@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { BadGatewayException, BadRequestException } from "@nestjs/common";
 import { loadProviderGatewayConfig } from "@persai/config";
+import type { PersistentBrowserCapabilityPolicy } from "@persai/runtime-contract";
 import { ProviderBrowserService } from "../src/modules/providers/provider-browser.service";
 import type { PersaiInternalApiClientService } from "../src/modules/providers/persai-internal-api.client.service";
 
@@ -12,6 +13,38 @@ class FakePersaiInternalApiClientService {
     this.secretIds.push(secretId);
     return this.secretValue;
   }
+}
+
+function createPersistentCapabilityPolicy(profileKey: string): PersistentBrowserCapabilityPolicy {
+  return {
+    scope: "persistent_profile",
+    profileIdentity: {
+      assistantId: "assistant-1",
+      profileKey
+    },
+    stealth: true,
+    proxy: {
+      mode: "sticky_residential",
+      provider: "browserless_builtin",
+      server: null
+    }
+  };
+}
+
+function createExternalCapabilityPolicy(profileKey: string): PersistentBrowserCapabilityPolicy {
+  return {
+    scope: "persistent_profile",
+    profileIdentity: {
+      assistantId: "assistant-1",
+      profileKey
+    },
+    stealth: true,
+    proxy: {
+      mode: "sticky_residential",
+      provider: "external",
+      server: "http://proxy.example.com:8080"
+    }
+  };
 }
 
 export async function runProviderBrowserServiceTest(): Promise<void> {
@@ -395,6 +428,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
           operations: [],
           timeoutMs: null,
           profileSessionId: "/reconnect/session-abc123",
+          capabilityPolicy: createPersistentCapabilityPolicy("crm"),
           credential: {
             toolCode: "browser",
             secretId: "secret-reconnect",
@@ -449,6 +483,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       loginUrl: "https://crm.example.com/login",
       timeoutMs: null,
       reconnectTimeoutMs: null,
+      capabilityPolicy: createPersistentCapabilityPolicy("crm"),
       credential: {
         toolCode: "browser",
         secretId: "secret-login",
@@ -480,6 +515,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       query?: string;
       variables?: { url?: string; liveUrlTimeoutMs?: number };
     };
+    assert.match(loginBqlBody.query ?? "", /proxy\(network: residential, sticky: true\)/);
     assert.match(loginBqlBody.query ?? "", /liveURL/);
     assert.match(loginBqlBody.query ?? "", /timeout:\s*\$liveUrlTimeoutMs/);
     assert.equal(loginBqlBody.variables?.url, "https://crm.example.com/login");
@@ -542,6 +578,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
 
     const verifyResult = await service.verifySession({
       providerSessionId: "/session/session-login",
+      capabilityPolicy: createPersistentCapabilityPolicy("crm"),
       credential: {
         toolCode: "browser",
         secretId: "secret-verify",
@@ -569,7 +606,21 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
             goto: { status: 200 },
             pageTitle: { title: "CRM" },
             pageUrl: { url: "https://crm.example.com/dashboard" },
-            pageText: { text: "Authenticated CRM content" }
+            pageText: { text: "Authenticated CRM content" },
+            pageElements: {
+              value: JSON.stringify([
+                {
+                  selector: "#crm-search",
+                  tagName: "input",
+                  text: null,
+                  role: "searchbox",
+                  type: "search",
+                  href: null,
+                  placeholder: "Search CRM",
+                  disabled: false
+                }
+              ])
+            }
           }
         }),
         {
@@ -588,6 +639,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       operations: [],
       timeoutMs: null,
       profileSessionId: "/session/session-login",
+      capabilityPolicy: createPersistentCapabilityPolicy("crm"),
       credential: {
         toolCode: "browser",
         secretId: "secret-session-snapshot",
@@ -604,10 +656,13 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     };
     assert.match(persistentBody.query ?? "", /goto\(url: \$url/);
     assert.match(persistentBody.query ?? "", /pageText: text \{ text \}/);
+    assert.match(persistentBody.query ?? "", /pageElements: evaluate/);
+    assert.match(persistentBody.query ?? "", /proxy\(network: residential, sticky: true\)/);
     assert.equal(persistentBody.variables?.url, "https://crm.example.com/dashboard");
     assert.equal(persistentSnapshot.title, "CRM");
     assert.equal(persistentSnapshot.finalUrl, "https://crm.example.com/dashboard");
     assert.equal(persistentSnapshot.content, "Authenticated CRM content");
+    assert.equal(persistentSnapshot.elements[0]?.selector, "#crm-search");
 
     // Persistent-profile `act` with an operation whose selector times out on
     // the live page: Browserless BQL returns `200 { data: {...partial},
@@ -625,7 +680,21 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
             op_0: null,
             pageTitle: { title: "CRM" },
             pageUrl: { url: "https://crm.example.com/dashboard" },
-            pageText: { text: "Authenticated CRM content" }
+            pageText: { text: "Authenticated CRM content" },
+            pageElements: {
+              value: JSON.stringify([
+                {
+                  selector: 'button[aria-label="Save"]',
+                  tagName: "button",
+                  text: "Save",
+                  role: "button",
+                  type: null,
+                  href: null,
+                  placeholder: null,
+                  disabled: false
+                }
+              ])
+            }
           },
           errors: [
             {
@@ -653,6 +722,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       ],
       timeoutMs: null,
       profileSessionId: "/session/session-login",
+      capabilityPolicy: createPersistentCapabilityPolicy("crm"),
       credential: {
         toolCode: "browser",
         secretId: "secret-session-partial",
@@ -661,9 +731,104 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     });
     assert.equal(partialResult.title, "CRM");
     assert.equal(partialResult.finalUrl, "https://crm.example.com/dashboard");
+    assert.equal(partialResult.content, "Authenticated CRM content");
+    assert.equal(partialResult.elements[0]?.selector, 'button[aria-label="Save"]');
     assert.match(partialResult.warning ?? "", /Browser-rendered page content is untrusted/);
     assert.match(partialResult.warning ?? "", /Browserless BQL operation warnings/);
     assert.match(partialResult.warning ?? "", /op_0: Timeout of 5000ms/);
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          data: {
+            goto: { status: 200 },
+            pageTitle: { title: "CRM" },
+            pageUrl: { url: "https://crm.example.com/dashboard" },
+            pageText: { text: "Authenticated CRM content" }
+          },
+          errors: [
+            {
+              message: "Residential proxy is not enabled for this Browserless plan",
+              path: ["proxy"]
+            }
+          ]
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () =>
+        service.browserAction({
+          action: "snapshot",
+          url: "https://crm.example.com/dashboard",
+          maxChars: null,
+          operations: [],
+          timeoutMs: null,
+          profileSessionId: "/session/session-login",
+          capabilityPolicy: createPersistentCapabilityPolicy("crm"),
+          credential: {
+            toolCode: "browser",
+            secretId: "secret-session-proxy-fatal",
+            providerId: "browserless"
+          }
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof BadGatewayException);
+        assert.match(String(error.message), /Residential proxy is not enabled/i);
+        return true;
+      }
+    );
+
+    await assert.rejects(
+      () =>
+        service.browserAction({
+          action: "snapshot",
+          url: "https://crm.example.com/dashboard",
+          maxChars: null,
+          operations: [],
+          timeoutMs: null,
+          profileSessionId: "/session/session-login",
+          capabilityPolicy: createExternalCapabilityPolicy("crm"),
+          credential: {
+            toolCode: "browser",
+            secretId: "secret-session-external",
+            providerId: "browserless"
+          }
+        }),
+      BadRequestException
+    );
+
+    await assert.rejects(
+      () =>
+        service.browserAction({
+          action: "act",
+          url: "https://crm.example.com/dashboard",
+          maxChars: null,
+          operations: [
+            {
+              kind: "press",
+              key: "Enter"
+            }
+          ],
+          timeoutMs: null,
+          profileSessionId: "/session/session-login",
+          capabilityPolicy: createPersistentCapabilityPolicy("crm"),
+          credential: {
+            toolCode: "browser",
+            secretId: "secret-session-press",
+            providerId: "browserless"
+          }
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof BadRequestException);
+        assert.match(String(error.message), /do not support press operations reliably/i);
+        return true;
+      }
+    );
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =

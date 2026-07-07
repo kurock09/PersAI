@@ -14,6 +14,7 @@ import {
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
   PERSAI_RUNTIME_BROWSER_PROVIDER_IDS,
   PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS,
+  type PersistentBrowserCapabilityPolicy,
   type PersaiRuntimeBrowserAction,
   type PersaiRuntimeBrowserProviderId,
   type PersaiRuntimeBrowserSnapshotFormat,
@@ -354,15 +355,89 @@ export default async ({ page, context }) => {
 };
 `;
 
-const BROWSERLESS_START_LOGIN_BQL = `
-mutation StartLogin($url: String!, $liveUrlTimeoutMs: Float!) {
-  goto(url: $url, waitUntil: networkIdle) {
-    status
-  }
-  liveURL(interactable: true, timeout: $liveUrlTimeoutMs) {
-    liveURL
-  }
-}
+const BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT = String.raw`
+(() => {
+  const nodes = Array.from(
+    document.querySelectorAll(
+      'a, button, input, textarea, select, [role="button"], [role="link"]'
+    )
+  ).slice(0, ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)});
+  const normalizeTextInPage = (value) =>
+    typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  const cssEscape =
+    typeof CSS !== "undefined" && typeof CSS.escape === "function"
+      ? CSS.escape.bind(CSS)
+      : (value) =>
+          String(value).replace(/([ !"#$%&'()*+,./:;<=>?@[\\]^{|}~\\\\])/g, "\\\\$1");
+  const buildSelector = (element) => {
+    if (element.id) {
+      return "#" + cssEscape(element.id);
+    }
+    const attrCandidates = [
+      ["name", element.getAttribute("name")],
+      ["aria-label", element.getAttribute("aria-label")],
+      ["placeholder", element.getAttribute("placeholder")],
+      ["data-testid", element.getAttribute("data-testid")]
+    ];
+    for (const candidate of attrCandidates) {
+      const attr = candidate[0];
+      const value = candidate[1];
+      if (typeof value === "string" && value.trim().length > 0) {
+        return (
+          element.tagName.toLowerCase() +
+          "[" +
+          attr +
+          '="' +
+          cssEscape(value.trim()) +
+          '"]'
+        );
+      }
+    }
+    const parts = [];
+    let current = element;
+    while (current && current.nodeType === Node.ELEMENT_NODE && parts.length < 5) {
+      let selector = current.tagName.toLowerCase();
+      if (current.id) {
+        selector = "#" + cssEscape(current.id);
+        parts.unshift(selector);
+        break;
+      }
+      const parent = current.parentElement;
+      if (parent) {
+        const siblings = Array.from(parent.children).filter(
+          (entry) => entry.tagName === current.tagName
+        );
+        if (siblings.length > 1) {
+          selector += ":nth-of-type(" + String(siblings.indexOf(current) + 1) + ")";
+        }
+      }
+      parts.unshift(selector);
+      current = current.parentElement;
+    }
+    return parts.join(" > ");
+  };
+
+  return JSON.stringify(
+    nodes
+      .map((element) => ({
+        selector: buildSelector(element),
+        tagName: element.tagName.toLowerCase(),
+        text: normalizeTextInPage(
+          element.textContent ||
+            ("value" in element && typeof element.value === "string" ? element.value : "")
+        ),
+        role: element.getAttribute("role"),
+        type: "type" in element && typeof element.type === "string" ? element.type : null,
+        href: element instanceof HTMLAnchorElement ? element.href : null,
+        placeholder:
+          "placeholder" in element && typeof element.placeholder === "string"
+            ? element.placeholder || null
+            : null,
+        disabled: "disabled" in element ? Boolean(element.disabled) : false
+      }))
+      .filter((entry) => typeof entry.selector === "string" && entry.selector.length > 0)
+  );
+})()
 `;
 
 type JsonResponse = {
@@ -378,12 +453,21 @@ type NormalizedBrowserActionRequest = {
   operations: RuntimeBrowserOperation[];
   timeoutMs: number;
   profileSessionId: string | null;
+  capabilityPolicy: PersistentBrowserCapabilityPolicy | null;
   format: PersaiRuntimeBrowserSnapshotFormat;
   optimizeForSpeed: boolean;
   snapshotSelector: string | null;
   fullPage: boolean;
   providerId: PersaiRuntimeBrowserProviderId;
   credential: ProviderGatewayBrowserActionRequest["credential"];
+};
+
+type NormalizedBrowserSessionCapabilityRequest = {
+  timeoutMs: number;
+  capabilityPolicy: PersistentBrowserCapabilityPolicy;
+  credential:
+    | ProviderGatewayBrowserSessionStartLoginRequest["credential"]
+    | ProviderGatewayBrowserSessionVerifyRequest["credential"];
 };
 
 @Injectable()
@@ -516,25 +600,12 @@ export class ProviderBrowserService {
     };
   }
 
-  /**
-   * Format BQL runtime errors (per-op failures such as selector timeouts)
-   * into a single human-readable line the model can see alongside the
-   * extracted page data. Returns `null` when there are no errors to report.
-   *
-   * BQL returns `200 { data: {...}, errors: [{ path: ["op_N"], message }] }`
-   * for per-op runtime failures. Unlike schema errors, these do not
-   * invalidate the whole response — `title`, `url`, `text`, `screenshot`
-   * etc. still resolve. Treating them as fatal 502s (which the initial
-   * BQL port did) kills every `act` call whose first selector doesn't
-   * happen to match, even though the page was reached and other data is
-   * available. This matches the try/catch-per-op semantics of the
-   * legacy `/function` path.
-   */
-  private formatBqlOperationErrors(errors: unknown[]): string | null {
-    if (errors.length === 0) {
-      return null;
-    }
-    const parts: string[] = [];
+  private splitBqlErrors(errors: unknown[]): {
+    fatalMessages: string[];
+    operationWarnings: string[];
+  } {
+    const fatalMessages: string[] = [];
+    const operationWarnings: string[] = [];
     for (const raw of errors) {
       const err = this.asObject(raw);
       if (err === null) continue;
@@ -542,16 +613,30 @@ export class ProviderBrowserService {
         typeof err.message === "string" && err.message.trim().length > 0
           ? err.message.trim()
           : null;
-      const path = Array.isArray(err.path)
-        ? err.path.filter((p): p is string => typeof p === "string").join(".")
-        : "";
       if (message === null) continue;
-      parts.push(path.length > 0 ? `${path}: ${message}` : message);
+      const pathParts = Array.isArray(err.path)
+        ? err.path.filter((p): p is string => typeof p === "string")
+        : [];
+      const path = pathParts.join(".");
+      const formatted = path.length > 0 ? `${path}: ${message}` : message;
+      const firstPathPart = pathParts[0] ?? "";
+      if (/^op_\d+(_clear)?$/.test(firstPathPart)) {
+        operationWarnings.push(formatted);
+        continue;
+      }
+      fatalMessages.push(formatted);
     }
-    if (parts.length === 0) {
+    return {
+      fatalMessages,
+      operationWarnings
+    };
+  }
+
+  private formatBqlOperationWarnings(warnings: string[]): string | null {
+    if (warnings.length === 0) {
       return null;
     }
-    return `Browserless BQL operation warnings: ${parts.join("; ")}`;
+    return `Browserless BQL operation warnings: ${warnings.join("; ")}`;
   }
 
   /**
@@ -564,8 +649,8 @@ export class ProviderBrowserService {
    * `goto → click/type/... → title/url/text/screenshot/pdf`. This method builds
    * that mutation dynamically from the normalized action request and coerces
    * the response back into the same `ProviderGatewayBrowserActionResult` shape
-   * the `/function` path produces (with `elements: []` — the interactive-elements
-   * probe is not ported to BQL yet and can be added via `evaluate` later).
+   * the `/function` path produces, including text-page interactive elements via
+   * a single in-session `evaluate()` step on the persistent BrowserQL consumer.
    */
   private async runPersistentBrowserActionViaBql(
     normalized: NormalizedBrowserActionRequest,
@@ -590,6 +675,15 @@ export class ProviderBrowserService {
     const varDefs: string[] = ["$url: String!"];
     const parts: string[] = [];
     const vars: Record<string, unknown> = { url: normalized.url };
+    const shouldExtractTextPageData = normalized.format === "text";
+    const capabilityPolicy = normalized.capabilityPolicy;
+    if (capabilityPolicy === null) {
+      throw new BadRequestException(
+        "capabilityPolicy is required for persistent-session browser action"
+      );
+    }
+    this.assertSupportedPersistentCapabilityPolicy(capabilityPolicy);
+    parts.push(...this.buildBrowserlessCapabilityPolicyMutations(capabilityPolicy));
 
     if (normalized.optimizeForSpeed) {
       parts.push(`reject(type: [image, font, media], enabled: true) { time }`);
@@ -624,21 +718,10 @@ export class ProviderBrowserService {
           parts.push(`op_${idx}: type(text: $text_${idx}, selector: $selector_${idx}) { time }`);
           break;
         }
-        case "press": {
-          // Persistent-session BQL has no dedicated `keyboard.press` mutation; drive
-          // the key event via evaluate() as a best-effort compatibility layer.
-          varDefs.push(`$key_${idx}: String!`);
-          vars[`key_${idx}`] = operation.key;
-          const pressScript = `try { const el = document.activeElement || document.body; const ev = new KeyboardEvent("keydown", { key: ${JSON.stringify(
-            operation.key
-          )}, bubbles: true }); el.dispatchEvent(ev); const evUp = new KeyboardEvent("keyup", { key: ${JSON.stringify(
-            operation.key
-          )}, bubbles: true }); el.dispatchEvent(evUp); } catch (_) {}`;
-          varDefs.push(`$pressScript_${idx}: String!`);
-          vars[`pressScript_${idx}`] = pressScript;
-          parts.push(`op_${idx}: evaluate(content: $pressScript_${idx}) { value }`);
-          break;
-        }
+        case "press":
+          throw new BadRequestException(
+            "Persistent Browserless sessions do not support press operations reliably; use selector-based actions instead."
+          );
         case "select_option": {
           // Browserless BQL `select(value)` accepts the union type
           // `StringOrArray!` (either a single value or a list). Declaring the
@@ -674,25 +757,26 @@ export class ProviderBrowserService {
     parts.push(`pageUrl: url { url }`);
 
     const format = normalized.format;
-    if (normalized.action === "snapshot") {
-      if (format === "pdf") {
-        parts.push(`doc: pdf(printBackground: true) { base64 }`);
-      } else if (format === "png" || format === "jpeg" || format === "webp") {
-        // Browserless BQL `ScreenshotType` enum is lower-case (`png`, `jpeg`,
-        // `webp`) — upper-case values fail schema validation and provider-
-        // gateway wraps that error as a 502. The values in our
-        // `PersaiRuntimeBrowserSnapshotFormat` are already lower-case, so
-        // pass them through verbatim.
-        const selectorArg =
-          normalized.snapshotSelector !== null
-            ? `, selector: ${JSON.stringify(normalized.snapshotSelector)}`
-            : "";
-        parts.push(
-          `shot: screenshot(type: ${format}, fullPage: ${String(normalized.fullPage)}${selectorArg}) { base64 }`
-        );
-      } else {
-        parts.push(`pageText: text { text }`);
-      }
+    if (format === "pdf") {
+      parts.push(`doc: pdf(printBackground: true) { base64 }`);
+    } else if (format === "png" || format === "jpeg" || format === "webp") {
+      // Browserless BQL `ScreenshotType` enum is lower-case (`png`, `jpeg`,
+      // `webp`) — upper-case values fail schema validation and provider-
+      // gateway wraps that error as a 502. The values in our
+      // `PersaiRuntimeBrowserSnapshotFormat` are already lower-case, so
+      // pass them through verbatim.
+      const selectorArg =
+        normalized.snapshotSelector !== null
+          ? `, selector: ${JSON.stringify(normalized.snapshotSelector)}`
+          : "";
+      parts.push(
+        `shot: screenshot(type: ${format}, fullPage: ${String(normalized.fullPage)}${selectorArg}) { base64 }`
+      );
+    } else if (shouldExtractTextPageData) {
+      parts.push(`pageText: text { text }`);
+      varDefs.push(`$interactiveElementsScript: String!`);
+      vars.interactiveElementsScript = BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT;
+      parts.push(`pageElements: evaluate(content: $interactiveElementsScript) { value }`);
     }
 
     const query = `mutation BrowserAction(${varDefs.join(", ")}) {\n  ${parts.join("\n  ")}\n}`;
@@ -726,18 +810,23 @@ export class ProviderBrowserService {
       }
       throw new BadGatewayException("Browserless BQL request returned no data.");
     }
+    const { fatalMessages, operationWarnings } = this.splitBqlErrors(errors);
+    if (fatalMessages.length > 0) {
+      throw new BadGatewayException(fatalMessages[0] ?? "Browserless BQL request failed.");
+    }
     // Partial-data case: BQL returns `200 { data: {...}, errors: [{path}] }`
-    // when a specific operation fails at runtime (e.g. a `click`/`type`
-    // selector times out because the page doesn't render that element). All
-    // other fields still resolve. This is the direct analogue of the
-    // `/function` path's try/catch-per-op semantics — so we surface these
-    // runtime errors as an `operationWarnings` string appended to the
-    // untrusted-content warning, and return the extracted data.
-    const operationWarning = this.formatBqlOperationErrors(errors);
+    // when a specific user operation fails at runtime (e.g. a `click`/`type`
+    // selector times out because the page doesn't render that element). Those
+    // `op_*` failures should surface as warnings alongside the extracted page
+    // state. Platform-owned capability/setup failures (proxy/policy/schema/
+    // extraction fields) are treated as fatal above and must not silently
+    // degrade into a successful request.
+    const operationWarning = this.formatBqlOperationWarnings(operationWarnings);
 
     const titleNode = this.asObject(data.pageTitle);
     const urlNode = this.asObject(data.pageUrl);
     const textNode = this.asObject(data.pageText);
+    const elementsNode = this.asObject(data.pageElements);
     const shotNode = this.asObject(data.shot);
     const docNode = this.asObject(data.doc);
 
@@ -752,6 +841,9 @@ export class ProviderBrowserService {
     const rawText = typeof textNode?.text === "string" ? textNode.text : "";
     const truncated = rawText.length > normalized.maxChars;
     const content = truncated ? rawText.slice(0, normalized.maxChars).trimEnd() : rawText.trim();
+    const elements = shouldExtractTextPageData
+      ? this.extractElementsFromBqlValue(elementsNode)
+      : [];
 
     const pdfBase64 =
       typeof docNode?.base64 === "string" && docNode.base64.length > 0 ? docNode.base64 : null;
@@ -774,9 +866,9 @@ export class ProviderBrowserService {
       initialUrl: normalized.url,
       finalUrl,
       title,
-      content: normalized.action === "snapshot" && format === "text" ? content : "",
-      truncated: normalized.action === "snapshot" && format === "text" ? truncated : false,
-      elements: [],
+      content: shouldExtractTextPageData ? content : "",
+      truncated: shouldExtractTextPageData ? truncated : false,
+      elements,
       observedAt,
       tookMs,
       warning:
@@ -815,7 +907,7 @@ export class ProviderBrowserService {
         },
         body: JSON.stringify({
           ttl: normalized.reconnectTimeoutMs,
-          stealth: true
+          stealth: normalized.capabilityPolicy.stealth
         })
       },
       normalized.timeoutMs
@@ -863,7 +955,7 @@ export class ProviderBrowserService {
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          query: BROWSERLESS_START_LOGIN_BQL,
+          query: this.buildBrowserlessStartLoginMutation(normalized.capabilityPolicy),
           variables: {
             url: normalized.loginUrl,
             liveUrlTimeoutMs
@@ -927,18 +1019,11 @@ export class ProviderBrowserService {
     input: ProviderGatewayBrowserSessionVerifyRequest
   ): Promise<ProviderGatewayBrowserSessionVerifyResult> {
     const providerSessionId = this.readNonEmptyString(input.providerSessionId, "providerSessionId");
-    if (input.credential.toolCode !== "browser") {
-      throw new BadRequestException('credential.toolCode must be "browser"');
-    }
-    if (
-      typeof input.credential.secretId !== "string" ||
-      input.credential.secretId.trim().length === 0
-    ) {
-      throw new BadRequestException("credential.secretId must be a non-empty string");
-    }
+    const normalized = this.normalizeVerifySessionRequest(input, providerSessionId);
+    this.assertSupportedPersistentCapabilityPolicy(normalized.capabilityPolicy);
 
     const apiKey = await this.persaiInternalApiClientService.resolveSecretValue(
-      input.credential.secretId.trim()
+      normalized.credential.secretId
     );
 
     // Browserless does not expose a `/function` REST endpoint for persistent connect
@@ -948,7 +1033,7 @@ export class ProviderBrowserService {
     // typed data payload proves the persistent session is still routed by
     // Browserless. A 404 (or non-2xx) means the session has been evicted.
     const response = await this.fetchJson(
-      this.resolveBrowserlessSessionBqlEndpoint(apiKey, providerSessionId),
+      this.resolveBrowserlessSessionBqlEndpoint(apiKey, normalized.providerSessionId),
       {
         method: "POST",
         headers: {
@@ -958,7 +1043,7 @@ export class ProviderBrowserService {
           query: "query { __typename }"
         })
       },
-      BROWSERLESS_VERIFY_SESSION_TIMEOUT_MS
+      normalized.timeoutMs
     );
     if (!response.ok) {
       throw new BadGatewayException(this.extractErrorMessage(response.body, "Browserless"));
@@ -1091,6 +1176,20 @@ export class ProviderBrowserService {
       typeof input.profileSessionId === "string" && input.profileSessionId.trim().length > 0
         ? input.profileSessionId.trim()
         : null;
+    const capabilityPolicy =
+      input.capabilityPolicy === null || input.capabilityPolicy === undefined
+        ? null
+        : this.normalizePersistentCapabilityPolicy(input.capabilityPolicy, "capabilityPolicy");
+    if (profileSessionId === null && capabilityPolicy !== null) {
+      throw new BadRequestException(
+        "capabilityPolicy is only supported for persistent profile browser actions"
+      );
+    }
+    if (profileSessionId !== null && capabilityPolicy === null) {
+      throw new BadRequestException(
+        "capabilityPolicy is required for persistent profile browser actions"
+      );
+    }
     const snapshotSelector =
       typeof input.snapshotSelector === "string" && input.snapshotSelector.trim().length > 0
         ? input.snapshotSelector.trim()
@@ -1104,6 +1203,7 @@ export class ProviderBrowserService {
       operations,
       timeoutMs,
       profileSessionId,
+      capabilityPolicy,
       format,
       optimizeForSpeed,
       snapshotSelector,
@@ -1119,10 +1219,8 @@ export class ProviderBrowserService {
 
   private normalizeStartLoginRequest(input: ProviderGatewayBrowserSessionStartLoginRequest): {
     loginUrl: string;
-    timeoutMs: number;
     reconnectTimeoutMs: number;
-    credential: ProviderGatewayBrowserSessionStartLoginRequest["credential"];
-  } {
+  } & NormalizedBrowserSessionCapabilityRequest {
     if (typeof input.loginUrl !== "string" || input.loginUrl.trim().length === 0) {
       throw new BadRequestException("loginUrl must be a non-empty string");
     }
@@ -1171,12 +1269,162 @@ export class ProviderBrowserService {
       loginUrl: parsedUrl.toString(),
       timeoutMs,
       reconnectTimeoutMs,
+      capabilityPolicy: this.normalizePersistentCapabilityPolicy(
+        input.capabilityPolicy,
+        "capabilityPolicy"
+      ),
       credential: {
         toolCode: "browser",
         secretId: input.credential.secretId.trim(),
         providerId: input.credential.providerId ?? null
       }
     };
+  }
+
+  private normalizeVerifySessionRequest(
+    input: ProviderGatewayBrowserSessionVerifyRequest,
+    providerSessionId: string
+  ): {
+    providerSessionId: string;
+  } & NormalizedBrowserSessionCapabilityRequest {
+    if (input.credential.toolCode !== "browser") {
+      throw new BadRequestException('credential.toolCode must be "browser"');
+    }
+    if (
+      typeof input.credential.secretId !== "string" ||
+      input.credential.secretId.trim().length === 0
+    ) {
+      throw new BadRequestException("credential.secretId must be a non-empty string");
+    }
+
+    return {
+      providerSessionId,
+      timeoutMs: BROWSERLESS_VERIFY_SESSION_TIMEOUT_MS,
+      capabilityPolicy: this.normalizePersistentCapabilityPolicy(
+        input.capabilityPolicy,
+        "capabilityPolicy"
+      ),
+      credential: {
+        toolCode: "browser",
+        secretId: input.credential.secretId.trim(),
+        providerId: input.credential.providerId ?? null
+      }
+    };
+  }
+
+  private normalizePersistentCapabilityPolicy(
+    input: unknown,
+    field: string
+  ): PersistentBrowserCapabilityPolicy {
+    const row = this.asObject(input);
+    const profileIdentity = this.asObject(row?.profileIdentity);
+    const proxyRow =
+      row?.proxy === null || row?.proxy === undefined ? null : this.asObject(row?.proxy);
+    if (
+      row?.scope !== "persistent_profile" ||
+      typeof profileIdentity?.assistantId !== "string" ||
+      profileIdentity.assistantId.trim().length === 0 ||
+      typeof profileIdentity?.profileKey !== "string" ||
+      profileIdentity.profileKey.trim().length === 0 ||
+      typeof row?.stealth !== "boolean"
+    ) {
+      throw new BadRequestException(`${field} is not a valid persistent browser capability policy`);
+    }
+
+    if (proxyRow === null) {
+      return {
+        scope: "persistent_profile",
+        profileIdentity: {
+          assistantId: profileIdentity.assistantId.trim(),
+          profileKey: profileIdentity.profileKey.trim()
+        },
+        stealth: row.stealth,
+        proxy: null
+      };
+    }
+
+    if (proxyRow.mode !== "sticky_residential") {
+      throw new BadRequestException(`${field}.proxy.mode must be "sticky_residential"`);
+    }
+    if (proxyRow.provider !== "browserless_builtin" && proxyRow.provider !== "external") {
+      throw new BadRequestException(
+        `${field}.proxy.provider must be "browserless_builtin" or "external"`
+      );
+    }
+
+    const server =
+      proxyRow.server === null || proxyRow.server === undefined
+        ? null
+        : typeof proxyRow.server === "string" && proxyRow.server.trim().length > 0
+          ? proxyRow.server.trim()
+          : null;
+    if (proxyRow.server !== null && proxyRow.server !== undefined && server === null) {
+      throw new BadRequestException(`${field}.proxy.server must be null or a non-empty string`);
+    }
+    if (proxyRow.provider === "browserless_builtin" && server !== null) {
+      throw new BadRequestException(
+        `${field}.proxy.server is reserved for provider "external" and must be null for browserless_builtin`
+      );
+    }
+    if (proxyRow.provider === "external" && server === null) {
+      throw new BadRequestException(
+        `${field}.proxy.server is required when provider is "external"`
+      );
+    }
+
+    return {
+      scope: "persistent_profile",
+      profileIdentity: {
+        assistantId: profileIdentity.assistantId.trim(),
+        profileKey: profileIdentity.profileKey.trim()
+      },
+      stealth: row.stealth,
+      proxy: {
+        mode: "sticky_residential",
+        provider: proxyRow.provider,
+        server
+      }
+    };
+  }
+
+  private assertSupportedPersistentCapabilityPolicy(
+    capabilityPolicy: PersistentBrowserCapabilityPolicy
+  ): void {
+    const proxy = capabilityPolicy.proxy;
+    if (proxy === null) {
+      return;
+    }
+    if (proxy.provider === "external") {
+      throw new BadRequestException(
+        'Persistent browser capability policy with proxy.provider="external" is not supported yet.'
+      );
+    }
+  }
+
+  private buildBrowserlessCapabilityPolicyMutations(
+    capabilityPolicy: PersistentBrowserCapabilityPolicy
+  ): string[] {
+    const proxy = capabilityPolicy.proxy;
+    if (proxy === null) {
+      return [];
+    }
+    if (proxy.provider === "external") {
+      throw new BadRequestException(
+        'Persistent browser capability policy with proxy.provider="external" is not supported yet.'
+      );
+    }
+    return [`proxy(network: residential, sticky: true) { time }`];
+  }
+
+  private buildBrowserlessStartLoginMutation(
+    capabilityPolicy: PersistentBrowserCapabilityPolicy
+  ): string {
+    const parts = [
+      ...this.buildBrowserlessCapabilityPolicyMutations(capabilityPolicy),
+      `goto(url: $url, waitUntil: networkIdle) { status }`,
+      `liveURL(interactable: true, timeout: $liveUrlTimeoutMs) { liveURL }`
+    ];
+    return `mutation StartLogin($url: String!, $liveUrlTimeoutMs: Float!) {\n  ${parts.join("\n  ")}\n}`;
   }
 
   private normalizeOperation(operation: unknown, index: number): RuntimeBrowserOperation {
@@ -1490,6 +1738,21 @@ export class ProviderBrowserService {
     const liveUrlNode = this.asObject(data?.liveURL);
     const liveUrl = liveUrlNode?.liveURL;
     return typeof liveUrl === "string" && liveUrl.trim().length > 0 ? liveUrl.trim() : null;
+  }
+
+  private extractElementsFromBqlValue(valueNode: Record<string, unknown> | null) {
+    const rawValue = valueNode?.value;
+    if (Array.isArray(rawValue)) {
+      return this.normalizeElements(rawValue);
+    }
+    if (typeof rawValue !== "string" || rawValue.trim().length === 0) {
+      return [];
+    }
+    try {
+      return this.normalizeElements(JSON.parse(rawValue));
+    } catch {
+      return [];
+    }
   }
 
   private normalizeElements(value: unknown): RuntimeBrowserInteractiveElement[] {

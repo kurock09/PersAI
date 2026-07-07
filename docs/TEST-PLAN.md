@@ -4,9 +4,9 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
-## ADR-138 browser persistent profiles + live login (focused checks)
+## ADR-138 / ADR-139 browser persistent profiles, capability policy, and recovery (focused checks)
 
-When a change touches browser profiles, provider-gateway Browserless reconnect/liveURL, runtime `browser` tool, web login modal, or assistant settings site cards, run:
+When a change touches browser profiles, provider-gateway Browserless session policy/re-auth/live-login flow, runtime `browser` tool, web login modal, persistent BrowserQL element extraction, or assistant settings site cards, run:
 
 ```bash
 corepack pnpm --filter @persai/api exec tsx test/assistant-browser-profile.service.test.ts test/extract-pending-browser-login-from-turn.test.ts test/resolve-pending-browser-login-for-web-chat.test.ts test/runtime-browser.test.ts test/tool-catalog-data.test.ts
@@ -24,11 +24,16 @@ Live acceptance (post-deploy):
 1. `browser.login` with `displayName` + login `url` → web modal auto-opens on the login page.
 2. User completes login, presses «Готово» → profile `active` in assistant settings site card.
 3. `browser.snapshot` with `profile` returns authenticated CRM content without re-login.
-4. `optimizeForSpeed:true` measurably faster than default on the same table URL (note in handoff).
-5. `browser.snapshot` with `format:"pdf"` produces a PDF attachable via `files.attach`.
-6. Forced expiry → `browser_profile_expired` business error, not stack trace.
-7. Telegram turn returns clickable `liveUrl` text; no web modal.
-8. Delete profile from settings removes row and prevents reuse.
+4. Persistent-profile Browserless policy applies the intended stealth/proxy defaults, or any plan/capability failure is explicit and documented.
+5. Persistent text `browser.snapshot` returns non-empty targetable `page.elements` where the page exposes interactive controls.
+6. `browser.act` using a selector returned from `page.elements` succeeds or returns an honest per-operation warning, never an opaque 502.
+7. `optimizeForSpeed:true` remains measurably faster than default on the same table URL (note in handoff).
+8. `browser.snapshot` with `format:"pdf"` produces a PDF attachable via `files.attach`.
+9. Cold/reconnectable sessions retry or reconnect before any `browser_profile_expired` narrative.
+10. Forced true expiry → `browser_profile_expired` business error, not stack trace.
+11. Web re-auth reopens the modal/banner without the assistant message containing Browserless `liveUrl`.
+12. Telegram re-auth uses PersAI web-login instructions; no web modal.
+13. Delete profile from settings removes row and prevents reuse.
 
 ## ADR-133 Slice 1 path-contract focused checks
 

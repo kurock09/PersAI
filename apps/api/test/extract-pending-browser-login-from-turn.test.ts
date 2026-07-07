@@ -123,16 +123,47 @@ describe("extractPendingBrowserLoginFromTurn", () => {
     assert.deepEqual(result, pending);
   });
 
+  test("parses pendingBrowserLogin from non-login browser recovery payloads", () => {
+    const result = extractPendingBrowserLoginFromTurn(
+      [{ name: "browser", iteration: 0, ok: true, toolCallId: "tool-call-1" }],
+      [
+        {
+          toolCall: {
+            id: "tool-call-1",
+            name: "browser",
+            arguments: {
+              action: "snapshot",
+              profile: pending.profileKey,
+              url: "https://crm.example"
+            }
+          },
+          toolResult: {
+            toolCallId: "tool-call-1",
+            name: "browser",
+            content: JSON.stringify({
+              toolCode: "browser",
+              action: "skipped",
+              reason: "browser_profile_needs_user_reauth",
+              pendingBrowserLogin: pending
+            }),
+            isError: false
+          }
+        }
+      ]
+    );
+    assert.deepEqual(result, pending);
+  });
+
   test("parsePendingBrowserLoginState rejects partial payloads", () => {
     assert.equal(parsePendingBrowserLoginState({ profileKey: "bitrix" }), null);
   });
 });
 
 describe("appendTelegramBrowserLoginLink", () => {
-  test("appends localized live URL text", () => {
+  test("appends PersAI web-login instructions instead of a live URL", () => {
     assert.equal(
       appendTelegramBrowserLoginLink("en", "I'll open the login page.", pending),
-      'I\'ll open the login page.\n\nOpen the login page for "Bitrix24": https://browserless.example/live/bitrix'
+      'I\'ll open the login page.\n\nTo continue login for "Bitrix24", open PersAI on the web: https://persai.dev'
     );
   });
 });

@@ -7,6 +7,8 @@ import {
 } from "@nestjs/common";
 import type {
   AssistantBrowserProfileStatus,
+  PendingBrowserLoginState,
+  PersistentBrowserCapabilityPolicy,
   PersaiRuntimeBrowserProfileErrorReason,
   RuntimeBrowserLoginResult,
   RuntimeBrowserProfileListItem
@@ -40,8 +42,17 @@ export type AssistantBrowserProfileSettingsItem = {
 };
 
 export type ResolveBrowserProfileForToolResult =
-  | { ok: true; providerSessionId: string; profileId: string }
-  | { ok: false; reason: PersaiRuntimeBrowserProfileErrorReason };
+  | {
+      ok: true;
+      providerSessionId: string;
+      profileId: string;
+      capabilityPolicy: PersistentBrowserCapabilityPolicy;
+    }
+  | {
+      ok: false;
+      reason: PersaiRuntimeBrowserProfileErrorReason;
+      pendingBrowserLogin?: PendingBrowserLoginState;
+    };
 
 @Injectable()
 export class AssistantBrowserProfileService {
@@ -100,12 +111,14 @@ export class AssistantBrowserProfileService {
       baseKey
     );
     const profileKey = ensureBrowserProfileKeyUnique(existingKeys, baseKey);
+    const capabilityPolicy = this.buildPersistentCapabilityPolicy(input.assistantId, profileKey);
 
     const reconnectTimeoutMs = await this.resolveReconnectTimeoutMsForAssistant(input.assistantId);
     const session = await this.browserlessSessionPort.startLogin({
       loginUrl,
       profileKey,
       reconnectTimeoutMs,
+      capabilityPolicy,
       ...(input.browserCredentialSecretId !== undefined
         ? { browserCredentialSecretId: input.browserCredentialSecretId }
         : {})
@@ -156,15 +169,24 @@ export class AssistantBrowserProfileService {
 
     const browserCredentialSecretId =
       input.browserCredentialSecretId ?? resolveBrowserToolCredentialSecretId();
+    const capabilityPolicy = this.buildPersistentCapabilityPolicy(row.assistantId, row.profileKey);
     try {
       await this.browserlessSessionPort.verifySession({
         providerSessionId: row.providerSessionId,
+        capabilityPolicy,
         browserCredentialSecretId
       });
-    } catch {
-      throw new ConflictException(
-        "Browser session is not reachable. Finish login in the browser window and try again."
+    } catch (error) {
+      const restarted = await this.tryStartPendingLoginForExistingProfile(
+        row,
+        browserCredentialSecretId
       );
+      if (restarted !== null) {
+        throw new ConflictException(
+          "Browser session needs re-authentication. Reopen the login prompt and continue in the browser window."
+        );
+      }
+      throw error;
     }
 
     const ttlDays = await this.resolveTtlDaysForAssistant(input.assistantId);
@@ -189,23 +211,85 @@ export class AssistantBrowserProfileService {
     if (row === null) {
       return { ok: false, reason: "browser_profile_not_found" };
     }
-    if (row.status === "expired") {
-      return { ok: false, reason: "browser_profile_expired" };
-    }
     if (row.status === "pending_login") {
+      const browserCredentialSecretId = resolveBrowserToolCredentialSecretId();
+      const pendingBrowserLogin = this.toPendingBrowserLoginStateFromRow(row);
+      if (pendingBrowserLogin !== null) {
+        const capabilityPolicy = this.buildPersistentCapabilityPolicy(
+          row.assistantId,
+          row.profileKey
+        );
+        try {
+          await this.browserlessSessionPort.verifySession({
+            providerSessionId: row.providerSessionId,
+            capabilityPolicy,
+            browserCredentialSecretId
+          });
+          return {
+            ok: false,
+            reason: "browser_profile_pending_login",
+            pendingBrowserLogin
+          };
+        } catch {
+          // The pending login session is cold or gone; reopen the same profile row
+          // into a fresh product-owned re-auth flow below.
+        }
+      }
+      const restarted = await this.tryStartPendingLoginForExistingProfile(
+        row,
+        browserCredentialSecretId
+      );
+      if (restarted !== null) {
+        return {
+          ok: false,
+          reason: "browser_profile_needs_user_reauth",
+          pendingBrowserLogin: this.toPendingBrowserLoginState(restarted)
+        };
+      }
       return { ok: false, reason: "browser_profile_pending_login" };
+    }
+    if (row.status === "expired") {
+      const restarted = await this.tryStartPendingLoginForExistingProfile(
+        row,
+        resolveBrowserToolCredentialSecretId()
+      );
+      if (restarted !== null) {
+        return {
+          ok: false,
+          reason: "browser_profile_needs_user_reauth",
+          pendingBrowserLogin: this.toPendingBrowserLoginState(restarted)
+        };
+      }
+      return { ok: false, reason: "browser_profile_expired" };
     }
     if (row.status !== "active") {
       return { ok: false, reason: "browser_profile_not_found" };
     }
     if (row.expiresAt !== null && row.expiresAt.getTime() <= Date.now()) {
       await this.repository.markExpired(row.id);
+      const expiredRow = (await this.repository.findById(row.id)) ?? {
+        ...row,
+        status: "expired" as const,
+        liveUrl: null
+      };
+      const restarted = await this.tryStartPendingLoginForExistingProfile(
+        expiredRow,
+        resolveBrowserToolCredentialSecretId()
+      );
+      if (restarted !== null) {
+        return {
+          ok: false,
+          reason: "browser_profile_needs_user_reauth",
+          pendingBrowserLogin: this.toPendingBrowserLoginState(restarted)
+        };
+      }
       return { ok: false, reason: "browser_profile_expired" };
     }
     return {
       ok: true,
       providerSessionId: row.providerSessionId,
-      profileId: row.id
+      profileId: row.id,
+      capabilityPolicy: this.buildPersistentCapabilityPolicy(row.assistantId, row.profileKey)
     };
   }
 
@@ -222,32 +306,7 @@ export class AssistantBrowserProfileService {
     );
     const browserCredentialSecretId =
       input.browserCredentialSecretId ?? resolveBrowserToolCredentialSecretId();
-    try {
-      await this.browserlessSessionPort.deleteSession(row.providerSessionId, {
-        browserCredentialSecretId
-      });
-    } catch {
-      // Best-effort cleanup before opening a fresh live session.
-    }
-    const reconnectTimeoutMs = await this.resolveReconnectTimeoutMsForAssistant(input.assistantId);
-    const session = await this.browserlessSessionPort.startLogin({
-      loginUrl: row.loginUrl,
-      profileKey: row.profileKey,
-      reconnectTimeoutMs,
-      browserCredentialSecretId
-    });
-    await this.repository.updatePendingLoginSession(row.id, {
-      providerSessionId: session.providerSessionId,
-      liveUrl: session.liveUrl
-    });
-    return {
-      profileId: row.id,
-      profileKey: row.profileKey,
-      displayName: row.displayName,
-      liveUrl: session.liveUrl,
-      loginUrl: row.loginUrl,
-      status: "pending_login"
-    };
+    return this.startPendingLoginForExistingProfile(row, browserCredentialSecretId);
   }
 
   async deleteProfile(input: {
@@ -440,11 +499,105 @@ export class AssistantBrowserProfileService {
     };
   }
 
+  private async tryStartPendingLoginForExistingProfile(
+    row: AssistantBrowserProfileRow,
+    browserCredentialSecretId: string
+  ): Promise<(RuntimeBrowserLoginResult & { profileId: string }) | null> {
+    try {
+      return await this.startPendingLoginForExistingProfile(row, browserCredentialSecretId);
+    } catch {
+      return null;
+    }
+  }
+
+  private async startPendingLoginForExistingProfile(
+    row: AssistantBrowserProfileRow,
+    browserCredentialSecretId: string
+  ): Promise<RuntimeBrowserLoginResult & { profileId: string }> {
+    try {
+      await this.browserlessSessionPort.deleteSession(row.providerSessionId, {
+        browserCredentialSecretId
+      });
+    } catch {
+      // Best-effort cleanup before opening a fresh live session.
+    }
+    const reconnectTimeoutMs = await this.resolveReconnectTimeoutMsForAssistant(row.assistantId);
+    const capabilityPolicy = this.buildPersistentCapabilityPolicy(row.assistantId, row.profileKey);
+    const session = await this.browserlessSessionPort.startLogin({
+      loginUrl: row.loginUrl,
+      profileKey: row.profileKey,
+      reconnectTimeoutMs,
+      capabilityPolicy,
+      browserCredentialSecretId
+    });
+    await this.repository.updatePendingLoginSession(row.id, {
+      providerSessionId: session.providerSessionId,
+      liveUrl: session.liveUrl
+    });
+    return {
+      profileId: row.id,
+      profileKey: row.profileKey,
+      displayName: row.displayName,
+      liveUrl: session.liveUrl,
+      loginUrl: row.loginUrl,
+      status: "pending_login"
+    };
+  }
+
+  private toPendingBrowserLoginStateFromRow(
+    row: Pick<
+      AssistantBrowserProfileRow,
+      "id" | "profileKey" | "displayName" | "liveUrl" | "loginUrl"
+    >
+  ): PendingBrowserLoginState | null {
+    if (typeof row.liveUrl !== "string" || row.liveUrl.trim().length === 0) {
+      return null;
+    }
+    return {
+      profileId: row.id,
+      profileKey: row.profileKey,
+      displayName: row.displayName,
+      liveUrl: row.liveUrl.trim(),
+      loginUrl: row.loginUrl
+    };
+  }
+
+  private toPendingBrowserLoginState(
+    row: RuntimeBrowserLoginResult & { profileId: string }
+  ): PendingBrowserLoginState {
+    return {
+      profileId: row.profileId,
+      profileKey: row.profileKey,
+      displayName: row.displayName,
+      liveUrl: row.liveUrl,
+      loginUrl: row.loginUrl
+    };
+  }
+
   private requireNonEmptyString(value: string, label: string): string {
     const trimmed = value.trim();
     if (trimmed.length === 0) {
       throw new BadRequestException(`${label} must be a non-empty string.`);
     }
     return trimmed;
+  }
+
+  private buildPersistentCapabilityPolicy(
+    assistantId: string,
+    profileKey: string
+  ): PersistentBrowserCapabilityPolicy {
+    return {
+      scope: "persistent_profile",
+      profileIdentity: {
+        assistantId,
+        profileKey
+      },
+      stealth: true,
+      proxy: {
+        mode: "sticky_residential",
+        provider: "browserless_builtin",
+        server: null
+      }
+    };
   }
 }

@@ -834,7 +834,7 @@ function createBrowserToolDefinition(
           type: "string",
           enum: ["describe", ...bundle.runtime.browser.actions],
           description:
-            'Use "describe" to load the full tool contract. Use "list_profiles" to list saved browser sessions, "login" to start live login, "snapshot" to inspect a page, or "act" to perform bounded browser operations before returning a fresh snapshot.'
+            'Use "describe" to load the full tool contract. Use "list_profiles" to list saved browser sessions, "login" to start product-owned live login or re-auth, "snapshot" to inspect a page, or "act" to perform bounded browser operations before returning a fresh snapshot. For saved profiles, stealth/proxy policy is platform-owned, not a model argument. Profile-backed text snapshots and acts may return page.elements with reusable CSS selectors; prefer those selectors on follow-up acts. If act returns per-operation warnings, continue from the observed page state/elements and speak from structured runtime/API reason codes for re-auth or expiry. Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to that state.'
         },
         url: {
           type: "string",
@@ -844,12 +844,12 @@ function createBrowserToolDefinition(
         displayName: {
           type: "string",
           description:
-            'Human-readable profile label chosen by the assistant. Required for action="login".'
+            'Human-readable profile label chosen by the assistant. Required for action="login". On ordinary web chat, the product owns the login/re-auth UI; do not promise or paste Browserless live login URLs in chat.'
         },
         profile: {
           type: "string",
           description:
-            'Stable profileKey from "login" or "list_profiles". Optional for "snapshot" and "act" to reuse a saved session.'
+            'Stable profileKey from "login" or "list_profiles". Optional for "snapshot" and "act" to reuse a saved session. When a text snapshot exposes page.elements, prefer those selectors for follow-up act calls instead of guessing.'
         },
         format: {
           type: "string",
@@ -882,7 +882,7 @@ function createBrowserToolDefinition(
           type: "array",
           maxItems: MAX_RUNTIME_BROWSER_OPERATIONS,
           description:
-            'Required for action="act". Each step is one bounded browser operation using a CSS selector or keyboard input.',
+            'Required for action="act". Each step is one bounded browser operation using a CSS selector or keyboard input. Prefer selectors copied from the latest page.elements when available.',
           items: {
             type: "object",
             additionalProperties: false,
@@ -894,7 +894,8 @@ function createBrowserToolDefinition(
               },
               selector: {
                 type: "string",
-                description: "CSS selector for click/type/select/wait_for_selector operations."
+                description:
+                  "CSS selector for click/type/select/wait_for_selector operations. Prefer selectors copied from page.elements."
               },
               text: {
                 type: "string",

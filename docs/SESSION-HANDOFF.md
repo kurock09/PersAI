@@ -1,5 +1,72 @@
 # SESSION-HANDOFF
 
+## 2026-07-07 — ADR-139 Browserless capability policy, persistent elements, and recovery-owned reauth
+
+Status: **local; deploy + live acceptance pending. Push = deploy, so nothing was pushed.**
+
+**Baseline SHA:** `9c64ea36` on `main` from a clean git tree.
+
+**Task scope:** execute the founder-approved ADR-139 plan on top of ADR-138 without reopening legacy paths: parent-owned ADR/doc slice, then GPT-5.4-implemented code slices for (1) contract/API capability policy plumbing, (2) provider-gateway Browserless stealth/proxy + persistent `elements`, (3) runtime/catalog model-facing truth, and (4) recovery/modal-first re-auth behavior. Out of scope remained deploy/push, external proxy execution, and non-prod compatibility detours.
+
+**What changed:**
+- **ADR + docs:** opened `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`; updated `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, and `docs/TEST-PLAN.md` so the active truth is: parent-orchestrated ADR, GPT-5.4 implementation subagents only, commits allowed per slice, **push = deploy**, no legacy compatibility path, platform-owned stealth/proxy policy, persistent BrowserQL `elements`, and product-owned re-auth.
+- **S1 contract/API plumbing:** introduced `PersistentBrowserCapabilityPolicy` in `packages/runtime-contract`; API now derives default persistent policy from stable `(assistantId, profileKey)` with `stealth: true` + sticky residential proxy intent, and threads it through profile `startLogin` / `verifySession` plus the internal runtime resolve seam. No DB secret snapshot was added.
+- **S2 provider-gateway execution:** persistent `browserAction` now receives `capabilityPolicy`; Browserless persistent BQL flows enforce supported policy, inject built-in sticky residential proxy via BQL mutation on persistent flows, fail explicitly on unsupported external proxy policy, and return normalized interactive `page.elements` for text-page persistent `snapshot` / `act`. PDF/image outputs stay honest with `elements: []`.
+- **S3 runtime/catalog truth:** browser prompt-owner text in `native-tool-projection.ts` and `tool-catalog-data.ts` now teaches selector reuse from `page.elements`, warns against inventing proxy settings, forbids ordinary web-chat Browserless live-URL narration, and tells the model not to infer expiry from transient BQL/reconnect failures.
+- **S4 recovery behavior:** API profile resolution now reuses the existing profile row for re-auth, reopening `pending_login` / expired / TTL-elapsed profiles into product-owned `pendingBrowserLogin` state where possible instead of forcing a new profile identity or immediately returning `browser_profile_expired`. Added structured reason `browser_profile_needs_user_reauth`; runtime threads that state through browser tool results, and Telegram-facing fallback copy now points the user to PersAI web login instead of raw Browserless live URLs. Existing modal/banner web UX was reused rather than replaced.
+- **Post-implementation audit sweep:** independent review found and fixed several tails before commit. Provider-gateway now treats only user-operation `op_*` BrowserQL errors as non-fatal warnings, fails honestly on capability/setup errors like `proxy(...)`, and explicitly rejects persistent-path `press` instead of faking DOM key events. API pending rows now verify their live session before returning `browser_profile_pending_login`; stale pending rows and failed `completeLogin` verify attempts reopen same-row re-auth instead of trapping the user on a dead `liveUrl`. Runtime `list_profiles` now returns structured `browser_failed` output on internal failures. Prompt/docs/tests were tightened so browser login is only suggested from structured state, legacy Browserless `/reconnect` wording is no longer blurred with product-owned re-auth, and the touched-file bookkeeping matches the actual docs updated in this handoff.
+
+**Verification (all PASS):**
+- `corepack pnpm --filter @persai/api exec tsx test/assistant-browser-profile.service.test.ts test/extract-pending-browser-login-from-turn.test.ts test/resolve-pending-browser-login-for-web-chat.test.ts test/runtime-browser.test.ts test/tool-catalog-data.test.ts`
+- `corepack pnpm --filter @persai/runtime exec tsx test/runtime-browser-tool.service.test.ts test/native-tool-projection.test.ts`
+- `corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-browser.service.test.ts`
+- `corepack pnpm --filter @persai/web exec vitest run app/app/_components/browser-login-modal.test.tsx app/app/_components/assistant-settings.test.tsx app/app/_components/chat-area.test.tsx --config vitest.config.ts`
+- `corepack pnpm --filter @persai/api run typecheck`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/provider-gateway run typecheck`
+- `corepack pnpm --filter @persai/web run typecheck`
+- `corepack pnpm -r --if-present run lint`
+- `corepack pnpm run format:check`
+- `corepack pnpm --filter @persai/api run test`
+- `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm --filter @persai/provider-gateway run test`
+- `corepack pnpm --filter @persai/web run test`
+
+**Risks/residuals:**
+- Sticky residential proxy is wired for the Browserless built-in path, but live Browserless plan acceptance and region quality still need real deploy validation.
+- Recovery is now product-owned for pending/expired/TTL-elapsed control-plane states, but not every possible post-resolve provider failure is reclassified yet; live smoke should confirm whether additional action-time recovery heuristics are needed.
+- External proxy typing is reserved in the contract, but execution remains intentionally unsupported.
+- The web modal/banner UX was reused rather than redesigned; founder live acceptance should confirm the copy/flow is sufficient for real re-auth scenarios.
+
+**Files touched:**
+- `AGENTS.md`
+- `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`
+- `docs/ARCHITECTURE.md`
+- `docs/API-BOUNDARY.md`
+- `docs/CHANGELOG.md`
+- `docs/DATA-MODEL.md`
+- `docs/SESSION-HANDOFF.md`
+- `docs/TEST-PLAN.md`
+- `packages/runtime-contract/src/index.ts`
+- `apps/api/src/modules/workspace-management/application/assistant-browser-profile.service.ts`
+- `apps/api/src/modules/workspace-management/application/browserless-provider-gateway.client.ts`
+- `apps/api/src/modules/workspace-management/application/browserless-session.port.ts`
+- `apps/api/src/modules/workspace-management/application/provider-browserless-session.port.ts`
+- `apps/api/src/modules/workspace-management/application/extract-pending-browser-login-from-turn.ts`
+- `apps/runtime/src/modules/turns/persai-internal-api.client.service.ts`
+- `apps/runtime/src/modules/turns/runtime-browser-tool.service.ts`
+- `apps/runtime/src/modules/turns/native-tool-projection.ts`
+- `apps/provider-gateway/src/modules/providers/provider-browser.service.ts`
+- `apps/api/prisma/tool-catalog-data.ts`
+- `apps/api/test/assistant-browser-profile.service.test.ts`
+- `apps/api/test/tool-catalog-data.test.ts`
+- `apps/runtime/test/runtime-browser-tool.service.test.ts`
+- `apps/runtime/test/native-tool-projection.test.ts`
+- `apps/runtime/test/turn-execution.service.test.ts`
+- `apps/provider-gateway/test/provider-browser.service.test.ts`
+
+**Next step:** after commit/push, run live Browserless acceptance for: sticky residential acceptance, persistent `page.elements`, selector-based `act`, cold-session re-auth reopening, modal-first web re-auth, and Telegram web-login fallback copy.
+
 ## 2026-07-07 — ADR-138 correction #4: honest partial-data on BQL per-op errors (fixes 502 on `act`)
 
 Status: **local; deploy + live acceptance pending.**

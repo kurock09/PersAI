@@ -18,6 +18,7 @@ export class ProviderBrowserlessSessionPort implements BrowserlessSessionPort {
     return this.browserlessProviderGatewayClient.startLogin({
       loginUrl: input.loginUrl,
       reconnectTimeoutMs: input.reconnectTimeoutMs,
+      capabilityPolicy: input.capabilityPolicy,
       ...(input.browserCredentialSecretId !== undefined
         ? { browserCredentialSecretId: input.browserCredentialSecretId }
         : {})
@@ -27,6 +28,7 @@ export class ProviderBrowserlessSessionPort implements BrowserlessSessionPort {
   verifySession(input: BrowserlessVerifySessionInput): Promise<BrowserlessVerifySessionResult> {
     return this.browserlessProviderGatewayClient.verifySession({
       providerSessionId: input.providerSessionId,
+      capabilityPolicy: input.capabilityPolicy,
       ...(input.browserCredentialSecretId !== undefined
         ? { browserCredentialSecretId: input.browserCredentialSecretId }
         : {})

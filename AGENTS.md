@@ -27,6 +27,8 @@ Additional active orchestration program: `docs/ADR/137-execution-pod-boundary-an
 
 Additional orchestration program **closed locally 2026-07-05:** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` (per-assistant Browserless profile persistence, `login`/`list_profiles`, live fullscreen modal auto-open via `pendingBrowserLogin`, settings site cards, `optimizeForSpeed` + PDF snapshot in MVP; Slices S0–S6 landed locally — deploy + live acceptance pending; do not reopen for new scope).
 
+Additional active orchestration program: `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md` (opened 2026-07-07 — Browserless capability layer on top of ADR-138: platform-owned stealth + sticky residential proxy defaults for persistent profiles, persistent BrowserQL `elements`, structured cold-session/re-auth recovery, and modal-first no-liveUrl-in-web-chat recovery UX. Parent agent owns the ADR and final doc reconciliation; implementation must be delegated slice-by-slice to GPT-5.4 subagents only; commits may land per slice, but **push = deploy** and remains founder-controlled; no legacy compatibility path or non-prod detours).
+
 ## Repo rules
 
 - ADR-132 has an additional local repair slice landed 2026-07-03: chat delivery for PDF/DOCX/XLSX must be attachment-first and must not wait for best-effort inspect/register/documentLink metadata enrichment; runtime `document.render` / `document.convert` must not recreate the old active `project.json` workflow for ordinary authored/convert outputs.

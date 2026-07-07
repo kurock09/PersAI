@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type {
+  PersistentBrowserCapabilityPolicy,
   ProviderGatewayBrowserActionRequest,
   ProviderGatewayBrowserActionResult,
   ProviderGatewayToolCall,
@@ -51,6 +52,22 @@ const BROWSER_CONFIG = {
   actions: ["snapshot", "act", "login", "list_profiles"],
   confirmationRequiredActions: ["act", "login"]
 } satisfies RuntimeBrowserConfig;
+
+function createPersistentCapabilityPolicy(profileKey: string): PersistentBrowserCapabilityPolicy {
+  return {
+    scope: "persistent_profile",
+    profileIdentity: {
+      assistantId: "assistant-1",
+      profileKey
+    },
+    stealth: true,
+    proxy: {
+      mode: "sticky_residential",
+      provider: "browserless_builtin",
+      server: null
+    }
+  };
+}
 
 function createBundle() {
   return compileAssistantRuntimeBundle({
@@ -257,6 +274,7 @@ class FakeProviderGatewayClientService {
 class FakePersaiInternalApiClientService {
   quotaCalls: Array<{ assistantId: string; toolCode: string; dailyCallLimit: number | null }> = [];
   listProfilesCalls = 0;
+  listProfilesError: Error | null = null;
   resolveCalls: Array<{ assistantId: string; profileKey: string }> = [];
   startLoginCalls: Array<{
     assistantId: string;
@@ -270,7 +288,8 @@ class FakePersaiInternalApiClientService {
   resolveOutcome: ResolveBrowserProfileOutcome = {
     ok: true,
     providerSessionId: "/session/session-1",
-    profileId: "profile-1"
+    profileId: "profile-1",
+    capabilityPolicy: createPersistentCapabilityPolicy("bitrix")
   };
   profiles: RuntimeBrowserProfileListItem[] = [
     {
@@ -293,6 +312,9 @@ class FakePersaiInternalApiClientService {
 
   async listBrowserProfiles(): Promise<RuntimeBrowserProfileListItem[]> {
     this.listProfilesCalls += 1;
+    if (this.listProfilesError !== null) {
+      throw this.listProfilesError;
+    }
     return this.profiles;
   }
 
@@ -379,6 +401,18 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.equal(persaiInternalApiClientService.listProfilesCalls, 1);
   assert.equal(persaiInternalApiClientService.quotaCalls.length, 0);
 
+  persaiInternalApiClientService.listProfilesError = new Error("profiles blew up");
+  const listFailureResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({ action: "list_profiles" }),
+    sessionId: "session-1"
+  });
+  assert.equal(listFailureResult.isError, true);
+  assert.equal(listFailureResult.payload.action, "skipped");
+  assert.equal(listFailureResult.payload.reason, "browser_failed");
+  assert.match(listFailureResult.payload.warning ?? "", /profiles blew up/);
+  persaiInternalApiClientService.listProfilesError = null;
+
   const loginResult = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({
@@ -414,6 +448,10 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
     providerGatewayClientService.browserCalls[0]?.profileSessionId,
     "/session/session-1"
   );
+  assert.deepEqual(
+    providerGatewayClientService.browserCalls[0]?.capabilityPolicy,
+    createPersistentCapabilityPolicy("bitrix")
+  );
   assert.equal("profile" in (providerGatewayClientService.browserCalls[0] ?? {}), false);
   assert.equal(providerGatewayClientService.browserCalls[0]?.optimizeForSpeed, true);
   assert.equal(persaiInternalApiClientService.touchCalls.length, 1);
@@ -422,7 +460,8 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   persaiInternalApiClientService.resolveOutcome = {
     ok: true,
     providerSessionId: "/session/session-1",
-    profileId: "profile-1"
+    profileId: "profile-1",
+    capabilityPolicy: createPersistentCapabilityPolicy("bitrix")
   };
   const pgFailureResult = await service.executeToolCall({
     bundle,
@@ -439,6 +478,34 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.equal(persaiInternalApiClientService.touchCalls.length, 1);
 
   providerGatewayClientService.browserActionError = null;
+
+  persaiInternalApiClientService.resolveOutcome = {
+    ok: false,
+    reason: "browser_profile_needs_user_reauth",
+    pendingBrowserLogin: {
+      profileId: "profile-1",
+      profileKey: "bitrix",
+      displayName: "Bitrix24",
+      liveUrl: "https://live.browserless.io/session-reauth",
+      loginUrl: "https://example.bitrix24.ru/login"
+    }
+  };
+  const reauthResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "snapshot",
+      url: "https://example.com/",
+      profile: "bitrix"
+    }),
+    sessionId: "session-1"
+  });
+  assert.equal(reauthResult.isError, false);
+  assert.equal(reauthResult.payload.reason, "browser_profile_needs_user_reauth");
+  assert.equal(
+    reauthResult.payload.pendingBrowserLogin?.liveUrl,
+    "https://live.browserless.io/session-reauth"
+  );
+  assert.equal(providerGatewayClientService.browserCalls.length, 2);
 
   persaiInternalApiClientService.resolveOutcome = {
     ok: false,
@@ -460,7 +527,8 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   persaiInternalApiClientService.resolveOutcome = {
     ok: true,
     providerSessionId: "/session/session-1",
-    profileId: "profile-1"
+    profileId: "profile-1",
+    capabilityPolicy: createPersistentCapabilityPolicy("bitrix")
   };
   const pdfResult = await service.executeToolCall({
     bundle,

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { ConflictException } from "@nestjs/common";
 import { describe, test } from "node:test";
-import type { AssistantBrowserProfileStatus } from "@persai/runtime-contract";
+import type {
+  AssistantBrowserProfileStatus,
+  PersistentBrowserCapabilityPolicy
+} from "@persai/runtime-contract";
 import { AssistantBrowserProfileService } from "../src/modules/workspace-management/application/assistant-browser-profile.service";
 import type {
   AssistantBrowserProfileRepository,
@@ -196,22 +199,31 @@ class InMemoryAssistantBrowserProfileRepository implements AssistantBrowserProfi
 class FakeBrowserlessSessionPort implements BrowserlessSessionPort {
   readonly startLoginCalls: Array<{
     loginUrl: string;
+    profileKey: string;
     reconnectTimeoutMs: number;
+    capabilityPolicy: PersistentBrowserCapabilityPolicy;
     browserCredentialSecretId?: string;
   }> = [];
   readonly verifySessionCalls: Array<{
     providerSessionId: string;
+    capabilityPolicy: PersistentBrowserCapabilityPolicy;
     browserCredentialSecretId?: string;
   }> = [];
   readonly deletedSessions: string[] = [];
   private loginCounter = 0;
   verifySessionShouldFail = false;
+  startLoginShouldFail = false;
 
   async startLogin(input: {
     loginUrl: string;
+    profileKey: string;
     reconnectTimeoutMs: number;
+    capabilityPolicy: PersistentBrowserCapabilityPolicy;
     browserCredentialSecretId?: string;
   }) {
+    if (this.startLoginShouldFail) {
+      throw new Error("Browser login could not be started.");
+    }
     this.startLoginCalls.push(input);
     this.loginCounter += 1;
     const suffix = String(this.loginCounter);
@@ -223,6 +235,7 @@ class FakeBrowserlessSessionPort implements BrowserlessSessionPort {
 
   async verifySession(input: {
     providerSessionId: string;
+    capabilityPolicy: PersistentBrowserCapabilityPolicy;
     browserCredentialSecretId?: string;
   }): Promise<{ ok: true }> {
     this.verifySessionCalls.push(input);
@@ -281,6 +294,25 @@ function buildService(input: {
   );
 }
 
+function expectedPersistentCapabilityPolicy(
+  assistantId: string,
+  profileKey: string
+): PersistentBrowserCapabilityPolicy {
+  return {
+    scope: "persistent_profile",
+    profileIdentity: {
+      assistantId,
+      profileKey
+    },
+    stealth: true,
+    proxy: {
+      mode: "sticky_residential",
+      provider: "browserless_builtin",
+      server: null
+    }
+  };
+}
+
 describe("browser profile key helpers", () => {
   test("dedupes profile keys with numeric suffix", () => {
     const base = generateBrowserProfileKeyBase("Bitrix24 CRM", "assistant-1");
@@ -333,6 +365,10 @@ describe("AssistantBrowserProfileService", () => {
     assert.equal(result.status, "pending_login");
     assert.match(result.liveUrl, /^https:\/\/browserless\.test\/live\//);
     assert.equal(browserlessPort.startLoginCalls.length, 1);
+    assert.deepEqual(
+      browserlessPort.startLoginCalls[0]?.capabilityPolicy,
+      expectedPersistentCapabilityPolicy("assistant-1", "bitrix24-crm-1")
+    );
     const created = await repository.findById(result.profileId);
     assert.equal(created?.liveUrl, result.liveUrl);
   });
@@ -456,7 +492,7 @@ describe("AssistantBrowserProfileService", () => {
     assert.equal(pending.length, 2);
   });
 
-  test("resolveProfileForTool returns typed errors for missing, pending, and expired profiles", async () => {
+  test("resolveProfileForTool returns pending login state for existing pending profiles", async () => {
     const repository = new InMemoryAssistantBrowserProfileRepository();
     repository.seed({
       id: "pending-1",
@@ -516,22 +552,135 @@ describe("AssistantBrowserProfileService", () => {
       await service.resolveProfileForTool({ assistantId: "assistant-1", profileKey: "pending" }),
       {
         ok: false,
-        reason: "browser_profile_pending_login"
+        reason: "browser_profile_pending_login",
+        pendingBrowserLogin: {
+          profileId: "pending-1",
+          profileKey: "pending",
+          displayName: "Pending",
+          liveUrl: "https://browserless.test/live/pending",
+          loginUrl: "https://crm.example/login"
+        }
       }
     );
+  });
+
+  test("resolveProfileForTool reopens stale pending profiles for re-auth on the same row", async () => {
+    const repository = new InMemoryAssistantBrowserProfileRepository();
+    repository.seed({
+      id: "pending-stale-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "pending-stale",
+      displayName: "Pending stale",
+      loginUrl: "https://crm.example/login",
+      originHost: "crm.example",
+      providerSessionId: "session-pending-stale",
+      liveUrl: "https://browserless.test/live/stale",
+      status: "pending_login",
+      lastUsedAt: null,
+      expiresAt: null
+    });
+    const browserlessPort = new FakeBrowserlessSessionPort();
+    browserlessPort.verifySessionShouldFail = true;
+    const service = buildService({ repository, browserlessPort });
+
+    assert.deepEqual(
+      await service.resolveProfileForTool({
+        assistantId: "assistant-1",
+        profileKey: "pending-stale"
+      }),
+      {
+        ok: false,
+        reason: "browser_profile_needs_user_reauth",
+        pendingBrowserLogin: {
+          profileId: "pending-stale-1",
+          profileKey: "pending-stale",
+          displayName: "Pending stale",
+          liveUrl: "https://browserless.test/live/1",
+          loginUrl: "https://crm.example/login"
+        }
+      }
+    );
+    const updated = await repository.findById("pending-stale-1");
+    assert.equal(updated?.status, "pending_login");
+    assert.equal(updated?.providerSessionId, "mock-session:1");
+    assert.equal(updated?.liveUrl, "https://browserless.test/live/1");
+  });
+
+  test("resolveProfileForTool reopens expired profiles for re-auth on the same row", async () => {
+    const repository = new InMemoryAssistantBrowserProfileRepository();
+    repository.seed({
+      id: "expired-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "expired",
+      displayName: "Expired",
+      loginUrl: "https://crm.example/login",
+      originHost: "crm.example",
+      providerSessionId: "session-expired",
+      liveUrl: null,
+      status: "expired",
+      lastUsedAt: null,
+      expiresAt: new Date("2026-01-01T00:00:00.000Z")
+    });
+    const browserlessPort = new FakeBrowserlessSessionPort();
+    const service = buildService({ repository, browserlessPort });
+
     assert.deepEqual(
       await service.resolveProfileForTool({ assistantId: "assistant-1", profileKey: "expired" }),
       {
         ok: false,
-        reason: "browser_profile_expired"
+        reason: "browser_profile_needs_user_reauth",
+        pendingBrowserLogin: {
+          profileId: "expired-1",
+          profileKey: "expired",
+          displayName: "Expired",
+          liveUrl: "https://browserless.test/live/1",
+          loginUrl: "https://crm.example/login"
+        }
       }
     );
+    const updated = await repository.findById("expired-1");
+    assert.equal(updated?.status, "pending_login");
+    assert.equal(updated?.providerSessionId, "mock-session:1");
+    assert.equal(updated?.liveUrl, "https://browserless.test/live/1");
+  });
+
+  test("resolveProfileForTool reopens active profiles whose ttl already elapsed", async () => {
+    const repository = new InMemoryAssistantBrowserProfileRepository();
+    repository.seed({
+      id: "active-expired-at-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "active-expired-at",
+      displayName: "Active but past expiresAt",
+      loginUrl: "https://crm.example/login",
+      originHost: "crm.example",
+      providerSessionId: "session-active-expired-at",
+      liveUrl: null,
+      status: "active",
+      lastUsedAt: new Date("2026-01-01T00:00:00.000Z"),
+      expiresAt: new Date("2026-01-02T00:00:00.000Z")
+    });
+    const browserlessPort = new FakeBrowserlessSessionPort();
+    const service = buildService({ repository, browserlessPort });
+
     assert.deepEqual(
       await service.resolveProfileForTool({
         assistantId: "assistant-1",
         profileKey: "active-expired-at"
       }),
-      { ok: false, reason: "browser_profile_expired" }
+      {
+        ok: false,
+        reason: "browser_profile_needs_user_reauth",
+        pendingBrowserLogin: {
+          profileId: "active-expired-at-1",
+          profileKey: "active-expired-at",
+          displayName: "Active but past expiresAt",
+          liveUrl: "https://browserless.test/live/1",
+          loginUrl: "https://crm.example/login"
+        }
+      }
     );
   });
 
@@ -568,6 +717,10 @@ describe("AssistantBrowserProfileService", () => {
 
     assert.equal(browserlessPort.verifySessionCalls.length, 1);
     assert.equal(browserlessPort.verifySessionCalls[0]?.providerSessionId, "session-crm");
+    assert.deepEqual(
+      browserlessPort.verifySessionCalls[0]?.capabilityPolicy,
+      expectedPersistentCapabilityPolicy("assistant-1", "crm")
+    );
     assert.equal(result.profile.status, "active");
     assert.notEqual(result.profile.lastUsedAt, null);
     assert.notEqual(result.profile.expiresAt, null);
@@ -580,7 +733,7 @@ describe("AssistantBrowserProfileService", () => {
     assert.equal(updated?.liveUrl, null);
   });
 
-  test("completeLogin rejects activation when browser session verify fails", async () => {
+  test("completeLogin refreshes pending login when browser session verify fails", async () => {
     const repository = new InMemoryAssistantBrowserProfileRepository();
     const pending = repository.seed({
       id: "pending-verify-fail-1",
@@ -610,14 +763,15 @@ describe("AssistantBrowserProfileService", () => {
         }),
       (error: unknown) => {
         assert.ok(error instanceof ConflictException);
-        assert.match(error.message, /Browser session is not reachable/);
+        assert.match(error.message, /needs re-authentication/i);
         return true;
       }
     );
 
     const updated = await repository.findById(pending.id);
     assert.equal(updated?.status, "pending_login");
-    assert.equal(updated?.liveUrl, "https://browserless.test/live/crm");
+    assert.equal(updated?.providerSessionId, "mock-session:1");
+    assert.equal(updated?.liveUrl, "https://browserless.test/live/1");
   });
 
   test("startLogin persists originatingChatId on pending profile", async () => {
@@ -663,7 +817,8 @@ describe("AssistantBrowserProfileService", () => {
       {
         ok: true,
         providerSessionId: "session-active",
-        profileId: "active-1"
+        profileId: "active-1",
+        capabilityPolicy: expectedPersistentCapabilityPolicy("assistant-1", "crm")
       }
     );
   });
@@ -696,6 +851,10 @@ describe("AssistantBrowserProfileService", () => {
     });
 
     assert.equal(result.status, "pending_login");
+    assert.deepEqual(
+      browserlessPort.startLoginCalls[0]?.capabilityPolicy,
+      expectedPersistentCapabilityPolicy("assistant-1", "crm")
+    );
     assert.deepEqual(
       browserlessPort.deletedSessions.map((entry) => JSON.parse(entry)),
       [

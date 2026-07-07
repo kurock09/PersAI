@@ -103,21 +103,21 @@ ADR-081 plus ADR-133 extend the target-state authority of path-based Files: ever
 
 Chat rendering/download rows project back to canonical workspace paths. `attachmentId` remains message-rendering state, while `path`/`storagePath` is the durable file identity exposed by active APIs.
 
-## Assistant browser profiles (ADR-138)
+## Assistant browser profiles (ADR-138 / ADR-139)
 
-Per-assistant persistent browser sessions for logged-in CRM/portal work. Cookies live in Browserless; PersAI stores mapping + metadata only.
+Per-assistant persistent browser sessions for logged-in CRM/portal work. Cookies live in Browserless; PersAI stores mapping + metadata only. ADR-139 keeps capability policy platform-owned: stealth/proxy behavior is derived from PersAI product policy and profile identity, not from model-authored knobs and not from persisted secret material in this table.
 
 Table `assistant_browser_profiles` (`AssistantBrowserProfile`):
 
 - composite unique `(assistantId, profileKey)` — stable slug server-generated from assistant-chosen `displayName` on `login`
 - `displayName`, `loginUrl`, `originHost` (from login URL, for settings favicon)
-- `providerSessionId` — Browserless reconnect id
+- `providerSessionId` — Browserless persistent session mapping id
 - `status`: `pending_login` | `active` | `expired`
 - `lastUsedAt`, `expiresAt` — sliding TTL from last successful `snapshot`/`act` with `profile`
 
 TTL: plan billing hint `browserProfileTtlDays` when set (e.g. 90 on scale-like plans); **default 30 days** when absent (`resolveBrowserProfileTtlDays`). Scheduler lease `browser_profile_expiry` marks overdue `active` rows `expired`.
 
-Web chat turn/stream/list may carry `pendingBrowserLogin` when a profile is awaiting user completion in the live login modal. Telegram turns surface the `liveUrl` as link text only.
+ADR-139 recovery truth is product-owned: cold/reconnectable sessions must be retried or re-auth-classified before the product tells the assistant a profile is expired. Web chat turn/stream/list may carry `pendingBrowserLogin` when a profile is awaiting user completion in the live login modal. Telegram may still surface a web-login instruction path, but ordinary web chat must not rely on assistant-visible Browserless `liveUrl` output.
 
 ## Workspace file semantic index (ADR-134)
 

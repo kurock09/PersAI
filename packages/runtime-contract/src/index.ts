@@ -1585,11 +1585,44 @@ export type AssistantBrowserProfileStatus = (typeof ASSISTANT_BROWSER_PROFILE_ST
 export const PERSAI_RUNTIME_BROWSER_PROFILE_ERROR_REASONS = [
   "browser_profile_not_found",
   "browser_profile_expired",
-  "browser_profile_pending_login"
+  "browser_profile_pending_login",
+  "browser_profile_needs_user_reauth"
 ] as const;
 
 export type PersaiRuntimeBrowserProfileErrorReason =
   (typeof PERSAI_RUNTIME_BROWSER_PROFILE_ERROR_REASONS)[number];
+
+export const PERSISTENT_BROWSER_CAPABILITY_PROXY_MODES = ["sticky_residential"] as const;
+
+export type PersistentBrowserCapabilityProxyMode =
+  (typeof PERSISTENT_BROWSER_CAPABILITY_PROXY_MODES)[number];
+
+export const PERSISTENT_BROWSER_CAPABILITY_PROXY_PROVIDERS = [
+  "browserless_builtin",
+  "external"
+] as const;
+
+export type PersistentBrowserCapabilityProxyProvider =
+  (typeof PERSISTENT_BROWSER_CAPABILITY_PROXY_PROVIDERS)[number];
+
+export interface PersistentBrowserProfileIdentity {
+  assistantId: string;
+  profileKey: string;
+}
+
+export interface PersistentBrowserCapabilityProxyPolicy {
+  mode: PersistentBrowserCapabilityProxyMode;
+  provider: PersistentBrowserCapabilityProxyProvider;
+  /** Reserved typed slot for a later external `proxy.server` override. */
+  server: string | null;
+}
+
+export interface PersistentBrowserCapabilityPolicy {
+  scope: "persistent_profile";
+  profileIdentity: PersistentBrowserProfileIdentity;
+  stealth: boolean;
+  proxy: PersistentBrowserCapabilityProxyPolicy | null;
+}
 
 export interface PendingBrowserLoginState {
   profileId: string;
@@ -3936,6 +3969,7 @@ export interface ProviderGatewayBrowserActionRequest {
   operations: RuntimeBrowserOperation[];
   timeoutMs: number | null;
   profileSessionId?: string | null;
+  capabilityPolicy?: PersistentBrowserCapabilityPolicy | null;
   displayName?: string | null;
   format?: PersaiRuntimeBrowserSnapshotFormat | null;
   optimizeForSpeed?: boolean | null;
@@ -3975,6 +4009,7 @@ export interface ProviderGatewayBrowserSessionStartLoginRequest {
   loginUrl: string;
   timeoutMs: number | null;
   reconnectTimeoutMs: number | null;
+  capabilityPolicy: PersistentBrowserCapabilityPolicy;
   credential: {
     toolCode: "browser";
     secretId: string;
@@ -3983,7 +4018,7 @@ export interface ProviderGatewayBrowserSessionStartLoginRequest {
 }
 
 export interface ProviderGatewayBrowserSessionStartLoginResult {
-  /** Browserless persisting-session id path (`/session/{id}`) or legacy standard-session reconnect path (`/reconnect/{id}`). */
+  /** Browserless persistent-session id path (`/session/{id}` or `/e/{cloudEndpointId}/session/{id}`). */
   providerSessionId: string;
   liveUrl: string;
 }
@@ -3999,6 +4034,7 @@ export interface ProviderGatewayBrowserSessionDeleteRequest {
 
 export interface ProviderGatewayBrowserSessionVerifyRequest {
   providerSessionId: string;
+  capabilityPolicy: PersistentBrowserCapabilityPolicy;
   credential: {
     toolCode: "browser";
     secretId: string;

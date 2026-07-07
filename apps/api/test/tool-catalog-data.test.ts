@@ -158,6 +158,67 @@ function testVideoGenerateCatalogRowUsesLazyLookupGuidance(): void {
   );
 }
 
+function testBrowserCatalogRowReflectsAdr139Guidance(): void {
+  const row = TOOL_CATALOG.find((t) => t.code === "browser");
+  assert.ok(row, "browser catalog row must exist");
+  const text = `${row.description}\n${row.modelDescription}\n${row.modelUsageGuidance}`;
+  assert.match(
+    text,
+    /page\.elements/i,
+    "browser guidance must teach that text snapshot/act may return page.elements"
+  );
+  assert.match(
+    text,
+    /reusable CSS selectors/i,
+    "browser guidance must describe reusable CSS selectors"
+  );
+  assert.match(
+    text,
+    /Prefer those selectors.*instead of guessing/i,
+    "browser guidance must tell the model to reuse selectors from page.elements"
+  );
+  assert.match(
+    text,
+    /per-operation warnings/i,
+    "browser guidance must mention per-operation warnings from act"
+  );
+  assert.match(
+    text,
+    /platform-owned/i,
+    "browser guidance must say persistent-profile policy is platform-owned"
+  );
+  assert.match(
+    text,
+    /proxy or stealth settings/i,
+    "browser guidance must forbid invented proxy or stealth settings"
+  );
+  assert.match(
+    text,
+    /BQL\/reconnect\/429 failure/i,
+    "browser guidance must mention transient BQL/reconnect/429 failures"
+  );
+  assert.match(
+    text,
+    /structured runtime\/API reason codes/i,
+    "browser guidance must tell the model to speak from structured runtime/API reason codes"
+  );
+  assert.match(
+    text,
+    /Do not start a fresh login or invent a new profile name unless the runtime\/tool result explicitly points/i,
+    "browser guidance must pin that login should be started only when structured runtime/tool state explicitly points there"
+  );
+  assert.match(
+    text,
+    /Do not paste Browserless live login URLs into the assistant reply/i,
+    "browser guidance must forbid pasting Browserless live login URLs into ordinary web chat"
+  );
+  assert.doesNotMatch(
+    text,
+    /\bliveUrl\b/,
+    "browser guidance must not expose the internal liveUrl field name"
+  );
+}
+
 function testFilesCatalogRowUsesExactListedPaths(): void {
   const rows = TOOL_CATALOG.filter((t) => t.code === "files");
   assert.strictEqual(rows.length, 1, "TOOL_CATALOG must contain exactly one files row");
@@ -436,6 +497,7 @@ export async function runToolCatalogDataTest(): Promise<void> {
   testSkillCatalogRowMentionsPlanIntake();
   testDocumentCatalogRowTeachesThreeVerbSurface();
   testVideoGenerateCatalogRowUsesLazyLookupGuidance();
+  testBrowserCatalogRowReflectsAdr139Guidance();
   testPresentationCatalogRowIsDeckSpecific();
   testCatalogRowsKeepSelectionGuideAsSingleOwner();
   testFilesCatalogRowUsesExactListedPaths();

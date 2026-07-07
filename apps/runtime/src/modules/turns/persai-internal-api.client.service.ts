@@ -37,6 +37,8 @@ import type {
   RuntimeVideoGenerateRequest,
   RuntimeBrowserProfileListItem,
   RuntimeBrowserLoginResult,
+  PendingBrowserLoginState,
+  PersistentBrowserCapabilityPolicy,
   PersaiRuntimeBrowserProfileErrorReason
 } from "@persai/runtime-contract";
 import {
@@ -74,8 +76,17 @@ export type ConsumeToolDailyLimitOutcome =
     };
 
 export type ResolveBrowserProfileOutcome =
-  | { ok: true; providerSessionId: string; profileId: string }
-  | { ok: false; reason: PersaiRuntimeBrowserProfileErrorReason };
+  | {
+      ok: true;
+      providerSessionId: string;
+      profileId: string;
+      capabilityPolicy: PersistentBrowserCapabilityPolicy;
+    }
+  | {
+      ok: false;
+      reason: PersaiRuntimeBrowserProfileErrorReason;
+      pendingBrowserLogin?: PendingBrowserLoginState;
+    };
 
 export type StartBrowserLoginOutcome = RuntimeBrowserLoginResult & {
   profileId: string;
@@ -3176,10 +3187,14 @@ export class PersaiInternalApiClientService {
     if (response.ok) {
       const payload = this.asObject(response.body);
       if (payload?.ok === true && typeof payload.providerSessionId === "string") {
+        const capabilityPolicy = this.parsePersistentBrowserCapabilityPolicy(
+          payload.capabilityPolicy
+        );
         return {
           ok: true,
           providerSessionId: payload.providerSessionId,
-          profileId: typeof payload.profileId === "string" ? payload.profileId : ""
+          profileId: typeof payload.profileId === "string" ? payload.profileId : "",
+          capabilityPolicy
         };
       }
       if (
@@ -3187,7 +3202,12 @@ export class PersaiInternalApiClientService {
         typeof payload.reason === "string" &&
         (PERSAI_RUNTIME_BROWSER_PROFILE_ERROR_REASONS as readonly string[]).includes(payload.reason)
       ) {
-        return { ok: false, reason: payload.reason as PersaiRuntimeBrowserProfileErrorReason };
+        const pendingBrowserLogin = this.parsePendingBrowserLoginState(payload.pendingBrowserLogin);
+        return {
+          ok: false,
+          reason: payload.reason as PersaiRuntimeBrowserProfileErrorReason,
+          ...(pendingBrowserLogin === null ? {} : { pendingBrowserLogin })
+        };
       }
       throw new BadGatewayException(
         "PersAI internal API returned an invalid browser-profiles resolve response."
@@ -3204,6 +3224,61 @@ export class PersaiInternalApiClientService {
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected the browser-profiles resolve request."
     );
+  }
+
+  private parsePersistentBrowserCapabilityPolicy(
+    input: unknown
+  ): PersistentBrowserCapabilityPolicy {
+    const row = this.asObject(input);
+    const profileIdentity = this.asObject(row?.profileIdentity);
+    const proxy = this.asObject(row?.proxy);
+    if (
+      row?.scope !== "persistent_profile" ||
+      typeof profileIdentity?.assistantId !== "string" ||
+      typeof profileIdentity?.profileKey !== "string" ||
+      typeof row?.stealth !== "boolean" ||
+      proxy === null ||
+      proxy?.mode !== "sticky_residential" ||
+      (proxy?.provider !== "browserless_builtin" && proxy?.provider !== "external") ||
+      (proxy?.server !== null && typeof proxy?.server !== "string")
+    ) {
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid browser capability policy."
+      );
+    }
+    return {
+      scope: "persistent_profile",
+      profileIdentity: {
+        assistantId: profileIdentity.assistantId,
+        profileKey: profileIdentity.profileKey
+      },
+      stealth: row.stealth,
+      proxy: {
+        mode: "sticky_residential",
+        provider: proxy.provider,
+        server: proxy.server
+      }
+    };
+  }
+
+  private parsePendingBrowserLoginState(input: unknown): PendingBrowserLoginState | null {
+    const row = this.asObject(input);
+    if (
+      typeof row?.profileId !== "string" ||
+      typeof row?.profileKey !== "string" ||
+      typeof row?.displayName !== "string" ||
+      typeof row?.liveUrl !== "string" ||
+      typeof row?.loginUrl !== "string"
+    ) {
+      return null;
+    }
+    return {
+      profileId: row.profileId,
+      profileKey: row.profileKey,
+      displayName: row.displayName,
+      liveUrl: row.liveUrl,
+      loginUrl: row.loginUrl
+    };
   }
 
   async startBrowserLogin(input: {

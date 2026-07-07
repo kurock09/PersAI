@@ -126,7 +126,7 @@ export function appendTelegramBrowserLoginLink(
   const trimmed = message.trim();
   const label =
     locale === "ru"
-      ? `Откройте страницу входа для «${pending.displayName}»: ${pending.liveUrl}`
-      : `Open the login page for "${pending.displayName}": ${pending.liveUrl}`;
+      ? `Чтобы продолжить вход для «${pending.displayName}», откройте PersAI в браузере: https://persai.dev`
+      : `To continue login for "${pending.displayName}", open PersAI on the web: https://persai.dev`;
   return trimmed.length > 0 ? `${trimmed}\n\n${label}` : label;
 }

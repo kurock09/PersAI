@@ -1,9 +1,12 @@
+import type { PersistentBrowserCapabilityPolicy } from "@persai/runtime-contract";
+
 export const BROWSERLESS_SESSION_PORT = Symbol("BROWSERLESS_SESSION_PORT");
 
 export type BrowserlessStartLoginInput = {
   loginUrl: string;
   profileKey: string;
   reconnectTimeoutMs: number;
+  capabilityPolicy: PersistentBrowserCapabilityPolicy;
   browserCredentialSecretId?: string;
 };
 
@@ -14,6 +17,7 @@ export type BrowserlessStartLoginResult = {
 
 export type BrowserlessVerifySessionInput = {
   providerSessionId: string;
+  capabilityPolicy: PersistentBrowserCapabilityPolicy;
   browserCredentialSecretId?: string;
 };
 

@@ -241,16 +241,22 @@ GOTCHAS:
 WHEN NOT TO USE: Static public pages with a known URL (prefer web_fetch) or facts discoverable via web_search without interaction.
 EXAMPLES:
 - browser({action:"list_profiles"}) — list saved per-assistant browser sessions and their profileKey/status.
-- browser({action:"login", displayName:"Bitrix24", url:"https://…/login"}) — start live login; reuse the returned profileKey after the user completes login.
-- browser({action:"snapshot", url:"…", profile:"profileKey"}) — inspect an authenticated page with a saved session.
-- browser({action:"act", url:"…", profile:"profileKey", operations:[…]}) — bounded interaction, then a fresh snapshot.
+- browser({action:"login", displayName:"Bitrix24", url:"https://…/login"}) — start product-owned live login or re-auth; reuse the returned profileKey after the user completes login.
+- browser({action:"snapshot", url:"…", profile:"profileKey"}) — inspect an authenticated page with a saved session; text results may include page.elements with reusable CSS selectors.
+- browser({action:"act", url:"…", profile:"profileKey", operations:[…]}) — bounded interaction using selectors copied from page.elements when available, then a fresh snapshot.
 - browser({action:"snapshot", url:"…", profile:"profileKey", format:"pdf"}) — export a PDF artifact; deliver via files.attach.
 - browser({action:"snapshot", url:"…", format:"png", fullPage:true}) — screenshot artifact (png/jpeg/webp); deliver via files.attach.
 GOTCHAS:
 - Prefer \`snapshot\` first to inspect the page. Use \`act\` only when interaction is required.
 - Pass \`profile\` on \`snapshot\`/\`act\` to reuse cookies; omit \`profile\` only for public pages.
+- Profile-backed text \`snapshot\` and \`act\` may return \`page.elements\` with reusable CSS selectors. Prefer those selectors in follow-up \`act\` calls instead of guessing new selectors.
+- Persistent-profile stealth and residential-proxy policy are platform-owned. Never invent proxy or stealth settings as browser arguments or chat instructions.
+- If \`act\` returns per-operation warnings, continue from the returned page state/\`page.elements\` and retry only when the observed page supports it; do not jump to "bot protection", "profile expired", or similar from one failed selector.
+- A transient BQL/reconnect/429 failure is not proof that a profile expired. Speak from structured runtime/API reason codes for pending login, user re-auth, or expired-profile states.
+- Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to missing profile, pending login, or user re-auth state.
+- On ordinary web chat, login and re-auth stay product-owned UI state. Do not paste Browserless live login URLs into the assistant reply.
 - \`optimizeForSpeed:true\` on \`snapshot\`/\`act\` speeds table scraping (blocks heavy assets).
-- Saved profiles expire after plan TTL inactivity; missing/expired/pending profiles return business errors — run \`login\` to reconnect.`,
+- Saved profiles expire after plan TTL inactivity; true missing/pending/expired states return structured business errors — use \`login\` only when the runtime/tool result actually points to that state.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_browser",

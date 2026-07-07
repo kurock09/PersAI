@@ -202,6 +202,16 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           configured: true,
           providerId: "tavily"
         },
+        browser: {
+          refKey: "persai:persai-runtime:tool/browser/api-key",
+          secretRef: {
+            source: "persai",
+            provider: "persai-runtime",
+            id: "tool/browser/api-key"
+          },
+          configured: true,
+          providerId: "browserless"
+        },
         image_generate: {
           refKey: "persai:persai-runtime:tool/image_generate/api-key",
           secretRef: {
@@ -307,6 +317,21 @@ export async function runNativeToolProjectionTest(): Promise<void> {
           visibleToModel: true,
           visibleInPlanEditor: true,
           dailyCallLimit: 30
+        },
+        {
+          toolCode: "browser",
+          displayName: "Browser",
+          description:
+            "Automated web browser for interactive page navigation and content extraction.",
+          usageGuidance:
+            "Use this for JavaScript-rendered or logged-in pages that need browser state.",
+          kind: "plan",
+          executionMode: "worker",
+          usageRule: "allowed",
+          enabled: true,
+          visibleToModel: true,
+          visibleInPlanEditor: true,
+          dailyCallLimit: 20
         },
         {
           toolCode: "image_generate",
@@ -553,12 +578,14 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   const scheduledAction = projected.tools.find((tool) => tool.name === "scheduled_action");
   const backgroundTask = projected.tools.find((tool) => tool.name === "background_task");
   const tts = projected.tools.find((tool) => tool.name === "tts");
+  const browser = projected.tools.find((tool) => tool.name === "browser");
   const routeControl = projected.tools.find((tool) => tool.name === "route_control");
   const grep = projected.tools.find((tool) => tool.name === "grep");
   const glob = projected.tools.find((tool) => tool.name === "glob");
   const todoWrite = projected.tools.find((tool) => tool.name === "todo_write");
 
   assert.ok(webSearch, "web_search should be projected when enabled and configured");
+  assert.ok(browser, "browser should be projected when enabled and configured");
   // ADR-125 Slice 1 — todo_write is projected when the bundle policy is
   // enabled + visibleToModel + usageRule=allowed + executionMode=inline.
   assert.ok(todoWrite, "todo_write should be projected when policy enabled + inline");
@@ -581,6 +608,84 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   assert.equal(todoWriteSchema.required?.[0], "action");
   assert.equal(todoWriteSchema.additionalProperties, false);
   assert.match(todoWrite?.description ?? "", /Open the plan on the first turn|multi-step work/);
+  const browserSchema = browser?.inputSchema as {
+    properties?: {
+      action?: { description?: string };
+      displayName?: { description?: string };
+      profile?: { description?: string };
+      operations?: {
+        description?: string;
+        items?: {
+          properties?: {
+            selector?: { description?: string };
+          };
+        };
+      };
+    };
+  };
+  const browserActionDescription = browserSchema.properties?.action?.description ?? "";
+  const browserDisplayNameDescription = browserSchema.properties?.displayName?.description ?? "";
+  const browserProfileDescription = browserSchema.properties?.profile?.description ?? "";
+  const browserOperationsDescription = browserSchema.properties?.operations?.description ?? "";
+  const browserSelectorDescription =
+    browserSchema.properties?.operations?.items?.properties?.selector?.description ?? "";
+  const browserSchemaText = [
+    browserActionDescription,
+    browserDisplayNameDescription,
+    browserProfileDescription,
+    browserOperationsDescription,
+    browserSelectorDescription
+  ].join("\n");
+  assert.match(
+    browserActionDescription,
+    /platform-owned, not a model argument/i,
+    "browser action schema must say stealth/proxy policy is platform-owned"
+  );
+  assert.match(
+    browserActionDescription,
+    /page\.elements/i,
+    "browser action schema must teach that profile-backed text results may return page.elements"
+  );
+  assert.match(
+    browserActionDescription,
+    /per-operation warnings/i,
+    "browser action schema must mention per-operation warnings"
+  );
+  assert.match(
+    browserActionDescription,
+    /structured runtime\/API reason codes/i,
+    "browser action schema must tell the model to speak from structured runtime/API reason codes"
+  );
+  assert.match(
+    browserActionDescription,
+    /Do not start a fresh login or invent a new profile name unless the runtime\/tool result explicitly points/i,
+    "browser action schema must pin that login should be started only when structured runtime/tool state explicitly points there"
+  );
+  assert.match(
+    browserDisplayNameDescription,
+    /do not promise or paste Browserless live login URLs in chat/i,
+    "browser login schema must forbid pasting Browserless live login URLs in ordinary web chat"
+  );
+  assert.match(
+    browserProfileDescription,
+    /prefer those selectors.*instead of guessing/i,
+    "browser profile schema must tell the model to reuse page.elements selectors"
+  );
+  assert.match(
+    browserOperationsDescription,
+    /Prefer selectors copied from the latest page\.elements/i,
+    "browser operations schema must prefer selectors copied from page.elements"
+  );
+  assert.match(
+    browserSelectorDescription,
+    /Prefer selectors copied from page\.elements/i,
+    "browser selector schema must reinforce page.elements selector reuse"
+  );
+  assert.doesNotMatch(
+    browserSchemaText,
+    /\bliveUrl\b/,
+    "browser projection schema must not expose the internal liveUrl field name"
+  );
   assert.equal(routeControl, undefined);
   // ADR-123 Slice 7 — grep/glob inline workspace tools are projected when the
   // policy is enabled + inline.
