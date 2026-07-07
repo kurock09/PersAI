@@ -522,7 +522,12 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       query?: string;
       variables?: { url?: string; liveUrlTimeoutMs?: number };
     };
-    assert.match(loginBqlBody.query ?? "", /proxy\(network: residential, sticky: true\)/);
+    assert.match(loginBqlBody.query ?? "", /userAgent\(userAgent: "[^"]*Chrome[^"]*"\)/);
+    assert.doesNotMatch(loginBqlBody.query ?? "", /Headless/i);
+    assert.match(
+      loginBqlBody.query ?? "",
+      /proxy\(network: residential, sticky: true, url: \["\*"\]\)/
+    );
     assert.match(loginBqlBody.query ?? "", /liveURL/);
     assert.match(loginBqlBody.query ?? "", /timeout:\s*\$liveUrlTimeoutMs/);
     assert.equal(loginBqlBody.variables?.url, "https://crm.example.com/login");
@@ -670,7 +675,12 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.match(persistentBody.query ?? "", /settleAfterGoto: waitForTimeout\(time: 3000\)/);
     assert.match(persistentBody.query ?? "", /pageText: text \{ text \}/);
     assert.match(persistentBody.query ?? "", /pageElements: evaluate/);
-    assert.match(persistentBody.query ?? "", /proxy\(network: residential, sticky: true\)/);
+    assert.match(persistentBody.query ?? "", /userAgent\(userAgent: "[^"]*Chrome[^"]*"\)/);
+    assert.doesNotMatch(persistentBody.query ?? "", /Headless/i);
+    assert.match(
+      persistentBody.query ?? "",
+      /proxy\(network: residential, sticky: true, url: \["\*"\]\)/
+    );
     assert.equal(persistentBody.variables?.url, "https://crm.example.com/dashboard");
     assert.equal(persistentSnapshot.title, "CRM");
     assert.equal(persistentSnapshot.finalUrl, "https://crm.example.com/dashboard");
@@ -1040,7 +1050,68 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     };
     assert.match(
       ruProxyBody.query ?? "",
-      /proxy\(network: residential, sticky: true, country: RU\)/
+      /proxy\(network: residential, sticky: true, url: \["\*"\], country: RU\)/
+    );
+    assert.match(ruProxyBody.query ?? "", /userAgent\(userAgent: "[^"]*Chrome[^"]*"\)/);
+
+    // A per-operation failure inside the ephemeral /function script (e.g. a
+    // guessed selector that does not match anything live) must degrade to a
+    // warning on an otherwise-successful result, not an opaque 502 that
+    // discards the already-reached page's title/url/content — mirrors the
+    // BQL path's op_* warning classification (Audit Finding 1).
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: {
+            initialUrl: "https://example.com/",
+            finalUrl: "https://example.com/",
+            title: "Example",
+            content: "Example content",
+            truncated: false,
+            elements: [],
+            operationWarning:
+              "Browser operation warnings: op_0 (click): Waiting for selector `#missing` failed: timeout 30000ms exceeded"
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
+
+    const operationWarningResult = await service.browserAction({
+      action: "act",
+      url: "https://example.com",
+      maxChars: null,
+      operations: [
+        {
+          kind: "click",
+          selector: "#missing"
+        }
+      ],
+      timeoutMs: null,
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-op-warning",
+        providerId: "browserless"
+      }
+    });
+    assert.equal(operationWarningResult.title, "Example");
+    assert.equal(operationWarningResult.finalUrl, "https://example.com/");
+    assert.match(
+      operationWarningResult.warning ?? "",
+      /Browser-rendered page content is untrusted/
+    );
+    assert.match(
+      operationWarningResult.warning ?? "",
+      /Browser operation warnings: op_0 \(click\): Waiting for selector `#missing` failed/
     );
 
     globalThis.fetch = (async () => {

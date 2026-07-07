@@ -110,7 +110,8 @@ export default async ({ page, context }) => {
     elements: [],
     pdfBase64: null,
     artifactBase64: null,
-    artifactMimeType: null
+    artifactMimeType: null,
+    operationWarning: null
   };
 
   const collectElements = async () =>
@@ -283,56 +284,79 @@ export default async ({ page, context }) => {
     }
     result.finalUrl = page.url();
 
-    for (const operation of operations) {
-      switch (operation.kind) {
-        case "scroll":
-          if (typeof operation.selector === "string" && operation.selector.length > 0) {
-            await page.$eval(operation.selector, (element) => {
-              element.scrollIntoView({ behavior: "instant", block: "center" });
-            });
-          } else {
-            await page.evaluate(() => {
-              window.scrollBy(0, window.innerHeight);
-            });
-          }
-          await waitAfterMutation();
-          break;
-        case "click":
-          await page.click(operation.selector);
-          await waitAfterMutation();
-          break;
-        case "type":
-          await page.focus(operation.selector);
-          await page.$eval(operation.selector, (element) => {
-            if ("value" in element && typeof element.value === "string") {
-              element.value = "";
-              element.dispatchEvent(new Event("input", { bubbles: true }));
-              element.dispatchEvent(new Event("change", { bubbles: true }));
+    // Each operation's failure (e.g. a guessed selector that does not match
+    // anything on the live page) is caught per-operation instead of aborting
+    // the whole request: a wrong selector on op N is an ordinary, expected
+    // outcome the model needs to see and retry from, not a platform-level
+    // failure. Letting it escape to the outer catch would discard the
+    // already-successful navigation/finalUrl/title and turn a normal miss
+    // into an opaque fatal error for the caller.
+    const operationWarnings = [];
+    for (let index = 0; index < operations.length; index += 1) {
+      const operation = operations[index];
+      try {
+        switch (operation.kind) {
+          case "scroll":
+            if (typeof operation.selector === "string" && operation.selector.length > 0) {
+              await page.$eval(operation.selector, (element) => {
+                element.scrollIntoView({ behavior: "instant", block: "center" });
+              });
+            } else {
+              await page.evaluate(() => {
+                window.scrollBy(0, window.innerHeight);
+              });
             }
-          });
-          await page.type(operation.selector, operation.text, { delay: 20 });
-          await waitAfterMutation();
-          break;
-        case "press":
-          await page.keyboard.press(operation.key);
-          await waitAfterMutation();
-          break;
-        case "select_option":
-          await page.select(operation.selector, operation.value);
-          await waitAfterMutation();
-          break;
-        case "wait_for_selector":
-          await page.waitForSelector(operation.selector, {
-            timeout:
-              Number.isInteger(operation.timeoutMs) && Number(operation.timeoutMs) >= 0
-                ? Number(operation.timeoutMs)
-                : 5000
-          });
-          break;
-        case "wait_for_timeout":
-          await sleep(operation.timeoutMs);
-          break;
+            await waitAfterMutation();
+            break;
+          case "click":
+            await page.click(operation.selector);
+            await waitAfterMutation();
+            break;
+          case "type":
+            await page.focus(operation.selector);
+            await page.$eval(operation.selector, (element) => {
+              if ("value" in element && typeof element.value === "string") {
+                element.value = "";
+                element.dispatchEvent(new Event("input", { bubbles: true }));
+                element.dispatchEvent(new Event("change", { bubbles: true }));
+              }
+            });
+            await page.type(operation.selector, operation.text, { delay: 20 });
+            await waitAfterMutation();
+            break;
+          case "press":
+            await page.keyboard.press(operation.key);
+            await waitAfterMutation();
+            break;
+          case "select_option":
+            await page.select(operation.selector, operation.value);
+            await waitAfterMutation();
+            break;
+          case "wait_for_selector":
+            await page.waitForSelector(operation.selector, {
+              timeout:
+                Number.isInteger(operation.timeoutMs) && Number(operation.timeoutMs) >= 0
+                  ? Number(operation.timeoutMs)
+                  : 5000
+            });
+            break;
+          case "wait_for_timeout":
+            await sleep(operation.timeoutMs);
+            break;
+        }
+      } catch (operationError) {
+        operationWarnings.push(
+          "op_" +
+            String(index) +
+            " (" +
+            operation.kind +
+            "): " +
+            (operationError instanceof Error ? operationError.message : "Operation failed.")
+        );
       }
+    }
+    if (operationWarnings.length > 0) {
+      result.operationWarning = "Browser operation warnings: " + operationWarnings.join("; ");
     }
 
     result.finalUrl = page.url();
@@ -617,6 +641,10 @@ export class ProviderBrowserService {
         : pdfBase64 === null
           ? null
           : "application/pdf";
+    const operationWarning =
+      typeof data.operationWarning === "string" && data.operationWarning.trim().length > 0
+        ? data.operationWarning.trim()
+        : null;
     const observedAt = new Date().toISOString();
     const tookMs = Date.now() - startedAt;
     return {
@@ -632,7 +660,10 @@ export class ProviderBrowserService {
         pdfBase64 === null && artifactBase64 === null ? this.normalizeElements(data.elements) : [],
       observedAt,
       tookMs,
-      warning: UNTRUSTED_CONTENT_WARNING,
+      warning:
+        operationWarning !== null
+          ? `${UNTRUSTED_CONTENT_WARNING} ${operationWarning}`
+          : UNTRUSTED_CONTENT_WARNING,
       pdfBase64,
       artifactBase64,
       artifactMimeType,
@@ -1481,9 +1512,24 @@ export class ProviderBrowserService {
     capabilityPolicy: PersistentBrowserCapabilityPolicy,
     targetUrl: string
   ): string[] {
+    const mutations: string[] = [];
+    // `stealth: true` at session creation hardens fingerprinting surfaces
+    // (CDP-detection, WebGL/canvas noise, automation flags) but does NOT
+    // rewrite `navigator.userAgent` / the HTTP User-Agent header — Chrome
+    // still self-reports as `HeadlessChrome/<version>` unless explicitly
+    // overridden via the dedicated `userAgent()` mutation (live-validated:
+    // browserleaks showed the literal string "headless" in the UA on a
+    // stealth-enabled persistent session). Version pinned to the same major
+    // Chrome build the fleet already reports to avoid a UA/CDP mismatch that
+    // would itself be a detection signal.
+    if (capabilityPolicy.stealth) {
+      mutations.push(
+        `userAgent(userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36") { time }`
+      );
+    }
     const proxy = capabilityPolicy.proxy;
     if (proxy === null) {
-      return [];
+      return mutations;
     }
     if (proxy.provider === "external") {
       throw new BadRequestException(
@@ -1492,7 +1538,17 @@ export class ProviderBrowserService {
     }
     const testProxyCountry = resolveTestProxyCountryForUrl(targetUrl);
     const countryArg = testProxyCountry === null ? "" : `, country: ${testProxyCountry}`;
-    return [`proxy(network: residential, sticky: true${countryArg}) { time }`];
+    // Browserless's `proxy()` mutation is a request-matching filter, not a
+    // global session switch: "Only requests that match these conditions are
+    // proxied and the rest are sent from the instance's own IP address."
+    // Every official example (proxy-all-requests included) passes an
+    // explicit `url` pattern; omitting it matches zero requests, which is
+    // exactly why the residential IP never took effect in live validation
+    // (browserleaks kept showing the datacenter egress IP even though this
+    // mutation was sent on every call without ever erroring). `url: ["*"]`
+    // is the documented way to match all requests.
+    mutations.push(`proxy(network: residential, sticky: true, url: ["*"]${countryArg}) { time }`);
+    return mutations;
   }
 
   private buildBrowserlessStartLoginMutation(
