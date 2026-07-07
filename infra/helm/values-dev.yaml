@@ -286,7 +286,7 @@ providerGateway:
       maxSurge: 1
   image:
     name: provider-gateway
-    tag: 2c69b546c04d23f654c4baf40a8fc0edbbe8d200
+    tag: 9cafc072f34fd7d135a9f629dd8d5544e31499c3
     pullPolicy: IfNotPresent
   env:
     APP_ENV: dev
@@ -364,7 +364,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: 2c69b546c04d23f654c4baf40a8fc0edbbe8d200
+    tag: 9cafc072f34fd7d135a9f629dd8d5544e31499c3
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -578,6 +578,7 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
 
 
 
