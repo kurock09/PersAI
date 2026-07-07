@@ -3800,12 +3800,17 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
   ) {
     return null;
   }
+  const completionMode =
+    row.completionMode === "assist" || row.completionMode === "login"
+      ? row.completionMode
+      : undefined;
   return {
     profileId: row.profileId,
     profileKey: row.profileKey,
     displayName: row.displayName,
     liveUrl: row.liveUrl,
-    loginUrl: row.loginUrl
+    loginUrl: row.loginUrl,
+    ...(completionMode === undefined ? {} : { completionMode })
   };
 }
 
@@ -3866,7 +3871,47 @@ export async function reconnectAssistantBrowserProfile(
   if (pending === null) {
     throw new Error("Failed to reconnect browser profile.");
   }
-  return pending;
+  return { ...pending, completionMode: "login" };
+}
+
+export async function openAssistantBrowserProfileLive(
+  token: string,
+  assistantId: string,
+  profileId: string
+): Promise<PendingBrowserLoginState> {
+  const response = await fetch(
+    `${getApiBaseUrl()}/assistant/${encodeURIComponent(assistantId)}/browser-profiles/${encodeURIComponent(profileId)}/open-live`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to open browser profile live view.");
+  }
+  const payload = (await response.json()) as Record<string, unknown>;
+  const pending = parsePendingBrowserLoginState(payload);
+  if (pending === null) {
+    throw new Error("Failed to open browser profile live view.");
+  }
+  return { ...pending, completionMode: "assist" };
+}
+
+export async function dismissAssistantBrowserProfileLive(
+  token: string,
+  assistantId: string,
+  profileId: string
+): Promise<void> {
+  const response = await fetch(
+    `${getApiBaseUrl()}/assistant/${encodeURIComponent(assistantId)}/browser-profiles/${encodeURIComponent(profileId)}/dismiss-live`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(token)
+    }
+  );
+  if (!response.ok) {
+    throw new Error("Failed to dismiss browser live view.");
+  }
 }
 
 export async function deleteAssistantBrowserProfile(

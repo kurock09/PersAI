@@ -244,6 +244,9 @@ export class WebRuntimeStreamClientService {
               isError: event.isError,
               ...(typeof event.toolRequestedAction === "string"
                 ? { toolRequestedAction: event.toolRequestedAction }
+                : {}),
+              ...(event.pendingBrowserLogin !== undefined
+                ? { pendingBrowserLogin: event.pendingBrowserLogin }
                 : {})
             };
             continue;

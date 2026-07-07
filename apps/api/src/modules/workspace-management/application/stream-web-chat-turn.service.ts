@@ -1277,17 +1277,20 @@ export class StreamWebChatTurnService {
           if (
             chunk.toolPhase === "end" &&
             chunk.toolName === "browser" &&
-            chunk.toolRequestedAction === "login" &&
             chunk.isError !== true &&
             input.callbacks.onPendingBrowserLogin !== undefined
           ) {
-            const pendingBrowserLogin = await resolvePendingBrowserLoginForWebChat({
-              browserProfileRepository: this.assistantBrowserProfileRepository,
-              assistantId: input.prepared.assistantId,
-              chatId: input.prepared.chat.id
-            });
-            if (pendingBrowserLogin !== null) {
-              input.callbacks.onPendingBrowserLogin(pendingBrowserLogin);
+            if (chunk.pendingBrowserLogin !== undefined) {
+              input.callbacks.onPendingBrowserLogin(chunk.pendingBrowserLogin);
+            } else if (chunk.toolRequestedAction === "login") {
+              const pendingBrowserLogin = await resolvePendingBrowserLoginForWebChat({
+                browserProfileRepository: this.assistantBrowserProfileRepository,
+                assistantId: input.prepared.assistantId,
+                chatId: input.prepared.chat.id
+              });
+              if (pendingBrowserLogin !== null) {
+                input.callbacks.onPendingBrowserLogin(pendingBrowserLogin);
+              }
             }
           }
         }

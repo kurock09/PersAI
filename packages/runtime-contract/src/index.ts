@@ -1562,8 +1562,13 @@ export const PERSAI_RUNTIME_BROWSER_ACTIONS = [
   "snapshot",
   "act",
   "login",
+  "open_live",
   "list_profiles"
 ] as const;
+
+/** Default persistent-browser viewport (replaces Browserless's ~1300×933 fleet default). */
+export const DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH = 1280;
+export const DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT = 720;
 
 export type PersaiRuntimeBrowserAction = (typeof PERSAI_RUNTIME_BROWSER_ACTIONS)[number];
 
@@ -1630,6 +1635,8 @@ export interface PendingBrowserLoginState {
   displayName: string;
   liveUrl: string;
   loginUrl: string;
+  /** When "assist", the live view is for captcha/confirmation on an already-active profile — Done dismisses without completing login. */
+  completionMode?: "login" | "assist";
 }
 
 export interface RuntimeBrowserProfileListItem {
@@ -1795,7 +1802,7 @@ export interface RuntimeBrowserResult {
 }
 
 export interface RuntimeBrowserToolResult extends RuntimeBrowserResult {
-  action: "snapshot" | "acted" | "skipped" | "login" | "listed_profiles";
+  action: "snapshot" | "acted" | "skipped" | "login" | "opened_live" | "listed_profiles";
   reason: PersaiRuntimeBrowserProfileErrorReason | string | null;
   warning: string | null;
   billingFacts?: RuntimeBillingFacts | null;
@@ -4066,6 +4073,22 @@ export interface ProviderGatewayBrowserSessionVerifyResult {
   ok: true;
 }
 
+export interface ProviderGatewayBrowserSessionOpenLiveRequest {
+  providerSessionId: string;
+  targetUrl: string;
+  timeoutMs: number | null;
+  capabilityPolicy: PersistentBrowserCapabilityPolicy;
+  credential: {
+    toolCode: "browser";
+    secretId: string;
+    providerId: PersaiRuntimeBrowserProviderId | null;
+  };
+}
+
+export interface ProviderGatewayBrowserSessionOpenLiveResult {
+  liveUrl: string;
+}
+
 export interface ProviderGatewayTextDeltaEvent {
   type: "text_delta";
   delta: string;
@@ -4140,6 +4163,8 @@ export interface RuntimeToolFinishedEvent {
   isError: boolean;
   /** Present for browser tool completions — mirrors runtime browser `requestedAction`. */
   toolRequestedAction?: string;
+  /** Present when a browser tool returns a product-owned live session the web UI should open. */
+  pendingBrowserLogin?: PendingBrowserLoginState;
 }
 
 export interface RuntimeCompletedEvent {

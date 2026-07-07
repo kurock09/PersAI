@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { BrowserLoginModal } from "./browser-login-modal";
 
 const completeAssistantBrowserLogin = vi.fn();
+const dismissAssistantBrowserProfileLive = vi.fn();
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -19,7 +20,9 @@ vi.mock("./use-history-back-to-close", () => ({
 }));
 
 vi.mock("../assistant-api-client", () => ({
-  completeAssistantBrowserLogin: (...args: unknown[]) => completeAssistantBrowserLogin(...args)
+  completeAssistantBrowserLogin: (...args: unknown[]) => completeAssistantBrowserLogin(...args),
+  dismissAssistantBrowserProfileLive: (...args: unknown[]) =>
+    dismissAssistantBrowserProfileLive(...args)
 }));
 
 const pendingBrowserLogin = {
@@ -34,6 +37,7 @@ describe("BrowserLoginModal", () => {
   afterEach(() => {
     cleanup();
     completeAssistantBrowserLogin.mockReset();
+    dismissAssistantBrowserProfileLive.mockReset();
   });
 
   it("renders iframe and complete button when open", () => {
@@ -96,6 +100,36 @@ describe("BrowserLoginModal", () => {
         "profile-1"
       );
     });
+    expect(onCompleted).toHaveBeenCalled();
+    expect(onDismiss).toHaveBeenCalled();
+  });
+
+  it("dismisses live view in assist mode when Done is pressed", async () => {
+    dismissAssistantBrowserProfileLive.mockResolvedValue(undefined);
+    const onCompleted = vi.fn();
+    const onDismiss = vi.fn();
+
+    render(
+      <BrowserLoginModal
+        open
+        assistantId="assistant-1"
+        pendingBrowserLogin={{ ...pendingBrowserLogin, completionMode: "assist" }}
+        onDismiss={onDismiss}
+        onCancel={vi.fn()}
+        onCompleted={onCompleted}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("browser-login-complete"));
+
+    await waitFor(() => {
+      expect(dismissAssistantBrowserProfileLive).toHaveBeenCalledWith(
+        "test-token",
+        "assistant-1",
+        "profile-1"
+      );
+    });
+    expect(completeAssistantBrowserLogin).not.toHaveBeenCalled();
     expect(onCompleted).toHaveBeenCalled();
     expect(onDismiss).toHaveBeenCalled();
   });

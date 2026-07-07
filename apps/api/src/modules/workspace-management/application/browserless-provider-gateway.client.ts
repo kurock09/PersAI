@@ -2,6 +2,8 @@ import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import type {
   PersistentBrowserCapabilityPolicy,
   ProviderGatewayBrowserSessionDeleteRequest,
+  ProviderGatewayBrowserSessionOpenLiveRequest,
+  ProviderGatewayBrowserSessionOpenLiveResult,
   ProviderGatewayBrowserSessionStartLoginRequest,
   ProviderGatewayBrowserSessionStartLoginResult,
   ProviderGatewayBrowserSessionVerifyRequest,
@@ -114,6 +116,41 @@ export class BrowserlessProviderGatewayClient {
     return this.parseVerifySessionResult(response.body);
   }
 
+  async openLive(input: {
+    providerSessionId: string;
+    targetUrl: string;
+    capabilityPolicy: PersistentBrowserCapabilityPolicy;
+    browserCredentialSecretId?: string;
+  }): Promise<ProviderGatewayBrowserSessionOpenLiveResult> {
+    const baseUrl = (process.env["PERSAI_PROVIDER_GATEWAY_BASE_URL"] ?? "").trim();
+    if (!baseUrl) {
+      throw new ServiceUnavailableException(
+        "PERSAI_PROVIDER_GATEWAY_BASE_URL is not configured for browser session open-live."
+      );
+    }
+
+    const url = new URL("/api/v1/providers/browser-session/open-live", baseUrl).toString();
+    const requestBody: ProviderGatewayBrowserSessionOpenLiveRequest = {
+      providerSessionId: input.providerSessionId,
+      targetUrl: input.targetUrl,
+      timeoutMs: null,
+      capabilityPolicy: input.capabilityPolicy,
+      credential: {
+        toolCode: "browser",
+        secretId: input.browserCredentialSecretId ?? TOOL_CREDENTIAL_IDS.tool_browser,
+        providerId: (TOOL_DEFAULT_PROVIDER.tool_browser ?? "browserless") as "browserless"
+      }
+    };
+
+    const response = await this.postJson(url, requestBody, DEFAULT_BROWSER_SESSION_TIMEOUT_MS);
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        this.extractErrorMessage(response.body, "Browser session open-live failed.")
+      );
+    }
+    return this.parseOpenLiveResult(response.body);
+  }
+
   private async postJson(
     url: string,
     body: unknown,
@@ -161,6 +198,23 @@ export class BrowserlessProviderGatewayClient {
     }
     return {
       providerSessionId: row.providerSessionId.trim(),
+      liveUrl: row.liveUrl.trim()
+    };
+  }
+
+  private parseOpenLiveResult(body: unknown): ProviderGatewayBrowserSessionOpenLiveResult {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new ServiceUnavailableException(
+        "Provider gateway returned an invalid browser open-live response."
+      );
+    }
+    const row = body as Record<string, unknown>;
+    if (typeof row.liveUrl !== "string" || row.liveUrl.trim().length === 0) {
+      throw new ServiceUnavailableException(
+        "Provider gateway returned an invalid browser open-live response."
+      );
+    }
+    return {
       liveUrl: row.liveUrl.trim()
     };
   }

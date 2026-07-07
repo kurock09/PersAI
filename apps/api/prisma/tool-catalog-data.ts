@@ -242,14 +242,15 @@ WHEN NOT TO USE: Static public pages with a known URL (prefer web_fetch) or fact
 EXAMPLES:
 - browser({action:"list_profiles"}) — list saved per-assistant browser sessions and their profileKey/status.
 - browser({action:"login", displayName:"Bitrix24", url:"https://…/login"}) — start product-owned live login or re-auth; reuse the returned profileKey after the user completes login.
-- browser({action:"snapshot", url:"…", profile:"profileKey"}) — inspect an authenticated page with a saved session; text results may include page.elements with reusable CSS selectors.
+- browser({action:"open_live", profile:"profileKey"}) — reopen the product-owned live browser window for an existing saved profile when the user must solve a captcha, confirm an action, or re-authenticate in the browser.
+- browser({action:"snapshot", url:"…", profile:"profileKey"}) — inspect an authenticated page with a saved session; text results may include page.elements with reusable CSS selectors (up to 60 currently-visible interactive controls).
 - browser({action:"act", url:"…", profile:"profileKey", operations:[…]}) — bounded interaction using selectors copied from page.elements when available, then a fresh snapshot.
 - browser({action:"snapshot", url:"…", profile:"profileKey", format:"pdf"}) — export a PDF artifact; deliver via files.attach.
 - browser({action:"snapshot", url:"…", format:"png", fullPage:true}) — screenshot artifact (png/jpeg/webp); deliver via files.attach.
 GOTCHAS:
 - Prefer \`snapshot\` first to inspect the page. Use \`act\` only when interaction is required.
 - Pass \`profile\` on \`snapshot\`/\`act\` to reuse cookies; omit \`profile\` only for public pages.
-- Profile-backed text \`snapshot\` and \`act\` may return \`page.elements\` with reusable CSS selectors. Prefer those selectors in follow-up \`act\` calls instead of guessing new selectors.
+- Profile-backed text \`snapshot\` and \`act\` may return \`page.elements\` with up to 60 currently-visible interactive controls and reusable CSS selectors. Prefer those selectors in follow-up \`act\` calls instead of guessing new selectors.
 - Chain a full interaction into one \`act\` call instead of one operation per call: \`operations\` runs its steps in order in a single call. When a step opens new content (click loads a product page, expands a panel, triggers client-side navigation), add \`kind:"wait_for_selector"\` for a selector on that new content right after it, then continue the chain in the same call (e.g. click a search result → wait_for_selector on the add-to-cart control → click it) instead of stopping to take a separate snapshot.
 - For saved profiles, keep \`act\` selector-based. Do not use \`press\`/\`Enter\` as a shortcut — persistent Browserless sessions reject keyboard-press operations.
 - If a page (catalog, feed, search results) renders but shows an empty or placeholder list right after navigation, add a \`kind:"scroll"\` operation (optionally with a \`selector\`) before re-reading content — many sites only populate cards once scrolled into view.

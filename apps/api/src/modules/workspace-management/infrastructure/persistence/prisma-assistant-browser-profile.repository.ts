@@ -118,6 +118,13 @@ export class PrismaAssistantBrowserProfileRepository implements AssistantBrowser
     });
   }
 
+  async updateLiveUrl(id: string, liveUrl: string | null): Promise<void> {
+    await this.prisma.assistantBrowserProfile.update({
+      where: { id },
+      data: { liveUrl }
+    });
+  }
+
   async clearLiveUrl(id: string): Promise<void> {
     await this.prisma.assistantBrowserProfile.update({
       where: { id },

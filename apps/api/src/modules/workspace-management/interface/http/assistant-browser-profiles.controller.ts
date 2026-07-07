@@ -113,6 +113,51 @@ export class AssistantBrowserProfilesController {
     };
   }
 
+  @Post("assistant/:assistantId/browser-profiles/:profileId/open-live")
+  @HttpCode(200)
+  async openLiveView(
+    @Req() req: RequestWithPlatformContext,
+    @Param("assistantId") assistantId: string,
+    @Param("profileId") profileId: string
+  ): Promise<ReconnectLoginResponse> {
+    const context = await this.resolveAssistantContext(req, assistantId);
+    const browserCredentialSecretId = resolveBrowserToolCredentialSecretId();
+    const result = await this.assistantBrowserProfileService.openLiveView({
+      profileId,
+      assistantId: context.assistantId,
+      workspaceId: context.workspaceId,
+      browserCredentialSecretId
+    });
+    return {
+      requestId: req.requestId ?? null,
+      profileId: result.profileId,
+      profileKey: result.profileKey,
+      displayName: result.displayName,
+      liveUrl: result.liveUrl,
+      loginUrl: result.loginUrl,
+      status: result.status
+    };
+  }
+
+  @Post("assistant/:assistantId/browser-profiles/:profileId/dismiss-live")
+  @HttpCode(200)
+  async dismissLiveView(
+    @Req() req: RequestWithPlatformContext,
+    @Param("assistantId") assistantId: string,
+    @Param("profileId") profileId: string
+  ): Promise<{ requestId: string | null; dismissed: true }> {
+    const context = await this.resolveAssistantContext(req, assistantId);
+    await this.assistantBrowserProfileService.dismissLiveView({
+      profileId,
+      assistantId: context.assistantId,
+      workspaceId: context.workspaceId
+    });
+    return {
+      requestId: req.requestId ?? null,
+      dismissed: true
+    };
+  }
+
   @Post("assistant/:assistantId/browser-profiles/:profileId/complete-login")
   @HttpCode(200)
   async completeLogin(

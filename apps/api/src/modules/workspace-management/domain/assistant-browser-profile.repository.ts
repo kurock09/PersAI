@@ -52,6 +52,7 @@ export interface AssistantBrowserProfileRepository {
     id: string,
     input: { providerSessionId: string; liveUrl: string }
   ): Promise<void>;
+  updateLiveUrl(id: string, liveUrl: string | null): Promise<void>;
   clearLiveUrl(id: string): Promise<void>;
   touch(id: string, lastUsedAt: Date, expiresAt: Date): Promise<void>;
   markExpired(id: string): Promise<void>;

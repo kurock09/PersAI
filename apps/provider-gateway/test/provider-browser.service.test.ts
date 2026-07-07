@@ -509,10 +509,11 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     // compatible with fixtures that omit it (this test).
     assert.equal(loginResult.providerSessionId, "/session/session-login");
     assert.equal(loginResult.liveUrl, "https://browserless.example.com/live/session-login");
-    assert.equal(
-      requests[6]?.url,
-      "https://browserless.example.com/session?token=browserless-secret"
+    assert.match(
+      requests[6]?.url ?? "",
+      /^https:\/\/browserless\.example\.com\/session\?.*token=browserless-secret.*proxy=residential/
     );
+    assert.doesNotMatch(requests[6]?.url ?? "", /proxyCountry=/);
     assert.equal(requests[6]?.init?.method, "POST");
     const createSessionBody = JSON.parse(String(requests[6]?.init?.body ?? "{}")) as {
       ttl?: number;
@@ -520,9 +521,9 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     };
     assert.equal(createSessionBody.stealth, true);
     assert.equal(createSessionBody.ttl, 30 * 24 * 60 * 60 * 1000);
-    assert.equal(
-      requests[7]?.url,
-      "https://browserless.example.com/session/bql/session-login?token=browserless-secret"
+    assert.match(
+      requests[7]?.url ?? "",
+      /^https:\/\/browserless\.example\.com\/session\/bql\/session-login\?.*token=browserless-secret.*proxy=residential/
     );
     const loginBqlBody = JSON.parse(String(requests[7]?.init?.body ?? "{}")) as {
       query?: string;
@@ -604,9 +605,9 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       }
     });
     assert.deepEqual(verifyResult, { ok: true });
-    assert.equal(
-      requests[9]?.url,
-      "https://browserless.example.com/session/bql/session-login?token=browserless-secret"
+    assert.match(
+      requests[9]?.url ?? "",
+      /^https:\/\/browserless\.example\.com\/session\/bql\/session-login\?.*token=browserless-secret.*proxy=residential/
     );
     const verifyBody = JSON.parse(String(requests[9]?.init?.body ?? "{}")) as { query?: string };
     assert.match(verifyBody.query ?? "", /__typename/);
@@ -664,9 +665,9 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         providerId: "browserless"
       }
     });
-    assert.equal(
-      requests[10]?.url,
-      "https://browserless.example.com/session/bql/session-login?token=browserless-secret"
+    assert.match(
+      requests[10]?.url ?? "",
+      /^https:\/\/browserless\.example\.com\/session\/bql\/session-login\?.*token=browserless-secret.*proxy=residential/
     );
     const persistentBody = JSON.parse(String(requests[10]?.init?.body ?? "{}")) as {
       query?: string;
@@ -1065,6 +1066,8 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     const ruProxyBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
       query?: string;
     };
+    const ruProxyRequestUrl = requests.at(-1)?.url ?? "";
+    assert.match(ruProxyRequestUrl, /proxyCountry=ru/);
     assert.match(
       ruProxyBody.query ?? "",
       /proxy\(network: residential, sticky: true, url: \["\*"\], country: RU\)/

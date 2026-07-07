@@ -40,6 +40,7 @@ import {
   type RuntimeTodoWriteToolResult,
   type RuntimeQuotaStatusToolResult,
   type RuntimeBrowserToolResult,
+  type PendingBrowserLoginState,
   type RuntimeDocumentToolResult,
   type RuntimeFilesToolResult,
   type RuntimeGrepToolResult,
@@ -1292,7 +1293,8 @@ export class TurnExecutionService {
                           acceptedTurn,
                           result.toolCall,
                           result.outcome.exchange.toolResult.isError,
-                          this.readBrowserToolRequestedAction(result.outcome)
+                          this.readBrowserToolRequestedAction(result.outcome),
+                          this.readBrowserToolPendingLogin(result.outcome)
                         );
                         if (result.outcome.artifacts !== undefined) {
                           for (const artifact of result.outcome.artifacts) {
@@ -1359,7 +1361,8 @@ export class TurnExecutionService {
                       acceptedTurn,
                       toolCall,
                       outcome.exchange.toolResult.isError,
-                      this.readBrowserToolRequestedAction(outcome)
+                      this.readBrowserToolRequestedAction(outcome),
+                      this.readBrowserToolPendingLogin(outcome)
                     );
                     if (outcome.artifacts !== undefined) {
                       for (const artifact of outcome.artifacts) {
@@ -5028,7 +5031,8 @@ export class TurnExecutionService {
     acceptedTurn: AcceptedRuntimeTurn,
     toolCall: ProviderGatewayToolCall,
     isError: boolean,
-    toolRequestedAction?: string
+    toolRequestedAction?: string,
+    pendingBrowserLogin?: PendingBrowserLoginState
   ): RuntimeTurnStreamEvent {
     return {
       type: "tool_finished",
@@ -5037,8 +5041,54 @@ export class TurnExecutionService {
       toolCallId: toolCall.id,
       toolName: toolCall.name,
       isError,
-      ...(toolRequestedAction !== undefined ? { toolRequestedAction } : {})
+      ...(toolRequestedAction !== undefined ? { toolRequestedAction } : {}),
+      ...(pendingBrowserLogin !== undefined ? { pendingBrowserLogin } : {})
     };
+  }
+
+  private readBrowserToolPendingLogin(
+    outcome: ToolExecutionOutcome
+  ): PendingBrowserLoginState | undefined {
+    if (outcome.exchange.toolCall.name !== "browser") {
+      return undefined;
+    }
+    try {
+      const parsed = JSON.parse(outcome.exchange.toolResult.content) as {
+        pendingBrowserLogin?: unknown;
+      };
+      if (
+        parsed.pendingBrowserLogin === null ||
+        parsed.pendingBrowserLogin === undefined ||
+        typeof parsed.pendingBrowserLogin !== "object" ||
+        Array.isArray(parsed.pendingBrowserLogin)
+      ) {
+        return undefined;
+      }
+      const candidate = parsed.pendingBrowserLogin as Record<string, unknown>;
+      if (
+        typeof candidate.profileId !== "string" ||
+        typeof candidate.profileKey !== "string" ||
+        typeof candidate.displayName !== "string" ||
+        typeof candidate.liveUrl !== "string" ||
+        typeof candidate.loginUrl !== "string"
+      ) {
+        return undefined;
+      }
+      const completionMode =
+        candidate.completionMode === "assist" || candidate.completionMode === "login"
+          ? candidate.completionMode
+          : undefined;
+      return {
+        profileId: candidate.profileId,
+        profileKey: candidate.profileKey,
+        displayName: candidate.displayName,
+        liveUrl: candidate.liveUrl,
+        loginUrl: candidate.loginUrl,
+        ...(completionMode === undefined ? {} : { completionMode })
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   private readBrowserToolRequestedAction(outcome: ToolExecutionOutcome): string | undefined {

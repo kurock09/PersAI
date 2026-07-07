@@ -10,6 +10,8 @@ import {
   buildToolPathTimeBillingFacts,
   DEFAULT_RUNTIME_BROWSER_MAX_CHARS,
   DEFAULT_RUNTIME_BROWSER_TIMEOUT_MS,
+  DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT,
+  DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH,
   MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS,
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
@@ -27,6 +29,8 @@ import {
   type ProviderGatewayBrowserActionRequest,
   type ProviderGatewayBrowserActionResult,
   type ProviderGatewayBrowserSessionDeleteRequest,
+  type ProviderGatewayBrowserSessionOpenLiveRequest,
+  type ProviderGatewayBrowserSessionOpenLiveResult,
   type ProviderGatewayBrowserSessionStartLoginRequest,
   type ProviderGatewayBrowserSessionStartLoginResult,
   type ProviderGatewayBrowserSessionVerifyRequest,
@@ -785,7 +789,6 @@ export class ProviderBrowserService {
         "profileSessionId is required for persistent-session browser action"
       );
     }
-    const bqlUrl = this.resolveBrowserlessSessionBqlEndpoint(apiKey, normalized.profileSessionId);
     // Browserless BQL `WaitUntilGoto` enum accepts:
     //   commit | domContentLoaded | firstContentfulPaint | firstMeaningfulPaint | load | networkIdle
     // — there is NO `networkAlmostIdle` value (that name only exists in the
@@ -813,6 +816,13 @@ export class ProviderBrowserService {
     }
     this.assertSupportedPersistentCapabilityPolicy(capabilityPolicy);
     parts.push(...this.buildBrowserlessCapabilityPolicyMutations(capabilityPolicy, normalized.url));
+
+    const bqlUrl = this.resolveBrowserlessSessionBqlEndpoint(
+      apiKey,
+      normalized.profileSessionId,
+      capabilityPolicy,
+      normalized.url
+    );
 
     if (normalized.optimizeForSpeed) {
       parts.push(`reject(type: [image, font, media], enabled: true) { time }`);
@@ -1075,7 +1085,11 @@ export class ProviderBrowserService {
       normalized.credential.secretId
     );
     const createResponse = await this.fetchJson(
-      this.resolveBrowserlessSessionCreateEndpoint(apiKey),
+      this.resolveBrowserlessSessionCreateEndpoint(
+        apiKey,
+        normalized.capabilityPolicy,
+        normalized.loginUrl
+      ),
       {
         method: "POST",
         headers: {
@@ -1124,7 +1138,11 @@ export class ProviderBrowserService {
       Math.min(DEFAULT_BROWSER_LOGIN_LIVE_URL_TIMEOUT_MS, normalized.reconnectTimeoutMs)
     );
     const bqlResponse = await this.fetchJson(
-      browserQL,
+      this.augmentBrowserlessSessionBqlUrl(
+        browserQL,
+        normalized.capabilityPolicy,
+        normalized.loginUrl
+      ),
       {
         method: "POST",
         headers: {
@@ -1212,7 +1230,12 @@ export class ProviderBrowserService {
     // typed data payload proves the persistent session is still routed by
     // Browserless. A 404 (or non-2xx) means the session has been evicted.
     const response = await this.fetchJson(
-      this.resolveBrowserlessSessionBqlEndpoint(apiKey, normalized.providerSessionId),
+      this.resolveBrowserlessSessionBqlEndpoint(
+        apiKey,
+        normalized.providerSessionId,
+        normalized.capabilityPolicy,
+        null
+      ),
       {
         method: "POST",
         headers: {
@@ -1244,6 +1267,67 @@ export class ProviderBrowserService {
     }
 
     return { ok: true };
+  }
+
+  async openLiveSession(
+    input: ProviderGatewayBrowserSessionOpenLiveRequest
+  ): Promise<ProviderGatewayBrowserSessionOpenLiveResult> {
+    const providerSessionId = this.readNonEmptyString(input.providerSessionId, "providerSessionId");
+    if (input.credential.toolCode !== "browser") {
+      throw new BadRequestException('credential.toolCode must be "browser"');
+    }
+    const capabilityPolicy = this.normalizePersistentCapabilityPolicy(
+      input.capabilityPolicy,
+      "capabilityPolicy"
+    );
+    this.assertSupportedPersistentCapabilityPolicy(capabilityPolicy);
+    const targetUrl = this.readNonEmptyString(input.targetUrl, "targetUrl");
+    const timeoutMs =
+      input.timeoutMs === null
+        ? DEFAULT_RUNTIME_BROWSER_TIMEOUT_MS
+        : Number.isInteger(input.timeoutMs) &&
+            Number(input.timeoutMs) >= MIN_RUNTIME_BROWSER_TIMEOUT_MS &&
+            Number(input.timeoutMs) <= MAX_RUNTIME_BROWSER_TIMEOUT_MS
+          ? Number(input.timeoutMs)
+          : DEFAULT_RUNTIME_BROWSER_TIMEOUT_MS;
+    const apiKey = await this.persaiInternalApiClientService.resolveSecretValue(
+      input.credential.secretId
+    );
+    this.assertPersistingProfileSessionId(providerSessionId);
+    const liveUrlTimeoutMs = Math.max(
+      5 * 60 * 1000,
+      Math.min(DEFAULT_BROWSER_LOGIN_LIVE_URL_TIMEOUT_MS, timeoutMs)
+    );
+    const bqlUrl = this.resolveBrowserlessSessionBqlEndpoint(
+      apiKey,
+      providerSessionId,
+      capabilityPolicy,
+      targetUrl
+    );
+    const response = await this.fetchJson(
+      bqlUrl,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          query: this.buildBrowserlessOpenLiveMutation(capabilityPolicy, targetUrl),
+          variables: {
+            liveUrlTimeoutMs
+          }
+        })
+      },
+      timeoutMs
+    );
+    if (!response.ok) {
+      throw new BadGatewayException(this.extractErrorMessage(response.body, "Browserless"));
+    }
+    const liveUrl = this.extractBrowserlessBqlLiveUrl(response.body);
+    if (liveUrl === null) {
+      throw new BadGatewayException("Browserless liveURL response did not include a live URL.");
+    }
+    return { liveUrl };
   }
 
   private normalizeActionRequest(
@@ -1585,6 +1669,9 @@ export class ProviderBrowserService {
     targetUrl: string
   ): string[] {
     const mutations: string[] = [];
+    mutations.push(
+      `viewport(width: ${String(DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH)}, height: ${String(DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT)}) { width height }`
+    );
     // `stealth: true` at session creation hardens fingerprinting surfaces
     // (CDP-detection, WebGL/canvas noise, automation flags) but does NOT
     // rewrite `navigator.userAgent` / the HTTP User-Agent header — Chrome
@@ -1633,6 +1720,17 @@ export class ProviderBrowserService {
       `liveURL(interactable: true, timeout: $liveUrlTimeoutMs) { liveURL }`
     ];
     return `mutation StartLogin($url: String!, $liveUrlTimeoutMs: Float!) {\n  ${parts.join("\n  ")}\n}`;
+  }
+
+  private buildBrowserlessOpenLiveMutation(
+    capabilityPolicy: PersistentBrowserCapabilityPolicy,
+    targetUrl: string
+  ): string {
+    const parts = [
+      ...this.buildBrowserlessCapabilityPolicyMutations(capabilityPolicy, targetUrl),
+      `liveURL(interactable: true, timeout: $liveUrlTimeoutMs) { liveURL }`
+    ];
+    return `mutation OpenLive($liveUrlTimeoutMs: Float!) {\n  ${parts.join("\n  ")}\n}`;
   }
 
   private normalizeOperation(operation: unknown, index: number): RuntimeBrowserOperation {
@@ -1857,9 +1955,57 @@ export class ProviderBrowserService {
     };
   }
 
-  private resolveBrowserlessSessionCreateEndpoint(apiKey: string): string {
+  private hasBuiltinResidentialProxy(capabilityPolicy: PersistentBrowserCapabilityPolicy): boolean {
+    const proxy = capabilityPolicy.proxy;
+    return proxy !== null && proxy.provider === "browserless_builtin";
+  }
+
+  /**
+   * Browserless documents residential proxy as connection-URL query parameters
+   * (`proxy=residential`, `proxyCountry`, `proxySticky`). BQL `proxy()` mutations
+   * alone did not change the observed egress IP on live persistent sessions (D10),
+   * so we also attach the documented URL params on session create and every BQL POST.
+   */
+  private appendBuiltinResidentialProxyQueryParams(
+    url: URL,
+    capabilityPolicy: PersistentBrowserCapabilityPolicy,
+    targetUrl: string | null
+  ): void {
+    if (!this.hasBuiltinResidentialProxy(capabilityPolicy)) {
+      return;
+    }
+    url.searchParams.set("proxy", "residential");
+    // Documented as a bare flag on Browserless connection URLs.
+    url.searchParams.set("proxySticky", "");
+    const country = targetUrl === null ? null : resolveTestProxyCountryForUrl(targetUrl);
+    if (country !== null) {
+      url.searchParams.set("proxyCountry", country.toLowerCase());
+    }
+  }
+
+  private augmentBrowserlessSessionBqlUrl(
+    browserQlUrl: string,
+    capabilityPolicy: PersistentBrowserCapabilityPolicy,
+    targetUrl: string
+  ): string {
+    let url: URL;
+    try {
+      url = new URL(browserQlUrl);
+    } catch {
+      throw new BadGatewayException("Browserless session API returned an invalid browserQL URL.");
+    }
+    this.appendBuiltinResidentialProxyQueryParams(url, capabilityPolicy, targetUrl);
+    return url.toString();
+  }
+
+  private resolveBrowserlessSessionCreateEndpoint(
+    apiKey: string,
+    capabilityPolicy: PersistentBrowserCapabilityPolicy,
+    targetUrl: string
+  ): string {
     const url = new URL("/session", this.config.PROVIDER_GATEWAY_BROWSERLESS_BASE_URL);
     url.searchParams.set("token", apiKey);
+    this.appendBuiltinResidentialProxyQueryParams(url, capabilityPolicy, targetUrl);
     return url.toString();
   }
 
@@ -1871,11 +2017,17 @@ export class ProviderBrowserService {
     return url.toString();
   }
 
-  private resolveBrowserlessSessionBqlEndpoint(apiKey: string, providerSessionId: string): string {
+  private resolveBrowserlessSessionBqlEndpoint(
+    apiKey: string,
+    providerSessionId: string,
+    capabilityPolicy: PersistentBrowserCapabilityPolicy,
+    targetUrl: string | null
+  ): string {
     const bqlPath = this.resolvePersistingSessionBqlPath(providerSessionId);
     const base = this.config.PROVIDER_GATEWAY_BROWSERLESS_BASE_URL.replace(/\/$/, "");
     const url = new URL(bqlPath, `${base}/`);
     url.searchParams.set("token", apiKey);
+    this.appendBuiltinResidentialProxyQueryParams(url, capabilityPolicy, targetUrl);
     return url.toString();
   }
 

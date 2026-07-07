@@ -105,6 +105,7 @@ import {
   type WorkspaceVideoClonedVoiceDto,
   deleteAssistantBrowserProfile,
   listAssistantBrowserProfiles,
+  openAssistantBrowserProfileLive,
   reconnectAssistantBrowserProfile,
   type AssistantBrowserProfileListItem,
   type PendingBrowserLoginState
@@ -2073,7 +2074,7 @@ export function AssistantSettings({
     [assistant?.id, getToken, refreshBrowserProfiles]
   );
 
-  const handleReconnectBrowserProfile = useCallback(
+  const handleOpenBrowserProfile = useCallback(
     async (profile: AssistantBrowserProfileListItem) => {
       if (!assistant?.id) return;
       const token = await getToken();
@@ -2081,7 +2082,9 @@ export function AssistantSettings({
       setBrowserProfilesActionId(profile.id);
       try {
         const pending = withWebBrowserLoginLiveProxy(
-          await reconnectAssistantBrowserProfile(token, assistant.id, profile.id),
+          profile.status === "active"
+            ? await openAssistantBrowserProfileLive(token, assistant.id, profile.id)
+            : await reconnectAssistantBrowserProfile(token, assistant.id, profile.id),
           assistant.id
         );
         setSettingsBrowserLogin(pending);
@@ -4762,7 +4765,7 @@ export function AssistantSettings({
                   profile={profile}
                   busy={browserProfilesActionId === profile.id}
                   onDelete={() => void handleDeleteBrowserProfile(profile.id)}
-                  onReconnect={() => void handleReconnectBrowserProfile(profile)}
+                  onOpen={() => void handleOpenBrowserProfile(profile)}
                 />
               ))}
             </div>
@@ -6431,79 +6434,58 @@ function BrowserSiteCard({
   profile,
   busy,
   onDelete,
-  onReconnect
+  onOpen
 }: {
   profile: AssistantBrowserProfileListItem;
   busy?: boolean;
   onDelete: () => void;
-  onReconnect: () => void;
+  onOpen: () => void;
 }) {
   const t = useTranslations("settings");
   const faviconUrl = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(profile.originHost)}&sz=64`;
   const statusLabel =
-    profile.status === "active"
-      ? t("browserProfileStatusActive")
-      : profile.status === "expired"
-        ? t("browserProfileStatusExpired")
-        : t("browserProfileStatusPending");
+    profile.status === "expired"
+      ? t("browserProfileStatusExpired")
+      : profile.status === "pending_login"
+        ? t("browserProfileStatusPending")
+        : null;
   const statusDot =
     profile.status === "active"
       ? "bg-success"
       : profile.status === "expired"
         ? "bg-destructive"
         : "bg-warning";
-  const interactive = profile.status !== "active";
-  const Comp = interactive ? "button" : "div";
 
   return (
-    <Comp
-      type={interactive ? "button" : undefined}
-      onClick={interactive ? onReconnect : undefined}
-      disabled={interactive ? busy : undefined}
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={busy}
       className={cn(
-        "group relative flex rounded-2xl border px-3.5 py-3 text-left transition-all",
+        "group flex w-full rounded-2xl border px-3.5 py-3 text-left transition-all",
         profile.status === "active"
           ? "border-accent/25 bg-accent/[0.07]"
           : "border-border/60 bg-background/50",
-        interactive && "cursor-pointer hover:-translate-y-[1px] hover:border-accent/30",
+        "cursor-pointer hover:-translate-y-[1px] hover:border-accent/30",
         busy && "opacity-70"
       )}
     >
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onDelete();
-        }}
-        disabled={busy}
-        aria-label={t("browserProfileDelete")}
-        className="absolute top-2.5 right-2.5 inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/70 bg-background/80 text-text-muted transition hover:border-destructive/30 hover:text-destructive disabled:opacity-50"
-      >
-        {busy ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Trash2 className="h-3.5 w-3.5" />
-        )}
-      </button>
-      <div className="flex min-w-0 flex-1 items-start gap-3 pr-8">
+      <div className="flex min-w-0 flex-1 items-start gap-3">
         <img src={faviconUrl} alt="" className="h-10 w-10 shrink-0 rounded-xl object-contain" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="min-w-0 flex-1 truncate text-sm font-medium text-text">
-              {profile.displayName}
-            </p>
-            <span className={cn("inline-block h-2.5 w-2.5 shrink-0 rounded-full", statusDot)} />
-          </div>
+          <p className="truncate text-sm font-medium text-text">{profile.displayName}</p>
           <p className="mt-0.5 truncate text-xs text-text-subtle">{profile.originHost}</p>
-          <p
-            className={cn(
-              "mt-0.5 text-xs",
-              profile.status === "active" ? "text-success" : "text-text-subtle"
-            )}
-          >
-            {statusLabel}
-          </p>
-          {interactive ? (
+          {statusLabel !== null ? (
+            <p
+              className={cn(
+                "mt-0.5 text-xs",
+                profile.status === "expired" ? "text-destructive" : "text-text-subtle"
+              )}
+            >
+              {statusLabel}
+            </p>
+          ) : null}
+          {profile.status !== "active" ? (
             <span className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text">
               {t("browserProfileReconnect")}
               <ChevronRight className="h-3.5 w-3.5" />
@@ -6511,7 +6493,34 @@ function BrowserSiteCard({
           ) : null}
         </div>
       </div>
-    </Comp>
+      <div className="ml-3 flex w-7 shrink-0 flex-col items-center justify-between self-stretch py-0.5">
+        <span className={cn("inline-block h-2.5 w-2.5 rounded-full", statusDot)} />
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              onDelete();
+            }
+          }}
+          aria-label={t("browserProfileDelete")}
+          aria-disabled={busy}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/70 bg-background/80 text-text-muted transition hover:border-destructive/30 hover:text-destructive aria-disabled:opacity-50"
+        >
+          {busy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
+          )}
+        </span>
+      </div>
+    </button>
   );
 }
 

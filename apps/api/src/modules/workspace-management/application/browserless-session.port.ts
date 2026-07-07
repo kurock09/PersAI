@@ -25,9 +25,21 @@ export type BrowserlessVerifySessionResult = {
   ok: true;
 };
 
+export type BrowserlessOpenLiveInput = {
+  providerSessionId: string;
+  targetUrl: string;
+  capabilityPolicy: PersistentBrowserCapabilityPolicy;
+  browserCredentialSecretId?: string;
+};
+
+export type BrowserlessOpenLiveResult = {
+  liveUrl: string;
+};
+
 export interface BrowserlessSessionPort {
   startLogin(input: BrowserlessStartLoginInput): Promise<BrowserlessStartLoginResult>;
   verifySession(input: BrowserlessVerifySessionInput): Promise<BrowserlessVerifySessionResult>;
+  openLive(input: BrowserlessOpenLiveInput): Promise<BrowserlessOpenLiveResult>;
   deleteSession(
     providerSessionId: string,
     input?: { browserCredentialSecretId?: string }

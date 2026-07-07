@@ -602,6 +602,7 @@
     "browserLoginClose": "Close",
     "browserLoginCancel": "Cancel",
     "browserLoginDone": "Done",
+    "browserLoginAssistDone": "Done",
     "browserLoginOpenExternal": "Open in browser",
     "browserLoginContinue": "Continue login",
     "browserLoginContinueHint": "Finish signing in to continue.",

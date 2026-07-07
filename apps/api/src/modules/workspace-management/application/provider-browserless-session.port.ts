@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { BrowserlessProviderGatewayClient } from "./browserless-provider-gateway.client";
 import type {
+  BrowserlessOpenLiveInput,
+  BrowserlessOpenLiveResult,
   BrowserlessSessionPort,
   BrowserlessStartLoginInput,
   BrowserlessStartLoginResult,
@@ -28,6 +30,17 @@ export class ProviderBrowserlessSessionPort implements BrowserlessSessionPort {
   verifySession(input: BrowserlessVerifySessionInput): Promise<BrowserlessVerifySessionResult> {
     return this.browserlessProviderGatewayClient.verifySession({
       providerSessionId: input.providerSessionId,
+      capabilityPolicy: input.capabilityPolicy,
+      ...(input.browserCredentialSecretId !== undefined
+        ? { browserCredentialSecretId: input.browserCredentialSecretId }
+        : {})
+    });
+  }
+
+  openLive(input: BrowserlessOpenLiveInput): Promise<BrowserlessOpenLiveResult> {
+    return this.browserlessProviderGatewayClient.openLive({
+      providerSessionId: input.providerSessionId,
+      targetUrl: input.targetUrl,
       capabilityPolicy: input.capabilityPolicy,
       ...(input.browserCredentialSecretId !== undefined
         ? { browserCredentialSecretId: input.browserCredentialSecretId }

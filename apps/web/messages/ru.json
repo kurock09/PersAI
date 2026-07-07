@@ -602,6 +602,7 @@
     "browserLoginClose": "Закрыть",
     "browserLoginCancel": "Отмена",
     "browserLoginDone": "Готово",
+    "browserLoginAssistDone": "Готово",
     "browserLoginOpenExternal": "Открыть в браузере",
     "browserLoginContinue": "Продолжить вход",
     "browserLoginContinueHint": "Завершите вход, чтобы продолжить.",

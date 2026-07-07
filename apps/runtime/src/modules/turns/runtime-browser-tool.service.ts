@@ -143,6 +143,9 @@ export class RuntimeBrowserToolService {
       if (request.action === "login") {
         return await this.executeLogin(params, request, providerId, policy, credential);
       }
+      if (request.action === "open_live") {
+        return await this.executeOpenLive(params, request, providerId, policy, credential);
+      }
 
       const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
         assistantId: params.bundle.metadata.assistantId,
@@ -305,6 +308,101 @@ export class RuntimeBrowserToolService {
         reason: null,
         warning: null,
         login,
+        pendingBrowserLogin: {
+          ...pendingBrowserLogin,
+          completionMode: "login"
+        }
+      },
+      artifacts: [],
+      isError: false
+    };
+  }
+
+  private async executeOpenLive(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      sessionId: string;
+      chatId?: string | null;
+    },
+    request: RuntimeBrowserRequest,
+    providerId: PersaiRuntimeBrowserProviderId,
+    policy: RuntimeToolPolicy,
+    credential: NonNullable<ReturnType<typeof this.resolveConfiguredCredentialRef>>
+  ): Promise<RuntimeBrowserToolExecutionResult> {
+    const profileKey = request.profile?.trim() ?? "";
+    if (profileKey.length === 0) {
+      return {
+        payload: {
+          toolCode: "browser",
+          executionMode: "worker",
+          provider: providerId,
+          requestedAction: request.action,
+          page: null,
+          action: "skipped",
+          reason: "invalid_arguments",
+          warning: 'browser action "open_live" requires profile.'
+        },
+        artifacts: [],
+        isError: true
+      };
+    }
+
+    const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+      assistantId: params.bundle.metadata.assistantId,
+      toolCode: "browser",
+      dailyCallLimit: policy.dailyCallLimit
+    });
+    if (!quotaOutcome.allowed) {
+      return {
+        payload: {
+          toolCode: "browser",
+          executionMode: "worker",
+          provider: providerId,
+          requestedAction: request.action,
+          page: null,
+          action: "skipped",
+          reason: quotaOutcome.code,
+          warning: quotaOutcome.message
+        },
+        artifacts: [],
+        isError: false
+      };
+    }
+
+    const live = await this.persaiInternalApiClientService.openBrowserLive({
+      assistantId: params.bundle.metadata.assistantId,
+      workspaceId: params.bundle.metadata.workspaceId,
+      profileKey,
+      browserCredentialSecretId: credential.secretRef.id
+    });
+
+    const completionMode = live.status === "active" ? ("assist" as const) : ("login" as const);
+    const pendingBrowserLogin = {
+      profileId: live.profileId,
+      profileKey: live.profileKey,
+      displayName: live.displayName,
+      liveUrl: live.liveUrl,
+      loginUrl: live.loginUrl,
+      completionMode
+    };
+
+    return {
+      payload: {
+        toolCode: "browser",
+        executionMode: "worker",
+        provider: providerId,
+        requestedAction: request.action,
+        page: null,
+        action: "opened_live",
+        reason: null,
+        warning: null,
+        login: {
+          profileKey: live.profileKey,
+          displayName: live.displayName,
+          liveUrl: live.liveUrl,
+          loginUrl: live.loginUrl,
+          status: live.status
+        },
         pendingBrowserLogin
       },
       artifacts: [],
@@ -634,6 +732,24 @@ export class RuntimeBrowserToolService {
     }
 
     if (action === "list_profiles") {
+      return {
+        toolCode: "browser",
+        action,
+        url: "",
+        maxChars: null,
+        operations: [],
+        profile,
+        format,
+        optimizeForSpeed,
+        snapshotSelector,
+        fullPage
+      };
+    }
+
+    if (action === "open_live") {
+      if (profile === null) {
+        return new Error('browser action "open_live" requires profile.');
+      }
       return {
         toolCode: "browser",
         action,

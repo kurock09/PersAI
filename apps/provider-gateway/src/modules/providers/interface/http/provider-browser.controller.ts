@@ -3,6 +3,8 @@ import type {
   ProviderGatewayBrowserActionRequest,
   ProviderGatewayBrowserActionResult,
   ProviderGatewayBrowserSessionDeleteRequest,
+  ProviderGatewayBrowserSessionOpenLiveRequest,
+  ProviderGatewayBrowserSessionOpenLiveResult,
   ProviderGatewayBrowserSessionStartLoginRequest,
   ProviderGatewayBrowserSessionStartLoginResult,
   ProviderGatewayBrowserSessionVerifyRequest,
@@ -42,5 +44,13 @@ export class ProviderBrowserController {
     @Body() body: ProviderGatewayBrowserSessionVerifyRequest
   ): Promise<ProviderGatewayBrowserSessionVerifyResult> {
     return this.providerBrowserService.verifySession(body);
+  }
+
+  @Post("browser-session/open-live")
+  @HttpCode(HttpStatus.OK)
+  openLiveSession(
+    @Body() body: ProviderGatewayBrowserSessionOpenLiveRequest
+  ): Promise<ProviderGatewayBrowserSessionOpenLiveResult> {
+    return this.providerBrowserService.openLiveSession(body);
   }
 }

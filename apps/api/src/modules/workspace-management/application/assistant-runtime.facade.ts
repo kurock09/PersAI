@@ -1,6 +1,7 @@
 import type { RuntimeTier } from "./runtime-assignment";
 import type {
   ProviderGatewayToolExchange,
+  PendingBrowserLoginState,
   RuntimeDeferredMediaJobSummary,
   RuntimeBillingFacts,
   RuntimeOutputArtifact,
@@ -199,6 +200,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   toolName?: string;
   toolCallId?: string;
   toolRequestedAction?: string;
+  pendingBrowserLogin?: PendingBrowserLoginState;
   isError?: boolean;
   activitySource?: "skill" | "user" | "product" | "web";
   activityPhase?: "start";

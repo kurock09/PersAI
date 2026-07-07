@@ -49,7 +49,7 @@ const BROWSER_CONFIG = {
   credentialToolCode: "browser",
   providerIds: ["browserless"],
   defaultProviderId: "browserless",
-  actions: ["snapshot", "act", "login", "list_profiles"],
+  actions: ["snapshot", "act", "login", "open_live", "list_profiles"],
   confirmationRequiredActions: ["act", "login"]
 } satisfies RuntimeBrowserConfig;
 
@@ -345,6 +345,30 @@ class FakePersaiInternalApiClientService {
     };
   }
 
+  openLiveCalls: Array<{
+    assistantId: string;
+    workspaceId: string;
+    profileKey: string;
+    browserCredentialSecretId?: string;
+  }> = [];
+
+  async openBrowserLive(input: {
+    assistantId: string;
+    workspaceId: string;
+    profileKey: string;
+    browserCredentialSecretId?: string;
+  }): Promise<StartBrowserLoginOutcome> {
+    this.openLiveCalls.push(input);
+    return {
+      profileId: "profile-active",
+      profileKey: input.profileKey,
+      displayName: "Yandex Lavka",
+      liveUrl: "https://live.browserless.io/session-open-live",
+      loginUrl: "https://lavka.yandex.ru",
+      status: "active"
+    };
+  }
+
   async touchBrowserProfile(input: {
     assistantId: string;
     workspaceId: string;
@@ -595,4 +619,15 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.equal(invalidScrollResult.payload.reason, "invalid_arguments");
   assert.match(invalidScrollResult.payload.warning ?? "", /scroll operation selector/);
   assert.equal(providerGatewayClientService.browserCalls.length, 5);
+
+  const openLiveResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({ action: "open_live", profile: "lavka" }),
+    sessionId: "session-1"
+  });
+  assert.equal(openLiveResult.isError, false);
+  assert.equal(openLiveResult.payload.action, "opened_live");
+  assert.equal(openLiveResult.payload.pendingBrowserLogin?.completionMode, "assist");
+  assert.equal(persaiInternalApiClientService.openLiveCalls.length, 1);
+  assert.equal(persaiInternalApiClientService.openLiveCalls[0]?.profileKey, "lavka");
 }

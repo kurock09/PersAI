@@ -309,6 +309,82 @@ export class AssistantBrowserProfileService {
     return this.startPendingLoginForExistingProfile(row, browserCredentialSecretId);
   }
 
+  async openLiveView(input: {
+    profileId: string;
+    assistantId: string;
+    workspaceId: string;
+    browserCredentialSecretId?: string;
+  }): Promise<RuntimeBrowserLoginResult & { profileId: string }> {
+    const row = await this.requireOwnedProfile(
+      input.profileId,
+      input.assistantId,
+      input.workspaceId
+    );
+    if (row.status === "expired") {
+      throw new ConflictException("Browser profile session has expired. Start login again.");
+    }
+    const browserCredentialSecretId =
+      input.browserCredentialSecretId ?? resolveBrowserToolCredentialSecretId();
+    const capabilityPolicy = this.buildPersistentCapabilityPolicy(row.assistantId, row.profileKey);
+    if (row.status === "active") {
+      await this.browserlessSessionPort.verifySession({
+        providerSessionId: row.providerSessionId,
+        capabilityPolicy,
+        browserCredentialSecretId
+      });
+    }
+    const session = await this.browserlessSessionPort.openLive({
+      providerSessionId: row.providerSessionId,
+      targetUrl: row.loginUrl,
+      capabilityPolicy,
+      browserCredentialSecretId
+    });
+    await this.repository.updateLiveUrl(row.id, session.liveUrl);
+    return {
+      profileId: row.id,
+      profileKey: row.profileKey,
+      displayName: row.displayName,
+      liveUrl: session.liveUrl,
+      loginUrl: row.loginUrl,
+      status: row.status
+    };
+  }
+
+  async openLiveViewByProfileKey(input: {
+    assistantId: string;
+    workspaceId: string;
+    profileKey: string;
+    browserCredentialSecretId?: string;
+  }): Promise<RuntimeBrowserLoginResult & { profileId: string }> {
+    const profileKey = this.requireNonEmptyString(input.profileKey, "profileKey");
+    const row = await this.repository.findByAssistantAndKey(input.assistantId, profileKey);
+    if (row === null || row.workspaceId !== input.workspaceId) {
+      throw new NotFoundException("Browser profile was not found.");
+    }
+    return this.openLiveView({
+      profileId: row.id,
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      ...(input.browserCredentialSecretId === undefined
+        ? {}
+        : { browserCredentialSecretId: input.browserCredentialSecretId })
+    });
+  }
+
+  async dismissLiveView(input: {
+    profileId: string;
+    assistantId: string;
+    workspaceId: string;
+  }): Promise<{ dismissed: true }> {
+    const row = await this.requireOwnedProfile(
+      input.profileId,
+      input.assistantId,
+      input.workspaceId
+    );
+    await this.repository.clearLiveUrl(row.id);
+    return { dismissed: true };
+  }
+
   async deleteProfile(input: {
     profileId: string;
     assistantId: string;
@@ -346,7 +422,7 @@ export class AssistantBrowserProfileService {
       input.assistantId,
       input.workspaceId
     );
-    if (row.status !== "pending_login") {
+    if (row.status !== "pending_login" && row.status !== "active") {
       throw new NotFoundException("Browser profile is not awaiting live login.");
     }
     if (typeof row.liveUrl !== "string" || row.liveUrl.trim().length === 0) {

@@ -3339,6 +3339,62 @@ export class PersaiInternalApiClientService {
     );
   }
 
+  async openBrowserLive(input: {
+    assistantId: string;
+    workspaceId: string;
+    profileKey: string;
+    browserCredentialSecretId?: string;
+  }): Promise<StartBrowserLoginOutcome> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson("/api/v1/internal/runtime/browser-profiles/open-live", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      if (
+        payload?.ok === true &&
+        typeof payload.profileId === "string" &&
+        typeof payload.profileKey === "string" &&
+        typeof payload.displayName === "string" &&
+        typeof payload.liveUrl === "string" &&
+        typeof payload.loginUrl === "string" &&
+        typeof payload.status === "string"
+      ) {
+        return {
+          profileId: payload.profileId,
+          profileKey: payload.profileKey,
+          displayName: payload.displayName,
+          liveUrl: payload.liveUrl,
+          loginUrl: payload.loginUrl,
+          status: payload.status as RuntimeBrowserLoginResult["status"]
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid browser-profiles open-live response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API browser-profiles open-live request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the browser-profiles open-live request."
+    );
+  }
+
   async touchBrowserProfile(input: {
     assistantId: string;
     workspaceId: string;

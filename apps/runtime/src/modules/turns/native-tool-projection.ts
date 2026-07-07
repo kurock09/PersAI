@@ -9,6 +9,7 @@ import {
   MIN_RUNTIME_IMAGE_EDIT_COUNT,
   MIN_RUNTIME_IMAGE_GENERATE_COUNT,
   MAX_RUNTIME_BROWSER_MAX_CHARS,
+  MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
   PERSAI_RUNTIME_FILES_TOOL_ACTIONS,
@@ -834,7 +835,9 @@ function createBrowserToolDefinition(
           type: "string",
           enum: ["describe", ...bundle.runtime.browser.actions],
           description:
-            'Use "describe" to load the full tool contract. Use "list_profiles" to list saved browser sessions, "login" to start product-owned live login or re-auth, "snapshot" to inspect a page, or "act" to perform bounded browser operations before returning a fresh snapshot. For saved profiles, stealth/proxy policy is platform-owned, not a model argument. Profile-backed text snapshots and acts may return page.elements with reusable CSS selectors; prefer those selectors on follow-up acts. If act returns per-operation warnings, continue from the observed page state/elements and speak from structured runtime/API reason codes for re-auth or expiry. Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to that state.'
+            'Use "describe" to load the full tool contract. Use "list_profiles" to list saved browser sessions, "login" to start product-owned live login or re-auth, "open_live" to reopen the live browser window for an existing profile (captcha, confirmation, or re-auth), "snapshot" to inspect a page, or "act" to perform bounded browser operations before returning a fresh snapshot. For saved profiles, stealth/proxy policy is platform-owned, not a model argument. Profile-backed text snapshots and acts may return page.elements with up to ' +
+            String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS) +
+            " currently-visible interactive controls and reusable CSS selectors; prefer those selectors on follow-up acts. If act returns per-operation warnings, continue from the observed page state/elements and speak from structured runtime/API reason codes for re-auth or expiry. Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to that state."
         },
         url: {
           type: "string",
@@ -849,7 +852,7 @@ function createBrowserToolDefinition(
         profile: {
           type: "string",
           description:
-            'Stable profileKey from "login" or "list_profiles". Optional for "snapshot" and "act" to reuse a saved session. When a text snapshot exposes page.elements, prefer those selectors for follow-up act calls instead of guessing.'
+            'Stable profileKey from "login" or "list_profiles". Required for "open_live". Optional for "snapshot" and "act" to reuse a saved session. When a text snapshot exposes page.elements, prefer those selectors for follow-up act calls instead of guessing.'
         },
         format: {
           type: "string",

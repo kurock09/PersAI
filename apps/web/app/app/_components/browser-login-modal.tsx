@@ -8,6 +8,7 @@ import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import {
   completeAssistantBrowserLogin,
+  dismissAssistantBrowserProfileLive,
   type PendingBrowserLoginState
 } from "../assistant-api-client";
 import { ensureBrowserLoginLiveProxyTrailingSlash } from "../browser-login-live-url";
@@ -35,6 +36,7 @@ export function BrowserLoginModal({
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [iframeReloadKey, setIframeReloadKey] = useState(0);
+  const completionMode = pendingBrowserLogin?.completionMode ?? "login";
 
   useHistoryBackToClose(open, onDismiss);
 
@@ -58,7 +60,11 @@ export function BrowserLoginModal({
     setCompleting(true);
     setCompleteError(null);
     try {
-      await completeAssistantBrowserLogin(token, assistantId, pendingBrowserLogin.profileId);
+      if (completionMode === "assist") {
+        await dismissAssistantBrowserProfileLive(token, assistantId, pendingBrowserLogin.profileId);
+      } else {
+        await completeAssistantBrowserLogin(token, assistantId, pendingBrowserLogin.profileId);
+      }
       onCompleted?.();
       onDismiss();
     } catch {
@@ -66,13 +72,24 @@ export function BrowserLoginModal({
     } finally {
       setCompleting(false);
     }
-  }, [assistantId, completing, getToken, onDismiss, onCompleted, pendingBrowserLogin, t]);
+  }, [
+    assistantId,
+    completing,
+    completionMode,
+    getToken,
+    onDismiss,
+    onCompleted,
+    pendingBrowserLogin,
+    t
+  ]);
 
   if (!open || pendingBrowserLogin === null || typeof document === "undefined") {
     return null;
   }
 
   const liveUrl = ensureBrowserLoginLiveProxyTrailingSlash(pendingBrowserLogin.liveUrl);
+  const doneLabel =
+    completionMode === "assist" ? t("browserLoginAssistDone") : t("browserLoginDone");
 
   return createPortal(
     <div
@@ -151,7 +168,7 @@ export function BrowserLoginModal({
               data-testid="browser-login-complete"
               className="inline-flex min-h-9 items-center justify-center rounded-lg bg-accent px-4 text-xs font-semibold text-white transition hover:bg-accent-hover disabled:cursor-wait disabled:opacity-60"
             >
-              {completing ? <Loader2 className="h-4 w-4 animate-spin" /> : t("browserLoginDone")}
+              {completing ? <Loader2 className="h-4 w-4 animate-spin" /> : doneLabel}
             </button>
           </div>
         </div>

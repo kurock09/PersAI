@@ -28,7 +28,10 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
     profileKey: candidate.profileKey.trim(),
     displayName: candidate.displayName.trim(),
     liveUrl: candidate.liveUrl.trim(),
-    loginUrl: candidate.loginUrl.trim()
+    loginUrl: candidate.loginUrl.trim(),
+    ...(candidate.completionMode === "assist" || candidate.completionMode === "login"
+      ? { completionMode: candidate.completionMode }
+      : {})
   };
 }
 
@@ -53,7 +56,25 @@ function parsePendingBrowserLoginFromToolResultContent(
           profileKey: login.profileKey,
           displayName: login.displayName,
           liveUrl: login.liveUrl,
-          loginUrl: login.loginUrl
+          loginUrl: login.loginUrl,
+          completionMode: "login"
+        });
+      }
+    }
+    if (
+      (payload.action === "opened_live" || payload.requestedAction === "open_live") &&
+      payload.login !== null &&
+      typeof payload.login === "object"
+    ) {
+      const login = payload.login as Record<string, unknown>;
+      if (isNonEmptyString(login.profileKey)) {
+        return parsePendingBrowserLoginState({
+          profileId: payload.profileId,
+          profileKey: login.profileKey,
+          displayName: login.displayName,
+          liveUrl: login.liveUrl,
+          loginUrl: login.loginUrl,
+          completionMode: login.status === "active" ? "assist" : "login"
         });
       }
     }
