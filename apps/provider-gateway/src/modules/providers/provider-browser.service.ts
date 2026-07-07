@@ -148,7 +148,7 @@ const BROWSERLESS_INTERACTIVE_ELEMENT_SELECTION_HELPERS = String.raw`
     if (href.includes("/catalog") || testId.includes("category")) {
       return 55;
     }
-    if (element.closest("header, nav, [role=\\"navigation\\"], footer")) {
+    if (element.closest('header, nav, [role="navigation"], footer')) {
       return 5;
     }
     return 35;

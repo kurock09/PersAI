@@ -698,6 +698,12 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.match(interactiveElementsScript, /isYandexGroceryPage/);
     assert.match(interactiveElementsScript, /add-spin-button/);
     assert.match(interactiveElementsScript, /,\s*60\s*\)/);
+    // Regression guard (ADR-139 D14): broken quote escaping in closest() made
+    // every persistent text snapshot/act fail with pageElements SyntaxError → 502.
+    assert.doesNotThrow(() => {
+      // eslint-disable-next-line no-new-func -- in-page script must parse as JS
+      new Function(`return ${interactiveElementsScript}`);
+    });
     assert.match(persistentBody.query ?? "", /userAgent\(userAgent: "[^"]*Chrome[^"]*"\)/);
     assert.doesNotMatch(persistentBody.query ?? "", /Headless/i);
     assert.match(
