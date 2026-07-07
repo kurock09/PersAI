@@ -687,6 +687,16 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     'browser operations schema must point the model at kind="scroll" for empty/placeholder catalog-style pages'
   );
   assert.match(
+    browserOperationsDescription,
+    /Steps run in order within this single call/i,
+    "browser operations schema must teach that multiple steps run in one act call"
+  );
+  assert.match(
+    browserOperationsDescription,
+    /insert kind="wait_for_selector".*then continue the chain/i,
+    "browser operations schema must teach chaining wait_for_selector after content-opening steps instead of a separate snapshot"
+  );
+  assert.match(
     browserSelectorDescription,
     /Prefer selectors copied from page\.elements/i,
     "browser selector schema must reinforce page.elements selector reuse"

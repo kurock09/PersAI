@@ -142,6 +142,12 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.doesNotMatch(snapshotBody.code ?? "", /networkidle2/);
     assert.match(snapshotBody.code ?? "", /const waitUntil = "domcontentloaded"/);
     assert.match(snapshotBody.code ?? "", /settleAfterGotoMs/);
+    // Element extraction must rank by visibility before the top-N cap, and
+    // the cap must come from the shared runtime-contract constant (60), not
+    // a stale hardcoded 25 — see ADR-139 D11.
+    assert.match(snapshotBody.code ?? "", /getClientRects\(\)\.length === 0/);
+    assert.match(snapshotBody.code ?? "", /\.filter\(isVisibleInPage\)/);
+    assert.match(snapshotBody.code ?? "", /\}, 60\);/);
     assert.deepEqual(snapshotBody.context, {
       url: "https://example.com/",
       action: "snapshot",
@@ -675,6 +681,17 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.match(persistentBody.query ?? "", /settleAfterGoto: waitForTimeout\(time: 3000\)/);
     assert.match(persistentBody.query ?? "", /pageText: text \{ text \}/);
     assert.match(persistentBody.query ?? "", /pageElements: evaluate/);
+    // Element extraction must rank by visibility before applying the top-N
+    // cap — plain document order buries catalog/product content behind
+    // header/nav/footer chrome (live-validated on Yandex Lavka, ADR-139
+    // D11) — and the cap itself must come from the shared runtime-contract
+    // constant, not a stale hardcoded 25.
+    const interactiveElementsScript = String(
+      persistentBody.variables?.interactiveElementsScript ?? ""
+    );
+    assert.match(interactiveElementsScript, /getClientRects\(\)\.length === 0/);
+    assert.match(interactiveElementsScript, /\.filter\(isVisibleInPage\)/);
+    assert.match(interactiveElementsScript, /\.slice\(0, 60\)/);
     assert.match(persistentBody.query ?? "", /userAgent\(userAgent: "[^"]*Chrome[^"]*"\)/);
     assert.doesNotMatch(persistentBody.query ?? "", /Headless/i);
     assert.match(

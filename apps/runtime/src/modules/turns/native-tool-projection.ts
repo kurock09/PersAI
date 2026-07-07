@@ -881,8 +881,7 @@ function createBrowserToolDefinition(
         operations: {
           type: "array",
           maxItems: MAX_RUNTIME_BROWSER_OPERATIONS,
-          description:
-            'Required for action="act". Each step is one bounded browser operation. Prefer CSS selectors copied from the latest page.elements when available. For saved profiles, stay selector-based and do not use kind="press" — persistent Browserless sessions reject keyboard-press operations. If a page (e.g. a product catalog or feed) shows an empty or placeholder list right after navigation, use kind="scroll" before re-reading content — many sites only populate cards once scrolled into view.',
+          description: `Required for action="act". Steps run in order within this single call (up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)}) — chain a full interaction instead of issuing one act per step. Prefer CSS selectors copied from the latest page.elements when available. When a step opens new content (a click that loads a product page, expands a panel, or triggers client-side navigation), insert kind="wait_for_selector" for a selector on that new content directly after it, then continue the chain (e.g. click a search result, wait_for_selector on the add-to-cart control, then click it) — do not stop the chain and take a separate snapshot just to re-check for a selector you can wait for instead. For saved profiles, stay selector-based and do not use kind="press" — persistent Browserless sessions reject keyboard-press operations. If a page (e.g. a product catalog or feed) shows an empty or placeholder list right after navigation, use kind="scroll" before re-reading content — many sites only populate cards once scrolled into view.`,
           items: {
             type: "object",
             additionalProperties: false,

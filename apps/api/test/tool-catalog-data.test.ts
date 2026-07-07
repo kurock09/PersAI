@@ -189,6 +189,16 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
   );
   assert.match(
     text,
+    /Chain a full interaction into one `act` call instead of one operation per call/i,
+    "browser guidance must tell the model to chain operations into a single act call"
+  );
+  assert.match(
+    text,
+    /kind:"wait_for_selector".*continue the chain in the same call/i,
+    'browser guidance must teach kind:"wait_for_selector" as the bridge across content-opening steps'
+  );
+  assert.match(
+    text,
     /per-operation warnings/i,
     "browser guidance must mention per-operation warnings from act"
   );

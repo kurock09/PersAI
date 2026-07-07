@@ -1656,7 +1656,15 @@ export const MIN_RUNTIME_BROWSER_TIMEOUT_MS = 1_000;
 export const MAX_RUNTIME_BROWSER_TIMEOUT_MS = 120_000;
 export const MAX_RUNTIME_BROWSER_OPERATIONS = 6;
 export const MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS = 10_000;
-export const MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS = 25;
+// Raised from 25 (2026-07-07 live acceptance, ADR-139 D11): the extraction
+// script walks the DOM in document order with no visibility ranking, so on a
+// typical page the first N interactive elements are header/nav/footer chrome
+// rather than the catalog/product content the model actually needs to act
+// on. Visibility filtering (see BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT
+// / BROWSERLESS_FUNCTION_CODE) now removes most of that chrome before this cap
+// applies, but the cap itself is also widened as a safety margin for pages
+// with a lot of visible nav/chrome ahead of the useful content.
+export const MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS = 60;
 
 export const PERSAI_RUNTIME_BROWSER_OPERATION_KINDS = [
   "click",

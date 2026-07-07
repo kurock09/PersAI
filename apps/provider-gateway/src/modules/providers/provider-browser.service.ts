@@ -122,11 +122,22 @@ export default async ({ page, context }) => {
 
   const collectElements = async () =>
     page.evaluate((maxElements) => {
+      // See BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT for why
+      // visibility filtering runs before the top-N cap.
+      const isVisibleInPage = (element) => {
+        if (element.getClientRects().length === 0) {
+          return false;
+        }
+        const style = window.getComputedStyle(element);
+        return style.visibility !== "hidden" && style.display !== "none";
+      };
       const nodes = Array.from(
         document.querySelectorAll(
           'a, button, input, textarea, select, [role="button"], [role="link"]'
         )
-      ).slice(0, maxElements);
+      )
+        .filter(isVisibleInPage)
+        .slice(0, maxElements);
       const normalizeTextInPage = (value) =>
         typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
       const buildSelector = (element) => {
@@ -200,7 +211,7 @@ export default async ({ page, context }) => {
           disabled: "disabled" in element ? Boolean(element.disabled) : false
         }))
         .filter((entry) => typeof entry.selector === "string" && entry.selector.length > 0);
-    }, 25);
+    }, ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)});
 
   const collectContent = async () => {
     const raw = await page.evaluate(() => {
@@ -436,11 +447,27 @@ export default async ({ page, context }) => {
 
 const BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT = String.raw`
 (() => {
+  // Plain document-order querySelectorAll puts header/nav/footer chrome
+  // ahead of catalog/product content on almost every real page, so an
+  // unfiltered top-N cap mostly returns menu links instead of the elements
+  // the model actually needs (live-validated on Yandex Lavka: product
+  // add-to-cart controls never made it into a 25-element unfiltered top-N).
+  // Filtering to currently-visible elements first — before the cap — fixes
+  // the actual cause instead of just raising the number.
+  const isVisibleInPage = (element) => {
+    if (element.getClientRects().length === 0) {
+      return false;
+    }
+    const style = window.getComputedStyle(element);
+    return style.visibility !== "hidden" && style.display !== "none";
+  };
   const nodes = Array.from(
     document.querySelectorAll(
       'a, button, input, textarea, select, [role="button"], [role="link"]'
     )
-  ).slice(0, ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)});
+  )
+    .filter(isVisibleInPage)
+    .slice(0, ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)});
   const normalizeTextInPage = (value) =>
     typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
   const cssEscape =
