@@ -619,7 +619,7 @@ export class ProviderBrowserService {
     this.logger.log(
       `[ephemeral-function] action=${normalized.action} url=${normalized.url} operations=${normalized.operations.length}`
     );
-    const response = await this.fetchJson(
+    const response = await this.fetchJsonWithRateLimitRetry(
       endpoint,
       {
         method: "POST",
@@ -935,7 +935,7 @@ export class ProviderBrowserService {
       `[persistent-bql] action=${normalized.action} profile=${normalized.profileSessionId} proxy=${String(capabilityPolicy.proxy !== null)} stealth=${String(capabilityPolicy.stealth)} operations=${normalized.operations.length}`
     );
 
-    const response = await this.fetchJson(
+    const response = await this.fetchJsonWithRateLimitRetry(
       bqlUrl,
       {
         method: "POST",
@@ -2040,6 +2040,43 @@ export class ProviderBrowserService {
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  // ADR-139 D13: a live test surfaced repeated act/snapshot failures that
+  // D12's new logging revealed were plain `429 Too many requests` from
+  // Browserless's own concurrency queue (see Browserless enterprise docs —
+  // 429 means "queue is full", not a crash, fingerprint, or session-death
+  // issue). Browserless's own guidance is to back off and retry, so a short
+  // bounded retry here absorbs transient queue pressure instead of
+  // surfacing every 429 straight to the model as a hard tool failure.
+  private static readonly RATE_LIMIT_RETRY_DELAYS_MS = [600, 1500];
+
+  private async fetchJsonWithRateLimitRetry(
+    url: string,
+    init: RequestInit,
+    timeoutMs: number
+  ): Promise<JsonResponse> {
+    let lastResponse: JsonResponse | null = null;
+    for (
+      let attempt = 0;
+      attempt <= ProviderBrowserService.RATE_LIMIT_RETRY_DELAYS_MS.length;
+      attempt++
+    ) {
+      const response = await this.fetchJson(url, init, timeoutMs);
+      if (response.status !== 429) {
+        return response;
+      }
+      lastResponse = response;
+      const delayMs = ProviderBrowserService.RATE_LIMIT_RETRY_DELAYS_MS[attempt];
+      if (delayMs === undefined) {
+        break;
+      }
+      this.logger.warn(
+        `[rate-limit] 429 from Browserless, retrying in ${String(delayMs)}ms (attempt ${String(attempt + 1)}/${String(ProviderBrowserService.RATE_LIMIT_RETRY_DELAYS_MS.length + 1)})`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    return lastResponse ?? (await this.fetchJson(url, init, timeoutMs));
   }
 
   private async fetchBinary(

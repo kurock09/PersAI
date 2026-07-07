@@ -1162,6 +1162,82 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         }),
       BadGatewayException
     );
+
+    // ADR-139 D13: a live test found Browserless returning `429 Too many
+    // requests` (queue-full, per Browserless's own docs) on otherwise-valid
+    // act calls. A bounded retry absorbs this transient condition instead of
+    // surfacing every 429 as a hard tool failure to the model.
+    let rateLimitedAttempts = 0;
+    globalThis.fetch = (async () => {
+      rateLimitedAttempts += 1;
+      if (rateLimitedAttempts < 3) {
+        return new Response(JSON.stringify({ error: "Too many requests" }), {
+          status: 429,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: {
+            initialUrl: "https://example.com/",
+            finalUrl: "https://example.com/final",
+            title: "Example page",
+            content: "Rendered browser content",
+            truncated: false,
+            elements: []
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const rateLimitedResult = await service.browserAction({
+      action: "snapshot",
+      url: "https://example.com",
+      maxChars: null,
+      operations: [],
+      timeoutMs: null,
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-rate-limit",
+        providerId: "browserless"
+      }
+    });
+    assert.equal(rateLimitedAttempts, 3);
+    assert.equal(rateLimitedResult.title, "Example page");
+
+    let persistentRateLimitedAttempts = 0;
+    globalThis.fetch = (async () => {
+      persistentRateLimitedAttempts += 1;
+      return new Response(JSON.stringify({ error: "Too many requests" }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" }
+      });
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () =>
+        service.browserAction({
+          action: "act",
+          url: "https://lavka.example.com/catalog/water",
+          maxChars: null,
+          operations: [{ kind: "click", selector: "#add-spin-button" }],
+          timeoutMs: null,
+          profileSessionId: "/session/session-login",
+          capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
+          credential: {
+            toolCode: "browser",
+            secretId: "secret-rate-limit-persistent",
+            providerId: "browserless"
+          }
+        }),
+      BadGatewayException
+    );
+    // 1 initial attempt + 2 retries (RATE_LIMIT_RETRY_DELAYS_MS has 2
+    // entries) — exhausting retries still surfaces as a normal gateway
+    // failure rather than retrying forever.
+    assert.equal(persistentRateLimitedAttempts, 3);
   } finally {
     globalThis.fetch = originalFetch;
   }
