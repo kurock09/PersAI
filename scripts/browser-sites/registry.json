@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "description": "Per-host browser page-model scripts. Matched by URL hostname during browser snapshot/act; host script elements replace generic page.elements when present.",
+  "hosts": {
+    "lavka.yandex.ru": "lavka.yandex.ru.js"
+  }
+}

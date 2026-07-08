@@ -20,6 +20,7 @@ import { KlingProviderClient } from "./kling/kling-provider.client";
 import { OpenAIProviderClient } from "./openai/openai-provider.client";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderAudioTranscriptionService } from "./provider-audio-transcription.service";
+import { HostBrowserScriptRegistryService } from "./host-browser-script-registry.service";
 import { ProviderBrowserService } from "./provider-browser.service";
 import { ProviderCatalogService } from "./provider-catalog.service";
 import { ProviderDocumentGenerationService } from "./provider-document-generation.service";
@@ -64,6 +65,7 @@ import { RunwayProviderClient } from "./runway/runway-provider.client";
     YandexProviderClient,
     GammaProviderClient,
     PersaiInternalApiClientService,
+    HostBrowserScriptRegistryService,
     ProviderCatalogService,
     ProviderWarmupService,
     ProviderAudioTranscriptionService,

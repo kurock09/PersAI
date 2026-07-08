@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { BadGatewayException, BadRequestException } from "@nestjs/common";
 import { loadProviderGatewayConfig } from "@persai/config";
 import type { PersistentBrowserCapabilityPolicy } from "@persai/runtime-contract";
+import { HostBrowserScriptRegistryService } from "../src/modules/providers/host-browser-script-registry.service";
 import { ProviderBrowserService } from "../src/modules/providers/provider-browser.service";
 import type { PersaiInternalApiClientService } from "../src/modules/providers/persai-internal-api.client.service";
 
@@ -47,6 +48,23 @@ function createExternalCapabilityPolicy(profileKey: string): PersistentBrowserCa
   };
 }
 
+function createProviderBrowserService(
+  internalApi: FakePersaiInternalApiClientService
+): ProviderBrowserService {
+  return new ProviderBrowserService(
+    loadProviderGatewayConfig({
+      APP_ENV: "local",
+      PROVIDER_GATEWAY_WARM_ON_BOOT: "false",
+      PROVIDER_GATEWAY_OPENAI_API_KEY: "openai-test-key",
+      PROVIDER_GATEWAY_BROWSERLESS_BASE_URL: "https://browserless.example.com",
+      PERSAI_API_BASE_URL: "http://api.local",
+      PERSAI_INTERNAL_API_TOKEN: "internal-token"
+    }),
+    internalApi as unknown as PersaiInternalApiClientService,
+    new HostBrowserScriptRegistryService()
+  );
+}
+
 export async function runProviderBrowserServiceTest(): Promise<void> {
   const originalFetch = globalThis.fetch;
   const requests: Array<{ url: string; init?: RequestInit }> = [];
@@ -88,17 +106,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
 
   try {
     const internalApi = new FakePersaiInternalApiClientService();
-    const service = new ProviderBrowserService(
-      loadProviderGatewayConfig({
-        APP_ENV: "local",
-        PROVIDER_GATEWAY_WARM_ON_BOOT: "false",
-        PROVIDER_GATEWAY_OPENAI_API_KEY: "openai-test-key",
-        PROVIDER_GATEWAY_BROWSERLESS_BASE_URL: "https://browserless.example.com",
-        PERSAI_API_BASE_URL: "http://api.local",
-        PERSAI_INTERNAL_API_TOKEN: "internal-token"
-      }),
-      internalApi as unknown as PersaiInternalApiClientService
-    );
+    const service = createProviderBrowserService(internalApi);
 
     const snapshotResult = await service.browserAction({
       action: "snapshot",
@@ -1448,6 +1456,99 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
 
     const selectScript = svc.buildIndexedSelectScript("div", null, "x");
     assert.match(selectScript, /Element is not a select/);
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: {
+            initialUrl: "https://lavka.yandex.ru/",
+            finalUrl: "https://lavka.yandex.ru/search?text=test",
+            title: "Lavka",
+            content: "search results",
+            truncated: false,
+            elements: [{ selector: "#generic", tagName: "button", disabled: false }]
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    await service.browserAction({
+      action: "snapshot",
+      url: "https://lavka.yandex.ru/search?text=test",
+      maxChars: null,
+      operations: [],
+      timeoutMs: null,
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-lavka-host-script",
+        providerId: null
+      }
+    });
+    const lavkaFunctionBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
+      context?: { hostPageScript?: string };
+    };
+    assert.match(lavkaFunctionBody.context?.hostPageScript ?? "", /product-card/);
+    assert.match(lavkaFunctionBody.context?.hostPageScript ?? "", /add-spin-button/);
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          data: {
+            pageTitle: { title: "Lavka" },
+            pageUrl: { url: "https://lavka.yandex.ru/search?text=test" },
+            pageText: { text: "search results" },
+            pageElements: {
+              value: JSON.stringify([{ selector: "#generic", tagName: "button", disabled: false }])
+            },
+            hostPageElements: {
+              value: JSON.stringify({
+                elements: [
+                  {
+                    selector: '[data-testid="product-card"] button[data-testid="add-spin-button"]',
+                    tagName: "button",
+                    ariaLabel: "host:product_card_add",
+                    disabled: false,
+                    matchIndex: 1
+                  }
+                ]
+              })
+            }
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    const lavkaPersistentResult = await service.browserAction({
+      action: "snapshot",
+      url: "https://lavka.yandex.ru/search?text=test",
+      maxChars: null,
+      operations: [],
+      timeoutMs: null,
+      profileSessionId: "/session/session-lavka-host",
+      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-lavka-host-bql",
+        providerId: "browserless"
+      }
+    });
+    const lavkaBqlBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
+      query?: string;
+      variables?: { hostPageScript?: string };
+    };
+    assert.match(lavkaBqlBody.query ?? "", /hostPageElements:/);
+    assert.match(lavkaBqlBody.variables?.hostPageScript ?? "", /product-card/);
+    assert.equal(lavkaPersistentResult.elements.length, 1);
+    assert.match(lavkaPersistentResult.elements[0]?.selector ?? "", /add-spin-button/);
   } finally {
     globalThis.fetch = originalFetch;
   }

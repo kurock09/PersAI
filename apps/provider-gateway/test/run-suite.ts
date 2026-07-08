@@ -1,4 +1,5 @@
 import { runProviderAudioTranscriptionServiceTest } from "./provider-audio-transcription.service.test";
+import { runHostBrowserScriptRegistryServiceTest } from "./host-browser-script-registry.service.test";
 import { runProviderBrowserServiceTest } from "./provider-browser.service.test";
 import { runProviderImageGenerationServiceTest } from "./provider-image-generation.service.test";
 import { runProviderSpeechGenerationServiceTest } from "./provider-speech-generation.service.test";
@@ -38,6 +39,7 @@ async function run(): Promise<void> {
   await runDeepSeekProviderClientTest();
   await runYandexProviderClientTest();
   await runProviderAudioTranscriptionServiceTest();
+  await runHostBrowserScriptRegistryServiceTest();
   await runProviderBrowserServiceTest();
   await runProviderImageGenerationServiceTest();
   await runRunwayProviderClientTest();

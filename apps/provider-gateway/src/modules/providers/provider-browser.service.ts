@@ -41,6 +41,7 @@ import {
   type RuntimeBrowserInteractiveElement
 } from "@persai/runtime-contract";
 import { PROVIDER_GATEWAY_CONFIG } from "../../provider-gateway-config";
+import { HostBrowserScriptRegistryService } from "./host-browser-script-registry.service";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 
 const UNTRUSTED_CONTENT_WARNING =
@@ -278,6 +279,35 @@ export default async ({ page, context }) => {
       ).filter((row) => typeof row.entry.selector === "string" && row.entry.selector.length > 0);
       return takeRankedInteractiveEntries(rows, maxElements);
     }, ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)});
+
+  const applyHostPageElements = async (genericElements) => {
+    const hostPageScript =
+      typeof context.hostPageScript === "string" ? context.hostPageScript.trim() : "";
+    if (hostPageScript.length === 0) {
+      return genericElements;
+    }
+    try {
+      const hostPayload = await page.evaluate((script) => {
+        const result = eval(script);
+        return result && typeof result === "object" ? result : null;
+      }, hostPageScript);
+      if (
+        hostPayload &&
+        Array.isArray(hostPayload.elements) &&
+        hostPayload.elements.length > 0
+      ) {
+        return hostPayload.elements;
+      }
+    } catch (hostPageError) {
+      const message =
+        hostPageError instanceof Error ? hostPageError.message : "Host page script failed.";
+      const prefix = "Browser operation warnings: host page script: ";
+      result.operationWarning = result.operationWarning
+        ? result.operationWarning + "; host page script: " + message
+        : prefix + message;
+    }
+    return genericElements;
+  };
 
   const collectContent = async () => {
     const raw = await page.evaluate(() => {
@@ -634,7 +664,7 @@ export default async ({ page, context }) => {
     const snapshot = await collectContent();
     result.content = snapshot.content;
     result.truncated = snapshot.truncated;
-    result.elements = await collectElements();
+    result.elements = await applyHostPageElements(await collectElements());
     return {
       data: result,
       type: "application/json"
@@ -813,7 +843,8 @@ export class ProviderBrowserService {
 
   constructor(
     @Inject(PROVIDER_GATEWAY_CONFIG) private readonly config: ProviderGatewayConfig,
-    private readonly persaiInternalApiClientService: PersaiInternalApiClientService
+    private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
+    private readonly hostScriptRegistry: HostBrowserScriptRegistryService
   ) {}
 
   async browserAction(
@@ -847,6 +878,10 @@ export class ProviderBrowserService {
       return this.runPersistentBrowserActionViaBql(normalized, apiKey, startedAt);
     }
     const endpoint = this.resolveBrowserlessFunctionEndpoint(apiKey);
+    const hostPageScript = this.hostScriptRegistry.resolveScriptSourceForBrowserAction(
+      normalized.url,
+      normalized.operations
+    );
     this.logger.log(
       `[ephemeral-function] action=${normalized.action} url=${normalized.url} operations=${normalized.operations.length}`
     );
@@ -872,7 +907,8 @@ export class ProviderBrowserService {
               : {}),
             ...(normalized.fullPage === true ? { fullPage: true } : {}),
             ...(normalized.stayOnPage === true ? { stayOnPage: true } : {}),
-            ...(normalized.profileSessionId !== null ? { reuseSession: true } : {})
+            ...(normalized.profileSessionId !== null ? { reuseSession: true } : {}),
+            ...(hostPageScript !== null ? { hostPageScript } : {})
           }
         })
       },
@@ -1215,6 +1251,15 @@ export class ProviderBrowserService {
       varDefs.push(`$interactiveElementsScript: String!`);
       vars.interactiveElementsScript = BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT;
       parts.push(`pageElements: evaluate(content: $interactiveElementsScript) { value }`);
+      const hostPageScript = this.hostScriptRegistry.resolveScriptSourceForBrowserAction(
+        normalized.url,
+        normalized.operations
+      );
+      if (hostPageScript !== null) {
+        varDefs.push(`$hostPageScript: String!`);
+        vars.hostPageScript = hostPageScript;
+        parts.push(`hostPageElements: evaluate(content: $hostPageScript) { value }`);
+      }
     }
 
     const query = `mutation BrowserAction(${varDefs.join(", ")}) {\n  ${parts.join("\n  ")}\n}`;
@@ -1295,6 +1340,7 @@ export class ProviderBrowserService {
     const urlNode = this.asObject(data.pageUrl);
     const textNode = this.asObject(data.pageText);
     const elementsNode = this.asObject(data.pageElements);
+    const hostPageElementsNode = this.asObject(data.hostPageElements);
     const shotNode = this.asObject(data.shot);
     const docNode = this.asObject(data.doc);
 
@@ -1310,7 +1356,10 @@ export class ProviderBrowserService {
     const truncated = rawText.length > normalized.maxChars;
     const content = truncated ? rawText.slice(0, normalized.maxChars).trimEnd() : rawText.trim();
     const elements = shouldExtractTextPageData
-      ? this.extractElementsFromBqlValue(elementsNode)
+      ? this.mergeHostPageElements(
+          this.extractElementsFromBqlValue(elementsNode),
+          hostPageElementsNode
+        )
       : [];
     const extractedItems =
       extractAliases.length > 0
@@ -2623,6 +2672,36 @@ export class ProviderBrowserService {
     } catch {
       return [];
     }
+  }
+
+  private mergeHostPageElements(
+    genericElements: RuntimeBrowserInteractiveElement[],
+    hostValueNode: Record<string, unknown> | null
+  ): RuntimeBrowserInteractiveElement[] {
+    const hostElements = this.extractHostElementsFromEvaluateValue(hostValueNode);
+    return hostElements.length > 0 ? hostElements : genericElements;
+  }
+
+  private extractHostElementsFromEvaluateValue(
+    valueNode: Record<string, unknown> | null
+  ): RuntimeBrowserInteractiveElement[] {
+    const rawValue = valueNode?.value;
+    let payload: unknown = rawValue;
+    if (typeof rawValue === "string" && rawValue.trim().length > 0) {
+      try {
+        payload = JSON.parse(rawValue);
+      } catch {
+        return [];
+      }
+    }
+    const objectPayload = this.asObject(payload);
+    if (objectPayload !== null && Array.isArray(objectPayload.elements)) {
+      return this.normalizeElements(objectPayload.elements);
+    }
+    if (Array.isArray(payload)) {
+      return this.normalizeElements(payload);
+    }
+    return [];
   }
 
   private normalizeElements(value: unknown): RuntimeBrowserInteractiveElement[] {

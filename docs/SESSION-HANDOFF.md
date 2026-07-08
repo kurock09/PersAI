@@ -1,5 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-07-08 — ADR-139 host-script hook + online-store shopping skill (local, not pushed)
+
+Status: **implemented locally, not pushed.**
+
+**Baseline SHA:** `28bdd552` on `main` (ADR-139 D14 act chain).
+
+**Task scope:** (A) extensible per-host browser scripts wired into `page.elements` in provider-gateway (function + BQL); (B) MCP skill «Покупки в интернет-магазинах» + KB + scenario `lavka` — no product hardcoding in repo.
+
+**What changed:**
+
+- **scripts/browser-sites/:** `registry.json` + `lavka.yandex.ru.js` returns card-scoped `elements[]` (product-card add/remove, search, cart sidebar, catalog nav).
+- **provider-gateway:** `HostBrowserScriptRegistryService` loads registry by hostname/goto URL; ephemeral `/function` passes `hostPageScript` in context + `applyHostPageElements`; persistent BQL adds `hostPageElements: evaluate(...)`; host elements replace generic when non-empty.
+- **api:** universal e-commerce gotcha in browser catalog (stayOnPage, wait_for_selector, matchIndex; host flows in skill/scenarios).
+- **MCP (dev):** skill `d985af7d-dfa8-4281-8daa-a1cc3ce15564` «Покупки в интернет-магазинах», KB card «Browser: правила покупок в магазинах», scenario `lavka` (7 steps, consent before checkout); assigned to operator assistant.
+
+**Verification (PASS):** `@persai/provider-gateway` full test suite (registry + lavka host-script wiring tests).
+
+**Risks/residuals:** host scripts only for `lavka.yandex.ru` in registry; market/wb/ozon scenarios not yet created; KB card indexing pending; deploy required for hook to run in cluster.
+
+**Next recommended step:** push + deploy `provider-gateway` (+ `api` for catalog gotcha); live-validate Lavka search `page.elements` shows card-scoped add buttons; smoke skill scenario `lavka` end-to-end.
+
 ## 2026-07-08 — ADR-139 browser act chain: goto/extract/hover, stayOnPage, generic elements
 
 Status: **pushed** (`28bdd552` on `main`).

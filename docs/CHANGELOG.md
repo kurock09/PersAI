@@ -5,6 +5,8 @@
 
 ## 2026-07-08
 
+- **Enhancement (ADR-139 — per-host browser page.elements hook + online-store shopping skill; local, not pushed).** Added extensible `scripts/browser-sites/` registry and `HostBrowserScriptRegistryService` in provider-gateway: resolves host script by URL/goto hostname, evaluates on snapshot/act, replaces generic `page.elements` when host returns non-empty `elements`. Initial host: `lavka.yandex.ru.js` (card-scoped selectors, no product lists). Wired on both ephemeral `/function` and persistent BQL paths. Universal e-commerce browser gotcha in tool catalog. MCP skill «Покупки в интернет-магазинах» (`d985af7d-dfa8-4281-8daa-a1cc3ce15564`) with KB card and scenario `lavka`; assigned to operator assistant.
+
 - **Enhancement (ADR-139 D14 — generic browser act chain + audit follow-through; local, push pending).** Ops limit 12; `goto`/`hover`/`extract`; `stayOnPage` (profile-required); DOM-order `matchIndex`; `page.extracted` cap; removed Lavka/Yandex heuristics and `productName`. Audit fixes: BQL type/hover parity, extract global cap, stayOnPage guards, BQL `extract_*` non-fatal warnings + indexed `select` throw, ADR/cross-doc updates, focused tests.
 
 - **Enhancement (ADR-139 — generic browser act chain initial slice).** See D14 for consolidated truth.
