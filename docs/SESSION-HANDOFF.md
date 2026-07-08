@@ -1,5 +1,17 @@
 # SESSION-HANDOFF
 
+## 2026-07-08 — Lavka page.elements cap 200 + productName
+
+Status: **implemented locally, not pushed.**
+
+**Task scope:** raise interactive `page.elements` cap from 60 → 200; on Yandex grocery (Lavka/Market/Eda) attach `productName` from the enclosing product card to controls like `add-spin-button`.
+
+**Lavka DOM (browser recon on lavka.yandex.ru search «Байкал»):** `[data-testid="product-card"]` → `a[data-type="product-card-link"]` (title + `/good/…` href), `button[data-testid="add-spin-button"]` (aria «Увеличить»), `input[data-testid="keyboard-input"]` (qty). Search: type in searchbox → Enter → click `add-spin-button` or open product link.
+
+**What changed:** `MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS = 200`; in-page extraction adds optional `productName` + aria-label fallback for icon buttons (runtime JSON only — no site-specific tool/catalog copy).
+
+**Next recommended step:** deploy `provider-gateway` + `runtime` + `api`; live-validate Lavka search returns `add-spin-button` with `productName` for target SKU.
+
 ## 2026-07-08 — ADR-139 openLive white screen, assist cancel UX, click_at
 
 Status: **implemented locally, not pushed.**

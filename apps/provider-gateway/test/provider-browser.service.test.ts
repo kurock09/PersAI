@@ -741,7 +741,9 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.match(interactiveElementsScript, /takeRankedInteractiveElements/);
     assert.match(interactiveElementsScript, /isYandexGroceryPage/);
     assert.match(interactiveElementsScript, /add-spin-button/);
-    assert.match(interactiveElementsScript, /,\s*60\s*\)/);
+    assert.match(interactiveElementsScript, /resolveYandexGroceryProductName/);
+    assert.match(interactiveElementsScript, /product-card-link/);
+    assert.match(interactiveElementsScript, /,\s*200\s*\)/);
     // Regression guard (ADR-139 D14): broken quote escaping in closest() made
     // every persistent text snapshot/act fail with pageElements SyntaxError → 502.
     assert.doesNotThrow(() => {

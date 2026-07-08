@@ -5,6 +5,8 @@
 
 ## 2026-07-08
 
+- **Enhancement (ADR-139 — page.elements cap 200 + optional productName in JSON; local, not pushed).** Raised `MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS` from 60 to 200. Provider-gateway extraction may attach optional `productName` on Yandex grocery hosts and uses `aria-label` when button text is empty. Tool/catalog guidance stays generic (cap number only).
+
 - **Fix (ADR-139 — pageElements evaluate SyntaxError regression; pushed `679d4421`).** Broken quote escaping in the Yandex grocery `closest()` selector made every persistent text `snapshot`/`act` fail with `pageElements SyntaxError` and gateway 502 after `51d4dc29`; png/live paths were unaffected.
 
 - **Fix + feature (ADR-139 follow-through — openLive white screen, assist cancel UX, `click_at`; local, not pushed).** **provider-gateway:** `openLive` BQL now navigates to `loginUrl` (`domContentLoaded` + 3s settle) before `liveURL` so reopening an active saved profile no longer shows a blank live view; `startLogin` aligned to the same goto policy (was `networkIdle`); new `click_at {x,y}` act operation for viewport coordinate clicks when selectors fail. **runtime/web:** tool schema teaches `click_at` from png coordinates; chat `abortBrowserLogin` deletes a profile only for `completionMode: "login"` — assist/view-existing cancel just dismisses the banner.

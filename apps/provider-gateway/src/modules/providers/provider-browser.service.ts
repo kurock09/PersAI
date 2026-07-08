@@ -161,6 +161,33 @@ const BROWSERLESS_INTERACTIVE_ELEMENT_SELECTION_HELPERS = String.raw`
       )
       .slice(0, maxElements)
       .map((entry) => entry.element);
+  const resolveYandexGroceryProductName = (element, normalize) => {
+    if (!isYandexGroceryPage()) {
+      return null;
+    }
+    const card = element.closest('[data-testid="product-card"]');
+    if (card !== null) {
+      const link = card.querySelector('a[data-type="product-card-link"]');
+      if (link !== null) {
+        const fromLink = normalize(link.textContent || "");
+        if (fromLink.length > 0) {
+          return fromLink;
+        }
+      }
+      const heading = card.querySelector("h3");
+      if (heading !== null) {
+        const fromHeading = normalize(heading.textContent || "");
+        if (fromHeading.length > 0) {
+          return fromHeading;
+        }
+      }
+    }
+    if (element.getAttribute("data-type") === "product-card-link") {
+      const own = normalize(element.textContent || "");
+      return own.length > 0 ? own : null;
+    }
+    return null;
+  };
 `;
 
 /**
@@ -284,22 +311,32 @@ export default async ({ page, context }) => {
       };
 
       return nodes
-        .map((element) => ({
-          selector: buildSelector(element),
-          tagName: element.tagName.toLowerCase(),
-          text: normalizeTextInPage(
+        .map((element) => {
+          const text = normalizeTextInPage(
             element.textContent ||
-              ("value" in element && typeof element.value === "string" ? element.value : "")
-          ),
-          role: element.getAttribute("role"),
-          type: "type" in element && typeof element.type === "string" ? element.type : null,
-          href: element instanceof HTMLAnchorElement ? element.href : null,
-          placeholder:
-            "placeholder" in element && typeof element.placeholder === "string"
-              ? element.placeholder || null
-              : null,
-          disabled: "disabled" in element ? Boolean(element.disabled) : false
-        }))
+              ("value" in element && typeof element.value === "string" ? element.value : "") ||
+              element.getAttribute("aria-label") ||
+              ""
+          );
+          const productName = resolveYandexGroceryProductName(element, normalizeTextInPage);
+          const entry = {
+            selector: buildSelector(element),
+            tagName: element.tagName.toLowerCase(),
+            text: text.length > 0 ? text : null,
+            role: element.getAttribute("role"),
+            type: "type" in element && typeof element.type === "string" ? element.type : null,
+            href: element instanceof HTMLAnchorElement ? element.href : null,
+            placeholder:
+              "placeholder" in element && typeof element.placeholder === "string"
+                ? element.placeholder || null
+                : null,
+            disabled: "disabled" in element ? Boolean(element.disabled) : false
+          };
+          if (productName !== null) {
+            entry.productName = productName;
+          }
+          return entry;
+        })
         .filter((entry) => typeof entry.selector === "string" && entry.selector.length > 0);
     }, ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)});
 
@@ -625,22 +662,32 @@ const BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT =
 
   return JSON.stringify(
     nodes
-      .map((element) => ({
-        selector: buildSelector(element),
-        tagName: element.tagName.toLowerCase(),
-        text: normalizeTextInPage(
+      .map((element) => {
+        const text = normalizeTextInPage(
           element.textContent ||
-            ("value" in element && typeof element.value === "string" ? element.value : "")
-        ),
-        role: element.getAttribute("role"),
-        type: "type" in element && typeof element.type === "string" ? element.type : null,
-        href: element instanceof HTMLAnchorElement ? element.href : null,
-        placeholder:
-          "placeholder" in element && typeof element.placeholder === "string"
-            ? element.placeholder || null
-            : null,
-        disabled: "disabled" in element ? Boolean(element.disabled) : false
-      }))
+            ("value" in element && typeof element.value === "string" ? element.value : "") ||
+            element.getAttribute("aria-label") ||
+            ""
+        );
+        const productName = resolveYandexGroceryProductName(element, normalizeTextInPage);
+        const entry = {
+          selector: buildSelector(element),
+          tagName: element.tagName.toLowerCase(),
+          text: text.length > 0 ? text : null,
+          role: element.getAttribute("role"),
+          type: "type" in element && typeof element.type === "string" ? element.type : null,
+          href: element instanceof HTMLAnchorElement ? element.href : null,
+          placeholder:
+            "placeholder" in element && typeof element.placeholder === "string"
+              ? element.placeholder || null
+              : null,
+          disabled: "disabled" in element ? Boolean(element.disabled) : false
+        };
+        if (productName !== null) {
+          entry.productName = productName;
+        }
+        return entry;
+      })
       .filter((entry) => typeof entry.selector === "string" && entry.selector.length > 0)
   );
 })()
@@ -2289,7 +2336,10 @@ export class ProviderBrowserService {
         typeof row.placeholder === "string" && row.placeholder.trim().length > 0
           ? row.placeholder.trim()
           : null,
-      disabled: row.disabled === true
+      disabled: row.disabled === true,
+      ...(typeof row.productName === "string" && row.productName.trim().length > 0
+        ? { productName: row.productName.trim() }
+        : {})
     };
   }
 
