@@ -5,6 +5,8 @@
 
 ## 2026-07-08
 
+- **Fix (ADR-140 deploy — API clean-install `ws` declarations; push pending).** After the lockfile fix, Dev Image Publish built web/runtime/provider-gateway/sandbox but API and CI `full-checks` failed because clean installs lacked `@types/ws` for the new browser bridge WebSocket server. Added `@types/ws` to `@persai/api` devDependencies and refreshed the lockfile; API frozen install, typecheck, and build pass locally.
+
 - **Fix (ADR-140 deploy — stale lockfile after browser-extension workspace package; push pending).** Dev Image Publish and CI `full-checks` failed on `pnpm install --frozen-lockfile` because `extensions/persai-browser-extension` was added to the workspace without regenerating `pnpm-lock.yaml`. Regenerated lockfile; all five matrix image builds had been failing on the same install step.
 
 - **Change (ADR-140 S8 — Telegram/browser boundary closure + program doc closeout; local, not pushed).** Telegram now keeps public no-profile browser reads on headless Browserless but routes logged-in/profile-backed browser work to structured `open_in_app` / `bridge_unavailable` handoff semantics with honest PersAI web/app copy and no login/live links. Browserless live-proxy web files are deleted in the working tree, ADR-138/139 are marked superseded, and `ARCHITECTURE` / `API-BOUNDARY` / `DATA-MODEL` / `TEST-PLAN` / `AGENTS` / `SESSION-HANDOFF` now describe the local-bridge target state. Focused browser/Telegram suites, repo-wide lint, format check, API/web/runtime/provider typechecks, and full provider-gateway tests pass.

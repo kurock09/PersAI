@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-08 — ADR-140 deploy CI/API build follow-up: ws types
+
+Status: **fix ready locally; commit+push next.**
+
+**Symptom:** After the lockfile fix, Dev Image Publish rebuilt all images; web, runtime, provider-gateway, and sandbox succeeded, but API failed. CI `full-checks` also failed at API typecheck.
+
+**Root cause:** Clean CI/Docker installs do not expose `ws` declarations to `@persai/api`; `browser-bridge-websocket.server.ts` imports `WebSocketServer`, `RawData`, and `WebSocket` from `ws`, so TypeScript reported missing declarations and implicit `any` callback params. Local builds were green because local `node_modules` already had `@types/ws` transitively/stale.
+
+**Fix:** Added `@types/ws` to `apps/api` devDependencies and regenerated `pnpm-lock.yaml`. Verified `corepack pnpm install --frozen-lockfile`, `corepack pnpm --filter @persai/api run typecheck`, and `corepack pnpm --filter @persai/api run build`.
+
+**Next:** commit+push this API manifest fix and re-watch CI / Dev Image Publish. Migration approval env still required after image publish reaches the migration pin gate.
+
+---
+
 ## 2026-07-08 — Dev Image Publish red matrix: stale pnpm-lock.yaml
 
 Status: **fix ready locally; commit+push next.**
