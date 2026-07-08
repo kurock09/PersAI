@@ -9,6 +9,7 @@ import {
   MIN_RUNTIME_IMAGE_EDIT_COUNT,
   MIN_RUNTIME_IMAGE_GENERATE_COUNT,
   MAX_RUNTIME_BROWSER_MAX_CHARS,
+  MAX_RUNTIME_BROWSER_EXTRACT_ITEMS,
   MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
@@ -838,9 +839,9 @@ function createBrowserToolDefinition(
           type: "string",
           enum: ["describe", ...bundle.runtime.browser.actions],
           description:
-            'Use "describe" to load the full tool contract. Use "list_profiles" first. If a saved profile already exists for the target site, never call "login" again — use "open_live" with that profileKey (captcha, confirmation, or re-auth) or "snapshot"/"act" when the profile is active. Call "login" only when "list_profiles" shows no profile for that site origin. "login" reopens the same site profile when one already exists, but repeated "login" still wastes Browserless concurrency slots while the live window is unavailable. "snapshot" inspects a page; "act" performs bounded browser operations before returning a fresh snapshot. For saved profiles, stealth/proxy policy is platform-owned, not a model argument. Profile-backed calls are serialized per session by the platform — do not issue parallel snapshot/act calls for the same profile; chain steps into one act or wait for the previous call to finish instead of retrying immediately after a transport failure. Profile-backed text snapshots and acts may return page.elements with up to ' +
+            'Use "describe" to load the full tool contract. Use "list_profiles" first. If a saved profile already exists for the target site, never call "login" again — use "open_live" with that profileKey (captcha, confirmation, or re-auth) or "snapshot"/"act" when the profile is active. Call "login" only when "list_profiles" shows no profile for that site origin. "login" reopens the same site profile when one already exists, but repeated "login" still wastes Browserless concurrency slots while the live window is unavailable. "snapshot" inspects a page; "act" performs bounded browser operations and returns fresh page text plus page.elements (and page.extracted when extract ops ran). For saved profiles, stealth/proxy policy is platform-owned, not a model argument. Profile-backed calls are serialized per session by the platform — do not issue parallel snapshot/act calls for the same profile; chain steps into one act or wait for the previous call to finish instead of retrying immediately after a transport failure. Profile-backed text snapshots and acts may return page.elements with up to ' +
             String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS) +
-            " currently-visible interactive controls and reusable CSS selectors; prefer those selectors on follow-up acts. When selectors fail or are missing, use the vision fallback: png snapshot at the fixed " +
+            " currently-visible interactive controls and reusable CSS selectors; duplicate selectors may include matchIndex — pass the same matchIndex on follow-up acts. Prefer those selectors on follow-up acts instead of a separate snapshot after every step. When selectors fail or are missing, use the vision fallback: png snapshot at the fixed " +
             browserViewportLabel +
             ' viewport, then files({action:"preview", path:"<workspace path from the screenshot result>"}) to read the target control center in that image, then act with kind="click_at" using those viewport x,y integers — do not guess coordinates from text layout. If act returns per-operation warnings, continue from the observed page state/elements and speak from structured runtime/API reason codes for re-auth or expiry. Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to that state.'
         },
@@ -882,6 +883,11 @@ function createBrowserToolDefinition(
           description:
             "When true, prefer faster page load (block heavy assets, domcontentloaded). Defaults to true for profile-backed snapshot/act when omitted."
         },
+        stayOnPage: {
+          type: "boolean",
+          description:
+            'When true on action="act", skip the opening navigation to url and run operations on the current page in the saved profile. Use with the last observed finalUrl (or any valid http(s) url placeholder). Chain kind="goto" inside operations for mid-flow navigation.'
+        },
         maxChars: {
           type: "integer",
           minimum: 500,
@@ -891,7 +897,7 @@ function createBrowserToolDefinition(
         operations: {
           type: "array",
           maxItems: MAX_RUNTIME_BROWSER_OPERATIONS,
-          description: `Required for action="act". Steps run in order within this single call (up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)}) — chain a full interaction instead of issuing one act per step. Prefer CSS selectors copied from the latest page.elements when available. Vision fallback when selectors fail: (1) snapshot with format:"png" (viewport ${browserViewportLabel}; avoid fullPage:true unless you will remap coordinates), (2) files({action:"preview", path:"<workspace path from screenshot result>"}) to determine the target control center in that image, (3) kind:"click_at" with those viewport x,y integers in the same or next act. When a step opens new content (a click that loads a product page, expands a panel, or triggers client-side navigation), insert kind="wait_for_selector" for a selector on that new content directly after it, then continue the chain (e.g. click a search result, wait_for_selector on the add-to-cart control, then click it) — do not stop the chain and take a separate snapshot just to re-check for a selector you can wait for instead. For saved profiles, stay selector-based and do not use kind="press" — persistent Browserless sessions reject keyboard-press operations. If a page (e.g. a product catalog or feed) shows an empty or placeholder list right after navigation, use kind="scroll" before re-reading content — many sites only populate cards once scrolled into view.`,
+          description: `Required for action="act". Steps run in order within this single call (up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)}) — chain a full interaction instead of issuing one act per step. act returns page.elements (and page.extracted after kind="extract"); do not snapshot again just to re-read selectors from the previous act. Prefer CSS selectors copied from the latest page.elements; when matchIndex is present, pass it on click/type/hover/wait ops. kind="goto" navigates mid-chain; kind="hover" reveals hover-only controls; kind="extract" returns structured matches in page.extracted (up to ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)} items per extract op). Vision fallback when selectors fail: (1) snapshot with format:"png" (viewport ${browserViewportLabel}; avoid fullPage:true unless you will remap coordinates), (2) files({action:"preview", path:"<workspace path from screenshot result>"}) to determine the target control center in that image, (3) kind:"click_at" with those viewport x,y integers in the same or next act. When a step opens new content, insert kind="wait_for_selector" for a selector on that new content directly after it, then continue the chain — do not stop the chain and take a separate snapshot just to re-check for a selector you can wait for instead. For saved profiles, stay selector-based and do not use kind="press" — persistent Browserless sessions reject keyboard-press operations. If a list or grid looks empty right after navigation, use kind="scroll" before re-reading content — many sites only populate cards once scrolled into view.`,
           items: {
             type: "object",
             additionalProperties: false,
@@ -904,7 +910,23 @@ function createBrowserToolDefinition(
               selector: {
                 type: "string",
                 description:
-                  'CSS selector for click/type/select/wait_for_selector operations. Prefer selectors copied from page.elements. Optional for kind="scroll": scrolls that element into view, or scrolls the viewport down by one page when omitted — use this on catalog/list pages where cards only populate once scrolled into view.'
+                  'CSS selector for click/type/hover/extract/select/wait_for_selector operations. Prefer selectors copied from page.elements. Optional for kind="scroll": scrolls that element into view, or scrolls the viewport down by one page when omitted.'
+              },
+              url: {
+                type: "string",
+                description: 'Target URL when kind="goto".'
+              },
+              matchIndex: {
+                type: "integer",
+                minimum: 0,
+                description:
+                  "0-based index when the selector matches multiple elements. Copy from page.elements when present."
+              },
+              maxItems: {
+                type: "integer",
+                minimum: 1,
+                maximum: MAX_RUNTIME_BROWSER_EXTRACT_ITEMS,
+                description: `Optional cap for kind="extract" (default ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)}).`
               },
               x: {
                 type: "integer",

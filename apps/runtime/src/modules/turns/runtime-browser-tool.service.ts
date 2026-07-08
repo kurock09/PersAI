@@ -7,6 +7,7 @@ import {
   DEFAULT_RUNTIME_BROWSER_MAX_CHARS,
   DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH,
   DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT,
+  MAX_RUNTIME_BROWSER_EXTRACT_ITEMS,
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
@@ -485,6 +486,7 @@ export class RuntimeBrowserToolService {
       optimizeForSpeed,
       snapshotSelector: request.snapshotSelector ?? null,
       fullPage: request.fullPage ?? null,
+      stayOnPage: request.stayOnPage ?? null,
       credential: {
         toolCode: "browser",
         secretId: credential.secretRef.id,
@@ -579,6 +581,7 @@ export class RuntimeBrowserToolService {
           content: pageContent,
           truncated: providerResult.truncated,
           elements: providerResult.elements,
+          extracted: providerResult.extracted,
           provider: providerResult.provider,
           observedAt: providerResult.observedAt,
           tookMs: providerResult.tookMs,
@@ -780,6 +783,15 @@ export class RuntimeBrowserToolService {
     if ("fullPage" in args && args.fullPage !== null && fullPage === null) {
       return new Error("browser fullPage must be a boolean when provided.");
     }
+    const stayOnPage =
+      args.stayOnPage === undefined || args.stayOnPage === null
+        ? null
+        : typeof args.stayOnPage === "boolean"
+          ? args.stayOnPage
+          : null;
+    if ("stayOnPage" in args && args.stayOnPage !== null && stayOnPage === null) {
+      return new Error("browser stayOnPage must be a boolean when provided.");
+    }
     if (action === "snapshot" && snapshotSelector !== null && fullPage === true) {
       return new Error("browser snapshotSelector and fullPage cannot both be set.");
     }
@@ -862,6 +874,9 @@ export class RuntimeBrowserToolService {
     if (action === "act" && operations.length === 0) {
       return new Error('browser action "act" requires at least one operation.');
     }
+    if (stayOnPage === true && profile === null) {
+      return new Error("browser stayOnPage requires a saved profile.");
+    }
 
     return {
       toolCode: "browser",
@@ -874,7 +889,8 @@ export class RuntimeBrowserToolService {
       format,
       optimizeForSpeed,
       snapshotSelector,
-      fullPage
+      fullPage,
+      stayOnPage
     };
   }
 
@@ -906,7 +922,11 @@ export class RuntimeBrowserToolService {
           if (selector === null) {
             return new Error("browser click operation requires selector.");
           }
-          operations.push({ kind, selector });
+          const matchIndex = this.readOptionalMatchIndex(row.matchIndex);
+          if (matchIndex instanceof Error) {
+            return matchIndex;
+          }
+          operations.push({ kind, selector, ...(matchIndex !== undefined ? { matchIndex } : {}) });
           break;
         }
         case "click_at": {
@@ -926,7 +946,16 @@ export class RuntimeBrowserToolService {
           if (selector === null || typeof row.text !== "string") {
             return new Error("browser type operation requires selector and text.");
           }
-          operations.push({ kind, selector, text: row.text });
+          const matchIndex = this.readOptionalMatchIndex(row.matchIndex);
+          if (matchIndex instanceof Error) {
+            return matchIndex;
+          }
+          operations.push({
+            kind,
+            selector,
+            text: row.text,
+            ...(matchIndex !== undefined ? { matchIndex } : {})
+          });
           break;
         }
         case "press": {
@@ -942,7 +971,16 @@ export class RuntimeBrowserToolService {
           if (selector === null || typeof row.value !== "string") {
             return new Error("browser select_option operation requires selector and value.");
           }
-          operations.push({ kind, selector, value: row.value });
+          const matchIndex = this.readOptionalMatchIndex(row.matchIndex);
+          if (matchIndex instanceof Error) {
+            return matchIndex;
+          }
+          operations.push({
+            kind,
+            selector,
+            value: row.value,
+            ...(matchIndex !== undefined ? { matchIndex } : {})
+          });
           break;
         }
         case "wait_for_selector": {
@@ -955,13 +993,22 @@ export class RuntimeBrowserToolService {
                   Number(row.timeoutMs) <= MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS
                 ? Number(row.timeoutMs)
                 : null;
+          const matchIndex = this.readOptionalMatchIndex(row.matchIndex);
+          if (matchIndex instanceof Error) {
+            return matchIndex;
+          }
           if (
             selector === null ||
             ("timeoutMs" in row && row.timeoutMs !== null && timeoutMs === null)
           ) {
             return new Error("browser wait_for_selector operation is invalid.");
           }
-          operations.push({ kind, selector, timeoutMs });
+          operations.push({
+            kind,
+            selector,
+            timeoutMs,
+            ...(matchIndex !== undefined ? { matchIndex } : {})
+          });
           break;
         }
         case "wait_for_timeout": {
@@ -978,20 +1025,84 @@ export class RuntimeBrowserToolService {
           break;
         }
         case "scroll": {
+          const matchIndex = this.readOptionalMatchIndex(row.matchIndex);
+          if (matchIndex instanceof Error) {
+            return matchIndex;
+          }
           if (row.selector !== undefined && row.selector !== null) {
             const selector = this.asNonEmptyString(row.selector);
             if (selector === null) {
               return new Error("browser scroll operation selector must be a non-empty string.");
             }
-            operations.push({ kind, selector });
+            operations.push({
+              kind,
+              selector,
+              ...(matchIndex !== undefined ? { matchIndex } : {})
+            });
           } else {
-            operations.push({ kind, selector: null });
+            operations.push({
+              kind,
+              selector: null,
+              ...(matchIndex !== undefined ? { matchIndex } : {})
+            });
           }
+          break;
+        }
+        case "goto": {
+          const gotoUrl = this.asHttpUrl(row.url);
+          if (gotoUrl === null) {
+            return new Error("browser goto operation requires a valid http(s) url.");
+          }
+          operations.push({ kind, url: gotoUrl });
+          break;
+        }
+        case "hover": {
+          const selector = this.asNonEmptyString(row.selector);
+          if (selector === null) {
+            return new Error("browser hover operation requires selector.");
+          }
+          const matchIndex = this.readOptionalMatchIndex(row.matchIndex);
+          if (matchIndex instanceof Error) {
+            return matchIndex;
+          }
+          operations.push({ kind, selector, ...(matchIndex !== undefined ? { matchIndex } : {}) });
+          break;
+        }
+        case "extract": {
+          const selector = this.asNonEmptyString(row.selector);
+          if (selector === null) {
+            return new Error("browser extract operation requires selector.");
+          }
+          const maxItems =
+            row.maxItems === undefined || row.maxItems === null
+              ? null
+              : Number.isInteger(row.maxItems) &&
+                  Number(row.maxItems) > 0 &&
+                  Number(row.maxItems) <= MAX_RUNTIME_BROWSER_EXTRACT_ITEMS
+                ? Number(row.maxItems)
+                : null;
+          if (row.maxItems !== undefined && row.maxItems !== null && maxItems === null) {
+            return new Error("browser extract operation maxItems is out of range.");
+          }
+          operations.push({ kind, selector, maxItems });
           break;
         }
       }
     }
     return operations;
+  }
+
+  private readOptionalMatchIndex(value: unknown): number | null | undefined | Error {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value === null) {
+      return null;
+    }
+    if (!Number.isInteger(value) || Number(value) < 0) {
+      return new Error("browser operation matchIndex must be null or a non-negative integer.");
+    }
+    return Number(value);
   }
 
   private resolveAllowedWorkerToolPolicy(

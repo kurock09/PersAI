@@ -1,4 +1,9 @@
 import type { ToolCatalogCapabilityGroup, ToolCatalogToolClass } from "@prisma/client";
+import {
+  MAX_RUNTIME_BROWSER_EXTRACT_ITEMS,
+  MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS,
+  MAX_RUNTIME_BROWSER_OPERATIONS
+} from "@persai/runtime-contract";
 
 export type ToolPolicyClass = "plan_managed" | "platform_managed" | "hidden_internal";
 
@@ -244,14 +249,16 @@ EXAMPLES:
 - browser({action:"login", displayName:"Bitrix24", url:"https://…/login"}) — start product-owned live login or re-auth; reuse the returned profileKey after the user completes login.
 - browser({action:"open_live", profile:"profileKey"}) — reopen the product-owned live browser window for an existing saved profile when the user must solve a captcha, confirm an action, or re-authenticate in the browser.
 - browser({action:"snapshot", url:"…", profile:"profileKey"}) — inspect an authenticated page with a saved session; text results may include page.elements with reusable CSS selectors (up to 200 currently-visible interactive controls).
-- browser({action:"act", url:"…", profile:"profileKey", operations:[…]}) — bounded interaction using selectors copied from page.elements when available, then a fresh snapshot.
+- browser({action:"act", url:"…", profile:"profileKey", stayOnPage:true, operations:[…]}) — continue on the current page without reopening navigation; chain kind:"goto" inside operations for mid-flow navigation.
+- browser({action:"act", url:"…", profile:"profileKey", operations:[{kind:"extract", selector:"article a"}]}) — structured matches land in page.extracted; act also returns page.elements — do not snapshot again just to re-read selectors.
 - browser({action:"act", url:"…", profile:"profileKey", operations:[{kind:"click_at", x:640, y:360}]}) — viewport click when selectors fail; x/y must come from a png read via files.preview (see GOTCHAS).
 - browser({action:"snapshot", url:"…", profile:"profileKey", format:"pdf"}) — export a PDF artifact; deliver via files.attach.
 - browser({action:"snapshot", url:"…", format:"png"}) — viewport screenshot artifact (fixed 1280x720); use files.preview on the returned workspace path to read click coordinates before click_at.
 GOTCHAS:
 - Prefer \`snapshot\` first to inspect the page. Use \`act\` only when interaction is required.
 - Pass \`profile\` on \`snapshot\`/\`act\` to reuse cookies; omit \`profile\` only for public pages.
-- Profile-backed text \`snapshot\` and \`act\` may return \`page.elements\` with up to 200 currently-visible interactive controls and reusable CSS selectors. Prefer those selectors in follow-up \`act\` calls instead of guessing new selectors.
+- Profile-backed text \`snapshot\` and \`act\` may return \`page.elements\` with up to ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)} currently-visible interactive controls and reusable CSS selectors (duplicate selectors may include \`matchIndex\`). Prefer those selectors in follow-up \`act\` calls instead of guessing new selectors. \`act\` already returns fresh \`page.elements\` — avoid a separate snapshot after every step.
+- Chain up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)} operations in one \`act\`: \`goto\` (mid-flow navigation), \`hover\` (hover-only controls), \`extract\` (structured \`page.extracted\`, up to ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)} items total), \`scroll\`, \`wait_for_selector\`, then \`click\`/\`type\`.
 - Vision fallback for stubborn controls: \`snapshot\` with \`format:"png"\` (browser viewport is fixed 1280x720; keep \`fullPage:false\` when you need click coordinates) → \`files({action:"preview", path:"<workspace path from screenshot result>"})\` to read the target control center in that image → \`act\` with \`kind:"click_at"\` using those viewport x,y integers. Do not guess coordinates from text layout.
 - Chain a full interaction into one \`act\` call instead of one operation per call: \`operations\` runs its steps in order in a single call. When a step opens new content (click loads a product page, expands a panel, triggers client-side navigation), add \`kind:"wait_for_selector"\` for a selector on that new content right after it, then continue the chain in the same call (e.g. click a search result → wait_for_selector on the add-to-cart control → click it) instead of stopping to take a separate snapshot.
 - For saved profiles, keep \`act\` selector-based. Do not use \`press\`/\`Enter\` as a shortcut — persistent Browserless sessions reject keyboard-press operations.

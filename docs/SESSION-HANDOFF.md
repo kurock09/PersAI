@@ -1,16 +1,20 @@
 # SESSION-HANDOFF
 
-## 2026-07-08 — Lavka page.elements cap 200 + productName
+## 2026-07-08 — ADR-139 browser act chain: goto/extract/hover, stayOnPage, generic elements
 
-Status: **implemented locally, not pushed.**
+Status: **pushed** (`90efa370` on `main`).
 
-**Task scope:** raise interactive `page.elements` cap from 60 → 200; on Yandex grocery (Lavka/Market/Eda) attach `productName` from the enclosing product card to controls like `add-spin-button`.
+**Audit follow-through (this pass):** DOM-order `matchIndex` before ranking; `extract` row `matchIndex` + global 50-item cap; `stayOnPage` requires profile; BQL type/hover parity improvements; BQL `extract_*` warnings + indexed `select` throw; ADR-139 D14 + API-BOUNDARY/DATA-MODEL updates; focused tests for `stayOnPage`.
 
-**Lavka DOM (browser recon on lavka.yandex.ru search «Байкал»):** `[data-testid="product-card"]` → `a[data-type="product-card-link"]` (title + `/good/…` href), `button[data-testid="add-spin-button"]` (aria «Увеличить»), `input[data-testid="keyboard-input"]` (qty). Search: type in searchbox → Enter → click `add-spin-button` or open product link.
+**Residuals:** persistent BQL synthetic `click`; busy-loop `wait_for_selector` on BQL.
 
-**What changed:** `MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS = 200`; in-page extraction adds optional `productName` + aria-label fallback for icon buttons (runtime JSON only — no site-specific tool/catalog copy).
+**Next recommended step:** deploy `provider-gateway` + `runtime` + `api`; live-validate chained `act` with `extract` + `stayOnPage`.
 
-**Next recommended step:** deploy `provider-gateway` + `runtime` + `api`; live-validate Lavka search returns `add-spin-button` with `productName` for target SKU.
+## 2026-07-08 — Lavka page.elements cap 200 + productName (superseded)
+
+Status: **superseded** — `productName` removed; cap 200 retained.
+
+---
 
 ## 2026-07-08 — ADR-139 openLive white screen, assist cancel UX, click_at
 

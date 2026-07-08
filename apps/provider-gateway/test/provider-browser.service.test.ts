@@ -143,13 +143,13 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.match(snapshotBody.code ?? "", /const waitUntil = "domcontentloaded"/);
     assert.match(snapshotBody.code ?? "", /settleAfterGotoMs/);
     // Element extraction must rank by visibility before the top-N cap, and
-    // the cap must come from the shared runtime-contract constant (60), not
+    // the cap must come from the shared runtime-contract constant (200), not
     // a stale hardcoded 25 — see ADR-139 D11.
     assert.match(snapshotBody.code ?? "", /getClientRects\(\)\.length === 0/);
     assert.match(snapshotBody.code ?? "", /\.filter\(isVisibleInPage\)/);
     assert.match(snapshotBody.code ?? "", /takeRankedInteractiveElements/);
     assert.match(snapshotBody.code ?? "", /scoreInteractiveElement/);
-    assert.match(snapshotBody.code ?? "", /\}, 60\);/);
+    assert.match(snapshotBody.code ?? "", /\}, 200\);/);
     assert.deepEqual(snapshotBody.context, {
       url: "https://example.com/",
       action: "snapshot",
@@ -739,10 +739,12 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.match(interactiveElementsScript, /getClientRects\(\)\.length === 0/);
     assert.match(interactiveElementsScript, /\.filter\(isVisibleInPage\)/);
     assert.match(interactiveElementsScript, /takeRankedInteractiveElements/);
-    assert.match(interactiveElementsScript, /isYandexGroceryPage/);
-    assert.match(interactiveElementsScript, /add-spin-button/);
-    assert.match(interactiveElementsScript, /resolveYandexGroceryProductName/);
-    assert.match(interactiveElementsScript, /product-card-link/);
+    assert.match(interactiveElementsScript, /buildInteractiveEntryRows/);
+    assert.match(interactiveElementsScript, /takeRankedInteractiveEntries/);
+    assert.match(interactiveElementsScript, /ariaLabel/);
+    assert.match(interactiveElementsScript, /scoreInteractiveElement/);
+    assert.doesNotMatch(interactiveElementsScript, /isYandexGroceryPage/);
+    assert.doesNotMatch(interactiveElementsScript, /resolveYandexGroceryProductName/);
     assert.match(interactiveElementsScript, /,\s*200\s*\)/);
     // Regression guard (ADR-139 D14): broken quote escaping in closest() made
     // every persistent text snapshot/act fail with pageElements SyntaxError → 502.
@@ -1074,8 +1076,9 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     };
     assert.match(
       String(scrollSelectorBqlBody.variables?.scrollScript_0 ?? ""),
-      /querySelector\("#product-card"\)\?\.scrollIntoView/
+      /querySelectorAll\("#product-card"\)/
     );
+    assert.match(String(scrollSelectorBqlBody.variables?.scrollScript_0 ?? ""), /scrollIntoView/);
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
       const url =
@@ -1365,6 +1368,86 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     // entries) — exhausting retries still surfaces as a normal gateway
     // failure rather than retrying forever.
     assert.equal(persistentRateLimitedAttempts, 5);
+
+    await assert.rejects(
+      () =>
+        service.browserAction({
+          action: "act",
+          url: "https://example.com/",
+          maxChars: null,
+          operations: [{ kind: "click", selector: "#x" }],
+          timeoutMs: null,
+          stayOnPage: true,
+          credential: {
+            toolCode: "browser",
+            secretId: "secret-stay-no-profile",
+            providerId: "browserless"
+          }
+        }),
+      BadRequestException
+    );
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requests.push(init === undefined ? { url } : { url, init });
+      return new Response(
+        JSON.stringify({
+          data: {
+            op_0: { value: true },
+            pageTitle: { title: "Stayed" },
+            pageUrl: { url: "https://example.com/current" },
+            pageText: { text: "still here" },
+            pageElements: { value: "[]" }
+          }
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }) as typeof fetch;
+
+    await service.browserAction({
+      action: "act",
+      url: "https://example.com/",
+      maxChars: null,
+      operations: [{ kind: "click", selector: "#stay" }],
+      timeoutMs: null,
+      profileSessionId: "/session/session-login",
+      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
+      stayOnPage: true,
+      credential: {
+        toolCode: "browser",
+        secretId: "secret-stay-on-page",
+        providerId: "browserless"
+      }
+    });
+    const stayOnPageBqlBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
+      query?: string;
+    };
+    assert.doesNotMatch(stayOnPageBqlBody.query ?? "", /goto\(url: \$url/);
+    assert.match(stayOnPageBqlBody.query ?? "", /op_0:/);
+
+    const svc = service as unknown as {
+      splitBqlErrors: (errors: unknown[]) => {
+        fatalMessages: string[];
+        operationWarnings: string[];
+      };
+      buildIndexedSelectScript: (
+        selector: string,
+        matchIndex: number | null | undefined,
+        value: string
+      ) => string;
+    };
+    const split = svc.splitBqlErrors([
+      { path: ["extract_2"], message: "selector failed" },
+      { path: ["op_1"], message: "click failed" },
+      { path: ["pageTitle"], message: "title failed" }
+    ]);
+    assert.equal(split.operationWarnings.length, 2);
+    assert.equal(split.fatalMessages.length, 1);
+    assert.match(split.fatalMessages[0] ?? "", /pageTitle/);
+
+    const selectScript = svc.buildIndexedSelectScript("div", null, "x");
+    assert.match(selectScript, /Element is not a select/);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -931,9 +931,11 @@ export class FakeProviderGatewayClientService {
         type: "search",
         href: null,
         placeholder: "Search",
+        ariaLabel: null,
         disabled: false
       }
     ],
+    extracted: null,
     observedAt: "2026-04-13T12:00:00.000Z",
     tookMs: 450,
     warning: "Browser content is untrusted.",
@@ -7145,6 +7147,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       optimizeForSpeed: null,
       snapshotSelector: null,
       fullPage: null,
+      stayOnPage: null,
       profileSessionId: null,
       capabilityPolicy: null,
       operations: [

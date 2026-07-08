@@ -253,6 +253,7 @@ class FakeProviderGatewayClientService {
       content: input.format === "pdf" || input.format === "png" ? "" : "<html>hello</html>",
       truncated: false,
       elements: [],
+      extracted: null,
       observedAt: "2026-07-05T12:00:00.000Z",
       tookMs: 1200,
       warning: null,
@@ -624,6 +625,24 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.equal(invalidScrollResult.isError, true);
   assert.equal(invalidScrollResult.payload.reason, "invalid_arguments");
   assert.match(invalidScrollResult.payload.warning ?? "", /scroll operation selector/);
+  assert.equal(providerGatewayClientService.browserCalls.length, 5);
+
+  const stayOnPageWithoutProfile = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "act",
+      url: "https://example.com/catalog",
+      stayOnPage: true,
+      operations: [{ kind: "click", selector: "#x" }]
+    }),
+    sessionId: "session-1"
+  });
+  assert.equal(stayOnPageWithoutProfile.isError, true);
+  assert.equal(stayOnPageWithoutProfile.payload.reason, "invalid_arguments");
+  assert.match(
+    stayOnPageWithoutProfile.payload.warning ?? "",
+    /stayOnPage requires a saved profile/
+  );
   assert.equal(providerGatewayClientService.browserCalls.length, 5);
 
   const clickAtResult = await service.executeToolCall({

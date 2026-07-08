@@ -252,6 +252,14 @@ Post-deploy live acceptance must prove:
 6. web re-auth reopens the existing profile modal or banner without model-pasted Browserless URLs
 7. Telegram re-auth sends the user to PersAI web instructions instead of a Browserless live URL
 
+## D14 — Generic browser act chain (`goto` / `hover` / `extract`, `stayOnPage`, DOM-order `matchIndex`)
+
+**Date:** 2026-07-08
+
+**Decision:** Raise `MAX_RUNTIME_BROWSER_OPERATIONS` to 12; add `goto`, `hover`, `extract`; add `stayOnPage` (profile-required, skips leading navigation); cap `page.elements` at 200 with generic main-content ranking only; `matchIndex` assigned in DOM order before relevance ranking; `page.extracted` up to 50 items per call with per-row `matchIndex`; remove Yandex/Lavka `productName` and site-specific ranking from execution code. Tool/catalog guidance remains generic.
+
+**Residuals:** persistent BQL `click` uses synthetic DOM events; BQL `wait_for_selector` uses bounded busy-loop `evaluate`; D8 `.ru` proxy-country hostname heuristic unchanged.
+
 ## Risks
 
 - Browserless residential proxy capability may be plan-gated or region-limited.

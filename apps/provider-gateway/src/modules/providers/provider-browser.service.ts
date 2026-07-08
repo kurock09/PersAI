@@ -12,6 +12,7 @@ import {
   DEFAULT_RUNTIME_BROWSER_TIMEOUT_MS,
   DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT,
   DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH,
+  MAX_RUNTIME_BROWSER_EXTRACT_ITEMS,
   MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS,
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
@@ -36,6 +37,7 @@ import {
   type ProviderGatewayBrowserSessionVerifyRequest,
   type ProviderGatewayBrowserSessionVerifyResult,
   type RuntimeBrowserOperation,
+  type RuntimeBrowserExtractedItem,
   type RuntimeBrowserInteractiveElement
 } from "@persai/runtime-contract";
 import { PROVIDER_GATEWAY_CONFIG } from "../../provider-gateway-config";
@@ -83,75 +85,16 @@ function resolveTestProxyCountryForUrl(url: string): "RU" | null {
   return isRuHostname ? "RU" : null;
 }
 
-// Shared in-page ranking for Yandex grocery surfaces (Lavka/Market/Eda):
-// search + product-card controls outrank header/nav chrome before the top-N cap.
+// Shared in-page ranking: main/article content outranks header/nav chrome before the top-N cap.
 const BROWSERLESS_INTERACTIVE_ELEMENT_SELECTION_HELPERS = String.raw`
-  const isYandexGroceryPage = () => {
-    const host = window.location.hostname.toLowerCase();
-    return (
-      host === "lavka.yandex.ru" ||
-      host.endsWith(".lavka.yandex.ru") ||
-      host === "market.yandex.ru" ||
-      host === "eda.yandex.ru"
-    );
-  };
   const scoreInteractiveElement = (element) => {
-    if (!isYandexGroceryPage()) {
-      return 0;
-    }
-    const testId = (element.getAttribute("data-testid") ?? "").toLowerCase();
-    const dataType = (element.getAttribute("data-type") ?? "").toLowerCase();
-    const ariaLabel = (element.getAttribute("aria-label") ?? "").toLowerCase();
-    const placeholder =
-      "placeholder" in element && typeof element.placeholder === "string"
-        ? element.placeholder.toLowerCase()
-        : "";
-    const href =
-      element instanceof HTMLAnchorElement && typeof element.href === "string"
-        ? element.href.toLowerCase()
-        : "";
-    const inputType =
-      element.tagName.toLowerCase() === "input"
-        ? (element.getAttribute("type") ?? "").toLowerCase()
-        : "";
-    const role = (element.getAttribute("role") ?? "").toLowerCase();
-    const inProductCard = element.closest('[data-testid="product-card"]') !== null;
-    if (
-      testId.includes("search") ||
-      inputType === "search" ||
-      role === "searchbox" ||
-      placeholder.includes("поиск") ||
-      placeholder.includes("найти") ||
-      ariaLabel.includes("поиск") ||
-      ariaLabel.includes("найти")
-    ) {
-      return 100;
-    }
-    if (testId === "add-spin-button" || testId === "remove-spin-button") {
-      return 95;
-    }
-    if (inProductCard && testId === "keyboard-input") {
-      return 92;
-    }
-    if (dataType === "product-card-link") {
-      return 90;
-    }
-    if (inProductCard && element.tagName.toLowerCase() === "a") {
-      return 88;
-    }
-    if (href.includes("/good/")) {
-      return 85;
-    }
-    if (inProductCard) {
-      return 82;
-    }
-    if (href.includes("/catalog") || testId.includes("category")) {
-      return 55;
-    }
     if (element.closest('header, nav, [role="navigation"], footer')) {
       return 5;
     }
-    return 35;
+    if (element.closest('main, [role="main"], article, [role="article"]')) {
+      return 50;
+    }
+    return 25;
   };
   const takeRankedInteractiveElements = (elements, maxElements) =>
     elements
@@ -161,33 +104,30 @@ const BROWSERLESS_INTERACTIVE_ELEMENT_SELECTION_HELPERS = String.raw`
       )
       .slice(0, maxElements)
       .map((entry) => entry.element);
-  const resolveYandexGroceryProductName = (element, normalize) => {
-    if (!isYandexGroceryPage()) {
-      return null;
-    }
-    const card = element.closest('[data-testid="product-card"]');
-    if (card !== null) {
-      const link = card.querySelector('a[data-type="product-card-link"]');
-      if (link !== null) {
-        const fromLink = normalize(link.textContent || "");
-        if (fromLink.length > 0) {
-          return fromLink;
-        }
+  const buildInteractiveEntryRows = (elements, buildEntry) => {
+    const selectorCounts = new Map();
+    return elements.map((element) => {
+      const entry = buildEntry(element);
+      const seen = selectorCounts.get(entry.selector) ?? 0;
+      selectorCounts.set(entry.selector, seen + 1);
+      if (seen > 0) {
+        entry.matchIndex = seen;
       }
-      const heading = card.querySelector("h3");
-      if (heading !== null) {
-        const fromHeading = normalize(heading.textContent || "");
-        if (fromHeading.length > 0) {
-          return fromHeading;
-        }
-      }
-    }
-    if (element.getAttribute("data-type") === "product-card-link") {
-      const own = normalize(element.textContent || "");
-      return own.length > 0 ? own : null;
-    }
-    return null;
+      return { element, entry };
+    });
   };
+  const takeRankedInteractiveEntries = (rows, maxElements) =>
+    rows
+      .map((row, index) => ({
+        ...row,
+        score: scoreInteractiveElement(row.element),
+        index
+      }))
+      .sort((left, right) =>
+        right.score !== left.score ? right.score - left.score : left.index - right.index
+      )
+      .slice(0, maxElements)
+      .map((row) => row.entry);
 `;
 
 /**
@@ -226,6 +166,7 @@ export default async ({ page, context }) => {
     content: "",
     truncated: false,
     elements: [],
+    extracted: [],
     pdfBase64: null,
     artifactBase64: null,
     artifactMimeType: null,
@@ -246,22 +187,14 @@ export default async ({ page, context }) => {
 ` +
   BROWSERLESS_INTERACTIVE_ELEMENT_SELECTION_HELPERS +
   String.raw`
-      const nodes = takeRankedInteractiveElements(
-        Array.from(
-          document.querySelectorAll(
-            'a, button, input, textarea, select, [role="button"], [role="link"]'
-          )
-        ).filter(isVisibleInPage),
-        maxElements
-      );
       const normalizeTextInPage = (value) =>
         typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+      const cssEscape =
+        typeof CSS !== "undefined" && typeof CSS.escape === "function"
+          ? CSS.escape.bind(CSS)
+          : (value) =>
+              String(value).replace(/([ !"#$%&'()*+,./:;<=>?@[\]^{|}~\\])/g, "\\$1");
       const buildSelector = (element) => {
-        const cssEscape =
-          typeof CSS !== "undefined" && typeof CSS.escape === "function"
-            ? CSS.escape.bind(CSS)
-            : (value) =>
-                String(value).replace(/([ !"#$%&'()*+,./:;<=>?@[\]^{|}~\\])/g, "\\$1");
         if (element.id) {
           return "#" + cssEscape(element.id);
         }
@@ -309,17 +242,25 @@ export default async ({ page, context }) => {
         }
         return parts.join(" > ");
       };
-
-      return nodes
-        .map((element) => {
+      const rows = buildInteractiveEntryRows(
+        Array.from(
+          document.querySelectorAll(
+            'a, button, input, textarea, select, [role="button"], [role="link"]'
+          )
+        ).filter(isVisibleInPage),
+        (element) => {
+          const ariaLabelRaw = element.getAttribute("aria-label");
+          const ariaLabel =
+            typeof ariaLabelRaw === "string" && ariaLabelRaw.trim().length > 0
+              ? normalizeTextInPage(ariaLabelRaw)
+              : null;
           const text = normalizeTextInPage(
             element.textContent ||
               ("value" in element && typeof element.value === "string" ? element.value : "") ||
-              element.getAttribute("aria-label") ||
+              ariaLabelRaw ||
               ""
           );
-          const productName = resolveYandexGroceryProductName(element, normalizeTextInPage);
-          const entry = {
+          return {
             selector: buildSelector(element),
             tagName: element.tagName.toLowerCase(),
             text: text.length > 0 ? text : null,
@@ -330,14 +271,12 @@ export default async ({ page, context }) => {
               "placeholder" in element && typeof element.placeholder === "string"
                 ? element.placeholder || null
                 : null,
+            ariaLabel,
             disabled: "disabled" in element ? Boolean(element.disabled) : false
           };
-          if (productName !== null) {
-            entry.productName = productName;
-          }
-          return entry;
-        })
-        .filter((entry) => typeof entry.selector === "string" && entry.selector.length > 0);
+        }
+      ).filter((row) => typeof row.entry.selector === "string" && row.entry.selector.length > 0);
+      return takeRankedInteractiveEntries(rows, maxElements);
     }, ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)});
 
   const collectContent = async () => {
@@ -365,6 +304,108 @@ export default async ({ page, context }) => {
   };
 
   const reuseSession = context.reuseSession === true;
+  const stayOnPage = context.stayOnPage === true;
+
+  const resolveMatchIndex = (matchIndex) =>
+    Number.isInteger(matchIndex) && Number(matchIndex) >= 0 ? Number(matchIndex) : 0;
+
+  const clickSelector = async (selector, matchIndex) => {
+    const handles = await page.$$(selector);
+    const idx = resolveMatchIndex(matchIndex);
+    const handle = handles[idx];
+    if (!handle) {
+      throw new Error("No element at index " + String(idx) + " for selector: " + selector);
+    }
+    await handle.click();
+  };
+
+  const hoverSelector = async (selector, matchIndex) => {
+    const handles = await page.$$(selector);
+    const idx = resolveMatchIndex(matchIndex);
+    const handle = handles[idx];
+    if (!handle) {
+      throw new Error("No element at index " + String(idx) + " for selector: " + selector);
+    }
+    await handle.hover();
+  };
+
+  const focusSelector = async (selector, matchIndex) => {
+    const handles = await page.$$(selector);
+    const idx = resolveMatchIndex(matchIndex);
+    const handle = handles[idx];
+    if (!handle) {
+      throw new Error("No element at index " + String(idx) + " for selector: " + selector);
+    }
+    await handle.focus();
+  };
+
+  const clearSelectorValue = async (selector, matchIndex) => {
+    const idx = resolveMatchIndex(matchIndex);
+    await page.$$eval(
+      selector,
+      (elements, elementIndex) => {
+        const element = elements[elementIndex];
+        if (element && "value" in element && typeof element.value === "string") {
+          element.value = "";
+          element.dispatchEvent(new Event("input", { bubbles: true }));
+          element.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      },
+      idx
+    );
+  };
+
+  const typeSelector = async (selector, text, matchIndex) => {
+    const idx = resolveMatchIndex(matchIndex);
+    await focusSelector(selector, idx);
+    await clearSelectorValue(selector, idx);
+    const handles = await page.$$(selector);
+    const handle = handles[idx];
+    if (!handle) {
+      throw new Error("No element at index " + String(idx) + " for selector: " + selector);
+    }
+    await handle.type(text, { delay: 20 });
+  };
+
+  const extractSelector = async (selector, maxItems) => {
+    const items = await page.evaluate(
+      (cssSelector, limit) => {
+        const normalize = (value) =>
+          typeof value === "string" ? value.replace(/\\s+/g, " ").trim() : "";
+        return Array.from(document.querySelectorAll(cssSelector))
+          .slice(0, limit)
+          .map((element, domIndex) => {
+            const ariaLabelRaw = element.getAttribute("aria-label");
+            const text = normalize(
+              element.textContent ||
+                ("value" in element && typeof element.value === "string" ? element.value : "") ||
+                ariaLabelRaw ||
+                ""
+            );
+            const entry = {
+              selector: cssSelector,
+              tagName: element.tagName.toLowerCase(),
+              text: text.length > 0 ? text : null,
+              href: element instanceof HTMLAnchorElement ? element.href : null,
+              ariaLabel:
+                typeof ariaLabelRaw === "string" && ariaLabelRaw.trim().length > 0
+                  ? normalize(ariaLabelRaw)
+                  : null
+            };
+            if (domIndex > 0) {
+              entry.matchIndex = domIndex;
+            }
+            return entry;
+          });
+      },
+      selector,
+      maxItems
+    );
+    result.extracted.push(...items);
+    if (result.extracted.length > ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)}) {
+      result.extracted = result.extracted.slice(0, ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)});
+    }
+  };
 
   const urlMatchesHostPathPrefix = (current, target) => {
     try {
@@ -412,7 +453,7 @@ export default async ({ page, context }) => {
     }
 
     const targetUrl = typeof context.url === "string" ? context.url : "";
-    let shouldNavigate = targetUrl.length > 0;
+    let shouldNavigate = targetUrl.length > 0 && !stayOnPage;
     if (reuseSession && shouldNavigate) {
       const currentUrl = page.url();
       if (urlMatchesHostPathPrefix(currentUrl, targetUrl)) {
@@ -440,11 +481,30 @@ export default async ({ page, context }) => {
       const operation = operations[index];
       try {
         switch (operation.kind) {
+          case "goto": {
+            await page.goto(operation.url, { waitUntil, timeout: timeoutMs });
+            if (settleAfterGotoMs > 0) {
+              await sleep(settleAfterGotoMs);
+            }
+            result.finalUrl = page.url();
+            break;
+          }
           case "scroll":
             if (typeof operation.selector === "string" && operation.selector.length > 0) {
-              await page.$eval(operation.selector, (element) => {
-                element.scrollIntoView({ behavior: "instant", block: "center" });
-              });
+              const idx = resolveMatchIndex(operation.matchIndex);
+              await page.$$eval(
+                operation.selector,
+                (elements, elementIndex) => {
+                  const element = elements[elementIndex];
+                  if (!element) {
+                    throw new Error(
+                      "No element at index " + String(elementIndex) + " for selector scroll"
+                    );
+                  }
+                  element.scrollIntoView({ behavior: "instant", block: "center" });
+                },
+                idx
+              );
             } else {
               await page.evaluate(() => {
                 window.scrollBy(0, window.innerHeight);
@@ -453,7 +513,7 @@ export default async ({ page, context }) => {
             await waitAfterMutation();
             break;
           case "click":
-            await page.click(operation.selector);
+            await clickSelector(operation.selector, operation.matchIndex);
             await waitAfterMutation();
             break;
           case "click_at":
@@ -461,33 +521,56 @@ export default async ({ page, context }) => {
             await waitAfterMutation();
             break;
           case "type":
-            await page.focus(operation.selector);
-            await page.$eval(operation.selector, (element) => {
-              if ("value" in element && typeof element.value === "string") {
-                element.value = "";
-                element.dispatchEvent(new Event("input", { bubbles: true }));
-                element.dispatchEvent(new Event("change", { bubbles: true }));
-              }
-            });
-            await page.type(operation.selector, operation.text, { delay: 20 });
+            await typeSelector(operation.selector, operation.text, operation.matchIndex);
             await waitAfterMutation();
+            break;
+          case "hover":
+            await hoverSelector(operation.selector, operation.matchIndex);
+            await waitAfterMutation();
+            break;
+          case "extract":
+            await extractSelector(
+              operation.selector,
+              Number.isInteger(operation.maxItems) && Number(operation.maxItems) > 0
+                ? Number(operation.maxItems)
+                : ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)}
+            );
             break;
           case "press":
             await page.keyboard.press(operation.key);
             await waitAfterMutation();
             break;
-          case "select_option":
-            await page.select(operation.selector, operation.value);
+          case "select_option": {
+            const idx = resolveMatchIndex(operation.matchIndex);
+            const handles = await page.$$(operation.selector);
+            const handle = handles[idx];
+            if (!handle) {
+              throw new Error(
+                "No element at index " + String(idx) + " for selector: " + operation.selector
+              );
+            }
+            await handle.select(operation.value);
             await waitAfterMutation();
             break;
-          case "wait_for_selector":
-            await page.waitForSelector(operation.selector, {
-              timeout:
-                Number.isInteger(operation.timeoutMs) && Number(operation.timeoutMs) >= 0
-                  ? Number(operation.timeoutMs)
-                  : 5000
-            });
+          }
+          case "wait_for_selector": {
+            const idx = resolveMatchIndex(operation.matchIndex);
+            await page.waitForFunction(
+              (selector, elementIndex) => {
+                const nodes = document.querySelectorAll(selector);
+                return nodes.length > elementIndex;
+              },
+              {
+                timeout:
+                  Number.isInteger(operation.timeoutMs) && Number(operation.timeoutMs) >= 0
+                    ? Number(operation.timeoutMs)
+                    : 5000
+              },
+              operation.selector,
+              idx
+            );
             break;
+          }
           case "wait_for_timeout":
             await sleep(operation.timeoutMs);
             break;
@@ -580,12 +663,10 @@ const BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT =
   String.raw`
 (() => {
   // Plain document-order querySelectorAll puts header/nav/footer chrome
-  // ahead of catalog/product content on almost every real page, so an
-  // unfiltered top-N cap mostly returns menu links instead of the elements
-  // the model actually needs (live-validated on Yandex Lavka: product
-  // add-to-cart controls never made it into a 25-element unfiltered top-N).
-  // Visibility filtering removes hidden chrome; on Yandex grocery hosts we
-  // also rank search + product-card controls ahead of nav before this cap.
+  // ahead of main content on almost every real page, so an unfiltered top-N
+  // cap mostly returns menu links instead of the controls the model needs.
+  // Visibility filtering removes hidden chrome; main-content ranking runs
+  // before the cap.
   const isVisibleInPage = (element) => {
     if (element.getClientRects().length === 0) {
       return false;
@@ -596,14 +677,6 @@ const BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT =
 ` +
   BROWSERLESS_INTERACTIVE_ELEMENT_SELECTION_HELPERS +
   String.raw`
-  const nodes = takeRankedInteractiveElements(
-    Array.from(
-      document.querySelectorAll(
-        'a, button, input, textarea, select, [role="button"], [role="link"]'
-      )
-    ).filter(isVisibleInPage),
-    ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)}
-  );
   const normalizeTextInPage = (value) =>
     typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
   const cssEscape =
@@ -659,37 +732,42 @@ const BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT =
     }
     return parts.join(" > ");
   };
+  const rows = buildInteractiveEntryRows(
+    Array.from(
+      document.querySelectorAll(
+        'a, button, input, textarea, select, [role="button"], [role="link"]'
+      )
+    ).filter(isVisibleInPage),
+    (element) => {
+      const ariaLabelRaw = element.getAttribute("aria-label");
+      const ariaLabel =
+        typeof ariaLabelRaw === "string" && ariaLabelRaw.trim().length > 0
+          ? normalizeTextInPage(ariaLabelRaw)
+          : null;
+      const text = normalizeTextInPage(
+        element.textContent ||
+          ("value" in element && typeof element.value === "string" ? element.value : "") ||
+          ariaLabelRaw ||
+          ""
+      );
+      return {
+        selector: buildSelector(element),
+        tagName: element.tagName.toLowerCase(),
+        text: text.length > 0 ? text : null,
+        role: element.getAttribute("role"),
+        type: "type" in element && typeof element.type === "string" ? element.type : null,
+        href: element instanceof HTMLAnchorElement ? element.href : null,
+        placeholder:
+          "placeholder" in element && typeof element.placeholder === "string"
+            ? element.placeholder || null
+            : null,
+        ariaLabel,
+        disabled: "disabled" in element ? Boolean(element.disabled) : false
+      };
+    }
+  ).filter((row) => typeof row.entry.selector === "string" && row.entry.selector.length > 0);
 
-  return JSON.stringify(
-    nodes
-      .map((element) => {
-        const text = normalizeTextInPage(
-          element.textContent ||
-            ("value" in element && typeof element.value === "string" ? element.value : "") ||
-            element.getAttribute("aria-label") ||
-            ""
-        );
-        const productName = resolveYandexGroceryProductName(element, normalizeTextInPage);
-        const entry = {
-          selector: buildSelector(element),
-          tagName: element.tagName.toLowerCase(),
-          text: text.length > 0 ? text : null,
-          role: element.getAttribute("role"),
-          type: "type" in element && typeof element.type === "string" ? element.type : null,
-          href: element instanceof HTMLAnchorElement ? element.href : null,
-          placeholder:
-            "placeholder" in element && typeof element.placeholder === "string"
-              ? element.placeholder || null
-              : null,
-          disabled: "disabled" in element ? Boolean(element.disabled) : false
-        };
-        if (productName !== null) {
-          entry.productName = productName;
-        }
-        return entry;
-      })
-      .filter((entry) => typeof entry.selector === "string" && entry.selector.length > 0)
-  );
+  return JSON.stringify(takeRankedInteractiveEntries(rows, ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)}));
 })()
 `;
 
@@ -712,6 +790,7 @@ type NormalizedBrowserActionRequest = {
   optimizeForSpeed: boolean;
   snapshotSelector: string | null;
   fullPage: boolean;
+  stayOnPage: boolean;
   providerId: PersaiRuntimeBrowserProviderId;
   credential: ProviderGatewayBrowserActionRequest["credential"];
 };
@@ -792,6 +871,7 @@ export class ProviderBrowserService {
               ? { snapshotSelector: normalized.snapshotSelector }
               : {}),
             ...(normalized.fullPage === true ? { fullPage: true } : {}),
+            ...(normalized.stayOnPage === true ? { stayOnPage: true } : {}),
             ...(normalized.profileSessionId !== null ? { reuseSession: true } : {})
           }
         })
@@ -853,6 +933,13 @@ export class ProviderBrowserService {
       truncated: data.truncated === true,
       elements:
         pdfBase64 === null && artifactBase64 === null ? this.normalizeElements(data.elements) : [],
+      extracted:
+        pdfBase64 === null && artifactBase64 === null
+          ? (() => {
+              const items = this.normalizeExtractedItems(data.extracted);
+              return items.length > 0 ? items : null;
+            })()
+          : null,
       observedAt,
       tookMs,
       warning:
@@ -895,7 +982,7 @@ export class ProviderBrowserService {
       const path = pathParts.join(".");
       const formatted = path.length > 0 ? `${path}: ${message}` : message;
       const firstPathPart = pathParts[0] ?? "";
-      if (/^op_\d+(_clear)?$/.test(firstPathPart)) {
+      if (/^(op_\d+(_clear)?|extract_\d+)$/.test(firstPathPart)) {
         operationWarnings.push(formatted);
         continue;
       }
@@ -976,20 +1063,37 @@ export class ProviderBrowserService {
       parts.push(`reject(type: [image, font, media], enabled: true) { time }`);
     }
 
-    parts.push(
-      `goto(url: $url, waitUntil: ${waitUntil}, timeout: ${String(normalized.timeoutMs)}) { status }`
-    );
-    if (settleAfterGotoMs > 0) {
-      parts.push(`settleAfterGoto: waitForTimeout(time: ${String(settleAfterGotoMs)}) { time }`);
+    if (!normalized.stayOnPage) {
+      parts.push(
+        `goto(url: $url, waitUntil: ${waitUntil}, timeout: ${String(normalized.timeoutMs)}) { status }`
+      );
+      if (settleAfterGotoMs > 0) {
+        parts.push(`settleAfterGoto: waitForTimeout(time: ${String(settleAfterGotoMs)}) { time }`);
+      }
     }
 
+    const extractAliases: string[] = [];
     normalized.operations.forEach((operation, index) => {
       const idx = String(index);
       switch (operation.kind) {
+        case "goto": {
+          varDefs.push(`$gotoUrl_${idx}: String!`);
+          vars[`gotoUrl_${idx}`] = operation.url;
+          parts.push(
+            `op_${idx}: goto(url: $gotoUrl_${idx}, waitUntil: ${waitUntil}, timeout: ${String(normalized.timeoutMs)}) { status }`
+          );
+          if (settleAfterGotoMs > 0) {
+            parts.push(
+              `op_${idx}_settle: waitForTimeout(time: ${String(settleAfterGotoMs)}) { time }`
+            );
+          }
+          break;
+        }
         case "click": {
-          varDefs.push(`$selector_${idx}: String!`);
-          vars[`selector_${idx}`] = operation.selector;
-          parts.push(`op_${idx}: click(selector: $selector_${idx}) { time }`);
+          const script = this.buildIndexedClickScript(operation.selector, operation.matchIndex);
+          varDefs.push(`$clickScript_${idx}: String!`);
+          vars[`clickScript_${idx}`] = script;
+          parts.push(`op_${idx}: evaluate(content: $clickScript_${idx}) { value }`);
           break;
         }
         case "click_at": {
@@ -1000,19 +1104,21 @@ export class ProviderBrowserService {
           break;
         }
         case "type": {
-          varDefs.push(`$selector_${idx}: String!`, `$text_${idx}: String!`);
-          vars[`selector_${idx}`] = operation.selector;
-          vars[`text_${idx}`] = operation.text;
-          // BQL `type` appends without clearing. Clear via evaluate() first so
-          // the model's `type` op replaces existing value (parity with the
-          // /function path which pre-clears `element.value` before typing).
-          const clearScript = `try { const el = document.querySelector(${JSON.stringify(
-            operation.selector
-          )}); if (el && "value" in el) { el.value = ""; el.dispatchEvent(new Event("input", {bubbles:true})); el.dispatchEvent(new Event("change", {bubbles:true})); } } catch (_) {}`;
+          const clearScript = this.buildIndexedClearValueScript(
+            operation.selector,
+            operation.matchIndex
+          );
           varDefs.push(`$clearScript_${idx}: String!`);
           vars[`clearScript_${idx}`] = clearScript;
           parts.push(`op_${idx}_clear: evaluate(content: $clearScript_${idx}) { value }`);
-          parts.push(`op_${idx}: type(text: $text_${idx}, selector: $selector_${idx}) { time }`);
+          const typeScript = this.buildIndexedTypeScript(
+            operation.selector,
+            operation.matchIndex,
+            operation.text
+          );
+          varDefs.push(`$typeScript_${idx}: String!`);
+          vars[`typeScript_${idx}`] = typeScript;
+          parts.push(`op_${idx}: evaluate(content: $typeScript_${idx}) { value }`);
           break;
         }
         case "press":
@@ -1020,27 +1126,26 @@ export class ProviderBrowserService {
             "Persistent Browserless sessions do not support press operations reliably; use selector-based actions instead."
           );
         case "select_option": {
-          // Browserless BQL `select(value)` accepts the union type
-          // `StringOrArray!` (either a single value or a list). Declaring the
-          // variable as `String!` fails schema validation with:
-          //   "Variable $value of type String! used in position expecting
-          //    type StringOrArray!"
-          // — provider-gateway wraps that as a 502 for the caller.
-          varDefs.push(`$selector_${idx}: String!`, `$value_${idx}: StringOrArray!`);
-          vars[`selector_${idx}`] = operation.selector;
-          vars[`value_${idx}`] = operation.value;
-          parts.push(
-            `op_${idx}: select(selector: $selector_${idx}, value: $value_${idx}) { time }`
+          const script = this.buildIndexedSelectScript(
+            operation.selector,
+            operation.matchIndex,
+            operation.value
           );
+          varDefs.push(`$selectScript_${idx}: String!`);
+          vars[`selectScript_${idx}`] = script;
+          parts.push(`op_${idx}: evaluate(content: $selectScript_${idx}) { value }`);
           break;
         }
         case "wait_for_selector": {
-          varDefs.push(`$selector_${idx}: String!`);
-          vars[`selector_${idx}`] = operation.selector;
           const timeout = operation.timeoutMs ?? 5000;
-          parts.push(
-            `op_${idx}: waitForSelector(selector: $selector_${idx}, timeout: ${String(timeout)}) { time }`
+          const script = this.buildIndexedWaitForSelectorScript(
+            operation.selector,
+            operation.matchIndex,
+            timeout
           );
+          varDefs.push(`$waitScript_${idx}: String!`);
+          vars[`waitScript_${idx}`] = script;
+          parts.push(`op_${idx}: evaluate(content: $waitScript_${idx}) { value }`);
           break;
         }
         case "wait_for_timeout": {
@@ -1048,18 +1153,39 @@ export class ProviderBrowserService {
           break;
         }
         case "scroll": {
-          // Implemented via evaluate() rather than BQL's native `scroll`
-          // mutation so the no-selector "scroll one viewport down" case has
-          // exactly the same semantics as the `/function` (ephemeral) path,
-          // instead of depending on the native mutation's exact required
-          // argument combination when no selector is given.
           const script =
             typeof operation.selector === "string" && operation.selector.length > 0
-              ? `try { document.querySelector(${JSON.stringify(operation.selector)})?.scrollIntoView({behavior:"instant", block:"center"}); } catch (_) {}`
+              ? this.buildIndexedScrollScript(operation.selector, operation.matchIndex)
               : `window.scrollBy(0, window.innerHeight);`;
           varDefs.push(`$scrollScript_${idx}: String!`);
-          vars[`scrollScript_${idx}`] = script;
+          vars[`scrollScript_${idx}`] =
+            typeof operation.selector === "string" && operation.selector.length > 0
+              ? `(() => { ${script} return true; })()`
+              : `(() => { ${script} return true; })()`;
           parts.push(`op_${idx}: evaluate(content: $scrollScript_${idx}) { value }`);
+          break;
+        }
+        case "hover": {
+          const script = this.buildIndexedHoverScript(operation.selector, operation.matchIndex);
+          varDefs.push(`$hoverScript_${idx}: String!`);
+          vars[`hoverScript_${idx}`] = script;
+          parts.push(`op_${idx}: evaluate(content: $hoverScript_${idx}) { value }`);
+          break;
+        }
+        case "extract": {
+          const alias = `extract_${idx}`;
+          extractAliases.push(alias);
+          const maxItems =
+            operation.maxItems !== null &&
+            operation.maxItems !== undefined &&
+            Number.isInteger(operation.maxItems) &&
+            operation.maxItems > 0
+              ? Math.min(operation.maxItems, MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)
+              : MAX_RUNTIME_BROWSER_EXTRACT_ITEMS;
+          const script = this.buildExtractEvaluateScript(operation.selector, maxItems);
+          varDefs.push(`$extractScript_${idx}: String!`);
+          vars[`extractScript_${idx}`] = script;
+          parts.push(`${alias}: evaluate(content: $extractScript_${idx}) { value }`);
           break;
         }
       }
@@ -1186,6 +1312,13 @@ export class ProviderBrowserService {
     const elements = shouldExtractTextPageData
       ? this.extractElementsFromBqlValue(elementsNode)
       : [];
+    const extractedItems =
+      extractAliases.length > 0
+        ? extractAliases
+            .flatMap((alias) => this.extractExtractedFromBqlValue(this.asObject(data[alias])))
+            .slice(0, MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)
+        : [];
+    const extracted = extractedItems.length > 0 ? extractedItems : null;
 
     const pdfBase64 =
       typeof docNode?.base64 === "string" && docNode.base64.length > 0 ? docNode.base64 : null;
@@ -1211,6 +1344,7 @@ export class ProviderBrowserService {
       content: shouldExtractTextPageData ? content : "",
       truncated: shouldExtractTextPageData ? truncated : false,
       elements,
+      extracted,
       observedAt,
       tookMs,
       warning:
@@ -1618,6 +1752,12 @@ export class ProviderBrowserService {
         ? input.snapshotSelector.trim()
         : null;
     const fullPage = input.fullPage === true;
+    const stayOnPage = input.stayOnPage === true;
+    if (stayOnPage && profileSessionId === null) {
+      throw new BadRequestException(
+        "stayOnPage is only supported for persistent profile browser actions"
+      );
+    }
 
     return {
       action: input.action,
@@ -1631,6 +1771,7 @@ export class ProviderBrowserService {
       optimizeForSpeed,
       snapshotSelector,
       fullPage,
+      stayOnPage,
       providerId: input.credential.providerId ?? "browserless",
       credential: {
         toolCode: "browser",
@@ -1900,6 +2041,120 @@ export class ProviderBrowserService {
     return `(() => { const x = ${String(x)}; const y = ${String(y)}; const target = document.elementFromPoint(x, y); if (!target) { throw new Error("No element at click coordinates"); } const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y }; target.dispatchEvent(new PointerEvent("pointerdown", opts)); target.dispatchEvent(new MouseEvent("mousedown", opts)); target.dispatchEvent(new PointerEvent("pointerup", opts)); target.dispatchEvent(new MouseEvent("mouseup", opts)); target.dispatchEvent(new MouseEvent("click", opts)); return true; })()`;
   }
 
+  private resolveOperationMatchIndex(matchIndex: number | null | undefined): number {
+    return Number.isInteger(matchIndex) && Number(matchIndex) >= 0 ? Number(matchIndex) : 0;
+  }
+
+  private buildIndexedClickScript(selector: string, matchIndex: number | null | undefined): string {
+    const idx = this.resolveOperationMatchIndex(matchIndex);
+    return `(() => { const nodes = document.querySelectorAll(${JSON.stringify(selector)}); const el = nodes[${String(idx)}]; if (!el) { throw new Error("No element at index ${String(idx)} for selector"); } el.click(); return true; })()`;
+  }
+
+  private buildIndexedHoverScript(selector: string, matchIndex: number | null | undefined): string {
+    const idx = this.resolveOperationMatchIndex(matchIndex);
+    return `(() => { const nodes = document.querySelectorAll(${JSON.stringify(selector)}); const el = nodes[${String(idx)}]; if (!el) { throw new Error("No element at index ${String(idx)} for selector"); } const rect = el.getBoundingClientRect(); const x = rect.left + rect.width / 2; const y = rect.top + rect.height / 2; const opts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y }; el.dispatchEvent(new PointerEvent("pointerover", opts)); el.dispatchEvent(new MouseEvent("mouseover", opts)); el.dispatchEvent(new MouseEvent("mouseenter", opts)); el.dispatchEvent(new MouseEvent("mousemove", opts)); return true; })()`;
+  }
+
+  private buildIndexedClearValueScript(
+    selector: string,
+    matchIndex: number | null | undefined
+  ): string {
+    const idx = this.resolveOperationMatchIndex(matchIndex);
+    return `(() => { const nodes = document.querySelectorAll(${JSON.stringify(selector)}); const el = nodes[${String(idx)}]; if (el && "value" in el) { el.value = ""; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); } return true; })()`;
+  }
+
+  private buildIndexedTypeScript(
+    selector: string,
+    matchIndex: number | null | undefined,
+    text: string
+  ): string {
+    const idx = this.resolveOperationMatchIndex(matchIndex);
+    const textJson = JSON.stringify(text);
+    return `(() => { const nodes = document.querySelectorAll(${JSON.stringify(selector)}); const el = nodes[${String(idx)}]; if (!el) { throw new Error("No element at index ${String(idx)} for selector"); } if (!("value" in el)) { return true; } el.focus(); el.value = ""; el.dispatchEvent(new Event("input", { bubbles: true })); const text = ${textJson}; for (let i = 0; i < text.length; i += 1) { const ch = text.charAt(i); el.value += ch; el.dispatchEvent(new InputEvent("input", { bubbles: true, data: ch, inputType: "insertText" })); } el.dispatchEvent(new Event("change", { bubbles: true })); return true; })()`;
+  }
+
+  private buildIndexedSelectScript(
+    selector: string,
+    matchIndex: number | null | undefined,
+    value: string
+  ): string {
+    const idx = this.resolveOperationMatchIndex(matchIndex);
+    return `(() => { const nodes = document.querySelectorAll(${JSON.stringify(selector)}); const el = nodes[${String(idx)}]; if (!el) { throw new Error("No element at index ${String(idx)} for selector"); } if (el.tagName.toLowerCase() !== "select") { throw new Error("Element is not a select"); } el.value = ${JSON.stringify(value)}; el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true })); return true; })()`;
+  }
+
+  private buildIndexedScrollScript(
+    selector: string,
+    matchIndex: number | null | undefined
+  ): string {
+    const idx = this.resolveOperationMatchIndex(matchIndex);
+    return `const nodes = document.querySelectorAll(${JSON.stringify(selector)}); const el = nodes[${String(idx)}]; if (!el) { throw new Error("No element at index ${String(idx)} for selector"); } el.scrollIntoView({ behavior: "instant", block: "center" });`;
+  }
+
+  private buildIndexedWaitForSelectorScript(
+    selector: string,
+    matchIndex: number | null | undefined,
+    timeoutMs: number
+  ): string {
+    const idx = this.resolveOperationMatchIndex(matchIndex);
+    return `(() => { const deadline = Date.now() + ${String(timeoutMs)}; while (Date.now() < deadline) { if (document.querySelectorAll(${JSON.stringify(selector)}).length > ${String(idx)}) { return true; } } throw new Error("wait_for_selector timeout"); })()`;
+  }
+
+  private buildExtractEvaluateScript(selector: string, maxItems: number): string {
+    return `(() => {
+      const normalize = (value) =>
+        typeof value === "string" ? value.replace(/\\s+/g, " ").trim() : "";
+      const nodes = Array.from(document.querySelectorAll(${JSON.stringify(selector)})).slice(0, ${String(maxItems)});
+      return JSON.stringify(
+        nodes.map((element, domIndex) => {
+          const ariaLabelRaw = element.getAttribute("aria-label");
+          const text = normalize(
+            element.textContent ||
+              ("value" in element && typeof element.value === "string" ? element.value : "") ||
+              ariaLabelRaw ||
+              ""
+          );
+          const entry = {
+            selector: ${JSON.stringify(selector)},
+            tagName: element.tagName.toLowerCase(),
+            text: text.length > 0 ? text : null,
+            href: element instanceof HTMLAnchorElement ? element.href : null,
+            ariaLabel:
+              typeof ariaLabelRaw === "string" && ariaLabelRaw.trim().length > 0
+                ? normalize(ariaLabelRaw)
+                : null
+          };
+          if (domIndex > 0) {
+            entry.matchIndex = domIndex;
+          }
+          return entry;
+        })
+      );
+    })()`;
+  }
+
+  private readOptionalMatchIndex(value: unknown, field: string): number | null | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value === null) {
+      return null;
+    }
+    if (!Number.isInteger(value) || Number(value) < 0) {
+      throw new BadRequestException(`${field} must be null or a non-negative integer`);
+    }
+    return Number(value);
+  }
+
+  private attachMatchIndex<T extends Record<string, unknown>>(
+    operation: T,
+    matchIndex: number | null | undefined
+  ): T | (T & { matchIndex: number | null }) {
+    if (matchIndex === undefined) {
+      return operation;
+    }
+    return { ...operation, matchIndex };
+  }
+
   private normalizeOperation(operation: unknown, index: number): RuntimeBrowserOperation {
     if (!operation || typeof operation !== "object" || Array.isArray(operation)) {
       throw new BadRequestException(`operations[${String(index)}] must be an object`);
@@ -1918,10 +2173,13 @@ export class ProviderBrowserService {
     }
     switch (kind) {
       case "click":
-        return {
-          kind,
-          selector: this.readNonEmptyString(row.selector, `operations[${String(index)}].selector`)
-        };
+        return this.attachMatchIndex(
+          {
+            kind,
+            selector: this.readNonEmptyString(row.selector, `operations[${String(index)}].selector`)
+          },
+          this.readOptionalMatchIndex(row.matchIndex, `operations[${String(index)}].matchIndex`)
+        );
       case "click_at":
         return {
           kind,
@@ -1929,44 +2187,110 @@ export class ProviderBrowserService {
           y: this.readViewportCoordinate(row.y, `operations[${String(index)}].y`)
         };
       case "type":
-        return {
-          kind,
-          selector: this.readNonEmptyString(row.selector, `operations[${String(index)}].selector`),
-          text: this.readString(row.text, `operations[${String(index)}].text`)
-        };
+        return this.attachMatchIndex(
+          {
+            kind,
+            selector: this.readNonEmptyString(
+              row.selector,
+              `operations[${String(index)}].selector`
+            ),
+            text: this.readString(row.text, `operations[${String(index)}].text`)
+          },
+          this.readOptionalMatchIndex(row.matchIndex, `operations[${String(index)}].matchIndex`)
+        );
       case "press":
         return {
           kind,
           key: this.readNonEmptyString(row.key, `operations[${String(index)}].key`)
         };
       case "select_option":
-        return {
-          kind,
-          selector: this.readNonEmptyString(row.selector, `operations[${String(index)}].selector`),
-          value: this.readString(row.value, `operations[${String(index)}].value`)
-        };
+        return this.attachMatchIndex(
+          {
+            kind,
+            selector: this.readNonEmptyString(
+              row.selector,
+              `operations[${String(index)}].selector`
+            ),
+            value: this.readString(row.value, `operations[${String(index)}].value`)
+          },
+          this.readOptionalMatchIndex(row.matchIndex, `operations[${String(index)}].matchIndex`)
+        );
       case "wait_for_selector":
-        return {
-          kind,
-          selector: this.readNonEmptyString(row.selector, `operations[${String(index)}].selector`),
-          timeoutMs:
-            row.timeoutMs === null || row.timeoutMs === undefined
-              ? null
-              : this.readWaitTimeout(row.timeoutMs, `operations[${String(index)}].timeoutMs`)
-        };
+        return this.attachMatchIndex(
+          {
+            kind,
+            selector: this.readNonEmptyString(
+              row.selector,
+              `operations[${String(index)}].selector`
+            ),
+            timeoutMs:
+              row.timeoutMs === null || row.timeoutMs === undefined
+                ? null
+                : this.readWaitTimeout(row.timeoutMs, `operations[${String(index)}].timeoutMs`)
+          },
+          this.readOptionalMatchIndex(row.matchIndex, `operations[${String(index)}].matchIndex`)
+        );
       case "wait_for_timeout":
         return {
           kind,
           timeoutMs: this.readWaitTimeout(row.timeoutMs, `operations[${String(index)}].timeoutMs`)
         };
       case "scroll":
+        return this.attachMatchIndex(
+          {
+            kind,
+            selector:
+              row.selector === null || row.selector === undefined
+                ? null
+                : this.readNonEmptyString(row.selector, `operations[${String(index)}].selector`)
+          },
+          this.readOptionalMatchIndex(row.matchIndex, `operations[${String(index)}].matchIndex`)
+        );
+      case "goto": {
+        let parsedGotoUrl: URL;
+        try {
+          parsedGotoUrl = new URL(
+            this.readNonEmptyString(row.url, `operations[${String(index)}].url`)
+          );
+        } catch {
+          throw new BadRequestException(`operations[${String(index)}].url must be a valid URL`);
+        }
+        if (parsedGotoUrl.protocol !== "http:" && parsedGotoUrl.protocol !== "https:") {
+          throw new BadRequestException(`operations[${String(index)}].url must use http or https`);
+        }
         return {
           kind,
-          selector:
-            row.selector === null || row.selector === undefined
-              ? null
-              : this.readNonEmptyString(row.selector, `operations[${String(index)}].selector`)
+          url: parsedGotoUrl.toString()
         };
+      }
+      case "hover":
+        return this.attachMatchIndex(
+          {
+            kind,
+            selector: this.readNonEmptyString(row.selector, `operations[${String(index)}].selector`)
+          },
+          this.readOptionalMatchIndex(row.matchIndex, `operations[${String(index)}].matchIndex`)
+        );
+      case "extract": {
+        const maxItems =
+          row.maxItems === null || row.maxItems === undefined
+            ? null
+            : Number.isInteger(row.maxItems) &&
+                Number(row.maxItems) > 0 &&
+                Number(row.maxItems) <= MAX_RUNTIME_BROWSER_EXTRACT_ITEMS
+              ? Number(row.maxItems)
+              : null;
+        if (row.maxItems !== null && row.maxItems !== undefined && maxItems === null) {
+          throw new BadRequestException(
+            `operations[${String(index)}].maxItems must be null or an integer between 1 and ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)}`
+          );
+        }
+        return {
+          kind,
+          selector: this.readNonEmptyString(row.selector, `operations[${String(index)}].selector`),
+          maxItems
+        };
+      }
     }
     throw new BadRequestException(`operations[${String(index)}].kind is invalid`);
   }
@@ -2040,6 +2364,7 @@ export class ProviderBrowserService {
       content: "",
       truncated: false,
       elements: [],
+      extracted: null,
       observedAt,
       tookMs,
       warning: UNTRUSTED_CONTENT_WARNING,
@@ -2104,6 +2429,7 @@ export class ProviderBrowserService {
       content: "",
       truncated: false,
       elements: [],
+      extracted: null,
       observedAt,
       tookMs,
       warning: UNTRUSTED_CONTENT_WARNING,
@@ -2336,9 +2662,71 @@ export class ProviderBrowserService {
         typeof row.placeholder === "string" && row.placeholder.trim().length > 0
           ? row.placeholder.trim()
           : null,
+      ariaLabel:
+        typeof row.ariaLabel === "string" && row.ariaLabel.trim().length > 0
+          ? row.ariaLabel.trim()
+          : null,
       disabled: row.disabled === true,
-      ...(typeof row.productName === "string" && row.productName.trim().length > 0
-        ? { productName: row.productName.trim() }
+      ...(Number.isInteger(row.matchIndex) && Number(row.matchIndex) > 0
+        ? { matchIndex: Number(row.matchIndex) }
+        : {})
+    };
+  }
+
+  private extractExtractedFromBqlValue(
+    valueNode: Record<string, unknown> | null
+  ): RuntimeBrowserExtractedItem[] {
+    const rawValue = valueNode?.value;
+    if (Array.isArray(rawValue)) {
+      return this.normalizeExtractedItems(rawValue);
+    }
+    if (typeof rawValue !== "string" || rawValue.trim().length === 0) {
+      return [];
+    }
+    try {
+      return this.normalizeExtractedItems(JSON.parse(rawValue));
+    } catch {
+      return [];
+    }
+  }
+
+  private normalizeExtractedItems(value: unknown): RuntimeBrowserExtractedItem[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .map((entry) => this.normalizeExtractedItem(entry))
+      .filter((entry): entry is RuntimeBrowserExtractedItem => entry !== null)
+      .slice(0, MAX_RUNTIME_BROWSER_EXTRACT_ITEMS);
+  }
+
+  private normalizeExtractedItem(value: unknown): RuntimeBrowserExtractedItem | null {
+    const row = this.asObject(value);
+    if (row === null) {
+      return null;
+    }
+    const selector =
+      typeof row.selector === "string" && row.selector.trim().length > 0
+        ? row.selector.trim()
+        : null;
+    const tagName =
+      typeof row.tagName === "string" && row.tagName.trim().length > 0
+        ? row.tagName.trim().toLowerCase()
+        : null;
+    if (selector === null || tagName === null) {
+      return null;
+    }
+    return {
+      selector,
+      tagName,
+      text: typeof row.text === "string" && row.text.trim().length > 0 ? row.text.trim() : null,
+      href: typeof row.href === "string" && row.href.trim().length > 0 ? row.href.trim() : null,
+      ariaLabel:
+        typeof row.ariaLabel === "string" && row.ariaLabel.trim().length > 0
+          ? row.ariaLabel.trim()
+          : null,
+      ...(Number.isInteger(row.matchIndex) && Number(row.matchIndex) > 0
+        ? { matchIndex: Number(row.matchIndex) }
         : {})
     };
   }

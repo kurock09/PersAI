@@ -5,7 +5,9 @@
 
 ## 2026-07-08
 
-- **Enhancement (ADR-139 — page.elements cap 200 + optional productName in JSON; local, not pushed).** Raised `MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS` from 60 to 200. Provider-gateway extraction may attach optional `productName` on Yandex grocery hosts and uses `aria-label` when button text is empty. Tool/catalog guidance stays generic (cap number only).
+- **Enhancement (ADR-139 D14 — generic browser act chain + audit follow-through; local, push pending).** Ops limit 12; `goto`/`hover`/`extract`; `stayOnPage` (profile-required); DOM-order `matchIndex`; `page.extracted` cap; removed Lavka/Yandex heuristics and `productName`. Audit fixes: BQL type/hover parity, extract global cap, stayOnPage guards, BQL `extract_*` non-fatal warnings + indexed `select` throw, ADR/cross-doc updates, focused tests.
+
+- **Enhancement (ADR-139 — generic browser act chain initial slice).** See D14 for consolidated truth.
 
 - **Fix (ADR-139 — pageElements evaluate SyntaxError regression; pushed `679d4421`).** Broken quote escaping in the Yandex grocery `closest()` selector made every persistent text `snapshot`/`act` fail with `pageElements SyntaxError` and gateway 502 after `51d4dc29`; png/live paths were unaffected.
 

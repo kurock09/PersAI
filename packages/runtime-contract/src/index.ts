@@ -1662,11 +1662,11 @@ export const MAX_RUNTIME_BROWSER_MAX_CHARS = 20_000;
 export const DEFAULT_RUNTIME_BROWSER_TIMEOUT_MS = 120_000;
 export const MIN_RUNTIME_BROWSER_TIMEOUT_MS = 1_000;
 export const MAX_RUNTIME_BROWSER_TIMEOUT_MS = 120_000;
-export const MAX_RUNTIME_BROWSER_OPERATIONS = 6;
+export const MAX_RUNTIME_BROWSER_OPERATIONS = 12;
 export const MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS = 10_000;
-// Raised from 25 (2026-07-07 live acceptance, ADR-139 D11) and 60 (2026-07-08):
-// visibility ranking helps, but dense catalog/search grids still need a wider
-// cap so more product-card controls survive after chrome filtering.
+export const MAX_RUNTIME_BROWSER_EXTRACT_ITEMS = 50;
+// Raised from 25 (ADR-139 D11) and 60 (2026-07-08): visibility ranking plus a
+// wider cap so dense interactive grids survive after chrome filtering.
 export const MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS = 200;
 
 export const PERSAI_RUNTIME_BROWSER_OPERATION_KINDS = [
@@ -1677,7 +1677,10 @@ export const PERSAI_RUNTIME_BROWSER_OPERATION_KINDS = [
   "select_option",
   "wait_for_selector",
   "wait_for_timeout",
-  "scroll"
+  "scroll",
+  "goto",
+  "hover",
+  "extract"
 ] as const;
 
 export type PersaiRuntimeBrowserOperationKind =
@@ -1686,6 +1689,8 @@ export type PersaiRuntimeBrowserOperationKind =
 export interface RuntimeBrowserClickOperation {
   kind: "click";
   selector: string;
+  /** 0-based index when selector matches multiple elements. */
+  matchIndex?: number | null;
 }
 
 export interface RuntimeBrowserClickAtOperation {
@@ -1698,6 +1703,7 @@ export interface RuntimeBrowserTypeOperation {
   kind: "type";
   selector: string;
   text: string;
+  matchIndex?: number | null;
 }
 
 export interface RuntimeBrowserPressOperation {
@@ -1709,12 +1715,14 @@ export interface RuntimeBrowserSelectOptionOperation {
   kind: "select_option";
   selector: string;
   value: string;
+  matchIndex?: number | null;
 }
 
 export interface RuntimeBrowserWaitForSelectorOperation {
   kind: "wait_for_selector";
   selector: string;
   timeoutMs: number | null;
+  matchIndex?: number | null;
 }
 
 export interface RuntimeBrowserWaitForTimeoutOperation {
@@ -1730,6 +1738,34 @@ export interface RuntimeBrowserWaitForTimeoutOperation {
 export interface RuntimeBrowserScrollOperation {
   kind: "scroll";
   selector: string | null;
+  matchIndex?: number | null;
+}
+
+export interface RuntimeBrowserGotoOperation {
+  kind: "goto";
+  url: string;
+}
+
+export interface RuntimeBrowserHoverOperation {
+  kind: "hover";
+  selector: string;
+  matchIndex?: number | null;
+}
+
+export interface RuntimeBrowserExtractOperation {
+  kind: "extract";
+  selector: string;
+  maxItems?: number | null;
+}
+
+export interface RuntimeBrowserExtractedItem {
+  selector: string;
+  tagName: string;
+  text: string | null;
+  href: string | null;
+  ariaLabel: string | null;
+  /** Present for duplicate selector matches; use with act matchIndex. */
+  matchIndex?: number | null;
 }
 
 export type RuntimeBrowserOperation =
@@ -1740,7 +1776,10 @@ export type RuntimeBrowserOperation =
   | RuntimeBrowserSelectOptionOperation
   | RuntimeBrowserWaitForSelectorOperation
   | RuntimeBrowserWaitForTimeoutOperation
-  | RuntimeBrowserScrollOperation;
+  | RuntimeBrowserScrollOperation
+  | RuntimeBrowserGotoOperation
+  | RuntimeBrowserHoverOperation
+  | RuntimeBrowserExtractOperation;
 
 export interface RuntimeBrowserConfig {
   toolCode: "browser";
@@ -1766,6 +1805,8 @@ export interface RuntimeBrowserRequest {
   snapshotSelector?: string | null;
   /** Full-page capture for image snapshots when snapshotSelector is omitted. */
   fullPage?: boolean | null;
+  /** When true, skip the opening navigation to url and run operations on the current page. */
+  stayOnPage?: boolean | null;
 }
 
 export interface RuntimeBrowserInteractiveElement {
@@ -1776,9 +1817,10 @@ export interface RuntimeBrowserInteractiveElement {
   type: string | null;
   href: string | null;
   placeholder: string | null;
+  ariaLabel: string | null;
   disabled: boolean;
-  /** Yandex grocery (Lavka/Market/Eda): product title from the enclosing product card. */
-  productName?: string | null;
+  /** Present when selector matches multiple elements; use with act matchIndex. */
+  matchIndex?: number | null;
 }
 
 export interface RuntimeBrowserPage {
@@ -1788,6 +1830,7 @@ export interface RuntimeBrowserPage {
   content: string;
   truncated: boolean;
   elements: RuntimeBrowserInteractiveElement[];
+  extracted: RuntimeBrowserExtractedItem[] | null;
   provider: PersaiRuntimeBrowserProviderId;
   observedAt: IsoTimestamp;
   tookMs: number;
@@ -4008,6 +4051,7 @@ export interface ProviderGatewayBrowserActionRequest {
   optimizeForSpeed?: boolean | null;
   snapshotSelector?: string | null;
   fullPage?: boolean | null;
+  stayOnPage?: boolean | null;
   credential: {
     toolCode: "browser";
     secretId: string;
@@ -4024,6 +4068,7 @@ export interface ProviderGatewayBrowserActionResult {
   content: string;
   truncated: boolean;
   elements: RuntimeBrowserInteractiveElement[];
+  extracted: RuntimeBrowserExtractedItem[] | null;
   observedAt: IsoTimestamp;
   tookMs: number;
   warning: string | null;

@@ -313,6 +313,7 @@ Current active internal `runtime → api` endpoints (served by `apps/api` on the
   - platform policy, not the model, owns persistent-session stealth/proxy capability decisions
   - product-owned recovery must distinguish `pending_login`, reconnectable re-auth, and truly expired profiles before the assistant narrates expiry
   - ordinary web chat must not expose Browserless `liveUrl`; web re-auth is modal/banner state owned by product UI
+  - **ADR-139 D14:** `browser` `act` accepts up to 12 chained operations (`goto`, `hover`, `extract`, selector ops); `stayOnPage` requires a saved profile and skips leading navigation; results include `page.elements` and optional `page.extracted` (runtime-contract shapes; provider-gateway executes via Browserless BQL or ephemeral `/function`)
 - `GET /api/v1/internal/smoke/turn-receipts` — read-only smoke harness receipt query.
 
 Other internal `runtime ↔ api` boundaries (bundle resolution, attachment hydration, etc.) are separate runtime-bundle endpoints and are not part of this back-channel.

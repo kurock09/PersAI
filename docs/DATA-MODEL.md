@@ -119,6 +119,8 @@ TTL: plan billing hint `browserProfileTtlDays` when set (e.g. 90 on scale-like p
 
 ADR-139 recovery truth is product-owned: cold/reconnectable sessions must be retried or re-auth-classified before the product tells the assistant a profile is expired. Web chat turn/stream/list may carry `pendingBrowserLogin` when a profile is awaiting user completion in the live login modal. Telegram may still surface a web-login instruction path, but ordinary web chat must not rely on assistant-visible Browserless `liveUrl` output.
 
+**Browser act chain (ADR-139 D14, `runtime-contract`):** profile-backed `act` may chain up to 12 operations per call (`goto`, `hover`, `extract`, plus existing selector ops). `stayOnPage` skips the opening navigation and continues on the current persistent-session page (requires `profile`). Text `snapshot`/`act` returns `page.elements` (up to 200 visible controls, generic main-content ranking, optional `matchIndex`/`ariaLabel`) and `page.extracted` (structured DOM matches from `extract`, capped at 50 items total per call). No site-specific extraction heuristics in execution code.
+
 ## Workspace file semantic index (ADR-134)
 
 Path-keyed manifest rows in `workspace_file_metadata` carry product file truth for every visible workspace file. **ADR-137:** committed bytes live in GCS at `buildWorkspaceObjectKey(workspaceId, workspaceRelPath)`; the session pod filesystem is an execution cache only. Model `files.*` / `grep` / `glob` and worker outbound media never depend on pod FS for correctness.
