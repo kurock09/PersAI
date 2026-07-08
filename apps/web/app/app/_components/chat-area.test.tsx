@@ -360,6 +360,7 @@ describe("ChatArea", () => {
             profileKey: "bitrix",
             displayName: "Bitrix24",
             loginUrl: "https://bitrix.example/login",
+            workspaceId: "workspace-1",
             bridgeClientKind: "extension",
             completionMode: "login"
           },
@@ -391,6 +392,7 @@ describe("ChatArea", () => {
             profileKey: "lavka",
             displayName: "Lavka",
             loginUrl: "https://lavka.yandex.ru/",
+            workspaceId: "workspace-1",
             bridgeClientKind: "extension",
             completionMode: "assist"
           },

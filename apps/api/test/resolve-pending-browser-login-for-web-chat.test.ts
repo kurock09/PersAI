@@ -13,6 +13,7 @@ describe("resolvePendingBrowserLoginFromRuntimeTurn", () => {
       profileKey: "bitrix",
       displayName: "Bitrix24",
       loginUrl: "https://example.bitrix24.ru/login",
+      workspaceId: "workspace-1",
       bridgeClientKind: "extension" as const,
       completionMode: "login" as const
     };
@@ -65,6 +66,7 @@ describe("resolvePendingBrowserLoginForWebChat", () => {
       profileKey: "bitrix",
       displayName: "Bitrix24",
       loginUrl: "https://example.bitrix24.ru/login",
+      workspaceId: "workspace-1",
       bridgeClientKind: "extension" as const,
       completionMode: "login" as const
     };

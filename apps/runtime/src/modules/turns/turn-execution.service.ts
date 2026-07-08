@@ -5076,6 +5076,7 @@ export class TurnExecutionService {
         typeof candidate.profileKey !== "string" ||
         typeof candidate.displayName !== "string" ||
         typeof candidate.loginUrl !== "string" ||
+        typeof candidate.workspaceId !== "string" ||
         (candidate.bridgeClientKind !== "extension" && candidate.bridgeClientKind !== "capacitor")
       ) {
         return undefined;
@@ -5089,6 +5090,7 @@ export class TurnExecutionService {
         profileKey: candidate.profileKey,
         displayName: candidate.displayName,
         loginUrl: candidate.loginUrl,
+        workspaceId: candidate.workspaceId,
         bridgeClientKind: candidate.bridgeClientKind,
         ...(completionMode === undefined ? {} : { completionMode })
       };

@@ -33,6 +33,7 @@ type ReconnectLoginResponse = {
   profileKey: string;
   displayName: string;
   loginUrl: string;
+  workspaceId: string;
   bridgeClientKind: LocalBrowserBridgeDeviceKind;
   status: AssistantBrowserProfileSettingsItem["status"];
   completionMode?: "login" | "assist";
@@ -105,6 +106,7 @@ export class AssistantBrowserProfilesController {
       profileKey: result.profileKey,
       displayName: result.displayName,
       loginUrl: result.loginUrl,
+      workspaceId: result.workspaceId,
       bridgeClientKind: result.bridgeClientKind,
       status: result.status
     };
@@ -129,6 +131,7 @@ export class AssistantBrowserProfilesController {
       profileKey: result.profileKey,
       displayName: result.displayName,
       loginUrl: result.loginUrl,
+      workspaceId: result.workspaceId,
       bridgeClientKind: result.bridgeClientKind,
       status: result.status,
       completionMode: result.completionMode

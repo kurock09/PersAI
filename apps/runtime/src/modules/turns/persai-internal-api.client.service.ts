@@ -3251,6 +3251,7 @@ export class PersaiInternalApiClientService {
       typeof row?.profileKey !== "string" ||
       typeof row?.displayName !== "string" ||
       typeof row?.loginUrl !== "string" ||
+      typeof row?.workspaceId !== "string" ||
       bridgeClientKind === null
     ) {
       return null;
@@ -3264,6 +3265,7 @@ export class PersaiInternalApiClientService {
       profileKey: row.profileKey,
       displayName: row.displayName,
       loginUrl: row.loginUrl,
+      workspaceId: row.workspaceId,
       bridgeClientKind,
       ...(completionMode === undefined ? {} : { completionMode })
     };
@@ -3302,6 +3304,7 @@ export class PersaiInternalApiClientService {
         typeof payload.profileKey === "string" &&
         typeof payload.displayName === "string" &&
         typeof payload.loginUrl === "string" &&
+        typeof payload.workspaceId === "string" &&
         bridgeClientKind !== null &&
         typeof payload.status === "string"
       ) {
@@ -3310,6 +3313,7 @@ export class PersaiInternalApiClientService {
           profileKey: payload.profileKey,
           displayName: payload.displayName,
           loginUrl: payload.loginUrl,
+          workspaceId: payload.workspaceId,
           bridgeClientKind,
           status: payload.status as RuntimeBrowserLoginResult["status"]
         };

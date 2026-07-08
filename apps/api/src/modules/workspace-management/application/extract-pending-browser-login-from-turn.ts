@@ -19,6 +19,7 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
     !isNonEmptyString(candidate.profileKey) ||
     !isNonEmptyString(candidate.displayName) ||
     !isNonEmptyString(candidate.loginUrl) ||
+    !isNonEmptyString(candidate.workspaceId) ||
     (candidate.bridgeClientKind !== "extension" && candidate.bridgeClientKind !== "capacitor")
   ) {
     return null;
@@ -28,6 +29,7 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
     profileKey: candidate.profileKey.trim(),
     displayName: candidate.displayName.trim(),
     loginUrl: candidate.loginUrl.trim(),
+    workspaceId: candidate.workspaceId.trim(),
     bridgeClientKind: candidate.bridgeClientKind,
     ...(candidate.completionMode === "assist" || candidate.completionMode === "login"
       ? { completionMode: candidate.completionMode }
@@ -56,6 +58,7 @@ function parsePendingBrowserLoginFromToolResultContent(
           profileKey: login.profileKey,
           displayName: login.displayName,
           loginUrl: login.loginUrl,
+          workspaceId: login.workspaceId,
           bridgeClientKind: login.bridgeClientKind,
           completionMode: "login"
         });
@@ -73,6 +76,7 @@ function parsePendingBrowserLoginFromToolResultContent(
           profileKey: login.profileKey,
           displayName: login.displayName,
           loginUrl: login.loginUrl,
+          workspaceId: login.workspaceId,
           bridgeClientKind: login.bridgeClientKind,
           completionMode: login.status === "active" ? "assist" : "login"
         });

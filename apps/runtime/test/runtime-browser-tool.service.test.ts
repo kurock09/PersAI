@@ -338,6 +338,7 @@ class FakePersaiInternalApiClientService {
       profileKey: "bitrix-2",
       displayName: input.displayName,
       loginUrl: input.loginUrl,
+      workspaceId: input.workspaceId,
       bridgeClientKind: "extension",
       status: "pending_login"
     };
@@ -541,6 +542,7 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
       profileKey: "bitrix",
       displayName: "Bitrix24",
       loginUrl: "https://example.bitrix24.ru/login",
+      workspaceId: "workspace-1",
       bridgeClientKind: "extension"
     }
   };

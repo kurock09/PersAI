@@ -12,6 +12,7 @@ const pending = {
   profileKey: "bitrix",
   displayName: "Bitrix24",
   loginUrl: "https://example.bitrix24.ru/login",
+  workspaceId: "workspace-1",
   bridgeClientKind: "extension" as const
 };
 

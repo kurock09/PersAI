@@ -12,6 +12,7 @@ export interface PendingBrowserLoginState {
   profileKey: string;
   displayName: string;
   loginUrl: string;
+  workspaceId: string;
   bridgeClientKind: PendingBrowserLoginStateBridgeClientKind;
   completionMode?: PendingBrowserLoginStateCompletionMode;
 }

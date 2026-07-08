@@ -3,6 +3,10 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-09
+
+- **Fix (ADR-140 desktop/mobile bridge login wiring; local, not pushed).** The web login modal now registers the Chrome extension bridge device instead of only checking `persai.bridge.status`, and it also owns a Capacitor bridge client for mobile: register native device, hold the relay WebSocket, and forward commands into `PersaiBrowserBridge.executeCommand`. After bridge connection the modal calls `/open-live`, so the visible browser view receives the target login URL instead of leaving the user on the instruction screen. `PendingBrowserLoginState` now carries `workspaceId` through contract/API/runtime/web parsers because registration needs assistant + workspace identity. Desktop content script catches invalidated extension contexts after extension reload, and Chrome extension icon assets now use the supplied PersAI mobile `P`. Verified extension build/typecheck, focused web bridge tests, and API/runtime/web typechecks.
+
 ## 2026-07-08
 
 - **Fix (dev deploy safety — migration approval bypass follow-up).** Investigated why ADR-140 migrated without a GitHub environment approval: Dev Image Publish only checked `migration_changed` in the current push diff, so follow-up commits after the migration commit (`c18f3b65`, `9c01c85c`) were treated as non-migration and ordinary `pin-dev-values-tag` pinned images. Added a detector guard that compares the target SHA to the currently pinned `api.image.tag` in `values-dev.yaml`; if that cumulative range contains `apps/api/prisma/**` / `schema.prisma`, the migration approval path is forced. Verified the bypass reproduction now reports `migration-path=true`; detector tests and Prettier pass. Cluster truth: `api-migrate` applied `20260708223000_adr140_s5_bridge_profile_columns` successfully before this guard landed.

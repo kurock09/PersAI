@@ -3796,6 +3796,7 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
     typeof row.profileKey !== "string" ||
     typeof row.displayName !== "string" ||
     typeof row.loginUrl !== "string" ||
+    typeof row.workspaceId !== "string" ||
     (row.bridgeClientKind !== "extension" && row.bridgeClientKind !== "capacitor")
   ) {
     return null;
@@ -3809,6 +3810,7 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
     profileKey: row.profileKey,
     displayName: row.displayName,
     loginUrl: row.loginUrl,
+    workspaceId: row.workspaceId,
     bridgeClientKind: row.bridgeClientKind,
     ...(completionMode === undefined ? {} : { completionMode })
   };

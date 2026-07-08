@@ -326,6 +326,7 @@ export class RuntimeBrowserToolService {
       profileKey: login.profileKey,
       displayName: login.displayName,
       loginUrl: login.loginUrl,
+      workspaceId: login.workspaceId,
       bridgeClientKind: login.bridgeClientKind
     };
 

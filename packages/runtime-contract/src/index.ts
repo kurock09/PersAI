@@ -1607,6 +1607,7 @@ export interface PendingBrowserLoginState {
   profileKey: string;
   displayName: string;
   loginUrl: string;
+  workspaceId: string;
   bridgeClientKind: LocalBrowserBridgeDeviceKind;
   /** When "assist", the live view is for captcha/confirmation on an already-active profile — Done dismisses without completing login. */
   completionMode?: "login" | "assist";
@@ -1624,6 +1625,7 @@ export interface RuntimeBrowserLoginResult {
   profileKey: string;
   displayName: string;
   loginUrl: string;
+  workspaceId: string;
   bridgeClientKind: LocalBrowserBridgeDeviceKind;
   status: AssistantBrowserProfileStatus;
 }

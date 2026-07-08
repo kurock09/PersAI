@@ -4,7 +4,10 @@ import { BrowserLoginModal } from "./browser-login-modal";
 
 const completeAssistantBrowserLogin = vi.fn();
 const dismissAssistantBrowserProfileView = vi.fn();
+const openAssistantBrowserProfileView = vi.fn();
 const getExtensionBridgeStatus = vi.fn();
+const registerExtensionBridgeDevice = vi.fn();
+const registerNativeBrowserBridgeDevice = vi.fn();
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -23,11 +26,15 @@ vi.mock("./use-history-back-to-close", () => ({
 vi.mock("../assistant-api-client", () => ({
   completeAssistantBrowserLogin: (...args: unknown[]) => completeAssistantBrowserLogin(...args),
   dismissAssistantBrowserProfileView: (...args: unknown[]) =>
-    dismissAssistantBrowserProfileView(...args)
+    dismissAssistantBrowserProfileView(...args),
+  openAssistantBrowserProfileView: (...args: unknown[]) => openAssistantBrowserProfileView(...args)
 }));
 
 vi.mock("../browser-bridge-client", () => ({
   getExtensionBridgeStatus: (...args: unknown[]) => getExtensionBridgeStatus(...args),
+  registerExtensionBridgeDevice: (...args: unknown[]) => registerExtensionBridgeDevice(...args),
+  registerNativeBrowserBridgeDevice: (...args: unknown[]) =>
+    registerNativeBrowserBridgeDevice(...args),
   isNativeBrowserBridgeShell: () => false,
   PERSAI_BROWSER_BRIDGE_WEB_STORE_URL: null
 }));
@@ -37,6 +44,7 @@ const pendingBrowserLogin = {
   profileKey: "bitrix",
   displayName: "Bitrix24",
   loginUrl: "https://bitrix.example/login",
+  workspaceId: "workspace-1",
   bridgeClientKind: "extension" as const
 };
 
@@ -45,7 +53,10 @@ describe("BrowserLoginModal", () => {
     cleanup();
     completeAssistantBrowserLogin.mockReset();
     dismissAssistantBrowserProfileView.mockReset();
+    openAssistantBrowserProfileView.mockReset();
     getExtensionBridgeStatus.mockReset();
+    registerExtensionBridgeDevice.mockReset();
+    registerNativeBrowserBridgeDevice.mockReset();
   });
 
   it("shows developer-mode install guidance when the desktop extension is unavailable", async () => {
@@ -97,6 +108,7 @@ describe("BrowserLoginModal", () => {
   });
 
   it("keeps Done disabled when the extension is installed but not connected", async () => {
+    registerExtensionBridgeDevice.mockRejectedValue(new Error("registration failed"));
     getExtensionBridgeStatus.mockResolvedValue({
       connected: false,
       desiredConnection: true,

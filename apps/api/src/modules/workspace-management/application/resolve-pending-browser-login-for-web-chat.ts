@@ -28,6 +28,7 @@ export async function resolvePendingBrowserLoginForWebChat(input: {
     profileKey: pendingProfile.profileKey,
     displayName: pendingProfile.displayName,
     loginUrl: pendingProfile.loginUrl,
+    workspaceId: pendingProfile.workspaceId,
     bridgeClientKind,
     completionMode: "login"
   };

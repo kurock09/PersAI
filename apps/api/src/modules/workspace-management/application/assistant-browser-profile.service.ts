@@ -138,6 +138,7 @@ export class AssistantBrowserProfileService {
       profileKey: row.profileKey,
       displayName: row.displayName,
       loginUrl: row.loginUrl,
+      workspaceId: row.workspaceId,
       bridgeClientKind,
       status: row.status
     };
@@ -290,6 +291,7 @@ export class AssistantBrowserProfileService {
       profileKey: row.profileKey,
       displayName: row.displayName,
       loginUrl: row.loginUrl,
+      workspaceId: row.workspaceId,
       bridgeClientKind: this.resolvePendingBridgeClientKind(row.bridgeClientKind),
       status: row.status,
       completionMode
@@ -511,6 +513,7 @@ export class AssistantBrowserProfileService {
       profileKey: row.profileKey,
       displayName: row.displayName,
       loginUrl: row.loginUrl,
+      workspaceId: row.workspaceId,
       bridgeClientKind,
       status: "pending_login"
     };
@@ -519,7 +522,7 @@ export class AssistantBrowserProfileService {
   private toPendingBrowserLoginStateFromRow(
     row: Pick<
       AssistantBrowserProfileRow,
-      "id" | "profileKey" | "displayName" | "loginUrl" | "bridgeClientKind"
+      "id" | "profileKey" | "displayName" | "loginUrl" | "workspaceId" | "bridgeClientKind"
     >
   ): PendingBrowserLoginState | null {
     return {
@@ -527,6 +530,7 @@ export class AssistantBrowserProfileService {
       profileKey: row.profileKey,
       displayName: row.displayName,
       loginUrl: row.loginUrl,
+      workspaceId: row.workspaceId,
       bridgeClientKind: this.resolvePendingBridgeClientKind(row.bridgeClientKind),
       completionMode: "login"
     };
@@ -540,6 +544,7 @@ export class AssistantBrowserProfileService {
       profileKey: row.profileKey,
       displayName: row.displayName,
       loginUrl: row.loginUrl,
+      workspaceId: row.workspaceId,
       bridgeClientKind: row.bridgeClientKind,
       completionMode: "login"
     };

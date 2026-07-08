@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-09 — ADR-140 desktop/mobile bridge login wiring + icon correction
+
+Status: **implemented locally; commit/push pending.**
+
+**Symptom:** Desktop browser login modal detected the unpacked Chrome extension, but the visible window stayed on the PersAI instruction screen instead of navigating to the requested site (Lavka). Mobile showed the same instruction-only state and had no refresh affordance. Reloading the unpacked extension could also leave old PersAI tabs reporting `Extension context invalidated`. The extension icon used the wrong generated asset instead of the PersAI mobile `P`.
+
+**Root cause:** Web only posted `persai.bridge.status` to the extension. That can prove the content script exists, but it never registers a bridge device, stores the device token/WebSocket URL, or connects the relay. Mobile had the same missing JS owner: the native plugin existed in `persai-mobile`, but deployed web never registered a Capacitor bridge device or held the relay WebSocket. As a result API/runtime `open_view` had no live bridge path to deliver the URL command. Registration requires `workspaceId`, but `PendingBrowserLoginState` did not carry it to web. After registration, the modal still did not call `/open-live`, so connected devices still never received the initial navigation command.
+
+**Fix:** Added `workspaceId` to pending browser login contract/API/runtime/web parsers, added web-side `registerExtensionBridgeDevice(...)`, and made the login modal register/reconnect the extension before treating it as connected. Added a web-owned Capacitor bridge client that registers the native mobile device, holds the relay WebSocket, and forwards commands into `PersaiBrowserBridge.executeCommand`. The modal now auto-calls `/open-live` after bridge connection and exposes the refresh action on mobile too. Desktop content script now catches invalidated extension contexts and asks the user to reload the PersAI tab instead of throwing. Replaced Chrome extension icons with the supplied PersAI `P` asset and kept postbuild copying icons into `dist`.
+
+**Verification:** `@persai/browser-extension` build + typecheck, focused web bridge tests, `@persai/api` typecheck, `@persai/runtime` typecheck, `@persai/web` typecheck all pass.
+
+**Next:** reload the unpacked extension from `extensions/persai-browser-extension/dist`, refresh PersAI web/mobile login modal, and re-run desktop + mobile Lavka login acceptance. Then commit/push if the manual flows open Lavka and complete login.
+
+---
+
 ## 2026-07-08 — ADR-140 deploy approval bypass investigation
 
 Status: **cluster checked; detector guard implemented and verified.**

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "@clerk/nextjs";
 import {
@@ -17,12 +17,15 @@ import { cn } from "@/app/lib/utils";
 import {
   completeAssistantBrowserLogin,
   dismissAssistantBrowserProfileView,
+  openAssistantBrowserProfileView,
   type PendingBrowserLoginState
 } from "../assistant-api-client";
 import {
   getExtensionBridgeStatus,
   isNativeBrowserBridgeShell,
   PERSAI_BROWSER_BRIDGE_WEB_STORE_URL,
+  registerExtensionBridgeDevice,
+  registerNativeBrowserBridgeDevice,
   type ExtensionBridgeStatus
 } from "../browser-bridge-client";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
@@ -50,31 +53,103 @@ export function BrowserLoginModal({
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [extensionStatus, setExtensionStatus] = useState<ExtensionBridgeStatus | null>(null);
   const [checkingExtension, setCheckingExtension] = useState(false);
+  const openedViewProfileIdRef = useRef<string | null>(null);
   const completionMode = pendingBrowserLogin?.completionMode ?? "login";
   const bridgeClientKind = pendingBrowserLogin?.bridgeClientKind ?? null;
   const nativeShell = useMemo(() => isNativeBrowserBridgeShell(), []);
   const extensionTarget = bridgeClientKind === "extension" && !nativeShell;
+  const nativeTarget = bridgeClientKind === "capacitor" || nativeShell;
+  const bridgeTarget = extensionTarget || nativeTarget;
   const extensionAvailable = extensionStatus !== null;
   const extensionConnected = extensionStatus?.connected === true;
 
   useHistoryBackToClose(open, onDismiss);
 
+  const openPendingLoginView = useCallback(
+    async (token: string) => {
+      if (
+        completionMode !== "login" ||
+        !assistantId ||
+        !pendingBrowserLogin ||
+        openedViewProfileIdRef.current === pendingBrowserLogin.profileId
+      ) {
+        return;
+      }
+      await openAssistantBrowserProfileView(token, assistantId, pendingBrowserLogin.profileId);
+      openedViewProfileIdRef.current = pendingBrowserLogin.profileId;
+    },
+    [assistantId, completionMode, pendingBrowserLogin]
+  );
+
   const refreshExtensionStatus = useCallback(async () => {
-    if (!extensionTarget) {
+    if (!bridgeTarget) {
       setExtensionStatus(null);
       setCheckingExtension(false);
       return;
     }
     setCheckingExtension(true);
     try {
+      if (nativeTarget) {
+        const token = await getToken();
+        if (!token || !assistantId || !pendingBrowserLogin) {
+          setExtensionStatus(null);
+          return;
+        }
+        const registered = await registerNativeBrowserBridgeDevice({
+          token,
+          assistantId,
+          workspaceId: pendingBrowserLogin.workspaceId
+        });
+        setExtensionStatus(registered);
+        if (registered.connected) {
+          await openPendingLoginView(token).catch(() => undefined);
+        }
+        return;
+      }
       const next = await getExtensionBridgeStatus();
-      setExtensionStatus(next);
+      if (
+        next.connected &&
+        next.assistantId === assistantId &&
+        next.workspaceId === pendingBrowserLogin?.workspaceId
+      ) {
+        setExtensionStatus(next);
+        const token = await getToken();
+        if (token) {
+          await openPendingLoginView(token).catch(() => undefined);
+        }
+        return;
+      }
+      const token = await getToken();
+      if (!token || !assistantId || !pendingBrowserLogin) {
+        setExtensionStatus(next);
+        return;
+      }
+      try {
+        const registered = await registerExtensionBridgeDevice({
+          token,
+          assistantId,
+          workspaceId: pendingBrowserLogin.workspaceId
+        });
+        setExtensionStatus(registered);
+        if (registered.connected) {
+          await openPendingLoginView(token).catch(() => undefined);
+        }
+      } catch {
+        setExtensionStatus(next);
+      }
     } catch {
       setExtensionStatus(null);
     } finally {
       setCheckingExtension(false);
     }
-  }, [extensionTarget]);
+  }, [
+    assistantId,
+    bridgeTarget,
+    getToken,
+    nativeTarget,
+    openPendingLoginView,
+    pendingBrowserLogin
+  ]);
 
   useEffect(() => {
     if (!open) {
@@ -82,11 +157,12 @@ export function BrowserLoginModal({
       setCompleteError(null);
       setExtensionStatus(null);
       setCheckingExtension(false);
+      openedViewProfileIdRef.current = null;
     }
   }, [open, pendingBrowserLogin?.profileId]);
 
   useEffect(() => {
-    if (!open || !extensionTarget) {
+    if (!open || !bridgeTarget) {
       return;
     }
     void refreshExtensionStatus();
@@ -94,7 +170,7 @@ export function BrowserLoginModal({
       void refreshExtensionStatus();
     }, 3_000);
     return () => window.clearInterval(intervalId);
-  }, [extensionTarget, open, refreshExtensionStatus]);
+  }, [bridgeTarget, open, refreshExtensionStatus]);
 
   const closeAssistView = useCallback(async () => {
     if (!pendingBrowserLogin || !assistantId) {
@@ -112,7 +188,7 @@ export function BrowserLoginModal({
       !pendingBrowserLogin ||
       !assistantId ||
       completing ||
-      (extensionTarget && !extensionConnected)
+      (bridgeTarget && !extensionConnected)
     ) {
       return;
     }
@@ -141,7 +217,7 @@ export function BrowserLoginModal({
     completing,
     completionMode,
     extensionConnected,
-    extensionTarget,
+    bridgeTarget,
     getToken,
     onDismiss,
     onCompleted,
@@ -218,7 +294,7 @@ export function BrowserLoginModal({
           <p className="truncate text-xs text-text-muted">{pendingBrowserLogin.loginUrl}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {extensionTarget ? (
+          {bridgeTarget ? (
             <button
               type="button"
               onClick={() => void refreshExtensionStatus()}
@@ -355,7 +431,7 @@ export function BrowserLoginModal({
             <button
               type="button"
               onClick={() => void handleComplete()}
-              disabled={completing || (extensionTarget && !extensionConnected)}
+              disabled={completing || (bridgeTarget && !extensionConnected)}
               data-testid="browser-login-complete"
               className="inline-flex min-h-9 items-center justify-center rounded-lg bg-accent px-4 text-xs font-semibold text-white transition hover:bg-accent-hover disabled:cursor-wait disabled:opacity-60"
             >

@@ -1,15 +1,55 @@
-import type { WebBridgeEnvelope, WebBridgeResponseEnvelope } from "./messages.js";
-
 const BRIDGE_MESSAGE_SOURCE = "persai-browser-extension";
 
-let port: ChromeRuntimePort | null = null;
+type WebBridgeEnvelope = {
+  source: typeof BRIDGE_MESSAGE_SOURCE;
+  requestId: string;
+  payload: unknown;
+};
 
-function ensurePort(): ChromeRuntimePort {
+type WebBridgeResponseEnvelope = {
+  source: typeof BRIDGE_MESSAGE_SOURCE;
+  requestId: string;
+  ok: boolean;
+  result?: unknown;
+  error?: string;
+};
+
+let port: ChromeRuntimePort | null = null;
+let extensionContextAvailable = true;
+
+function hasLiveExtensionContext(): boolean {
+  const runtime = chrome?.runtime as (ChromeRuntimeApi & { id?: string }) | undefined;
+  return typeof runtime?.id === "string";
+}
+
+function buildContextUnavailableResponse(requestId: string): WebBridgeResponseEnvelope {
+  return {
+    source: BRIDGE_MESSAGE_SOURCE,
+    requestId,
+    ok: false,
+    error: "Bridge extension context is unavailable. Reload this PersAI tab after reloading the extension."
+  };
+}
+
+function ensurePort(): ChromeRuntimePort | null {
   if (port !== null) {
     return port;
   }
-  port = chrome.runtime.connect({ name: "persai-page-keepalive" });
+  if (!extensionContextAvailable || !hasLiveExtensionContext()) {
+    extensionContextAvailable = false;
+    return null;
+  }
+  try {
+    port = chrome.runtime.connect({ name: "persai-page-keepalive" });
+  } catch {
+    extensionContextAvailable = false;
+    port = null;
+    return null;
+  }
   port.onDisconnect.addListener(() => {
+    if (!hasLiveExtensionContext()) {
+      extensionContextAvailable = false;
+    }
     port = null;
   });
   port.onMessage.addListener((message) => {
@@ -25,7 +65,17 @@ window.addEventListener("message", (event: MessageEvent<WebBridgeEnvelope>) => {
   if (event.data?.source !== BRIDGE_MESSAGE_SOURCE || typeof event.data.requestId !== "string") {
     return;
   }
-  ensurePort().postMessage(event.data);
+  const nextPort = ensurePort();
+  if (nextPort === null) {
+    window.postMessage(buildContextUnavailableResponse(event.data.requestId), window.location.origin);
+    return;
+  }
+  try {
+    nextPort.postMessage(event.data);
+  } catch {
+    port = null;
+    window.postMessage(buildContextUnavailableResponse(event.data.requestId), window.location.origin);
+  }
 });
 
 ensurePort();

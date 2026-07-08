@@ -12073,6 +12073,7 @@ components:
         - profileKey
         - displayName
         - loginUrl
+        - workspaceId
         - bridgeClientKind
       properties:
         profileId:
@@ -12082,6 +12083,8 @@ components:
         displayName:
           type: string
         loginUrl:
+          type: string
+        workspaceId:
           type: string
         bridgeClientKind:
           type: string
