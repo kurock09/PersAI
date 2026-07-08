@@ -5,6 +5,8 @@
 
 ## 2026-07-08
 
+- **Fix (dev deploy safety — migration approval bypass follow-up).** Investigated why ADR-140 migrated without a GitHub environment approval: Dev Image Publish only checked `migration_changed` in the current push diff, so follow-up commits after the migration commit (`c18f3b65`, `9c01c85c`) were treated as non-migration and ordinary `pin-dev-values-tag` pinned images. Added a detector guard that compares the target SHA to the currently pinned `api.image.tag` in `values-dev.yaml`; if that cumulative range contains `apps/api/prisma/**` / `schema.prisma`, the migration approval path is forced. Verified the bypass reproduction now reports `migration-path=true`; detector tests and Prettier pass. Cluster truth: `api-migrate` applied `20260708223000_adr140_s5_bridge_profile_columns` successfully before this guard landed.
+
 - **Fix (ADR-140 deploy — API clean-install `ws` declarations; push pending).** After the lockfile fix, Dev Image Publish built web/runtime/provider-gateway/sandbox but API and CI `full-checks` failed because clean installs lacked `@types/ws` for the new browser bridge WebSocket server. Added `@types/ws` to `@persai/api` devDependencies and refreshed the lockfile; API frozen install, typecheck, and build pass locally.
 
 - **Fix (ADR-140 deploy — stale lockfile after browser-extension workspace package; push pending).** Dev Image Publish and CI `full-checks` failed on `pnpm install --frozen-lockfile` because `extensions/persai-browser-extension` was added to the workspace without regenerating `pnpm-lock.yaml`. Regenerated lockfile; all five matrix image builds had been failing on the same install step.

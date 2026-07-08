@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-08 — ADR-140 deploy approval bypass investigation
+
+Status: **cluster checked; detector guard implemented and verified.**
+
+**What happened:** Dev Image Publish for follow-up commits `c18f3b65` and `9c01c85c` skipped `pin-approved-migration-values-tag` and ran ordinary `pin-dev-values-tag`. The reason is a workflow bug: `migration_changed` only considered the current push diff (`813d6581..9c01c85c` for the final run), not the cumulative diff from the currently pinned API image SHA to the target SHA. The current push changed only API/package/lock/docs, so `migrationChanged=false`, even though `a34f0cc..9c01c85c` includes `apps/api/prisma/migrations/20260708223000_adr140_s5_bridge_profile_columns/migration.sql` and `schema.prisma`.
+
+**Cluster truth:** Argo synced `ce093525` and ran `api-migrate` with `api:9c01c85c5e5af5048960c820e2b37709e7aa65f5` without GitHub environment approval. The migration succeeded: Prisma applied `20260708223000_adr140_s5_bridge_profile_columns`, `migrate status` reported the database up to date, and `seed:catalog` upserted 24 tools. API/web/runtime/sandbox rolled to `9c01c85c`; provider-gateway was still pulling/rolling when checked.
+
+**Local fix:** `scripts/ci/detect-affected.mjs` now treats push deploys that include API as migration-sensitive when the cumulative diff from `infra/helm/values-dev.yaml`'s currently pinned `api.image.tag` to `HEAD` contains `apps/api/prisma/**` / `schema.prisma`, even if the current push diff itself does not. Reproduced the bypass locally with `--pinned-api-tag a34f0cc...`: `migrationChanged=true`, `migration-path=true`; detector unit tests and Prettier check pass.
+
+**Next:** watch the guard's CI run and keep the manual ADR-140 acceptance matrix as the remaining post-deploy step.
+
+---
+
 ## 2026-07-08 — ADR-140 deploy CI/API build follow-up: ws types
 
 Status: **fix ready locally; commit+push next.**

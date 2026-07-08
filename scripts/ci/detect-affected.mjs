@@ -69,6 +69,7 @@ const eventName = args.event ?? process.env.GITHUB_EVENT_NAME ?? "pull_request";
 const changedFilesOverride = args["changed-files"] ?? "";
 const outputPath = args["github-output"] ?? process.env.GITHUB_OUTPUT ?? "";
 const summaryPath = args["github-step-summary"] ?? process.env.GITHUB_STEP_SUMMARY ?? "";
+const pinnedApiTagOverride = args["pinned-api-tag"] ?? "";
 
 const workspaceProjects = loadWorkspaceProjects();
 const workspaceProjectsById = new Map(workspaceProjects.map((project) => [project.id, project]));
@@ -188,6 +189,14 @@ function detectAffected(changedFiles) {
       const reasons = deployReasons.get(appId) ?? new Set();
       reasons.add(classification.deployReason ?? "direct-change");
       deployReasons.set(appId, reasons);
+    }
+  }
+
+  if (!migrationChanged && eventName === "push" && deployTargetIds.has("api")) {
+    const cumulativeMigrationChanged = detectMigrationChangeSincePinnedApiTag(headRef);
+    if (cumulativeMigrationChanged) {
+      migrationChanged = true;
+      riskReasons.add("schema-or-migration");
     }
   }
 
@@ -631,6 +640,74 @@ function getChangedFiles(base, head, event) {
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+function detectMigrationChangeSincePinnedApiTag(head) {
+  const pinnedApiTag = readPinnedApiImageTag();
+  if (!pinnedApiTag || pinnedApiTag === head || !isGitCommit(pinnedApiTag) || !isGitCommit(head)) {
+    return false;
+  }
+
+  const stdout = execGit([
+    "diff",
+    "--name-only",
+    `${pinnedApiTag}..${head}`,
+    "--",
+    "apps/api/prisma",
+    "apps/api/prisma/schema.prisma"
+  ]);
+  return stdout
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .some(Boolean);
+}
+
+function readPinnedApiImageTag() {
+  if (pinnedApiTagOverride) {
+    return pinnedApiTagOverride;
+  }
+
+  const valuesPath = path.join(repoRoot, "infra", "helm", "values-dev.yaml");
+  if (!existsSync(valuesPath)) {
+    return "";
+  }
+
+  const lines = readFileSync(valuesPath, "utf8").split(/\r?\n/u);
+  let inApi = false;
+  let inApiImage = false;
+  for (const line of lines) {
+    if (/^\S/u.test(line)) {
+      inApi = line.trim() === "api:";
+      inApiImage = false;
+      continue;
+    }
+    if (!inApi) {
+      continue;
+    }
+    if (/^  \S/u.test(line)) {
+      inApiImage = line.trim() === "image:";
+      continue;
+    }
+    if (inApiImage) {
+      const tagMatch = line.match(/^    tag:\s*["']?([^"'\s]+)["']?\s*$/u);
+      if (tagMatch) {
+        return tagMatch[1] ?? "";
+      }
+    }
+  }
+  return "";
+}
+
+function isGitCommit(ref) {
+  if (!ref) {
+    return false;
+  }
+  try {
+    execGit(["rev-parse", "--verify", `${ref}^{commit}`]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseChangedFiles(raw) {
