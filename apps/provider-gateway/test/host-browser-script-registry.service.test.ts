@@ -9,7 +9,7 @@ export async function runHostBrowserScriptRegistryServiceTest(): Promise<void> {
   const lavkaScript = registry.resolveScriptSourceForHostname("lavka.yandex.ru");
   assert.ok(typeof lavkaScript === "string" && lavkaScript.length > 0);
   assert.match(lavkaScript, /product-card/);
-  assert.match(lavkaScript, /return \{ elements \}/);
+  assert.match(lavkaScript, /return JSON\.stringify\(\{ elements \}\)/);
 
   const fromUrl = registry.resolveScriptSourceForUrl("https://lavka.yandex.ru/search?text=test");
   assert.equal(fromUrl, lavkaScript);

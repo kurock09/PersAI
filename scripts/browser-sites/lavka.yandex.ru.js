@@ -157,5 +157,5 @@
     });
   }
 
-  return { elements };
+  return JSON.stringify({ elements });
 })();

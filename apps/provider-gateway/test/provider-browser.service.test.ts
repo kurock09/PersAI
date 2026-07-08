@@ -735,6 +735,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.doesNotMatch(persistentBody.query ?? "", /waitUntil: networkIdle/);
     assert.match(persistentBody.query ?? "", /settleAfterGoto: waitForTimeout\(time: 3000\)/);
     assert.match(persistentBody.query ?? "", /pageText: text \{ text \}/);
+    assert.match(persistentBody.query ?? "", /domReadyBeforeRead: evaluate/);
     assert.match(persistentBody.query ?? "", /pageElements: evaluate/);
     // Element extraction must rank by visibility before applying the top-N
     // cap — plain document order buries catalog/product content behind
@@ -1430,8 +1431,11 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     });
     const stayOnPageBqlBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
       query?: string;
+      variables?: Record<string, unknown>;
     };
     assert.doesNotMatch(stayOnPageBqlBody.query ?? "", /goto\(url: \$url/);
+    assert.doesNotMatch(stayOnPageBqlBody.query ?? "", /\$url: String!/);
+    assert.equal(stayOnPageBqlBody.variables?.url, undefined);
     assert.match(stayOnPageBqlBody.query ?? "", /op_0:/);
 
     const svc = service as unknown as {

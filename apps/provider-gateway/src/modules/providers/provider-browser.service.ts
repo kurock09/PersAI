@@ -289,6 +289,14 @@ export default async ({ page, context }) => {
     try {
       const hostPayload = await page.evaluate((script) => {
         const result = eval(script);
+        if (typeof result === "string") {
+          try {
+            const parsed = JSON.parse(result);
+            return parsed && typeof parsed === "object" ? parsed : null;
+          } catch {
+            return null;
+          }
+        }
         return result && typeof result === "object" ? result : null;
       }, hostPageScript);
       if (
@@ -620,6 +628,46 @@ export default async ({ page, context }) => {
       result.operationWarning = "Browser operation warnings: " + operationWarnings.join("; ");
     }
 
+    const waitForDomReadyBeforeRead = async () => {
+      try {
+        await page.waitForFunction(
+          () => {
+            const readyState = document.readyState;
+            if (readyState === "loading") {
+              return false;
+            }
+            const body = document.body;
+            const text =
+              body && typeof body.innerText === "string"
+                ? body.innerText.replace(/\\s+/g, " ").trim()
+                : "";
+            if (text.length >= 40) {
+              return true;
+            }
+            let visibleControls = 0;
+            for (const element of document.querySelectorAll(
+              'a, button, input, textarea, select, [role="button"], [data-testid]'
+            )) {
+              if (element.getClientRects().length === 0) {
+                continue;
+              }
+              const style = window.getComputedStyle(element);
+              if (style.visibility === "hidden" || style.display === "none") {
+                continue;
+              }
+              visibleControls += 1;
+              if (visibleControls >= 2) {
+                return true;
+              }
+            }
+            return readyState === "complete" && text.length > 0;
+          },
+          { timeout: ${String(MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS)}, polling: 200 }
+        );
+      } catch {}
+    };
+
+    await waitForDomReadyBeforeRead();
     result.finalUrl = page.url();
     result.title = await page.title();
 
@@ -798,6 +846,54 @@ const BROWSERLESS_INTERACTIVE_ELEMENTS_EVALUATE_SCRIPT =
   ).filter((row) => typeof row.entry.selector === "string" && row.entry.selector.length > 0);
 
   return JSON.stringify(takeRankedInteractiveEntries(rows, ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)}));
+})()
+`;
+
+const BROWSER_DOM_READY_EVALUATE_SCRIPT = String.raw`
+(() => {
+  const maxMs = ${String(MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS)};
+  const pollMs = 200;
+  const minTextLen = 40;
+  const start = Date.now();
+  const isVisible = (element) => {
+    if (!element || element.getClientRects().length === 0) {
+      return false;
+    }
+    const style = window.getComputedStyle(element);
+    return style.visibility !== "hidden" && style.display !== "none";
+  };
+  const isReady = () => {
+    const readyState = document.readyState;
+    if (readyState === "loading") {
+      return false;
+    }
+    const body = document.body;
+    const text =
+      body && typeof body.innerText === "string"
+        ? body.innerText.replace(/\\s+/g, " ").trim()
+        : "";
+    if (text.length >= minTextLen) {
+      return true;
+    }
+    let visibleControls = 0;
+    for (const element of document.querySelectorAll(
+      'a, button, input, textarea, select, [role="button"], [data-testid]'
+    )) {
+      if (!isVisible(element)) {
+        continue;
+      }
+      visibleControls += 1;
+      if (visibleControls >= 2) {
+        return true;
+      }
+    }
+    return readyState === "complete" && text.length > 0;
+  };
+  while (!isReady() && Date.now() - start < maxMs) {
+    const until = Date.now() + pollMs;
+    while (Date.now() < until) {}
+  }
+  return JSON.stringify({ ready: isReady(), waitedMs: Date.now() - start });
 })()
 `;
 
@@ -1018,7 +1114,10 @@ export class ProviderBrowserService {
       const path = pathParts.join(".");
       const formatted = path.length > 0 ? `${path}: ${message}` : message;
       const firstPathPart = pathParts[0] ?? "";
-      if (/^(op_\d+(_clear)?|extract_\d+)$/.test(firstPathPart)) {
+      if (
+        /^(op_\d+(_clear)?|extract_\d+|hostPageElements)$/.test(firstPathPart) ||
+        firstPathPart === "domReadyBeforeRead"
+      ) {
         operationWarnings.push(formatted);
         continue;
       }
@@ -1035,6 +1134,16 @@ export class ProviderBrowserService {
       return null;
     }
     return `Browserless BQL operation warnings: ${warnings.join("; ")}`;
+  }
+
+  private appendDomReadyBeforePageReadMutation(
+    varDefs: string[],
+    parts: string[],
+    vars: Record<string, unknown>
+  ): void {
+    varDefs.push("$domReadyScript: String!");
+    vars.domReadyScript = BROWSER_DOM_READY_EVALUATE_SCRIPT;
+    parts.push(`domReadyBeforeRead: evaluate(content: $domReadyScript) { value }`);
   }
 
   /**
@@ -1075,9 +1184,9 @@ export class ProviderBrowserService {
     const waitUntil = "domContentLoaded";
     const settleAfterGotoMs = normalized.optimizeForSpeed ? 0 : 3000;
 
-    const varDefs: string[] = ["$url: String!"];
+    const varDefs: string[] = [];
     const parts: string[] = [];
-    const vars: Record<string, unknown> = { url: normalized.url };
+    const vars: Record<string, unknown> = {};
     const shouldExtractTextPageData = normalized.format === "text";
     const capabilityPolicy = normalized.capabilityPolicy;
     if (capabilityPolicy === null) {
@@ -1100,6 +1209,8 @@ export class ProviderBrowserService {
     }
 
     if (!normalized.stayOnPage) {
+      varDefs.push("$url: String!");
+      vars.url = normalized.url;
       parts.push(
         `goto(url: $url, waitUntil: ${waitUntil}, timeout: ${String(normalized.timeoutMs)}) { status }`
       );
@@ -1227,6 +1338,7 @@ export class ProviderBrowserService {
       }
     });
 
+    this.appendDomReadyBeforePageReadMutation(varDefs, parts, vars);
     parts.push(`pageTitle: title { title }`);
     parts.push(`pageUrl: url { url }`);
 
@@ -1262,7 +1374,8 @@ export class ProviderBrowserService {
       }
     }
 
-    const query = `mutation BrowserAction(${varDefs.join(", ")}) {\n  ${parts.join("\n  ")}\n}`;
+    const varSignature = varDefs.length > 0 ? `(${varDefs.join(", ")})` : "";
+    const query = `mutation BrowserAction${varSignature} {\n  ${parts.join("\n  ")}\n}`;
     // `debug` is filtered out under this cluster's default LOG_LEVEL=info
     // (ADR-139 D12 — the original D10 debug line never actually appeared in
     // `kubectl logs` for any live test), so this per-call summary uses `log`

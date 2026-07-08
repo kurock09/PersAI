@@ -1,25 +1,25 @@
 # SESSION-HANDOFF
 
-## 2026-07-08 — ADR-139 host-script hook + online-store shopping skill (local, not pushed)
+## 2026-07-08 — ADR-139 browser 502 fixes: host-script stringify + stayOnPage + DOM-wait (push pending)
 
-Status: **implemented locally, not pushed.**
+Status: **implemented locally, push pending.**
 
-**Baseline SHA:** `28bdd552` on `main` (ADR-139 D14 act chain).
+**Root cause from cluster logs (`kubectl logs deployment/provider-gateway`):**
 
-**Task scope:** (A) extensible per-host browser scripts wired into `page.elements` in provider-gateway (function + BQL); (B) MCP skill «Покупки в интернет-магазинах» + KB + scenario `lavka` — no product hardcoding in repo.
+1. **`hostPageElements` fatal** — `String cannot represent value: { elements: [...] }`. `lavka.yandex.ru.js` returned a JS object; BQL `evaluate { value }` requires a string. Every Lavka text `snapshot`/`act` → 502.
+2. **`stayOnPage` + unused `$url`** — `Variable "$url" is never used in operation "BrowserAction"` on `act` with `stayOnPage:true` (deployed image `a34f0cc9` still had this bug).
 
-**What changed:**
+**Fixes:** `JSON.stringify({ elements })` in lavka host script; ephemeral path parses JSON string; `hostPageElements` BQL errors → warning + generic fallback; `stayOnPage` omits `$url`/`goto`; DOM-ready poll max 10s before page read; catalog ADR-117 «engaged scenarios».
 
-- **scripts/browser-sites/:** `registry.json` + `lavka.yandex.ru.js` returns card-scoped `elements[]` (product-card add/remove, search, cart sidebar, catalog nav).
-- **provider-gateway:** `HostBrowserScriptRegistryService` loads registry by hostname/goto URL; ephemeral `/function` passes `hostPageScript` in context + `applyHostPageElements`; persistent BQL adds `hostPageElements: evaluate(...)`; host elements replace generic when non-empty.
-- **api:** universal e-commerce gotcha in browser catalog (stayOnPage, wait_for_selector, matchIndex; host flows in skill/scenarios).
-- **MCP (dev):** skill `d985af7d-dfa8-4281-8daa-a1cc3ce15564` «Покупки в интернет-магазинах», KB card «Browser: правила покупок в магазинах», scenario `lavka` (7 steps, consent before checkout); assigned to operator assistant.
+**Verification (PASS):** `seed-tool-catalog.test.ts`, `provider-browser.service.test.ts`, `host-browser-script-registry.service.test.ts`.
 
-**Verification (PASS):** `@persai/provider-gateway` full test suite (registry + lavka host-script wiring tests).
+## 2026-07-08 — ADR-139 host-script hook + online-store shopping skill (pushed `a34f0cc9`)
 
-**Risks/residuals:** host scripts only for `lavka.yandex.ru` in registry; market/wb/ozon scenarios not yet created; KB card indexing pending; deploy required for hook to run in cluster.
+Status: **pushed** (`a34f0cc9` on `main`; CI failed on pre-existing catalog `skill` wording — fixed in follow-up commit above).
 
-**Next recommended step:** push + deploy `provider-gateway` (+ `api` for catalog gotcha); live-validate Lavka search `page.elements` shows card-scoped add buttons; smoke skill scenario `lavka` end-to-end.
+**What changed:** `scripts/browser-sites/` registry + `HostBrowserScriptRegistryService`; `lavka.yandex.ru.js` card-scoped `page.elements`; universal e-commerce gotcha in browser catalog. MCP skill «Покупки в интернет-магазинах» (`d985af7d-dfa8-4281-8daa-a1cc3ce15564`) + KB + scenario `lavka` in dev.
+
+**Next recommended step:** deploy `provider-gateway`; live-validate Lavka host-script `page.elements`.
 
 ## 2026-07-08 — ADR-139 browser act chain: goto/extract/hover, stayOnPage, generic elements
 
