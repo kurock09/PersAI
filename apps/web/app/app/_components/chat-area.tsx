@@ -533,6 +533,10 @@ export function ChatArea({
   );
 
   const showBrowserLoginChip = chat.pendingBrowserLogin !== null && !chat.browserLoginModalOpen;
+  const browserLoginChipHintKey =
+    chat.pendingBrowserLogin?.completionMode === "assist"
+      ? "browserLoginAssistContinueHint"
+      : "browserLoginContinueHint";
 
   return (
     <div className="relative flex h-full flex-col">
@@ -1027,9 +1031,7 @@ export function ChatArea({
               <p className="truncate text-xs font-semibold text-text">
                 {chat.pendingBrowserLogin?.displayName}
               </p>
-              <p className="truncate text-[11px] text-text-muted">
-                {t("browserLoginContinueHint")}
-              </p>
+              <p className="truncate text-[11px] text-text-muted">{t(browserLoginChipHintKey)}</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <button

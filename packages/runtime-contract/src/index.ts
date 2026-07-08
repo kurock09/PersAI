@@ -1554,7 +1554,7 @@ export interface RuntimeWorkerToolsConfig {
   tools: RuntimeWorkerToolConfig[];
 }
 
-export const PERSAI_RUNTIME_BROWSER_PROVIDER_IDS = ["browserless"] as const;
+export const PERSAI_RUNTIME_BROWSER_PROVIDER_IDS = ["browserless", "local_bridge"] as const;
 
 export type PersaiRuntimeBrowserProviderId = (typeof PERSAI_RUNTIME_BROWSER_PROVIDER_IDS)[number];
 
@@ -1598,44 +1598,16 @@ export const PERSAI_RUNTIME_BROWSER_PROFILE_ERROR_REASONS = [
 export type PersaiRuntimeBrowserProfileErrorReason =
   (typeof PERSAI_RUNTIME_BROWSER_PROFILE_ERROR_REASONS)[number];
 
-export const PERSISTENT_BROWSER_CAPABILITY_PROXY_MODES = ["sticky_residential"] as const;
+export const LOCAL_BROWSER_BRIDGE_DEVICE_KINDS = ["extension", "capacitor"] as const;
 
-export type PersistentBrowserCapabilityProxyMode =
-  (typeof PERSISTENT_BROWSER_CAPABILITY_PROXY_MODES)[number];
-
-export const PERSISTENT_BROWSER_CAPABILITY_PROXY_PROVIDERS = [
-  "browserless_builtin",
-  "external"
-] as const;
-
-export type PersistentBrowserCapabilityProxyProvider =
-  (typeof PERSISTENT_BROWSER_CAPABILITY_PROXY_PROVIDERS)[number];
-
-export interface PersistentBrowserProfileIdentity {
-  assistantId: string;
-  profileKey: string;
-}
-
-export interface PersistentBrowserCapabilityProxyPolicy {
-  mode: PersistentBrowserCapabilityProxyMode;
-  provider: PersistentBrowserCapabilityProxyProvider;
-  /** Reserved typed slot for a later external `proxy.server` override. */
-  server: string | null;
-}
-
-export interface PersistentBrowserCapabilityPolicy {
-  scope: "persistent_profile";
-  profileIdentity: PersistentBrowserProfileIdentity;
-  stealth: boolean;
-  proxy: PersistentBrowserCapabilityProxyPolicy | null;
-}
+export type LocalBrowserBridgeDeviceKind = (typeof LOCAL_BROWSER_BRIDGE_DEVICE_KINDS)[number];
 
 export interface PendingBrowserLoginState {
   profileId: string;
   profileKey: string;
   displayName: string;
-  liveUrl: string;
   loginUrl: string;
+  bridgeClientKind: LocalBrowserBridgeDeviceKind;
   /** When "assist", the live view is for captcha/confirmation on an already-active profile — Done dismisses without completing login. */
   completionMode?: "login" | "assist";
 }
@@ -1651,8 +1623,8 @@ export interface RuntimeBrowserProfileListItem {
 export interface RuntimeBrowserLoginResult {
   profileKey: string;
   displayName: string;
-  liveUrl: string;
   loginUrl: string;
+  bridgeClientKind: LocalBrowserBridgeDeviceKind;
   status: AssistantBrowserProfileStatus;
 }
 
@@ -1858,6 +1830,48 @@ export interface RuntimeBrowserToolResult extends RuntimeBrowserResult {
   profiles?: RuntimeBrowserProfileListItem[] | null;
   login?: RuntimeBrowserLoginResult | null;
   pendingBrowserLogin?: PendingBrowserLoginState | null;
+}
+
+export const LOCAL_BROWSER_COMMAND_ACTIONS = [
+  "navigate",
+  "snapshot",
+  "act",
+  "open_view",
+  "close_view"
+] as const;
+
+export type LocalBrowserCommandAction = (typeof LOCAL_BROWSER_COMMAND_ACTIONS)[number];
+
+export interface LocalBrowserCommand {
+  commandId: string;
+  profileKey: string;
+  action: LocalBrowserCommandAction;
+  url?: string | null;
+  stayOnPage?: boolean | null;
+  operations?: RuntimeBrowserOperation[] | null;
+  format?: PersaiRuntimeBrowserSnapshotFormat | null;
+  optimizeForSpeed?: boolean | null;
+  timeoutMs?: number | null;
+  showWindow?: boolean | null;
+}
+
+export interface LocalBrowserArtifact {
+  mimeType: string;
+  base64: string;
+}
+
+export interface LocalBrowserResult {
+  commandId: string;
+  ok: boolean;
+  finalUrl?: string | null;
+  title?: string | null;
+  content?: string | null;
+  truncated?: boolean | null;
+  elements?: RuntimeBrowserInteractiveElement[] | null;
+  extracted?: RuntimeBrowserExtractedItem[] | null;
+  warning?: string | null;
+  artifact?: LocalBrowserArtifact | null;
+  errorReason?: string | null;
 }
 
 export const PERSAI_RUNTIME_IMAGE_GENERATE_PROVIDER_IDS = ["openai"] as const;
@@ -4044,8 +4058,6 @@ export interface ProviderGatewayBrowserActionRequest {
   maxChars: number | null;
   operations: RuntimeBrowserOperation[];
   timeoutMs: number | null;
-  profileSessionId?: string | null;
-  capabilityPolicy?: PersistentBrowserCapabilityPolicy | null;
   displayName?: string | null;
   format?: PersaiRuntimeBrowserSnapshotFormat | null;
   optimizeForSpeed?: boolean | null;
@@ -4083,61 +4095,49 @@ export interface ProviderGatewayBrowserActionResult {
   billingFacts?: RuntimeBillingFacts | null;
 }
 
-export interface ProviderGatewayBrowserSessionStartLoginRequest {
-  loginUrl: string;
-  timeoutMs: number | null;
-  reconnectTimeoutMs: number | null;
-  capabilityPolicy: PersistentBrowserCapabilityPolicy;
-  credential: {
-    toolCode: "browser";
-    secretId: string;
-    providerId: PersaiRuntimeBrowserProviderId | null;
-  };
+export interface LocalBrowserBridgeDeviceRegisterRequest {
+  assistantId: string;
+  workspaceId: string;
+  deviceKind: LocalBrowserBridgeDeviceKind;
+  deviceLabel?: string | null;
+  clientVersion?: string | null;
 }
 
-export interface ProviderGatewayBrowserSessionStartLoginResult {
-  /** Browserless persistent-session id path (`/session/{id}` or `/e/{cloudEndpointId}/session/{id}`). */
-  providerSessionId: string;
-  liveUrl: string;
+export interface LocalBrowserBridgeDeviceRegisterResult {
+  bridgeDeviceId: string;
+  deviceKind: LocalBrowserBridgeDeviceKind;
+  deviceToken: string;
+  websocketUrl: string;
 }
 
-export interface ProviderGatewayBrowserSessionDeleteRequest {
-  providerSessionId: string;
-  credential: {
-    toolCode: "browser";
-    secretId: string;
-    providerId: PersaiRuntimeBrowserProviderId | null;
-  };
+export interface LocalBrowserBridgeWebSocketConnectRequest {
+  assistantId: string;
+  workspaceId: string;
+  bridgeDeviceId: string;
+  deviceKind: LocalBrowserBridgeDeviceKind;
+  deviceToken: string;
 }
 
-export interface ProviderGatewayBrowserSessionVerifyRequest {
-  providerSessionId: string;
-  capabilityPolicy: PersistentBrowserCapabilityPolicy;
-  credential: {
-    toolCode: "browser";
-    secretId: string;
-    providerId: PersaiRuntimeBrowserProviderId | null;
-  };
+export interface LocalBrowserBridgeDispatchCommandRequest {
+  assistantId: string;
+  workspaceId: string;
+  bridgeDeviceId?: string | null;
+  command: LocalBrowserCommand;
 }
 
-export interface ProviderGatewayBrowserSessionVerifyResult {
-  ok: true;
+export interface LocalBrowserBridgeDispatchCommandResult {
+  accepted: boolean;
+  commandId: string;
+  bridgeDeviceId: string;
 }
 
-export interface ProviderGatewayBrowserSessionOpenLiveRequest {
-  providerSessionId: string;
-  targetUrl: string;
-  timeoutMs: number | null;
-  capabilityPolicy: PersistentBrowserCapabilityPolicy;
-  credential: {
-    toolCode: "browser";
-    secretId: string;
-    providerId: PersaiRuntimeBrowserProviderId | null;
-  };
+export interface LocalBrowserBridgeGetCommandResultRequest {
+  commandId: string;
 }
 
-export interface ProviderGatewayBrowserSessionOpenLiveResult {
-  liveUrl: string;
+export interface LocalBrowserBridgeGetCommandResultResult {
+  status: "pending" | "completed";
+  result?: LocalBrowserResult | null;
 }
 
 export interface ProviderGatewayTextDeltaEvent {

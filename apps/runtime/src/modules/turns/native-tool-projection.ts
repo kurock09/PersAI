@@ -839,11 +839,11 @@ function createBrowserToolDefinition(
           type: "string",
           enum: ["describe", ...bundle.runtime.browser.actions],
           description:
-            'Use "describe" to load the full tool contract. Use "list_profiles" first. If a saved profile already exists for the target site, never call "login" again — use "open_live" with that profileKey (captcha, confirmation, or re-auth) or "snapshot"/"act" when the profile is active. Call "login" only when "list_profiles" shows no profile for that site origin. "login" reopens the same site profile when one already exists, but repeated "login" still wastes Browserless concurrency slots while the live window is unavailable. "snapshot" inspects a page; "act" performs bounded browser operations and returns fresh page text plus page.elements (and page.extracted when extract ops ran). For saved profiles, stealth/proxy policy is platform-owned, not a model argument. Profile-backed calls are serialized per session by the platform — do not issue parallel snapshot/act calls for the same profile; chain steps into one act or wait for the previous call to finish instead of retrying immediately after a transport failure. Profile-backed text snapshots and acts may return page.elements with up to ' +
+            'Use "describe" to load the full tool contract. Use "list_profiles" first. If a saved profile already exists for the target site, never call "login" again — use "open_live" with that profileKey when the user must solve a captcha, confirm an action, or re-authenticate in the local browser, or use "snapshot"/"act" when background browser state is enough. Call "login" only when "list_profiles" shows no profile for that site origin. A completed login usually lasts on that device until the site expires cookies. Runtime chooses the backend: saved-profile work uses the local browser bridge, while public no-profile snapshot/pdf/screenshot requests may use a headless backend. Do not choose or narrate the backend yourself. Profile-backed work usually runs in a hidden device window; "open_live" is the boundary for visible user help. "snapshot" inspects a page; "act" performs bounded browser operations and returns fresh page text plus page.elements (and page.extracted when extract ops ran). Profile-backed text snapshots and acts may return page.elements with up to ' +
             String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS) +
             " currently-visible interactive controls and reusable CSS selectors; duplicate selectors may include matchIndex — pass the same matchIndex on follow-up acts. Prefer those selectors on follow-up acts instead of a separate snapshot after every step. When selectors fail or are missing, use the vision fallback: png snapshot at the fixed " +
             browserViewportLabel +
-            ' viewport, then files({action:"preview", path:"<workspace path from the screenshot result>"}) to read the target control center in that image, then act with kind="click_at" using those viewport x,y integers — do not guess coordinates from text layout. If act returns per-operation warnings, continue from the observed page state/elements and speak from structured runtime/API reason codes for re-auth or expiry. Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to that state.'
+            ' viewport, then files({action:"preview", path:"<workspace path from the screenshot result>"}) to read the target control center in that image, then act with kind="click_at" using those viewport x,y integers — do not guess coordinates from text layout. If act returns per-operation warnings, continue from the observed page state/elements and speak from structured runtime/API reason codes. If runtime returns bridge_unavailable or open_in_app, tell the user to continue in PersAI web/app where the local browser bridge is available. Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to that state.'
         },
         url: {
           type: "string",
@@ -853,12 +853,12 @@ function createBrowserToolDefinition(
         displayName: {
           type: "string",
           description:
-            'Human-readable profile label chosen by the assistant. Required for action="login". On ordinary web chat, the product owns the login/re-auth UI; do not promise or paste Browserless live login URLs in chat.'
+            'Human-readable profile label chosen by the assistant. Required for action="login". The product owns the local-browser login/re-auth UI; do not promise raw URLs, background details, or a model-chosen backend in chat.'
         },
         profile: {
           type: "string",
           description:
-            'Stable profileKey from "login" or "list_profiles". Required for "open_live". Optional for "snapshot" and "act" to reuse a saved session. When a text snapshot exposes page.elements, prefer those selectors for follow-up act calls instead of guessing.'
+            'Stable profileKey from "login" or "list_profiles". Required for "open_live". Optional for "snapshot" and "act" to reuse a saved session. Profile-backed snapshot/act usually runs in a hidden local browser window on the user\'s device. When a text snapshot exposes page.elements, prefer those selectors for follow-up act calls instead of guessing.'
         },
         format: {
           type: "string",
@@ -897,7 +897,7 @@ function createBrowserToolDefinition(
         operations: {
           type: "array",
           maxItems: MAX_RUNTIME_BROWSER_OPERATIONS,
-          description: `Required for action="act". Steps run in order within this single call (up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)}) — chain a full interaction instead of issuing one act per step. act returns page.elements (and page.extracted after kind="extract"); do not snapshot again just to re-read selectors from the previous act. Prefer CSS selectors copied from the latest page.elements; when matchIndex is present, pass it on click/type/hover/wait ops. kind="goto" navigates mid-chain; kind="hover" reveals hover-only controls; kind="extract" returns structured matches in page.extracted (up to ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)} items per extract op). Vision fallback when selectors fail: (1) snapshot with format:"png" (viewport ${browserViewportLabel}; avoid fullPage:true unless you will remap coordinates), (2) files({action:"preview", path:"<workspace path from screenshot result>"}) to determine the target control center in that image, (3) kind:"click_at" with those viewport x,y integers in the same or next act. When a step opens new content, insert kind="wait_for_selector" for a selector on that new content directly after it, then continue the chain — do not stop the chain and take a separate snapshot just to re-check for a selector you can wait for instead. For saved profiles, stay selector-based and do not use kind="press" — persistent Browserless sessions reject keyboard-press operations. If a list or grid looks empty right after navigation, use kind="scroll" before re-reading content — many sites only populate cards once scrolled into view.`,
+          description: `Required for action="act". Steps run in order within this single call (up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)}) — chain a full interaction instead of issuing one act per step. act returns page.elements (and page.extracted after kind="extract"); do not snapshot again just to re-read selectors from the previous act. Prefer CSS selectors copied from the latest page.elements; when matchIndex is present, pass it on click/type/hover/wait ops. kind="goto" navigates mid-chain; kind="hover" reveals hover-only controls; kind="extract" returns structured matches in page.extracted (up to ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)} items per extract op). Vision fallback when selectors fail: (1) snapshot with format:"png" (viewport ${browserViewportLabel}; avoid fullPage:true unless you will remap coordinates), (2) files({action:"preview", path:"<workspace path from screenshot result>"}) to determine the target control center in that image, (3) kind:"click_at" with those viewport x,y integers in the same or next act. When a step opens new content, insert kind="wait_for_selector" for a selector on that new content directly after it, then continue the chain — do not stop the chain and take a separate snapshot just to re-check for a selector you can wait for instead. If runtime returns needs_user_action, switch to open_live so the user can continue in the visible browser view. If a list or grid looks empty right after navigation, use kind="scroll" before re-reading content — many sites only populate cards once scrolled into view.`,
           items: {
             type: "object",
             additionalProperties: false,
@@ -946,8 +946,7 @@ function createBrowserToolDefinition(
               },
               key: {
                 type: "string",
-                description:
-                  'Keyboard key to press when kind="press", for example "Enter". Do not use kind="press" when profile is set; persistent Browserless sessions reject it.'
+                description: 'Keyboard key to press when kind="press", for example "Enter".'
               },
               value: {
                 type: "string",

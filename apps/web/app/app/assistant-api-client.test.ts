@@ -784,8 +784,8 @@ describe("streamAssistantWebChatTurn", () => {
       profileId: "profile-1",
       profileKey: "bitrix",
       displayName: "Bitrix24",
-      liveUrl: "https://browserless.example/live/bitrix",
-      loginUrl: "https://example.bitrix24.ru/login"
+      loginUrl: "https://example.bitrix24.ru/login",
+      bridgeClientKind: "extension"
     };
     global.fetch = vi
       .fn()

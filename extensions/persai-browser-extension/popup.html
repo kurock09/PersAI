@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PersAI Browser Bridge</title>
+    <style>
+      body {
+        margin: 0;
+        min-width: 280px;
+        font: 13px/1.4 Arial, sans-serif;
+        color: #111827;
+        background: #f9fafb;
+      }
+
+      main {
+        padding: 14px;
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 15px;
+      }
+
+      p {
+        margin: 0 0 10px;
+      }
+
+      .muted {
+        color: #4b5563;
+      }
+
+      .status {
+        margin: 10px 0;
+        padding: 10px;
+        border-radius: 8px;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+      }
+
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 8px 10px;
+        background: #111827;
+        color: #ffffff;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        cursor: default;
+        opacity: 0.55;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>PersAI Browser Bridge</h1>
+      <p class="muted">Keep a PersAI tab open while the bridge is connected. Closing the browser stops background bridge work.</p>
+      <div class="status" id="status">Loading bridge status…</div>
+      <button id="refresh" type="button">Refresh status</button>
+    </main>
+    <script type="module" src="./popup.js"></script>
+  </body>
+</html>

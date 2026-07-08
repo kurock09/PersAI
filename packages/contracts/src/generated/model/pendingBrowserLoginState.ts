@@ -4,11 +4,14 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { PendingBrowserLoginStateBridgeClientKind } from "./pendingBrowserLoginStateBridgeClientKind";
+import type { PendingBrowserLoginStateCompletionMode } from "./pendingBrowserLoginStateCompletionMode";
 
 export interface PendingBrowserLoginState {
   profileId: string;
   profileKey: string;
   displayName: string;
-  liveUrl: string;
   loginUrl: string;
+  bridgeClientKind: PendingBrowserLoginStateBridgeClientKind;
+  completionMode?: PendingBrowserLoginStateCompletionMode;
 }

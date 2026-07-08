@@ -33,7 +33,7 @@ import {
   applyFinalDeliveryHonestyCorrection,
   resolveUndeliveredArtifactKind
 } from "./final-delivery-honesty";
-import { appendTelegramBrowserLoginLink } from "./extract-pending-browser-login-from-turn";
+import { appendTelegramBrowserOpenInAppNotice } from "./extract-pending-browser-login-from-turn";
 import { NotificationDeliveryWorkerService } from "./notifications/notification-delivery-worker.service";
 import { TelegramAlbumCollectorService } from "./telegram-album-collector.service";
 import { ResolveAssistantInboundRuntimeContextService } from "./resolve-assistant-inbound-runtime-context.service";
@@ -1059,7 +1059,7 @@ export class TelegramChannelAdapterService {
         };
       }
       if (turnResult.pendingBrowserLogin !== null && turnResult.pendingBrowserLogin !== undefined) {
-        const loginLinkedMessage = appendTelegramBrowserLoginLink(
+        const loginLinkedMessage = appendTelegramBrowserOpenInAppNotice(
           config.locale,
           outboundTurnResult.assistantMessage,
           turnResult.pendingBrowserLogin

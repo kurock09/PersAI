@@ -105,14 +105,13 @@ import {
   type WorkspaceVideoClonedVoiceDto,
   deleteAssistantBrowserProfile,
   listAssistantBrowserProfiles,
-  openAssistantBrowserProfileLive,
+  openAssistantBrowserProfileView,
   reconnectAssistantBrowserProfile,
   type AssistantBrowserProfileListItem,
   type PendingBrowserLoginState
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
 import { BrowserLoginModal } from "./browser-login-modal";
-import { withWebBrowserLoginLiveProxy } from "../browser-login-live-url";
 import { VoicePreviewButton } from "../../_components/voice-preview-button";
 import { AssistantSupportSection } from "./assistant-support-section";
 import { userFieldClassName, userPillButtonClassName } from "./form-ui";
@@ -2081,12 +2080,10 @@ export function AssistantSettings({
       if (!token) return;
       setBrowserProfilesActionId(profile.id);
       try {
-        const pending = withWebBrowserLoginLiveProxy(
+        const pending =
           profile.status === "active"
-            ? await openAssistantBrowserProfileLive(token, assistant.id, profile.id)
-            : await reconnectAssistantBrowserProfile(token, assistant.id, profile.id),
-          assistant.id
-        );
+            ? await openAssistantBrowserProfileView(token, assistant.id, profile.id)
+            : await reconnectAssistantBrowserProfile(token, assistant.id, profile.id);
         setSettingsBrowserLogin(pending);
         await refreshBrowserProfiles();
       } finally {
@@ -6485,12 +6482,12 @@ function BrowserSiteCard({
               {statusLabel}
             </p>
           ) : null}
-          {profile.status !== "active" ? (
-            <span className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text">
-              {t("browserProfileReconnect")}
-              <ChevronRight className="h-3.5 w-3.5" />
-            </span>
-          ) : null}
+          <span className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text">
+            {profile.status === "active"
+              ? t("browserProfileOpenView")
+              : t("browserProfileReconnect")}
+            <ChevronRight className="h-3.5 w-3.5" />
+          </span>
         </div>
       </div>
       <div className="ml-3 flex w-7 shrink-0 flex-col items-center justify-between self-stretch py-0.5">

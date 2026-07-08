@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { ProviderGatewayToolExchange } from "@persai/runtime-contract";
 import {
-  appendTelegramBrowserLoginLink,
+  appendTelegramBrowserOpenInAppNotice,
   extractPendingBrowserLoginFromTurn,
   parsePendingBrowserLoginState
 } from "../src/modules/workspace-management/application/extract-pending-browser-login-from-turn";
@@ -11,8 +11,8 @@ const pending = {
   profileId: "profile-1",
   profileKey: "bitrix",
   displayName: "Bitrix24",
-  liveUrl: "https://browserless.example/live/bitrix",
-  loginUrl: "https://example.bitrix24.ru/login"
+  loginUrl: "https://example.bitrix24.ru/login",
+  bridgeClientKind: "extension" as const
 };
 
 function browserLoginExchange(content: Record<string, unknown>): ProviderGatewayToolExchange {
@@ -82,8 +82,7 @@ describe("extractPendingBrowserLoginFromTurn", () => {
     const older = {
       ...pending,
       profileId: "profile-old",
-      profileKey: "old",
-      liveUrl: "https://browserless.example/live/old"
+      profileKey: "old"
     };
     const result = extractPendingBrowserLoginFromTurn(
       [
@@ -159,11 +158,11 @@ describe("extractPendingBrowserLoginFromTurn", () => {
   });
 });
 
-describe("appendTelegramBrowserLoginLink", () => {
-  test("appends PersAI web-login instructions instead of a live URL", () => {
+describe("appendTelegramBrowserOpenInAppNotice", () => {
+  test("appends open-in-app instructions instead of a login link", () => {
     assert.equal(
-      appendTelegramBrowserLoginLink("en", "I'll open the login page.", pending),
-      'I\'ll open the login page.\n\nTo continue login for "Bitrix24", open PersAI on the web: https://persai.dev'
+      appendTelegramBrowserOpenInAppNotice("en", "I'll open the login page.", pending),
+      'I\'ll open the login page.\n\nTo continue with "Bitrix24", open PersAI on the web or in the app and finish the browser step there.'
     );
   });
 });

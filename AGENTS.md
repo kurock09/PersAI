@@ -25,7 +25,7 @@ Additional orchestration program **closed locally 2026-07-05:** `docs/ADR/136-op
 
 Additional active orchestration program: `docs/ADR/137-execution-pod-boundary-and-storage-plane-cutover.md` (opened 2026-07-05 — finish ADR-127 storage-plane truth: pod only for `shell`/`exec`/`document.*`; GCS+manifest for worker outbound, `files.*`, `grep`/`glob`; S0–S2 landed locally; S3–S5 + **S5.1 session-scoped hydrate** + S6 audit pending; parent orchestrator/auditor, GPT-5.4/Sonnet subagents per slice).
 
-Additional active orchestration program: `docs/ADR/140-local-browser-bridge-and-browserless-headless-cutover.md` (opened 2026-07-08 — replace persistent Browserless sessions with local browser bridge [Chrome extension + Capacitor prod]; Browserless headless-only for fast public snapshot/screenshot; ordered CUT slices S1–S3 then BUILD S4–S11; supersedes ADR-138/139 persistent cloud truth; parent orchestrator, GPT-5.4 subagents per slice).
+Additional orchestration program **closed locally 2026-07-08:** `docs/ADR/140-local-browser-bridge-and-browserless-headless-cutover.md` (persistent Browserless sessions replaced by the local browser bridge [Chrome extension + Capacitor prod]; Browserless retained only for fast public headless reads; S0–S8 implemented locally, Telegram/browser boundary closed, docs reconciled, and final local gate green. Deploy + manual acceptance remain pending; do not reopen for new scope).
 
 Additional orchestration program **superseded by ADR-140 (do not implement new scope):** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` and `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`.
 

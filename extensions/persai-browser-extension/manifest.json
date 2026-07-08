@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "PersAI Browser Bridge",
+  "version": "0.0.0",
+  "description": "PersAI local browser bridge for logged-in automation on the user's device.",
+  "permissions": ["storage", "tabs", "scripting"],
+  "optional_permissions": ["activeTab"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "PersAI Browser Bridge",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://persai.dev/*",
+        "https://www.persai.dev/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["content-bridge.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://persai.dev/*",
+      "https://www.persai.dev/*",
+      "http://localhost/*",
+      "http://127.0.0.1/*"
+    ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["browser-sites/*"],
+      "matches": [
+        "https://persai.dev/*",
+        "https://www.persai.dev/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ]
+    }
+  ]
+}

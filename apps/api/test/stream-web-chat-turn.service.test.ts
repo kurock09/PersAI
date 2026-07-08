@@ -1561,8 +1561,8 @@ describe("StreamWebChatTurnService", () => {
       displayName: "Bitrix24",
       loginUrl: "https://example.bitrix24.ru/login",
       originHost: "example.bitrix24.ru",
-      providerSessionId: "session-1",
-      liveUrl: "https://browserless.example/live/bitrix",
+      bridgeSessionRef: null,
+      bridgeClientKind: "extension",
       status: "pending_login" as const,
       lastUsedAt: null,
       expiresAt: null,
@@ -1717,8 +1717,9 @@ describe("StreamWebChatTurnService", () => {
       profileId: "profile-1",
       profileKey: "bitrix",
       displayName: "Bitrix24",
-      liveUrl: "https://browserless.example/live/bitrix",
-      loginUrl: "https://example.bitrix24.ru/login"
+      loginUrl: "https://example.bitrix24.ru/login",
+      bridgeClientKind: "extension",
+      completionMode: "login"
     });
   });
 
@@ -1731,8 +1732,8 @@ describe("StreamWebChatTurnService", () => {
       displayName: "Bitrix24",
       loginUrl: "https://example.bitrix24.ru/login",
       originHost: "example.bitrix24.ru",
-      providerSessionId: "session-1",
-      liveUrl: "https://browserless.example/live/bitrix",
+      bridgeSessionRef: null,
+      bridgeClientKind: "extension",
       status: "pending_login" as const,
       lastUsedAt: null,
       expiresAt: null,

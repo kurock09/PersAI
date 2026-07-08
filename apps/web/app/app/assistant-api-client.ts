@@ -3795,8 +3795,8 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
     typeof row.profileId !== "string" ||
     typeof row.profileKey !== "string" ||
     typeof row.displayName !== "string" ||
-    typeof row.liveUrl !== "string" ||
-    typeof row.loginUrl !== "string"
+    typeof row.loginUrl !== "string" ||
+    (row.bridgeClientKind !== "extension" && row.bridgeClientKind !== "capacitor")
   ) {
     return null;
   }
@@ -3808,8 +3808,8 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
     profileId: row.profileId,
     profileKey: row.profileKey,
     displayName: row.displayName,
-    liveUrl: row.liveUrl,
     loginUrl: row.loginUrl,
+    bridgeClientKind: row.bridgeClientKind,
     ...(completionMode === undefined ? {} : { completionMode })
   };
 }
@@ -3874,7 +3874,7 @@ export async function reconnectAssistantBrowserProfile(
   return { ...pending, completionMode: "login" };
 }
 
-export async function openAssistantBrowserProfileLive(
+export async function openAssistantBrowserProfileView(
   token: string,
   assistantId: string,
   profileId: string
@@ -3897,7 +3897,7 @@ export async function openAssistantBrowserProfileLive(
   return { ...pending, completionMode: "assist" };
 }
 
-export async function dismissAssistantBrowserProfileLive(
+export async function dismissAssistantBrowserProfileView(
   token: string,
   assistantId: string,
   profileId: string

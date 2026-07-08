@@ -57,6 +57,7 @@ import type {
   InternalQuotaStatusOutcome,
   PersaiInternalApiClientService
 } from "../src/modules/turns/persai-internal-api.client.service";
+import { LocalBrowserBridgeClient } from "../src/modules/turns/local-browser-bridge.client.service";
 import { RuntimeBrowserToolService } from "../src/modules/turns/runtime-browser-tool.service";
 import { RuntimeDocumentToolService } from "../src/modules/turns/runtime-document-tool.service";
 import { RuntimeImageEditToolService } from "../src/modules/turns/runtime-image-edit-tool.service";
@@ -2054,9 +2055,13 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
   const sessionCompactionService = new FakeSessionCompactionService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
+  const localBrowserBridgeClient = new LocalBrowserBridgeClient(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
   const runtimeBrowserToolService = new RuntimeBrowserToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    localBrowserBridgeClient,
     mediaObjectStorage as never
   );
   const runtimeImageEditToolService = new RuntimeImageEditToolService(
@@ -7148,8 +7153,6 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       snapshotSelector: null,
       fullPage: null,
       stayOnPage: null,
-      profileSessionId: null,
-      capabilityPolicy: null,
       operations: [
         {
           kind: "click",
@@ -8459,9 +8462,13 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
   const sessionCompactionService = new FakeSessionCompactionService();
   const persaiInternalApiClientService = new FakePersaiInternalApiClientService();
   const mediaObjectStorage = new FakePersaiMediaObjectStorageService();
+  const localBrowserBridgeClient = new LocalBrowserBridgeClient(
+    persaiInternalApiClientService as unknown as PersaiInternalApiClientService
+  );
   const runtimeBrowserToolService = new RuntimeBrowserToolService(
     providerGatewayClient as unknown as ProviderGatewayClientService,
     persaiInternalApiClientService as unknown as PersaiInternalApiClientService,
+    localBrowserBridgeClient,
     mediaObjectStorage as never
   );
   const runtimeImageEditToolService = new RuntimeImageEditToolService(

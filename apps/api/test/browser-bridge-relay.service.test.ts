@@ -1,0 +1,240 @@
+import assert from "node:assert/strict";
+import { afterEach, beforeEach, describe, test } from "node:test";
+import type {
+  LocalBrowserBridgeWebSocketConnectRequest,
+  LocalBrowserBridgeDeviceRegisterRequest
+} from "@persai/runtime-contract";
+import { BrowserBridgeRelayService } from "../src/modules/browser-bridge/application/browser-bridge-relay.service";
+
+class FakeSocket {
+  readonly sent: string[] = [];
+  readonly closeCalls: Array<{ code?: number; reason?: string }> = [];
+  closed = false;
+
+  send(payload: string): void {
+    if (this.closed) {
+      throw new Error("socket_closed");
+    }
+    this.sent.push(payload);
+  }
+
+  close(code?: number, reason?: string): void {
+    this.closed = true;
+    this.closeCalls.push({ code, reason });
+  }
+}
+
+function buildRegisterRequest(
+  overrides: Partial<LocalBrowserBridgeDeviceRegisterRequest> = {}
+): LocalBrowserBridgeDeviceRegisterRequest {
+  return {
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    deviceKind: "extension",
+    deviceLabel: "Chrome",
+    clientVersion: "1.0.0",
+    ...overrides
+  };
+}
+
+function buildConnectRequest(
+  register: ReturnType<BrowserBridgeRelayService["registerDevice"]>,
+  overrides: Partial<LocalBrowserBridgeWebSocketConnectRequest> = {}
+): LocalBrowserBridgeWebSocketConnectRequest {
+  return {
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    bridgeDeviceId: register.bridgeDeviceId,
+    deviceKind: register.deviceKind,
+    deviceToken: register.deviceToken,
+    ...overrides
+  };
+}
+
+describe("BrowserBridgeRelayService", () => {
+  const originalClerkSecretKey = process.env.CLERK_SECRET_KEY;
+
+  beforeEach(() => {
+    process.env.CLERK_SECRET_KEY = "test-clerk-secret-key-123456";
+  });
+
+  afterEach(() => {
+    if (originalClerkSecretKey === undefined) {
+      delete process.env.CLERK_SECRET_KEY;
+    } else {
+      process.env.CLERK_SECRET_KEY = originalClerkSecretKey;
+    }
+  });
+
+  test("registers device, authenticates websocket, dispatches command, and completes result", () => {
+    const service = new BrowserBridgeRelayService();
+    const registration = service.registerDevice(
+      buildRegisterRequest(),
+      "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws"
+    );
+    assert.equal(registration.deviceKind, "extension");
+    assert.match(registration.deviceToken, /^v1\./);
+
+    const socket = new FakeSocket();
+    const connectionKey = service.attachConnection(buildConnectRequest(registration), socket);
+    const dispatch = service.dispatchCommand({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      command: {
+        commandId: "command-1",
+        profileKey: "crm",
+        action: "snapshot",
+        timeoutMs: 5_000
+      }
+    });
+    assert.deepEqual(dispatch, {
+      accepted: true,
+      commandId: "command-1",
+      bridgeDeviceId: registration.bridgeDeviceId
+    });
+    assert.equal(socket.sent.length, 1);
+    assert.deepEqual(JSON.parse(socket.sent[0] ?? "{}"), {
+      commandId: "command-1",
+      profileKey: "crm",
+      action: "snapshot",
+      timeoutMs: 5_000
+    });
+
+    assert.equal(
+      service.acceptDeviceResult(connectionKey, {
+        commandId: "command-1",
+        ok: true,
+        title: "CRM Dashboard",
+        content: "Hello"
+      }),
+      true
+    );
+    assert.deepEqual(service.getCommandResult("command-1"), {
+      status: "completed",
+      result: {
+        commandId: "command-1",
+        ok: true,
+        title: "CRM Dashboard",
+        content: "Hello"
+      }
+    });
+  });
+
+  test("rejects websocket connections with invalid device token", () => {
+    const service = new BrowserBridgeRelayService();
+    const registration = service.registerDevice(
+      buildRegisterRequest(),
+      "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws"
+    );
+    const socket = new FakeSocket();
+
+    assert.throws(() =>
+      service.attachConnection(
+        buildConnectRequest(registration, {
+          deviceToken: `${registration.deviceToken}tampered`
+        }),
+        socket
+      )
+    );
+  });
+
+  test("returns structured unavailable when no device is connected", () => {
+    const service = new BrowserBridgeRelayService();
+
+    assert.deepEqual(
+      service.dispatchCommand({
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1",
+        command: {
+          commandId: "command-1",
+          profileKey: "crm",
+          action: "snapshot"
+        }
+      }),
+      {
+        accepted: false,
+        commandId: "command-1",
+        code: "bridge_unavailable",
+        message: "No active browser bridge device is connected for this assistant.",
+        activeBridgeDeviceIds: []
+      }
+    );
+  });
+
+  test("times out pending commands and exposes completed timeout result", async () => {
+    const service = new BrowserBridgeRelayService();
+    const registration = service.registerDevice(
+      buildRegisterRequest(),
+      "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws"
+    );
+    service.attachConnection(buildConnectRequest(registration), new FakeSocket());
+
+    const dispatch = service.dispatchCommand({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      command: {
+        commandId: "command-timeout",
+        profileKey: "crm",
+        action: "snapshot",
+        timeoutMs: 1
+      }
+    });
+    assert.equal(dispatch.accepted, true);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.deepEqual(service.getCommandResult("command-timeout"), {
+      status: "completed",
+      result: {
+        commandId: "command-timeout",
+        ok: false,
+        errorReason: "bridge_command_timeout"
+      }
+    });
+  });
+
+  test("replaces duplicate connection honestly and fails in-flight command on disconnect", () => {
+    const service = new BrowserBridgeRelayService();
+    const registration = service.registerDevice(
+      buildRegisterRequest(),
+      "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws"
+    );
+    const firstSocket = new FakeSocket();
+    service.attachConnection(buildConnectRequest(registration), firstSocket);
+    const firstDispatch = service.dispatchCommand({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      command: {
+        commandId: "command-in-flight",
+        profileKey: "crm",
+        action: "snapshot"
+      }
+    });
+    assert.equal(firstDispatch.accepted, true);
+
+    const secondSocket = new FakeSocket();
+    service.attachConnection(buildConnectRequest(registration), secondSocket);
+    assert.deepEqual(firstSocket.closeCalls, [
+      { code: 4002, reason: "duplicate_connection_replaced" }
+    ]);
+    assert.deepEqual(service.getCommandResult("command-in-flight"), {
+      status: "completed",
+      result: {
+        commandId: "command-in-flight",
+        ok: false,
+        errorReason: "bridge_connection_closed"
+      }
+    });
+
+    const secondDispatch = service.dispatchCommand({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      command: {
+        commandId: "command-new",
+        profileKey: "crm",
+        action: "snapshot"
+      }
+    });
+    assert.equal(secondDispatch.accepted, true);
+    assert.equal(secondSocket.sent.length, 1);
+  });
+});

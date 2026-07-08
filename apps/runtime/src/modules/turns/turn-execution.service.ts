@@ -2160,8 +2160,8 @@ export class TurnExecutionService {
     }
     lines.push(
       "Browser login cannot be completed inside Telegram.",
-      "When browser.login or browser.open_live succeeds, tell the user you opened login for that site and they must continue on PersAI web at https://persai.dev only.",
-      "Never paste internal Browserless or live browser URLs in Telegram replies."
+      "When browser.login or browser.open_live succeeds, tell the user they must continue in PersAI web/app at https://persai.dev where the local browser bridge is available.",
+      "Never promise raw browser URLs or hidden implementation details in Telegram replies."
     );
     return lines.join("\n");
   }
@@ -3499,6 +3499,7 @@ export class TurnExecutionService {
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
           chatId: this.resolveCurrentChatId(input),
+          transportSurface: acceptedTurn.session.conversation.channel,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString()
         });
@@ -5074,8 +5075,8 @@ export class TurnExecutionService {
         typeof candidate.profileId !== "string" ||
         typeof candidate.profileKey !== "string" ||
         typeof candidate.displayName !== "string" ||
-        typeof candidate.liveUrl !== "string" ||
-        typeof candidate.loginUrl !== "string"
+        typeof candidate.loginUrl !== "string" ||
+        (candidate.bridgeClientKind !== "extension" && candidate.bridgeClientKind !== "capacitor")
       ) {
         return undefined;
       }
@@ -5087,8 +5088,8 @@ export class TurnExecutionService {
         profileId: candidate.profileId,
         profileKey: candidate.profileKey,
         displayName: candidate.displayName,
-        liveUrl: candidate.liveUrl,
         loginUrl: candidate.loginUrl,
+        bridgeClientKind: candidate.bridgeClientKind,
         ...(completionMode === undefined ? {} : { completionMode })
       };
     } catch {

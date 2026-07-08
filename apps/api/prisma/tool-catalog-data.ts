@@ -243,12 +243,12 @@ GOTCHAS:
     description: "Automated web browser for interactive page navigation and content extraction.",
     modelDescription:
       "Use a real browser for JavaScript-rendered or interactive pages when web_search or web_fetch are insufficient.",
-    modelUsageGuidance: `WHEN TO USE: Live, interactive, JavaScript-rendered, or logged-in web pages where plain web_fetch cannot reach the needed state — especially CRM/portals that require cookies across turns.
+    modelUsageGuidance: `WHEN TO USE: Live, interactive, JavaScript-rendered, or logged-in web pages where plain web_fetch cannot reach the needed state — especially CRM/portals that require browser state across turns.
 WHEN NOT TO USE: Static public pages with a known URL (prefer web_fetch) or facts discoverable via web_search without interaction.
 EXAMPLES:
 - browser({action:"list_profiles"}) — list saved per-assistant browser sessions and their profileKey/status.
-- browser({action:"login", displayName:"Bitrix24", url:"https://…/login"}) — start product-owned live login or re-auth; reuse the returned profileKey after the user completes login.
-- browser({action:"open_live", profile:"profileKey"}) — reopen the product-owned live browser window for an existing saved profile when the user must solve a captcha, confirm an action, or re-authenticate in the browser.
+- browser({action:"login", displayName:"Bitrix24", url:"https://…/login"}) — start product-owned local-browser login or re-auth; reuse the returned profileKey after the user completes login on their device.
+- browser({action:"open_live", profile:"profileKey"}) — reopen the visible browser view for an existing saved profile when the user must solve a captcha, confirm an action, or re-authenticate in the browser.
 - browser({action:"snapshot", url:"…", profile:"profileKey"}) — inspect an authenticated page with a saved session; text results may include page.elements with reusable CSS selectors (up to 200 currently-visible interactive controls).
 - browser({action:"act", url:"…", profile:"profileKey", stayOnPage:true, operations:[…]}) — continue on the current page without reopening navigation; chain kind:"goto" inside operations for mid-flow navigation.
 - browser({action:"act", url:"…", profile:"profileKey", operations:[{kind:"extract", selector:"article a"}]}) — structured matches land in page.extracted; act also returns page.elements — do not snapshot again just to re-read selectors.
@@ -258,20 +258,22 @@ EXAMPLES:
 GOTCHAS:
 - Prefer \`snapshot\` first to inspect the page. Use \`act\` only when interaction is required.
 - Pass \`profile\` on \`snapshot\`/\`act\` to reuse cookies; omit \`profile\` only for public pages.
+- A completed login usually lasts on that device until the site expires cookies; do not start a fresh login if a saved profile already exists.
+- Runtime chooses the backend for you: saved-profile work uses the local browser bridge, while public no-profile snapshot/pdf/screenshot requests may use a headless backend. Do not choose or narrate the backend yourself.
+- Profile-backed work usually runs in a hidden browser window on the user's device; \`open_live\` is the boundary for visible user help.
 - Profile-backed text \`snapshot\` and \`act\` may return \`page.elements\` with up to ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)} currently-visible interactive controls and reusable CSS selectors (duplicate selectors may include \`matchIndex\`). Prefer those selectors in follow-up \`act\` calls instead of guessing new selectors. \`act\` already returns fresh \`page.elements\` — avoid a separate snapshot after every step.
 - Chain up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)} operations in one \`act\`: \`goto\` (mid-flow navigation), \`hover\` (hover-only controls), \`extract\` (structured \`page.extracted\`, up to ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)} items total), \`scroll\`, \`wait_for_selector\`, then \`click\`/\`type\`.
 - Vision fallback for stubborn controls: \`snapshot\` with \`format:"png"\` (browser viewport is fixed 1280x720; keep \`fullPage:false\` when you need click coordinates) → \`files({action:"preview", path:"<workspace path from screenshot result>"})\` to read the target control center in that image → \`act\` with \`kind:"click_at"\` using those viewport x,y integers. Do not guess coordinates from text layout.
 - Chain a full interaction into one \`act\` call instead of one operation per call: \`operations\` runs its steps in order in a single call. When a step opens new content (click loads a product page, expands a panel, triggers client-side navigation), add \`kind:"wait_for_selector"\` for a selector on that new content right after it, then continue the chain in the same call (e.g. click a search result → wait_for_selector on the add-to-cart control → click it) instead of stopping to take a separate snapshot.
 - Before reading \`snapshot\`/\`act\` page state the platform polls for SPA DOM hydration for up to ${String(MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS / 1000)}s (body text or visible controls) — independent of \`optimizeForSpeed\`. If the listing is still empty after that, use \`scroll\` then re-snapshot; do not stack redundant \`wait_for_timeout\` before the first read.
-- For saved profiles, keep \`act\` selector-based. Do not use \`press\`/\`Enter\` as a shortcut — persistent Browserless sessions reject keyboard-press operations.
 - If a page (catalog, feed, search results) renders but shows an empty or placeholder list right after navigation, add a \`kind:"scroll"\` operation (optionally with a \`selector\`) before re-reading content — many sites only populate cards once scrolled into view.
 - E-commerce add-to-cart on search/catalog grids: stay on listing results — do not open a product detail page just to add; add is often an in-page fetch that navigation aborts. After \`click\` on a listing add control, insert \`wait_for_selector\` for an on-card confirmation control (same \`matchIndex\`) before the next \`kind:"goto"\`. Resolve \`matchIndex\` from \`extract\` on listing product links (prefer stable href slug over visible title; titles may contain soft hyphens). Avoid global increase/decrease \`matchIndex\` when a cart sidebar is visible — sidebar controls shift indices. Budget: up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)} ops ≈ four add cycles per \`act\` when each cycle is \`goto\` + \`click\` + \`wait_for_selector\`. Host-specific selectors and site flows live in engaged scenarios and optional per-host browser scripts — not in tool defaults.
-- Persistent-profile stealth and residential-proxy policy are platform-owned. Never invent proxy or stealth settings as browser arguments or chat instructions.
+- If runtime returns \`needs_user_action\`, switch to \`open_live\` so the user can continue in the visible browser view.
 - If \`act\` returns per-operation warnings, continue from the returned page state/\`page.elements\` and retry only when the observed page supports it; do not jump to "bot protection", "profile expired", or similar from one failed selector.
-- A transient BQL/reconnect/429 failure is not proof that a profile expired. Speak from structured runtime/API reason codes for pending login, user re-auth, or expired-profile states.
-- Platform serializes profile-backed \`snapshot\`/\`act\` per saved session. Do not issue parallel browser calls for the same \`profile\`; chain interactions into one \`act\` or wait for the previous call to finish instead of retrying immediately after a transport failure.
+- If runtime returns \`bridge_unavailable\` or \`open_in_app\`, tell the user to continue in PersAI web/app where the local browser bridge is available.
+- Speak from structured runtime/API reason codes for pending login, user re-auth, expired profiles, bridge unavailability, or open-in-app handoff.
 - Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to missing profile, pending login, or user re-auth state.
-- On ordinary web chat, login and re-auth stay product-owned UI state. Do not paste Browserless live login URLs into the assistant reply.
+- On ordinary web chat, login and re-auth stay product-owned UI state. Do not promise raw URLs or hidden implementation details in the assistant reply.
 - \`optimizeForSpeed:true\` on \`snapshot\`/\`act\` speeds table scraping (blocks heavy assets).
 - Saved profiles expire after plan TTL inactivity; true missing/pending/expired states return structured business errors — use \`login\` only when the runtime/tool result actually points to that state.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,

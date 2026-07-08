@@ -81,7 +81,8 @@ const assistantApiMocks = vi.hoisted(() => ({
 const browserProfileMocks = vi.hoisted(() => ({
   listAssistantBrowserProfiles: vi.fn(),
   deleteAssistantBrowserProfile: vi.fn(),
-  reconnectAssistantBrowserProfile: vi.fn()
+  reconnectAssistantBrowserProfile: vi.fn(),
+  openAssistantBrowserProfileView: vi.fn()
 }));
 
 vi.mock("@clerk/nextjs", () => ({
@@ -140,7 +141,8 @@ vi.mock("../assistant-api-client", async () => {
     setWorkspaceVideoClonedVoiceDefault: assistantApiMocks.setWorkspaceVideoClonedVoiceDefault,
     listAssistantBrowserProfiles: browserProfileMocks.listAssistantBrowserProfiles,
     deleteAssistantBrowserProfile: browserProfileMocks.deleteAssistantBrowserProfile,
-    reconnectAssistantBrowserProfile: browserProfileMocks.reconnectAssistantBrowserProfile
+    reconnectAssistantBrowserProfile: browserProfileMocks.reconnectAssistantBrowserProfile,
+    openAssistantBrowserProfileView: browserProfileMocks.openAssistantBrowserProfileView
   };
 });
 
@@ -314,6 +316,14 @@ describe("integrations section", () => {
         createdAt: "2026-07-05T12:00:00.000Z"
       }
     ]);
+    browserProfileMocks.openAssistantBrowserProfileView.mockResolvedValue({
+      profileId: "profile-1",
+      profileKey: "bitrix",
+      displayName: "Bitrix24",
+      loginUrl: "https://bitrix.example/login",
+      bridgeClientKind: "extension",
+      completionMode: "assist"
+    });
   });
 
   it("renders connected sites subsection with browser profiles", async () => {
@@ -328,6 +338,20 @@ describe("integrations section", () => {
     // Active profiles use the green status dot only — no duplicate "Active" label.
     expect(screen.queryByText("Active")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Bitrix24/i })).toBeInTheDocument();
+  });
+
+  it("opens active browser profiles through the local bridge view action", async () => {
+    renderSettings(makeAppData(), "channels");
+
+    fireEvent.click(await screen.findByRole("button", { name: /Bitrix24/i }));
+
+    await waitFor(() => {
+      expect(browserProfileMocks.openAssistantBrowserProfileView).toHaveBeenCalledWith(
+        "token-1",
+        "assistant-1",
+        "profile-1"
+      );
+    });
   });
 
   it("renders integrations cards and moves reminder delivery into tasks", async () => {

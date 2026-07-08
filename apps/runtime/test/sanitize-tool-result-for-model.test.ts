@@ -327,7 +327,8 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     assert.equal(parsed.artifact, null);
   }
 
-  // Browser login tool results must not expose internal liveUrl to the model.
+  // Browser login tool results must carry the bridge client kind without any
+  // Browserless/live-url leakage.
   {
     const payload = {
       toolCode: "browser" as const,
@@ -336,12 +337,14 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       login: {
         profileId: "prof-lavka",
         displayName: "Яндекс Лавка",
-        liveUrl: "https://production-sfo.browserless.io/e/abc/live/index.html?i=secret"
+        loginUrl: "https://lavka.yandex.ru/login",
+        bridgeClientKind: "extension"
       },
       pendingBrowserLogin: {
         profileId: "prof-lavka",
         displayName: "Яндекс Лавка",
-        liveUrl: "https://production-sfo.browserless.io/e/abc/live/index.html?i=secret"
+        loginUrl: "https://lavka.yandex.ru/login",
+        bridgeClientKind: "extension"
       }
     };
     const parsed = JSON.parse(stringifyToolResultPayloadForModel(payload)) as {
@@ -349,10 +352,10 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
       pendingBrowserLogin: Record<string, unknown>;
       webBrowserLogin: { continueUrl: string; displayName: string; delivery: string };
     };
-    assert.equal(parsed.login.liveUrl, undefined);
-    assert.equal(parsed.pendingBrowserLogin.liveUrl, undefined);
+    assert.equal(parsed.login.bridgeClientKind, "extension");
+    assert.equal(parsed.pendingBrowserLogin.bridgeClientKind, "extension");
     assert.equal(parsed.webBrowserLogin.continueUrl, PERSAI_WEB_BROWSER_LOGIN_CONTINUE_URL);
     assert.equal(parsed.webBrowserLogin.displayName, "Яндекс Лавка");
-    assert.match(parsed.webBrowserLogin.delivery, /Never paste internal Browserless/);
+    assert.match(parsed.webBrowserLogin.delivery, /local browser bridge/i);
   }
 }

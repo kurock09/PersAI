@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { AssistantBrowserProfileStatus } from "@persai/runtime-contract";
+import type {
+  AssistantBrowserProfileStatus,
+  LocalBrowserBridgeDeviceKind
+} from "@persai/runtime-contract";
 import { ExpireAssistantBrowserProfilesService } from "../src/modules/workspace-management/application/expire-assistant-browser-profiles.service";
 import type {
   AssistantBrowserProfileRepository,
   AssistantBrowserProfileRow
 } from "../src/modules/workspace-management/domain/assistant-browser-profile.repository";
-import type { BrowserlessSessionPort } from "../src/modules/workspace-management/application/browserless-session.port";
-import { resolveBrowserToolCredentialSecretId } from "../src/modules/workspace-management/application/tool-credential-settings";
 
 class InMemoryAssistantBrowserProfileRepository implements AssistantBrowserProfileRepository {
   private rows = new Map<string, AssistantBrowserProfileRow>();
@@ -58,11 +59,15 @@ class InMemoryAssistantBrowserProfileRepository implements AssistantBrowserProfi
     return undefined;
   }
 
-  async updatePendingLoginSession(): Promise<void> {
+  async updatePendingLogin(): Promise<void> {
     return undefined;
   }
 
-  async clearLiveUrl(): Promise<void> {
+  async activate(): Promise<void> {
+    return undefined;
+  }
+
+  async updateBridgeSessionRef(): Promise<void> {
     return undefined;
   }
 
@@ -87,42 +92,41 @@ class InMemoryAssistantBrowserProfileRepository implements AssistantBrowserProfi
         row.expiresAt !== null &&
         row.expiresAt.getTime() < Date.now()
       ) {
+        const bridgeSessionRef = row.bridgeSessionRef;
         row.status = "expired";
-        row.liveUrl = null;
-        claimed.push({ ...row, status: "expired", liveUrl: null });
+        row.bridgeSessionRef = null;
+        claimed.push({ ...row, status: "expired", bridgeSessionRef });
       }
     }
     return claimed;
   }
 }
 
-class FakeBrowserlessSessionPort implements BrowserlessSessionPort {
-  readonly deletedSessions: Array<{
-    providerSessionId: string;
-    browserCredentialSecretId?: string;
+class FakeBrowserBridgeRelayService {
+  readonly dispatches: Array<{
+    assistantId: string;
+    workspaceId: string;
+    bridgeDeviceId?: string | null;
+    command: { commandId: string; profileKey: string; action: string };
   }> = [];
 
-  async startLogin(): Promise<{ providerSessionId: string; liveUrl: string }> {
-    throw new Error("not implemented");
-  }
-
-  async verifySession(): Promise<{ ok: true }> {
-    return { ok: true };
-  }
-
-  async deleteSession(
-    providerSessionId: string,
-    input?: { browserCredentialSecretId?: string }
-  ): Promise<void> {
-    this.deletedSessions.push({
-      providerSessionId,
-      browserCredentialSecretId: input?.browserCredentialSecretId
-    });
+  dispatchCommand(input: {
+    assistantId: string;
+    workspaceId: string;
+    bridgeDeviceId?: string | null;
+    command: { commandId: string; profileKey: string; action: string };
+  }) {
+    this.dispatches.push(input);
+    return {
+      accepted: true as const,
+      commandId: input.command.commandId,
+      bridgeDeviceId: input.bridgeDeviceId ?? "bridge-device-1"
+    };
   }
 }
 
 describe("ExpireAssistantBrowserProfilesService", () => {
-  test("marks past-due active profiles expired and deletes provider sessions", async () => {
+  test("marks past-due active profiles expired and dispatches bridge close", async () => {
     const repository = new InMemoryAssistantBrowserProfileRepository();
     repository.seed({
       id: "expired-profile-1",
@@ -132,26 +136,24 @@ describe("ExpireAssistantBrowserProfilesService", () => {
       displayName: "CRM",
       loginUrl: "https://crm.example/login",
       originHost: "crm.example",
-      providerSessionId: "session-expired-1",
-      liveUrl: null,
+      bridgeSessionRef: "bridge-device-1",
+      bridgeClientKind: "extension" as LocalBrowserBridgeDeviceKind,
       originatingChatId: null,
       status: "active" as AssistantBrowserProfileStatus,
       lastUsedAt: new Date("2026-01-01T00:00:00.000Z"),
       expiresAt: new Date("2026-01-02T00:00:00.000Z")
     });
-    const browserlessPort = new FakeBrowserlessSessionPort();
-    const service = new ExpireAssistantBrowserProfilesService(repository, browserlessPort);
+    const relay = new FakeBrowserBridgeRelayService();
+    const service = new ExpireAssistantBrowserProfilesService(repository, relay as never);
 
     const result = await service.executeBatch(10);
 
     assert.equal(result.expired, 1);
     const updated = await repository.findById("expired-profile-1");
     assert.equal(updated?.status, "expired");
-    assert.deepEqual(browserlessPort.deletedSessions, [
-      {
-        providerSessionId: "session-expired-1",
-        browserCredentialSecretId: resolveBrowserToolCredentialSecretId()
-      }
-    ]);
+    assert.equal(updated?.bridgeSessionRef, null);
+    assert.equal(relay.dispatches.length, 1);
+    assert.equal(relay.dispatches[0]?.bridgeDeviceId, "bridge-device-1");
+    assert.equal(relay.dispatches[0]?.command.action, "close_view");
   });
 });

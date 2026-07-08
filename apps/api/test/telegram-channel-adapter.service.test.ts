@@ -7,7 +7,7 @@ import {
   isTelegramNewSessionRequest,
   normalizeTelegramTextIntent
 } from "../src/modules/workspace-management/application/telegram-channel-adapter.service";
-import { appendTelegramBrowserLoginLink } from "../src/modules/workspace-management/application/extract-pending-browser-login-from-turn";
+import { appendTelegramBrowserOpenInAppNotice } from "../src/modules/workspace-management/application/extract-pending-browser-login-from-turn";
 
 const defaultAlbumCollectorStub = {
   async appendPart() {
@@ -643,14 +643,15 @@ test("passes compaction queue notice as a post-reply notice instead of sending a
   assert.deepEqual(capturedPostReplyNotices, ["Готово, контекст сжал. Продолжаем."]);
 });
 
-test("persists telegram assistant message with browser login liveUrl link", async () => {
+test("persists telegram assistant message with open-in-app browser instructions", async () => {
   let persistedContent: string | null = null;
   const pendingBrowserLogin = {
     profileId: "profile-1",
     profileKey: "bitrix24",
     displayName: "Bitrix24",
-    liveUrl: "https://browserless.example/live/bitrix24",
-    loginUrl: "https://crm.example/login"
+    loginUrl: "https://crm.example/login",
+    bridgeClientKind: "extension" as const,
+    completionMode: "login" as const
   };
 
   const service = new TelegramChannelAdapterService(
@@ -797,7 +798,7 @@ test("persists telegram assistant message with browser login liveUrl link", asyn
 
   assert.equal(
     persistedContent,
-    appendTelegramBrowserLoginLink("en", "I'll open the login page.", pendingBrowserLogin)
+    appendTelegramBrowserOpenInAppNotice("en", "I'll open the login page.", pendingBrowserLogin)
   );
 });
 

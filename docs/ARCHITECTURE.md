@@ -60,15 +60,15 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
 - model/provider request transport
 - provider health/readiness surface
 
-### Browser profile capability path
+### Local browser bridge path
 
-ADR-138 and ADR-139 define one Browserless-backed production path for logged-in browser automation:
+ADR-140 closes the persistent Browserless session era. The active browser architecture is:
 
-- `apps/api` owns profile identity, TTL/recovery state, and product-facing re-auth state
-- `apps/runtime` owns the model-facing `browser` tool behavior and must speak from structured profile state instead of inferring session death from raw provider failures
-- `apps/provider-gateway` owns Browserless session creation/reconnect, platform-owned capability policy translation, and persistent BrowserQL execution
-- persistent profiles are the only active product path for authenticated CRM/portal work; no legacy reconnect branch or second browser-provider path is part of the active architecture
-- web re-auth is product-owned modal/banner UX; ordinary web chat must not rely on the model pasting Browserless live URLs
+- `apps/api` owns browser-profile identity, TTL/recovery state, bridge session refs, product-facing re-auth state, and the browser-bridge relay/control-plane endpoints
+- `apps/runtime` owns the single model-facing `browser` tool, chooses between local bridge and headless Browserless, and must speak from structured profile/bridge state instead of raw transport failures
+- `apps/provider-gateway` owns only the retained headless Browserless public no-profile path (`snapshot` / `screenshot` / `pdf`) and does not own persistent sessions, BQL profile execution, or live login flows
+- authenticated CRM/portal work runs only through the local bridge (Chrome extension on web, Capacitor bridge in the app); no persistent cloud Browserless path remains active
+- web/app re-auth is product-owned modal/banner UX; Telegram cannot host local browser execution and must return structured `open_in_app` / `bridge_unavailable` semantics for logged-in browser work
 
 ### Sandbox plane
 

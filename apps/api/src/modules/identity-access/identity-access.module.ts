@@ -233,8 +233,8 @@ export class IdentityAccessModule implements NestModule {
         method: RequestMethod.POST
       },
       {
-        path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/live-upstream",
-        method: RequestMethod.GET
+        path: "api/v1/assistant/browser-bridge/devices",
+        method: RequestMethod.POST
       },
       { path: "api/v1/admin/abuse-controls/assistants", method: RequestMethod.GET },
       { path: "api/v1/admin/abuse-controls/active-overrides", method: RequestMethod.GET },

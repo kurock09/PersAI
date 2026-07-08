@@ -359,8 +359,8 @@ describe("ChatArea", () => {
             profileId: "profile-1",
             profileKey: "bitrix",
             displayName: "Bitrix24",
-            liveUrl: "https://browserless.example/live/bitrix",
             loginUrl: "https://bitrix.example/login",
+            bridgeClientKind: "extension",
             completionMode: "login"
           },
           browserLoginModalOpen: false,
@@ -390,8 +390,8 @@ describe("ChatArea", () => {
             profileId: "profile-1",
             profileKey: "lavka",
             displayName: "Lavka",
-            liveUrl: "https://browserless.example/live/lavka",
             loginUrl: "https://lavka.yandex.ru/",
+            bridgeClientKind: "extension",
             completionMode: "assist"
           },
           browserLoginModalOpen: false,
@@ -405,6 +405,7 @@ describe("ChatArea", () => {
     await waitFor(() => {
       expect(abortBrowserLogin).toHaveBeenCalledTimes(1);
     });
+    expect(screen.getByText("browserLoginAssistContinueHint")).toBeInTheDocument();
   });
 
   it("shows localized provider failure guidance", () => {

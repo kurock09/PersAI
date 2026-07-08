@@ -8,13 +8,13 @@ import {
   Req,
   UnauthorizedException
 } from "@nestjs/common";
+import type { LocalBrowserBridgeDeviceKind } from "@persai/runtime-contract";
 import { RequestWithPlatformContext } from "../../../platform-core/interface/http/request-http.types";
 import {
   AssistantBrowserProfileService,
   type AssistantBrowserProfileSettingsItem
 } from "../../application/assistant-browser-profile.service";
 import { ResolveActiveAssistantService } from "../../application/resolve-active-assistant.service";
-import { resolveBrowserToolCredentialSecretId } from "../../application/tool-credential-settings";
 
 type BrowserProfilesListResponse = {
   requestId: string | null;
@@ -32,9 +32,10 @@ type ReconnectLoginResponse = {
   profileId: string;
   profileKey: string;
   displayName: string;
-  liveUrl: string;
   loginUrl: string;
+  bridgeClientKind: LocalBrowserBridgeDeviceKind;
   status: AssistantBrowserProfileSettingsItem["status"];
+  completionMode?: "login" | "assist";
 };
 
 type DeleteProfileResponse = {
@@ -74,12 +75,10 @@ export class AssistantBrowserProfilesController {
     @Param("profileId") profileId: string
   ): Promise<DeleteProfileResponse> {
     const context = await this.resolveAssistantContext(req, assistantId);
-    const browserCredentialSecretId = resolveBrowserToolCredentialSecretId();
     await this.assistantBrowserProfileService.deleteProfile({
       profileId,
       assistantId: context.assistantId,
-      workspaceId: context.workspaceId,
-      browserCredentialSecretId
+      workspaceId: context.workspaceId
     });
     return {
       requestId: req.requestId ?? null,
@@ -95,20 +94,18 @@ export class AssistantBrowserProfilesController {
     @Param("profileId") profileId: string
   ): Promise<ReconnectLoginResponse> {
     const context = await this.resolveAssistantContext(req, assistantId);
-    const browserCredentialSecretId = resolveBrowserToolCredentialSecretId();
     const result = await this.assistantBrowserProfileService.reconnectLogin({
       profileId,
       assistantId: context.assistantId,
-      workspaceId: context.workspaceId,
-      browserCredentialSecretId
+      workspaceId: context.workspaceId
     });
     return {
       requestId: req.requestId ?? null,
       profileId: result.profileId,
       profileKey: result.profileKey,
       displayName: result.displayName,
-      liveUrl: result.liveUrl,
       loginUrl: result.loginUrl,
+      bridgeClientKind: result.bridgeClientKind,
       status: result.status
     };
   }
@@ -121,21 +118,20 @@ export class AssistantBrowserProfilesController {
     @Param("profileId") profileId: string
   ): Promise<ReconnectLoginResponse> {
     const context = await this.resolveAssistantContext(req, assistantId);
-    const browserCredentialSecretId = resolveBrowserToolCredentialSecretId();
     const result = await this.assistantBrowserProfileService.openLiveView({
       profileId,
       assistantId: context.assistantId,
-      workspaceId: context.workspaceId,
-      browserCredentialSecretId
+      workspaceId: context.workspaceId
     });
     return {
       requestId: req.requestId ?? null,
       profileId: result.profileId,
       profileKey: result.profileKey,
       displayName: result.displayName,
-      liveUrl: result.liveUrl,
       loginUrl: result.loginUrl,
-      status: result.status
+      bridgeClientKind: result.bridgeClientKind,
+      status: result.status,
+      completionMode: result.completionMode
     };
   }
 
@@ -166,34 +162,14 @@ export class AssistantBrowserProfilesController {
     @Param("profileId") profileId: string
   ): Promise<CompleteLoginResponse> {
     const context = await this.resolveAssistantContext(req, assistantId);
-    const browserCredentialSecretId = resolveBrowserToolCredentialSecretId();
     const result = await this.assistantBrowserProfileService.completeLogin({
-      profileId,
-      assistantId: context.assistantId,
-      workspaceId: context.workspaceId,
-      browserCredentialSecretId
-    });
-    return {
-      requestId: req.requestId ?? null,
-      profile: result.profile
-    };
-  }
-
-  @Get("assistant/:assistantId/browser-profiles/:profileId/live-upstream")
-  async resolveLiveUpstream(
-    @Req() req: RequestWithPlatformContext,
-    @Param("assistantId") assistantId: string,
-    @Param("profileId") profileId: string
-  ): Promise<{ requestId: string | null; upstreamLiveUrl: string }> {
-    const context = await this.resolveAssistantContext(req, assistantId);
-    const result = await this.assistantBrowserProfileService.resolveLiveUpstreamForProfile({
       profileId,
       assistantId: context.assistantId,
       workspaceId: context.workspaceId
     });
     return {
       requestId: req.requestId ?? null,
-      upstreamLiveUrl: result.upstreamLiveUrl
+      profile: result.profile
     };
   }
 

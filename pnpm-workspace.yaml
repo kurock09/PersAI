@@ -1,5 +1,6 @@
 packages:
   - "apps/*"
+  - "extensions/*"
   - "services/*"
   - "packages/*"
   - "scripts/smoke"

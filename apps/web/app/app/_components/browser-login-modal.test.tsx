@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { BrowserLoginModal } from "./browser-login-modal";
 
 const completeAssistantBrowserLogin = vi.fn();
-const dismissAssistantBrowserProfileLive = vi.fn();
+const dismissAssistantBrowserProfileView = vi.fn();
+const getExtensionBridgeStatus = vi.fn();
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -21,26 +22,35 @@ vi.mock("./use-history-back-to-close", () => ({
 
 vi.mock("../assistant-api-client", () => ({
   completeAssistantBrowserLogin: (...args: unknown[]) => completeAssistantBrowserLogin(...args),
-  dismissAssistantBrowserProfileLive: (...args: unknown[]) =>
-    dismissAssistantBrowserProfileLive(...args)
+  dismissAssistantBrowserProfileView: (...args: unknown[]) =>
+    dismissAssistantBrowserProfileView(...args)
+}));
+
+vi.mock("../browser-bridge-client", () => ({
+  getExtensionBridgeStatus: (...args: unknown[]) => getExtensionBridgeStatus(...args),
+  isNativeBrowserBridgeShell: () => false,
+  PERSAI_BROWSER_BRIDGE_WEB_STORE_URL: null
 }));
 
 const pendingBrowserLogin = {
   profileId: "profile-1",
   profileKey: "bitrix",
   displayName: "Bitrix24",
-  liveUrl: "https://browserless.example/live",
-  loginUrl: "https://bitrix.example/login"
+  loginUrl: "https://bitrix.example/login",
+  bridgeClientKind: "extension" as const
 };
 
 describe("BrowserLoginModal", () => {
   afterEach(() => {
     cleanup();
     completeAssistantBrowserLogin.mockReset();
-    dismissAssistantBrowserProfileLive.mockReset();
+    dismissAssistantBrowserProfileView.mockReset();
+    getExtensionBridgeStatus.mockReset();
   });
 
-  it("renders iframe and complete button when open", () => {
+  it("shows developer-mode install guidance when the desktop extension is unavailable", async () => {
+    getExtensionBridgeStatus.mockRejectedValue(new Error("missing"));
+
     render(
       <BrowserLoginModal
         open
@@ -52,14 +62,25 @@ describe("BrowserLoginModal", () => {
     );
 
     expect(screen.getByTestId("browser-login-modal")).toBeInTheDocument();
-    expect(screen.getByTestId("browser-login-iframe")).toHaveAttribute(
-      "src",
-      pendingBrowserLogin.liveUrl
+    expect(await screen.findByTestId("browser-login-extension-status")).toBeInTheDocument();
+    expect(screen.queryByTestId("browser-login-extension-cta")).not.toBeInTheDocument();
+    expect(screen.getByTestId("browser-login-extension-dev-guidance")).toHaveTextContent(
+      "browserLoginExtensionDeveloperInstall"
     );
-    expect(screen.getByTestId("browser-login-complete")).toHaveTextContent("browserLoginDone");
+    expect(screen.getByTestId("browser-login-complete")).toBeDisabled();
   });
 
-  it("reloads iframe when reload is pressed", () => {
+  it("shows extension-connected state and enables Done", async () => {
+    getExtensionBridgeStatus.mockResolvedValue({
+      connected: true,
+      desiredConnection: true,
+      bridgeDeviceId: "device-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileCount: 1,
+      lastProfileKey: "bitrix"
+    });
+
     render(
       <BrowserLoginModal
         open
@@ -70,12 +91,50 @@ describe("BrowserLoginModal", () => {
       />
     );
 
-    const iframe = screen.getByTestId("browser-login-iframe");
-    fireEvent.click(screen.getByTestId("browser-login-reload"));
-    expect(screen.getByTestId("browser-login-iframe")).not.toBe(iframe);
+    expect(await screen.findByText("browserLoginExtensionConnected")).toBeInTheDocument();
+    expect(screen.getByTestId("browser-login-complete")).toHaveTextContent("browserLoginDone");
+    expect(screen.getByTestId("browser-login-complete")).not.toBeDisabled();
+  });
+
+  it("keeps Done disabled when the extension is installed but not connected", async () => {
+    getExtensionBridgeStatus.mockResolvedValue({
+      connected: false,
+      desiredConnection: true,
+      bridgeDeviceId: "device-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileCount: 1,
+      lastProfileKey: "bitrix"
+    });
+
+    render(
+      <BrowserLoginModal
+        open
+        assistantId="assistant-1"
+        pendingBrowserLogin={pendingBrowserLogin}
+        onDismiss={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByText("browserLoginExtensionInstalled")).toBeInTheDocument();
+    expect(screen.getByTestId("browser-login-complete")).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId("browser-login-complete"));
+    expect(completeAssistantBrowserLogin).not.toHaveBeenCalled();
+    expect(dismissAssistantBrowserProfileView).not.toHaveBeenCalled();
   });
 
   it("calls complete login API when Done is pressed", async () => {
+    getExtensionBridgeStatus.mockResolvedValue({
+      connected: true,
+      desiredConnection: true,
+      bridgeDeviceId: "device-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileCount: 1,
+      lastProfileKey: "bitrix"
+    });
     completeAssistantBrowserLogin.mockResolvedValue({});
     const onCompleted = vi.fn();
     const onDismiss = vi.fn();
@@ -91,6 +150,7 @@ describe("BrowserLoginModal", () => {
       />
     );
 
+    await screen.findByText("browserLoginExtensionConnected");
     fireEvent.click(screen.getByTestId("browser-login-complete"));
 
     await waitFor(() => {
@@ -105,7 +165,16 @@ describe("BrowserLoginModal", () => {
   });
 
   it("dismisses live view in assist mode when Done is pressed", async () => {
-    dismissAssistantBrowserProfileLive.mockResolvedValue(undefined);
+    getExtensionBridgeStatus.mockResolvedValue({
+      connected: true,
+      desiredConnection: true,
+      bridgeDeviceId: "device-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileCount: 1,
+      lastProfileKey: "bitrix"
+    });
+    dismissAssistantBrowserProfileView.mockResolvedValue(undefined);
     const onCompleted = vi.fn();
     const onDismiss = vi.fn();
 
@@ -120,10 +189,11 @@ describe("BrowserLoginModal", () => {
       />
     );
 
+    await screen.findByText("browserLoginExtensionConnected");
     fireEvent.click(screen.getByTestId("browser-login-complete"));
 
     await waitFor(() => {
-      expect(dismissAssistantBrowserProfileLive).toHaveBeenCalledWith(
+      expect(dismissAssistantBrowserProfileView).toHaveBeenCalledWith(
         "test-token",
         "assistant-1",
         "profile-1"
@@ -134,7 +204,8 @@ describe("BrowserLoginModal", () => {
     expect(onDismiss).toHaveBeenCalled();
   });
 
-  it("dismisses on header close without cancel", () => {
+  it("dismisses assist mode on header close without calling cancel", async () => {
+    dismissAssistantBrowserProfileView.mockResolvedValue(undefined);
     const onDismiss = vi.fn();
     const onCancel = vi.fn();
 
@@ -142,13 +213,20 @@ describe("BrowserLoginModal", () => {
       <BrowserLoginModal
         open
         assistantId="assistant-1"
-        pendingBrowserLogin={pendingBrowserLogin}
+        pendingBrowserLogin={{ ...pendingBrowserLogin, completionMode: "assist" }}
         onDismiss={onDismiss}
         onCancel={onCancel}
       />
     );
 
     fireEvent.click(screen.getByLabelText("browserLoginClose"));
+    await waitFor(() => {
+      expect(dismissAssistantBrowserProfileView).toHaveBeenCalledWith(
+        "test-token",
+        "assistant-1",
+        "profile-1"
+      );
+    });
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(onCancel).not.toHaveBeenCalled();
   });
@@ -168,6 +246,34 @@ describe("BrowserLoginModal", () => {
     );
 
     fireEvent.click(screen.getByText("browserLoginCancel"));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it("cancels assist mode via dismiss-view semantics", async () => {
+    dismissAssistantBrowserProfileView.mockResolvedValue(undefined);
+    const onDismiss = vi.fn();
+    const onCancel = vi.fn();
+
+    render(
+      <BrowserLoginModal
+        open
+        assistantId="assistant-1"
+        pendingBrowserLogin={{ ...pendingBrowserLogin, completionMode: "assist" }}
+        onDismiss={onDismiss}
+        onCancel={onCancel}
+      />
+    );
+
+    fireEvent.click(screen.getByText("browserLoginCancel"));
+
+    await waitFor(() => {
+      expect(dismissAssistantBrowserProfileView).toHaveBeenCalledWith(
+        "test-token",
+        "assistant-1",
+        "profile-1"
+      );
+    });
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(onDismiss).not.toHaveBeenCalled();
   });

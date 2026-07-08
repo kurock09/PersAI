@@ -645,13 +645,18 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   ].join("\n");
   assert.match(
     browserActionDescription,
-    /platform-owned, not a model argument/i,
-    "browser action schema must say stealth/proxy policy is platform-owned"
+    /Runtime chooses the backend/i,
+    "browser action schema must say runtime chooses the backend"
   );
   assert.match(
     browserActionDescription,
     /page\.elements/i,
     "browser action schema must teach that profile-backed text results may return page.elements"
+  );
+  assert.match(
+    browserActionDescription,
+    /hidden device window/i,
+    "browser action schema must explain hidden-window local bridge semantics"
   );
   assert.match(
     browserActionDescription,
@@ -670,8 +675,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     browserDisplayNameDescription,
-    /do not promise or paste Browserless live login URLs in chat/i,
-    "browser login schema must forbid pasting Browserless live login URLs in ordinary web chat"
+    /do not promise raw URLs/i,
+    "browser login schema must forbid promising raw login URLs in chat"
   );
   assert.match(
     browserProfileDescription,
@@ -685,8 +690,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     browserOperationsDescription,
-    /do not use kind="press".*persistent Browserless sessions reject/i,
-    "browser operations schema must forbid press on saved profiles because persistent Browserless rejects it"
+    /needs_user_action.*open_live/i,
+    "browser operations schema must teach open_live for visible user-help handoff"
   );
   assert.match(
     browserOperationsDescription,
@@ -737,6 +742,11 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     browserSchemaText,
     /\bliveUrl\b/,
     "browser projection schema must not expose the internal liveUrl field name"
+  );
+  assert.doesNotMatch(
+    browserSchemaText,
+    /Browserless|proxy|stealth|BQL/i,
+    "browser projection schema must not preserve persistent Browserless guidance"
   );
   assert.equal(routeControl, undefined);
   // ADR-123 Slice 7 — grep/glob inline workspace tools are projected when the

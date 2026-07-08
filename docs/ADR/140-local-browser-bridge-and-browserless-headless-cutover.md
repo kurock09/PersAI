@@ -2,7 +2,9 @@
 
 ## Status
 
-**Open** — parent-orchestrated implementation program. Parent agent owns ADR, audit reconciliation, and final doc gate. Implementation is delegated slice-by-slice to **GPT-5.4** subagents only.
+**Implemented locally through S8; closed locally 2026-07-08.** Parent-orchestrated implementation is complete, ADR-138/139 are superseded archive only, and deploy/live acceptance remain pending.
+
+**Final local gate result:** focused browser/Telegram suites passed; repo-wide lint, format check, API/web/provider-gateway/runtime typechecks, and provider-gateway full tests passed. No push.
 
 **Direct cutover, no transitional path.** No feature flags, no parallel `useLocalBridge` mode, no dual code branches. Platform has no external commercial users at cutover time; one clean pull-request series replaces the persistent Browserless plane with the local bridge in a single ordered set of slices.
 
@@ -22,7 +24,7 @@
 | --- | --- | --- |
 | 1 | Tool surface | **Single** model-facing `browser` tool — same actions, same catalog vocabulary; execution plane changes under the hood |
 | 2 | Session ownership | **Per-assistant** `(assistantId, profileKey)` — unchanged product model |
-| 3 | Where cookies live | **On the user's device** — Chrome cookie store for the extension window; `WKWebsiteDataStore` (iOS) / `CookieManager` (Android) scoped per `profileKey` for Capacitor. PersAI database stores only the profile card (`profileKey`, `displayName`, `originHost`, status, TTL). One login lasts days until the site itself invalidates the cookie. |
+| 3 | Where cookies live | **On the user's device** — Chrome cookie store for the extension window; Capacitor v1 stores a per-`profileKey`, per-origin cookie jar and swaps those cookies into the platform WebView cookie store before commands/navigation. PersAI database stores only the profile card (`profileKey`, `displayName`, `originHost`, status, TTL). One login lasts days until the site itself invalidates the cookie. Non-cookie WebView state is not fully isolated per profile in v1. |
 | 4 | Bridge window visibility | **Hidden by default.** Assistant work runs in background — user never sees the automated tab / WebView. Window becomes visible only when the assistant explicitly asks the user to help (captcha, re-auth, payment confirmation) or when the user opens it from settings. |
 | 5 | Browserless role | **Headless ephemeral only** — fast public `snapshot` / `screenshot` when **no** `profile` and no saved session. No persistent sessions, BQL profiles, stealth/proxy, live URLs. |
 | 6 | Web desktop bridge | **Chrome extension**, Manifest V3 |
@@ -30,9 +32,14 @@
 | 8 | Web without extension | Model returns structured `bridge_unavailable`; assistant honestly explains and modal shows Chrome Web Store install CTA |
 | 9 | Permissions | `optional_host_permissions` in extension manifest; native Chrome permission prompt per domain at first `login`. No universal `<all_urls>`. |
 | 10 | Billing | Local bridge is **free** — no `billingFacts` emitted. Only headless Browserless is billed as today. |
-| 11 | Telegram | Public page `persai.dev/link/browser-login/:oneTimeToken` — same UX as web modal, uses the same bridge (extension flow triggered inside the public page). |
+| 11 | Telegram | Logged-in browser automation is **not supported directly in Telegram**. Telegram can still use public headless reads; logged-in browser actions return a structured `bridge_unavailable` / `open_in_app` state telling the user to continue in PersAI web/app. |
 | 12 | Existing DB profiles | Migrated to `status = expired`; rows kept (preserve `displayName` + `originHost` cards). `provider_session_id` and `live_url` columns dropped. |
-| 13 | Delivery | **One direct cutover** — ordered slices without a compatibility window |
+| 13 | Multi-device v1 | **Per-device cookies (Variant A)**. Each device has its own logged-in cookie store. A user re-logs in on each device; a profile card can reference multiple `bridgeDeviceId`s but cookie state is not synced between devices. |
+| 14 | Web release | Extension is built and tested locally in **developer mode**, then submitted to Chrome Web Store. Public web cutover starts only after Chrome Store approval. Mobile Capacitor bridge works immediately in the app. |
+| 15 | MV3 background | The Chrome extension WebSocket lives only while a PersAI tab is open or the extension popup is active. Background work after closing the browser is out of scope; user keeps the tab open for long-running tasks. |
+| 16 | Trust boundary | The bridge may not click captcha, payment, or anti-bot guarded elements. For those cases the model returns `needs_user_action`, the hidden window becomes visible, and the user performs the action. |
+| 17 | Privacy | PersAI does not persist page content, DOM snapshots, or element lists. Only URL, status, structured operation result, warnings, and error reason are retained. |
+| 18 | Delivery | **One direct cutover** — ordered slices without a compatibility window |
 
 ### Explicitly rejected
 
@@ -170,6 +177,10 @@ type LocalBrowserResult = {
 - **Chrome extension:** window opens with `chrome.windows.create({ state: "minimized" })`. When `showWindow: true` or the user opens it from settings, extension calls `chrome.windows.update({ state: "normal", focused: true })`.
 - **Capacitor plugin:** WebView is created with `hidden = true`. On show, the plugin overlays it as a full-screen modal above the PersAI app content. On dismiss, WebView is hidden again but not destroyed — cookies stay resident.
 
+### D2a — Trusted user action boundary
+
+The bridge is **not** a generic anti-bot bypass. It performs normal DOM interactions (click, type, scroll, select, wait). Some sites mark sensitive events as `isTrusted` or present captcha/payment challenges. In those cases the bridge returns a structured `needs_user_action` state and shows the browser window. The user completes the action, clicks **Готово**, and the model resumes. The model does not narrate or guess around these boundaries; the product UX is explicit: "Пожалуйста, выполни это действие в открывшемся окне, а я продолжу."
+
 ### D3 — Assistant browser profiles (cookies on device, card in DB)
 
 `AssistantBrowserProfile` table keeps its cards and lifecycle, with these field changes:
@@ -184,10 +195,13 @@ type LocalBrowserResult = {
 **Where cookies live:**
 
 - Chrome extension: cookies live in Chrome's cookie store for the isolated window opened by the extension. Chrome persists them between browser restarts by default. Extension does not export cookies to PersAI.
-- Capacitor iOS: `WKWebsiteDataStore` persisted per `profileKey`. Cookies survive app restarts.
-- Capacitor Android: WebView + `CookieManager` per-instance, backed by disk storage keyed on `profileKey`.
+- Capacitor iOS: per-`profileKey`, per-origin cookie jar stored by the plugin and swapped through `WKHTTPCookieStore`. Cookies survive app restarts.
+- Capacitor Android: per-`profileKey`, per-origin cookie jar stored by the plugin and swapped through `CookieManager`. Cookies survive app restarts.
+- Capacitor v1 does **not** guarantee full isolation for non-cookie WebView storage. DOM storage, IndexedDB, and service worker caches may remain platform-owned per origin across profiles on the same device.
 
 **One login lasts as long as the site itself keeps the cookie valid** — typically many days or weeks. PersAI does not re-login on every command.
+
+**Multi-device v1 (Variant A):** Cookies are stored on each device separately. The same user with the same assistant must log in on each device where they want the bridge to work. The profile card in the database can reference multiple `bridgeDeviceId`s; runtime routes to the active device. This is a v1 simplification; a later ADR can introduce encrypted cookie sync if needed.
 
 TTL scheduler (`ExpireAssistantBrowserProfilesService`, lease `browser_profile_expiry`) keeps its role: profiles that go untouched for the plan TTL (30d default, 90d on higher plans) move to `expired` and require re-login. This is a PersAI product timer, not a Browserless timer.
 
@@ -265,8 +279,9 @@ Repository: `C:\Users\alex\Documents\persai-mobile` (existing, hosts `apps/web` 
 
 New plugin package inside that repo: `persai-browser-bridge`.
 
-- **iOS:** Swift plugin. `WKWebView` per profile with `WKWebViewConfiguration.websiteDataStore` = a persistent store keyed on `profileKey`. `evaluateJavaScript` for command execution.
-- **Android:** Kotlin plugin. `WebView` per profile with `CookieManager` and `WebStorage` scoped by an isolated app-directory subfolder keyed on `profileKey`. `evaluateJavascript` for command execution.
+- **iOS:** Swift plugin. `WKWebView` per profile with a per-`profileKey`, per-origin cookie jar swapped through `WKHTTPCookieStore`. `evaluateJavaScript` for command execution.
+- **Android:** Kotlin plugin. `WebView` per profile with a per-`profileKey`, per-origin cookie jar swapped through `CookieManager`. `evaluateJavascript` for command execution.
+- Non-cookie WebView storage such as DOM storage, IndexedDB, and service worker caches is not guaranteed isolated per profile in v1.
 - Native side owns the WebView lifecycle: created hidden on first use, kept alive between commands, released when profile is deleted or explicitly cleaned.
 - WebView is shown as a full-screen native overlay on `showWindow`; hidden again on «Готово» or dismiss.
 - Same `LocalBrowserCommand` / `LocalBrowserResult` protocol as the extension — the API bridge relay does not distinguish clients beyond the `bridgeClientKind` string.
@@ -286,19 +301,14 @@ New repository / package: `persai-browser-extension` (inside PersAI monorepo und
 - One profile → one dedicated window (`chrome.windows.create({ type: "popup" })`), hidden by default. Window state is remembered by extension local storage keyed on `profileKey`.
 - The extension links itself to the PersAI web tab through `externally_connectable` in the manifest listing PersAI web origins; PersAI web detects extension presence and drops the "install CTA" state.
 
-### D10 — Telegram (public login page)
+### D10 — Telegram boundary
 
-Telegram cannot host the extension flow. Instead:
+Telegram remains a normal chat channel, not a local browser runtime. It cannot host the extension, a hidden desktop window, or the Capacitor WebView. Therefore:
 
-- When Telegram-channel turn produces `pendingBrowserLogin`, the outbound message includes a link to `https://persai.dev/link/browser-login/:oneTimeToken`.
-- The public page is a thin PersAI web route (no Clerk sign-in required for the initial land) that:
-  1. Verifies the one-time token, resolves to `(assistantId, profileKey, loginUrl)`.
-  2. Shows the same modal UX as the in-chat modal.
-  3. Requires the extension (offers install CTA if absent).
-  4. Completes the flow via the same `completeLogin` API.
-- Token is single-use, short TTL (~15 minutes), and burns on first successful `completeLogin`.
-
-Ordinary Telegram web chat replies never leak Browserless-style URLs — that class of URL no longer exists.
+- Public, no-profile `snapshot` / `screenshot` may still use headless Browserless.
+- Logged-in browser actions return a structured `bridge_unavailable` / `open_in_app` result.
+- The assistant tells the user to continue the action in PersAI web/app where the local bridge exists.
+- No public browser-login page, one-time login token, or Browserless-style live URL is introduced for Telegram.
 
 ### D11 — Billing
 
@@ -343,7 +353,7 @@ Regenerate OpenAPI and `packages/contracts` after the change.
 
 ## Implementation slices (direct cutover)
 
-Ordered. Each slice compiles green; the program does not go through a state where `browser` with a profile "half works". The compile-green guarantee is achieved by landing bridge and cut together in slices S6–S8 as a single logical step across multiple commits.
+Ordered. Each slice compiles green; the program does not go through a state where `browser` with a profile "half works". The compile-green guarantee is achieved by landing bridge and cut together in slices S6–S7 as a single logical step across multiple commits.
 
 ### S0 — Contract freeze
 
@@ -375,7 +385,9 @@ New workspace package (chosen path in this slice): either `extensions/persai-bro
 - Host permission request flow (`chrome.permissions.request`)
 - Local storage for `profileKey` → `windowId` / `tabId` / `cookieStoreId`
 
-**Gate:** extension unit tests (executor + host permission logic); manual smoke check on Lavka login end-to-end.
+**Gate:** extension unit tests (executor + host permission logic); manual smoke check on Lavka login end-to-end in developer mode.
+
+**Release:** After the gate, the extension is submitted to Chrome Web Store. The web cutover in S7 starts only after store approval. The mobile Capacitor bridge in S3 works immediately in the app without store dependency.
 
 ### S3 — Capacitor native plugin
 
@@ -429,27 +441,21 @@ New plugin `persai-browser-bridge` in `C:\Users\alex\Documents\persai-mobile`:
 
 **Gate:** `browser-login-modal.test.tsx`, `chat-area.test.tsx`, `assistant-settings.test.tsx`, `use-chat.test.tsx`.
 
-### S8 — Telegram public login page
+### S8 — Channel boundary cleanup + doc closure + program gate
 
-- New route `apps/web/app/link/browser-login/[token]/page.tsx`
-- Token issuance endpoint in API
-- Reuse modal component
-- Update `telegram-channel-adapter.service.ts` and `appendTelegramBrowserLoginLink` to emit the new link shape
-
-**Gate:** public-page render test; token issuance / burn test.
-
-### S9 — Doc closure + program gate
-
+- Update Telegram/browser channel handling so logged-in browser actions return structured `bridge_unavailable` / `open_in_app`, not login links or live URLs.
 - Close ADR-138, ADR-139 in ADR headers ("**Superseded by ADR-140**")
 - Update `AGENTS.md` active programs list
 - Full workspace lint, format, typecheck, test, test:step2, build
 - Live manual acceptance:
   - Desktop web + Chrome extension: login Lavka, hide window, chat drives `snapshot` and `act` in background, `open_view` opens window on demand
   - Android via `persai-mobile`: same flow
-  - Telegram: link → public page → login → chat reply returns
+  - Telegram: public no-profile read still works via headless; logged-in browser request returns `open_in_app`
 - `CHANGELOG` and `SESSION-HANDOFF` updated
 
-**Gate:** verification matrix (below) fully green.
+**Local completion:** implemented. Telegram/browser handoff now preserves public headless reads while directing logged-in/profile-backed work to PersAI web/app with structured `open_in_app` / `bridge_unavailable` semantics and no login/live links.
+
+**Gate result:** verification matrix is code-complete locally. Focused browser suites, repo-wide lint, format check, required typechecks, and provider-gateway full tests are green.
 
 ## Verification matrix
 
@@ -466,16 +472,20 @@ New plugin `persai-browser-bridge` in `C:\Users\alex\Documents\persai-mobile`:
 | User opens site card from settings | User-initiated `open_view` | Window / WebView becomes visible; login state preserved |
 | Existing DB profile after migration | (no execution) | Status `expired`; user prompted to re-login on next assistant use |
 | Profile TTL expiry (30d idle) | Scheduler + bridge close | Row → `expired`; on-device cookies of that profile may be cleared by the bridge close command |
-| Telegram `browser` with profile | Public login page | Message includes `persai.dev/link/browser-login/:token`; page completes on any device |
+| Telegram `browser` with profile | No local bridge | Structured `open_in_app` / `bridge_unavailable`; no login link, no live URL |
 | `browser` with no headless option and no bridge | Structured error | Model receives `bridge_unavailable`; assistant explains without hallucinating |
 
 ## Risks and residuals
 
 - **Extension install friction on desktop web.** Mitigated by never blocking chat and by clear install CTA in the modal. Users who refuse install still get honest structured errors.
-- **Chrome Web Store review lead time.** Extension publishing may take days for the first submission. S2 lands the code; store publication is a separate operational step tracked in `SESSION-HANDOFF`.
+- **Chrome Web Store review lead time.** S2 lands the code and the extension is tested locally in developer mode. Public web cutover starts only after Chrome Web Store approval. Store publication is a separate operational step tracked in `SESSION-HANDOFF`.
 - **iOS App Store review** for the new Capacitor plugin. Same operational note applies to `persai-mobile`.
-- **Multi-device users** (one user, one assistant, extension on both work laptop and home laptop) are out of scope in v1 — the first device to register a `bridgeDeviceId` for a profile wins; second device gets a "profile in use elsewhere" state. Revisit in a later ADR if needed.
-- **CI does not run the extension.** E2E remains a manual step after slice S9 until a follow-up ADR adds Playwright-with-extension coverage.
+- **Multi-device v1.** Each device stores its own cookies. A user must log in on each device where they want the bridge to work. The profile card can reference multiple `bridgeDeviceId`s; runtime routes to the active device. Encrypted cookie sync across devices is intentionally out of scope for this program.
+- **MV3 service worker lifetime.** The Chrome extension WebSocket is kept alive while a PersAI tab is open or the extension popup is active. Long-running tasks require the browser to remain open. Background execution after the browser closes is out of scope.
+- **Trusted action boundary.** Some sites will reject programmatic clicks on captchas, payments, or protected controls. The bridge delegates those steps to the user via `showWindow` mode. The model does not pretend to bypass them.
+- **Privacy scope.** Page content, DOM snapshots, and element lists are not persisted in PersAI logs or database. Only URL, status, structured result, warnings, and error reason are retained.
+- **CI does not run the extension.** E2E remains a manual step after slice S8 until a follow-up ADR adds Playwright-with-extension coverage.
+- **Deploy/manual acceptance remains.** The final local gate is green, but Chrome extension publication, rollout, and live manual acceptance remain operational steps before declaring production acceptance complete.
 
 ## References
 

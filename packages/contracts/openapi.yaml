@@ -12072,8 +12072,8 @@ components:
         - profileId
         - profileKey
         - displayName
-        - liveUrl
         - loginUrl
+        - bridgeClientKind
       properties:
         profileId:
           type: string
@@ -12081,10 +12081,18 @@ components:
           type: string
         displayName:
           type: string
-        liveUrl:
-          type: string
         loginUrl:
           type: string
+        bridgeClientKind:
+          type: string
+          enum:
+            - extension
+            - capacitor
+        completionMode:
+          type: string
+          enum:
+            - login
+            - assist
     AssistantWebChatTurnState:
       type: object
       required:

@@ -35,10 +35,13 @@ import type {
   RuntimeImageGenerateRequest,
   RuntimeTodoItem,
   RuntimeVideoGenerateRequest,
+  LocalBrowserBridgeDispatchCommandRequest,
+  LocalBrowserBridgeDispatchCommandResult,
+  LocalBrowserBridgeGetCommandResultResult,
+  LocalBrowserResult,
   RuntimeBrowserProfileListItem,
   RuntimeBrowserLoginResult,
   PendingBrowserLoginState,
-  PersistentBrowserCapabilityPolicy,
   PersaiRuntimeBrowserProfileErrorReason
 } from "@persai/runtime-contract";
 import {
@@ -78,9 +81,8 @@ export type ConsumeToolDailyLimitOutcome =
 export type ResolveBrowserProfileOutcome =
   | {
       ok: true;
-      providerSessionId: string;
       profileId: string;
-      capabilityPolicy: PersistentBrowserCapabilityPolicy;
+      bridgeSessionRef: string;
     }
   | {
       ok: false;
@@ -91,6 +93,17 @@ export type ResolveBrowserProfileOutcome =
 export type StartBrowserLoginOutcome = RuntimeBrowserLoginResult & {
   profileId: string;
 };
+
+export type DispatchLocalBrowserCommandOutcome =
+  | LocalBrowserBridgeDispatchCommandResult
+  | {
+      accepted: false;
+      commandId: string;
+      code: string;
+      message: string;
+      activeBridgeDeviceIds?: string[];
+      requestedBridgeDeviceId?: string | null;
+    };
 
 export type InternalQuotaStatusOutcome = {
   planCode: string | null;
@@ -3186,15 +3199,16 @@ export class PersaiInternalApiClientService {
 
     if (response.ok) {
       const payload = this.asObject(response.body);
-      if (payload?.ok === true && typeof payload.providerSessionId === "string") {
-        const capabilityPolicy = this.parsePersistentBrowserCapabilityPolicy(
-          payload.capabilityPolicy
-        );
+      if (payload?.ok === true) {
+        if (typeof payload.profileId !== "string" || typeof payload.bridgeSessionRef !== "string") {
+          throw new BadGatewayException(
+            "PersAI internal API returned an invalid browser-profiles resolve response."
+          );
+        }
         return {
           ok: true,
-          providerSessionId: payload.providerSessionId,
-          profileId: typeof payload.profileId === "string" ? payload.profileId : "",
-          capabilityPolicy
+          profileId: payload.profileId,
+          bridgeSessionRef: payload.bridgeSessionRef
         };
       }
       if (
@@ -3226,58 +3240,32 @@ export class PersaiInternalApiClientService {
     );
   }
 
-  private parsePersistentBrowserCapabilityPolicy(
-    input: unknown
-  ): PersistentBrowserCapabilityPolicy {
-    const row = this.asObject(input);
-    const profileIdentity = this.asObject(row?.profileIdentity);
-    const proxy = this.asObject(row?.proxy);
-    if (
-      row?.scope !== "persistent_profile" ||
-      typeof profileIdentity?.assistantId !== "string" ||
-      typeof profileIdentity?.profileKey !== "string" ||
-      typeof row?.stealth !== "boolean" ||
-      proxy === null ||
-      proxy?.mode !== "sticky_residential" ||
-      (proxy?.provider !== "browserless_builtin" && proxy?.provider !== "external") ||
-      (proxy?.server !== null && typeof proxy?.server !== "string")
-    ) {
-      throw new BadGatewayException(
-        "PersAI internal API returned an invalid browser capability policy."
-      );
-    }
-    return {
-      scope: "persistent_profile",
-      profileIdentity: {
-        assistantId: profileIdentity.assistantId,
-        profileKey: profileIdentity.profileKey
-      },
-      stealth: row.stealth,
-      proxy: {
-        mode: "sticky_residential",
-        provider: proxy.provider,
-        server: proxy.server
-      }
-    };
-  }
-
   private parsePendingBrowserLoginState(input: unknown): PendingBrowserLoginState | null {
     const row = this.asObject(input);
+    const bridgeClientKind =
+      row?.bridgeClientKind === "extension" || row?.bridgeClientKind === "capacitor"
+        ? row.bridgeClientKind
+        : null;
     if (
       typeof row?.profileId !== "string" ||
       typeof row?.profileKey !== "string" ||
       typeof row?.displayName !== "string" ||
-      typeof row?.liveUrl !== "string" ||
-      typeof row?.loginUrl !== "string"
+      typeof row?.loginUrl !== "string" ||
+      bridgeClientKind === null
     ) {
       return null;
     }
+    const completionMode =
+      row.completionMode === "assist" || row.completionMode === "login"
+        ? row.completionMode
+        : undefined;
     return {
       profileId: row.profileId,
       profileKey: row.profileKey,
       displayName: row.displayName,
-      liveUrl: row.liveUrl,
-      loginUrl: row.loginUrl
+      loginUrl: row.loginUrl,
+      bridgeClientKind,
+      ...(completionMode === undefined ? {} : { completionMode })
     };
   }
 
@@ -3304,21 +3292,25 @@ export class PersaiInternalApiClientService {
 
     if (response.ok) {
       const payload = this.asObject(response.body);
+      const bridgeClientKind =
+        payload?.bridgeClientKind === "extension" || payload?.bridgeClientKind === "capacitor"
+          ? payload.bridgeClientKind
+          : null;
       if (
         payload?.ok === true &&
         typeof payload.profileId === "string" &&
         typeof payload.profileKey === "string" &&
         typeof payload.displayName === "string" &&
-        typeof payload.liveUrl === "string" &&
         typeof payload.loginUrl === "string" &&
+        bridgeClientKind !== null &&
         typeof payload.status === "string"
       ) {
         return {
           profileId: payload.profileId,
           profileKey: payload.profileKey,
           displayName: payload.displayName,
-          liveUrl: payload.liveUrl,
           loginUrl: payload.loginUrl,
+          bridgeClientKind,
           status: payload.status as RuntimeBrowserLoginResult["status"]
         };
       }
@@ -3339,17 +3331,14 @@ export class PersaiInternalApiClientService {
     );
   }
 
-  async openBrowserLive(input: {
-    assistantId: string;
-    workspaceId: string;
-    profileKey: string;
-    browserCredentialSecretId?: string;
-  }): Promise<StartBrowserLoginOutcome> {
+  async dispatchLocalBrowserCommand(
+    input: LocalBrowserBridgeDispatchCommandRequest
+  ): Promise<DispatchLocalBrowserCommandOutcome> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
     }
 
-    const response = await this.fetchJson("/api/v1/internal/runtime/browser-profiles/open-live", {
+    const response = await this.fetchJson("/api/v1/internal/runtime/browser-bridge/dispatch", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
@@ -3361,37 +3350,101 @@ export class PersaiInternalApiClientService {
     if (response.ok) {
       const payload = this.asObject(response.body);
       if (
-        payload?.ok === true &&
-        typeof payload.profileId === "string" &&
-        typeof payload.profileKey === "string" &&
-        typeof payload.displayName === "string" &&
-        typeof payload.liveUrl === "string" &&
-        typeof payload.loginUrl === "string" &&
-        typeof payload.status === "string"
+        payload?.accepted === true &&
+        typeof payload.commandId === "string" &&
+        typeof payload.bridgeDeviceId === "string"
       ) {
         return {
-          profileId: payload.profileId,
-          profileKey: payload.profileKey,
-          displayName: payload.displayName,
-          liveUrl: payload.liveUrl,
-          loginUrl: payload.loginUrl,
-          status: payload.status as RuntimeBrowserLoginResult["status"]
+          accepted: true,
+          commandId: payload.commandId,
+          bridgeDeviceId: payload.bridgeDeviceId
+        };
+      }
+      if (
+        payload?.accepted === false &&
+        typeof payload.commandId === "string" &&
+        typeof payload.code === "string" &&
+        typeof payload.message === "string"
+      ) {
+        return {
+          accepted: false,
+          commandId: payload.commandId,
+          code: payload.code,
+          message: payload.message,
+          ...(Array.isArray(payload.activeBridgeDeviceIds)
+            ? {
+                activeBridgeDeviceIds: payload.activeBridgeDeviceIds.filter(
+                  (entry): entry is string => typeof entry === "string"
+                )
+              }
+            : {}),
+          ...(payload.requestedBridgeDeviceId === null ||
+          typeof payload.requestedBridgeDeviceId === "string"
+            ? { requestedBridgeDeviceId: payload.requestedBridgeDeviceId }
+            : {})
         };
       }
       throw new BadGatewayException(
-        "PersAI internal API returned an invalid browser-profiles open-live response."
+        "PersAI internal API returned an invalid browser-bridge dispatch response."
       );
     }
 
     const error = this.extractError(response.body);
     if (response.status >= 500) {
       throw new ServiceUnavailableException(
-        error.message ?? "PersAI internal API browser-profiles open-live request failed."
+        error.message ?? "PersAI internal API browser-bridge dispatch request failed."
       );
     }
 
     throw new BadRequestException(
-      error.message ?? "PersAI internal API rejected the browser-profiles open-live request."
+      error.message ?? "PersAI internal API rejected the browser-bridge dispatch request."
+    );
+  }
+
+  async getLocalBrowserCommandResult(
+    commandId: string
+  ): Promise<LocalBrowserBridgeGetCommandResultResult> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
+    }
+
+    const response = await this.fetchJson(
+      `/api/v1/internal/runtime/browser-bridge/result/${encodeURIComponent(commandId)}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`
+        }
+      }
+    );
+
+    if (response.ok) {
+      const payload = this.asObject(response.body);
+      if (payload?.status === "pending") {
+        return { status: "pending" };
+      }
+      if (payload?.status === "completed") {
+        return {
+          status: "completed",
+          ...(payload.result === undefined
+            ? {}
+            : { result: this.parseLocalBrowserResult(payload.result) })
+        };
+      }
+      throw new BadGatewayException(
+        "PersAI internal API returned an invalid browser-bridge result response."
+      );
+    }
+
+    const error = this.extractError(response.body);
+    if (response.status >= 500) {
+      throw new ServiceUnavailableException(
+        error.message ?? "PersAI internal API browser-bridge result request failed."
+      );
+    }
+
+    throw new BadRequestException(
+      error.message ?? "PersAI internal API rejected the browser-bridge result request."
     );
   }
 
@@ -3433,6 +3486,53 @@ export class PersaiInternalApiClientService {
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected the browser-profiles touch request."
     );
+  }
+
+  private parseLocalBrowserResult(input: unknown): LocalBrowserResult | null {
+    const row = this.asObject(input);
+    if (row === null || typeof row.commandId !== "string" || typeof row.ok !== "boolean") {
+      return null;
+    }
+    const result: LocalBrowserResult = {
+      commandId: row.commandId,
+      ok: row.ok
+    };
+    if (typeof row.finalUrl === "string" || row.finalUrl === null) {
+      result.finalUrl = row.finalUrl;
+    }
+    if (typeof row.title === "string" || row.title === null) {
+      result.title = row.title;
+    }
+    if (typeof row.content === "string" || row.content === null) {
+      result.content = row.content;
+    }
+    if (typeof row.truncated === "boolean" || row.truncated === null) {
+      result.truncated = row.truncated;
+    }
+    if (Array.isArray(row.elements)) {
+      result.elements = row.elements as NonNullable<LocalBrowserResult["elements"]>;
+    }
+    if (Array.isArray(row.extracted)) {
+      result.extracted = row.extracted as NonNullable<LocalBrowserResult["extracted"]>;
+    }
+    if (typeof row.warning === "string" || row.warning === null) {
+      result.warning = row.warning;
+    }
+    const artifact = this.asObject(row.artifact);
+    if (
+      artifact !== null &&
+      typeof artifact.mimeType === "string" &&
+      typeof artifact.base64 === "string"
+    ) {
+      result.artifact = {
+        mimeType: artifact.mimeType,
+        base64: artifact.base64
+      };
+    }
+    if (typeof row.errorReason === "string" || row.errorReason === null) {
+      result.errorReason = row.errorReason;
+    }
+    return result;
   }
 
   private parseChatPlanApplyOutcome(value: unknown): InternalChatPlanOutcome | null {

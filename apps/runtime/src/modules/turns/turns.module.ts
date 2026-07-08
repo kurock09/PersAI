@@ -10,6 +10,7 @@ import { InternalRuntimeDocumentJobsController } from "./interface/http/internal
 import { InternalRuntimeMediaJobsController } from "./interface/http/internal-runtime-media-jobs.controller";
 import { AutoExtractToMemoryService } from "./auto-extract-to-memory.service";
 import { IdempotencyService } from "./idempotency.service";
+import { LocalBrowserBridgeClient } from "./local-browser-bridge.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { ProviderGatewayClientService } from "./provider-gateway.client.service";
@@ -60,6 +61,7 @@ import { TurnRoutingService } from "./turn-routing.service";
   ],
   providers: [
     PersaiInternalApiClientService,
+    LocalBrowserBridgeClient,
     ProviderGatewayClientService,
     BuildActiveScenarioBlockService,
     BuildSystemReminderBlocksService,
@@ -102,6 +104,7 @@ import { TurnRoutingService } from "./turn-routing.service";
   ],
   exports: [
     PersaiInternalApiClientService,
+    LocalBrowserBridgeClient,
     ProviderGatewayClientService,
     BuildActiveScenarioBlockService,
     BuildSystemReminderBlocksService,

@@ -1,4 +1,5 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
+import { BrowserBridgeModule } from "../browser-bridge/browser-bridge.module";
 import { IdentityAccessModule } from "../identity-access/identity-access.module";
 import { PlatformCoreModule } from "../platform-core/platform-core.module";
 import { PrismaService } from "../identity-access/infrastructure/persistence/prisma.service";
@@ -158,9 +159,6 @@ import { WorkspaceFileMicroDescriptionJobSchedulerService } from "./application/
 import { WORKSPACE_FILE_METADATA_REPOSITORY } from "./domain/workspace-file-metadata.repository";
 import { ASSISTANT_BROWSER_PROFILE_REPOSITORY } from "./domain/assistant-browser-profile.repository";
 import { PrismaAssistantBrowserProfileRepository } from "./infrastructure/persistence/prisma-assistant-browser-profile.repository";
-import { BROWSERLESS_SESSION_PORT } from "./application/browserless-session.port";
-import { BrowserlessProviderGatewayClient } from "./application/browserless-provider-gateway.client";
-import { ProviderBrowserlessSessionPort } from "./application/provider-browserless-session.port";
 import { AssistantBrowserProfileService } from "./application/assistant-browser-profile.service";
 import { ExpireAssistantBrowserProfilesService } from "./application/expire-assistant-browser-profiles.service";
 import { AssistantBrowserProfileExpirySchedulerService } from "./application/assistant-browser-profile-expiry-scheduler.service";
@@ -421,7 +419,7 @@ import { TelegramAlbumCollectorService } from "./application/telegram-album-coll
 import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-album-finalizer-scheduler.service";
 
 @Module({
-  imports: [IdentityAccessModule, PlatformCoreModule],
+  imports: [IdentityAccessModule, PlatformCoreModule, forwardRef(() => BrowserBridgeModule)],
   controllers: [
     AppBootstrapController,
     AssistantController,
@@ -871,11 +869,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
       provide: ASSISTANT_BROWSER_PROFILE_REPOSITORY,
       useClass: PrismaAssistantBrowserProfileRepository
     },
-    {
-      provide: BROWSERLESS_SESSION_PORT,
-      useClass: ProviderBrowserlessSessionPort
-    },
-    BrowserlessProviderGatewayClient,
     ManageChatMediaService,
     MediaPreprocessorService,
     NativeMediaTranscriptionService,
@@ -937,6 +930,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     StreamWebChatTurnService,
     UpdateAssistantDraftService,
     BackgroundSchedulerMetricsService,
+    ResolveActiveAssistantService,
     ASSISTANT_REPOSITORY,
     ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
     ASSISTANT_GOVERNANCE_REPOSITORY,

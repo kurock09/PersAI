@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open** — parent-orchestrated implementation program. Parent agent owns ADR and final doc reconciliation. Implementation is delegated slice-by-slice to **GPT-5.4** subagents only. **Push = deploy** and is founder-controlled, so this ADR may be implemented and committed locally by slice, but not pushed as part of ordinary slice execution.
+**Superseded by ADR-140 (2026-07-08).** Historical record only. Browserless persistent-session capability policy / stealth / proxy / recovery are no longer active target-state architecture.
 
 ## Date
 

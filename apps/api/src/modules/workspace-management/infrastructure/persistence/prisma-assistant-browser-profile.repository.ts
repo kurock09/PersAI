@@ -1,6 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma, type AssistantBrowserProfile as PrismaRow } from "@prisma/client";
-import type { AssistantBrowserProfileStatus } from "@persai/runtime-contract";
+import type {
+  AssistantBrowserProfileStatus,
+  LocalBrowserBridgeDeviceKind
+} from "@persai/runtime-contract";
 import type {
   AssistantBrowserProfileRepository,
   AssistantBrowserProfileRow,
@@ -129,8 +132,8 @@ export class PrismaAssistantBrowserProfileRepository implements AssistantBrowser
         displayName: input.displayName,
         loginUrl: input.loginUrl,
         originHost: input.originHost,
-        providerSessionId: input.providerSessionId,
-        liveUrl: input.liveUrl ?? null,
+        bridgeSessionRef: input.bridgeSessionRef ?? null,
+        bridgeClientKind: input.bridgeClientKind ?? null,
         originatingChatId: input.originatingChatId ?? null,
         status: input.status
       }
@@ -145,31 +148,48 @@ export class PrismaAssistantBrowserProfileRepository implements AssistantBrowser
     });
   }
 
-  async updatePendingLoginSession(
+  async updatePendingLogin(
     id: string,
-    input: { providerSessionId: string; liveUrl: string }
+    input: {
+      bridgeSessionRef: string | null;
+      bridgeClientKind: LocalBrowserBridgeDeviceKind;
+    }
   ): Promise<void> {
     await this.prisma.assistantBrowserProfile.update({
       where: { id },
       data: {
-        providerSessionId: input.providerSessionId,
-        liveUrl: input.liveUrl,
+        bridgeSessionRef: input.bridgeSessionRef,
+        bridgeClientKind: input.bridgeClientKind,
         status: "pending_login"
       }
     });
   }
 
-  async updateLiveUrl(id: string, liveUrl: string | null): Promise<void> {
+  async activate(
+    id: string,
+    input: {
+      bridgeSessionRef: string;
+      bridgeClientKind: LocalBrowserBridgeDeviceKind;
+      lastUsedAt: Date;
+      expiresAt: Date;
+    }
+  ): Promise<void> {
     await this.prisma.assistantBrowserProfile.update({
       where: { id },
-      data: { liveUrl }
+      data: {
+        status: "active",
+        bridgeSessionRef: input.bridgeSessionRef,
+        bridgeClientKind: input.bridgeClientKind,
+        lastUsedAt: input.lastUsedAt,
+        expiresAt: input.expiresAt
+      }
     });
   }
 
-  async clearLiveUrl(id: string): Promise<void> {
+  async updateBridgeSessionRef(id: string, bridgeSessionRef: string | null): Promise<void> {
     await this.prisma.assistantBrowserProfile.update({
       where: { id },
-      data: { liveUrl: null }
+      data: { bridgeSessionRef }
     });
   }
 
@@ -183,7 +203,7 @@ export class PrismaAssistantBrowserProfileRepository implements AssistantBrowser
   async markExpired(id: string): Promise<void> {
     await this.prisma.assistantBrowserProfile.update({
       where: { id },
-      data: { status: "expired", liveUrl: null }
+      data: { status: "expired", bridgeSessionRef: null }
     });
   }
 
@@ -203,8 +223,8 @@ export class PrismaAssistantBrowserProfileRepository implements AssistantBrowser
           displayName: string;
           loginUrl: string;
           originHost: string;
-          providerSessionId: string;
-          liveUrl: string | null;
+          bridgeSessionRef: string | null;
+          bridgeClientKind: LocalBrowserBridgeDeviceKind | null;
           originatingChatId: string | null;
           status: AssistantBrowserProfileStatus;
           lastUsedAt: Date | null;
@@ -221,8 +241,8 @@ export class PrismaAssistantBrowserProfileRepository implements AssistantBrowser
           "display_name" AS "displayName",
           "login_url" AS "loginUrl",
           "origin_host" AS "originHost",
-          "provider_session_id" AS "providerSessionId",
-          "live_url" AS "liveUrl",
+          "bridge_session_ref" AS "bridgeSessionRef",
+          "bridge_client_kind" AS "bridgeClientKind",
           "originating_chat_id" AS "originatingChatId",
           "status",
           "last_used_at" AS "lastUsedAt",
@@ -243,12 +263,11 @@ export class PrismaAssistantBrowserProfileRepository implements AssistantBrowser
       const ids = rows.map((row) => row.id);
       await tx.assistantBrowserProfile.updateMany({
         where: { id: { in: ids } },
-        data: { status: "expired", liveUrl: null }
+        data: { status: "expired", bridgeSessionRef: null }
       });
       return rows.map((row) => ({
         ...row,
-        status: "expired" as const,
-        liveUrl: null
+        status: "expired" as const
       }));
     });
   }
@@ -262,8 +281,11 @@ export class PrismaAssistantBrowserProfileRepository implements AssistantBrowser
       displayName: row.displayName,
       loginUrl: row.loginUrl,
       originHost: row.originHost,
-      providerSessionId: row.providerSessionId,
-      liveUrl: row.liveUrl,
+      bridgeSessionRef: row.bridgeSessionRef,
+      bridgeClientKind:
+        row.bridgeClientKind === "extension" || row.bridgeClientKind === "capacitor"
+          ? row.bridgeClientKind
+          : null,
       originatingChatId: row.originatingChatId,
       status: row.status,
       lastUsedAt: row.lastUsedAt,

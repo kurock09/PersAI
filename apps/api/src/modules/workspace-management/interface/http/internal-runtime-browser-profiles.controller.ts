@@ -87,18 +87,6 @@ export class InternalRuntimeBrowserProfilesController {
     return { ok: true, profile: result.profile };
   }
 
-  @HttpCode(200)
-  @Post("open-live")
-  async openLive(
-    @Req() req: InternalRequestLike,
-    @Body() body: unknown
-  ): Promise<StartLoginResponse> {
-    this.assertAuthorized(req);
-    const input = this.parseOpenLiveBody(body);
-    const result = await this.assistantBrowserProfileService.openLiveViewByProfileKey(input);
-    return { ok: true, ...result };
-  }
-
   private parseAssistantScopedBody(body: unknown): { assistantId: string } {
     if (body === null || typeof body !== "object" || Array.isArray(body)) {
       throw new BadRequestException("Request body must be an object.");
@@ -139,7 +127,6 @@ export class InternalRuntimeBrowserProfilesController {
     workspaceId: string;
     displayName: string;
     loginUrl: string;
-    browserCredentialSecretId?: string;
     originatingChatId?: string | null;
   } {
     if (body === null || typeof body !== "object" || Array.isArray(body)) {
@@ -152,11 +139,6 @@ export class InternalRuntimeBrowserProfilesController {
       displayName: this.requiredString(row.displayName, "displayName"),
       loginUrl: this.requiredString(row.loginUrl, "loginUrl")
     };
-    const browserCredentialSecretId =
-      typeof row.browserCredentialSecretId === "string" &&
-      row.browserCredentialSecretId.trim().length > 0
-        ? row.browserCredentialSecretId.trim()
-        : undefined;
     const originatingChatId =
       typeof row.originatingChatId === "string" && row.originatingChatId.trim().length > 0
         ? row.originatingChatId.trim()
@@ -165,7 +147,6 @@ export class InternalRuntimeBrowserProfilesController {
           : undefined;
     return {
       ...parsed,
-      ...(browserCredentialSecretId === undefined ? {} : { browserCredentialSecretId }),
       ...(originatingChatId === undefined ? {} : { originatingChatId })
     };
   }
@@ -183,29 +164,6 @@ export class InternalRuntimeBrowserProfilesController {
       profileId: this.requiredString(row.profileId, "profileId"),
       assistantId: this.requiredString(row.assistantId, "assistantId"),
       workspaceId: this.requiredString(row.workspaceId, "workspaceId")
-    };
-  }
-
-  private parseOpenLiveBody(body: unknown): {
-    assistantId: string;
-    workspaceId: string;
-    profileKey: string;
-    browserCredentialSecretId?: string;
-  } {
-    if (body === null || typeof body !== "object" || Array.isArray(body)) {
-      throw new BadRequestException("Request body must be an object.");
-    }
-    const row = body as Record<string, unknown>;
-    const browserCredentialSecretId =
-      typeof row.browserCredentialSecretId === "string" &&
-      row.browserCredentialSecretId.trim().length > 0
-        ? row.browserCredentialSecretId.trim()
-        : undefined;
-    return {
-      assistantId: this.requiredString(row.assistantId, "assistantId"),
-      workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
-      profileKey: this.requiredString(row.profileKey, "profileKey"),
-      ...(browserCredentialSecretId === undefined ? {} : { browserCredentialSecretId })
     };
   }
 

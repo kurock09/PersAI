@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
@@ -7,19 +8,20 @@ import {
 } from "@nestjs/common";
 import type {
   AssistantBrowserProfileStatus,
+  LocalBrowserBridgeDeviceKind,
+  LocalBrowserResult,
   PendingBrowserLoginState,
-  PersistentBrowserCapabilityPolicy,
   PersaiRuntimeBrowserProfileErrorReason,
   RuntimeBrowserLoginResult,
   RuntimeBrowserProfileListItem
 } from "@persai/runtime-contract";
+import { BrowserBridgeRelayService } from "../../browser-bridge/application/browser-bridge-relay.service";
 import {
   ASSISTANT_BROWSER_PROFILE_REPOSITORY,
   type AssistantBrowserProfileRepository,
   type AssistantBrowserProfileRow
 } from "../domain/assistant-browser-profile.repository";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
-import { BROWSERLESS_SESSION_PORT, type BrowserlessSessionPort } from "./browserless-session.port";
 import {
   ensureBrowserProfileKeyUnique,
   generateBrowserProfileKeyBase,
@@ -27,7 +29,6 @@ import {
 } from "./browser-profile-key";
 import { resolveBrowserProfileTtlDays } from "./resolve-browser-profile-ttl-days";
 import { ResolveEffectiveSubscriptionStateService } from "./resolve-effective-subscription-state.service";
-import { resolveBrowserToolCredentialSecretId } from "./tool-credential-settings";
 
 export type AssistantBrowserProfileSettingsItem = {
   id: string;
@@ -44,9 +45,8 @@ export type AssistantBrowserProfileSettingsItem = {
 export type ResolveBrowserProfileForToolResult =
   | {
       ok: true;
-      providerSessionId: string;
       profileId: string;
-      capabilityPolicy: PersistentBrowserCapabilityPolicy;
+      bridgeSessionRef: string;
     }
   | {
       ok: false;
@@ -54,15 +54,17 @@ export type ResolveBrowserProfileForToolResult =
       pendingBrowserLogin?: PendingBrowserLoginState;
     };
 
+const DEFAULT_PENDING_BRIDGE_CLIENT_KIND: LocalBrowserBridgeDeviceKind = "extension";
+const BRIDGE_RESULT_POLL_INTERVAL_MS = 500;
+
 @Injectable()
 export class AssistantBrowserProfileService {
   constructor(
     @Inject(ASSISTANT_BROWSER_PROFILE_REPOSITORY)
     private readonly repository: AssistantBrowserProfileRepository,
-    @Inject(BROWSERLESS_SESSION_PORT)
-    private readonly browserlessSessionPort: BrowserlessSessionPort,
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService
+    private readonly resolveEffectiveSubscriptionStateService: ResolveEffectiveSubscriptionStateService,
+    private readonly browserBridgeRelayService: BrowserBridgeRelayService
   ) {}
 
   async listProfiles(
@@ -86,8 +88,8 @@ export class AssistantBrowserProfileService {
     workspaceId: string;
     displayName: string;
     loginUrl: string;
-    browserCredentialSecretId?: string;
     originatingChatId?: string | null;
+    bridgeClientKind?: LocalBrowserBridgeDeviceKind;
   }): Promise<RuntimeBrowserLoginResult & { profileId: string }> {
     await this.assertAssistantInWorkspace(input.assistantId, input.workspaceId);
     const displayName = this.requireNonEmptyString(input.displayName, "displayName");
@@ -99,48 +101,18 @@ export class AssistantBrowserProfileService {
       throw new BadRequestException("loginUrl must be a valid http(s) URL with a hostname.");
     }
 
-    const browserCredentialSecretId =
-      input.browserCredentialSecretId ?? resolveBrowserToolCredentialSecretId();
+    const bridgeClientKind = this.resolvePendingBridgeClientKind(input.bridgeClientKind);
     const reusable = await this.repository.findReusableByAssistantAndOriginHost(
       input.assistantId,
       originHost,
       input.originatingChatId ?? null
     );
     if (reusable !== null) {
-      await this.cleanupDuplicateProfilesForOriginHost(
-        input.assistantId,
-        originHost,
-        reusable.id,
-        browserCredentialSecretId
-      );
-      if (reusable.status === "active") {
-        try {
-          const opened = await this.openLiveView({
-            profileId: reusable.id,
-            assistantId: input.assistantId,
-            workspaceId: input.workspaceId,
-            browserCredentialSecretId
-          });
-          return {
-            profileId: opened.profileId,
-            profileKey: opened.profileKey,
-            displayName: opened.displayName,
-            liveUrl: opened.liveUrl,
-            loginUrl: opened.loginUrl,
-            status: opened.status
-          };
-        } catch {
-          return this.startPendingLoginForExistingProfile(reusable, browserCredentialSecretId);
-        }
-      }
-      return this.startPendingLoginForExistingProfile(reusable, browserCredentialSecretId);
+      await this.cleanupDuplicateProfilesForOriginHost(input.assistantId, originHost, reusable.id);
+      return this.startPendingLoginForExistingProfile(reusable, bridgeClientKind);
     }
 
-    await this.cleanupStalePendingProfiles(
-      input.assistantId,
-      input.originatingChatId ?? null,
-      browserCredentialSecretId
-    );
+    await this.cleanupStalePendingProfiles(input.assistantId, input.originatingChatId ?? null);
 
     const baseKey = generateBrowserProfileKeyBase(displayName, input.assistantId);
     const existingKeys = await this.repository.listProfileKeysWithPrefix(
@@ -148,18 +120,6 @@ export class AssistantBrowserProfileService {
       baseKey
     );
     const profileKey = ensureBrowserProfileKeyUnique(existingKeys, baseKey);
-    const capabilityPolicy = this.buildPersistentCapabilityPolicy(input.assistantId, profileKey);
-
-    const reconnectTimeoutMs = await this.resolveReconnectTimeoutMsForAssistant(input.assistantId);
-    const session = await this.browserlessSessionPort.startLogin({
-      loginUrl,
-      profileKey,
-      reconnectTimeoutMs,
-      capabilityPolicy,
-      ...(input.browserCredentialSecretId !== undefined
-        ? { browserCredentialSecretId: input.browserCredentialSecretId }
-        : {})
-    });
     const row = await this.repository.create({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
@@ -167,8 +127,8 @@ export class AssistantBrowserProfileService {
       displayName,
       loginUrl,
       originHost,
-      providerSessionId: session.providerSessionId,
-      liveUrl: session.liveUrl,
+      bridgeSessionRef: null,
+      bridgeClientKind,
       originatingChatId: input.originatingChatId ?? null,
       status: "pending_login"
     });
@@ -177,8 +137,8 @@ export class AssistantBrowserProfileService {
       profileId: row.id,
       profileKey: row.profileKey,
       displayName: row.displayName,
-      liveUrl: session.liveUrl,
       loginUrl: row.loginUrl,
+      bridgeClientKind,
       status: row.status
     };
   }
@@ -187,7 +147,6 @@ export class AssistantBrowserProfileService {
     profileId: string;
     assistantId: string;
     workspaceId: string;
-    browserCredentialSecretId?: string;
   }): Promise<{ profile: AssistantBrowserProfileSettingsItem }> {
     const row = await this.requireOwnedProfile(
       input.profileId,
@@ -197,41 +156,24 @@ export class AssistantBrowserProfileService {
     if (row.status === "expired") {
       throw new ConflictException("Browser profile session has expired. Start login again.");
     }
-    if (row.status === "active") {
+    if (row.status === "active" && row.bridgeSessionRef !== null) {
       return { profile: this.toSettingsItem(row) };
     }
-    if (row.status !== "pending_login") {
+    if (row.status !== "pending_login" && row.status !== "active") {
       throw new ConflictException("Browser profile is not awaiting login completion.");
     }
 
-    const browserCredentialSecretId =
-      input.browserCredentialSecretId ?? resolveBrowserToolCredentialSecretId();
-    const capabilityPolicy = this.buildPersistentCapabilityPolicy(row.assistantId, row.profileKey);
-    try {
-      await this.browserlessSessionPort.verifySession({
-        providerSessionId: row.providerSessionId,
-        capabilityPolicy,
-        browserCredentialSecretId
-      });
-    } catch (error) {
-      const restarted = await this.tryStartPendingLoginForExistingProfile(
-        row,
-        browserCredentialSecretId
-      );
-      if (restarted !== null) {
-        throw new ConflictException(
-          "Browser session needs re-authentication. Reopen the login prompt and continue in the browser window."
-        );
-      }
-      throw error;
-    }
-
+    const bridgeClientKind = this.resolvePendingBridgeClientKind(row.bridgeClientKind);
+    const bridgeSessionRef = await this.verifyBridgeLoginSession(row);
     const ttlDays = await this.resolveTtlDaysForAssistant(input.assistantId);
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlDays * 24 * 60 * 60 * 1000);
-    await this.repository.updateStatus(row.id, "active");
-    await this.repository.touch(row.id, now, expiresAt);
-    await this.repository.clearLiveUrl(row.id);
+    await this.repository.activate(row.id, {
+      bridgeSessionRef,
+      bridgeClientKind,
+      lastUsedAt: now,
+      expiresAt
+    });
     const updated = await this.repository.findById(row.id);
     if (updated === null) {
       throw new NotFoundException("Browser profile was not found.");
@@ -249,84 +191,47 @@ export class AssistantBrowserProfileService {
       return { ok: false, reason: "browser_profile_not_found" };
     }
     if (row.status === "pending_login") {
-      const browserCredentialSecretId = resolveBrowserToolCredentialSecretId();
       const pendingBrowserLogin = this.toPendingBrowserLoginStateFromRow(row);
       if (pendingBrowserLogin !== null) {
-        const capabilityPolicy = this.buildPersistentCapabilityPolicy(
-          row.assistantId,
-          row.profileKey
-        );
-        try {
-          await this.browserlessSessionPort.verifySession({
-            providerSessionId: row.providerSessionId,
-            capabilityPolicy,
-            browserCredentialSecretId
-          });
-          return {
-            ok: false,
-            reason: "browser_profile_pending_login",
-            pendingBrowserLogin
-          };
-        } catch {
-          // The pending login session is cold or gone; reopen the same profile row
-          // into a fresh product-owned re-auth flow below.
-        }
-      }
-      const restarted = await this.tryStartPendingLoginForExistingProfile(
-        row,
-        browserCredentialSecretId
-      );
-      if (restarted !== null) {
         return {
           ok: false,
-          reason: "browser_profile_needs_user_reauth",
-          pendingBrowserLogin: this.toPendingBrowserLoginState(restarted)
+          reason: "browser_profile_pending_login",
+          pendingBrowserLogin
         };
       }
       return { ok: false, reason: "browser_profile_pending_login" };
     }
     if (row.status === "expired") {
-      const restarted = await this.tryStartPendingLoginForExistingProfile(
-        row,
-        resolveBrowserToolCredentialSecretId()
-      );
-      if (restarted !== null) {
-        return {
-          ok: false,
-          reason: "browser_profile_needs_user_reauth",
-          pendingBrowserLogin: this.toPendingBrowserLoginState(restarted)
-        };
-      }
-      return { ok: false, reason: "browser_profile_expired" };
+      return this.reopenExpiredProfile(row);
     }
     if (row.status !== "active") {
       return { ok: false, reason: "browser_profile_not_found" };
     }
     if (row.expiresAt !== null && row.expiresAt.getTime() <= Date.now()) {
       await this.repository.markExpired(row.id);
+      await this.closeBridgeViewBestEffort(row);
       const expiredRow = (await this.repository.findById(row.id)) ?? {
         ...row,
         status: "expired" as const,
-        liveUrl: null
+        bridgeSessionRef: null
       };
-      const restarted = await this.tryStartPendingLoginForExistingProfile(
-        expiredRow,
-        resolveBrowserToolCredentialSecretId()
+      return this.reopenExpiredProfile(expiredRow);
+    }
+    if (row.bridgeSessionRef === null) {
+      const restarted = await this.startPendingLoginForExistingProfile(
+        row,
+        this.resolvePendingBridgeClientKind(row.bridgeClientKind)
       );
-      if (restarted !== null) {
-        return {
-          ok: false,
-          reason: "browser_profile_needs_user_reauth",
-          pendingBrowserLogin: this.toPendingBrowserLoginState(restarted)
-        };
-      }
-      return { ok: false, reason: "browser_profile_expired" };
+      return {
+        ok: false,
+        reason: "browser_profile_needs_user_reauth",
+        pendingBrowserLogin: this.toPendingBrowserLoginState(restarted)
+      };
     }
     return {
       ok: true,
-      providerSessionId: row.providerSessionId,
       profileId: row.id,
-      capabilityPolicy: this.buildPersistentCapabilityPolicy(row.assistantId, row.profileKey)
+      bridgeSessionRef: row.bridgeSessionRef
     };
   }
 
@@ -334,24 +239,26 @@ export class AssistantBrowserProfileService {
     profileId: string;
     assistantId: string;
     workspaceId: string;
-    browserCredentialSecretId?: string;
+    bridgeClientKind?: LocalBrowserBridgeDeviceKind;
   }): Promise<RuntimeBrowserLoginResult & { profileId: string }> {
     const row = await this.requireOwnedProfile(
       input.profileId,
       input.assistantId,
       input.workspaceId
     );
-    const browserCredentialSecretId =
-      input.browserCredentialSecretId ?? resolveBrowserToolCredentialSecretId();
-    return this.startPendingLoginForExistingProfile(row, browserCredentialSecretId);
+    return this.startPendingLoginForExistingProfile(
+      row,
+      this.resolvePendingBridgeClientKind(input.bridgeClientKind ?? row.bridgeClientKind)
+    );
   }
 
   async openLiveView(input: {
     profileId: string;
     assistantId: string;
     workspaceId: string;
-    browserCredentialSecretId?: string;
-  }): Promise<RuntimeBrowserLoginResult & { profileId: string }> {
+  }): Promise<
+    RuntimeBrowserLoginResult & { profileId: string; completionMode: "login" | "assist" }
+  > {
     const row = await this.requireOwnedProfile(
       input.profileId,
       input.assistantId,
@@ -360,52 +267,33 @@ export class AssistantBrowserProfileService {
     if (row.status === "expired") {
       throw new ConflictException("Browser profile session has expired. Start login again.");
     }
-    const browserCredentialSecretId =
-      input.browserCredentialSecretId ?? resolveBrowserToolCredentialSecretId();
-    const capabilityPolicy = this.buildPersistentCapabilityPolicy(row.assistantId, row.profileKey);
-    if (row.status === "active") {
-      await this.browserlessSessionPort.verifySession({
-        providerSessionId: row.providerSessionId,
-        capabilityPolicy,
-        browserCredentialSecretId
-      });
-    }
-    const session = await this.browserlessSessionPort.openLive({
-      providerSessionId: row.providerSessionId,
-      targetUrl: row.loginUrl,
-      capabilityPolicy,
-      browserCredentialSecretId
+    const completionMode = row.status === "active" ? "assist" : "login";
+    const opened = await this.dispatchBridgeCommand({
+      assistantId: row.assistantId,
+      workspaceId: row.workspaceId,
+      bridgeDeviceId: row.bridgeSessionRef,
+      command: {
+        commandId: randomUUID(),
+        profileKey: row.profileKey,
+        action: "open_view",
+        url: row.loginUrl,
+        showWindow: true
+      },
+      unavailableMessage:
+        "No local browser bridge is connected for this assistant. Continue in PersAI web/app with the extension or mobile bridge connected.",
+      failureMessage:
+        "The connected browser bridge could not open the browser view. Reopen the login flow and try again."
     });
-    await this.repository.updateLiveUrl(row.id, session.liveUrl);
+    await this.repository.updateBridgeSessionRef(row.id, opened.bridgeSessionRef);
     return {
       profileId: row.id,
       profileKey: row.profileKey,
       displayName: row.displayName,
-      liveUrl: session.liveUrl,
       loginUrl: row.loginUrl,
-      status: row.status
+      bridgeClientKind: this.resolvePendingBridgeClientKind(row.bridgeClientKind),
+      status: row.status,
+      completionMode
     };
-  }
-
-  async openLiveViewByProfileKey(input: {
-    assistantId: string;
-    workspaceId: string;
-    profileKey: string;
-    browserCredentialSecretId?: string;
-  }): Promise<RuntimeBrowserLoginResult & { profileId: string }> {
-    const profileKey = this.requireNonEmptyString(input.profileKey, "profileKey");
-    const row = await this.repository.findByAssistantAndKey(input.assistantId, profileKey);
-    if (row === null || row.workspaceId !== input.workspaceId) {
-      throw new NotFoundException("Browser profile was not found.");
-    }
-    return this.openLiveView({
-      profileId: row.id,
-      assistantId: input.assistantId,
-      workspaceId: input.workspaceId,
-      ...(input.browserCredentialSecretId === undefined
-        ? {}
-        : { browserCredentialSecretId: input.browserCredentialSecretId })
-    });
   }
 
   async dismissLiveView(input: {
@@ -418,7 +306,7 @@ export class AssistantBrowserProfileService {
       input.assistantId,
       input.workspaceId
     );
-    await this.repository.clearLiveUrl(row.id);
+    await this.closeBridgeViewBestEffort(row);
     return { dismissed: true };
   }
 
@@ -426,46 +314,18 @@ export class AssistantBrowserProfileService {
     profileId: string;
     assistantId: string;
     workspaceId: string;
-    browserCredentialSecretId?: string;
   }): Promise<{ deleted: true }> {
     const row = await this.requireOwnedProfile(
       input.profileId,
       input.assistantId,
       input.workspaceId
     );
+    await this.closeBridgeViewBestEffort(row);
     const deleted = await this.repository.deleteById(row.id);
     if (!deleted) {
       throw new NotFoundException("Browser profile was not found.");
     }
-    const browserCredentialSecretId =
-      input.browserCredentialSecretId ?? resolveBrowserToolCredentialSecretId();
-    try {
-      await this.browserlessSessionPort.deleteSession(row.providerSessionId, {
-        browserCredentialSecretId
-      });
-    } catch {
-      // Best-effort provider cleanup; row is already removed.
-    }
     return { deleted: true };
-  }
-
-  async resolveLiveUpstreamForProfile(input: {
-    profileId: string;
-    assistantId: string;
-    workspaceId: string;
-  }): Promise<{ upstreamLiveUrl: string }> {
-    const row = await this.requireOwnedProfile(
-      input.profileId,
-      input.assistantId,
-      input.workspaceId
-    );
-    if (row.status !== "pending_login" && row.status !== "active") {
-      throw new NotFoundException("Browser profile is not awaiting live login.");
-    }
-    if (typeof row.liveUrl !== "string" || row.liveUrl.trim().length === 0) {
-      throw new NotFoundException("Browser profile live URL is unavailable.");
-    }
-    return { upstreamLiveUrl: row.liveUrl.trim() };
   }
 
   async touchProfile(input: {
@@ -475,7 +335,12 @@ export class AssistantBrowserProfileService {
   }): Promise<void> {
     const profileKey = this.requireNonEmptyString(input.profileKey, "profileKey");
     const row = await this.repository.findByAssistantAndKey(input.assistantId, profileKey);
-    if (row === null || row.workspaceId !== input.workspaceId || row.status !== "active") {
+    if (
+      row === null ||
+      row.workspaceId !== input.workspaceId ||
+      row.status !== "active" ||
+      row.bridgeSessionRef === null
+    ) {
       return;
     }
     const ttlDays = await this.resolveTtlDaysForAssistant(input.assistantId);
@@ -486,8 +351,7 @@ export class AssistantBrowserProfileService {
 
   private async cleanupStalePendingProfiles(
     assistantId: string,
-    originatingChatId: string | null,
-    browserCredentialSecretId: string
+    originatingChatId: string | null
   ): Promise<void> {
     const rows = await this.repository.listByAssistant(assistantId);
     for (const row of rows) {
@@ -501,13 +365,7 @@ export class AssistantBrowserProfileService {
       } else if (row.originatingChatId !== null) {
         continue;
       }
-      try {
-        await this.browserlessSessionPort.deleteSession(row.providerSessionId, {
-          browserCredentialSecretId
-        });
-      } catch {
-        // Best-effort provider cleanup before removing stale pending rows.
-      }
+      await this.closeBridgeViewBestEffort(row);
       await this.repository.deleteById(row.id);
     }
   }
@@ -515,8 +373,7 @@ export class AssistantBrowserProfileService {
   private async cleanupDuplicateProfilesForOriginHost(
     assistantId: string,
     originHost: string,
-    keepProfileId: string,
-    browserCredentialSecretId: string
+    keepProfileId: string
   ): Promise<void> {
     const rows = await this.repository.listByAssistant(assistantId);
     for (const row of rows) {
@@ -526,13 +383,7 @@ export class AssistantBrowserProfileService {
       if (row.status !== "pending_login" && row.status !== "expired") {
         continue;
       }
-      try {
-        await this.browserlessSessionPort.deleteSession(row.providerSessionId, {
-          browserCredentialSecretId
-        });
-      } catch {
-        // Best-effort provider cleanup before removing duplicate rows.
-      }
+      await this.closeBridgeViewBestEffort(row);
       await this.repository.deleteById(row.id);
     }
   }
@@ -561,11 +412,6 @@ export class AssistantBrowserProfileService {
     if (assistant === null || assistant.workspaceId !== workspaceId) {
       throw new NotFoundException("Assistant does not exist for this workspace.");
     }
-  }
-
-  private async resolveReconnectTimeoutMsForAssistant(assistantId: string): Promise<number> {
-    const ttlDays = await this.resolveTtlDaysForAssistant(assistantId);
-    return ttlDays * 24 * 60 * 60 * 1000;
   }
 
   private async resolveTtlDaysForAssistant(assistantId: string): Promise<number> {
@@ -637,47 +483,35 @@ export class AssistantBrowserProfileService {
     };
   }
 
-  private async tryStartPendingLoginForExistingProfile(
-    row: AssistantBrowserProfileRow,
-    browserCredentialSecretId: string
-  ): Promise<(RuntimeBrowserLoginResult & { profileId: string }) | null> {
-    try {
-      return await this.startPendingLoginForExistingProfile(row, browserCredentialSecretId);
-    } catch {
-      return null;
-    }
+  private async reopenExpiredProfile(
+    row: AssistantBrowserProfileRow
+  ): Promise<ResolveBrowserProfileForToolResult> {
+    const restarted = await this.startPendingLoginForExistingProfile(
+      row,
+      this.resolvePendingBridgeClientKind(row.bridgeClientKind)
+    );
+    return {
+      ok: false,
+      reason: "browser_profile_needs_user_reauth",
+      pendingBrowserLogin: this.toPendingBrowserLoginState(restarted)
+    };
   }
 
   private async startPendingLoginForExistingProfile(
     row: AssistantBrowserProfileRow,
-    browserCredentialSecretId: string
+    bridgeClientKind: LocalBrowserBridgeDeviceKind
   ): Promise<RuntimeBrowserLoginResult & { profileId: string }> {
-    try {
-      await this.browserlessSessionPort.deleteSession(row.providerSessionId, {
-        browserCredentialSecretId
-      });
-    } catch {
-      // Best-effort cleanup before opening a fresh live session.
-    }
-    const reconnectTimeoutMs = await this.resolveReconnectTimeoutMsForAssistant(row.assistantId);
-    const capabilityPolicy = this.buildPersistentCapabilityPolicy(row.assistantId, row.profileKey);
-    const session = await this.browserlessSessionPort.startLogin({
-      loginUrl: row.loginUrl,
-      profileKey: row.profileKey,
-      reconnectTimeoutMs,
-      capabilityPolicy,
-      browserCredentialSecretId
-    });
-    await this.repository.updatePendingLoginSession(row.id, {
-      providerSessionId: session.providerSessionId,
-      liveUrl: session.liveUrl
+    await this.closeBridgeViewBestEffort(row);
+    await this.repository.updatePendingLogin(row.id, {
+      bridgeSessionRef: null,
+      bridgeClientKind
     });
     return {
       profileId: row.id,
       profileKey: row.profileKey,
       displayName: row.displayName,
-      liveUrl: session.liveUrl,
       loginUrl: row.loginUrl,
+      bridgeClientKind,
       status: "pending_login"
     };
   }
@@ -685,18 +519,16 @@ export class AssistantBrowserProfileService {
   private toPendingBrowserLoginStateFromRow(
     row: Pick<
       AssistantBrowserProfileRow,
-      "id" | "profileKey" | "displayName" | "liveUrl" | "loginUrl"
+      "id" | "profileKey" | "displayName" | "loginUrl" | "bridgeClientKind"
     >
   ): PendingBrowserLoginState | null {
-    if (typeof row.liveUrl !== "string" || row.liveUrl.trim().length === 0) {
-      return null;
-    }
     return {
       profileId: row.id,
       profileKey: row.profileKey,
       displayName: row.displayName,
-      liveUrl: row.liveUrl.trim(),
-      loginUrl: row.loginUrl
+      loginUrl: row.loginUrl,
+      bridgeClientKind: this.resolvePendingBridgeClientKind(row.bridgeClientKind),
+      completionMode: "login"
     };
   }
 
@@ -707,8 +539,9 @@ export class AssistantBrowserProfileService {
       profileId: row.profileId,
       profileKey: row.profileKey,
       displayName: row.displayName,
-      liveUrl: row.liveUrl,
-      loginUrl: row.loginUrl
+      loginUrl: row.loginUrl,
+      bridgeClientKind: row.bridgeClientKind,
+      completionMode: "login"
     };
   }
 
@@ -720,22 +553,110 @@ export class AssistantBrowserProfileService {
     return trimmed;
   }
 
-  private buildPersistentCapabilityPolicy(
-    assistantId: string,
-    profileKey: string
-  ): PersistentBrowserCapabilityPolicy {
-    return {
-      scope: "persistent_profile",
-      profileIdentity: {
-        assistantId,
-        profileKey
+  private resolvePendingBridgeClientKind(
+    value: LocalBrowserBridgeDeviceKind | null | undefined
+  ): LocalBrowserBridgeDeviceKind {
+    return value === "extension" || value === "capacitor"
+      ? value
+      : DEFAULT_PENDING_BRIDGE_CLIENT_KIND;
+  }
+
+  private async verifyBridgeLoginSession(row: AssistantBrowserProfileRow): Promise<string> {
+    const outcome = await this.dispatchBridgeCommand({
+      assistantId: row.assistantId,
+      workspaceId: row.workspaceId,
+      bridgeDeviceId: row.bridgeSessionRef,
+      command: {
+        commandId: randomUUID(),
+        profileKey: row.profileKey,
+        action: "snapshot",
+        url: row.loginUrl,
+        format: "text",
+        optimizeForSpeed: true
       },
-      stealth: true,
-      proxy: {
-        mode: "sticky_residential",
-        provider: "browserless_builtin",
-        server: null
+      unavailableMessage:
+        "No local browser bridge is connected for this assistant. Continue in PersAI web/app with the extension or mobile bridge connected.",
+      failureMessage:
+        "Browser login is not ready yet on the connected device. Finish the login in the browser window, then press Done again."
+    });
+    return outcome.bridgeSessionRef;
+  }
+
+  private async closeBridgeViewBestEffort(row: AssistantBrowserProfileRow): Promise<void> {
+    if (row.bridgeSessionRef === null) {
+      return;
+    }
+    const commandId = randomUUID();
+    const outcome = this.browserBridgeRelayService.dispatchCommand({
+      assistantId: row.assistantId,
+      workspaceId: row.workspaceId,
+      bridgeDeviceId: row.bridgeSessionRef,
+      command: {
+        commandId,
+        profileKey: row.profileKey,
+        action: "close_view"
       }
+    });
+    if (outcome.accepted !== true) {
+      return;
+    }
+    await this.pollBridgeCommandResult(commandId).catch(() => undefined);
+  }
+
+  private async dispatchBridgeCommand(input: {
+    assistantId: string;
+    workspaceId: string;
+    bridgeDeviceId: string | null;
+    command: {
+      commandId: string;
+      profileKey: string;
+      action: "snapshot" | "open_view";
+      url?: string;
+      format?: "text";
+      optimizeForSpeed?: boolean;
+      showWindow?: boolean;
     };
+    unavailableMessage: string;
+    failureMessage: string;
+  }): Promise<{ bridgeSessionRef: string; result: LocalBrowserResult }> {
+    const dispatched = this.browserBridgeRelayService.dispatchCommand({
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      ...(input.bridgeDeviceId === null ? {} : { bridgeDeviceId: input.bridgeDeviceId }),
+      command: input.command
+    });
+    if (dispatched.accepted !== true) {
+      throw new ConflictException(input.unavailableMessage);
+    }
+    const polled = await this.pollBridgeCommandResult(dispatched.commandId);
+    if (polled.ok !== true) {
+      throw new ConflictException(
+        polled.warning?.trim().length ? polled.warning : input.failureMessage
+      );
+    }
+    return {
+      bridgeSessionRef: dispatched.bridgeDeviceId,
+      result: polled
+    };
+  }
+
+  private async pollBridgeCommandResult(commandId: string): Promise<LocalBrowserResult> {
+    for (;;) {
+      const result = this.browserBridgeRelayService.getCommandResult(commandId);
+      if (result.status === "completed") {
+        return (
+          result.result ?? {
+            commandId,
+            ok: false,
+            errorReason: "bridge_command_not_found_or_expired"
+          }
+        );
+      }
+      await this.sleep(BRIDGE_RESULT_POLL_INTERVAL_MS);
+    }
+  }
+
+  private async sleep(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

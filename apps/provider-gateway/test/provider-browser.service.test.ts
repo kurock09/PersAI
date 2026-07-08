@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { BadGatewayException, BadRequestException } from "@nestjs/common";
 import { loadProviderGatewayConfig } from "@persai/config";
-import type { PersistentBrowserCapabilityPolicy } from "@persai/runtime-contract";
 import { HostBrowserScriptRegistryService } from "../src/modules/providers/host-browser-script-registry.service";
 import { ProviderBrowserService } from "../src/modules/providers/provider-browser.service";
 import type { PersaiInternalApiClientService } from "../src/modules/providers/persai-internal-api.client.service";
@@ -14,38 +13,6 @@ class FakePersaiInternalApiClientService {
     this.secretIds.push(secretId);
     return this.secretValue;
   }
-}
-
-function createPersistentCapabilityPolicy(profileKey: string): PersistentBrowserCapabilityPolicy {
-  return {
-    scope: "persistent_profile",
-    profileIdentity: {
-      assistantId: "assistant-1",
-      profileKey
-    },
-    stealth: true,
-    proxy: {
-      mode: "sticky_residential",
-      provider: "browserless_builtin",
-      server: null
-    }
-  };
-}
-
-function createExternalCapabilityPolicy(profileKey: string): PersistentBrowserCapabilityPolicy {
-  return {
-    scope: "persistent_profile",
-    profileIdentity: {
-      assistantId: "assistant-1",
-      profileKey
-    },
-    stealth: true,
-    proxy: {
-      mode: "sticky_residential",
-      provider: "external",
-      server: "http://proxy.example.com:8080"
-    }
-  };
 }
 
 function createProviderBrowserService(
@@ -67,46 +34,65 @@ function createProviderBrowserService(
 
 export async function runProviderBrowserServiceTest(): Promise<void> {
   const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
   const requests: Array<{ url: string; init?: RequestInit }> = [];
-  globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+  const sleepCalls: number[] = [];
+
+  function recordRequest(input: URL | RequestInfo, init?: RequestInit): string {
     const url =
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     requests.push(init === undefined ? { url } : { url, init });
-    return new Response(
-      JSON.stringify({
-        type: "application/json",
-        data: {
-          initialUrl: "https://example.com/",
-          finalUrl: "https://example.com/final",
-          title: "Example page",
-          content: "Rendered browser content",
-          truncated: false,
-          elements: [
-            {
-              selector: "#search",
-              tagName: "input",
-              text: null,
-              role: null,
-              type: "search",
-              href: null,
-              placeholder: "Search",
-              disabled: false
-            }
-          ]
-        }
-      }),
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json"
-        }
+    return url;
+  }
+
+  globalThis.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+    if (typeof timeout === "number" && timeout > 0 && timeout < 10_000) {
+      sleepCalls.push(timeout);
+      if (typeof handler === "function") {
+        handler(...args);
       }
-    );
-  }) as typeof fetch;
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }
+    return originalSetTimeout(handler, timeout, ...args);
+  }) as typeof setTimeout;
 
   try {
     const internalApi = new FakePersaiInternalApiClientService();
     const service = createProviderBrowserService(internalApi);
+
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      recordRequest(input, init);
+      return new Response(
+        JSON.stringify({
+          type: "application/json",
+          data: {
+            initialUrl: "https://example.com/",
+            finalUrl: "https://example.com/final",
+            title: "Example page",
+            content: "Rendered browser content",
+            truncated: false,
+            elements: [
+              {
+                selector: "#search",
+                tagName: "input",
+                text: null,
+                role: null,
+                type: "search",
+                href: null,
+                placeholder: "Search",
+                disabled: false
+              }
+            ]
+          }
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }) as typeof fetch;
 
     const snapshotResult = await service.browserAction({
       action: "snapshot",
@@ -126,10 +112,6 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       "https://browserless.example.com/function?token=browserless-secret"
     );
     assert.equal(requests[0]?.init?.method, "POST");
-    assert.equal(
-      (requests[0]?.init?.headers as Record<string, string>)?.["Content-Type"],
-      "application/json"
-    );
     const snapshotBody = JSON.parse(String(requests[0]?.init?.body ?? "{}")) as {
       code?: string;
       context?: {
@@ -143,16 +125,9 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       };
     };
     assert.match(snapshotBody.code ?? "", /page\.goto/);
-    // "networkidle2" hangs indefinitely on SPAs with persistent background
-    // traffic (live-tracking sockets, polling, analytics beacons) — goto
-    // must always use domcontentloaded, with a short bounded settle window
-    // instead of gambling the whole request on network silence.
     assert.doesNotMatch(snapshotBody.code ?? "", /networkidle2/);
     assert.match(snapshotBody.code ?? "", /const waitUntil = "domcontentloaded"/);
     assert.match(snapshotBody.code ?? "", /settleAfterGotoMs/);
-    // Element extraction must rank by visibility before the top-N cap, and
-    // the cap must come from the shared runtime-contract constant (200), not
-    // a stale hardcoded 25 — see ADR-139 D11.
     assert.match(snapshotBody.code ?? "", /getClientRects\(\)\.length === 0/);
     assert.match(snapshotBody.code ?? "", /\.filter\(isVisibleInPage\)/);
     assert.match(snapshotBody.code ?? "", /takeRankedInteractiveElements/);
@@ -228,33 +203,27 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       }
     ]);
 
-    await service.browserAction({
-      action: "snapshot",
-      url: "https://example.com/fast",
-      maxChars: null,
-      operations: [],
-      timeoutMs: null,
-      optimizeForSpeed: true,
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-speed",
-        providerId: "browserless"
-      }
-    });
-    const speedBody = JSON.parse(String(requests[2]?.init?.body ?? "{}")) as {
-      code?: string;
-      context?: { optimizeForSpeed?: boolean; format?: string };
-    };
-    assert.equal(speedBody.context?.optimizeForSpeed, true);
-    assert.match(speedBody.code ?? "", /setRequestInterception/);
-    assert.match(speedBody.code ?? "", /__persaiSpeedIntercept/);
-    assert.match(speedBody.code ?? "", /domcontentloaded/);
+    await assert.rejects(
+      () =>
+        service.browserAction({
+          action: "act",
+          url: "https://example.com",
+          maxChars: null,
+          operations: [{ kind: "click", selector: "#x" }],
+          timeoutMs: null,
+          stayOnPage: true,
+          credential: {
+            toolCode: "browser",
+            secretId: "secret-stay-on-page",
+            providerId: "browserless"
+          }
+        }),
+      BadRequestException
+    );
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      if (url.includes("/pdf?")) {
+      recordRequest(input, init);
+      if (requests.at(-1)?.url.includes("/pdf?")) {
         return new Response(Buffer.from("JVBERi0xLjQK", "base64"), {
           status: 200,
           headers: {
@@ -297,8 +266,8 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         providerId: "browserless"
       }
     });
-    assert.equal(requests[3]?.url, "https://browserless.example.com/pdf?token=browserless-secret");
-    const pdfBody = JSON.parse(String(requests[3]?.init?.body ?? "{}")) as {
+    assert.equal(requests[2]?.url, "https://browserless.example.com/pdf?token=browserless-secret");
+    const pdfBody = JSON.parse(String(requests[2]?.init?.body ?? "{}")) as {
       url?: string;
       options?: { printBackground?: boolean };
       gotoOptions?: { waitUntil?: string };
@@ -311,76 +280,8 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.deepEqual(pdfResult.elements, []);
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      if (url.includes("/screenshot?")) {
-        return new Response(Buffer.from("aGVsbG8tcG5n", "base64"), {
-          status: 200,
-          headers: {
-            "Content-Type": "image/png"
-          }
-        });
-      }
-      return new Response(
-        JSON.stringify({
-          type: "application/json",
-          data: {
-            initialUrl: "https://example.com/dashboard",
-            finalUrl: "https://example.com/dashboard",
-            title: "Dashboard",
-            content: "",
-            truncated: false,
-            elements: [{ tag: "div", text: "should be dropped" }],
-            artifactBase64: "aGVsbG8tcG5n",
-            artifactMimeType: "image/png"
-          }
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    }) as typeof fetch;
-
-    const pngResult = await service.browserAction({
-      action: "snapshot",
-      url: "https://example.com/dashboard",
-      maxChars: null,
-      operations: [],
-      timeoutMs: null,
-      format: "png",
-      fullPage: true,
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-png",
-        providerId: "browserless"
-      }
-    });
-    assert.equal(
-      requests[4]?.url,
-      "https://browserless.example.com/screenshot?token=browserless-secret"
-    );
-    const pngBody = JSON.parse(String(requests[4]?.init?.body ?? "{}")) as {
-      url?: string;
-      options?: { fullPage?: boolean; type?: string };
-      gotoOptions?: { waitUntil?: string };
-    };
-    assert.equal(pngBody.url, "https://example.com/dashboard");
-    assert.equal(pngBody.options?.type, "png");
-    assert.equal(pngBody.options?.fullPage, true);
-    assert.equal(pngBody.gotoOptions?.waitUntil, "domcontentloaded");
-    assert.equal(pngResult.artifactBase64, "aGVsbG8tcG5n");
-    assert.equal(pngResult.artifactMimeType, "image/png");
-    assert.deepEqual(pngResult.elements, []);
-
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      if (url.includes("/screenshot?")) {
+      recordRequest(input, init);
+      if (requests.at(-1)?.url.includes("/screenshot?")) {
         return new Response(Buffer.from("aGVsbG8td2VicA==", "base64"), {
           status: 200,
           headers: {
@@ -392,12 +293,12 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
         JSON.stringify({
           type: "application/json",
           data: {
-            initialUrl: "https://example.com/dashboard",
-            finalUrl: "https://example.com/dashboard",
-            title: "Dashboard",
+            initialUrl: "https://example.com/hero",
+            finalUrl: "https://example.com/hero",
+            title: "Hero",
             content: "",
             truncated: false,
-            elements: [{ tag: "div", text: "should be dropped" }],
+            elements: [],
             artifactBase64: "aGVsbG8td2VicA==",
             artifactMimeType: "image/webp"
           }
@@ -425,10 +326,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       }
     });
     assert.equal(
-      requests[5]?.url,
+      requests[3]?.url,
       "https://browserless.example.com/screenshot?token=browserless-secret"
     );
-    const webpBody = JSON.parse(String(requests[5]?.init?.body ?? "{}")) as {
+    const webpBody = JSON.parse(String(requests[3]?.init?.body ?? "{}")) as {
       url?: string;
       options?: { type?: string; quality?: number };
     };
@@ -438,787 +339,8 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     assert.equal(webpResult.artifactBase64, "aGVsbG8td2VicA==");
     assert.equal(webpResult.artifactMimeType, "image/webp");
 
-    // Any non-persistent `profileSessionId` must be rejected: `startLogin`
-    // only ever stores `/e/{cloud}/session/{id}` or `/session/{id}`, so a
-    // stray shape like `/reconnect/{id}` is unroutable garbage and we refuse
-    // it up-front rather than falling back to a legacy `/function` path.
-    await assert.rejects(
-      () =>
-        service.browserAction({
-          action: "snapshot",
-          url: "https://crm.example.com/dashboard",
-          maxChars: null,
-          operations: [],
-          timeoutMs: null,
-          profileSessionId: "/reconnect/session-abc123",
-          capabilityPolicy: createPersistentCapabilityPolicy("crm"),
-          credential: {
-            toolCode: "browser",
-            secretId: "secret-reconnect",
-            providerId: "browserless"
-          }
-        }),
-      BadRequestException
-    );
-
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      if (url.includes("/session?")) {
-        return new Response(
-          JSON.stringify({
-            id: "session-login",
-            connect:
-              "wss://browserless.example.com/session/connect/session-login?token=browserless-secret",
-            stop: "https://browserless.example.com/session/session-login?token=browserless-secret",
-            browserQL:
-              "https://browserless.example.com/session/bql/session-login?token=browserless-secret",
-            ttl: 2592000000
-          }),
-          {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json"
-            }
-          }
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          data: {
-            goto: { status: 200 },
-            liveURL: {
-              liveURL: "https://browserless.example.com/live/session-login"
-            }
-          }
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    }) as typeof fetch;
-
-    const loginResult = await service.startLogin({
-      loginUrl: "https://crm.example.com/login",
-      timeoutMs: null,
-      reconnectTimeoutMs: null,
-      capabilityPolicy: createPersistentCapabilityPolicy("crm"),
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-login",
-        providerId: "browserless"
-      }
-    });
-    // Provider-gateway stores the canonical routable path derived from the
-    // `session.stop` URL. This preserves any /e/{cloudEndpointId}/ prefix that
-    // Browserless multi-cloud plans include (real prod), while remaining
-    // compatible with fixtures that omit it (this test).
-    assert.equal(loginResult.providerSessionId, "/session/session-login");
-    assert.equal(loginResult.liveUrl, "https://browserless.example.com/live/session-login");
-    assert.match(
-      requests[6]?.url ?? "",
-      /^https:\/\/browserless\.example\.com\/session\?.*token=browserless-secret.*proxy=residential/
-    );
-    assert.doesNotMatch(requests[6]?.url ?? "", /proxyCountry=/);
-    assert.equal(requests[6]?.init?.method, "POST");
-    const createSessionBody = JSON.parse(String(requests[6]?.init?.body ?? "{}")) as {
-      ttl?: number;
-      stealth?: boolean;
-    };
-    assert.equal(createSessionBody.stealth, true);
-    assert.equal(createSessionBody.ttl, 30 * 24 * 60 * 60 * 1000);
-    assert.match(
-      requests[7]?.url ?? "",
-      /^https:\/\/browserless\.example\.com\/session\/bql\/session-login\?.*token=browserless-secret.*proxy=residential/
-    );
-    const loginBqlBody = JSON.parse(String(requests[7]?.init?.body ?? "{}")) as {
-      query?: string;
-      variables?: { url?: string; liveUrlTimeoutMs?: number };
-    };
-    assert.match(loginBqlBody.query ?? "", /userAgent\(userAgent: "[^"]*Chrome[^"]*"\)/);
-    assert.doesNotMatch(loginBqlBody.query ?? "", /Headless/i);
-    assert.match(
-      loginBqlBody.query ?? "",
-      /proxy\(network: residential, sticky: true, url: \["\*"\]\)/
-    );
-    assert.match(loginBqlBody.query ?? "", /liveURL/);
-    assert.match(loginBqlBody.query ?? "", /timeout:\s*\$liveUrlTimeoutMs/);
-    assert.match(loginBqlBody.query ?? "", /goto\(url: \$url, waitUntil: domContentLoaded\)/);
-    assert.match(loginBqlBody.query ?? "", /settleAfterGoto: waitForTimeout\(time: 3000\)/);
-    assert.equal(loginBqlBody.variables?.url, "https://crm.example.com/login");
-    assert.equal(loginBqlBody.variables?.liveUrlTimeoutMs, 15 * 60 * 1000);
-
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      if (url.includes("/session/session-login?")) {
-        return new Response(null, { status: 204 });
-      }
-      return new Response(
-        JSON.stringify({
-          type: "application/json",
-          data: { closed: true }
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    }) as typeof fetch;
-
-    await service.deleteSession({
-      providerSessionId: "/session/session-login",
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-delete",
-        providerId: "browserless"
-      }
-    });
-    assert.equal(
-      requests[8]?.url,
-      "https://browserless.example.com/session/session-login?token=browserless-secret&force=true"
-    );
-    assert.equal(requests[8]?.init?.method, "DELETE");
-
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      // Persistent-session verify hits the BrowserQL endpoint with a
-      // schema-only `__typename` query — Browserless returns 200 with a
-      // typed data payload only when the session is still routed.
-      return new Response(
-        JSON.stringify({
-          data: { __typename: "Query" }
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    }) as typeof fetch;
-
-    const verifyResult = await service.verifySession({
-      providerSessionId: "/session/session-login",
-      capabilityPolicy: createPersistentCapabilityPolicy("crm"),
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-verify",
-        providerId: "browserless"
-      }
-    });
-    assert.deepEqual(verifyResult, { ok: true });
-    assert.match(
-      requests[9]?.url ?? "",
-      /^https:\/\/browserless\.example\.com\/session\/bql\/session-login\?.*token=browserless-secret.*proxy=residential/
-    );
-    const verifyBody = JSON.parse(String(requests[9]?.init?.body ?? "{}")) as { query?: string };
-    assert.match(verifyBody.query ?? "", /__typename/);
-
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      return new Response(
-        JSON.stringify({
-          data: {
-            goto: { status: 200 },
-            settleAfterGoto: { time: 3000 },
-            liveURL: { liveURL: "https://browserless.example.com/live/session-login" }
-          }
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    }) as typeof fetch;
-
-    const openLiveResult = await service.openLiveSession({
-      providerSessionId: "/session/session-login",
-      targetUrl: "https://lavka.yandex.ru/",
-      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
-      timeoutMs: null,
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-open-live",
-        providerId: "browserless"
-      }
-    });
-    assert.equal(openLiveResult.liveUrl, "https://browserless.example.com/live/session-login");
-    const openLiveBody = JSON.parse(String(requests[10]?.init?.body ?? "{}")) as {
-      query?: string;
-      variables?: { url?: string; liveUrlTimeoutMs?: number };
-    };
-    assert.match(openLiveBody.query ?? "", /goto\(url: \$url, waitUntil: domContentLoaded\)/);
-    assert.match(openLiveBody.query ?? "", /settleAfterGoto: waitForTimeout\(time: 3000\)/);
-    assert.match(openLiveBody.query ?? "", /liveURL/);
-    assert.equal(openLiveBody.variables?.url, "https://lavka.yandex.ru/");
-
-    // Persistent connect-session (`/session/{id}` — or `/e/{cloud}/session/{id}`
-    // in real prod) drives `browser-action` through BrowserQL, not `/function`
-    // (Browserless `/function` returns 404 for persistent sessions).
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      return new Response(
-        JSON.stringify({
-          data: {
-            goto: { status: 200 },
-            pageTitle: { title: "CRM" },
-            pageUrl: { url: "https://crm.example.com/dashboard" },
-            pageText: { text: "Authenticated CRM content" },
-            pageElements: {
-              value: JSON.stringify([
-                {
-                  selector: "#crm-search",
-                  tagName: "input",
-                  text: null,
-                  role: "searchbox",
-                  type: "search",
-                  href: null,
-                  placeholder: "Search CRM",
-                  disabled: false
-                }
-              ])
-            }
-          }
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    }) as typeof fetch;
-
-    const persistentSnapshot = await service.browserAction({
-      action: "snapshot",
-      url: "https://crm.example.com/dashboard",
-      maxChars: null,
-      operations: [],
-      timeoutMs: null,
-      profileSessionId: "/session/session-login",
-      capabilityPolicy: createPersistentCapabilityPolicy("crm"),
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-session-snapshot",
-        providerId: "browserless"
-      }
-    });
-    assert.match(
-      requests[11]?.url ?? "",
-      /^https:\/\/browserless\.example\.com\/session\/bql\/session-login\?.*token=browserless-secret.*proxy=residential/
-    );
-    const persistentBody = JSON.parse(String(requests[11]?.init?.body ?? "{}")) as {
-      query?: string;
-      variables?: Record<string, unknown>;
-    };
-    assert.match(persistentBody.query ?? "", /goto\(url: \$url, waitUntil: domContentLoaded/);
-    // "networkIdle" is Browserless's own "use with caution" wait condition —
-    // real-world pages with persistent background traffic never satisfy it,
-    // turning navigation into a hard timeoutMs failure. Always navigate on
-    // domContentLoaded and settle briefly afterward instead.
-    assert.doesNotMatch(persistentBody.query ?? "", /waitUntil: networkIdle/);
-    assert.match(persistentBody.query ?? "", /settleAfterGoto: waitForTimeout\(time: 3000\)/);
-    assert.match(persistentBody.query ?? "", /pageText: text \{ text \}/);
-    assert.match(persistentBody.query ?? "", /domReadyBeforeRead: evaluate/);
-    assert.match(persistentBody.query ?? "", /pageElements: evaluate/);
-    // Element extraction must rank by visibility before applying the top-N
-    // cap — plain document order buries catalog/product content behind
-    // header/nav/footer chrome (live-validated on Yandex Lavka, ADR-139
-    // D11) — and the cap itself must come from the shared runtime-contract
-    // constant, not a stale hardcoded 25.
-    const interactiveElementsScript = String(
-      persistentBody.variables?.interactiveElementsScript ?? ""
-    );
-    assert.match(interactiveElementsScript, /getClientRects\(\)\.length === 0/);
-    assert.match(interactiveElementsScript, /\.filter\(isVisibleInPage\)/);
-    assert.match(interactiveElementsScript, /takeRankedInteractiveElements/);
-    assert.match(interactiveElementsScript, /buildInteractiveEntryRows/);
-    assert.match(interactiveElementsScript, /takeRankedInteractiveEntries/);
-    assert.match(interactiveElementsScript, /ariaLabel/);
-    assert.match(interactiveElementsScript, /scoreInteractiveElement/);
-    assert.doesNotMatch(interactiveElementsScript, /isYandexGroceryPage/);
-    assert.doesNotMatch(interactiveElementsScript, /resolveYandexGroceryProductName/);
-    assert.match(interactiveElementsScript, /,\s*200\s*\)/);
-    // Regression guard (ADR-139 D14): broken quote escaping in closest() made
-    // every persistent text snapshot/act fail with pageElements SyntaxError → 502.
-    assert.doesNotThrow(() => {
-      // eslint-disable-next-line no-new-func -- in-page script must parse as JS
-      new Function(`return ${interactiveElementsScript}`);
-    });
-    assert.match(persistentBody.query ?? "", /userAgent\(userAgent: "[^"]*Chrome[^"]*"\)/);
-    assert.doesNotMatch(persistentBody.query ?? "", /Headless/i);
-    assert.match(
-      persistentBody.query ?? "",
-      /proxy\(network: residential, sticky: true, url: \["\*"\]\)/
-    );
-    assert.equal(persistentBody.variables?.url, "https://crm.example.com/dashboard");
-    assert.equal(persistentSnapshot.title, "CRM");
-    assert.equal(persistentSnapshot.finalUrl, "https://crm.example.com/dashboard");
-    assert.equal(persistentSnapshot.content, "Authenticated CRM content");
-    assert.equal(persistentSnapshot.elements[0]?.selector, "#crm-search");
-
-    // ADR-139 D14: persistent BrowserQL is single-consumer — parallel tool
-    // calls against the same providerSessionId must not overlap BQL HTTP.
-    let persistentBqlInFlight = 0;
-    let persistentBqlMaxInFlight = 0;
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      if (url.includes("/session/bql/")) {
-        persistentBqlInFlight += 1;
-        persistentBqlMaxInFlight = Math.max(persistentBqlMaxInFlight, persistentBqlInFlight);
-        await new Promise((resolve) => setTimeout(resolve, 25));
-        persistentBqlInFlight -= 1;
-      }
-      return new Response(
-        JSON.stringify({
-          data: {
-            goto: { status: 200 },
-            pageTitle: { title: "CRM" },
-            pageUrl: { url: "https://crm.example.com/dashboard" },
-            pageText: { text: "Serialized CRM content" },
-            pageElements: { value: "[]" }
-          }
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    }) as typeof fetch;
-
-    const [serializedSnapshotA, serializedSnapshotB] = await Promise.all([
-      service.browserAction({
-        action: "snapshot",
-        url: "https://crm.example.com/dashboard",
-        maxChars: null,
-        operations: [],
-        timeoutMs: null,
-        profileSessionId: "/session/session-login",
-        capabilityPolicy: createPersistentCapabilityPolicy("crm"),
-        credential: {
-          toolCode: "browser",
-          secretId: "secret-session-serialize-a",
-          providerId: "browserless"
-        }
-      }),
-      service.browserAction({
-        action: "snapshot",
-        url: "https://crm.example.com/dashboard",
-        maxChars: null,
-        operations: [],
-        timeoutMs: null,
-        profileSessionId: "/session/session-login",
-        capabilityPolicy: createPersistentCapabilityPolicy("crm"),
-        credential: {
-          toolCode: "browser",
-          secretId: "secret-session-serialize-b",
-          providerId: "browserless"
-        }
-      })
-    ]);
-    assert.equal(persistentBqlMaxInFlight, 1);
-    assert.equal(serializedSnapshotA.content, "Serialized CRM content");
-    assert.equal(serializedSnapshotB.content, "Serialized CRM content");
-
-    // Persistent-profile `act` with an operation whose selector times out on
-    // the live page: Browserless BQL returns `200 { data: {...partial},
-    // errors: [{ path: ["op_0"], message }] }`. The response MUST NOT be
-    // treated as a fatal 502 — the model needs to see the extracted title/
-    // url/text plus a `warning` describing the per-op runtime failure.
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      return new Response(
-        JSON.stringify({
-          data: {
-            goto: { status: 200 },
-            op_0: null,
-            pageTitle: { title: "CRM" },
-            pageUrl: { url: "https://crm.example.com/dashboard" },
-            pageText: { text: "Authenticated CRM content" },
-            pageElements: {
-              value: JSON.stringify([
-                {
-                  selector: 'button[aria-label="Save"]',
-                  tagName: "button",
-                  text: "Save",
-                  role: "button",
-                  type: null,
-                  href: null,
-                  placeholder: null,
-                  disabled: false
-                }
-              ])
-            }
-          },
-          errors: [
-            {
-              message: 'Timeout of 5000ms reached waiting for DOM selector "#missing"',
-              path: ["op_0"]
-            }
-          ]
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        }
-      );
-    }) as typeof fetch;
-
-    const partialResult = await service.browserAction({
-      action: "act",
-      url: "https://crm.example.com/dashboard",
-      maxChars: null,
-      operations: [
-        {
-          kind: "click",
-          selector: "#missing"
-        }
-      ],
-      timeoutMs: null,
-      profileSessionId: "/session/session-login",
-      capabilityPolicy: createPersistentCapabilityPolicy("crm"),
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-session-partial",
-        providerId: "browserless"
-      }
-    });
-    assert.equal(partialResult.title, "CRM");
-    assert.equal(partialResult.finalUrl, "https://crm.example.com/dashboard");
-    assert.equal(partialResult.content, "Authenticated CRM content");
-    assert.equal(partialResult.elements[0]?.selector, 'button[aria-label="Save"]');
-    assert.match(partialResult.warning ?? "", /Browser-rendered page content is untrusted/);
-    assert.match(partialResult.warning ?? "", /Browserless BQL operation warnings/);
-    assert.match(partialResult.warning ?? "", /op_0: Timeout of 5000ms/);
-
-    globalThis.fetch = (async () => {
-      return new Response(
-        JSON.stringify({
-          data: {
-            goto: { status: 200 },
-            pageTitle: { title: "CRM" },
-            pageUrl: { url: "https://crm.example.com/dashboard" },
-            pageText: { text: "Authenticated CRM content" }
-          },
-          errors: [
-            {
-              message: "Residential proxy is not enabled for this Browserless plan",
-              path: ["proxy"]
-            }
-          ]
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        }
-      );
-    }) as typeof fetch;
-
-    await assert.rejects(
-      () =>
-        service.browserAction({
-          action: "snapshot",
-          url: "https://crm.example.com/dashboard",
-          maxChars: null,
-          operations: [],
-          timeoutMs: null,
-          profileSessionId: "/session/session-login",
-          capabilityPolicy: createPersistentCapabilityPolicy("crm"),
-          credential: {
-            toolCode: "browser",
-            secretId: "secret-session-proxy-fatal",
-            providerId: "browserless"
-          }
-        }),
-      (error: unknown) => {
-        assert.ok(error instanceof BadGatewayException);
-        assert.match(String(error.message), /Residential proxy is not enabled/i);
-        return true;
-      }
-    );
-
-    await assert.rejects(
-      () =>
-        service.browserAction({
-          action: "snapshot",
-          url: "https://crm.example.com/dashboard",
-          maxChars: null,
-          operations: [],
-          timeoutMs: null,
-          profileSessionId: "/session/session-login",
-          capabilityPolicy: createExternalCapabilityPolicy("crm"),
-          credential: {
-            toolCode: "browser",
-            secretId: "secret-session-external",
-            providerId: "browserless"
-          }
-        }),
-      BadRequestException
-    );
-
-    await assert.rejects(
-      () =>
-        service.browserAction({
-          action: "act",
-          url: "https://crm.example.com/dashboard",
-          maxChars: null,
-          operations: [
-            {
-              kind: "press",
-              key: "Enter"
-            }
-          ],
-          timeoutMs: null,
-          profileSessionId: "/session/session-login",
-          capabilityPolicy: createPersistentCapabilityPolicy("crm"),
-          credential: {
-            toolCode: "browser",
-            secretId: "secret-session-press",
-            providerId: "browserless"
-          }
-        }),
-      (error: unknown) => {
-        assert.ok(error instanceof BadRequestException);
-        assert.match(String(error.message), /do not support press operations reliably/i);
-        return true;
-      }
-    );
-
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      return new Response(
-        JSON.stringify({
-          data: {
-            goto: { status: 200 },
-            settleAfterGoto: { time: 3000 },
-            op_0: { value: null },
-            pageTitle: { title: "Catalog" },
-            pageUrl: { url: "https://lavka.example.com/catalog/water" },
-            pageText: { text: "Baikal water 430ml" },
-            pageElements: { value: JSON.stringify([]) }
-          }
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" }
-        }
-      );
-    }) as typeof fetch;
-
-    await service.browserAction({
-      action: "act",
-      url: "https://lavka.example.com/catalog/water",
-      maxChars: null,
-      operations: [
-        {
-          kind: "scroll",
-          selector: null
-        }
-      ],
-      timeoutMs: null,
-      profileSessionId: "/session/session-login",
-      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-session-scroll",
-        providerId: "browserless"
-      }
-    });
-    const scrollBqlBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
-      query?: string;
-      variables?: Record<string, unknown>;
-    };
-    // No native selector → scroll one viewport down via evaluate(), not the
-    // BQL `scroll` mutation, so behavior matches the ephemeral `/function`
-    // path exactly regardless of its exact required-argument combination.
-    assert.match(scrollBqlBody.query ?? "", /op_0: evaluate\(content: \$scrollScript_0\)/);
-    assert.match(
-      String(scrollBqlBody.variables?.scrollScript_0 ?? ""),
-      /window\.scrollBy\(0, window\.innerHeight\)/
-    );
-
-    await service.browserAction({
-      action: "act",
-      url: "https://lavka.example.com/catalog/water",
-      maxChars: null,
-      operations: [
-        {
-          kind: "scroll",
-          selector: "#product-card"
-        }
-      ],
-      timeoutMs: null,
-      profileSessionId: "/session/session-login",
-      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-session-scroll-selector",
-        providerId: "browserless"
-      }
-    });
-    const scrollSelectorBqlBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
-      variables?: Record<string, unknown>;
-    };
-    assert.match(
-      String(scrollSelectorBqlBody.variables?.scrollScript_0 ?? ""),
-      /querySelectorAll\("#product-card"\)/
-    );
-    assert.match(String(scrollSelectorBqlBody.variables?.scrollScript_0 ?? ""), /scrollIntoView/);
-
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      return new Response(
-        JSON.stringify({
-          type: "application/json",
-          data: {
-            initialUrl: "https://example.com/",
-            finalUrl: "https://example.com/final",
-            title: "Example page",
-            content: "Rendered browser content",
-            truncated: false,
-            elements: []
-          }
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    }) as typeof fetch;
-
-    await service.browserAction({
-      action: "act",
-      url: "https://example.com",
-      maxChars: null,
-      operations: [
-        {
-          kind: "scroll",
-          selector: null
-        }
-      ],
-      timeoutMs: null,
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-scroll-ephemeral",
-        providerId: "browserless"
-      }
-    });
-    const scrollEphemeralBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
-      context?: { operations?: Array<Record<string, unknown>> };
-    };
-    assert.deepEqual(scrollEphemeralBody.context?.operations, [{ kind: "scroll", selector: null }]);
-
-    await assert.rejects(
-      () =>
-        service.browserAction({
-          action: "snapshot",
-          url: "https://example.com",
-          maxChars: null,
-          operations: [
-            {
-              kind: "click",
-              selector: "#should-fail"
-            }
-          ],
-          timeoutMs: null,
-          credential: {
-            toolCode: "browser",
-            secretId: "secret-3",
-            providerId: "browserless"
-          }
-        }),
-      BadRequestException
-    );
-
-    // ADR-139 D8 test-scoped v0 heuristic: persistent-session goto targets on
-    // a `.ru` hostname request `country: RU` on the sticky residential proxy
-    // mutation instead of leaving country selection to Browserless's
-    // automatic pool choice.
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      return new Response(
-        JSON.stringify({
-          data: {
-            goto: { status: 200 },
-            pageTitle: { title: "Lavka" },
-            pageUrl: { url: "https://lavka.yandex.ru/catalog" },
-            pageText: { text: "Catalog content" },
-            pageElements: { value: JSON.stringify([]) }
-          }
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    }) as typeof fetch;
-
-    await service.browserAction({
-      action: "snapshot",
-      url: "https://lavka.yandex.ru/catalog",
-      maxChars: null,
-      operations: [],
-      timeoutMs: null,
-      profileSessionId: "/session/session-login",
-      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-ru-proxy",
-        providerId: "browserless"
-      }
-    });
-    const ruProxyBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
-      query?: string;
-    };
-    const ruProxyRequestUrl = requests.at(-1)?.url ?? "";
-    assert.match(ruProxyRequestUrl, /proxyCountry=ru/);
-    assert.match(
-      ruProxyBody.query ?? "",
-      /proxy\(network: residential, sticky: true, url: \["\*"\], country: RU\)/
-    );
-    assert.match(ruProxyBody.query ?? "", /userAgent\(userAgent: "[^"]*Chrome[^"]*"\)/);
-
-    // A per-operation failure inside the ephemeral /function script (e.g. a
-    // guessed selector that does not match anything live) must degrade to a
-    // warning on an otherwise-successful result, not an opaque 502 that
-    // discards the already-reached page's title/url/content — mirrors the
-    // BQL path's op_* warning classification (Audit Finding 1).
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
+      recordRequest(input, init);
       return new Response(
         JSON.stringify({
           type: "application/json",
@@ -1302,12 +424,9 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       BadGatewayException
     );
 
-    // ADR-139 D13: a live test found Browserless returning `429 Too many
-    // requests` (queue-full, per Browserless's own docs) on otherwise-valid
-    // act calls. A bounded retry absorbs this transient condition instead of
-    // surfacing every 429 as a hard tool failure to the model.
     let rateLimitedAttempts = 0;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
+      recordRequest(input, init);
       rateLimitedAttempts += 1;
       if (rateLimitedAttempts < 3) {
         return new Response(JSON.stringify({ error: "Too many requests" }), {
@@ -1345,126 +464,10 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     });
     assert.equal(rateLimitedAttempts, 3);
     assert.equal(rateLimitedResult.title, "Example page");
-
-    let persistentRateLimitedAttempts = 0;
-    globalThis.fetch = (async () => {
-      persistentRateLimitedAttempts += 1;
-      return new Response(JSON.stringify({ error: "Too many requests" }), {
-        status: 429,
-        headers: { "Content-Type": "application/json" }
-      });
-    }) as typeof fetch;
-
-    await assert.rejects(
-      () =>
-        service.browserAction({
-          action: "act",
-          url: "https://lavka.example.com/catalog/water",
-          maxChars: null,
-          operations: [{ kind: "click", selector: "#add-spin-button" }],
-          timeoutMs: null,
-          profileSessionId: "/session/session-login",
-          capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
-          credential: {
-            toolCode: "browser",
-            secretId: "secret-rate-limit-persistent",
-            providerId: "browserless"
-          }
-        }),
-      BadGatewayException
-    );
-    // 1 initial attempt + 4 retries (RATE_LIMIT_RETRY_DELAYS_MS has 4
-    // entries) — exhausting retries still surfaces as a normal gateway
-    // failure rather than retrying forever.
-    assert.equal(persistentRateLimitedAttempts, 5);
-
-    await assert.rejects(
-      () =>
-        service.browserAction({
-          action: "act",
-          url: "https://example.com/",
-          maxChars: null,
-          operations: [{ kind: "click", selector: "#x" }],
-          timeoutMs: null,
-          stayOnPage: true,
-          credential: {
-            toolCode: "browser",
-            secretId: "secret-stay-no-profile",
-            providerId: "browserless"
-          }
-        }),
-      BadRequestException
-    );
+    assert.deepEqual(sleepCalls.slice(0, 2), [1000, 2000]);
 
     globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      return new Response(
-        JSON.stringify({
-          data: {
-            op_0: { value: true },
-            pageTitle: { title: "Stayed" },
-            pageUrl: { url: "https://example.com/current" },
-            pageText: { text: "still here" },
-            pageElements: { value: "[]" }
-          }
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }) as typeof fetch;
-
-    await service.browserAction({
-      action: "act",
-      url: "https://example.com/",
-      maxChars: null,
-      operations: [{ kind: "click", selector: "#stay" }],
-      timeoutMs: null,
-      profileSessionId: "/session/session-login",
-      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
-      stayOnPage: true,
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-stay-on-page",
-        providerId: "browserless"
-      }
-    });
-    const stayOnPageBqlBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
-      query?: string;
-      variables?: Record<string, unknown>;
-    };
-    assert.doesNotMatch(stayOnPageBqlBody.query ?? "", /goto\(url: \$url/);
-    assert.doesNotMatch(stayOnPageBqlBody.query ?? "", /\$url: String!/);
-    assert.equal(stayOnPageBqlBody.variables?.url, undefined);
-    assert.match(stayOnPageBqlBody.query ?? "", /op_0:/);
-
-    const svc = service as unknown as {
-      splitBqlErrors: (errors: unknown[]) => {
-        fatalMessages: string[];
-        operationWarnings: string[];
-      };
-      buildIndexedSelectScript: (
-        selector: string,
-        matchIndex: number | null | undefined,
-        value: string
-      ) => string;
-    };
-    const split = svc.splitBqlErrors([
-      { path: ["extract_2"], message: "selector failed" },
-      { path: ["op_1"], message: "click failed" },
-      { path: ["pageTitle"], message: "title failed" }
-    ]);
-    assert.equal(split.operationWarnings.length, 2);
-    assert.equal(split.fatalMessages.length, 1);
-    assert.match(split.fatalMessages[0] ?? "", /pageTitle/);
-
-    const selectScript = svc.buildIndexedSelectScript("div", null, "x");
-    assert.match(selectScript, /Element is not a select/);
-
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
+      recordRequest(input, init);
       return new Response(
         JSON.stringify({
           type: "application/json",
@@ -1498,62 +501,8 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
     };
     assert.match(lavkaFunctionBody.context?.hostPageScript ?? "", /product-card/);
     assert.match(lavkaFunctionBody.context?.hostPageScript ?? "", /add-spin-button/);
-
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url =
-        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-      requests.push(init === undefined ? { url } : { url, init });
-      return new Response(
-        JSON.stringify({
-          data: {
-            pageTitle: { title: "Lavka" },
-            pageUrl: { url: "https://lavka.yandex.ru/search?text=test" },
-            pageText: { text: "search results" },
-            pageElements: {
-              value: JSON.stringify([{ selector: "#generic", tagName: "button", disabled: false }])
-            },
-            hostPageElements: {
-              value: JSON.stringify({
-                elements: [
-                  {
-                    selector: '[data-testid="product-card"] button[data-testid="add-spin-button"]',
-                    tagName: "button",
-                    ariaLabel: "host:product_card_add",
-                    disabled: false,
-                    matchIndex: 1
-                  }
-                ]
-              })
-            }
-          }
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    }) as typeof fetch;
-
-    const lavkaPersistentResult = await service.browserAction({
-      action: "snapshot",
-      url: "https://lavka.yandex.ru/search?text=test",
-      maxChars: null,
-      operations: [],
-      timeoutMs: null,
-      profileSessionId: "/session/session-lavka-host",
-      capabilityPolicy: createPersistentCapabilityPolicy("lavka"),
-      credential: {
-        toolCode: "browser",
-        secretId: "secret-lavka-host-bql",
-        providerId: "browserless"
-      }
-    });
-    const lavkaBqlBody = JSON.parse(String(requests.at(-1)?.init?.body ?? "{}")) as {
-      query?: string;
-      variables?: { hostPageScript?: string };
-    };
-    assert.match(lavkaBqlBody.query ?? "", /hostPageElements:/);
-    assert.match(lavkaBqlBody.variables?.hostPageScript ?? "", /product-card/);
-    assert.equal(lavkaPersistentResult.elements.length, 1);
-    assert.match(lavkaPersistentResult.elements[0]?.selector ?? "", /add-spin-button/);
   } finally {
     globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
   }
 }

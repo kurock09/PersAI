@@ -18,8 +18,8 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
     !isNonEmptyString(candidate.profileId) ||
     !isNonEmptyString(candidate.profileKey) ||
     !isNonEmptyString(candidate.displayName) ||
-    !isNonEmptyString(candidate.liveUrl) ||
-    !isNonEmptyString(candidate.loginUrl)
+    !isNonEmptyString(candidate.loginUrl) ||
+    (candidate.bridgeClientKind !== "extension" && candidate.bridgeClientKind !== "capacitor")
   ) {
     return null;
   }
@@ -27,8 +27,8 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
     profileId: candidate.profileId.trim(),
     profileKey: candidate.profileKey.trim(),
     displayName: candidate.displayName.trim(),
-    liveUrl: candidate.liveUrl.trim(),
     loginUrl: candidate.loginUrl.trim(),
+    bridgeClientKind: candidate.bridgeClientKind,
     ...(candidate.completionMode === "assist" || candidate.completionMode === "login"
       ? { completionMode: candidate.completionMode }
       : {})
@@ -55,8 +55,8 @@ function parsePendingBrowserLoginFromToolResultContent(
           profileId: login.profileId ?? payload.profileId,
           profileKey: login.profileKey,
           displayName: login.displayName,
-          liveUrl: login.liveUrl,
           loginUrl: login.loginUrl,
+          bridgeClientKind: login.bridgeClientKind,
           completionMode: "login"
         });
       }
@@ -72,8 +72,8 @@ function parsePendingBrowserLoginFromToolResultContent(
           profileId: payload.profileId,
           profileKey: login.profileKey,
           displayName: login.displayName,
-          liveUrl: login.liveUrl,
           loginUrl: login.loginUrl,
+          bridgeClientKind: login.bridgeClientKind,
           completionMode: login.status === "active" ? "assist" : "login"
         });
       }
@@ -139,7 +139,7 @@ export function extractPendingBrowserLoginFromTurn(
   return null;
 }
 
-export function appendTelegramBrowserLoginLink(
+export function appendTelegramBrowserOpenInAppNotice(
   locale: "ru" | "en",
   message: string,
   pending: PendingBrowserLoginState
@@ -147,7 +147,7 @@ export function appendTelegramBrowserLoginLink(
   const trimmed = message.trim();
   const label =
     locale === "ru"
-      ? `Чтобы продолжить вход для «${pending.displayName}», откройте PersAI в браузере: https://persai.dev`
-      : `To continue login for "${pending.displayName}", open PersAI on the web: https://persai.dev`;
+      ? `Чтобы продолжить работу с «${pending.displayName}», откройте PersAI в вебе или приложении и завершите действие там.`
+      : `To continue with "${pending.displayName}", open PersAI on the web or in the app and finish the browser step there.`;
   return trimmed.length > 0 ? `${trimmed}\n\n${label}` : label;
 }

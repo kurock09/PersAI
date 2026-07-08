@@ -5,6 +5,8 @@
 
 ## 2026-07-08
 
+- **Change (ADR-140 S8 — Telegram/browser boundary closure + program doc closeout; local, not pushed).** Telegram now keeps public no-profile browser reads on headless Browserless but routes logged-in/profile-backed browser work to structured `open_in_app` / `bridge_unavailable` handoff semantics with honest PersAI web/app copy and no login/live links. Browserless live-proxy web files are deleted in the working tree, ADR-138/139 are marked superseded, and `ARCHITECTURE` / `API-BOUNDARY` / `DATA-MODEL` / `TEST-PLAN` / `AGENTS` / `SESSION-HANDOFF` now describe the local-bridge target state. Focused browser/Telegram suites, repo-wide lint, format check, API/web/runtime/provider typechecks, and full provider-gateway tests pass.
+
 - **ADR (ADR-140 — local browser bridge + Browserless headless-only cutover; opened).** Audit + ADR: local user browser as execution runtime (extension + Capacitor prod); Browserless only for fast public headless; ordered slices S0–S11 CUT then BUILD; supersedes ADR-138/139 persistent cloud session stack.
 
 - **Fix (ADR-139 — Lavka BQL 502; pushed `aa2ad2ef`).** host-script JSON.stringify, stayOnPage url var, DOM-wait, catalog ADR-117 drift fix.

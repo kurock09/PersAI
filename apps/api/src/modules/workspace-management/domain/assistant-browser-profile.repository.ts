@@ -1,4 +1,7 @@
-import type { AssistantBrowserProfileStatus } from "@persai/runtime-contract";
+import type {
+  AssistantBrowserProfileStatus,
+  LocalBrowserBridgeDeviceKind
+} from "@persai/runtime-contract";
 
 export const ASSISTANT_BROWSER_PROFILE_REPOSITORY = Symbol("ASSISTANT_BROWSER_PROFILE_REPOSITORY");
 
@@ -10,8 +13,8 @@ export type AssistantBrowserProfileRow = {
   displayName: string;
   loginUrl: string;
   originHost: string;
-  providerSessionId: string;
-  liveUrl: string | null;
+  bridgeSessionRef: string | null;
+  bridgeClientKind: LocalBrowserBridgeDeviceKind | null;
   originatingChatId: string | null;
   status: AssistantBrowserProfileStatus;
   lastUsedAt: Date | null;
@@ -27,8 +30,8 @@ export type CreateAssistantBrowserProfileInput = {
   displayName: string;
   loginUrl: string;
   originHost: string;
-  providerSessionId: string;
-  liveUrl?: string | null;
+  bridgeSessionRef?: string | null;
+  bridgeClientKind?: LocalBrowserBridgeDeviceKind | null;
   originatingChatId?: string | null;
   status: AssistantBrowserProfileStatus;
 };
@@ -53,12 +56,23 @@ export interface AssistantBrowserProfileRepository {
   ): Promise<AssistantBrowserProfileRow | null>;
   create(input: CreateAssistantBrowserProfileInput): Promise<AssistantBrowserProfileRow>;
   updateStatus(id: string, status: AssistantBrowserProfileStatus): Promise<void>;
-  updatePendingLoginSession(
+  updatePendingLogin(
     id: string,
-    input: { providerSessionId: string; liveUrl: string }
+    input: {
+      bridgeSessionRef: string | null;
+      bridgeClientKind: LocalBrowserBridgeDeviceKind;
+    }
   ): Promise<void>;
-  updateLiveUrl(id: string, liveUrl: string | null): Promise<void>;
-  clearLiveUrl(id: string): Promise<void>;
+  activate(
+    id: string,
+    input: {
+      bridgeSessionRef: string;
+      bridgeClientKind: LocalBrowserBridgeDeviceKind;
+      lastUsedAt: Date;
+      expiresAt: Date;
+    }
+  ): Promise<void>;
+  updateBridgeSessionRef(id: string, bridgeSessionRef: string | null): Promise<void>;
   touch(id: string, lastUsedAt: Date, expiresAt: Date): Promise<void>;
   markExpired(id: string): Promise<void>;
   deleteById(id: string): Promise<boolean>;

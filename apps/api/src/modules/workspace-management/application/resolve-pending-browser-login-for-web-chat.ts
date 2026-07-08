@@ -14,7 +14,12 @@ export async function resolvePendingBrowserLoginForWebChat(input: {
     input.assistantId,
     input.chatId
   );
-  if (pendingProfile === null || pendingProfile.liveUrl === null) {
+  const bridgeClientKind =
+    pendingProfile?.bridgeClientKind === "extension" ||
+    pendingProfile?.bridgeClientKind === "capacitor"
+      ? pendingProfile.bridgeClientKind
+      : null;
+  if (pendingProfile === null || bridgeClientKind === null) {
     return null;
   }
 
@@ -22,8 +27,9 @@ export async function resolvePendingBrowserLoginForWebChat(input: {
     profileId: pendingProfile.id,
     profileKey: pendingProfile.profileKey,
     displayName: pendingProfile.displayName,
-    liveUrl: pendingProfile.liveUrl,
-    loginUrl: pendingProfile.loginUrl
+    loginUrl: pendingProfile.loginUrl,
+    bridgeClientKind,
+    completionMode: "login"
   };
 }
 

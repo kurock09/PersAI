@@ -103,23 +103,24 @@ ADR-081 plus ADR-133 extend the target-state authority of path-based Files: ever
 
 Chat rendering/download rows project back to canonical workspace paths. `attachmentId` remains message-rendering state, while `path`/`storagePath` is the durable file identity exposed by active APIs.
 
-## Assistant browser profiles (ADR-138 / ADR-139)
+## Assistant browser profiles (ADR-140)
 
-Per-assistant persistent browser sessions for logged-in CRM/portal work. Cookies live in Browserless; PersAI stores mapping + metadata only. ADR-139 keeps capability policy platform-owned: stealth/proxy behavior is derived from PersAI product policy and profile identity, not from model-authored knobs and not from persisted secret material in this table.
+Per-assistant browser profiles remain the product identity for logged-in CRM/portal work, but cookies now live on the user's device through the local bridge (Chrome extension or Capacitor bridge), not in Browserless. PersAI stores only the profile card plus bridge session metadata. In the Capacitor v1 bridge, cookies are scoped per `profileKey` by a plugin-owned cookie-jar swap into the platform WebView cookie store; non-cookie WebView storage such as DOM storage, IndexedDB, and service worker caches is not guaranteed isolated across profiles on the same origin.
 
 Table `assistant_browser_profiles` (`AssistantBrowserProfile`):
 
 - composite unique `(assistantId, profileKey)` — stable slug server-generated from assistant-chosen `displayName` on `login`
 - `displayName`, `loginUrl`, `originHost` (from login URL, for settings favicon)
-- `providerSessionId` — Browserless persistent session mapping id
+- `bridgeSessionRef` — nullable local-bridge session/window ref for the currently active device session
+- `bridgeClientKind` — nullable `extension | capacitor`; required when the profile is awaiting or using a local bridge
 - `status`: `pending_login` | `active` | `expired`
 - `lastUsedAt`, `expiresAt` — sliding TTL from last successful `snapshot`/`act` with `profile`
 
-TTL: plan billing hint `browserProfileTtlDays` when set (e.g. 90 on scale-like plans); **default 30 days** when absent (`resolveBrowserProfileTtlDays`). Scheduler lease `browser_profile_expiry` marks overdue `active` rows `expired`.
+TTL: plan billing hint `browserProfileTtlDays` when set (e.g. 90 on scale-like plans); **default 30 days** when absent (`resolveBrowserProfileTtlDays`). Scheduler lease `browser_profile_expiry` marks overdue `active` rows `expired` and may trigger a best-effort bridge close for the pinned active session.
 
-ADR-139 recovery truth is product-owned: cold/reconnectable sessions must be retried or re-auth-classified before the product tells the assistant a profile is expired. Web chat turn/stream/list may carry `pendingBrowserLogin` when a profile is awaiting user completion in the live login modal. Telegram may still surface a web-login instruction path, but ordinary web chat must not rely on assistant-visible Browserless `liveUrl` output.
+ADR-140 recovery truth is product-owned: cold/reconnectable bridge sessions must be retried or re-auth-classified before the product tells the assistant a profile is expired. Web/app chat turn/stream/list may carry `pendingBrowserLogin` when a profile is awaiting user completion in the local-bridge login modal. Telegram may still use headless Browserless for public no-profile reads, but logged-in/profile-backed browser work must not emit login links or live URLs; the channel handoff is structured `open_in_app` / `bridge_unavailable`.
 
-**Browser act chain (ADR-139 D14, `runtime-contract`):** profile-backed `act` may chain up to 12 operations per call (`goto`, `hover`, `extract`, plus existing selector ops). `stayOnPage` skips the opening navigation and continues on the current persistent-session page (requires `profile`). Text `snapshot`/`act` returns `page.elements` (up to 200 visible controls, generic main-content ranking, optional `matchIndex`/`ariaLabel`) and `page.extracted` (structured DOM matches from `extract`, capped at 50 items total per call). No site-specific extraction heuristics in execution code.
+**Browser act chain (`runtime-contract`):** profile-backed `act` may chain up to 12 operations per call (`goto`, `hover`, `extract`, plus existing selector ops). `stayOnPage` skips the opening navigation and continues on the current local-bridge page (requires `profile`). Text `snapshot`/`act` returns `page.elements` (up to 200 visible controls, generic main-content ranking, optional `matchIndex`/`ariaLabel`) and `page.extracted` (structured DOM matches from `extract`, capped at 50 items total per call). No site-specific extraction heuristics in execution code.
 
 ## Workspace file semantic index (ADR-134)
 

@@ -12,8 +12,9 @@ describe("resolvePendingBrowserLoginFromRuntimeTurn", () => {
       profileId: "profile-1",
       profileKey: "bitrix",
       displayName: "Bitrix24",
-      liveUrl: "https://browserless.example/live/bitrix",
-      loginUrl: "https://example.bitrix24.ru/login"
+      loginUrl: "https://example.bitrix24.ru/login",
+      bridgeClientKind: "extension" as const,
+      completionMode: "login" as const
     };
     const toolExchanges: ProviderGatewayToolExchange[] = [
       {
@@ -63,8 +64,9 @@ describe("resolvePendingBrowserLoginForWebChat", () => {
       profileId: "profile-1",
       profileKey: "bitrix",
       displayName: "Bitrix24",
-      liveUrl: "https://browserless.example/live/bitrix",
-      loginUrl: "https://example.bitrix24.ru/login"
+      loginUrl: "https://example.bitrix24.ru/login",
+      bridgeClientKind: "extension" as const,
+      completionMode: "login" as const
     };
 
     const resolved = await resolvePendingBrowserLoginForWebChat({
@@ -77,8 +79,8 @@ describe("resolvePendingBrowserLoginForWebChat", () => {
           displayName: pending.displayName,
           loginUrl: pending.loginUrl,
           originHost: "example.bitrix24.ru",
-          providerSessionId: "session-1",
-          liveUrl: pending.liveUrl,
+          bridgeSessionRef: null,
+          bridgeClientKind: "extension",
           originatingChatId: "chat-1",
           status: "pending_login",
           lastUsedAt: null,
@@ -94,7 +96,7 @@ describe("resolvePendingBrowserLoginForWebChat", () => {
     assert.deepEqual(resolved, pending);
   });
 
-  test("returns null when pending profile has no persisted liveUrl", async () => {
+  test("returns null when pending profile has no persisted bridge client kind", async () => {
     const resolved = await resolvePendingBrowserLoginForWebChat({
       browserProfileRepository: {
         findMostRecentPendingLoginForChat: async () => ({
@@ -105,8 +107,8 @@ describe("resolvePendingBrowserLoginForWebChat", () => {
           displayName: "Bitrix24",
           loginUrl: "https://example.bitrix24.ru/login",
           originHost: "example.bitrix24.ru",
-          providerSessionId: "session-1",
-          liveUrl: null,
+          bridgeSessionRef: null,
+          bridgeClientKind: null,
           originatingChatId: "chat-1",
           status: "pending_login",
           lastUsedAt: null,
@@ -135,8 +137,8 @@ describe("resolvePendingBrowserLoginForWebChat", () => {
                 displayName: "Bitrix24",
                 loginUrl: "https://example.bitrix24.ru/login",
                 originHost: "example.bitrix24.ru",
-                providerSessionId: "session-1",
-                liveUrl: "https://browserless.example/live/bitrix",
+                bridgeSessionRef: null,
+                bridgeClientKind: "extension",
                 originatingChatId: "chat-1",
                 status: "pending_login",
                 lastUsedAt: null,

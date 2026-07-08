@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Injectable, Logger } from "@nestjs/common";
 import type {
   AssistantRuntimeBundle,
@@ -11,14 +12,16 @@ import {
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
-  type PersistentBrowserCapabilityPolicy,
   MIN_RUNTIME_BROWSER_MAX_CHARS,
   PERSAI_RUNTIME_BROWSER_OPERATION_KINDS,
   PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS,
   type PersaiRuntimeBrowserAction,
   type PersaiRuntimeBrowserProviderId,
   type PersaiRuntimeBrowserSnapshotFormat,
+  type RuntimeBrowserExtractedItem,
+  type RuntimeBrowserInteractiveElement,
   type ProviderGatewayBrowserActionRequest,
+  type ProviderGatewayBrowserActionResult,
   type ProviderGatewayToolCall,
   type RuntimeBrowserOperation,
   type RuntimeBrowserRequest,
@@ -28,10 +31,8 @@ import {
 } from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
-import {
-  ProviderGatewayClientService,
-  ProviderGatewayHttpError
-} from "./provider-gateway.client.service";
+import { LocalBrowserBridgeClient } from "./local-browser-bridge.client.service";
+import { ProviderGatewayClientService } from "./provider-gateway.client.service";
 import {
   executeRuntimeToolContractDescribe,
   isToolContractDescribeCall
@@ -47,16 +48,11 @@ export interface RuntimeBrowserToolExecutionResult {
 @Injectable()
 export class RuntimeBrowserToolService {
   private readonly logger = new Logger(RuntimeBrowserToolService.name);
-  // ADR-139: Browserless persistent sessions are single-consumer. Serialize
-  // profile-backed page actions per providerSessionId so overlapping model
-  // tool calls wait for the previous BQL chain instead of racing and surfacing
-  // 429/502 as immediate browser_failed retries.
-  private readonly persistentBrowserActionTail = new Map<string, Promise<void>>();
-  private static readonly BROWSER_TRANSPORT_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000];
 
   constructor(
     private readonly providerGatewayClientService: ProviderGatewayClientService,
     private readonly persaiInternalApiClientService: PersaiInternalApiClientService,
+    private readonly localBrowserBridgeClient: LocalBrowserBridgeClient,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService
   ) {}
 
@@ -65,6 +61,7 @@ export class RuntimeBrowserToolService {
     toolCall: ProviderGatewayToolCall;
     sessionId: string;
     chatId?: string | null;
+    transportSurface?: string | null;
     sourceUserMessageText?: string | null;
     sourceUserMessageCreatedAt?: string | null;
   }): Promise<RuntimeBrowserToolExecutionResult> {
@@ -115,49 +112,18 @@ export class RuntimeBrowserToolService {
     if (request.action === "list_profiles") {
       return this.executeListProfiles(params.bundle, request);
     }
-
-    const credential = this.resolveConfiguredCredentialRef(params.bundle, "browser");
-    if (credential === null) {
-      return {
-        payload: {
-          toolCode: "browser",
-          executionMode: "worker",
-          provider: null,
-          requestedAction: request.action,
-          page: null,
-          action: "skipped",
-          reason: "credential_not_configured",
-          warning: null
-        },
-        artifacts: [],
-        isError: false
-      };
-    }
-
-    const providerId = this.resolveBrowserProviderId(params.bundle, credential.providerId ?? null);
-    if (providerId === null) {
-      return {
-        payload: {
-          toolCode: "browser",
-          executionMode: "worker",
-          provider: null,
-          requestedAction: request.action,
-          page: null,
-          action: "skipped",
-          reason: "provider_unavailable",
-          warning: "Selected browser provider is not supported by the current native runtime."
-        },
-        artifacts: [],
-        isError: false
-      };
-    }
+    const usesLocalBridge =
+      request.action === "login" || request.action === "open_live" || request.profile !== null;
+    const providerId: PersaiRuntimeBrowserProviderId = usesLocalBridge
+      ? "local_bridge"
+      : "browserless";
 
     try {
       if (request.action === "login") {
-        return await this.executeLogin(params, request, providerId, policy, credential);
+        return await this.executeLogin(params, request, providerId, policy);
       }
       if (request.action === "open_live") {
-        return await this.executeOpenLive(params, request, providerId, policy, credential);
+        return await this.executeOpenLive(params, request, providerId, policy);
       }
 
       const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
@@ -182,7 +148,54 @@ export class RuntimeBrowserToolService {
         };
       }
 
-      return await this.executeBrowserPageAction(params, request, providerId, credential);
+      if (usesLocalBridge) {
+        return await this.executeLocalBridgePageAction(params, request, providerId);
+      }
+
+      const credential = this.resolveConfiguredCredentialRef(params.bundle, "browser");
+      if (credential === null) {
+        return {
+          payload: {
+            toolCode: "browser",
+            executionMode: "worker",
+            provider: null,
+            requestedAction: request.action,
+            page: null,
+            action: "skipped",
+            reason: "credential_not_configured",
+            warning: null
+          },
+          artifacts: [],
+          isError: false
+        };
+      }
+      const headlessProviderId = this.resolveBrowserProviderId(
+        params.bundle,
+        credential.providerId ?? null
+      );
+      if (headlessProviderId === null) {
+        return {
+          payload: {
+            toolCode: "browser",
+            executionMode: "worker",
+            provider: null,
+            requestedAction: request.action,
+            page: null,
+            action: "skipped",
+            reason: "provider_unavailable",
+            warning: "Selected browser provider is not supported by the current native runtime."
+          },
+          artifacts: [],
+          isError: false
+        };
+      }
+
+      return await this.executeHeadlessBrowserPageAction(
+        params,
+        request,
+        headlessProviderId,
+        credential
+      );
     } catch (error) {
       const warning = error instanceof Error ? error.message : "Browser action failed.";
       // This catch previously discarded the real failure reason entirely —
@@ -265,12 +278,19 @@ export class RuntimeBrowserToolService {
       bundle: AssistantRuntimeBundle;
       sessionId: string;
       chatId?: string | null;
+      transportSurface?: string | null;
     },
     request: RuntimeBrowserRequest,
     providerId: PersaiRuntimeBrowserProviderId,
-    policy: RuntimeToolPolicy,
-    credential: NonNullable<ReturnType<typeof this.resolveConfiguredCredentialRef>>
+    policy: RuntimeToolPolicy
   ): Promise<RuntimeBrowserToolExecutionResult> {
+    if (this.isTelegramSurface(params.transportSurface)) {
+      return this.buildOpenInAppResult({
+        requestedAction: request.action,
+        provider: providerId
+      });
+    }
+
     const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
       assistantId: params.bundle.metadata.assistantId,
       toolCode: "browser",
@@ -298,7 +318,6 @@ export class RuntimeBrowserToolService {
       workspaceId: params.bundle.metadata.workspaceId,
       displayName: request.displayName ?? "",
       loginUrl: request.url,
-      browserCredentialSecretId: credential.secretRef.id,
       originatingChatId: params.chatId ?? null
     });
 
@@ -306,8 +325,8 @@ export class RuntimeBrowserToolService {
       profileId: login.profileId,
       profileKey: login.profileKey,
       displayName: login.displayName,
-      liveUrl: login.liveUrl,
-      loginUrl: login.loginUrl
+      loginUrl: login.loginUrl,
+      bridgeClientKind: login.bridgeClientKind
     };
 
     return {
@@ -336,11 +355,11 @@ export class RuntimeBrowserToolService {
       bundle: AssistantRuntimeBundle;
       sessionId: string;
       chatId?: string | null;
+      transportSurface?: string | null;
     },
     request: RuntimeBrowserRequest,
     providerId: PersaiRuntimeBrowserProviderId,
-    policy: RuntimeToolPolicy,
-    credential: NonNullable<ReturnType<typeof this.resolveConfiguredCredentialRef>>
+    policy: RuntimeToolPolicy
   ): Promise<RuntimeBrowserToolExecutionResult> {
     const profileKey = request.profile?.trim() ?? "";
     if (profileKey.length === 0) {
@@ -358,6 +377,13 @@ export class RuntimeBrowserToolService {
         artifacts: [],
         isError: true
       };
+    }
+
+    if (this.isTelegramSurface(params.transportSurface)) {
+      return this.buildOpenInAppResult({
+        requestedAction: request.action,
+        provider: providerId
+      });
     }
 
     const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
@@ -382,22 +408,56 @@ export class RuntimeBrowserToolService {
       };
     }
 
-    const live = await this.persaiInternalApiClientService.openBrowserLive({
+    const resolved = await this.persaiInternalApiClientService.resolveBrowserProfile({
+      assistantId: params.bundle.metadata.assistantId,
+      profileKey
+    });
+    if (!resolved.ok) {
+      return {
+        payload: {
+          toolCode: "browser",
+          executionMode: "worker",
+          provider: providerId,
+          requestedAction: request.action,
+          page: null,
+          action: "skipped",
+          reason: resolved.reason,
+          warning: this.profileErrorWarning(resolved.reason),
+          ...(resolved.pendingBrowserLogin === undefined
+            ? {}
+            : { pendingBrowserLogin: resolved.pendingBrowserLogin })
+        },
+        artifacts: [],
+        isError: resolved.pendingBrowserLogin === undefined
+      };
+    }
+    const openView = await this.localBrowserBridgeClient.executeCommand({
       assistantId: params.bundle.metadata.assistantId,
       workspaceId: params.bundle.metadata.workspaceId,
-      profileKey,
-      browserCredentialSecretId: credential.secretRef.id
+      bridgeDeviceId: resolved.bridgeSessionRef,
+      command: {
+        commandId: randomUUID(),
+        profileKey,
+        action: "open_view",
+        showWindow: true
+      }
     });
-
-    const completionMode = live.status === "active" ? ("assist" as const) : ("login" as const);
-    const pendingBrowserLogin = {
-      profileId: live.profileId,
-      profileKey: live.profileKey,
-      displayName: live.displayName,
-      liveUrl: live.liveUrl,
-      loginUrl: live.loginUrl,
-      completionMode
-    };
+    if (!openView.ok) {
+      return this.buildBridgeUnavailableResult({
+        requestedAction: request.action,
+        provider: providerId,
+        code: openView.code,
+        message: openView.message
+      });
+    }
+    if (!openView.result.ok) {
+      return this.buildLocalBridgeFailureResult({
+        requestedAction: request.action,
+        provider: providerId,
+        errorReason: openView.result.errorReason ?? "bridge_unavailable",
+        warning: openView.result.warning
+      });
+    }
 
     return {
       payload: {
@@ -408,22 +468,16 @@ export class RuntimeBrowserToolService {
         page: null,
         action: "opened_live",
         reason: null,
-        warning: null,
-        login: {
-          profileKey: live.profileKey,
-          displayName: live.displayName,
-          liveUrl: live.liveUrl,
-          loginUrl: live.loginUrl,
-          status: live.status
-        },
-        pendingBrowserLogin
+        warning:
+          openView.result.warning ??
+          "Opened the saved browser view on the connected device. Ask the user to continue there if manual help is needed."
       },
       artifacts: [],
       isError: false
     };
   }
 
-  private async executeBrowserPageAction(
+  private async executeLocalBridgePageAction(
     params: {
       bundle: AssistantRuntimeBundle;
       toolCall: ProviderGatewayToolCall;
@@ -431,59 +485,120 @@ export class RuntimeBrowserToolService {
       chatId?: string | null;
       sourceUserMessageText?: string | null;
       sourceUserMessageCreatedAt?: string | null;
+      transportSurface?: string | null;
+    },
+    request: RuntimeBrowserRequest,
+    providerId: PersaiRuntimeBrowserProviderId
+  ): Promise<RuntimeBrowserToolExecutionResult> {
+    const profileKey = request.profile?.trim() || null;
+    if (profileKey === null) {
+      return this.buildBrowserFailureResult({
+        requestedAction: request.action,
+        provider: providerId,
+        reason: "invalid_arguments",
+        warning: "Local browser bridge execution requires a saved profile."
+      });
+    }
+    if (this.isTelegramSurface(params.transportSurface)) {
+      return this.buildOpenInAppResult({
+        requestedAction: request.action,
+        provider: providerId
+      });
+    }
+    const resolved = await this.persaiInternalApiClientService.resolveBrowserProfile({
+      assistantId: params.bundle.metadata.assistantId,
+      profileKey
+    });
+    if (!resolved.ok) {
+      return {
+        payload: {
+          toolCode: "browser",
+          executionMode: "worker",
+          provider: providerId,
+          requestedAction: request.action,
+          page: null,
+          action: "skipped",
+          reason: resolved.reason,
+          warning: this.profileErrorWarning(resolved.reason),
+          ...(resolved.pendingBrowserLogin === undefined
+            ? {}
+            : { pendingBrowserLogin: resolved.pendingBrowserLogin })
+        },
+        artifacts: [],
+        isError: resolved.pendingBrowserLogin === undefined
+      };
+    }
+    const workerConfig = this.resolveWorkerToolConfig(params.bundle, "browser");
+    const optimizeForSpeed = request.optimizeForSpeed ?? true;
+    this.logger.log(
+      `[browser-action] action=${request.action} url=${request.url} profile=${"set"} operations=${request.operations.length}`
+    );
+    const bridgeOutcome = await this.localBrowserBridgeClient.executeCommand({
+      assistantId: params.bundle.metadata.assistantId,
+      workspaceId: params.bundle.metadata.workspaceId,
+      bridgeDeviceId: resolved.bridgeSessionRef,
+      command: {
+        commandId: randomUUID(),
+        profileKey,
+        action: request.action === "snapshot" ? "snapshot" : "act",
+        url: request.url,
+        stayOnPage: request.stayOnPage ?? null,
+        operations: request.operations,
+        format: request.format ?? null,
+        optimizeForSpeed,
+        timeoutMs: workerConfig?.timeoutMs ?? null,
+        showWindow: false
+      }
+    });
+    if (!bridgeOutcome.ok) {
+      return this.buildBridgeUnavailableResult({
+        requestedAction: request.action,
+        provider: providerId,
+        code: bridgeOutcome.code,
+        message: bridgeOutcome.message
+      });
+    }
+    if (!bridgeOutcome.result.ok) {
+      return this.buildLocalBridgeFailureResult({
+        requestedAction: request.action,
+        provider: providerId,
+        errorReason: bridgeOutcome.result.errorReason ?? "bridge_unavailable",
+        warning: bridgeOutcome.result.warning
+      });
+    }
+    const providerResult = this.normalizeLocalBridgeResult(request, bridgeOutcome.result);
+    const finalized = await this.finalizeBrowserPageAction({
+      params,
+      request,
+      providerResult,
+      profileKey
+    });
+    return finalized;
+  }
+
+  private async executeHeadlessBrowserPageAction(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      toolCall: ProviderGatewayToolCall;
+      sessionId: string;
+      chatId?: string | null;
+      sourceUserMessageText?: string | null;
+      sourceUserMessageCreatedAt?: string | null;
+      transportSurface?: string | null;
     },
     request: RuntimeBrowserRequest,
     providerId: PersaiRuntimeBrowserProviderId,
     credential: AssistantRuntimeBundleToolCredentialRef
   ): Promise<RuntimeBrowserToolExecutionResult> {
-    let profileSessionId: string | null = null;
-    let capabilityPolicy: PersistentBrowserCapabilityPolicy | null = null;
-    const profileKey = request.profile?.trim() || null;
-    if (profileKey !== null) {
-      const resolved = await this.persaiInternalApiClientService.resolveBrowserProfile({
-        assistantId: params.bundle.metadata.assistantId,
-        profileKey
-      });
-      if (!resolved.ok) {
-        return {
-          payload: {
-            toolCode: "browser",
-            executionMode: "worker",
-            provider: providerId,
-            requestedAction: request.action,
-            page: null,
-            action: "skipped",
-            reason: resolved.reason,
-            warning: this.profileErrorWarning(resolved.reason),
-            ...(resolved.pendingBrowserLogin === undefined
-              ? {}
-              : { pendingBrowserLogin: resolved.pendingBrowserLogin })
-          },
-          artifacts: [],
-          isError: resolved.pendingBrowserLogin === undefined
-        };
-      }
-      profileSessionId = resolved.providerSessionId;
-      capabilityPolicy = resolved.capabilityPolicy;
-    }
-
     const workerConfig = this.resolveWorkerToolConfig(params.bundle, "browser");
-    const optimizeForSpeed = request.optimizeForSpeed ?? (profileSessionId !== null ? true : null);
-    this.logger.log(
-      `[browser-action] action=${request.action} url=${request.url} profile=${
-        profileSessionId !== null ? "set" : "none"
-      } operations=${request.operations.length}`
-    );
     const browserActionRequest: ProviderGatewayBrowserActionRequest = {
       action: request.action,
       url: request.url,
       maxChars: request.maxChars,
       operations: request.operations,
       timeoutMs: workerConfig?.timeoutMs ?? null,
-      profileSessionId,
-      capabilityPolicy,
       format: request.format ?? null,
-      optimizeForSpeed,
+      optimizeForSpeed: request.optimizeForSpeed ?? null,
       snapshotSelector: request.snapshotSelector ?? null,
       fullPage: request.fullPage ?? null,
       stayOnPage: request.stayOnPage ?? null,
@@ -493,19 +608,33 @@ export class RuntimeBrowserToolService {
         providerId
       }
     };
-    const providerResult =
-      profileSessionId !== null
-        ? await this.enqueuePersistentBrowserAction(profileSessionId, () =>
-            this.browserActionWithTransportRetry(
-              browserActionRequest,
-              workerConfig === null ? undefined : { timeoutMs: workerConfig.timeoutMs }
-            )
-          )
-        : await this.browserActionWithTransportRetry(
-            browserActionRequest,
-            workerConfig === null ? undefined : { timeoutMs: workerConfig.timeoutMs }
-          );
+    const providerResult = await this.providerGatewayClientService.browserAction(
+      browserActionRequest,
+      workerConfig === null ? undefined : { timeoutMs: workerConfig.timeoutMs }
+    );
+    return await this.finalizeBrowserPageAction({
+      params,
+      request,
+      providerResult,
+      profileKey: null
+    });
+  }
 
+  private async finalizeBrowserPageAction(input: {
+    params: {
+      bundle: AssistantRuntimeBundle;
+      toolCall: ProviderGatewayToolCall;
+      sessionId: string;
+      chatId?: string | null;
+      sourceUserMessageText?: string | null;
+      sourceUserMessageCreatedAt?: string | null;
+      transportSurface?: string | null;
+    };
+    request: RuntimeBrowserRequest;
+    providerResult: ProviderGatewayBrowserActionResult;
+    profileKey: string | null;
+  }): Promise<RuntimeBrowserToolExecutionResult> {
+    const { params, request, providerResult, profileKey } = input;
     const artifacts: RuntimeOutputArtifact[] = [];
     let pageContent = providerResult.content;
     const binaryBase64 =
@@ -605,73 +734,160 @@ export class RuntimeBrowserToolService {
       case "browser_profile_expired":
         return "The saved browser profile is no longer usable. Run browser login again.";
       case "browser_profile_pending_login":
-        return "This saved browser profile is still waiting for login completion. Reopen the product login prompt and press Done when finished.";
+        return "This saved browser profile is still waiting for login completion. Reopen the login flow in PersAI web/app and press Done when finished.";
       case "browser_profile_needs_user_reauth":
-        return "This saved browser profile needs user re-authentication. Reopen the product login prompt for this profile.";
+        return "This saved browser profile needs user re-authentication. Reopen the login flow in PersAI web/app for this profile.";
       default:
         return "Browser profile could not be used.";
     }
   }
 
-  private enqueuePersistentBrowserAction<T>(
-    providerSessionId: string,
-    operation: () => Promise<T>
-  ): Promise<T> {
-    const sessionKey = providerSessionId.trim();
-    const previous = this.persistentBrowserActionTail.get(sessionKey) ?? Promise.resolve();
-    const result = previous.catch(() => undefined).then(operation);
-    const tail = result.then(
-      () => undefined,
-      () => undefined
-    );
-    this.persistentBrowserActionTail.set(sessionKey, tail);
-    void tail.finally(() => {
-      if (this.persistentBrowserActionTail.get(sessionKey) === tail) {
-        this.persistentBrowserActionTail.delete(sessionKey);
-      }
-    });
-    return result;
+  private normalizeLocalBridgeResult(
+    request: RuntimeBrowserRequest,
+    result: {
+      finalUrl?: string | null;
+      title?: string | null;
+      content?: string | null;
+      truncated?: boolean | null;
+      elements?: RuntimeBrowserInteractiveElement[] | null;
+      extracted?: RuntimeBrowserExtractedItem[] | null;
+      warning?: string | null;
+      artifact?: { mimeType: string; base64: string } | null;
+    }
+  ): ProviderGatewayBrowserActionResult {
+    const observedAt = new Date().toISOString();
+    const artifactMimeType = result.artifact?.mimeType ?? null;
+    const artifactBase64 = result.artifact?.base64 ?? null;
+    return {
+      provider: "local_bridge",
+      action: request.action,
+      initialUrl: request.url,
+      finalUrl: result.finalUrl ?? request.url,
+      title: result.title ?? null,
+      content: result.content ?? "",
+      truncated: result.truncated === true,
+      elements: Array.isArray(result.elements) ? result.elements : [],
+      extracted: Array.isArray(result.extracted) ? result.extracted : null,
+      observedAt,
+      tookMs: 0,
+      warning: result.warning ?? null,
+      ...(artifactMimeType === "application/pdf"
+        ? { pdfBase64: artifactBase64, artifactMimeType }
+        : artifactBase64 === null
+          ? {}
+          : { artifactBase64, artifactMimeType }),
+      externalContent: {
+        untrusted: true,
+        source: "browser",
+        provider: "local_bridge"
+      },
+      billingFacts: null
+    };
   }
 
-  private async browserActionWithTransportRetry(
-    input: Parameters<ProviderGatewayClientService["browserAction"]>[0],
-    options?: Parameters<ProviderGatewayClientService["browserAction"]>[1]
-  ): Promise<Awaited<ReturnType<ProviderGatewayClientService["browserAction"]>>> {
-    for (
-      let attempt = 0;
-      attempt <= RuntimeBrowserToolService.BROWSER_TRANSPORT_RETRY_DELAYS_MS.length;
-      attempt++
-    ) {
-      try {
-        return await this.providerGatewayClientService.browserAction(input, options);
-      } catch (error) {
-        if (!(error instanceof ProviderGatewayHttpError)) {
-          throw error;
-        }
-        const retryableStatus =
-          error.httpStatus === 429 ||
-          error.httpStatus === 502 ||
-          error.httpStatus === 503 ||
-          error.httpStatus === 408;
-        if (!retryableStatus) {
-          throw error;
-        }
-        if (attempt >= RuntimeBrowserToolService.BROWSER_TRANSPORT_RETRY_DELAYS_MS.length) {
-          throw error;
-        }
-        const delayMs =
-          RuntimeBrowserToolService.BROWSER_TRANSPORT_RETRY_DELAYS_MS[attempt] ?? 8000;
-        this.logger.warn(
-          `[browser-action] transport status=${String(error.httpStatus)} profileSession=${
-            input.profileSessionId ?? "none"
-          }, retrying in ${String(delayMs)}ms (attempt ${String(attempt + 1)}/${String(
-            RuntimeBrowserToolService.BROWSER_TRANSPORT_RETRY_DELAYS_MS.length + 1
-          )})`
-        );
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
+  private buildBrowserFailureResult(input: {
+    requestedAction: PersaiRuntimeBrowserAction;
+    provider: PersaiRuntimeBrowserProviderId | null;
+    reason: string;
+    warning: string | null;
+    pendingBrowserLogin?: RuntimeBrowserToolResult["pendingBrowserLogin"];
+    isError?: boolean;
+  }): RuntimeBrowserToolExecutionResult {
+    return {
+      payload: {
+        toolCode: "browser",
+        executionMode: "worker",
+        provider: input.provider,
+        requestedAction: input.requestedAction,
+        page: null,
+        action: "skipped",
+        reason: input.reason,
+        warning: input.warning,
+        ...(input.pendingBrowserLogin === undefined
+          ? {}
+          : { pendingBrowserLogin: input.pendingBrowserLogin })
+      },
+      artifacts: [],
+      isError: input.isError ?? false
+    };
+  }
+
+  private buildBridgeUnavailableResult(input: {
+    requestedAction: PersaiRuntimeBrowserAction;
+    provider: PersaiRuntimeBrowserProviderId;
+    code: string;
+    message: string;
+  }): RuntimeBrowserToolExecutionResult {
+    const warning =
+      input.code === "bridge_device_ambiguous"
+        ? `${input.message} Continue in PersAI web/app and pick one connected browser bridge device.`
+        : `${input.message} Continue in PersAI web/app where the local browser bridge is installed and connected.`;
+    return this.buildBrowserFailureResult({
+      requestedAction: input.requestedAction,
+      provider: input.provider,
+      reason: "bridge_unavailable",
+      warning
+    });
+  }
+
+  private buildOpenInAppResult(input: {
+    requestedAction: PersaiRuntimeBrowserAction;
+    provider: PersaiRuntimeBrowserProviderId;
+  }): RuntimeBrowserToolExecutionResult {
+    return this.buildBrowserFailureResult({
+      requestedAction: input.requestedAction,
+      provider: input.provider,
+      reason: "open_in_app",
+      warning:
+        "Logged-in browser actions must continue in PersAI web/app, where the local browser bridge is available.",
+      isError: false
+    });
+  }
+
+  private buildLocalBridgeFailureResult(input: {
+    requestedAction: PersaiRuntimeBrowserAction;
+    provider: PersaiRuntimeBrowserProviderId;
+    errorReason: string;
+    warning?: string | null | undefined;
+  }): RuntimeBrowserToolExecutionResult {
+    if (input.errorReason === "needs_user_action") {
+      return this.buildBrowserFailureResult({
+        requestedAction: input.requestedAction,
+        provider: input.provider,
+        reason: "needs_user_action",
+        warning:
+          input.warning ??
+          "The action now requires the user in the opened browser view. Continue in PersAI web/app after the user finishes there.",
+        isError: false
+      });
     }
-    return await this.providerGatewayClientService.browserAction(input, options);
+    if (
+      input.errorReason === "bridge_unavailable" ||
+      input.errorReason === "command_timeout" ||
+      input.errorReason === "command_unknown" ||
+      input.errorReason === "bridge_device_not_connected"
+    ) {
+      return this.buildBrowserFailureResult({
+        requestedAction: input.requestedAction,
+        provider: input.provider,
+        reason: "bridge_unavailable",
+        warning:
+          input.warning ??
+          "The local browser bridge is unavailable or did not respond in time. Continue in PersAI web/app and retry after reconnecting the bridge.",
+        isError: false
+      });
+    }
+    return this.buildBrowserFailureResult({
+      requestedAction: input.requestedAction,
+      provider: input.provider,
+      reason: "browser_failed",
+      warning: input.warning ?? `Local browser bridge failed: ${input.errorReason}`,
+      isError: true
+    });
+  }
+
+  private isTelegramSurface(value: string | null | undefined): boolean {
+    return value === "telegram";
   }
 
   private buildPdfFilenameHint(title: string | null, finalUrl: string): string | null {

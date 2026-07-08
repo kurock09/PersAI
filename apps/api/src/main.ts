@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import { loadApiConfig } from "@persai/config";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
+import { BrowserBridgeWebSocketServer } from "./modules/browser-bridge/application/browser-bridge-websocket.server";
 import { AppLoggerService } from "./modules/platform-core/infrastructure/logging/app-logger.service";
 import { ApiExceptionFilter } from "./modules/platform-core/interface/http/api-exception.filter";
 
@@ -77,6 +78,7 @@ async function bootstrap(): Promise<void> {
   app.flushLogs();
 
   const publicServer = createServer(expressApp);
+  app.get(BrowserBridgeWebSocketServer).attachPublicServer(publicServer);
   await listen(publicServer, config.PORT);
 
   if (config.API_INTERNAL_PORT !== config.PORT) {

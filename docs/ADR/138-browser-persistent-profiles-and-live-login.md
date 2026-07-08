@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open for Wave 2 continuation (S7–S9)** — S0–S6 + audit fixes **closed locally 2026-07-05**; **Wave 2 audit residuals A+B + S7 screenshots landed locally 2026-07-06**; deploy + live acceptance pending. **Push = deploy** at founder closure only.
+**Superseded by ADR-140 (2026-07-08).** Historical record only. Persistent Browserless profiles / live login are no longer active target-state architecture.
 
 ## Date
 

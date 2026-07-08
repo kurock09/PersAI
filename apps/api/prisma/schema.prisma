@@ -952,8 +952,8 @@ model AssistantBrowserProfile {
   displayName        String                        @map("display_name") @db.VarChar(500)
   loginUrl           String                        @map("login_url") @db.Text
   originHost         String                        @map("origin_host") @db.VarChar(255)
-  providerSessionId  String                        @map("provider_session_id") @db.VarChar(512)
-  liveUrl            String?                       @map("live_url") @db.Text
+  bridgeSessionRef   String?                       @map("bridge_session_ref") @db.Text
+  bridgeClientKind   String?                       @map("bridge_client_kind") @db.Text
   originatingChatId  String?                       @map("originating_chat_id") @db.Uuid
   status             AssistantBrowserProfileStatus
   lastUsedAt         DateTime?                     @map("last_used_at") @db.Timestamptz(6)
@@ -966,6 +966,7 @@ model AssistantBrowserProfile {
   @@unique([assistantId, profileKey])
   @@index([assistantId, status])
   @@index([assistantId, originatingChatId, status])
+  @@index([bridgeSessionRef])
   @@index([status, expiresAt])
   @@map("assistant_browser_profiles")
 }

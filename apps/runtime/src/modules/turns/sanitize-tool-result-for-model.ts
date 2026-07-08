@@ -178,37 +178,10 @@ function isRuntimeBrowserToolResultShape(value: Record<string, unknown>): boolea
   return value.toolCode === "browser" && value.executionMode === "worker";
 }
 
-function redactBrowserLiveUrlFields(
-  value: Record<string, unknown> | null
-): Record<string, unknown> | null {
-  if (value === null) {
-    return null;
-  }
-  const rest = { ...value };
-  delete rest.liveUrl;
-  return rest;
-}
-
 function sanitizeBrowserToolResultForModel(
   value: Record<string, unknown>
 ): Record<string, unknown> {
   const sanitized: Record<string, unknown> = { ...value };
-  if (
-    sanitized.login !== null &&
-    typeof sanitized.login === "object" &&
-    !Array.isArray(sanitized.login)
-  ) {
-    sanitized.login = redactBrowserLiveUrlFields(sanitized.login as Record<string, unknown>);
-  }
-  if (
-    sanitized.pendingBrowserLogin !== null &&
-    typeof sanitized.pendingBrowserLogin === "object" &&
-    !Array.isArray(sanitized.pendingBrowserLogin)
-  ) {
-    sanitized.pendingBrowserLogin = redactBrowserLiveUrlFields(
-      sanitized.pendingBrowserLogin as Record<string, unknown>
-    );
-  }
 
   const pending =
     sanitized.pendingBrowserLogin !== null &&
@@ -236,7 +209,7 @@ function sanitizeBrowserToolResultForModel(
       continueUrl: PERSAI_WEB_BROWSER_LOGIN_CONTINUE_URL,
       ...(displayName === null ? {} : { displayName }),
       delivery:
-        "Product-owned browser login is not completed inside Telegram chat. Tell the user you opened/reopened login for this site and they must continue in PersAI web at continueUrl only. Never paste internal Browserless/live browser URLs."
+        "Product-owned browser login is not completed inside Telegram chat. Tell the user to continue in PersAI web/app at continueUrl, where the local browser bridge can open the login view."
     };
   }
   return sanitized;

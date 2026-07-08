@@ -179,8 +179,8 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
   );
   assert.match(
     text,
-    /Do not use `press`\/`Enter` as a shortcut.*persistent Browserless sessions reject/i,
-    "browser guidance must forbid press/Enter on saved profiles because persistent Browserless rejects it"
+    /needs_user_action.*open_live/i,
+    "browser guidance must teach open_live for visible user-help handoff"
   );
   assert.match(
     text,
@@ -204,18 +204,18 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
   );
   assert.match(
     text,
-    /platform-owned/i,
-    "browser guidance must say persistent-profile policy is platform-owned"
+    /Runtime chooses the backend/i,
+    "browser guidance must say runtime chooses the backend"
   );
   assert.match(
     text,
-    /proxy or stealth settings/i,
-    "browser guidance must forbid invented proxy or stealth settings"
+    /hidden browser window/i,
+    "browser guidance must explain hidden-window local bridge semantics"
   );
   assert.match(
     text,
-    /BQL\/reconnect\/429 failure/i,
-    "browser guidance must mention transient BQL/reconnect/429 failures"
+    /bridge_unavailable.*open_in_app/i,
+    "browser guidance must mention bridge_unavailable/open_in_app handoff states"
   );
   assert.match(
     text,
@@ -229,8 +229,8 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
   );
   assert.match(
     text,
-    /Do not paste Browserless live login URLs into the assistant reply/i,
-    "browser guidance must forbid pasting Browserless live login URLs into ordinary web chat"
+    /Do not promise raw URLs/i,
+    "browser guidance must forbid promising raw login URLs in ordinary web chat"
   );
   assert.match(text, /click_at/i, "browser guidance must document click_at viewport clicks");
   assert.match(
@@ -247,6 +247,11 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
     text,
     /\bliveUrl\b/,
     "browser guidance must not expose the internal liveUrl field name"
+  );
+  assert.doesNotMatch(
+    text,
+    /Browserless|BQL|proxy|stealth|429|reconnect/i,
+    "browser guidance must not preserve persistent Browserless guidance"
   );
 }
 
