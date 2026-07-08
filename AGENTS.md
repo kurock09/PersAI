@@ -25,9 +25,9 @@ Additional orchestration program **closed locally 2026-07-05:** `docs/ADR/136-op
 
 Additional active orchestration program: `docs/ADR/137-execution-pod-boundary-and-storage-plane-cutover.md` (opened 2026-07-05 — finish ADR-127 storage-plane truth: pod only for `shell`/`exec`/`document.*`; GCS+manifest for worker outbound, `files.*`, `grep`/`glob`; S0–S2 landed locally; S3–S5 + **S5.1 session-scoped hydrate** + S6 audit pending; parent orchestrator/auditor, GPT-5.4/Sonnet subagents per slice).
 
-Additional orchestration program **closed locally 2026-07-05:** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` (per-assistant Browserless profile persistence, `login`/`list_profiles`, live fullscreen modal auto-open via `pendingBrowserLogin`, settings site cards, `optimizeForSpeed` + PDF snapshot in MVP; Slices S0–S6 landed locally — deploy + live acceptance pending; do not reopen for new scope).
+Additional active orchestration program: `docs/ADR/140-local-browser-bridge-and-browserless-headless-cutover.md` (opened 2026-07-08 — replace persistent Browserless sessions with local browser bridge [Chrome extension + Capacitor prod]; Browserless headless-only for fast public snapshot/screenshot; ordered CUT slices S1–S3 then BUILD S4–S11; supersedes ADR-138/139 persistent cloud truth; parent orchestrator, GPT-5.4 subagents per slice).
 
-Additional active orchestration program: `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md` (opened 2026-07-07 — Browserless capability layer on top of ADR-138: platform-owned stealth + sticky residential proxy defaults for persistent profiles, persistent BrowserQL `elements`, structured cold-session/re-auth recovery, and modal-first no-liveUrl-in-web-chat recovery UX. Parent agent owns the ADR and final doc reconciliation; implementation must be delegated slice-by-slice to GPT-5.4 subagents only; commits may land per slice, but **push = deploy** and remains founder-controlled; no legacy compatibility path or non-prod detours).
+Additional orchestration program **superseded by ADR-140 (do not implement new scope):** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` and `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`.
 
 ## Repo rules
 

@@ -1,17 +1,18 @@
 # SESSION-HANDOFF
 
-## 2026-07-08 — ADR-139 browser 502 fixes: host-script stringify + stayOnPage + DOM-wait (push pending)
+## 2026-07-08 — ADR-140 opened: local browser bridge + Browserless headless-only cutover
 
-Status: **implemented locally, push pending.**
+Status: **ADR written, implementation not started.**
 
-**Root cause from cluster logs (`kubectl logs deployment/provider-gateway`):**
+**Baseline SHA:** `aa2ad2ef` on `main`.
 
-1. **`hostPageElements` fatal** — `String cannot represent value: { elements: [...] }`. `lavka.yandex.ru.js` returned a JS object; BQL `evaluate { value }` requires a string. Every Lavka text `snapshot`/`act` → 502.
-2. **`stayOnPage` + unused `$url`** — `Variable "$url" is never used in operation "BrowserAction"` on `act` with `stayOnPage:true` (deployed image `a34f0cc9` still had this bug).
+**Task scope:** Replace persistent cloud Browserless sessions with local user browser execution (Chrome extension web + Capacitor prod mobile). Browserless keeps only stateless fast public snapshot/screenshot. Perfect CUT of ADR-138/139 persistent stack (S1–S3), then BUILD bridge relay + runtime router + extension + modal rewrite (S4–S11). Audit completed before ADR.
 
-**Fixes:** `JSON.stringify({ elements })` in lavka host script; ephemeral path parses JSON string; `hostPageElements` BQL errors → warning + generic fallback; `stayOnPage` omits `$url`/`goto`; DOM-ready poll max 10s before page read; catalog ADR-117 «engaged scenarios».
+**ADR:** `docs/ADR/140-local-browser-bridge-and-browserless-headless-cutover.md`
 
-**Verification (PASS):** `seed-tool-catalog.test.ts`, `provider-browser.service.test.ts`, `host-browser-script-registry.service.test.ts`.
+**Next recommended step:** Founder review ADR-140 locked decisions; parent dispatches **S0 contract freeze** to GPT-5.4 subagent.
+
+## 2026-07-08 — ADR-139 browser 502 fixes (pushed `aa2ad2ef`)
 
 ## 2026-07-08 — ADR-139 host-script hook + online-store shopping skill (pushed `a34f0cc9`)
 

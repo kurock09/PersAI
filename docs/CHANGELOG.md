@@ -5,7 +5,9 @@
 
 ## 2026-07-08
 
-- **Fix (ADR-139 — DOM-ready wait + stayOnPage BQL `$url` 502 + host-script BQL stringify; push pending).** Live cluster logs showed two distinct 502 causes on Lavka `act`/`snapshot`: (1) `hostPageElements.value` — `lavka.yandex.ru.js` returned a raw `{ elements }` object but Browserless BQL `evaluate { value }` requires a string (fatal GraphQL error); fixed with `JSON.stringify({ elements })` + ephemeral parser accepts string; `hostPageElements` BQL errors now degrade to warnings with generic `page.elements` fallback. (2) `stayOnPage:true` declared unused `$url` → BQL fatal; fixed by omitting `goto`/`$url` when staying on page. Platform DOM-ready poll (max 10s) before page read on both paths. Browser catalog: DOM-wait gotcha + «engaged scenarios» fixes ADR-117 CI drift.
+- **ADR (ADR-140 — local browser bridge + Browserless headless-only cutover; opened).** Audit + ADR: local user browser as execution runtime (extension + Capacitor prod); Browserless only for fast public headless; ordered slices S0–S11 CUT then BUILD; supersedes ADR-138/139 persistent cloud session stack.
+
+- **Fix (ADR-139 — Lavka BQL 502; pushed `aa2ad2ef`).** host-script JSON.stringify, stayOnPage url var, DOM-wait, catalog ADR-117 drift fix.
 
 - **Enhancement (ADR-139 — per-host browser page.elements hook + online-store shopping skill; pushed `a34f0cc9`).** Added extensible `scripts/browser-sites/` registry and `HostBrowserScriptRegistryService` in provider-gateway: resolves host script by URL/goto hostname, evaluates on snapshot/act, replaces generic `page.elements` when host returns non-empty `elements`. Initial host: `lavka.yandex.ru.js` (card-scoped selectors, no product lists). Wired on both ephemeral `/function` and persistent BQL paths. Universal e-commerce browser gotcha in tool catalog. MCP skill «Покупки в интернет-магазинах» (`d985af7d-dfa8-4281-8daa-a1cc3ce15564`) with KB card and scenario `lavka`; assigned to operator assistant.
 
