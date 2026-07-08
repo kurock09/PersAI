@@ -2,7 +2,7 @@
 
 ## 2026-07-08 — ADR-139 browser act chain: goto/extract/hover, stayOnPage, generic elements
 
-Status: **pushed** (`90efa370` on `main`).
+Status: **pushed** (`28bdd552` on `main`).
 
 **Audit follow-through (this pass):** DOM-order `matchIndex` before ranking; `extract` row `matchIndex` + global 50-item cap; `stayOnPage` requires profile; BQL type/hover parity improvements; BQL `extract_*` warnings + indexed `select` throw; ADR-139 D14 + API-BOUNDARY/DATA-MODEL updates; focused tests for `stayOnPage`.
 
