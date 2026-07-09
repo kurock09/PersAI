@@ -112,6 +112,13 @@ const nativeBridgeState: NativeBridgeRuntimeState = {
   commandQueue: Promise.resolve()
 };
 
+/**
+ * Singleton connect attempt. Registration mints a new bridge device id, so two
+ * overlapping connects would churn device identity and orphan the socket the
+ * server is about to dispatch to.
+ */
+let nativeConnectInFlight: Promise<ExtensionBridgeStatus> | null = null;
+
 export function isNativeBrowserBridgeShell(): boolean {
   if (typeof window === "undefined") {
     return false;
@@ -277,7 +284,18 @@ async function connectNativeBridgeSocket(
   ) {
     return toBridgeStatus();
   }
+  if (nativeConnectInFlight !== null) {
+    return nativeConnectInFlight;
+  }
+  nativeConnectInFlight = performNativeBridgeConnect(input).finally(() => {
+    nativeConnectInFlight = null;
+  });
+  return nativeConnectInFlight;
+}
 
+async function performNativeBridgeConnect(
+  input: RegisterExtensionBridgeDeviceInput
+): Promise<ExtensionBridgeStatus> {
   if (nativeBridgeState.socket !== null) {
     try {
       nativeBridgeState.socket.close(1000, "bridge_reconnect");

@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-09 — ADR-140 live-acceptance follow-up: expired-token re-registration + native request storm
+
+Status: **implemented locally; commit/push in progress.**
+
+**Why (cluster logs after the `0c8ca8fd` deploy):** Founder re-test still failed on both surfaces. Logs isolated three truths: (a) server + web were the new build (Redis coordinator connected on both pods), (b) the desktop Chrome extension was still the OLD unpacked build (small `open_view` window, no `check_view` handler → `Готово` 409) — it must be reloaded from `extensions/persai-browser-extension/dist`, and (c) two real client defects remained. First: bridge device tokens live 15 min, the extension redialed forever with the dead token (continuous `Device token has expired` websocket rejections), and the modal never re-registered because a matching scope short-circuited registration even with `connected=false`. Second: the mobile modal's 3s poll stacked register/`open-live` calls while previous ones pended 15–26s server-side, tripping the relay dispatch rate limit (409 → 429 storm at 19:28–19:31Z).
+
+**What changed:** `browser-login-modal.tsx` re-registers (still throttled 15s/scope) when scope matches but the socket is down, and shows the honest fresh status while throttled; native refresh path gained an in-flight guard. `browser-bridge-client.ts` gained a singleton connect promise so overlapping native connects cannot mint competing device ids. Extension `background.ts` stops dialing when its stored registration is older than 14 min (`REGISTRATION_TOKEN_SAFE_AGE_MS`) and waits for the web modal to push a fresh registration.
+
+**Verification:** extension lint/typecheck/test (16)/build PASS; web modal tests (9) PASS; web lint + typecheck PASS; `format:check` PASS.
+
+**Manual acceptance still required:** reload the unpacked extension from `dist` (old build cannot pass — no `check_view`, old window sizing), hard-refresh the PersAI tab, fully restart the mobile app (Capacitor loads `persai.dev` remotely; a stale WebView session keeps old JS). Then: desktop — Открыть (70% 16:9 window) → sign in → Готово; mobile — site auto-opens in the overlay → Back → Готово.
+
+---
+
 ## 2026-07-09 — ADR-140 login completion truth: `check_view`, explicit device targeting, register throttle, mobile overlay escape
 
 Status: **implemented locally; commit/push pending.**

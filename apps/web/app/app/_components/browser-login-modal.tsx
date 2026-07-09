@@ -64,6 +64,7 @@ export function BrowserLoginModal({
   const openedViewProfileIdRef = useRef<string | null>(null);
   const extensionStatusRef = useRef<ExtensionBridgeStatus | null>(null);
   const lastRegisterAttemptRef = useRef<{ scopeKey: string; at: number } | null>(null);
+  const nativeRefreshInFlightRef = useRef(false);
   const completionMode = pendingBrowserLogin?.completionMode ?? "login";
   const bridgeClientKind = pendingBrowserLogin?.bridgeClientKind ?? null;
   const nativeShell = useMemo(() => isNativeBrowserBridgeShell(), []);
@@ -121,29 +122,44 @@ export function BrowserLoginModal({
       }
       try {
         if (nativeTarget) {
-          const token = await getToken();
-          if (!token || !assistantId || !pendingBrowserLogin) {
-            updateExtensionStatus(null);
+          // register + open-live can take many seconds server-side (dispatch
+          // timeout). Without this guard the 3s poll stacks parallel requests
+          // and trips the relay's dispatch rate limit (429 storm).
+          if (nativeRefreshInFlightRef.current) {
             return;
           }
-          const registered = await registerNativeBrowserBridgeDevice({
-            token,
-            assistantId,
-            workspaceId: pendingBrowserLogin.workspaceId
-          });
-          updateExtensionStatus(registered);
-          if (registered.connected) {
-            await openPendingLoginView(token).catch(() => {
-              setCompleteError(t("browserLoginOpenFailed"));
+          nativeRefreshInFlightRef.current = true;
+          try {
+            const token = await getToken();
+            if (!token || !assistantId || !pendingBrowserLogin) {
+              updateExtensionStatus(null);
+              return;
+            }
+            const registered = await registerNativeBrowserBridgeDevice({
+              token,
+              assistantId,
+              workspaceId: pendingBrowserLogin.workspaceId
             });
+            updateExtensionStatus(registered);
+            if (registered.connected) {
+              await openPendingLoginView(token).catch(() => {
+                setCompleteError(t("browserLoginOpenFailed"));
+              });
+            }
+          } finally {
+            nativeRefreshInFlightRef.current = false;
           }
           return;
         }
         const next = await getExtensionBridgeStatus();
         const sameScope =
           next.assistantId === assistantId && next.workspaceId === pendingBrowserLogin?.workspaceId;
+        // A matching scope is only good enough while the socket is live. Device
+        // tokens expire after ~15 min, and the extension cannot mint a new one
+        // itself — if the connection is down we must fall through and
+        // re-register (throttled below) so the extension gets a fresh token.
         if (
-          sameScope ||
+          (sameScope && next.connected) ||
           (next.assistantId === null &&
             next.workspaceId === null &&
             extensionStatusRef.current !== null)
@@ -166,7 +182,10 @@ export function BrowserLoginModal({
           lastAttempt.scopeKey === scopeKey &&
           Date.now() - lastAttempt.at < 15_000
         ) {
-          updateExtensionStatus(extensionStatusRef.current ?? next);
+          // While throttled, prefer the freshly observed status for our own
+          // scope (it is honest about connected=false); never resurrect a
+          // stale "connected" snapshot.
+          updateExtensionStatus(sameScope ? next : (extensionStatusRef.current ?? next));
           return;
         }
         lastRegisterAttemptRef.current = { scopeKey, at: Date.now() };

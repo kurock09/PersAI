@@ -51,6 +51,12 @@ import { readState, reconcileProfileRecord, updateState, writeState } from "./st
 
 const KEEPALIVE_PORT_NAMES = new Set(["persai-page-keepalive", "persai-popup-keepalive"]);
 
+/**
+ * Server bridge device tokens live 15 minutes; treat a stored registration
+ * older than 14 minutes as unusable for dialing (see connectSocketIfNeeded).
+ */
+const REGISTRATION_TOKEN_SAFE_AGE_MS = 14 * 60 * 1000;
+
 let socket: WebSocket | null = null;
 /** Bridge device id the current socket authenticated with. */
 let socketDeviceId: string | null = null;
@@ -116,6 +122,14 @@ async function connectSocketIfNeeded(): Promise<void> {
   const state = await readState();
   const registration = state.registration;
   if (registration === null || registration === undefined) {
+    return;
+  }
+  // Server device tokens expire after 15 minutes and the extension cannot
+  // mint a new one (registration needs the user's Clerk session in the web
+  // tab). Dialing with a stale token just spams the relay with
+  // "Device token has expired" rejections forever — stop and wait for the
+  // web modal to push a fresh registration, which restarts the connection.
+  if (Date.now() - registration.updatedAt > REGISTRATION_TOKEN_SAFE_AGE_MS) {
     return;
   }
   const nextSocket = new WebSocket(registration.websocketUrl);
