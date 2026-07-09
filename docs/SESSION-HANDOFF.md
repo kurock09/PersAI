@@ -1,5 +1,23 @@
 # SESSION-HANDOFF
 
+## 2026-07-10 — ADR-140 live Mail.ru follow-up: deterministic desktop sizing, inline permission grant, Android hidden runner
+
+Status: **implemented, live-debugged, release-exported, and verified locally; deploy + live acceptance pending.**
+
+Baseline SHAs: PersAI `f9b0b24e`; `persai-mobile` `7655349`.
+
+**Live evidence:** The founder's screenshot showed an assistant-opened Mail.ru profile window still at the legacy tiny popup dimensions. The extension only normalized bounds when a remembered profile changed from hidden to visible; if storage already said `visible: true`, `open_view` returned the existing window unchanged. Repeated desktop snapshots then returned `Host permission was denied for https://mail.ru/*`: the bridge/profile were healthy, but a WebSocket-dispatched MV3 worker cannot itself call `chrome.permissions.request` because no user gesture exists. On mobile, cluster logs showed dispatch at 22:45:43Z and healthy result polling for almost two minutes; connected-phone logcat then emitted `PersaiBrowserBridge.executeCommand → Timed out waiting for page execution` at 22:47:44Z. No pod/socket failure preceded it. The native coordinator had set the retained WebView `INVISIBLE` and its host `GONE` before evaluating the page runner, allowing Mail.ru's Promise/timer work to suspend; the later `bridge_connection_closed` report was secondary.
+
+**What changed:** Every visible desktop `open_view` now reapplies the canonical 70%/16:9 centered bounds, including already-visible remembered windows. The first DOM/screenshot command now opens a focused, non-technical PersAI browser-access window, holds the original bridge command for up to 90 seconds, and resumes it after the user's click supplies the required MV3 gesture. Chrome's `captureVisibleTab` rejects an origin-only grant and requires `activeTab` on the exact target tab or `<all_urls>`; `activeTab` would force a manual extension click before every autonomous screenshot, so the manifest declares `<all_urls>` as **optional only** and requests it once from that explicit window. It is not an install-time permission, and `open_view`/login do not request it. Concurrent commands share the pending grant. Android background commands now keep the target WebView renderer technically visible but transparent only while execution is in flight, with a custom overlay host that explicitly passes every touch to the underlying PersAI WebView; completion restores the ordinary hidden state. Android version is `1.0.5` / `versionCode 7`.
+
+**Live proof:** Installed the new debug APK over the connected phone, then invoked a real hidden Capacitor `snapshot` of `https://mail.ru/`. It completed in about 11 seconds and returned Mail.ru's title and page text instead of reaching the prior 120-second native timeout. A second instrumented run held the hidden Mail.ru command open for 10 seconds and injected a real Android tap into the PersAI composer; `document.activeElement` became the underlying `TEXTAREA` while the command still completed, proving the transparent host no longer freezes the app UI.
+
+**Release + verification:** Android 1.0.5 (`versionCode 7`) release rebuilt after the touch-through repair, exported into PersAI's mobile download surface, installed from that exact exported APK, and package version/startup verified. Mobile bridge tests (6), Android plugin unit/compile, debug/release assembly, extension build/lint/typecheck/tests (16), full recursive repo lint, format check, API typecheck, and web typecheck pass. Recursive workspace tests reached web with all other package suites green; the parallel run had three unrelated web failures (two 5s admin timeouts plus the existing `use-chat` resume timing race). Both admin files and `use-chat` passed immediately in isolated reruns (47 + 86 tests); the complete web rerun passed 868/869 and reproduced only that same order/load-sensitive `use-chat` assertion. No changed browser/mobile file is implicated.
+
+**Next recommended step:** deploy PersAI, reload the unpacked extension, then accept one desktop Mail.ru text + PNG command through the new one-time grant window and one deployed mobile Mail.ru snapshot while continuing to interact with the app.
+
+---
+
 ## 2026-07-10 — ADR-140 bridge durability + Android 1.0.4 release
 
 Status: **implemented, fully verified, and landed in this main-branch slice; `persai-mobile` pushed as `7655349`; Android release 1.0.4 exported into PersAI and installed; deploy + live bridge acceptance remain.**
@@ -438,7 +456,7 @@ Status: **implemented locally, not committed, not pushed.**
 
 **Verification:** `corepack pnpm --filter @persai/browser-extension run test` PASS; `typecheck` PASS; `lint` PASS; `build` PASS. Parent reran the combined package gate after audit fixes.
 
-**Audit:** Parent required a fix-back because the first build emitted stray `packages/runtime-contract/src/index.js` and the manifest had empty `optional_host_permissions`. S2 now uses package-local contract subset for extension builds, leaves no stray runtime-contract JS after build, and declares optional host patterns `https://*/*` / `http://*/*` without `<all_urls>` or static host permissions. Grep found no Browserless/liveUrl/BQL/proxy/stealth/capability-policy code; only negative checklist/test assertions mention `chrome.debugger` / `<all_urls>`.
+**Audit (historical S2 state; permission detail superseded by the 2026-07-10 live Mail.ru repair above):** Parent required a fix-back because the first build emitted stray `packages/runtime-contract/src/index.js` and the manifest had empty `optional_host_permissions`. S2 used package-local contract subsets for extension builds and left no stray runtime-contract JS after build. The original per-origin optional-host declaration was later replaced by optional-only `<all_urls>` because live Chrome `captureVisibleTab` rejects per-origin grants; it remains explicitly user-granted rather than static/install-time. Grep found no Browserless/liveUrl/BQL/proxy/stealth/capability-policy code.
 
 **Residuals:** Extension PDF returns honest `unsupported_pdf`; screenshot is best-effort with structured unsupported failure. Real web modal wiring remains S7. Store submission is not performed.
 

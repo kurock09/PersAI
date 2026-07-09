@@ -32,7 +32,6 @@ import type { WebBridgeEnvelope, WebBridgeRequestMessage } from "./messages.js";
 import {
   buildOriginPermissionPattern,
   isPersaiWebOrigin,
-  listCommandOriginPatterns,
   normalizeApiBaseUrl
 } from "./permissions.js";
 import {
@@ -56,6 +55,9 @@ const KEEPALIVE_PORT_NAMES = new Set(["persai-page-keepalive", "persai-popup-kee
  * older than 14 minutes as unusable for dialing (see connectSocketIfNeeded).
  */
 const REGISTRATION_TOKEN_SAFE_AGE_MS = 14 * 60 * 1000;
+const PERMISSION_GRANT_TIMEOUT_MS = 90_000;
+const PERMISSION_GRANT_POLL_MS = 250;
+const SCREENSHOT_PERMISSION_PATTERN = "<all_urls>";
 
 let socket: WebSocket | null = null;
 /** Bridge device id the current socket authenticated with. */
@@ -66,6 +68,7 @@ let desiredConnection = false;
 let keepalivePortCount = 0;
 let activeCommandCount = 0;
 let commandQueue = Promise.resolve();
+const permissionGrantInFlight = new Map<string, Promise<boolean>>();
 
 function hasLiveSocket(): boolean {
   return socket !== null && socket.readyState === WebSocket.OPEN;
@@ -433,28 +436,53 @@ async function ensureOriginPermission(pattern: string): Promise<boolean> {
   if (contains) {
     return true;
   }
-  try {
-    return await chrome.permissions.request({ origins: [pattern] });
-  } catch {
-    // `permissions.request` throws "This function must be called during a
-    // user gesture" when invoked from a WebSocket-dispatched command. Report
-    // an honest permission denial instead of leaking the raw error as
-    // browser_failed.
-    return false;
+  const existing = permissionGrantInFlight.get(pattern);
+  if (existing !== undefined) {
+    return existing;
   }
+  const pending = waitForPermissionGrant(pattern).finally(() => {
+    permissionGrantInFlight.delete(pattern);
+  });
+  permissionGrantInFlight.set(pattern, pending);
+  return pending;
 }
 
-async function ensureCommandPermissions(
-  command: LocalBrowserCommand,
-  currentUrl?: string | null
-): Promise<{ granted: true } | { granted: false; pattern: string }> {
-  for (const pattern of listCommandOriginPatterns(command, currentUrl)) {
-    const granted = await ensureOriginPermission(pattern);
-    if (!granted) {
-      return { granted: false, pattern };
+async function waitForPermissionGrant(pattern: string): Promise<boolean> {
+  await openPermissionGrantWindow(pattern);
+  const deadline = Date.now() + PERMISSION_GRANT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await chrome.permissions.contains({ origins: [pattern] })) {
+      return true;
     }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, PERMISSION_GRANT_POLL_MS);
+    });
   }
-  return { granted: true };
+  return false;
+}
+
+async function openPermissionGrantWindow(pattern: string): Promise<void> {
+  const base = await computeProfileWindowBounds();
+  const width = 460;
+  const height = 340;
+  const left =
+    typeof base.left === "number" && typeof base.width === "number"
+      ? base.left + Math.max(0, Math.round((base.width - width) / 2))
+      : undefined;
+  const top =
+    typeof base.top === "number" && typeof base.height === "number"
+      ? base.top + Math.max(0, Math.round((base.height - height) / 2))
+      : undefined;
+  await chrome.windows.create({
+    url: `${chrome.runtime.getURL("popup.html")}?grant=${encodeURIComponent(pattern)}`,
+    type: "popup",
+    focused: true,
+    state: "normal",
+    width,
+    height,
+    ...(left === undefined ? {} : { left }),
+    ...(top === undefined ? {} : { top })
+  });
 }
 
 async function waitForTabLoad(tabId: number, timeoutMs: number): Promise<void> {
@@ -573,7 +601,10 @@ async function resolveOrCreateProfileWindow(
 ): Promise<ProfileSessionRecord> {
   const existing = await reconcileProfileRecord(profileKey);
   if (existing && typeof existing.windowId === "number" && typeof existing.tabId === "number") {
-    if (visible && !existing.visible) {
+    if (visible) {
+      // Normalize bounds on every visible open. An earlier command may have
+      // left the window marked visible while the user resized it (or while an
+      // old extension build created it at the legacy tiny popup size).
       return setWindowVisibility(existing, true);
     }
     return existing;
@@ -675,7 +706,7 @@ async function captureArtifact(
  * login or manual step. Creating/showing a window and navigating a tab you
  * own does not require a Chrome host permission grant — only DOM access
  * (`chrome.scripting.executeScript`, `chrome.tabs.captureVisibleTab`) does.
- * So this path deliberately skips `ensureCommandPermissions` and never
+ * So this path deliberately skips the browser-access permission gate and never
  * blocks on `waitForTabLoad`; it kicks the navigation and returns
  * immediately so the API `open-live` call resolves well under its timeout
  * instead of racing a fast permission-denied 409 or a slow page-load 409.
@@ -776,12 +807,9 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
   }
 
   const currentTab = typeof record.tabId === "number" ? await chrome.tabs.get(record.tabId) : null;
-  const permissionCheck = await ensureCommandPermissions(
-    command,
-    currentTab?.url ?? record.lastKnownUrl ?? null
-  );
-  if (permissionCheck.granted === false) {
-    return buildPermissionDeniedResult(command.commandId, permissionCheck.pattern);
+  const browserAccessGranted = await ensureOriginPermission(SCREENSHOT_PERMISSION_PATTERN);
+  if (!browserAccessGranted) {
+    return buildPermissionDeniedResult(command.commandId, SCREENSHOT_PERMISSION_PATTERN);
   }
 
   const timeoutMs = normalizeCommandTimeout(command);

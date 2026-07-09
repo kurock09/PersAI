@@ -101,7 +101,7 @@
       <h1>PersAI Browser Bridge</h1>
     </header>
     <main>
-      <section>
+      <section id="bridge-section">
         <h2>Bridge status</h2>
         <p class="muted">
           Keep a PersAI tab open while the bridge is connected. Closing the browser stops background
@@ -112,8 +112,8 @@
           <button id="refresh" type="button">Refresh status</button>
         </div>
       </section>
-      <section>
-        <h2>Site access</h2>
+      <section id="permission-section">
+        <h2 id="permission-title">Site access</h2>
         <p class="muted" id="permission-status">Open a profile window to choose a site.</p>
         <button id="grant-permission" type="button" disabled>Grant access</button>
       </section>

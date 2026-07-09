@@ -42,9 +42,10 @@ Live acceptance (post-deploy):
 12. Delete profile from settings removes the row and prevents reuse.
 13. Keep a connected bridge idle for at least 15 minutes, then run a profile-backed snapshot: the same stable `bridgeDeviceId` remains targetable (or renews in place) and no `bridge_unavailable` occurs.
 14. With two Chrome installations connected, log a profile in on one installation, renew/reconnect that installation, and verify the profile remains pinned to its original stable device id rather than becoming ambiguous.
-15. For a new desktop origin, open the extension popup, click `Grant access`, and verify a subsequent profile-backed `snapshot`/`act` succeeds without `Host permission was denied`.
+15. On the first desktop `snapshot`/`act`, the extension opens a focused, non-technical PersAI browser-access window (not the bridge-status popup), explains Chrome's broad-access requirement, waits for the explicit user click, and resumes the original command. Later text and PNG/JPEG commands succeed without another permission prompt or the `activeTab` / `<all_urls>` capture error.
 16. Click an active configured-session card in desktop settings: only one consistently sized extension window opens; no web modal is shown. Force an open error and verify the modal then appears, while closing it does not reopen the extension window.
 17. Click an active configured-session card in mobile settings: the native browser overlay opens directly without the web modal; one system Back press hides the overlay and returns to the app.
+18. On Android, return from an active Mail.ru profile to PersAI, then invoke hidden profile-backed `snapshot` and `act`: page-runner Promise/timer work completes while the overlay remains absent and does not end in `Timed out waiting for page execution` / secondary `bridge_connection_closed`. While the command is pending, the underlying PersAI UI remains tappable/typeable.
 
 ## ADR-133 Slice 1 path-contract focused checks
 
