@@ -88,7 +88,8 @@
         opacity: 0.55;
       }
 
-      #refresh {
+      #refresh,
+      #grant-permission {
         background: #111827;
         color: #ffffff;
       }
@@ -110,6 +111,11 @@
         <div style="margin-top: 10px">
           <button id="refresh" type="button">Refresh status</button>
         </div>
+      </section>
+      <section>
+        <h2>Site access</h2>
+        <p class="muted" id="permission-status">Open a profile window to choose a site.</p>
+        <button id="grant-permission" type="button" disabled>Grant access</button>
       </section>
     </main>
     <script type="module" src="./popup.js"></script>

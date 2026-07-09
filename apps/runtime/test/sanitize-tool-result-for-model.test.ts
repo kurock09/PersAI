@@ -357,5 +357,6 @@ export async function runSanitizeToolResultForModelTest(): Promise<void> {
     assert.equal(parsed.webBrowserLogin.continueUrl, PERSAI_WEB_BROWSER_LOGIN_CONTINUE_URL);
     assert.equal(parsed.webBrowserLogin.displayName, "Яндекс Лавка");
     assert.match(parsed.webBrowserLogin.delivery, /local browser bridge/i);
+    assert.doesNotMatch(parsed.webBrowserLogin.delivery, /telegram/i);
   }
 }

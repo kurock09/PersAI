@@ -112,6 +112,8 @@ import {
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
 import { BrowserLoginModal } from "./browser-login-modal";
+import { hideNativeBrowserBridgeView, isNativeBrowserBridgeShell } from "../browser-bridge-client";
+import { pushBackHandler } from "./back-handler-stack";
 import { VoicePreviewButton } from "../../_components/voice-preview-button";
 import { AssistantSupportSection } from "./assistant-support-section";
 import { userFieldClassName, userPillButtonClassName } from "./form-ui";
@@ -1376,6 +1378,7 @@ export function AssistantSettings({
   const [settingsBrowserLogin, setSettingsBrowserLogin] = useState<PendingBrowserLoginState | null>(
     null
   );
+  const [nativeAssistProfileKey, setNativeAssistProfileKey] = useState<string | null>(null);
   const assistant = data.assistant;
   const latestWebChatId =
     [...data.chats]
@@ -2080,18 +2083,56 @@ export function AssistantSettings({
       if (!token) return;
       setBrowserProfilesActionId(profile.id);
       try {
-        const pending =
-          profile.status === "active"
-            ? await openAssistantBrowserProfileView(token, assistant.id, profile.id)
-            : await reconnectAssistantBrowserProfile(token, assistant.id, profile.id);
-        setSettingsBrowserLogin(pending);
+        if (profile.status === "active") {
+          const nativeSurface = isNativeBrowserBridgeShell();
+          if (nativeSurface) {
+            setNativeAssistProfileKey(profile.profileKey);
+          }
+          try {
+            const pending = await openAssistantBrowserProfileView(token, assistant.id, profile.id);
+            // Configured sessions open their browser surface directly. The
+            // one-time web modal is reserved for login/reconnect or an honest
+            // open failure; keeping it closed also prevents two visible
+            // desktop windows.
+            setSettingsBrowserLogin(null);
+            if (pending.bridgeClientKind === "capacitor") {
+              setNativeAssistProfileKey(profile.profileKey);
+            } else {
+              setNativeAssistProfileKey(null);
+            }
+          } catch {
+            setNativeAssistProfileKey(null);
+            setSettingsBrowserLogin({
+              profileId: profile.id,
+              profileKey: profile.profileKey,
+              displayName: profile.displayName,
+              loginUrl: profile.loginUrl,
+              workspaceId: assistant.workspaceId,
+              bridgeClientKind: nativeSurface ? "capacitor" : "extension",
+              completionMode: "assist"
+            });
+          }
+        } else {
+          const pending = await reconnectAssistantBrowserProfile(token, assistant.id, profile.id);
+          setSettingsBrowserLogin(pending);
+        }
         await refreshBrowserProfiles();
       } finally {
         setBrowserProfilesActionId(null);
       }
     },
-    [assistant?.id, getToken, refreshBrowserProfiles]
+    [assistant?.id, assistant?.workspaceId, getToken, refreshBrowserProfiles]
   );
+
+  useEffect(() => {
+    if (nativeAssistProfileKey === null) {
+      return;
+    }
+    return pushBackHandler(() => {
+      void hideNativeBrowserBridgeView(nativeAssistProfileKey).catch(() => undefined);
+      setNativeAssistProfileKey(null);
+    });
+  }, [nativeAssistProfileKey]);
 
   useEffect(() => {
     if (openSection === "channels") {

@@ -539,7 +539,7 @@ describe("AssistantBrowserProfileService", () => {
     assert.equal(relay.dispatches[0]?.command.action, "check_view");
   });
 
-  test("completeLogin verifies capacitor profiles with a DOM snapshot", async () => {
+  test("completeLogin verifies capacitor profiles with a lightweight view check", async () => {
     const repository = new InMemoryAssistantBrowserProfileRepository();
     repository.seed({
       id: "pending-cap",
@@ -567,7 +567,7 @@ describe("AssistantBrowserProfileService", () => {
     });
 
     assert.equal(result.profile.status, "active");
-    assert.equal(relay.dispatches[0]?.command.action, "snapshot");
+    assert.equal(relay.dispatches[0]?.command.action, "check_view");
   });
 
   test("completeLogin targets the client-provided bridge device", async () => {

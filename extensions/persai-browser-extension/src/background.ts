@@ -231,6 +231,13 @@ async function registerDeviceViaApi(
   message: Extract<WebBridgeRequestMessage, { type: "persai.bridge.register_device_request" }>
 ): Promise<unknown> {
   const apiBaseUrl = normalizeApiBaseUrl(message.apiBaseUrl);
+  const currentState = await readState();
+  const previousRegistration = currentState.registration;
+  const reusableBridgeDeviceId =
+    previousRegistration?.assistantId === message.payload.assistantId &&
+    previousRegistration.workspaceId === message.payload.workspaceId
+      ? previousRegistration.bridgeDeviceId
+      : null;
   const response = await fetch(`${apiBaseUrl}/api/v1/assistant/browser-bridge/devices`, {
     method: "POST",
     headers: {
@@ -239,6 +246,7 @@ async function registerDeviceViaApi(
     },
     body: JSON.stringify({
       ...message.payload,
+      ...(reusableBridgeDeviceId === null ? {} : { bridgeDeviceId: reusableBridgeDeviceId }),
       deviceKind: EXTENSION_DEVICE_KIND
     })
   });
@@ -483,9 +491,11 @@ async function setWindowVisibility(
   visible: boolean
 ): Promise<ProfileSessionRecord> {
   if (typeof record.windowId === "number") {
+    const bounds = visible ? await computeProfileWindowBounds() : {};
     await chrome.windows.update(record.windowId, {
       state: visible ? "normal" : "minimized",
-      focused: visible
+      focused: visible,
+      ...bounds
     });
   }
   return persistProfilePatch(record.profileKey, { visible, updatedAt: Date.now() });
@@ -502,9 +512,18 @@ async function computeProfileWindowBounds(): Promise<{
   height?: number;
 }> {
   try {
-    const focused = await chrome.windows.getLastFocused();
-    const baseWidth = focused.width ?? 1600;
-    const baseHeight = focused.height ?? 900;
+    // Never derive new bounds from an already-open PersAI popup: focusing a
+    // smaller popup made later profile windows shrink. Anchor every open to
+    // the largest normal Chrome window in this installation instead.
+    const normalWindows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+    const base =
+      normalWindows.reduce<(typeof normalWindows)[number] | null>((largest, candidate) => {
+        const candidateArea = (candidate.width ?? 0) * (candidate.height ?? 0);
+        const largestArea = (largest?.width ?? 0) * (largest?.height ?? 0);
+        return candidateArea > largestArea ? candidate : largest;
+      }, null) ?? (await chrome.windows.getLastFocused());
+    const baseWidth = base.width ?? 1600;
+    const baseHeight = base.height ?? 900;
     let width = Math.max(960, Math.round(baseWidth * 0.7));
     let height = Math.round((width * 9) / 16);
     const maxHeight = Math.round(baseHeight * 0.9);
@@ -512,8 +531,8 @@ async function computeProfileWindowBounds(): Promise<{
       height = maxHeight;
       width = Math.round((height * 16) / 9);
     }
-    const left = (focused.left ?? 0) + Math.max(0, Math.round((baseWidth - width) / 2));
-    const top = (focused.top ?? 0) + Math.max(0, Math.round((baseHeight - height) / 2));
+    const left = (base.left ?? 0) + Math.max(0, Math.round((baseWidth - width) / 2));
+    const top = (base.top ?? 0) + Math.max(0, Math.round((baseHeight - height) / 2));
     return { left, top, width, height };
   } catch {
     return { width: 1280, height: 720 };

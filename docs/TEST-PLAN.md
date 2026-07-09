@@ -19,7 +19,7 @@ corepack pnpm --filter @persai/runtime exec tsx test/runtime-browser-tool.servic
 corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts
 corepack pnpm --filter @persai/runtime exec tsx test/sanitize-tool-result-for-model.test.ts
 corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-browser.service.test.ts
-corepack pnpm --filter @persai/web exec vitest run app/app/_components/browser-login-modal.test.tsx app/app/_components/assistant-settings.test.tsx app/app/_components/chat-area.test.tsx app/app/_components/use-chat.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/browser-login-modal.test.tsx app/app/_components/browser-bridge-connection-maintainer.test.tsx app/app/_components/assistant-settings.test.tsx app/app/_components/chat-area.test.tsx app/app/_components/use-chat.test.tsx --config vitest.config.ts
 corepack pnpm --filter @persai/api run typecheck
 corepack pnpm --filter @persai/runtime run typecheck
 corepack pnpm --filter @persai/provider-gateway run typecheck
@@ -31,7 +31,7 @@ Live acceptance (post-deploy):
 1. Public `browser.snapshot` without `profile` still uses headless Browserless and returns text plus `page.elements`.
 2. Public `browser.snapshot` with `format:"png"|"pdf"` and no `profile` still returns attachable artifacts through the headless path.
 3. `browser.login` with `displayName` + login `url` on desktop web auto-opens the local-bridge modal and completes to `active`.
-4. `browser.login` on Capacitor opens the native bridge view and completes to `active`.
+4. `browser.login` on Capacitor opens the native bridge view inside the system-bar/display-cutout safe area; after manual login, Back → Done completes through lightweight `check_view` (cookie flush + liveness, no page runner) and reaches `active` without a long spinner or `Failed to fetch`.
 5. `browser.snapshot` / `browser.act` with `profile` returns authenticated content through the local bridge without re-login.
 6. Profile-backed `act` using a selector from `page.elements` succeeds or returns an honest per-operation warning, never a transport-shaped live-link fallback.
 7. `needs_user_action` opens a visible bridge view rather than pretending to finish inside the hidden flow.
@@ -40,6 +40,11 @@ Live acceptance (post-deploy):
 10. Telegram public no-profile browser reads still work through headless Browserless.
 11. Telegram logged-in/profile-backed browser work returns structured `open_in_app` / `bridge_unavailable` semantics with PersAI web/app copy, not login links or live URLs.
 12. Delete profile from settings removes the row and prevents reuse.
+13. Keep a connected bridge idle for at least 15 minutes, then run a profile-backed snapshot: the same stable `bridgeDeviceId` remains targetable (or renews in place) and no `bridge_unavailable` occurs.
+14. With two Chrome installations connected, log a profile in on one installation, renew/reconnect that installation, and verify the profile remains pinned to its original stable device id rather than becoming ambiguous.
+15. For a new desktop origin, open the extension popup, click `Grant access`, and verify a subsequent profile-backed `snapshot`/`act` succeeds without `Host permission was denied`.
+16. Click an active configured-session card in desktop settings: only one consistently sized extension window opens; no web modal is shown. Force an open error and verify the modal then appears, while closing it does not reopen the extension window.
+17. Click an active configured-session card in mobile settings: the native browser overlay opens directly without the web modal; one system Back press hides the overlay and returns to the app.
 
 ## ADR-133 Slice 1 path-contract focused checks
 

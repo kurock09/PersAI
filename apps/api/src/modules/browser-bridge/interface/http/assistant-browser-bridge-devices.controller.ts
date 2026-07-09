@@ -23,6 +23,10 @@ function isDeviceKind(value: unknown): value is LocalBrowserBridgeDeviceKind {
   );
 }
 
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value);
+}
+
 @Controller("api/v1/assistant/browser-bridge")
 export class AssistantBrowserBridgeDevicesController {
   constructor(
@@ -61,6 +65,13 @@ export class AssistantBrowserBridgeDevicesController {
       workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
       deviceKind
     };
+    const bridgeDeviceId = this.optionalString(row.bridgeDeviceId, "bridgeDeviceId");
+    if (bridgeDeviceId !== undefined && bridgeDeviceId !== null) {
+      if (!isUuid(bridgeDeviceId)) {
+        throw new BadRequestException("bridgeDeviceId must be a UUID when provided.");
+      }
+      request.bridgeDeviceId = bridgeDeviceId;
+    }
     const deviceLabel = this.optionalString(row.deviceLabel, "deviceLabel");
     if (deviceLabel !== undefined) {
       request.deviceLabel = deviceLabel;

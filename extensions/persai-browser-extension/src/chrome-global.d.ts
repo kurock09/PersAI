@@ -58,12 +58,17 @@ interface ChromeWindowsApi {
     height?: number;
   }): Promise<ChromeWindow>;
   get(windowId: number): Promise<ChromeWindow>;
+  getAll(getInfo?: { windowTypes?: string[] }): Promise<ChromeWindow[]>;
   getLastFocused(): Promise<ChromeWindow>;
   update(
     windowId: number,
     updateInfo: {
       focused?: boolean;
       state?: string;
+      left?: number;
+      top?: number;
+      width?: number;
+      height?: number;
     }
   ): Promise<ChromeWindow>;
 }

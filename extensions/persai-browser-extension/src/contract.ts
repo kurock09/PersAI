@@ -148,6 +148,7 @@ export interface LocalBrowserBridgeDeviceRegisterRequest {
   assistantId: string;
   workspaceId: string;
   deviceKind: LocalBrowserBridgeDeviceKind;
+  bridgeDeviceId?: string | null;
   deviceLabel?: string | null;
   clientVersion?: string | null;
 }

@@ -284,6 +284,7 @@ describe("BrowserLoginModal", () => {
     });
     expect(onDismiss).toHaveBeenCalledTimes(1);
     expect(onCancel).not.toHaveBeenCalled();
+    expect(openAssistantBrowserProfileView).not.toHaveBeenCalled();
   });
 
   it("cancels from footer without dismiss", () => {

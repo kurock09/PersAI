@@ -85,6 +85,12 @@ const browserProfileMocks = vi.hoisted(() => ({
   openAssistantBrowserProfileView: vi.fn()
 }));
 
+const localBridgeMocks = vi.hoisted(() => ({
+  isNativeBrowserBridgeShell: vi.fn(),
+  hideNativeBrowserBridgeView: vi.fn(),
+  pushBackHandler: vi.fn()
+}));
+
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
     getToken: clerkMocks.getToken,
@@ -147,7 +153,18 @@ vi.mock("../assistant-api-client", async () => {
 });
 
 vi.mock("./browser-login-modal", () => ({
-  BrowserLoginModal: () => null
+  BrowserLoginModal: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="browser-login-modal" /> : null
+}));
+
+vi.mock("../browser-bridge-client", () => ({
+  isNativeBrowserBridgeShell: () => localBridgeMocks.isNativeBrowserBridgeShell(),
+  hideNativeBrowserBridgeView: (...args: unknown[]) =>
+    localBridgeMocks.hideNativeBrowserBridgeView(...args)
+}));
+
+vi.mock("./back-handler-stack", () => ({
+  pushBackHandler: (...args: unknown[]) => localBridgeMocks.pushBackHandler(...args)
 }));
 
 vi.mock("./assistant-avatar", () => ({
@@ -303,6 +320,9 @@ function renderSettings(
 
 describe("integrations section", () => {
   beforeEach(() => {
+    localBridgeMocks.isNativeBrowserBridgeShell.mockReturnValue(false);
+    localBridgeMocks.hideNativeBrowserBridgeView.mockResolvedValue(undefined);
+    localBridgeMocks.pushBackHandler.mockReturnValue(vi.fn());
     browserProfileMocks.listAssistantBrowserProfiles.mockResolvedValue([
       {
         id: "profile-1",
@@ -352,6 +372,44 @@ describe("integrations section", () => {
         "profile-1"
       );
     });
+    expect(screen.queryByTestId("browser-login-modal")).not.toBeInTheDocument();
+  });
+
+  it("shows the assist modal only when direct profile opening fails", async () => {
+    browserProfileMocks.openAssistantBrowserProfileView.mockRejectedValueOnce(
+      new Error("bridge_unavailable")
+    );
+    renderSettings(makeAppData(), "channels");
+
+    fireEvent.click(await screen.findByRole("button", { name: /Bitrix24/i }));
+
+    expect(await screen.findByTestId("browser-login-modal")).toBeInTheDocument();
+  });
+
+  it("returns from a directly opened native profile with the app Back handler", async () => {
+    localBridgeMocks.isNativeBrowserBridgeShell.mockReturnValue(true);
+    browserProfileMocks.openAssistantBrowserProfileView.mockResolvedValueOnce({
+      profileId: "profile-1",
+      profileKey: "bitrix",
+      displayName: "Bitrix24",
+      loginUrl: "https://bitrix.example/login",
+      workspaceId: "ws-1",
+      bridgeClientKind: "capacitor",
+      completionMode: "assist"
+    });
+    renderSettings(makeAppData(), "channels");
+
+    fireEvent.click(await screen.findByRole("button", { name: /Bitrix24/i }));
+
+    await waitFor(() => {
+      expect(localBridgeMocks.pushBackHandler).toHaveBeenCalledTimes(1);
+    });
+    const backHandler = localBridgeMocks.pushBackHandler.mock.calls[0]?.[0] as
+      | (() => void)
+      | undefined;
+    backHandler?.();
+    expect(localBridgeMocks.hideNativeBrowserBridgeView).toHaveBeenCalledWith("bitrix");
+    expect(screen.queryByTestId("browser-login-modal")).not.toBeInTheDocument();
   });
 
   it("renders integrations cards and moves reminder delivery into tasks", async () => {

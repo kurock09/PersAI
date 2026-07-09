@@ -120,6 +120,21 @@ describe("BrowserBridgeRelayService", () => {
     });
   });
 
+  test("renews a registration without changing its stable bridge device id", () => {
+    const service = new BrowserBridgeRelayService();
+    const first = service.registerDevice(
+      buildRegisterRequest(),
+      "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws"
+    );
+    const renewed = service.registerDevice(
+      buildRegisterRequest({ bridgeDeviceId: first.bridgeDeviceId }),
+      "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws"
+    );
+
+    assert.equal(renewed.bridgeDeviceId, first.bridgeDeviceId);
+    assert.match(renewed.deviceToken, /^v1\./);
+  });
+
   test("rejects websocket connections with invalid device token", () => {
     const service = new BrowserBridgeRelayService();
     const registration = service.registerDevice(

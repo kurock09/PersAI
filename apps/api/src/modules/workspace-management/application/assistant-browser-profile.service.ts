@@ -580,27 +580,18 @@ export class AssistantBrowserProfileService {
     row: AssistantBrowserProfileRow,
     clientBridgeDeviceId: string | null
   ): Promise<string> {
-    const bridgeClientKind = this.resolvePendingBridgeClientKind(row.bridgeClientKind);
-    // The Chrome extension cannot run a DOM snapshot without a host-permission
-    // grant, and MV3 forbids requesting one from a WebSocket-dispatched command
-    // (no user gesture) — a `snapshot` here would ALWAYS fail with
-    // permission_denied. `check_view` is a permission-free liveness/URL check;
-    // the human pressing Done is the login truth source on desktop.
-    const command =
-      bridgeClientKind === "extension"
-        ? {
-            commandId: randomUUID(),
-            profileKey: row.profileKey,
-            action: "check_view" as const
-          }
-        : {
-            commandId: randomUUID(),
-            profileKey: row.profileKey,
-            action: "snapshot" as const,
-            url: row.loginUrl,
-            format: "text" as const,
-            optimizeForSpeed: true
-          };
+    // Login completion is explicitly human-confirmed by pressing Done. Both
+    // bridge clients therefore need only a permission-free liveness/URL check,
+    // not a DOM snapshot. On desktop MV3 cannot request host permission from a
+    // WebSocket-dispatched command; on mobile a snapshot invokes the full page
+    // runner and can hang on CSP/redirect-heavy login pages until the HTTP
+    // request itself fails. Native `check_view` also flushes profile cookies
+    // before replying.
+    const command = {
+      commandId: randomUUID(),
+      profileKey: row.profileKey,
+      action: "check_view" as const
+    };
     const outcome = await this.dispatchBridgeCommand({
       assistantId: row.assistantId,
       workspaceId: row.workspaceId,

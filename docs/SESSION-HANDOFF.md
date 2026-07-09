@@ -1,5 +1,43 @@
 # SESSION-HANDOFF
 
+## 2026-07-10 — ADR-140 bridge durability + Android 1.0.4 release
+
+Status: **implemented, fully verified, and landed in this main-branch slice; `persai-mobile` pushed as `7655349`; Android release 1.0.4 exported into PersAI and installed; deploy + live bridge acceptance remain.**
+
+Baseline SHAs: PersAI `657074c4`; `persai-mobile` `cc48d55`.
+
+**Live diagnosis:** The mobile bridge completed `open-live`/`complete-login` at 21:32Z, but the same API scope returned immediate 409 `bridge_unavailable` at 21:39Z while `adb pidof com.persai.app` still showed the app process alive. The bridge transport had no WebSocket ping, the Capacitor client did not reconnect a closed socket, and registration renewal always minted a new `bridgeDeviceId`. That combination explains the founder's recurring "device fell off after some time" report and why trying two Chrome installations made profile targeting worse rather than better.
+
+**What changed:** API WebSockets now emit 20s ping frames. Capacitor retries transient socket closes with bounded backoff while its registration token is valid. Authenticated device registration accepts the installation's existing UUID, so extension and mobile renew credentials without changing the profile-affinity id; mobile persists that id in app local storage and the extension reuses its stored registration id. A global app-shell maintainer keeps the active assistant's bridge healthy outside the login modal on initial app load, 30s health ticks, foreground, and network recovery. Clicking an already configured active session now opens its browser directly without also rendering the web assist modal: desktop gets only the extension window; mobile gets only the native overlay and a top-priority app Back handler that hides it. The modal remains for login/reconnect and as an honest direct-open error fallback; dismissing that fallback does not issue a new open. Existing desktop windows are resized/recentered on each show from the largest normal Chrome window so popup focus cannot change their dimensions. Desktop DOM commands retain honest per-origin optional permissions, but the extension popup now supplies the missing legal MV3 path: a visible `Grant access` click calls `chrome.permissions.request` under a real extension user gesture. Model-visible browser delivery copy no longer names Telegram on web/app and has a regression assertion.
+
+**Routing truth:** Profile-backed requests must not silently fall back to Browserless. The profile cookie jar is stored only in the selected extension/mobile installation; Browserless cannot reuse it and would execute as a different logged-out browser. `bridge_unavailable` should therefore be healed by durable local connection ownership, not relabeled as a successful cloud fallback.
+
+**Mobile release:** bumped Android to `1.0.4` / `versionCode 6`, built `assembleRelease`, exported `apps/web/public/mobile/persai-android-release.apk` plus both release manifests, installed that exact exported APK on the connected phone, and verified package version + clean startup. The release includes the safe-area and native `check_view` fixes from the preceding slice.
+
+**Verification:** mandatory AGENTS gate PASS (`pnpm -r lint`, `format:check`, API typecheck, web typecheck); full recursive workspace `pnpm test` PASS; API bridge/profile suites 26 PASS; web settings/modal/connection-maintainer suites 92 PASS plus app-shell mount suite PASS; runtime sanitizer PASS; extension build + 16 tests PASS; mobile bridge tests 6 PASS; Android plugin unit/compile PASS; Android `assembleRelease` PASS; installed release startup smoke PASS. iOS parity remains source-only on Windows.
+
+**Next recommended step:** deploy PersAI, reload the unpacked desktop extension, then live-test a profile command after more than the previous idle-failure window with two Chrome installations and the mobile app present.
+
+---
+
+## 2026-07-10 — ADR-140 mobile safe area + `check_view` login completion
+
+Status: **implemented and verified; native changes pushed in `persai-mobile` `7655349`; PersAI API/APK delivery changes included in the current verified push.**
+
+Baseline SHAs: PersAI `657074c4`; `persai-mobile` `cc48d55`.
+
+**Scope:** Two founder-reported mobile acceptance defects only. (1) The visible native browser overlay occupied all of `android.R.id.content`, including the edge-to-edge status/navigation bar regions, while Capacitor's primary WebView was already inset. Android now applies `systemBars | displayCutout` insets as overlay padding; iOS parity constrains the overlay host to the root safe-area layout guide. (2) Pressing Done could spin until `Failed to fetch`. Live `adb logcat` captured `PersaiBrowserBridge.executeCommand → Timed out waiting for page execution`; cluster logs recorded repeated `complete-login` 409s after 8–83 seconds. Login completion is human-confirmed and does not need DOM extraction, so Android/iOS now handle `check_view` as a lightweight session-liveness + cookie-flush command, and API completion emits `check_view` for both extension and Capacitor clients instead of invoking the native page runner.
+
+**Live proof:** Rebuilt and installed the debug APK over the connected phone with data preserved. The new native handler returned `{ ok: true, finalUrl: "https://mail.ru/" }` immediately for a real `check_view`; the corresponding cluster request `POST …/complete-login` returned 200 in 548 ms. A subsequent `open-live` also returned 200 and the native overlay opened without a plugin error.
+
+**Verification:** `npm run browser-bridge:test` (6 PASS); Android `:persai-browser-bridge:testDebugUnitTest` + `compileDebugJavaWithJavac` PASS; `:app:assembleDebug` PASS; APK install/relaunch smoke PASS; API `assistant-browser-profile.service.test.ts` (13 PASS); repo-wide lint, format check, API typecheck, and web typecheck PASS. iOS source parity was implemented but cannot be compiled on Windows. Android `lintDebug` was additionally run and remains red on two pre-existing min-SDK findings in `ProfileCookieJarStore` (`URLEncoder` / `URLDecoder` overloads require API 33 while min SDK is 24); neither finding is in this slice's changed lines.
+
+**Adjacent founder-reported copy fix:** `apps/runtime/src/modules/turns/sanitize-tool-result-for-model.ts` now removes the stale Telegram-only delivery instruction from web/app browser results, with a regression assertion.
+
+**Next recommended step:** Founder visually confirms the installed release respects the top/bottom bars; after PersAI deploy, repeat login completion and bridge durability acceptance.
+
+---
+
 ## 2026-07-09 — live mobile/desktop triage: native plugin thenable bug, cross-tab register storm, stale bridgeDeviceId hard-fail
 
 Status: **implemented locally; commit/push in progress.**

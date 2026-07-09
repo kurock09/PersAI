@@ -168,7 +168,11 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
     websocketUrl: string
   ): LocalBrowserBridgeDeviceRegisterResult {
     this.pruneState();
-    const bridgeDeviceId = randomUUID();
+    // Re-registration renews credentials for the same physical browser/app
+    // installation. Minting a new id on every renewal breaks profile affinity:
+    // the profile keeps the old bridgeSessionRef while the live socket moves to
+    // a new id, and two Chrome installations make fallback ambiguous.
+    const bridgeDeviceId = input.bridgeDeviceId ?? randomUUID();
     const now = Date.now();
     const claims: DeviceTokenClaims = {
       version: DEVICE_TOKEN_VERSION,

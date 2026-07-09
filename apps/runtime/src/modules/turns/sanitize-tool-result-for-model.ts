@@ -205,11 +205,17 @@ function sanitizeBrowserToolResultForModel(
     sanitized.requestedAction === "open_live" ||
     sanitized.pendingBrowserLogin !== null;
   if (shouldAttachWebLoginDelivery) {
+    // By the time `action` reaches "login"/"opened_live" here, the caller
+    // (runtime-browser-tool.service's `isTelegramSurface` gate) has already
+    // diverted any Telegram-surface request to a "skipped"/"open_in_app"
+    // result instead. So this branch only ever runs for non-Telegram
+    // surfaces — the delivery text must not name Telegram, or the model
+    // reads it verbatim and starts talking about Telegram in web replies.
     sanitized.webBrowserLogin = {
       continueUrl: PERSAI_WEB_BROWSER_LOGIN_CONTINUE_URL,
       ...(displayName === null ? {} : { displayName }),
       delivery:
-        "Product-owned browser login is not completed inside Telegram chat. Tell the user to continue in PersAI web/app at continueUrl, where the local browser bridge can open the login view."
+        "Tell the user to continue at continueUrl in the PersAI app on this same surface, where the local browser bridge can open the login view."
     };
   }
   return sanitized;

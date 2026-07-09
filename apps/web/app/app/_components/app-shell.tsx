@@ -22,6 +22,7 @@ import { AssistantSettingsApkFooter } from "./assistant-settings-apk-footer";
 import { useAppData, type AppData } from "./use-app-data";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
 import { BackButtonBridge } from "./back-button-bridge";
+import { BrowserBridgeConnectionMaintainer } from "./browser-bridge-connection-maintainer";
 import { AppUrlOpenBridge } from "../../_components/app-url-open-bridge";
 import { OfflineGate } from "./offline-gate";
 import { StreamingThreadsProvider } from "./streaming-threads";
@@ -208,6 +209,10 @@ export function AppShell({
             <BackButtonBridge />
             <AppUrlOpenBridge />
             <OfflineGate />
+            <BrowserBridgeConnectionMaintainer
+              assistantId={appData.assistant?.id ?? null}
+              workspaceId={appData.assistant?.workspaceId ?? null}
+            />
             {children}
           </StreamingThreadsProvider>
         </ShellActionsContext.Provider>
@@ -222,6 +227,10 @@ export function AppShell({
           <BackButtonBridge />
           <AppUrlOpenBridge />
           <OfflineGate />
+          <BrowserBridgeConnectionMaintainer
+            assistantId={appData.assistant?.id ?? null}
+            workspaceId={appData.assistant?.workspaceId ?? null}
+          />
           {/*
           Bento layout on desktop: outer chrome frame (`bg-chrome`) shows
           between the sidebar and main panels via `md:gap-2 md:p-2`. On

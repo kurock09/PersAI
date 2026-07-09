@@ -10,10 +10,11 @@ import {
   type LocalBrowserCommandAction,
   type LocalBrowserResult
 } from "@persai/runtime-contract";
-import { WebSocketServer, type RawData, type WebSocket } from "ws";
+import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { BrowserBridgeRelayService } from "./browser-bridge-relay.service";
 
 const HANDSHAKE_TIMEOUT_MS = 10_000;
+const SOCKET_KEEPALIVE_INTERVAL_MS = 20_000;
 const INVALID_MESSAGE_CLOSE_CODE = 4400;
 const INVALID_AUTH_CLOSE_CODE = 4401;
 
@@ -102,6 +103,20 @@ export class BrowserBridgeWebSocketServer {
       webSocket.close(INVALID_AUTH_CLOSE_CODE, "handshake_timeout");
     }, HANDSHAKE_TIMEOUT_MS);
     handshakeTimer.unref();
+    // Network/LB idle timeouts were dropping otherwise healthy bridge sockets
+    // after several minutes. Protocol-level ping frames keep the route active;
+    // browser WebSocket implementations answer pong automatically.
+    const keepaliveTimer = setInterval(() => {
+      if (webSocket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      try {
+        webSocket.ping();
+      } catch {
+        // The regular close/error handlers own cleanup and relay state.
+      }
+    }, SOCKET_KEEPALIVE_INTERVAL_MS);
+    keepaliveTimer.unref();
 
     webSocket.on("message", (raw) => {
       try {
@@ -133,6 +148,7 @@ export class BrowserBridgeWebSocketServer {
 
     webSocket.on("close", () => {
       clearTimeout(handshakeTimer);
+      clearInterval(keepaliveTimer);
       if (connectionKey !== null) {
         this.relayService.disconnectConnection(connectionKey, "bridge_connection_closed");
       }

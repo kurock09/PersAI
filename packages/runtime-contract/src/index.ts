@@ -4102,6 +4102,12 @@ export interface LocalBrowserBridgeDeviceRegisterRequest {
   assistantId: string;
   workspaceId: string;
   deviceKind: LocalBrowserBridgeDeviceKind;
+  /**
+   * Stable installation id returned by an earlier registration. Reusing it
+   * renews the short-lived connection token without orphaning browser-profile
+   * device affinity.
+   */
+  bridgeDeviceId?: string | null;
   deviceLabel?: string | null;
   clientVersion?: string | null;
 }

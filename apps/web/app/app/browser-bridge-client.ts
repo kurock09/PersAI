@@ -16,6 +16,8 @@ const MAX_EXTRACT_ITEMS = 50;
 const MAX_DOM_READY_WAIT_MS = 10_000;
 const DEFAULT_MUTATION_SETTLE_MS = 800;
 const DEFAULT_MAX_CHARS = 12_000;
+const NATIVE_REGISTRATION_SAFE_AGE_MS = 14 * 60 * 1000;
+const NATIVE_RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
 
 export const PERSAI_BROWSER_BRIDGE_WEB_STORE_URL: string | null = null;
 
@@ -99,6 +101,7 @@ type NativeBrowserBridgePlugin = {
 type NativeBridgeRuntimeState = {
   socket: WebSocket | null;
   registration: LocalBrowserBridgeDeviceRegisterResult | null;
+  registrationAt: number | null;
   assistantId: string | null;
   workspaceId: string | null;
   commandQueue: Promise<void>;
@@ -107,6 +110,7 @@ type NativeBridgeRuntimeState = {
 const nativeBridgeState: NativeBridgeRuntimeState = {
   socket: null,
   registration: null,
+  registrationAt: null,
   assistantId: null,
   workspaceId: null,
   commandQueue: Promise.resolve()
@@ -118,6 +122,8 @@ const nativeBridgeState: NativeBridgeRuntimeState = {
  * server is about to dispatch to.
  */
 let nativeConnectInFlight: Promise<ExtensionBridgeStatus> | null = null;
+let nativeReconnectTimer: number | null = null;
+let nativeReconnectAttempts = 0;
 
 export function isNativeBrowserBridgeShell(): boolean {
   if (typeof window === "undefined") {
@@ -265,6 +271,13 @@ async function handleNativeBridgeCommand(command: LocalBrowserCommand): Promise<
 async function registerNativeBridgeDevice(
   input: RegisterExtensionBridgeDeviceInput
 ): Promise<LocalBrowserBridgeDeviceRegisterResult> {
+  const storageKey = `persai:native-bridge:device:${input.assistantId}::${input.workspaceId}`;
+  let previousBridgeDeviceId: string | null = null;
+  try {
+    previousBridgeDeviceId = window.localStorage.getItem(storageKey);
+  } catch {
+    // Storage-disabled WebViews degrade to a fresh device id.
+  }
   const response = await fetch(`${getBridgeApiBaseUrl()}/api/v1/assistant/browser-bridge/devices`, {
     method: "POST",
     headers: {
@@ -275,6 +288,7 @@ async function registerNativeBridgeDevice(
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
       deviceKind: "capacitor",
+      ...(previousBridgeDeviceId === null ? {} : { bridgeDeviceId: previousBridgeDeviceId }),
       deviceLabel: "PersAI Mobile App",
       clientVersion: "0.0.0"
     })
@@ -282,7 +296,13 @@ async function registerNativeBridgeDevice(
   if (!response.ok) {
     throw new Error(`Device registration failed with HTTP ${String(response.status)}.`);
   }
-  return (await response.json()) as LocalBrowserBridgeDeviceRegisterResult;
+  const registration = (await response.json()) as LocalBrowserBridgeDeviceRegisterResult;
+  try {
+    window.localStorage.setItem(storageKey, registration.bridgeDeviceId);
+  } catch {
+    // Registration remains usable for this app process.
+  }
+  return registration;
 }
 
 async function connectNativeBridgeSocket(
@@ -307,6 +327,10 @@ async function connectNativeBridgeSocket(
 async function performNativeBridgeConnect(
   input: RegisterExtensionBridgeDeviceInput
 ): Promise<ExtensionBridgeStatus> {
+  if (nativeReconnectTimer !== null) {
+    window.clearTimeout(nativeReconnectTimer);
+    nativeReconnectTimer = null;
+  }
   if (nativeBridgeState.socket !== null) {
     try {
       nativeBridgeState.socket.close(1000, "bridge_reconnect");
@@ -318,9 +342,18 @@ async function performNativeBridgeConnect(
 
   const registration = await registerNativeBridgeDevice(input);
   nativeBridgeState.registration = registration;
+  nativeBridgeState.registrationAt = Date.now();
   nativeBridgeState.assistantId = input.assistantId;
   nativeBridgeState.workspaceId = input.workspaceId;
+  nativeReconnectAttempts = 0;
+  await openNativeBridgeSocket(input, registration);
+  return toBridgeStatus();
+}
 
+async function openNativeBridgeSocket(
+  input: RegisterExtensionBridgeDeviceInput,
+  registration: LocalBrowserBridgeDeviceRegisterResult
+): Promise<void> {
   const socket = new WebSocket(registration.websocketUrl);
   nativeBridgeState.socket = socket;
 
@@ -335,6 +368,7 @@ async function performNativeBridgeConnect(
         deviceToken: registration.deviceToken
       };
       socket.send(JSON.stringify(payload));
+      nativeReconnectAttempts = 0;
       settled = true;
       resolve();
     });
@@ -350,7 +384,9 @@ async function performNativeBridgeConnect(
       }
       if (!settled) {
         reject(new Error("Native browser bridge websocket closed before opening."));
+        return;
       }
+      scheduleNativeReconnect(input, registration);
     });
     socket.addEventListener("error", () => {
       if (!settled) {
@@ -358,8 +394,34 @@ async function performNativeBridgeConnect(
       }
     });
   });
+}
 
-  return toBridgeStatus();
+function scheduleNativeReconnect(
+  input: RegisterExtensionBridgeDeviceInput,
+  registration: LocalBrowserBridgeDeviceRegisterResult
+): void {
+  if (
+    nativeReconnectTimer !== null ||
+    nativeBridgeState.registration !== registration ||
+    nativeBridgeState.registrationAt === null ||
+    Date.now() - nativeBridgeState.registrationAt >= NATIVE_REGISTRATION_SAFE_AGE_MS
+  ) {
+    return;
+  }
+  const delay =
+    NATIVE_RECONNECT_DELAYS_MS[
+      Math.min(nativeReconnectAttempts, NATIVE_RECONNECT_DELAYS_MS.length - 1)
+    ] ?? 30_000;
+  nativeReconnectAttempts += 1;
+  nativeReconnectTimer = window.setTimeout(() => {
+    nativeReconnectTimer = null;
+    if (nativeBridgeState.socket !== null) {
+      return;
+    }
+    void openNativeBridgeSocket(input, registration).catch(() => {
+      scheduleNativeReconnect(input, registration);
+    });
+  }, delay);
 }
 
 async function requestExtensionBridgeStatus(
