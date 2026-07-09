@@ -7,19 +7,56 @@
     <style>
       body {
         margin: 0;
-        min-width: 280px;
-        font: 13px/1.4 Arial, sans-serif;
+        min-width: 320px;
+        font:
+          13px/1.4 Arial,
+          sans-serif;
         color: #111827;
         background: #f9fafb;
+      }
+
+      header.brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 14px;
+        background: #111827;
+        color: #ffffff;
+      }
+
+      header.brand .mark {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        background: #4f46e5;
+        font-weight: 700;
+        font-size: 12px;
+      }
+
+      header.brand h1 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
       }
 
       main {
         padding: 14px;
       }
 
-      h1 {
-        margin: 0 0 10px;
-        font-size: 15px;
+      section + section {
+        margin-top: 16px;
+      }
+
+      h2 {
+        margin: 0 0 8px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #6b7280;
       }
 
       p {
@@ -31,7 +68,7 @@
       }
 
       .status {
-        margin: 10px 0;
+        margin: 0;
         padding: 10px;
         border-radius: 8px;
         background: #ffffff;
@@ -42,8 +79,7 @@
         border: 0;
         border-radius: 8px;
         padding: 8px 10px;
-        background: #111827;
-        color: #ffffff;
+        font-size: 12px;
         cursor: pointer;
       }
 
@@ -51,14 +87,30 @@
         cursor: default;
         opacity: 0.55;
       }
+
+      #refresh {
+        background: #111827;
+        color: #ffffff;
+      }
     </style>
   </head>
   <body>
-    <main>
+    <header class="brand">
+      <span class="mark">P</span>
       <h1>PersAI Browser Bridge</h1>
-      <p class="muted">Keep a PersAI tab open while the bridge is connected. Closing the browser stops background bridge work.</p>
-      <div class="status" id="status">Loading bridge status…</div>
-      <button id="refresh" type="button">Refresh status</button>
+    </header>
+    <main>
+      <section>
+        <h2>Bridge status</h2>
+        <p class="muted">
+          Keep a PersAI tab open while the bridge is connected. Closing the browser stops background
+          bridge work.
+        </p>
+        <div class="status" id="status">Loading bridge status…</div>
+        <div style="margin-top: 10px">
+          <button id="refresh" type="button">Refresh status</button>
+        </div>
+      </section>
     </main>
     <script type="module" src="./popup.js"></script>
   </body>

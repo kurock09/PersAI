@@ -66,7 +66,7 @@ describe("BrowserBridgeRelayService", () => {
     }
   });
 
-  test("registers device, authenticates websocket, dispatches command, and completes result", () => {
+  test("registers device, authenticates websocket, dispatches command, and completes result", async () => {
     const service = new BrowserBridgeRelayService();
     const registration = service.registerDevice(
       buildRegisterRequest(),
@@ -77,7 +77,7 @@ describe("BrowserBridgeRelayService", () => {
 
     const socket = new FakeSocket();
     const connectionKey = service.attachConnection(buildConnectRequest(registration), socket);
-    const dispatch = service.dispatchCommand({
+    const dispatch = await service.dispatchCommand({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       command: {
@@ -109,7 +109,7 @@ describe("BrowserBridgeRelayService", () => {
       }),
       true
     );
-    assert.deepEqual(service.getCommandResult("command-1"), {
+    assert.deepEqual(await service.getCommandResult("command-1"), {
       status: "completed",
       result: {
         commandId: "command-1",
@@ -138,11 +138,11 @@ describe("BrowserBridgeRelayService", () => {
     );
   });
 
-  test("returns structured unavailable when no device is connected", () => {
+  test("returns structured unavailable when no device is connected", async () => {
     const service = new BrowserBridgeRelayService();
 
     assert.deepEqual(
-      service.dispatchCommand({
+      await service.dispatchCommand({
         assistantId: "assistant-1",
         workspaceId: "workspace-1",
         command: {
@@ -169,7 +169,7 @@ describe("BrowserBridgeRelayService", () => {
     );
     service.attachConnection(buildConnectRequest(registration), new FakeSocket());
 
-    const dispatch = service.dispatchCommand({
+    const dispatch = await service.dispatchCommand({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       command: {
@@ -182,7 +182,7 @@ describe("BrowserBridgeRelayService", () => {
     assert.equal(dispatch.accepted, true);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    assert.deepEqual(service.getCommandResult("command-timeout"), {
+    assert.deepEqual(await service.getCommandResult("command-timeout"), {
       status: "completed",
       result: {
         commandId: "command-timeout",
@@ -192,7 +192,7 @@ describe("BrowserBridgeRelayService", () => {
     });
   });
 
-  test("replaces duplicate connection honestly and fails in-flight command on disconnect", () => {
+  test("replaces duplicate connection honestly and fails in-flight command on disconnect", async () => {
     const service = new BrowserBridgeRelayService();
     const registration = service.registerDevice(
       buildRegisterRequest(),
@@ -200,7 +200,7 @@ describe("BrowserBridgeRelayService", () => {
     );
     const firstSocket = new FakeSocket();
     service.attachConnection(buildConnectRequest(registration), firstSocket);
-    const firstDispatch = service.dispatchCommand({
+    const firstDispatch = await service.dispatchCommand({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       command: {
@@ -216,7 +216,7 @@ describe("BrowserBridgeRelayService", () => {
     assert.deepEqual(firstSocket.closeCalls, [
       { code: 4002, reason: "duplicate_connection_replaced" }
     ]);
-    assert.deepEqual(service.getCommandResult("command-in-flight"), {
+    assert.deepEqual(await service.getCommandResult("command-in-flight"), {
       status: "completed",
       result: {
         commandId: "command-in-flight",
@@ -225,7 +225,7 @@ describe("BrowserBridgeRelayService", () => {
       }
     });
 
-    const secondDispatch = service.dispatchCommand({
+    const secondDispatch = await service.dispatchCommand({
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
       command: {

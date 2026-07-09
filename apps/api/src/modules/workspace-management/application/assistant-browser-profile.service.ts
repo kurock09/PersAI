@@ -592,7 +592,7 @@ export class AssistantBrowserProfileService {
       return;
     }
     const commandId = randomUUID();
-    const outcome = this.browserBridgeRelayService.dispatchCommand({
+    const outcome = await this.browserBridgeRelayService.dispatchCommand({
       assistantId: row.assistantId,
       workspaceId: row.workspaceId,
       bridgeDeviceId: row.bridgeSessionRef,
@@ -624,7 +624,7 @@ export class AssistantBrowserProfileService {
     unavailableMessage: string;
     failureMessage: string;
   }): Promise<{ bridgeSessionRef: string; result: LocalBrowserResult }> {
-    const dispatched = this.browserBridgeRelayService.dispatchCommand({
+    const dispatched = await this.browserBridgeRelayService.dispatchCommand({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
       ...(input.bridgeDeviceId === null ? {} : { bridgeDeviceId: input.bridgeDeviceId }),
@@ -647,7 +647,7 @@ export class AssistantBrowserProfileService {
 
   private async pollBridgeCommandResult(commandId: string): Promise<LocalBrowserResult> {
     for (;;) {
-      const result = this.browserBridgeRelayService.getCommandResult(commandId);
+      const result = await this.browserBridgeRelayService.getCommandResult(commandId);
       if (result.status === "completed") {
         return (
           result.result ?? {

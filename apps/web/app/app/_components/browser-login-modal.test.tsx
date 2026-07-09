@@ -81,7 +81,7 @@ describe("BrowserLoginModal", () => {
     expect(screen.getByTestId("browser-login-complete")).toBeDisabled();
   });
 
-  it("shows extension-connected state and enables Done", async () => {
+  it("keeps a compact web modal visible and opens the desktop bridge window only by user action", async () => {
     getExtensionBridgeStatus.mockResolvedValue({
       connected: true,
       desiredConnection: true,
@@ -91,6 +91,7 @@ describe("BrowserLoginModal", () => {
       profileCount: 1,
       lastProfileKey: "bitrix"
     });
+    openAssistantBrowserProfileView.mockResolvedValue(undefined);
 
     render(
       <BrowserLoginModal
@@ -102,21 +103,25 @@ describe("BrowserLoginModal", () => {
       />
     );
 
-    expect(await screen.findByText("browserLoginExtensionConnected")).toBeInTheDocument();
-    expect(screen.getByTestId("browser-login-complete")).toHaveTextContent("browserLoginDone");
-    expect(screen.getByTestId("browser-login-complete")).not.toBeDisabled();
+    expect(await screen.findByTestId("browser-login-modal")).toBeInTheDocument();
+    expect(await screen.findByTestId("browser-login-open-bridge-view")).toBeInTheDocument();
+    expect(openAssistantBrowserProfileView).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("browser-login-open-bridge-view"));
+
+    await waitFor(() => {
+      expect(openAssistantBrowserProfileView).toHaveBeenCalledWith(
+        "test-token",
+        "assistant-1",
+        "profile-1"
+      );
+    });
+    expect(screen.getByTestId("browser-login-modal")).toBeInTheDocument();
+    expect(screen.getByText("browserLoginBridgeWindowOpened")).toBeInTheDocument();
   });
 
   it("keeps the full instructions behind the help toggle", async () => {
-    getExtensionBridgeStatus.mockResolvedValue({
-      connected: true,
-      desiredConnection: true,
-      bridgeDeviceId: "device-1",
-      assistantId: "assistant-1",
-      workspaceId: "workspace-1",
-      profileCount: 1,
-      lastProfileKey: "bitrix"
-    });
+    getExtensionBridgeStatus.mockRejectedValue(new Error("missing"));
 
     render(
       <BrowserLoginModal
@@ -128,7 +133,7 @@ describe("BrowserLoginModal", () => {
       />
     );
 
-    await screen.findByText("browserLoginExtensionConnected");
+    await screen.findByTestId("browser-login-extension-status");
     expect(screen.queryByTestId("browser-login-instructions")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("browser-login-help-toggle"));
@@ -166,7 +171,7 @@ describe("BrowserLoginModal", () => {
     expect(dismissAssistantBrowserProfileView).not.toHaveBeenCalled();
   });
 
-  it("calls complete login API when Done is pressed", async () => {
+  it("keeps a working web Done fallback when the branded window fails to open", async () => {
     getExtensionBridgeStatus.mockResolvedValue({
       connected: true,
       desiredConnection: true,
@@ -176,6 +181,9 @@ describe("BrowserLoginModal", () => {
       profileCount: 1,
       lastProfileKey: "bitrix"
     });
+    // The branded Chrome window could not be opened, so the web dialog stays
+    // visible as a fallback and its Done button still completes the login.
+    openAssistantBrowserProfileView.mockRejectedValue(new Error("open failed"));
     completeAssistantBrowserLogin.mockResolvedValue({});
     const onCompleted = vi.fn();
     const onDismiss = vi.fn();

@@ -29,15 +29,25 @@ import {
 } from "./executor-core.js";
 import { resolveHostScriptSource } from "./host-scripts.js";
 import type { WebBridgeEnvelope, WebBridgeRequestMessage } from "./messages.js";
-import { buildOriginPermissionPattern, isPersaiWebOrigin, listCommandOriginPatterns, normalizeApiBaseUrl } from "./permissions.js";
 import {
+  buildOriginPermissionPattern,
+  isPersaiWebOrigin,
+  listCommandOriginPatterns,
+  normalizeApiBaseUrl
+} from "./permissions.js";
+import {
+  consumePendingCompletion,
   type ExtensionStorageState,
-  storeRegistration,
+  listAwaitingCompletionProfiles,
+  type PendingCompletionAction,
   type ProfileSessionRecord,
+  resolvePendingCompletion,
+  setAwaitingCompletion,
+  storeRegistration,
   upsertProfileRecord
 } from "./profile-state.js";
 import { runPageCommandInPage, type PageRunnerResult } from "./page-runner.js";
-import { readState, reconcileProfileRecord, updateState } from "./storage.js";
+import { readState, reconcileProfileRecord, updateState, writeState } from "./storage.js";
 
 const KEEPALIVE_PORT_NAMES = new Set(["persai-page-keepalive", "persai-popup-keepalive"]);
 
@@ -179,7 +189,9 @@ async function saveRegistration(
   );
 }
 
-async function registerDeviceViaApi(message: Extract<WebBridgeRequestMessage, { type: "persai.bridge.register_device_request" }>): Promise<unknown> {
+async function registerDeviceViaApi(
+  message: Extract<WebBridgeRequestMessage, { type: "persai.bridge.register_device_request" }>
+): Promise<unknown> {
   const apiBaseUrl = normalizeApiBaseUrl(message.apiBaseUrl);
   const response = await fetch(`${apiBaseUrl}/api/v1/assistant/browser-bridge/devices`, {
     method: "POST",
@@ -231,6 +243,37 @@ function buildStatus(state: ExtensionStorageState): Record<string, unknown> {
   };
 }
 
+const BADGE_COLOR = "#4f46e5";
+
+async function refreshBadgeFromState(): Promise<void> {
+  const state = await readState();
+  const pendingCount = listAwaitingCompletionProfiles(state).length;
+  await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR });
+  await chrome.action.setBadgeText({ text: pendingCount > 0 ? String(pendingCount) : "" });
+}
+
+async function buildStatusForWeb(profileKey: string | null): Promise<Record<string, unknown>> {
+  const state = await readState();
+  const base = buildStatus(state);
+  if (profileKey === null) {
+    return { ...base, pendingCompletionAction: null };
+  }
+  const { state: nextState, action } = consumePendingCompletion(state, profileKey);
+  if (action !== null) {
+    await writeState(nextState);
+    await refreshBadgeFromState();
+  }
+  return { ...base, pendingCompletionAction: action };
+}
+
+async function resolvePendingCompletionFromPopup(
+  profileKey: string,
+  action: PendingCompletionAction
+): Promise<void> {
+  await updateState((state) => resolvePendingCompletion(state, profileKey, action));
+  await refreshBadgeFromState();
+}
+
 async function handleWebBridgeRequest(message: WebBridgeRequestMessage): Promise<unknown> {
   switch (message.type) {
     case "persai.bridge.register_device_request":
@@ -238,7 +281,7 @@ async function handleWebBridgeRequest(message: WebBridgeRequestMessage): Promise
     case "persai.bridge.register_device_result":
       return storeDeviceRegistrationResult(message);
     case "persai.bridge.status":
-      return buildStatus(await readState());
+      return buildStatusForWeb(message.profileKey ?? null);
   }
 }
 
@@ -287,28 +330,55 @@ chrome.runtime.onConnect.addListener((port) => {
   bindKeepalivePort(port);
 });
 
-chrome.runtime.onMessage.addListener((message: unknown, _sender: unknown, sendResponse: (value: unknown) => void) => {
-  if (message && typeof message === "object" && (message as { type?: string }).type === "popup.status") {
-    void readState().then((state) => sendResponse(buildStatus(state)));
-    return true;
-  }
-  return false;
-});
+chrome.runtime.onMessage.addListener(
+  (message: unknown, _sender: unknown, sendResponse: (value: unknown) => void) => {
+    const type =
+      message && typeof message === "object" ? (message as { type?: string }).type : undefined;
 
-chrome.runtime.onMessageExternal.addListener(
-  (message, sender, sendResponse) => {
-    if (!isPersaiWebOrigin(sender?.url ?? null)) {
-      sendResponse({ ok: false, error: "External sender origin is not allowed." });
-      return false;
+    if (type === "popup.status") {
+      void readState().then((state) => sendResponse(buildStatus(state)));
+      return true;
     }
-    void handleWebBridgeRequest(message as WebBridgeRequestMessage)
-      .then((result) => sendResponse({ ok: true, result }))
-      .catch((error) =>
-        sendResponse({ ok: false, error: error instanceof Error ? error.message : "Bridge request failed." })
+
+    if (type === "popup.pending_profiles") {
+      void readState().then((state) => sendResponse(listAwaitingCompletionProfiles(state)));
+      return true;
+    }
+
+    if (type === "popup.resolve_pending") {
+      const request = message as { profileKey?: unknown; action?: unknown };
+      const profileKey = typeof request.profileKey === "string" ? request.profileKey : null;
+      const action =
+        request.action === "complete" || request.action === "cancel" ? request.action : null;
+      if (profileKey === null || action === null) {
+        sendResponse({ ok: false, error: "Invalid pending completion request." });
+        return false;
+      }
+      void resolvePendingCompletionFromPopup(profileKey, action).then(() =>
+        sendResponse({ ok: true })
       );
-    return true;
+      return true;
+    }
+
+    return false;
   }
 );
+
+chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+  if (!isPersaiWebOrigin(sender?.url ?? null)) {
+    sendResponse({ ok: false, error: "External sender origin is not allowed." });
+    return false;
+  }
+  void handleWebBridgeRequest(message as WebBridgeRequestMessage)
+    .then((result) => sendResponse({ ok: true, result }))
+    .catch((error) =>
+      sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : "Bridge request failed."
+      })
+    );
+  return true;
+});
 
 async function ensureOriginPermission(pattern: string): Promise<boolean> {
   const contains = await chrome.permissions.contains({ origins: [pattern] });
@@ -352,12 +422,18 @@ async function waitForTabLoad(tabId: number, timeoutMs: number): Promise<void> {
   });
 }
 
-async function persistProfilePatch(profileKey: string, patch: Partial<ProfileSessionRecord>): Promise<ProfileSessionRecord> {
+async function persistProfilePatch(
+  profileKey: string,
+  patch: Partial<ProfileSessionRecord>
+): Promise<ProfileSessionRecord> {
   const next = await updateState((state) => upsertProfileRecord(state, profileKey, patch));
   return next.profiles[profileKey] as ProfileSessionRecord;
 }
 
-async function setWindowVisibility(record: ProfileSessionRecord, visible: boolean): Promise<ProfileSessionRecord> {
+async function setWindowVisibility(
+  record: ProfileSessionRecord,
+  visible: boolean
+): Promise<ProfileSessionRecord> {
   if (typeof record.windowId === "number") {
     await chrome.windows.update(record.windowId, {
       state: visible ? "normal" : "minimized",
@@ -367,7 +443,11 @@ async function setWindowVisibility(record: ProfileSessionRecord, visible: boolea
   return persistProfilePatch(record.profileKey, { visible, updatedAt: Date.now() });
 }
 
-async function createProfileWindow(profileKey: string, targetUrl: string | null, visible: boolean): Promise<ProfileSessionRecord> {
+async function createProfileWindow(
+  profileKey: string,
+  targetUrl: string | null,
+  visible: boolean
+): Promise<ProfileSessionRecord> {
   const nextWindow = await chrome.windows.create({
     url: targetUrl && targetUrl.length > 0 ? targetUrl : "about:blank",
     type: "popup",
@@ -403,7 +483,9 @@ async function resolveOrCreateProfileWindow(
   return createProfileWindow(profileKey, targetUrl, visible);
 }
 
-function splitOperationsByGoto(operations: RuntimeBrowserOperation[]): Array<{ navigateTo: string | null; operations: RuntimeBrowserOperation[] }> {
+function splitOperationsByGoto(
+  operations: RuntimeBrowserOperation[]
+): Array<{ navigateTo: string | null; operations: RuntimeBrowserOperation[] }> {
   const segments: Array<{ navigateTo: string | null; operations: RuntimeBrowserOperation[] }> = [];
   let pendingNavigateTo: string | null = null;
   let bucket: RuntimeBrowserOperation[] = [];
@@ -424,7 +506,11 @@ function splitOperationsByGoto(operations: RuntimeBrowserOperation[]): Array<{ n
   return segments;
 }
 
-async function navigateTab(record: ProfileSessionRecord, url: string, timeoutMs: number): Promise<ProfileSessionRecord> {
+async function navigateTab(
+  record: ProfileSessionRecord,
+  url: string,
+  timeoutMs: number
+): Promise<ProfileSessionRecord> {
   if (typeof record.tabId !== "number") {
     throw new Error("No bridge tab exists for this profile.");
   }
@@ -486,11 +572,64 @@ async function captureArtifact(
   return parsed;
 }
 
+/**
+ * `open_view` only needs to show the user a site so they can complete a
+ * login or manual step. Creating/showing a window and navigating a tab you
+ * own does not require a Chrome host permission grant — only DOM access
+ * (`chrome.scripting.executeScript`, `chrome.tabs.captureVisibleTab`) does.
+ * So this path deliberately skips `ensureCommandPermissions` and never
+ * blocks on `waitForTabLoad`; it kicks the navigation and returns
+ * immediately so the API `open-live` call resolves well under its timeout
+ * instead of racing a fast permission-denied 409 or a slow page-load 409.
+ */
+async function handleOpenView(
+  record: ProfileSessionRecord,
+  command: LocalBrowserCommand
+): Promise<LocalBrowserResult> {
+  const targetUrl = typeof command.url === "string" && command.url.length > 0 ? command.url : null;
+  let finalRecord = record;
+  let navigationWarning: string | null = null;
+
+  if (targetUrl !== null && targetUrl !== record.lastKnownUrl && typeof record.tabId === "number") {
+    try {
+      await chrome.tabs.update(record.tabId, { url: targetUrl });
+      finalRecord = await persistProfilePatch(record.profileKey, {
+        lastKnownUrl: targetUrl,
+        originPattern: buildOriginPermissionPattern(targetUrl),
+        updatedAt: Date.now()
+      });
+    } catch (error) {
+      navigationWarning =
+        error instanceof Error ? error.message : "Failed to start navigation in the bridge window.";
+    }
+  }
+
+  await updateState((state) => setAwaitingCompletion(state, record.profileKey, true));
+  await refreshBadgeFromState();
+
+  return {
+    commandId: command.commandId,
+    ok: true,
+    finalUrl: finalRecord.lastKnownUrl ?? targetUrl,
+    warning:
+      mergeWarnings(
+        "Bridge window opened for user assistance; return to PersAI and press Done when login is finished.",
+        navigationWarning
+      ) ?? null
+  };
+}
+
 async function executeBrowserCommand(command: LocalBrowserCommand): Promise<LocalBrowserResult> {
   const showWindow = command.action === "open_view" || command.showWindow === true;
-  let record = await resolveOrCreateProfileWindow(command.profileKey, command.url ?? null, showWindow);
+  let record = await resolveOrCreateProfileWindow(
+    command.profileKey,
+    command.url ?? null,
+    showWindow
+  );
   if (command.action === "close_view") {
     record = await setWindowVisibility(record, false);
+    await updateState((state) => setAwaitingCompletion(state, record.profileKey, false));
+    await refreshBadgeFromState();
     return {
       commandId: command.commandId,
       ok: true,
@@ -503,8 +642,15 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
     record = await setWindowVisibility(record, true);
   }
 
+  if (command.action === "open_view") {
+    return handleOpenView(record, command);
+  }
+
   const currentTab = typeof record.tabId === "number" ? await chrome.tabs.get(record.tabId) : null;
-  const permissionCheck = await ensureCommandPermissions(command, currentTab?.url ?? record.lastKnownUrl ?? null);
+  const permissionCheck = await ensureCommandPermissions(
+    command,
+    currentTab?.url ?? record.lastKnownUrl ?? null
+  );
   if (permissionCheck.granted === false) {
     return buildPermissionDeniedResult(command.commandId, permissionCheck.pattern);
   }
@@ -519,15 +665,6 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
       originPattern: buildOriginPermissionPattern(currentTab.url),
       updatedAt: Date.now()
     });
-  }
-
-  if (command.action === "open_view") {
-    return {
-      commandId: command.commandId,
-      ok: true,
-      finalUrl: record.lastKnownUrl ?? currentTab?.url ?? null,
-      warning: "Bridge window opened for user assistance."
-    };
   }
 
   const hostPageScript = await resolveHostScriptSource(command);
@@ -554,7 +691,11 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
           elements: finalResult.elements,
           extracted: finalResult.extracted,
           errorReason: NEEDS_USER_ACTION_REASON,
-          warning: mergeWarnings("User action is required in the visible browser window.", finalResult.warning) ?? null
+          warning:
+            mergeWarnings(
+              "User action is required in the visible browser window.",
+              finalResult.warning
+            ) ?? null
         };
       }
     }
@@ -576,7 +717,11 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
       elements: finalResult.elements,
       extracted: finalResult.extracted,
       errorReason: NEEDS_USER_ACTION_REASON,
-      warning: mergeWarnings("User action is required in the visible browser window.", finalResult.warning) ?? null
+      warning:
+        mergeWarnings(
+          "User action is required in the visible browser window.",
+          finalResult.warning
+        ) ?? null
     };
   }
 
@@ -591,7 +736,10 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
   if (command.format === "png" || command.format === "jpeg" || command.format === "webp") {
     if (command.format === "webp") {
       return {
-        ...buildUnsupportedScreenshotResult(command.commandId, "Chrome tab capture only supports png and jpeg here."),
+        ...buildUnsupportedScreenshotResult(
+          command.commandId,
+          "Chrome tab capture only supports png and jpeg here."
+        ),
         finalUrl: finalResult.finalUrl,
         title: finalResult.title
       };

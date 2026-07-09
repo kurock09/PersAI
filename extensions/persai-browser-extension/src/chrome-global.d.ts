@@ -67,20 +67,34 @@ interface ChromeScriptingApi {
   }): Promise<Array<{ result?: T }>>;
 }
 
+interface ChromeActionApi {
+  setBadgeText(details: { text: string }): Promise<void>;
+  setBadgeBackgroundColor(details: { color: string }): Promise<void>;
+}
+
 interface ChromeRuntimeApi {
   connect(connectInfo?: { name?: string }): ChromeRuntimePort;
   sendMessage(message: unknown): Promise<unknown>;
   getURL(path: string): string;
   onConnect: ChromeListener<(port: ChromeRuntimePort) => void>;
   onMessage: ChromeListener<
-    (message: unknown, sender: ChromeMessageSender, sendResponse: (response: unknown) => void) => boolean | void
+    (
+      message: unknown,
+      sender: ChromeMessageSender,
+      sendResponse: (response: unknown) => void
+    ) => boolean | void
   >;
   onMessageExternal: ChromeListener<
-    (message: unknown, sender: ChromeMessageSender, sendResponse: (response: unknown) => void) => boolean | void
+    (
+      message: unknown,
+      sender: ChromeMessageSender,
+      sendResponse: (response: unknown) => void
+    ) => boolean | void
   >;
 }
 
 declare const chrome: {
+  action: ChromeActionApi;
   permissions: ChromePermissionsApi;
   runtime: ChromeRuntimeApi;
   scripting: ChromeScriptingApi;

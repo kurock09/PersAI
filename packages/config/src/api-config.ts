@@ -53,6 +53,11 @@ const baseApiConfigSchema = z.object({
   PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   PERSAI_RUNTIME_TURN_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   PERSAI_RUNTIME_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  // ADR-140 cross-pod browser-bridge relay. When set, the local browser-bridge WebSocket
+  // relay coordinates connections/commands across api replicas via Redis pub/sub so a device
+  // socket held by one pod is reachable from dispatch/result HTTP handled by any other pod.
+  // When empty, the relay degrades to single-process in-memory behavior (local dev).
+  BROWSER_BRIDGE_REDIS_URL: optionalUrl,
   PERSAI_PROVIDER_GATEWAY_BASE_URL: optionalUrl,
   PERSAI_PROVIDER_GATEWAY_DISCOVERY_DNS: optionalNonEmptyString,
   PERSAI_PROVIDER_GATEWAY_TARGET_REPLICAS: z.coerce.number().int().positive().optional(),

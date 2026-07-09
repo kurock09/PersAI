@@ -21,6 +21,12 @@ export const PERSAI_BROWSER_BRIDGE_WEB_STORE_URL: string | null = null;
 
 type BridgeStatusRequestMessage = {
   type: "persai.bridge.status";
+  /**
+   * Optional defensive relay slot for extension-side completion decisions.
+   * The primary desktop login UX keeps Готово/Отмена in the PersAI web modal,
+   * where Clerk auth is available.
+   */
+  profileKey?: string;
 };
 
 type BridgeRegisterDeviceRequestMessage = {
@@ -50,6 +56,8 @@ type WebBridgeResponseEnvelope = {
   error?: string;
 };
 
+export type ExtensionBridgePendingCompletionAction = "complete" | "cancel";
+
 export type ExtensionBridgeStatus = {
   connected: boolean;
   desiredConnection: boolean;
@@ -58,6 +66,12 @@ export type ExtensionBridgeStatus = {
   workspaceId: string | null;
   profileCount: number;
   lastProfileKey: string | null;
+  /**
+   * Set only by extension-side fallback completion paths. `null` when no
+   * decision is pending or no `profileKey` was requested. The extension clears
+   * this value once reported, so it is delivered at most once per decision.
+   */
+  pendingCompletionAction?: ExtensionBridgePendingCompletionAction | null;
 };
 
 export type RegisterExtensionBridgeDeviceInput = {
@@ -384,9 +398,13 @@ async function requestExtensionBridgeStatus(
 }
 
 export async function getExtensionBridgeStatus(
-  timeoutMs = EXTENSION_STATUS_TIMEOUT_MS
+  timeoutMs = EXTENSION_STATUS_TIMEOUT_MS,
+  profileKey?: string
 ): Promise<ExtensionBridgeStatus> {
-  return requestExtensionBridgeStatus({ type: "persai.bridge.status" }, timeoutMs);
+  return requestExtensionBridgeStatus(
+    profileKey ? { type: "persai.bridge.status", profileKey } : { type: "persai.bridge.status" },
+    timeoutMs
+  );
 }
 
 export async function registerExtensionBridgeDevice(

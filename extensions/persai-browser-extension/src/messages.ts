@@ -23,6 +23,12 @@ export interface RegisterDeviceResultFromWebMessage {
 
 export interface BridgeStatusRequestMessage {
   type: "persai.bridge.status";
+  /**
+   * When provided, the background worker also reports (and consumes) any
+   * pending Готово/Отмена completion action recorded for this profile from
+   * the extension action popup.
+   */
+  profileKey?: string | null;
 }
 
 export type WebBridgeRequestMessage =

@@ -23,7 +23,7 @@ export class ExpireAssistantBrowserProfilesService {
         continue;
       }
       try {
-        const dispatched = this.browserBridgeRelayService.dispatchCommand({
+        const dispatched = await this.browserBridgeRelayService.dispatchCommand({
           assistantId: profile.assistantId,
           workspaceId: profile.workspaceId,
           bridgeDeviceId: profile.bridgeSessionRef,

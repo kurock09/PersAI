@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   clearMissingProfileWindow,
+  consumePendingCompletion,
   createEmptyState,
+  listAwaitingCompletionProfiles,
+  resolvePendingCompletion,
+  setAwaitingCompletion,
   setProfileVisibility,
   storeRegistration,
   upsertProfileRecord
@@ -53,6 +57,49 @@ test("clearMissingProfileWindow clears stale window references", () => {
   assert.equal(cleared.profiles.lavka?.tabId, null);
   assert.equal(cleared.profiles.lavka?.visible, false);
   assert.equal(cleared.profiles.lavka?.updatedAt, 9);
+});
+
+test("setAwaitingCompletion marks a profile and clears any stale pending action", () => {
+  const seeded = resolvePendingCompletion(
+    upsertProfileRecord(createEmptyState(), "lavka", { visible: true, updatedAt: 1 }),
+    "lavka",
+    "cancel",
+    2
+  );
+  assert.equal(seeded.profiles.lavka?.pendingCompletionAction, "cancel");
+
+  const awaiting = setAwaitingCompletion(seeded, "lavka", true, 3);
+  assert.equal(awaiting.profiles.lavka?.awaitingCompletion, true);
+  assert.equal(awaiting.profiles.lavka?.pendingCompletionAction, null);
+  assert.deepEqual(listAwaitingCompletionProfiles(awaiting), [
+    { profileKey: "lavka", lastKnownUrl: null }
+  ]);
+});
+
+test("resolvePendingCompletion records the popup decision and clears awaiting state", () => {
+  const awaiting = setAwaitingCompletion(
+    upsertProfileRecord(createEmptyState(), "lavka", {
+      lastKnownUrl: "https://lavka.yandex.ru/",
+      updatedAt: 1
+    }),
+    "lavka",
+    true,
+    2
+  );
+  const resolved = resolvePendingCompletion(awaiting, "lavka", "complete", 3);
+  assert.equal(resolved.profiles.lavka?.awaitingCompletion, false);
+  assert.equal(resolved.profiles.lavka?.pendingCompletionAction, "complete");
+  assert.deepEqual(listAwaitingCompletionProfiles(resolved), []);
+});
+
+test("consumePendingCompletion reads the action once and clears it", () => {
+  const resolved = resolvePendingCompletion(createEmptyState(), "lavka", "complete", 1);
+  const first = consumePendingCompletion(resolved, "lavka");
+  assert.equal(first.action, "complete");
+  assert.equal(first.state.profiles.lavka?.pendingCompletionAction, null);
+
+  const second = consumePendingCompletion(first.state, "lavka");
+  assert.equal(second.action, null);
 });
 
 test("storeRegistration keeps the latest bridge device details", () => {

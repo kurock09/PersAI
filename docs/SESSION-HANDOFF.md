@@ -1,5 +1,53 @@
 # SESSION-HANDOFF
 
+## 2026-07-09 — ADR-140 desktop extension `open_view` unblock + compact login modal
+
+Status: **implemented locally; commit/push pending.**
+
+**Scope:** Desktop Chrome extension login flow only (`extensions/persai-browser-extension/**`) plus the minimal `apps/web` glue needed to complete login (`browser-login-modal.tsx`, `browser-bridge-client.ts`, RU/EN message catalogs). Defect/UX fix inside ADR-140 scope; no new ADR. Deliberately did **not** touch `apps/api/**`, `packages/config/**`, `infra/helm/**`, or `browser-bridge-coordinator.service.ts` (parent-owned Redis relay work). Mobile/Capacitor out of scope.
+
+**Why (confirmed from cluster logs):** Desktop login never completed. Web registered the device (201), the extension opened the relay WebSocket, the API dispatched `open_view`, but the extension never returned a usable result so the command timed out and `open-live` returned 409 (fast ~25ms permission-denied and slow 4–54s page-load-timeout shapes both observed).
+
+**Part A — functional `open_view` fix (`src/background.ts`):** Root cause was two illegal/blocking steps for an action that only shows a site to the human. (1) `executeBrowserCommand` called `ensureCommandPermissions` for `open_view`, which reaches `chrome.permissions.request({origins})`; the extension only holds `optional_host_permissions`, and `request` needs a user gesture that a WebSocket-dispatched command does not have → permission-denied → 409. (2) It navigated via `navigateTab` → `waitForTabLoad`, which blocks until the login site reaches `complete`; login redirects hang → timeout → 409. Opening/revealing a window and navigating a tab the extension created needs **no** host permission (only `chrome.scripting.executeScript` / `captureVisibleTab` on third-party origins do). New `handleOpenView` therefore: creates/reveals the profile popup window, kicks `chrome.tabs.update` navigation to `command.url` **without** awaiting load, skips `ensureCommandPermissions` entirely, marks the profile `awaitingCompletion`, and returns `{ ok: true, finalUrl, warning }` promptly (well under the command timeout). `close_view` and snapshot/act/assist paths keep host-permission + page-runner behavior unchanged; `close_view` also clears `awaitingCompletion`.
+
+**Part B — compact web modal + explicit open action:** Founder correction after review: the control surface must stay in PersAI web, not in a third-party-page overlay and not in the extension action popup. `browser-login-modal.tsx` is therefore no longer a full-screen dialog and no longer hides after the bridge window opens. It is a compact centered modal in the site's normal visual style: site name/URL, help toggle, extension status, install/dev guidance, explicit `Открыть <site>` button, status copy after the browser window is open, `Готово`, and `Отмена`. Desktop extension login no longer auto-opens the Chrome window from polling/registration; once the extension is connected, the user opens the target site from this compact modal. Mobile/native auto-open behavior remains unchanged.
+
+**MV3/button tradeoff:** Drawing a reliable PersAI overlay with buttons on arbitrary third-party login sites is not a valid default under MV3 without host permission, and `open_view` cannot request that permission from a service-worker command with no user gesture. The Chrome window is therefore just the browser surface for login. The buttons live in the compact PersAI modal, where Clerk auth is available and `completeAssistantBrowserLogin` / dismiss can be called directly.
+
+**Verification:** `@persai/browser-extension` lint PASS, typecheck PASS, test PASS (16), build PASS; `@persai/web exec vitest run browser-login-modal.test.tsx` PASS (9) and `chat-area.test.tsx` PASS (29); `@persai/web` typecheck PASS; repo `format:check` PASS.
+
+**Residuals / manual testing after deploy + extension reload:** Requires the parent's `api` Redis-relay deploy for cross-pod dispatch, then reload the unpacked extension from `extensions/persai-browser-extension/dist` and re-run desktop Lavka/Bitrix login. Expected: compact web modal appears when the assistant needs login; extension status becomes connected; user presses `Открыть <site>`; `open-live` returns success immediately; Chrome popup opens on the login URL; user signs in there, returns to the compact modal, and presses `Готово` to call `complete-login`. The `open_view` window navigation is best-effort (not awaited), so a wrong/blocked URL surfaces as the site not loading in the visible window rather than a command error — acceptable since the human is watching. Auto-detect/auto-close of successful login is not implemented in this slice.
+
+**Next recommended step:** Commit/push on explicit request alongside the parent's relay fix, deploy `api` + `web`, reload the extension, and execute the desktop login acceptance above.
+
+---
+
+## 2026-07-09 — ADR-140 cross-pod browser-bridge relay (Redis coordinator)
+
+Status: **implemented locally; commit/push pending.**
+
+**Scope:** `api` browser-bridge relay + config + dev Helm wiring. Defect fix inside ADR-140 scope (no new ADR). No model-facing browser tool contract change; no schema/migration change.
+
+**Why:** Desktop and mobile bridge login both failed with a permanent `bridge_unavailable` / 409 on `open-live` / `complete-login` even after the device socket connected. Root cause: the relay stored connections and command state in per-pod memory (`connectionsByKey`, `scopeToConnectionKeys`, `pendingCommands`), but `api` runs with `replicaCount: 2` (HPA up to 8) and the GCLB round-robins HTTP. The WebSocket lands on one pod while `dispatch` / `getCommandResult` HTTP lands on another, so the dispatch pod sees no socket. Live probes proved this was not ingress or client: `curl https://api.persai.dev/health` = 200 with valid TLS, and a raw WebSocket upgrade to `/api/v1/assistant/browser-bridge/ws` returned `HTTP/1.1 101 Switching Protocols` (`Via: 1.1 google`) with the server then waiting for the app handshake. So `api.persai.dev`, TLS, GCE LB WebSocket passthrough, and the relay WS server are all healthy — the only defect was cross-replica relay state.
+
+**What changed:**
+
+- `apps/api/.../browser-bridge/application/browser-bridge-coordinator.service.ts` (new): Redis-backed coordinator (node-redis v5). Shares the connection registry (`bb:conn:*`, `bb:scope:*` with TTL heartbeats), command state (`bb:cmd:*`), and forwards dispatch to the owning pod via pub/sub (`bb:pod:{podId}`). Disabled (no-op) when `BROWSER_BRIDGE_REDIS_URL` is unset.
+- `apps/api/.../browser-bridge/application/browser-bridge-relay.service.ts`: `dispatchCommand` / `getCommandResult` are now async and cross-pod aware — selection uses the shared scope registry; if the owner is a remote pod the command is published to it, otherwise delivered over the local socket; command state is mirrored to Redis so any pod resolves results. `attachConnection` / `disconnectConnection` / `acceptDeviceResult` stay synchronous (WS server unchanged) and mirror to Redis fire-and-forget. Heartbeat refreshes local connections' TTLs. Falls back to pure in-memory behavior with no coordinator (local dev / unit tests).
+- Callers updated to `await` the now-async relay methods (`assistant-browser-profile.service.ts`, `expire-assistant-browser-profiles.service.ts`).
+- `packages/config/src/api-config.ts`: new optional `BROWSER_BRIDGE_REDIS_URL`.
+- `infra/helm/values-dev.yaml`: `api.secretEnv.BROWSER_BRIDGE_REDIS_URL` → `persai-runtime-secrets/PERSAI_RUNTIME_SPEC_STORE_REDIS_URL` (optional).
+- `apps/api/package.json`: add `redis` dependency; lockfile refreshed.
+- Tests: existing relay suite updated for async; new `apps/api/test/browser-bridge-relay.cross-pod.test.ts` proves dispatch on a pod without the socket reaches the owner pod and the result is visible cross-pod, plus owner-gone → `bridge_device_not_connected`.
+
+**Verification:** api typecheck PASS; api lint PASS; `@persai/config` typecheck PASS; web typecheck PASS; `format:check` PASS; focused relay suite (5) + cross-pod suite (2) PASS; `helm lint` + `helm template` PASS (env renders on `api`).
+
+**Residuals / notes:** Dispatch rate limiting remains per-pod in memory (effective limit scales with replica count — acceptable, not the bug). Requires `api` deploy for dev to pick up Redis wiring; on deploy, re-test desktop extension + mobile login end-to-end.
+
+**Next recommended step:** Commit/push on explicit request, deploy `api`, then re-run desktop + mobile login. Expected: socket connect (already worked), then `open-live` delivers the target site and `complete-login` succeeds instead of 409.
+
+---
+
 ## 2026-07-09 — ADR-140 browser bridge websocket host fix for same-origin web proxy
 
 Status: **implemented locally; commit/push pending.**
@@ -115,14 +163,16 @@ Status: **implemented locally, not committed, not pushed.**
 **Confirmed false positives from auditor:** claimed active Browserless API clients and web live-proxy routes were already deleted on disk; git status shows them as deletions.
 
 **Confirmed real findings fixed:**
+
 - Runtime now receives ridgeSessionRef from API profile resolve and passes it as ridgeDeviceId for profile-backed local bridge page actions and open_live.
-- Desktop extension CTA no longer links to Chrome Web Store root; store URL is 
-ull until listing exists, modal uses developer-mode / wait-for-approval copy.
+- Desktop extension CTA no longer links to Chrome Web Store root; store URL is
+  ull until listing exists, modal uses developer-mode / wait-for-approval copy.
 - Docs/smoke honestly state mobile v1 cookie-jar isolation only; DOM storage / IndexedDB / service workers are not guaranteed isolated across same-origin profiles.
 
 **Deferred residuals (not blockers for local code gate):** Chrome Web Store publication, deploy + manual acceptance matrix, cosmetic open-live/dismiss-live route rename, bridge signing/heartbeat hardening.
 
 **Final parent gate PASS:**
+
 - corepack pnpm -r --if-present run lint
 - corepack pnpm run format:check
 - corepack pnpm --filter @persai/api|web|runtime|provider-gateway run typecheck
@@ -130,6 +180,7 @@ ull until listing exists, modal uses developer-mode / wait-for-approval copy.
 - Focused ADR-140 API/runtime/web/extension suites
 
 **Push readiness:** local code gate is green. Push still requires explicit user approval because push = deploy. Manual acceptance remains after deploy.
+
 ## 2026-07-08 вЂ” ADR-140 independent audit cleanup + final push-readiness gate
 
 Status: **implemented locally, not committed, not pushed.**
@@ -137,11 +188,13 @@ Status: **implemented locally, not committed, not pushed.**
 **Auditor:** independent GPT-5.5 Medium read-only audit (Grok 4.5 unavailable as a Cursor subagent model). Parent verified P0 вЂњdeleted files still presentвЂќ claims as false positives from deleted-path search noise; confirmed real P1s and fixed them.
 
 **Fixes applied:**
+
 - Runtime now receives `bridgeSessionRef` from API profile resolve and passes it as `bridgeDeviceId` for profile-backed local bridge page actions and `open_live`.
 - Desktop extension CTA no longer links to a fake Chrome Web Store root; store URL is `null` until listing exists, with honest developer-mode / wait-for-approval copy.
 - Docs/smoke truth for mobile v1 isolation downgraded to cookie-jar scoping; non-cookie WebView storage is not claimed as isolated.
 
 **Final gate PASS:**
+
 - `corepack pnpm -r --if-present run lint`
 - `corepack pnpm run format:check`
 - `corepack pnpm --filter @persai/api|web|runtime|provider-gateway run typecheck`
@@ -161,6 +214,7 @@ Status: **implemented locally, not committed, not pushed.**
 **Behavior:** Real Telegram browser requests were already short-circuiting to runtime `open_in_app`; S8 removes the lingering adapter/helper copy that still appended web-login instructions and replaces it with honest open-in-app copy. Working-tree deletions confirm the old `apps/web/app/api/browser-login-live/**`, `apps/web/app/api/internal/browser-login-live-upstream/**`, `apps/web/app/app/browser-login-live-url.*`, and `apps/web/app/lib/browser-login-live-proxy.*` files are deleted as part of the earlier cutover and no longer define active source truth.
 
 **Verification:**
+
 - Focused browser/Telegram suites PASS:
   - `corepack pnpm --filter @persai/api exec tsx test/assistant-browser-profile.service.test.ts`
   - `corepack pnpm --filter @persai/api exec tsx test/extract-pending-browser-login-from-turn.test.ts`
@@ -849,16 +903,16 @@ Status: **pushed `dfad6143`; deploy + live smoke pending.**
 
 **What landed locally:**
 
-| Area                          | Change                                                                                                                                                                              |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Area                          | Change                                                                                                                                                                                |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tool-catalog-data.ts`        | Canonical delivery contract: `files.write` в‰  chat delivery; require `files.attach` same turn; ADR-137 storage-plane wording (no `pod workspace` / `pod-absolute` in model guidance) |
-| `bootstrap-preset-data.ts`    | Single-sourced routing in `<category name="files">` + `response_contract`; removed duplicate deliver line from documents category                                                   |
+| `bootstrap-preset-data.ts`    | Single-sourced routing in `<category name="files">` + `response_contract`; removed duplicate deliver line from documents category                                                     |
 | `native-tool-projection.ts`   | Schema hint only on `action` enum (`write` persists / `attach` delivers) вЂ” no triplication of GOTCHAS                                                                               |
-| `turn-execution.service.ts`   | Open-document-jobs block: stale вЂњshell PDF delivered via files.attachвЂќ в†’ plain `.txt`/`.csv` need attach                                                                            |
-| `workspace-files-gallery.tsx` | Chat download URL only when **both** `chatId` and `messageId`; orphan tiles use workspace URL                                                                                       |
+| `turn-execution.service.ts`   | Open-document-jobs block: stale вЂњshell PDF delivered via files.attachвЂќ в†’ plain `.txt`/`.csv` need attach                                                                        |
+| `workspace-files-gallery.tsx` | Chat download URL only when **both** `chatId` and `messageId`; orphan tiles use workspace URL                                                                                         |
 | `sandbox.service.ts`          | `resolveShellExecCwdPath` вЂ” full `/workspace/...` cwd no longer doubles session root                                                                                                |
-| `turn-execution.service.ts`   | Working Files: shell cwd hint under `cwd:` line                                                                                                                                     |
-| Tests                         | `tool-catalog-data.test.ts`, `adr119-golden-prompt-snapshot.expected.txt`, `sandbox.service.test.ts`, `working-files-developer-section.test.ts`                                     |
+| `turn-execution.service.ts`   | Working Files: shell cwd hint under `cwd:` line                                                                                                                                       |
+| Tests                         | `tool-catalog-data.test.ts`, `adr119-golden-prompt-snapshot.expected.txt`, `sandbox.service.test.ts`, `working-files-developer-section.test.ts`                                       |
 
 **Verification:** `@persai/api` tool-catalog + bootstrap + golden snapshot tests PASS; `native-tool-projection.test.ts` PASS.
 
@@ -872,15 +926,15 @@ Program baseline at open: `a50ef764`. Independent S6 audit (2026-07-05): P0 shel
 
 **ADR-137 slices (local):**
 
-| Slice | Summary                                                                                                                                                                                                                 |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| S0    | Worker media в†’ GCS + manifest (`writeRuntimeOutboundArtifact`)                                                                                                                                                          |
-| S1    | Gamma GCS-direct; `writeRuntimeOutboundArtifactViaSandbox` removed                                                                                                                                                      |
-| S2вЂ“S3 | `files.*` в†’ `RuntimeStoragePlaneFilesService`; sandbox model `files` dispatch removed                                                                                                                                   |
-| S4    | Model `grep`/`glob` в†’ API storage scan                                                                                                                                                                                  |
-| S5    | Dead sandbox `workspace-write` + runtime `writeWorkspaceFile` client paths removed                                                                                                                                      |
-| S5.1  | Session-scoped pod hydrate + on-demand widen (`workspace-mount-hydrate.ts`)                                                                                                                                             |
-| Seam  | **Shell + exec:** diff all produced `/workspace/...` file paths (not pdf/docx/xlsx only) в†’ GCS mirror **fail-closed** в†’ runtime `syncVisibleWorkspaceProducedOutputs` manifest upsert **fail-closed** (chatId optional) |
+| Slice   | Summary                                                                                                                                                                                                                     |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S0      | Worker media в†’ GCS + manifest (`writeRuntimeOutboundArtifact`)                                                                                                                                                            |
+| S1      | Gamma GCS-direct; `writeRuntimeOutboundArtifactViaSandbox` removed                                                                                                                                                          |
+| S2вЂ“S3 | `files.*` в†’ `RuntimeStoragePlaneFilesService`; sandbox model `files` dispatch removed                                                                                                                                     |
+| S4      | Model `grep`/`glob` в†’ API storage scan                                                                                                                                                                                    |
+| S5      | Dead sandbox `workspace-write` + runtime `writeWorkspaceFile` client paths removed                                                                                                                                          |
+| S5.1    | Session-scoped pod hydrate + on-demand widen (`workspace-mount-hydrate.ts`)                                                                                                                                                 |
+| Seam    | **Shell + exec:** diff all produced `/workspace/...` file paths (not pdf/docx/xlsx only) в†’ GCS mirror **fail-closed** в†’ runtime `syncVisibleWorkspaceProducedOutputs` manifest upsert **fail-closed** (chatId optional) |
 
 **Also in this slice:** `files.write` fail-closed on manifest upsert; `files.preview` restored (image/PDF multimodal); internal workspace-files API + grep/glob manifest services; API controller test fix.
 
@@ -1877,12 +1931,12 @@ Status: **ADR-132 fully implemented locally (all five slices), not pushed.** Fou
 
 | Slice                                                                  | Feat        | Docs / Fix                      |
 | ---------------------------------------------------------------------- | ----------- | ------------------------------- |
-| Open ADR                                                               | `d086c530`  | вЂ”                               |
-| Slice 0 (ledger)                                                       | `99e58c67`  | вЂ”                               |
+| Open ADR                                                               | `d086c530`  | вЂ”                             |
+| Slice 0 (ledger)                                                       | `99e58c67`  | вЂ”                             |
 | Slice 1 (atomic cutover to 3 verbs)                                    | `808960b3`  | `35304479`                      |
 | Slice 2 (D4 registry + honest delivery + walls removed)                | `0bc56ca2`  | `7859b6d2`                      |
 | Slice 3 (Case A/B locked; legacy-verb rejection; server-side identity) | `3462e521`  | fix `54e5049d`, docs `db53089d` |
-| Slice 4 (docs closure + ADR-129/131/132 status sweep)                  | this commit | вЂ”                               |
+| Slice 4 (docs closure + ADR-129/131/132 status sweep)                  | this commit | вЂ”                             |
 
 **Verification for Slice 4.** Docs-only change. Full AGENTS gate re-run before commit: `pnpm -r --if-present run lint`, `pnpm run format:check`, `pnpm --filter @persai/api|web|runtime run typecheck` вЂ” all green (no code touched).
 
@@ -4192,11 +4246,11 @@ Founder observation (2026-06-22, follow-up after ADR-125 A2 push): every deferre
 
 Live trace of chat `web-1782153682653` (assistant `2f8cf38e-вЂ¦`, founder query "РїСЂРѕРІРµСЂСЊ С‚СѓС‚ РµСЃС‚СЊ С‡Р°С‚ id?") showed Amendment 1 firing one turn late. Sequence:
 
-| Turn | User в†’ Assistant                                | Observation                                                                                              |
-| ---- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| 1    | В«РџСЂРёРІРµС‚В» в†’ В«РќСѓ РїСЂРёРІРµС‚, Р›С‘С€вЂ¦В»                    | no scenario, no plan вЂ” OK                                                                                |
+| Turn | User в†’ Assistant                                                               | Observation                                                                                                |
+| ---- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 1    | В«РџСЂРёРІРµС‚В» в†’ В«РќСѓ РїСЂРёРІРµС‚, Р›С‘С€вЂ¦В»                            | no scenario, no plan вЂ” OK                                                                                |
 | 2    | В«РґР°РІР°Р№ СЃРґРµР»Р°РµРј РёРЅСЃС‚Р°РіСЂР°Рј РєР°СЂСѓСЃРµР»СЊВ» в†’ text reply | `skill.engage(scenarioKey="instagram_carousel")` ran INSIDE turn, but no `todo_write` вЂ” plan NOT created |
-| 3    | В«СЃРѕСЃС‚Р°РІСЊ СЃР°Рј РёР·СѓС‡Рё persai.devвЂ¦В» в†’ text reply    | 5-row plan CREATED at 18:43:25, model now self-tracks                                                    |
+| 3    | В«СЃРѕСЃС‚Р°РІСЊ СЃР°Рј РёР·СѓС‡Рё persai.devвЂ¦В» в†’ text reply                | 5-row plan CREATED at 18:43:25, model now self-tracks                                                      |
 
 Root cause: `prepareTurnExecution` builds the volatile prefix (`<persai_active_scenario>` + `<persai_chat_plan>` + `<system-reminder>` blocks) **once** from the `skillStateContext` snapshot taken at turn-prep. Any `skill.engage` / `skill.release` / `todo_write` call inside the tool loop mutated DB state, but the prompt the model saw on the next hop of that same turn still carried the stale prefix. Intake reminder thus arrived a turn late.
 
@@ -5168,38 +5222,38 @@ ADR-123 Slice 5: Full PDF rendering cutover from the external PDFMonkey SaaS API
 
 ### Files touched
 
-| Subsystem                 | File                                                                                                       | Change                                                                                                                        |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Subsystem                 | File                                                                                                       | Change                                                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime contract          | `packages/runtime-contract/src/index.ts`                                                                   | `"pdfmonkey"в†’"sandbox"` in provider enums/types; remove pdfmonkey member from `ProviderGatewayDocumentGenerateRequest/Result` |
-| Runtime bundle            | `packages/runtime-bundle/src/index.ts`                                                                     | Remove `pdfmonkeyTemplateId` from governance                                                                                  |
+| Runtime bundle            | `packages/runtime-bundle/src/index.ts`                                                                     | Remove `pdfmonkeyTemplateId` from governance                                                                                    |
 | Prisma schema             | `apps/api/prisma/schema.prisma`                                                                            | Rename enum value `pdfmonkeyв†’sandbox`                                                                                         |
-| Prisma migration          | `apps/api/prisma/migrations/20260621000000_adr123_render_provider_sandbox/migration.sql`                   | SQL rename                                                                                                                    |
-| Prisma client             | Regenerated                                                                                                | `prisma generate`                                                                                                             |
-| Runtime adapter           | `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts`                              | Major refactor: sandbox provider, `renderHtmlToPdf()` helper, chunked removal, CSS unification                                |
-| File registry             | `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts`                                | Add `deleteById()`                                                                                                            |
+| Prisma migration          | `apps/api/prisma/migrations/20260621000000_adr123_render_provider_sandbox/migration.sql`                   | SQL rename                                                                                                                      |
+| Prisma client             | Regenerated                                                                                                | `prisma generate`                                                                                                               |
+| Runtime adapter           | `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts`                              | Major refactor: sandbox provider, `renderHtmlToPdf()` helper, chunked removal, CSS unification                                  |
+| File registry             | `apps/runtime/src/modules/turns/runtime-assistant-file-registry.service.ts`                                | Add `deleteById()`                                                                                                              |
 | Document tool service     | `apps/runtime/src/modules/turns/runtime-document-tool.service.ts`                                          | Default provider в†’ `"sandbox"`                                                                                                |
-| Provider gateway client   | `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`                                        | Remove pdfmonkey from `isDocumentGenerateResult`                                                                              |
-| Document jobs controller  | `apps/runtime/src/modules/turns/interface/http/internal-runtime-document-jobs.controller.ts`               | Validate `"sandbox"` provider                                                                                                 |
-| Provider gateway module   | `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`                                   | Remove `PdfMonkeyProviderClient`                                                                                              |
-| Provider document service | `apps/provider-gateway/src/modules/providers/provider-document-generation.service.ts`                      | Remove pdfmonkey branch                                                                                                       |
-| Run suite                 | `apps/provider-gateway/test/run-suite.ts`                                                                  | Remove pdfmonkey test                                                                                                         |
-| Deleted                   | `apps/provider-gateway/src/modules/providers/pdfmonkey/pdfmonkey-provider.client.ts`                       | Deleted                                                                                                                       |
-| Deleted                   | `apps/provider-gateway/test/pdfmonkey-provider.client.test.ts`                                             | Deleted (if existed)                                                                                                          |
-| Tool credentials          | `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`                        | Remove all pdfmonkey entries; remove `documentProviderTemplateIds` field                                                      |
-| Manage credentials        | `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts`           | Remove `documentProviderTemplateIds` processing                                                                               |
+| Provider gateway client   | `apps/runtime/src/modules/turns/provider-gateway.client.service.ts`                                        | Remove pdfmonkey from `isDocumentGenerateResult`                                                                                |
+| Document jobs controller  | `apps/runtime/src/modules/turns/interface/http/internal-runtime-document-jobs.controller.ts`               | Validate `"sandbox"` provider                                                                                                   |
+| Provider gateway module   | `apps/provider-gateway/src/modules/providers/provider-gateway.module.ts`                                   | Remove `PdfMonkeyProviderClient`                                                                                                |
+| Provider document service | `apps/provider-gateway/src/modules/providers/provider-document-generation.service.ts`                      | Remove pdfmonkey branch                                                                                                         |
+| Run suite                 | `apps/provider-gateway/test/run-suite.ts`                                                                  | Remove pdfmonkey test                                                                                                           |
+| Deleted                   | `apps/provider-gateway/src/modules/providers/pdfmonkey/pdfmonkey-provider.client.ts`                       | Deleted                                                                                                                         |
+| Deleted                   | `apps/provider-gateway/test/pdfmonkey-provider.client.test.ts`                                             | Deleted (if existed)                                                                                                            |
+| Tool credentials          | `apps/api/src/modules/workspace-management/application/tool-credential-settings.ts`                        | Remove all pdfmonkey entries; remove `documentProviderTemplateIds` field                                                        |
+| Manage credentials        | `apps/api/src/modules/workspace-management/application/manage-admin-tool-credentials.service.ts`           | Remove `documentProviderTemplateIds` processing                                                                                 |
 | Enqueue job               | `apps/api/src/modules/workspace-management/application/enqueue-runtime-deferred-document-job.service.ts`   | `pdfmonkeyв†’sandbox`; remove template gate                                                                                     |
 | Job scheduler             | `apps/api/src/modules/workspace-management/application/assistant-document-job-scheduler.service.ts`        | `pdfmonkeyв†’sandbox` in types and ternaries                                                                                    |
-| Pricing catalog           | `apps/api/src/modules/workspace-management/application/tool-path-pricing-catalog.ts`                       | Remove pdfmonkey billing entry                                                                                                |
+| Pricing catalog           | `apps/api/src/modules/workspace-management/application/tool-path-pricing-catalog.ts`                       | Remove pdfmonkey billing entry                                                                                                  |
 | Runtime tool policy       | `apps/api/src/modules/workspace-management/application/runtime-tool-policy.ts`                             | `pdfmonkeyв†’sandbox`                                                                                                           |
-| Materialize service       | `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` | Remove `pdfmonkeyTemplateId`                                                                                                  |
-| Web admin                 | `apps/web/app/admin/tools/page.tsx`                                                                        | Remove PDFMonkey credential/template UI                                                                                       |
-| Web economics             | `apps/web/app/admin/tools/tool-path-economics.ts`                                                          | Remove PDFMonkey display name                                                                                                 |
-| Seed data                 | `apps/api/prisma/site-page-seed-data.ts`                                                                   | Remove "PDFMonkey" from prose                                                                                                 |
-| Docs                      | `docs/LIVE-TEST-HYBRID.md`                                                                                 | Remove PDFMonkey prerequisite                                                                                                 |
-| Tests (runtime)           | `apps/runtime/test/runtime-document-provider-adapter.service.test.ts`                                      | Major update: sandbox mock helpers, remove pdfmonkey types                                                                    |
+| Materialize service       | `apps/api/src/modules/workspace-management/application/materialize-assistant-published-version.service.ts` | Remove `pdfmonkeyTemplateId`                                                                                                    |
+| Web admin                 | `apps/web/app/admin/tools/page.tsx`                                                                        | Remove PDFMonkey credential/template UI                                                                                         |
+| Web economics             | `apps/web/app/admin/tools/tool-path-economics.ts`                                                          | Remove PDFMonkey display name                                                                                                   |
+| Seed data                 | `apps/api/prisma/site-page-seed-data.ts`                                                                   | Remove "PDFMonkey" from prose                                                                                                   |
+| Docs                      | `docs/LIVE-TEST-HYBRID.md`                                                                                 | Remove PDFMonkey prerequisite                                                                                                   |
+| Tests (runtime)           | `apps/runtime/test/runtime-document-provider-adapter.service.test.ts`                                      | Major update: sandbox mock helpers, remove pdfmonkey types                                                                      |
 | Tests (runtime)           | `apps/runtime/test/runtime-document-job-run.service.test.ts`                                               | `pdfmonkeyв†’sandbox`                                                                                                           |
-| Tests (runtime)           | `apps/runtime/test/provider-gateway.client.service.test.ts`                                                | Remove pdfmonkey fixture                                                                                                      |
-| Tests (sandbox)           | `apps/sandbox/test/sandbox.service.test.ts`                                                                | ADD `render_html_to_pdf` test                                                                                                 |
+| Tests (runtime)           | `apps/runtime/test/provider-gateway.client.service.test.ts`                                                | Remove pdfmonkey fixture                                                                                                        |
+| Tests (sandbox)           | `apps/sandbox/test/sandbox.service.test.ts`                                                                | ADD `render_html_to_pdf` test                                                                                                   |
 
 ### Tests run
 
@@ -5246,7 +5300,7 @@ Replaced placeholder `busybox:1.36` exec image with the real in-sandbox toolchai
 | `apps/sandbox/exec-image/requirements.txt` (new) | Pinned Python package versions                                            |
 | `scripts/ci/detect-affected.mjs`                 | `sandbox-exec` service + classifyFile routing + workflow_dispatch         |
 | `scripts/ci/detect-affected.test.mjs`            | 3 new tests for sandbox-exec routing                                      |
-| `scripts/ci/pin-dev-image-tags.mjs`              | `sandbox-exec` в†’ `sandboxExec` section mapping                            |
+| `scripts/ci/pin-dev-image-tags.mjs`              | `sandbox-exec` в†’ `sandboxExec` section mapping                          |
 | `infra/helm/values-dev.yaml`                     | `sandboxExec.image` block; remove `SANDBOX_EXEC_IMAGE` from `sandbox.env` |
 | `infra/helm/templates/sandbox-deployment.yaml`   | Compute `SANDBOX_EXEC_IMAGE` from `sandboxExec.image`                     |
 | `docs/CHANGELOG.md`                              | Slice 4 entry                                                             |
@@ -5300,7 +5354,7 @@ Session-lived sandbox execution: pods are now reused across jobs within a sessio
 | `apps/sandbox/test/sandbox.service.test.ts`          | Session snapshot save/restore round-trip tests (4 new)                                                                                                                        |
 | `apps/sandbox/test/sandbox-metrics.service.test.ts`  | Config fixture updated with 2 new fields                                                                                                                                      |
 | `docs/CHANGELOG.md`                                  | Slice 3 entry                                                                                                                                                                 |
-| `infra/dev/gke/RUNBOOK.md`                           | ADR-123 Slice 3 verification steps (В§7 new steps)                                                                                                                             |
+| `infra/dev/gke/RUNBOOK.md`                           | ADR-123 Slice 3 verification steps (В§7 new steps)                                                                                                                            |
 | `docs/ADR/123-...md`                                 | Slice 3 LANDED + warm pool DEFERRED noted                                                                                                                                     |
 
 ### Tests run
@@ -5383,8 +5437,8 @@ The single pre-first-tool "working preamble" string was replaced everywhere by a
 
 | File                                                                                                                                                                                                           | Purpose                                                                      |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `packages/runtime-contract/src/index.ts`                                                                                                                                                                       | `preambleText` в†’ `workingNotes: string[]` on `RuntimeTurnResult`             |
-| `packages/contracts/openapi.yaml` + `src/generated/model/assistantWebChatMessageState.ts`                                                                                                                      | `workingPreamble` в†’ `workingNotes` (array); regenerated                      |
+| `packages/runtime-contract/src/index.ts`                                                                                                                                                                       | `preambleText` в†’ `workingNotes: string[]` on `RuntimeTurnResult`           |
+| `packages/contracts/openapi.yaml` + `src/generated/model/assistantWebChatMessageState.ts`                                                                                                                      | `workingPreamble` в†’ `workingNotes` (array); regenerated                    |
 | `apps/runtime/src/modules/turns/turn-execution.service.ts`                                                                                                                                                     | per-step capture + `assembleWorkingNotesAndAnswer`; `buildTurnResult` rework |
 | `apps/runtime/test/assemble-working-notes-and-answer.test.ts` (new) + `run-suite.ts` / `run-suite-isolated.ts`                                                                                                 | unit suite for the pure assembler; registered                                |
 | `apps/runtime/test/turn-execution.service.test.ts`                                                                                                                                                             | multi-step capture + dedupe assertions (replaces split test)                 |
@@ -5499,13 +5553,13 @@ Slice 2 of ADR-122 (D3 + D4): the single `resolveModelOutputBudget` pure helper,
 
 | File                                                                                 | Purpose                                                                                                                                          |
 | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `apps/runtime/src/modules/turns/model-output-budget.ts`                              | New вЂ” pure resolver + constants                                                                                                                  |
-| `apps/runtime/test/model-output-budget.test.ts`                                      | New вЂ” 9-case unit test suite                                                                                                                     |
+| `apps/runtime/src/modules/turns/model-output-budget.ts`                              | New вЂ” pure resolver + constants                                                                                                                |
+| `apps/runtime/test/model-output-budget.test.ts`                                      | New вЂ” 9-case unit test suite                                                                                                                   |
 | `apps/runtime/test/run-suite.ts`                                                     | Registered `runModelOutputBudgetTest`                                                                                                            |
 | `apps/runtime/test/run-suite-isolated.ts`                                            | Registered `runModelOutputBudgetTest`                                                                                                            |
 | `apps/runtime/src/modules/turns/turn-execution.service.ts`                           | Added `resolveSlotCapability`, `estimateProviderRequestInputTokens`; wired resolver in `prepareTurnExecution` + `refreshProviderRequestMessages` |
 | `apps/runtime/src/modules/turns/runtime-document-provider-adapter.service.ts`        | Refactored `resolveMaxOutputTokens` to delegate to resolver; removed `DEFENSIVE_OUTPUT_TOKEN_CAP`                                                |
-| `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` | Replaced 4Г— `?? 1_024` with `PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS = 4_096`                                                                        |
+| `apps/provider-gateway/src/modules/providers/anthropic/anthropic-provider.client.ts` | Replaced 4Г— `?? 1_024` with `PROVIDER_FALLBACK_MAX_OUTPUT_TOKENS = 4_096`                                                                       |
 | `apps/runtime/test/turn-execution.service.test.ts`                                   | Added `OUTPUT_BUDGET_SANITY_CAP` import + maxOutputTokens regression assertion                                                                   |
 | `apps/provider-gateway/test/anthropic-provider.client.test.ts`                       | Updated 3 test assertions for new fallback value                                                                                                 |
 
@@ -7325,18 +7379,18 @@ The old volatile memory wrappers were hardcoded literals. The new parameterized 
 
 ### Additive-first proof (Slice 2)
 
-| Removed sentence (ledger)                                                | Guide section that now owns it                                                                                        |
-| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| Removed sentence (ledger)                                                | Guide section that now owns it                                                                                               |
+| ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | S4 image_generate "not for editing/video"                                | Selection Guide В§Images: "Create/generate в†’ `image_generate`; Modify/edit в†’ `image_edit`; Animate в†’ `video_generate`" |
-| S5 image_generate "call immediately / never narrate"                     | Selection Guide: "call the tool immediately вЂ” never print a fake callвЂ¦"                                               |
-| S7 image_edit "do not use for description/OCR"                           | Selection Guide В§Images: "Describe/analyze в†’ answer from vision; do NOT call an image tool"                           |
-| S9 video_generate "use only for generated video/animation"               | Selection Guide В§Images: "Animate or create a short video clip в†’ `video_generate`"                                    |
-| S10 video_generate "do not use for editing/image questions"              | Selection Guide В§Images: mutual exclusion with image_edit + vision                                                    |
-| S11 video_generate "call immediately / never narrate"                    | Selection Guide: global "call immediately" rule                                                                       |
-| S13 web_search "when you need sources/links"                             | Selection Guide В§Knowledge & Web: "need sources or links without an exact URL в†’ `web_search`"                         |
-| S14 web_fetch "when you already know the exact URL"                      | Selection Guide В§Knowledge & Web: "know the exact URL в†’ `web_fetch`"                                                  |
-| S15 scheduled_action "do not use for hidden checks; use background_task" | Selection Guide В§Memory & Tasks: "Conditional check в†’ `background_task`"                                              |
-| S16 background_task "`scheduled_action` is only for reminders"           | Selection Guide В§Memory & Tasks: "Simple unconditional reminder в†’ `scheduled_action`"                                 |
+| S5 image_generate "call immediately / never narrate"                     | Selection Guide: "call the tool immediately вЂ” never print a fake callвЂ¦"                                                  |
+| S7 image_edit "do not use for description/OCR"                           | Selection Guide В§Images: "Describe/analyze в†’ answer from vision; do NOT call an image tool"                               |
+| S9 video_generate "use only for generated video/animation"               | Selection Guide В§Images: "Animate or create a short video clip в†’ `video_generate`"                                        |
+| S10 video_generate "do not use for editing/image questions"              | Selection Guide В§Images: mutual exclusion with image_edit + vision                                                          |
+| S11 video_generate "call immediately / never narrate"                    | Selection Guide: global "call immediately" rule                                                                              |
+| S13 web_search "when you need sources/links"                             | Selection Guide В§Knowledge & Web: "need sources or links without an exact URL в†’ `web_search`"                             |
+| S14 web_fetch "when you already know the exact URL"                      | Selection Guide В§Knowledge & Web: "know the exact URL в†’ `web_fetch`"                                                      |
+| S15 scheduled_action "do not use for hidden checks; use background_task" | Selection Guide В§Memory & Tasks: "Conditional check в†’ `background_task`"                                                  |
+| S16 background_task "`scheduled_action` is only for reminders"           | Selection Guide В§Memory & Tasks: "Simple unconditional reminder в†’ `scheduled_action`"                                     |
 
 ### Slice 3 landed (provider-conditioning constants module)
 

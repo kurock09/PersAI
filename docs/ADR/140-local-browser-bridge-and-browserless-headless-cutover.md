@@ -10,6 +10,10 @@
 
 **Supersedes and closes:** ADR-138 (persistent Browserless profiles / live login) and ADR-139 (Browserless capability policy, stealth/proxy, persistent BQL elements, recovery) for all persistent cloud session truth. ADR-138/139 remain archive references only after this program closes.
 
+### Post-closure defect fixes (in-scope, no new ADR)
+
+- **2026-07-09 — cross-pod bridge relay (local, not pushed).** The local browser-bridge relay held the connection registry and command lifecycle (`connectionsByKey`, `scopeToConnectionKeys`, `pendingCommands`) in per-pod memory, but `api` runs with ≥2 replicas and the GCLB round-robins HTTP. A device WebSocket owned by pod A was therefore invisible to `open-live` / `complete-login` / browser-tool `dispatch`+`result` handled by pod B, surfacing as a permanent `bridge_unavailable` → 409 for both desktop and mobile even after a successful socket connect. Live probing confirmed `api.persai.dev` health, TLS, and the WebSocket upgrade (`101 Switching Protocols` via the GCE LB) were all healthy, isolating the fault to the relay rather than ingress or the client. Fix: a Redis-backed coordinator (`BROWSER_BRIDGE_REDIS_URL`, reusing the runtime Redis) now shares the connection registry + command state across replicas and forwards each dispatch to the pod that owns the socket via pub/sub, so `getCommandResult` resolves from any pod. Sockets and their local timeouts still live on the owning pod. When `BROWSER_BRIDGE_REDIS_URL` is unset (local dev / single process) the relay keeps the previous in-memory behavior. This is a defect fix inside ADR-140 scope; no new ADR.
+
 ## Date
 
 2026-07-08

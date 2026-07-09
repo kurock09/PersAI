@@ -1,5 +1,13 @@
 import { randomUUID, createHmac } from "node:crypto";
-import { BadRequestException, HttpException, HttpStatus, Injectable, Logger } from "@nestjs/common";
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit
+} from "@nestjs/common";
 import type {
   LocalBrowserBridgeDeviceKind,
   LocalBrowserBridgeDeviceRegisterRequest,
@@ -16,6 +24,11 @@ import {
   LOCAL_BROWSER_BRIDGE_DEVICE_KINDS,
   MAX_RUNTIME_BROWSER_TIMEOUT_MS
 } from "@persai/runtime-contract";
+import {
+  BrowserBridgeCoordinatorService,
+  type BridgeConnectionDescriptor,
+  type ForwardedCommandEnvelope
+} from "./browser-bridge-coordinator.service";
 
 const DEVICE_TOKEN_VERSION = "v1";
 const DEVICE_TOKEN_TTL_MS = 15 * 60 * 1000;
@@ -27,6 +40,7 @@ const CONNECTION_REPLACED_CLOSE_REASON = "duplicate_connection_replaced";
 const COMMAND_TIMEOUT_ERROR = "bridge_command_timeout";
 const CONNECTION_CLOSED_ERROR = "bridge_connection_closed";
 const COMMAND_UNKNOWN_ERROR = "bridge_command_not_found_or_expired";
+const CONNECTION_HEARTBEAT_INTERVAL_MS = 20_000;
 
 type DeviceTokenClaims = {
   version: typeof DEVICE_TOKEN_VERSION;
@@ -88,6 +102,10 @@ export type BrowserBridgeDispatchOutcome =
   | LocalBrowserBridgeDispatchCommandResult
   | BrowserBridgeDispatchUnavailableResult;
 
+type ConnectionSelection =
+  | { connectionKey: string; bridgeDeviceId: string; podId: string | null }
+  | BrowserBridgeDispatchUnavailableResult;
+
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -114,12 +132,36 @@ function setSafeTimeout(callback: () => void, timeoutMs: number): NodeJS.Timeout
 }
 
 @Injectable()
-export class BrowserBridgeRelayService {
+export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BrowserBridgeRelayService.name);
   private readonly connectionsByKey = new Map<string, ActiveConnectionRecord>();
   private readonly scopeToConnectionKeys = new Map<string, Set<string>>();
   private readonly pendingCommands = new Map<string, PendingCommandRecord>();
   private readonly dispatchRates = new Map<string, DispatchRateRecord>();
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+
+  constructor(private readonly coordinator?: BrowserBridgeCoordinatorService) {}
+
+  onModuleInit(): void {
+    if (this.coordinator?.isEnabled()) {
+      this.coordinator.setCommandHandler((envelope) => {
+        this.handleForwardedCommand(envelope);
+      });
+      // Warm the connection so the pod is subscribed to its command channel before any device
+      // connects. Failures degrade to local-only behavior and are logged by the coordinator.
+      void this.coordinator.ensureConnected();
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.coordinator?.isEnabled()) {
+      await this.coordinator.shutdown();
+    }
+  }
 
   registerDevice(
     input: LocalBrowserBridgeDeviceRegisterRequest,
@@ -181,6 +223,11 @@ export class BrowserBridgeRelayService {
     const keys = this.scopeToConnectionKeys.get(scopeKey) ?? new Set<string>();
     keys.add(connectionKey);
     this.scopeToConnectionKeys.set(scopeKey, keys);
+
+    if (this.coordinator?.isEnabled()) {
+      void this.coordinator.registerConnection(this.toDescriptor(record));
+      this.ensureHeartbeat();
+    }
     return connectionKey;
   }
 
@@ -197,6 +244,9 @@ export class BrowserBridgeRelayService {
       if (keys.size === 0) {
         this.scopeToConnectionKeys.delete(scopeKey);
       }
+    }
+    if (this.coordinator?.isEnabled()) {
+      void this.coordinator.removeConnection(connectionKey, record.workspaceId, record.assistantId);
     }
 
     const now = Date.now();
@@ -226,22 +276,14 @@ export class BrowserBridgeRelayService {
     return true;
   }
 
-  dispatchCommand(input: LocalBrowserBridgeDispatchCommandRequest): BrowserBridgeDispatchOutcome {
+  async dispatchCommand(
+    input: LocalBrowserBridgeDispatchCommandRequest
+  ): Promise<BrowserBridgeDispatchOutcome> {
     this.pruneState();
     this.enforceDispatchRateLimit(input.workspaceId, input.assistantId);
     const commandId = this.requiredString(input.command.commandId, "command.commandId");
     if (this.pendingCommands.has(commandId)) {
       throw new BadRequestException(`Command "${commandId}" is already pending.`);
-    }
-
-    const selection = this.selectConnection(
-      input.workspaceId,
-      input.assistantId,
-      input.bridgeDeviceId ?? null,
-      commandId
-    );
-    if (!("socket" in selection)) {
-      return selection;
     }
 
     const timeoutMs = this.normalizeTimeoutMs(input.command.timeoutMs ?? null);
@@ -250,32 +292,73 @@ export class BrowserBridgeRelayService {
       commandId,
       timeoutMs
     };
-    const timeoutAt = Date.now() + timeoutMs;
-    const timeoutHandle = setSafeTimeout(() => {
-      this.completeCommand(
+
+    const selection = await this.selectConnection(
+      input.workspaceId,
+      input.assistantId,
+      input.bridgeDeviceId ?? null,
+      commandId
+    );
+    if (!("connectionKey" in selection)) {
+      return selection;
+    }
+
+    const ownedLocally = selection.podId === null || selection.podId === this.coordinator?.podId;
+
+    // Publish command state so any pod polling `getCommandResult` observes the in-flight command,
+    // even though only the owning pod holds the socket and the local timeout.
+    if (this.coordinator?.isEnabled()) {
+      await this.coordinator.putCommandState(
         commandId,
-        this.buildErrorResult(commandId, COMMAND_TIMEOUT_ERROR),
-        Date.now()
+        {
+          status: "pending",
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          connectionKey: selection.connectionKey,
+          bridgeDeviceId: selection.bridgeDeviceId,
+          timeoutAt: Date.now() + timeoutMs
+        },
+        this.commandStateTtlSeconds(timeoutMs)
       );
-    }, timeoutMs);
-    const pending: PendingCommandRecord = {
-      commandId,
-      assistantId: input.assistantId,
-      workspaceId: input.workspaceId,
-      bridgeDeviceId: selection.bridgeDeviceId,
+    }
+
+    if (ownedLocally) {
+      const delivered = this.deliverLocally(command, selection.connectionKey);
+      if (!delivered) {
+        if (this.coordinator?.isEnabled()) {
+          await this.coordinator.completeCommandState(
+            commandId,
+            this.buildErrorResult(commandId, CONNECTION_CLOSED_ERROR),
+            this.commandStateTtlSeconds(timeoutMs)
+          );
+        }
+        return {
+          accepted: false,
+          commandId,
+          code: "bridge_device_not_connected",
+          message: "The requested browser bridge device is no longer connected.",
+          activeBridgeDeviceIds: this.listActiveDeviceIds(input.workspaceId, input.assistantId),
+          requestedBridgeDeviceId: selection.bridgeDeviceId
+        };
+      }
+      return { accepted: true, commandId, bridgeDeviceId: selection.bridgeDeviceId };
+    }
+
+    const envelope: ForwardedCommandEnvelope = {
       connectionKey: selection.connectionKey,
-      timeoutAt,
-      timeoutHandle
+      command
     };
-    this.pendingCommands.set(commandId, pending);
-    try {
-      selection.socket.send(JSON.stringify(command));
-    } catch (error) {
-      clearTimeout(timeoutHandle);
-      this.pendingCommands.delete(commandId);
-      this.disconnectConnection(selection.connectionKey, CONNECTION_CLOSED_ERROR);
-      this.logger.warn(
-        `[browser-bridge] failed to send command=${commandId} device=${selection.bridgeDeviceId}: ${String(error)}`
+    const published = await this.coordinator!.publishCommand(selection.podId!, envelope);
+    if (!published) {
+      await this.coordinator!.completeCommandState(
+        commandId,
+        this.buildErrorResult(commandId, CONNECTION_CLOSED_ERROR),
+        this.commandStateTtlSeconds(timeoutMs)
+      );
+      await this.coordinator!.removeConnection(
+        selection.connectionKey,
+        input.workspaceId,
+        input.assistantId
       );
       return {
         accepted: false,
@@ -286,49 +369,198 @@ export class BrowserBridgeRelayService {
         requestedBridgeDeviceId: selection.bridgeDeviceId
       };
     }
-
-    return {
-      accepted: true,
-      commandId,
-      bridgeDeviceId: selection.bridgeDeviceId
-    };
+    return { accepted: true, commandId, bridgeDeviceId: selection.bridgeDeviceId };
   }
 
-  getCommandResult(commandId: string): LocalBrowserBridgeGetCommandResultResult {
+  async getCommandResult(commandId: string): Promise<LocalBrowserBridgeGetCommandResultResult> {
     this.pruneState();
     const pending = this.pendingCommands.get(commandId);
-    if (pending === undefined) {
+    if (pending !== undefined) {
+      if (pending.result === undefined) {
+        if (pending.timeoutAt <= Date.now()) {
+          this.completeCommand(
+            commandId,
+            this.buildErrorResult(commandId, COMMAND_TIMEOUT_ERROR),
+            Date.now()
+          );
+        } else {
+          return { status: "pending" };
+        }
+      }
+      const completed = this.pendingCommands.get(commandId);
       return {
         status: "completed",
-        result: this.buildErrorResult(commandId, COMMAND_UNKNOWN_ERROR)
+        result: completed?.result ?? this.buildErrorResult(commandId, COMMAND_UNKNOWN_ERROR)
       };
     }
-    if (pending.result === undefined) {
-      if (pending.timeoutAt <= Date.now()) {
-        this.completeCommand(
-          commandId,
-          this.buildErrorResult(commandId, COMMAND_TIMEOUT_ERROR),
-          Date.now()
-        );
-      } else {
-        return { status: "pending" };
+
+    if (this.coordinator?.isEnabled()) {
+      const state = await this.coordinator.getCommandState(commandId);
+      if (state === null) {
+        return {
+          status: "completed",
+          result: this.buildErrorResult(commandId, COMMAND_UNKNOWN_ERROR)
+        };
       }
+      if (state.status === "completed" && state.result !== undefined) {
+        return { status: "completed", result: state.result };
+      }
+      if (state.timeoutAt <= Date.now()) {
+        const timeoutResult = this.buildErrorResult(commandId, COMMAND_TIMEOUT_ERROR);
+        await this.coordinator.completeCommandState(
+          commandId,
+          timeoutResult,
+          COMMAND_RESULT_RETENTION_MS / 1000
+        );
+        return { status: "completed", result: timeoutResult };
+      }
+      return { status: "pending" };
     }
-    const completed = this.pendingCommands.get(commandId);
+
     return {
       status: "completed",
-      result: completed?.result ?? this.buildErrorResult(commandId, COMMAND_UNKNOWN_ERROR)
+      result: this.buildErrorResult(commandId, COMMAND_UNKNOWN_ERROR)
     };
   }
 
-  private selectConnection(
+  /**
+   * Invoked on the pod that owns the device socket when a dispatch handled by another pod is
+   * forwarded via the coordinator. Delivers over the local socket and installs a local timeout so
+   * the command still completes if the device never answers.
+   */
+  private handleForwardedCommand(envelope: ForwardedCommandEnvelope): void {
+    const delivered = this.deliverLocally(envelope.command, envelope.connectionKey);
+    if (!delivered && this.coordinator?.isEnabled()) {
+      void this.coordinator.completeCommandState(
+        envelope.command.commandId,
+        this.buildErrorResult(envelope.command.commandId, CONNECTION_CLOSED_ERROR),
+        this.commandStateTtlSeconds(
+          envelope.command.timeoutMs ?? DEFAULT_RUNTIME_BROWSER_TIMEOUT_MS
+        )
+      );
+    }
+  }
+
+  private deliverLocally(command: LocalBrowserCommand, connectionKey: string): boolean {
+    const record = this.connectionsByKey.get(connectionKey);
+    if (record === undefined) {
+      return false;
+    }
+    if (this.pendingCommands.has(command.commandId)) {
+      // Already tracked locally (defensive against duplicate delivery).
+      return true;
+    }
+    const timeoutMs = this.normalizeTimeoutMs(command.timeoutMs ?? null);
+    const timeoutAt = Date.now() + timeoutMs;
+    const timeoutHandle = setSafeTimeout(() => {
+      this.completeCommand(
+        command.commandId,
+        this.buildErrorResult(command.commandId, COMMAND_TIMEOUT_ERROR),
+        Date.now()
+      );
+    }, timeoutMs);
+    const pending: PendingCommandRecord = {
+      commandId: command.commandId,
+      assistantId: record.assistantId,
+      workspaceId: record.workspaceId,
+      bridgeDeviceId: record.bridgeDeviceId,
+      connectionKey,
+      timeoutAt,
+      timeoutHandle
+    };
+    this.pendingCommands.set(command.commandId, pending);
+    try {
+      record.socket.send(JSON.stringify(command));
+    } catch (error) {
+      clearTimeout(timeoutHandle);
+      this.pendingCommands.delete(command.commandId);
+      this.disconnectConnection(connectionKey, CONNECTION_CLOSED_ERROR);
+      this.logger.warn(
+        `[browser-bridge] failed to send command=${command.commandId} device=${record.bridgeDeviceId}: ${String(error)}`
+      );
+      return false;
+    }
+    return true;
+  }
+
+  private async selectConnection(
     workspaceId: string,
     assistantId: string,
     requestedBridgeDeviceId: string | null,
     commandId: string
-  ):
-    | { connectionKey: string; bridgeDeviceId: string; socket: BridgeSocketLike }
-    | BrowserBridgeDispatchUnavailableResult {
+  ): Promise<ConnectionSelection> {
+    if (this.coordinator?.isEnabled()) {
+      const descriptors = await this.coordinator.listScopeConnections(workspaceId, assistantId);
+      if (descriptors.length > 0) {
+        return this.chooseFromDescriptors(descriptors, requestedBridgeDeviceId, commandId);
+      }
+      // Registry may lag behind a freshly attached local socket; fall back to the local view.
+      const local = this.selectLocalConnection(
+        workspaceId,
+        assistantId,
+        requestedBridgeDeviceId,
+        commandId
+      );
+      if ("connectionKey" in local) {
+        const record = this.connectionsByKey.get(local.connectionKey);
+        if (record !== undefined) {
+          void this.coordinator.registerConnection(this.toDescriptor(record));
+        }
+      }
+      return local;
+    }
+    return this.selectLocalConnection(workspaceId, assistantId, requestedBridgeDeviceId, commandId);
+  }
+
+  private chooseFromDescriptors(
+    descriptors: BridgeConnectionDescriptor[],
+    requestedBridgeDeviceId: string | null,
+    commandId: string
+  ): ConnectionSelection {
+    const activeDeviceIds = descriptors.map((descriptor) => descriptor.bridgeDeviceId);
+    if (requestedBridgeDeviceId !== null) {
+      const match = descriptors.find(
+        (descriptor) => descriptor.bridgeDeviceId === requestedBridgeDeviceId
+      );
+      if (match === undefined) {
+        return {
+          accepted: false,
+          commandId,
+          code: "bridge_device_not_connected",
+          message: "The requested browser bridge device is not connected.",
+          activeBridgeDeviceIds: activeDeviceIds,
+          requestedBridgeDeviceId
+        };
+      }
+      return {
+        connectionKey: match.connectionKey,
+        bridgeDeviceId: match.bridgeDeviceId,
+        podId: match.podId
+      };
+    }
+    if (descriptors.length > 1) {
+      return {
+        accepted: false,
+        commandId,
+        code: "bridge_device_ambiguous",
+        message: "Multiple browser bridge devices are connected; specify bridgeDeviceId.",
+        activeBridgeDeviceIds: activeDeviceIds
+      };
+    }
+    const only = descriptors[0]!;
+    return {
+      connectionKey: only.connectionKey,
+      bridgeDeviceId: only.bridgeDeviceId,
+      podId: only.podId
+    };
+  }
+
+  private selectLocalConnection(
+    workspaceId: string,
+    assistantId: string,
+    requestedBridgeDeviceId: string | null,
+    commandId: string
+  ): ConnectionSelection {
     const scopeKey = this.buildAssistantScopeKey(workspaceId, assistantId);
     const connectionKeys = [...(this.scopeToConnectionKeys.get(scopeKey) ?? [])].filter((key) =>
       this.connectionsByKey.has(key)
@@ -353,7 +585,7 @@ export class BrowserBridgeRelayService {
       return {
         connectionKey: record.connectionKey,
         bridgeDeviceId: record.bridgeDeviceId,
-        socket: record.socket
+        podId: null
       };
     }
 
@@ -388,8 +620,42 @@ export class BrowserBridgeRelayService {
     return {
       connectionKey: record.connectionKey,
       bridgeDeviceId: record.bridgeDeviceId,
-      socket: record.socket
+      podId: null
     };
+  }
+
+  private ensureHeartbeat(): void {
+    if (this.heartbeatTimer !== null || !this.coordinator?.isEnabled()) {
+      return;
+    }
+    this.heartbeatTimer = setInterval(() => {
+      if (this.connectionsByKey.size === 0) {
+        if (this.heartbeatTimer !== null) {
+          clearInterval(this.heartbeatTimer);
+          this.heartbeatTimer = null;
+        }
+        return;
+      }
+      for (const record of this.connectionsByKey.values()) {
+        void this.coordinator?.refreshConnection(this.toDescriptor(record));
+      }
+    }, CONNECTION_HEARTBEAT_INTERVAL_MS);
+    this.heartbeatTimer.unref();
+  }
+
+  private toDescriptor(record: ActiveConnectionRecord): BridgeConnectionDescriptor {
+    return {
+      podId: this.coordinator?.podId ?? "",
+      connectionKey: record.connectionKey,
+      assistantId: record.assistantId,
+      workspaceId: record.workspaceId,
+      bridgeDeviceId: record.bridgeDeviceId,
+      deviceKind: record.deviceKind
+    };
+  }
+
+  private commandStateTtlSeconds(timeoutMs: number): number {
+    return Math.ceil(timeoutMs / 1000) + COMMAND_RESULT_RETENTION_MS / 1000;
   }
 
   private enforceDispatchRateLimit(workspaceId: string, assistantId: string): void {
@@ -424,6 +690,13 @@ export class BrowserBridgeRelayService {
     clearTimeout(pending.timeoutHandle);
     pending.result = result;
     pending.completedAt = completedAt;
+    if (this.coordinator?.isEnabled()) {
+      void this.coordinator.completeCommandState(
+        commandId,
+        result,
+        COMMAND_RESULT_RETENTION_MS / 1000
+      );
+    }
   }
 
   private pruneState(): void {

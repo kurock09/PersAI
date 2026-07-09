@@ -55,6 +55,8 @@ export function BrowserLoginModal({
   const [extensionStatus, setExtensionStatus] = useState<ExtensionBridgeStatus | null>(null);
   const [checkingExtension, setCheckingExtension] = useState(false);
   const [showInstructions, setShowInstructions] = useState(false);
+  const [bridgeViewOpened, setBridgeViewOpened] = useState(false);
+  const [openingBridgeView, setOpeningBridgeView] = useState(false);
   const openedViewProfileIdRef = useRef<string | null>(null);
   const completionMode = pendingBrowserLogin?.completionMode ?? "login";
   const bridgeClientKind = pendingBrowserLogin?.bridgeClientKind ?? null;
@@ -80,6 +82,7 @@ export function BrowserLoginModal({
       await openAssistantBrowserProfileView(token, assistantId, pendingBrowserLogin.profileId);
       openedViewProfileIdRef.current = pendingBrowserLogin.profileId;
       setShowInstructions(false);
+      setBridgeViewOpened(true);
     },
     [assistantId, completionMode, pendingBrowserLogin]
   );
@@ -118,12 +121,6 @@ export function BrowserLoginModal({
         next.workspaceId === pendingBrowserLogin?.workspaceId
       ) {
         setExtensionStatus(next);
-        const token = await getToken();
-        if (token) {
-          await openPendingLoginView(token).catch(() => {
-            setShowInstructions(true);
-          });
-        }
         return;
       }
       const token = await getToken();
@@ -138,11 +135,6 @@ export function BrowserLoginModal({
           workspaceId: pendingBrowserLogin.workspaceId
         });
         setExtensionStatus(registered);
-        if (registered.connected) {
-          await openPendingLoginView(token).catch(() => {
-            setShowInstructions(true);
-          });
-        }
       } catch {
         setExtensionStatus(next);
       }
@@ -167,9 +159,84 @@ export function BrowserLoginModal({
       setExtensionStatus(null);
       setCheckingExtension(false);
       setShowInstructions(false);
+      setBridgeViewOpened(false);
+      setOpeningBridgeView(false);
       openedViewProfileIdRef.current = null;
     }
   }, [open, pendingBrowserLogin?.profileId]);
+
+  useEffect(() => {
+    setBridgeViewOpened(false);
+    setOpeningBridgeView(false);
+    openedViewProfileIdRef.current = null;
+  }, [pendingBrowserLogin?.profileId]);
+
+  /**
+   * Kept as a defensive desktop-extension fallback: the primary UX now keeps
+   * Готово/Отмена in this compact web modal, but any future extension-side
+   * completion signal still has to be relayed through the authenticated web
+   * tab because the extension has no Clerk session.
+   */
+  const checkExtensionPendingCompletionAction = useCallback(async () => {
+    if (!extensionTarget || !extensionConnected || !assistantId || !pendingBrowserLogin) {
+      return;
+    }
+    let status: ExtensionBridgeStatus;
+    try {
+      status = await getExtensionBridgeStatus(undefined, pendingBrowserLogin.profileKey);
+    } catch {
+      return;
+    }
+    if (
+      status.pendingCompletionAction !== "complete" &&
+      status.pendingCompletionAction !== "cancel"
+    ) {
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      return;
+    }
+    if (status.pendingCompletionAction === "complete") {
+      try {
+        if (completionMode === "assist") {
+          await dismissAssistantBrowserProfileView(
+            token,
+            assistantId,
+            pendingBrowserLogin.profileId
+          );
+        } else {
+          await completeAssistantBrowserLogin(token, assistantId, pendingBrowserLogin.profileId);
+        }
+        onCompleted?.();
+        onDismiss();
+      } catch {
+        setCompleteError(t("browserLoginCompleteFailed"));
+      }
+      return;
+    }
+    if (completionMode === "assist") {
+      try {
+        await dismissAssistantBrowserProfileView(token, assistantId, pendingBrowserLogin.profileId);
+      } catch {
+        // Keep dismiss usable even if the close-view request fails.
+      }
+      onDismiss();
+      return;
+    }
+    onCancel();
+  }, [
+    assistantId,
+    completionMode,
+    extensionConnected,
+    extensionTarget,
+    getToken,
+    onCancel,
+    onCompleted,
+    onDismiss,
+    pendingBrowserLogin,
+    t
+  ]);
 
   useEffect(() => {
     if (!open || !bridgeTarget) {
@@ -178,9 +245,10 @@ export function BrowserLoginModal({
     void refreshExtensionStatus();
     const intervalId = window.setInterval(() => {
       void refreshExtensionStatus();
+      void checkExtensionPendingCompletionAction();
     }, 3_000);
     return () => window.clearInterval(intervalId);
-  }, [bridgeTarget, open, refreshExtensionStatus]);
+  }, [bridgeTarget, checkExtensionPendingCompletionAction, open, refreshExtensionStatus]);
 
   const closeAssistView = useCallback(async () => {
     if (!pendingBrowserLogin || !assistantId) {
@@ -192,6 +260,35 @@ export function BrowserLoginModal({
     }
     await dismissAssistantBrowserProfileView(token, assistantId, pendingBrowserLogin.profileId);
   }, [assistantId, getToken, pendingBrowserLogin]);
+
+  const handleOpenBridgeView = useCallback(async () => {
+    if (!assistantId || !pendingBrowserLogin || openingBridgeView || !extensionConnected) {
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      setCompleteError(t("browserLoginCompleteFailed"));
+      return;
+    }
+    setOpeningBridgeView(true);
+    setCompleteError(null);
+    try {
+      await openPendingLoginView(token);
+    } catch {
+      setShowInstructions(true);
+      setCompleteError(t("browserLoginOpenFailed"));
+    } finally {
+      setOpeningBridgeView(false);
+    }
+  }, [
+    assistantId,
+    extensionConnected,
+    getToken,
+    openPendingLoginView,
+    openingBridgeView,
+    pendingBrowserLogin,
+    t
+  ]);
 
   const handleComplete = useCallback(async () => {
     if (
@@ -291,186 +388,218 @@ export function BrowserLoginModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex flex-col bg-bg"
-      role="dialog"
-      aria-modal="true"
-      aria-label={pendingBrowserLogin.displayName}
-      data-testid="browser-login-modal"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm"
+      data-testid="browser-login-modal-backdrop"
     >
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-text">
-            {pendingBrowserLogin.displayName}
-          </p>
-          <p className="truncate text-xs text-text-muted">{pendingBrowserLogin.loginUrl}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setShowInstructions((current) => !current)}
-            aria-label={showInstructions ? t("browserLoginHideHelp") : t("browserLoginHelp")}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition hover:bg-surface-hover hover:text-text"
-            data-testid="browser-login-help-toggle"
-          >
-            <CircleHelp className="h-4 w-4" />
-          </button>
-          {bridgeTarget ? (
+      <div
+        className="flex max-h-[calc(100vh-3rem)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-border bg-bg shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label={pendingBrowserLogin.displayName}
+        data-testid="browser-login-modal"
+      >
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-text">
+              {pendingBrowserLogin.displayName}
+            </p>
+            <p className="truncate text-xs text-text-muted">{pendingBrowserLogin.loginUrl}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
             <button
               type="button"
-              onClick={() => void refreshExtensionStatus()}
-              aria-label={t("browserLoginCheckBridge")}
+              onClick={() => setShowInstructions((current) => !current)}
+              aria-label={showInstructions ? t("browserLoginHideHelp") : t("browserLoginHelp")}
               className="inline-flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition hover:bg-surface-hover hover:text-text"
-              data-testid="browser-login-refresh-status"
+              data-testid="browser-login-help-toggle"
             >
-              <RefreshCw className={cn("h-4 w-4", checkingExtension && "animate-spin")} />
+              <CircleHelp className="h-4 w-4" />
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => void handleHeaderDismiss()}
-            aria-label={t("browserLoginClose")}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/70 text-text-muted transition hover:bg-surface-hover hover:text-text"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-4 py-4">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-          <section className="rounded-2xl border border-border bg-bg px-4 py-4">
-            <p className="text-sm font-semibold text-text">{stepTitle}</p>
-            <p className="mt-2 text-sm leading-6 text-text-muted">{stepBody}</p>
-            {showOpenFallbackHint ? (
-              <p className="mt-3 text-xs text-text-subtle">{t("browserLoginOpenFallbackHint")}</p>
+            {bridgeTarget ? (
+              <button
+                type="button"
+                onClick={() => void refreshExtensionStatus()}
+                aria-label={t("browserLoginCheckBridge")}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition hover:bg-surface-hover hover:text-text"
+                data-testid="browser-login-refresh-status"
+              >
+                <RefreshCw className={cn("h-4 w-4", checkingExtension && "animate-spin")} />
+              </button>
             ) : null}
-          </section>
-
-          {showInstructions ? (
-            <section
-              className="rounded-2xl border border-border bg-bg px-4 py-4"
-              data-testid="browser-login-instructions"
-            >
-              <div className="rounded-xl border border-border/70 bg-surface px-3 py-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-text-subtle">
-                  {t("browserLoginHowItWorks")}
-                </p>
-                <ol className="mt-2 space-y-2 text-sm text-text-muted">
-                  <li>{t("browserLoginStepOpenWindow")}</li>
-                  <li>{t("browserLoginStepFinishOnDevice")}</li>
-                  <li>{t("browserLoginStepReturnAndDone")}</li>
-                </ol>
-              </div>
-            </section>
-          ) : null}
-
-          {bridgeClientKind === "capacitor" || nativeShell ? (
-            <section className="rounded-2xl border border-accent/20 bg-accent/[0.06] px-4 py-4">
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full border border-accent/25 bg-accent/10 text-accent">
-                  <Smartphone className="h-4.5 w-4.5" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-text">
-                    {t("browserLoginMobileStatusTitle")}
-                  </p>
-                  <p className="mt-1 text-sm leading-6 text-text-muted">
-                    {t("browserLoginMobileStatusBody")}
-                  </p>
-                </div>
-              </div>
-            </section>
-          ) : null}
-
-          {extensionTarget ? (
-            <section
-              className={cn("rounded-2xl border px-4 py-4", extensionStatusTone)}
-              data-testid="browser-login-extension-status"
-            >
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full border border-current/20 bg-white/40">
-                  {extensionAvailable ? (
-                    <CheckCircle2 className="h-4.5 w-4.5" />
-                  ) : (
-                    <AlertCircle className="h-4.5 w-4.5" />
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold">{extensionStatusLabel}</p>
-                  <p className="mt-1 text-sm leading-6 opacity-90">
-                    {extensionAvailable
-                      ? t("browserLoginExtensionAvailableBody")
-                      : t("browserLoginExtensionUnavailableBody")}
-                  </p>
-                  {extensionAvailable ? (
-                    <p className="mt-2 text-xs opacity-80">
-                      {extensionConnected
-                        ? t("browserLoginExtensionConnectedHint")
-                        : t("browserLoginExtensionInstalledHint")}
-                    </p>
-                  ) : (
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {PERSAI_BROWSER_BRIDGE_WEB_STORE_URL !== null ? (
-                        <a
-                          href={PERSAI_BROWSER_BRIDGE_WEB_STORE_URL}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-current/20 bg-white/60 px-3 text-xs font-semibold transition hover:bg-white/80"
-                          data-testid="browser-login-extension-cta"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          {t("browserLoginInstallExtension")}
-                        </a>
-                      ) : (
-                        <div
-                          className="inline-flex max-w-full items-start gap-1.5 rounded-lg border border-current/20 bg-white/50 px-3 py-2 text-xs leading-5"
-                          data-testid="browser-login-extension-dev-guidance"
-                        >
-                          <Download className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                          <span>{t("browserLoginExtensionDeveloperInstall")}</span>
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => void refreshExtensionStatus()}
-                        className="inline-flex min-h-9 items-center justify-center rounded-lg border border-current/20 px-3 text-xs font-medium transition hover:bg-white/40"
-                      >
-                        {t("browserLoginCheckBridge")}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-          ) : null}
-        </div>
-      </div>
-
-      <footer className="shrink-0 border-t border-border bg-surface px-4 py-3">
-        {completeError ? <p className="mb-2 text-xs text-destructive">{completeError}</p> : null}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-text-muted">{t("browserLoginFooterTruth")}</p>
-          <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => void handleCancel()}
-              disabled={completing}
-              className="inline-flex min-h-9 items-center justify-center rounded-lg border border-border/70 px-3 text-xs font-medium text-text transition hover:bg-surface-hover disabled:opacity-50"
+              onClick={() => void handleHeaderDismiss()}
+              aria-label={t("browserLoginClose")}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/70 text-text-muted transition hover:bg-surface-hover hover:text-text"
             >
-              {t("browserLoginCancel")}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleComplete()}
-              disabled={completing || (bridgeTarget && !extensionConnected)}
-              data-testid="browser-login-complete"
-              className="inline-flex min-h-9 items-center justify-center rounded-lg bg-accent px-4 text-xs font-semibold text-white transition hover:bg-accent-hover disabled:cursor-wait disabled:opacity-60"
-            >
-              {completing ? <Loader2 className="h-4 w-4 animate-spin" /> : doneLabel}
+              <X className="h-4 w-4" />
             </button>
           </div>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto bg-surface px-4 py-4">
+          <div className="mx-auto flex w-full flex-col gap-4">
+            <section className="rounded-2xl border border-border bg-bg px-4 py-4">
+              <p className="text-sm font-semibold text-text">{stepTitle}</p>
+              <p className="mt-2 text-sm leading-6 text-text-muted">{stepBody}</p>
+              {showOpenFallbackHint && !bridgeViewOpened ? (
+                <p className="mt-3 text-xs text-text-subtle">{t("browserLoginOpenFallbackHint")}</p>
+              ) : null}
+              {extensionTarget && bridgeViewOpened && completionMode === "login" ? (
+                <p className="mt-3 rounded-xl border border-accent/20 bg-accent/[0.06] px-3 py-2 text-xs text-text-muted">
+                  {t("browserLoginBridgeWindowOpened")}
+                </p>
+              ) : null}
+            </section>
+
+            {showInstructions ? (
+              <section
+                className="rounded-2xl border border-border bg-bg px-4 py-4"
+                data-testid="browser-login-instructions"
+              >
+                <div className="rounded-xl border border-border/70 bg-surface px-3 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-text-subtle">
+                    {t("browserLoginHowItWorks")}
+                  </p>
+                  <ol className="mt-2 space-y-2 text-sm text-text-muted">
+                    <li>{t("browserLoginStepOpenWindow")}</li>
+                    <li>{t("browserLoginStepFinishOnDevice")}</li>
+                    <li>{t("browserLoginStepReturnAndDone")}</li>
+                  </ol>
+                </div>
+              </section>
+            ) : null}
+
+            {bridgeClientKind === "capacitor" || nativeShell ? (
+              <section className="rounded-2xl border border-accent/20 bg-accent/[0.06] px-4 py-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full border border-accent/25 bg-accent/10 text-accent">
+                    <Smartphone className="h-4.5 w-4.5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-text">
+                      {t("browserLoginMobileStatusTitle")}
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-text-muted">
+                      {t("browserLoginMobileStatusBody")}
+                    </p>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {extensionTarget ? (
+              <section
+                className={cn("rounded-2xl border px-4 py-4", extensionStatusTone)}
+                data-testid="browser-login-extension-status"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full border border-current/20 bg-white/40">
+                    {extensionAvailable ? (
+                      <CheckCircle2 className="h-4.5 w-4.5" />
+                    ) : (
+                      <AlertCircle className="h-4.5 w-4.5" />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">{extensionStatusLabel}</p>
+                    <p className="mt-1 text-sm leading-6 opacity-90">
+                      {extensionAvailable
+                        ? t("browserLoginExtensionAvailableBody")
+                        : t("browserLoginExtensionUnavailableBody")}
+                    </p>
+                    {extensionAvailable ? (
+                      <p className="mt-2 text-xs opacity-80">
+                        {extensionConnected
+                          ? t("browserLoginExtensionConnectedHint")
+                          : t("browserLoginExtensionInstalledHint")}
+                      </p>
+                    ) : (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {PERSAI_BROWSER_BRIDGE_WEB_STORE_URL !== null ? (
+                          <a
+                            href={PERSAI_BROWSER_BRIDGE_WEB_STORE_URL}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-current/20 bg-white/60 px-3 text-xs font-semibold transition hover:bg-white/80"
+                            data-testid="browser-login-extension-cta"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            {t("browserLoginInstallExtension")}
+                          </a>
+                        ) : (
+                          <div
+                            className="inline-flex max-w-full items-start gap-1.5 rounded-lg border border-current/20 bg-white/50 px-3 py-2 text-xs leading-5"
+                            data-testid="browser-login-extension-dev-guidance"
+                          >
+                            <Download className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                            <span>{t("browserLoginExtensionDeveloperInstall")}</span>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void refreshExtensionStatus()}
+                          className="inline-flex min-h-9 items-center justify-center rounded-lg border border-current/20 px-3 text-xs font-medium transition hover:bg-white/40"
+                        >
+                          {t("browserLoginCheckBridge")}
+                        </button>
+                      </div>
+                    )}
+                    {extensionConnected && completionMode === "login" ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleOpenBridgeView()}
+                          disabled={openingBridgeView}
+                          className="inline-flex min-h-9 items-center justify-center rounded-lg bg-accent px-3 text-xs font-semibold text-white transition hover:bg-accent-hover disabled:cursor-wait disabled:opacity-60"
+                          data-testid="browser-login-open-bridge-view"
+                        >
+                          {openingBridgeView ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            t("browserLoginOpenSite", { site: pendingBrowserLogin.displayName })
+                          )}
+                        </button>
+                        {bridgeViewOpened ? (
+                          <span className="text-xs opacity-80">
+                            {t("browserLoginWindowOpened")}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+            ) : null}
+          </div>
         </div>
-      </footer>
+
+        <footer className="shrink-0 border-t border-border bg-surface px-4 py-3">
+          {completeError ? <p className="mb-2 text-xs text-destructive">{completeError}</p> : null}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-text-muted">{t("browserLoginFooterTruth")}</p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCancel()}
+                disabled={completing}
+                className="inline-flex min-h-9 items-center justify-center rounded-lg border border-border/70 px-3 text-xs font-medium text-text transition hover:bg-surface-hover disabled:opacity-50"
+              >
+                {t("browserLoginCancel")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleComplete()}
+                disabled={completing || (bridgeTarget && !extensionConnected)}
+                data-testid="browser-login-complete"
+                className="inline-flex min-h-9 items-center justify-center rounded-lg bg-accent px-4 text-xs font-semibold text-white transition hover:bg-accent-hover disabled:cursor-wait disabled:opacity-60"
+              >
+                {completing ? <Loader2 className="h-4 w-4 animate-spin" /> : doneLabel}
+              </button>
+            </div>
+          </div>
+        </footer>
+      </div>
     </div>,
     document.body
   );
