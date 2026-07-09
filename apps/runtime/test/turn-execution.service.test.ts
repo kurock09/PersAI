@@ -2792,6 +2792,16 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
     /Async audio generation is not an active lane; voice replies use `tts` in-turn\./
   );
+  // Web turns must carry explicit surface truth so the model never assumes
+  // it is talking in Telegram from an ordinary PersAI web chat.
+  assert.match(
+    providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
+    /Channel: PersAI web app chat/
+  );
+  assert.doesNotMatch(
+    providerGatewayClient.calls[deliveryUpdatesOffset]?.developerInstructions ?? "",
+    /Channel: Telegram messenger\./
+  );
   const telegramGroupRequest = createRuntimeTurnRequest();
   telegramGroupRequest.conversation = {
     assistantId: "assistant-1",

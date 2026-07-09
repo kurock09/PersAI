@@ -494,7 +494,11 @@ export function BrowserLoginModal({
         ? t("browserLoginMobileBody")
         : t("browserLoginDesktopBody");
   const showOpenFallbackHint = bridgeTarget && extensionConnected && completionMode === "login";
-  const compactDesktopModal = extensionTarget && completionMode === "login";
+  // Desktop extension flows are ALWAYS the compact centered modal — both the
+  // pending-login flow and the assist/live view opened from a settings
+  // session card. The full-screen layout is reserved for the mobile shell,
+  // where the native overlay owns the screen.
+  const compactDesktopModal = extensionTarget;
 
   return createPortal(
     <div

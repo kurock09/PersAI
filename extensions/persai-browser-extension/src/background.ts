@@ -425,7 +425,15 @@ async function ensureOriginPermission(pattern: string): Promise<boolean> {
   if (contains) {
     return true;
   }
-  return chrome.permissions.request({ origins: [pattern] });
+  try {
+    return await chrome.permissions.request({ origins: [pattern] });
+  } catch {
+    // `permissions.request` throws "This function must be called during a
+    // user gesture" when invoked from a WebSocket-dispatched command. Report
+    // an honest permission denial instead of leaking the raw error as
+    // browser_failed.
+    return false;
+  }
 }
 
 async function ensureCommandPermissions(

@@ -2126,7 +2126,22 @@ export class TurnExecutionService {
   private buildChannelContextDeveloperSection(
     request: RuntimeTurnRequest | undefined
   ): string | null {
-    if (request?.conversation.channel !== "telegram") {
+    if (request === undefined) {
+      return null;
+    }
+    // Without an explicit channel line the model has no surface truth and
+    // tends to assume Telegram (the only channel that was ever named here),
+    // then invents wrong limitations ("cannot do that from Telegram") in
+    // ordinary web chats.
+    if (request.conversation.channel === "web") {
+      return [
+        "## Channel Context",
+        "Channel: PersAI web app chat (https://persai.dev). This is NOT Telegram.",
+        "The user is talking to you inside the PersAI web/app interface.",
+        "Browser login and live browser windows (local browser bridge) are available directly on this surface."
+      ].join("\n");
+    }
+    if (request.conversation.channel !== "telegram") {
       return null;
     }
     const telegram = request.channelContext?.telegram;

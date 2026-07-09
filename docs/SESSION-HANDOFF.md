@@ -1,5 +1,17 @@
 # SESSION-HANDOFF
 
+## 2026-07-09 — web channel truth, assist-modal compact style, honest extension permission denial
+
+Status: **implemented locally; commit/push in progress.**
+
+**Scope:** Three founder-reported defects after the ADR-140 live re-test: (1) assistants in ordinary web chats claimed to be in Telegram — runtime `buildChannelContextDeveloperSection` emitted a channel section only for Telegram, so web turns had no surface truth; web turns now get an explicit `Channel: PersAI web app chat (https://persai.dev). This is NOT Telegram.` section stating the local browser bridge is available on this surface. (2) Clicking a browser-session card in assistant settings opened the extension window plus the leftover full-screen modal behind it; `compactDesktopModal` was gated to `completionMode === "login"` — desktop extension flows (login AND assist) are now always the compact centered modal, mobile stays full-screen. (3) Runtime-dispatched `snapshot`/`act` on an ungranted origin made `chrome.permissions.request` throw `This function must be called during a user gesture`, leaking as raw `browser_failed`; `ensureOriginPermission` now catches it and returns the structured `permission_denied` result.
+
+**Verification:** runtime typecheck/lint + `turn-execution.service.test.ts` (with new web channel assertions) PASS; extension lint/typecheck/test (16)/build PASS; web modal tests (9) + lint + typecheck PASS; `format:check` PASS.
+
+**Residuals:** Desktop host-permission grants for assistant-driven DOM work (snapshot/act on third-party sites) still need a user-gesture grant path (e.g. a grant button in the extension popup or a dedicated grant page); currently such commands return honest `permission_denied` and the human completes the step manually in the visible window. Open a follow-up slice if the founder wants automated desktop browsing.
+
+---
+
 ## 2026-07-09 — ADR-140 live-acceptance follow-up: expired-token re-registration + native request storm
 
 Status: **implemented locally; commit/push in progress.**
