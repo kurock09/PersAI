@@ -1,8 +1,56 @@
 # SESSION-HANDOFF
 
-## 2026-07-09 — ADR-140 desktop/mobile bridge login wiring + icon correction
+## 2026-07-09 — ADR-140 browser bridge websocket host fix for same-origin web proxy
 
 Status: **implemented locally; commit/push pending.**
+
+**Scope:** Narrow API-only follow-up for the ADR-140 local bridge registration path. No runtime/browser command contract changes in this slice.
+
+**Why:** Desktop extension and Capacitor mobile both stayed on the instruction screen even after device registration, and Chrome extension errors showed `WebSocket connection to 'wss://persai.dev/api/v1/assistant/browser-bridge/ws' failed ... 502`. Cluster evidence proved registration itself was succeeding (`POST /api/v1/assistant/browser-bridge/devices` returned `201` repeatedly), but the API never logged any matching bridge websocket attach. The same-origin web `/api/v1` proxy can forward ordinary HTTP `fetch`, but it does not tunnel websocket upgrades, so returning a `persai.dev` websocket origin made both desktop and mobile bridge sockets die before connect.
+
+**What changed:** `apps/api/src/modules/browser-bridge/interface/http/assistant-browser-bridge-devices.controller.ts` now avoids echoing the proxied web origin as the public bridge socket host. It first honors explicit public-API base env if present; otherwise, when registration arrives via the configured `PERSAI_WEB_BASE_URL` host (for example `persai.dev` through the web proxy), it derives the sibling public API host (`api.persai.dev`) for the returned bridge `websocketUrl`. Direct API-origin requests keep the existing behavior. Added a focused controller regression test for the `persai.dev -> api.persai.dev` case.
+
+**Verification:** `corepack pnpm --filter @persai/api exec tsx test/assistant-browser-bridge-devices.controller.test.ts` PASS; `corepack pnpm --filter @persai/api run typecheck` PASS.
+
+**Next recommended step:** Commit/push on explicit request, deploy `api`, then re-test desktop extension and mobile login flows. Expected post-deploy behavior: registration still returns `201`, the returned `websocketUrl` points at `wss://api.persai.dev/api/v1/assistant/browser-bridge/ws`, the bridge socket reaches API instead of the web proxy, and `open-live` can finally deliver the target site.
+
+---
+
+## 2026-07-09 — Web chat attachment layout: media-first rows + duplicate file suppression
+
+Status: **implemented locally; commit/push pending.**
+
+**Scope:** Narrow `apps/web` chat-message attachment rendering follow-up only. No API/runtime contract changes and no storage/model changes in this slice.
+
+**Why:** Mixed attachment messages could render previewable images and ordinary file pills in one flex row, which let file pills stretch into an oversized bubble when a neighboring image defined the row height. The same previewable asset could also appear twice when the payload contained both an image attachment and a file attachment pointing at the same PNG.
+
+**What changed:** `apps/web/app/app/_components/chat-message.tsx` now groups attachments by presentation lane: visual media first, audio second, ordinary files last on their own row. File pills no longer share the image row, so they do not stretch vertically beside media cards. The strip also suppresses duplicate file pills when a previewable image/video asset is already rendered from the same path/URL. Image previews now use a compact portrait/square/landscape frame model with crop-first rendering so tall screenshots stay readable instead of collapsing into a thin strip. `apps/web/app/app/_components/authenticated-attachment-image.tsx` now accepts an optional `onLoad` hook so the chat image card can read natural dimensions after authenticated blob resolution. Focused web tests were updated to cover media-first ordering and duplicate suppression.
+
+**Verification:** `corepack pnpm --filter @persai/web exec vitest run --config vitest.config.ts app/app/_components/chat-message.test.tsx` PASS; `corepack pnpm --filter @persai/web run typecheck` PASS; `corepack pnpm --filter @persai/api run typecheck` PASS.
+
+**Next recommended step:** Commit/push on explicit request, deploy `web`, then manually validate three cases in live chat: `image + file` renders images first and files below, a duplicate PNG no longer shows both image card and file pill, and a long screenshot uses a cropped readable preview that opens fully in lightbox.
+
+---
+
+## 2026-07-09 — ADR-140 browser login modal help-toggle UX
+
+Status: **implemented locally; commit/push pending.**
+
+**Scope:** Narrow web-only UX follow-up for the ADR-140 browser login modal. No bridge protocol, API, runtime, or mobile-native behavior change in this slice.
+
+**Why:** The modal's full instruction block was shown immediately even in the happy path, then disappeared as soon as the browser bridge connected/opened. That made the screen noisy and hid the more useful retry/status controls. Founder requested the instruction flow move behind an `i` trigger near reload and only surface automatically as a fallback.
+
+**What changed:** `apps/web/app/app/_components/browser-login-modal.tsx` now keeps the top section compact, adds a header help toggle (`i`) for the full "How it works" steps, and shows a small fallback hint near the main copy when the bridge is connected but the site did not open immediately. If `/open-live` fails after bridge connection, the help panel auto-expands so the user still gets the step-by-step instructions without losing the fast retry path. RU/EN message catalogs and the modal test suite were updated accordingly.
+
+**Verification:** `corepack pnpm --filter @persai/web exec vitest run --config vitest.config.ts app/app/_components/browser-login-modal.test.tsx` PASS; `corepack pnpm --filter @persai/web run typecheck` PASS; `corepack pnpm run format:check` PASS.
+
+**Next recommended step:** Commit/push this web UX polish on explicit request, deploy `web`, then manually validate desktop extension and mobile login modal flows: default compact view, `i` reveals instructions, refresh still retries bridge registration, and failed open-live reveals help automatically.
+
+---
+
+## 2026-07-09 — ADR-140 desktop/mobile bridge login wiring + icon correction
+
+Status: **pushed to `main` (`4805aa5f`); deploy/manual acceptance pending.**
 
 **Symptom:** Desktop browser login modal detected the unpacked Chrome extension, but the visible window stayed on the PersAI instruction screen instead of navigating to the requested site (Lavka). Mobile showed the same instruction-only state and had no refresh affordance. Reloading the unpacked extension could also leave old PersAI tabs reporting `Extension context invalidated`. The extension icon used the wrong generated asset instead of the PersAI mobile `P`.
 
@@ -12,7 +60,7 @@ Status: **implemented locally; commit/push pending.**
 
 **Verification:** `@persai/browser-extension` build + typecheck, focused web bridge tests, `@persai/api` typecheck, `@persai/runtime` typecheck, `@persai/web` typecheck all pass.
 
-**Next:** reload the unpacked extension from `extensions/persai-browser-extension/dist`, refresh PersAI web/mobile login modal, and re-run desktop + mobile Lavka login acceptance. Then commit/push if the manual flows open Lavka and complete login.
+**Next:** deploy the pushed bridge/login changes, reload the unpacked extension from `extensions/persai-browser-extension/dist`, refresh PersAI web/mobile login modal, and re-run desktop + mobile Lavka login acceptance.
 
 ---
 

@@ -80,9 +80,15 @@ export class AssistantBrowserBridgeDevicesController {
   }
 
   private resolveWebSocketUrl(req: RequestWithPlatformContext): string {
+    const explicitPublicApiBase = this.resolveExplicitPublicApiBaseUrl();
+    if (explicitPublicApiBase !== null) {
+      return this.buildWebSocketUrlFromHttpBase(explicitPublicApiBase);
+    }
+
     const forwardedProto = this.firstHeader(req.headers["x-forwarded-proto"]);
     const forwardedHost = this.firstHeader(req.headers["x-forwarded-host"]);
-    const host = forwardedHost ?? this.firstHeader(req.headers.host) ?? "localhost";
+    const requestHost = forwardedHost ?? this.firstHeader(req.headers.host) ?? "localhost";
+    const host = this.resolveBridgeHostFromWebOrigin(requestHost);
     const proto =
       forwardedProto === "https" || forwardedProto === "wss"
         ? "wss"
@@ -90,6 +96,47 @@ export class AssistantBrowserBridgeDevicesController {
           ? "ws"
           : "ws";
     return `${proto}://${host}/api/v1/assistant/browser-bridge/ws`;
+  }
+
+  private resolveExplicitPublicApiBaseUrl(): string | null {
+    const raw =
+      process.env.PERSAI_PUBLIC_API_BASE_URL?.trim() ||
+      process.env.PERSAI_API_PUBLIC_BASE_URL?.trim() ||
+      null;
+    if (!raw) {
+      return null;
+    }
+    try {
+      return new URL(raw).toString();
+    } catch {
+      return null;
+    }
+  }
+
+  private buildWebSocketUrlFromHttpBase(httpBaseUrl: string): string {
+    const parsed = new URL(httpBaseUrl);
+    parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+    parsed.pathname = "/api/v1/assistant/browser-bridge/ws";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  }
+
+  private resolveBridgeHostFromWebOrigin(requestHost: string): string {
+    const webBaseUrl = process.env.PERSAI_WEB_BASE_URL?.trim() ?? "";
+    if (!webBaseUrl) {
+      return requestHost;
+    }
+    try {
+      const webUrl = new URL(webBaseUrl);
+      if (requestHost !== webUrl.host || webUrl.hostname.startsWith("api.")) {
+        return requestHost;
+      }
+      const derivedApiHost = `api.${webUrl.hostname}`;
+      return webUrl.port ? `${derivedApiHost}:${webUrl.port}` : derivedApiHost;
+    } catch {
+      return requestHost;
+    }
   }
 
   private firstHeader(value: string | string[] | undefined): string | null {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactEventHandler } from "react";
 import { cn } from "@/app/lib/utils";
 
 export function useAuthenticatedBlobUrl(src: string | null): {
@@ -67,11 +67,13 @@ export function useAuthenticatedBlobUrl(src: string | null): {
 export function AuthenticatedAttachmentImage({
   src,
   alt,
-  className
+  className,
+  onLoad
 }: {
   src: string;
   alt: string;
   className?: string;
+  onLoad?: ReactEventHandler<HTMLImageElement>;
 }) {
   const { blobUrl, failed } = useAuthenticatedBlobUrl(src);
 
@@ -87,5 +89,5 @@ export function AuthenticatedAttachmentImage({
     return <span className={cn("block animate-pulse bg-surface-hover", className)} aria-hidden />;
   }
 
-  return <img src={blobUrl} alt={alt} className={className} />;
+  return <img src={blobUrl} alt={alt} className={className} onLoad={onLoad} />;
 }

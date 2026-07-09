@@ -62,6 +62,53 @@ describe("AssistantBrowserBridgeDevicesController", () => {
     });
   });
 
+  test("derives the public api websocket host when registration arrives via persai.dev web proxy", async () => {
+    const previousWebBaseUrl = process.env.PERSAI_WEB_BASE_URL;
+    process.env.PERSAI_WEB_BASE_URL = "https://persai.dev";
+    try {
+      const relayService = {
+        registerDevice: (_input: unknown, websocketUrl: string) => ({
+          bridgeDeviceId: "device-1",
+          deviceKind: "extension" as const,
+          deviceToken: "token-1",
+          websocketUrl
+        })
+      };
+      const resolveActiveAssistantService = {
+        execute: async () => ({
+          workspaceId: "workspace-1"
+        })
+      };
+      const controller = new AssistantBrowserBridgeDevicesController(
+        relayService as never,
+        resolveActiveAssistantService as never
+      );
+
+      const result = await controller.registerDevice(
+        buildRequest({
+          headers: {
+            host: "persai.dev",
+            "x-forwarded-host": "persai.dev",
+            "x-forwarded-proto": "https"
+          }
+        }),
+        {
+          assistantId: "assistant-1",
+          workspaceId: "workspace-1",
+          deviceKind: "extension"
+        }
+      );
+
+      assert.equal(result.websocketUrl, "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws");
+    } finally {
+      if (previousWebBaseUrl === undefined) {
+        delete process.env.PERSAI_WEB_BASE_URL;
+      } else {
+        process.env.PERSAI_WEB_BASE_URL = previousWebBaseUrl;
+      }
+    }
+  });
+
   test("rejects invalid device kind", async () => {
     const controller = new AssistantBrowserBridgeDevicesController(
       { registerDevice: () => ({}) } as never,

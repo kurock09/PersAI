@@ -107,6 +107,35 @@ describe("BrowserLoginModal", () => {
     expect(screen.getByTestId("browser-login-complete")).not.toBeDisabled();
   });
 
+  it("keeps the full instructions behind the help toggle", async () => {
+    getExtensionBridgeStatus.mockResolvedValue({
+      connected: true,
+      desiredConnection: true,
+      bridgeDeviceId: "device-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileCount: 1,
+      lastProfileKey: "bitrix"
+    });
+
+    render(
+      <BrowserLoginModal
+        open
+        assistantId="assistant-1"
+        pendingBrowserLogin={pendingBrowserLogin}
+        onDismiss={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    await screen.findByText("browserLoginExtensionConnected");
+    expect(screen.queryByTestId("browser-login-instructions")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("browser-login-help-toggle"));
+    expect(screen.getByTestId("browser-login-instructions")).toBeInTheDocument();
+    expect(screen.getByText("browserLoginHowItWorks")).toBeInTheDocument();
+  });
+
   it("keeps Done disabled when the extension is installed but not connected", async () => {
     registerExtensionBridgeDevice.mockRejectedValue(new Error("registration failed"));
     getExtensionBridgeStatus.mockResolvedValue({

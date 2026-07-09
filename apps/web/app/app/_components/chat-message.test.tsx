@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { forwardRef } from "react";
+import { forwardRef, type ReactEventHandler } from "react";
 import { ChatMessageBubble, resolveInternalChatCta } from "./chat-message";
 import type { ChatMessage } from "./use-chat";
 
@@ -71,13 +71,21 @@ vi.mock("./authenticated-attachment-image", () => ({
   AuthenticatedAttachmentImage: ({
     src,
     alt,
-    className
+    className,
+    onLoad
   }: {
     src: string;
     alt: string;
     className?: string;
+    onLoad?: ReactEventHandler<HTMLImageElement>;
   }) => (
-    <img data-testid="authenticated-attachment-image" src={src} alt={alt} className={className} />
+    <img
+      data-testid="authenticated-attachment-image"
+      src={src}
+      alt={alt}
+      className={className}
+      onLoad={onLoad}
+    />
   )
 }));
 
@@ -506,14 +514,12 @@ describe("ChatMessageBubble — attachments-only user message (FIX 3)", () => {
     );
 
     const bubble = container.querySelector("div.bg-accent\\/15.p-1");
-    const previewButton = container.querySelector(
-      'button[disabled="false"], button:not([disabled])'
-    );
+    const previewFrame = screen.getByTestId("chat-image-preview");
 
     expect(bubble?.className).toContain("rounded-[18px]");
     expect(bubble?.className).toContain("rounded-br-md");
-    expect(previewButton?.className).toContain("rounded-[14px]");
-    expect(previewButton?.className).toContain("rounded-br-[10px]");
+    expect(previewFrame.className).toContain("rounded-[14px]");
+    expect(previewFrame.className).toContain("rounded-br-[10px]");
   });
 
   it("renders the placeholder text verbatim when there are no attachments (defensive — should never happen in production)", () => {
@@ -608,6 +614,79 @@ describe("ChatMessageBubble — canonical file attachments", () => {
       "href",
       "/api/v1/assistant/chats/web/chat-1/files?path=%2Fworkspace%2Fassistants%2Fassistant-1%2Fsessions%2Fruntime-session-1%2Fspec.pdf&download=1"
     );
+  });
+
+  it("renders visual attachments above file pills instead of mixing them into one stretched row", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
+          attachments: [
+            {
+              ...makeImageAttachment("att-mixed-image"),
+              localPreviewUrl: "blob:mixed-image"
+            },
+            {
+              id: "att-mixed-file",
+              path: `${CHAT_SESSION_ROOT}/spec.pdf`,
+              thumbnailStoragePath: null,
+              posterStoragePath: null,
+              attachmentType: "document",
+              originalFilename: "spec.pdf",
+              mimeType: "application/pdf",
+              sizeBytes: 2048,
+              processingStatus: "ready",
+              createdAt: "2026-07-09T00:00:00.000Z"
+            }
+          ]
+        })}
+      />
+    );
+
+    const visualsRow = screen.getByTestId("attachment-strip-visuals");
+    const filesRow = screen.getByTestId("attachment-strip-files");
+    expect(
+      visualsRow.compareDocumentPosition(filesRow) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(filesRow).toContainElement(screen.getByRole("link", { name: /spec\.pdf/i }));
+    expect(visualsRow).toContainElement(screen.getByTestId("chat-image-preview"));
+  });
+
+  it("suppresses a duplicate previewable file pill when the same image asset is already shown", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeUserMessage("committed", {
+          content: ATTACHMENTS_ONLY_PLACEHOLDER_TEXT,
+          attachments: [
+            {
+              ...makeImageAttachment("att-dup-image"),
+              path: `${CHAT_SESSION_ROOT}/persai-dev.png`,
+              thumbnailStoragePath: `${CHAT_SESSION_ROOT}/persai-dev.png.thumb.webp`,
+              originalFilename: "persai-dev.png",
+              mimeType: "image/png"
+            },
+            {
+              id: "att-dup-file",
+              path: `${CHAT_SESSION_ROOT}/persai-dev.png`,
+              thumbnailStoragePath: null,
+              posterStoragePath: null,
+              attachmentType: "document",
+              originalFilename: "persai-dev.png",
+              mimeType: "image/png",
+              sizeBytes: 388 * 1024,
+              processingStatus: "ready",
+              createdAt: "2026-07-09T00:00:00.000Z"
+            }
+          ]
+        })}
+      />
+    );
+
+    expect(screen.getAllByTestId("chat-image-preview")).toHaveLength(1);
+    expect(screen.queryByRole("link", { name: /persai-dev\.png/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("attachment-strip-files")).not.toBeInTheDocument();
   });
 
   it("keeps history-loaded path attachments downloadable after refresh", () => {

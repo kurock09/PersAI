@@ -1186,6 +1186,7 @@ function formatVideoDuration(totalSeconds: number): string | null {
 }
 
 type VideoPreviewFramePreset = "portrait" | "square" | "landscape";
+type ImagePreviewFramePreset = "portrait" | "square" | "landscape";
 
 function captureVideoPreviewFrame(video: HTMLVideoElement): string | null {
   const intrinsicWidth = video.videoWidth;
@@ -1266,6 +1267,70 @@ function resolveVideoPreviewFrame(aspectRatio: number | null): {
     height: 95,
     aspectRatio: 16 / 9
   };
+}
+
+function resolveImagePreviewFrame(aspectRatio: number | null): {
+  preset: ImagePreviewFramePreset;
+  width: number;
+  height: number;
+} {
+  const resolvedAspectRatio =
+    typeof aspectRatio === "number" && Number.isFinite(aspectRatio) && aspectRatio > 0
+      ? aspectRatio
+      : 1;
+  if (resolvedAspectRatio < 0.85) {
+    return {
+      preset: "portrait",
+      width: 151,
+      height: 210
+    };
+  }
+  if (resolvedAspectRatio <= 1.2) {
+    return {
+      preset: "square",
+      width: 151,
+      height: 151
+    };
+  }
+  return {
+    preset: "landscape",
+    width: 240,
+    height: 151
+  };
+}
+
+function getAttachmentAssetKey(attachment: ChatAttachment): string | null {
+  if (typeof attachment.path === "string" && attachment.path.trim().length > 0) {
+    return `path:${attachment.path}`;
+  }
+  if (
+    typeof attachment.externalDownloadUrl === "string" &&
+    attachment.externalDownloadUrl.trim().length > 0
+  ) {
+    return `external:${attachment.externalDownloadUrl.trim()}`;
+  }
+  return null;
+}
+
+function shouldSuppressDuplicatePreviewableFile(
+  attachment: ChatAttachment,
+  previewableAssetKeys: ReadonlySet<string>
+): boolean {
+  if (
+    attachment.attachmentType === "image" ||
+    attachment.attachmentType === "video" ||
+    attachment.attachmentType === "audio" ||
+    attachment.attachmentType === "voice"
+  ) {
+    return false;
+  }
+  const assetKey = getAttachmentAssetKey(attachment);
+  if (assetKey === null) {
+    return false;
+  }
+  const isPreviewableMime =
+    attachment.mimeType.startsWith("image/") || attachment.mimeType.startsWith("video/");
+  return isPreviewableMime && previewableAssetKeys.has(assetKey);
 }
 
 /**
@@ -1452,6 +1517,56 @@ function VideoAttachmentPreview({
   );
 }
 
+function ImageAttachmentPreview({
+  src,
+  alt,
+  pending,
+  variant
+}: {
+  src: string;
+  alt: string;
+  pending: boolean;
+  variant: "default" | "user-media";
+}) {
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+  const previewFrame = useMemo(() => resolveImagePreviewFrame(aspectRatio), [aspectRatio]);
+  const alignClass = previewFrame.preset === "portrait" ? "object-top" : "object-center";
+
+  return (
+    <div
+      data-testid="chat-image-preview"
+      data-preset={previewFrame.preset}
+      className={cn(
+        "relative overflow-hidden",
+        variant === "user-media"
+          ? `${USER_MEDIA_CARD_RADIUS_CLASS} bg-transparent`
+          : "rounded-[14px] border border-border bg-surface"
+      )}
+      style={{
+        width: `${previewFrame.width}px`,
+        height: `${previewFrame.height}px`
+      }}
+    >
+      <AuthenticatedAttachmentImage
+        src={src}
+        alt={alt}
+        onLoad={(event) => {
+          const naturalWidth = event.currentTarget.naturalWidth;
+          const naturalHeight = event.currentTarget.naturalHeight;
+          if (naturalWidth > 0 && naturalHeight > 0) {
+            setAspectRatio(naturalWidth / naturalHeight);
+          }
+        }}
+        className={cn(
+          "h-full w-full object-cover transition-opacity",
+          alignClass,
+          pending && "opacity-50"
+        )}
+      />
+    </div>
+  );
+}
+
 function AttachmentStrip({
   chatId,
   attachments,
@@ -1511,267 +1626,316 @@ function AttachmentStrip({
         .filter((entry): entry is NonNullable<typeof entry> => entry !== null),
     [attachments, chatId]
   );
+  const previewableAssetKeys = useMemo(
+    () =>
+      new Set(
+        attachments
+          .filter(
+            (attachment) =>
+              attachment.attachmentType === "image" || attachment.attachmentType === "video"
+          )
+          .map((attachment) => getAttachmentAssetKey(attachment))
+          .filter((assetKey): assetKey is string => assetKey !== null)
+      ),
+    [attachments]
+  );
+  const groupedAttachments = useMemo(() => {
+    const visuals: ChatAttachment[] = [];
+    const audio: ChatAttachment[] = [];
+    const files: ChatAttachment[] = [];
+    for (const attachment of attachments) {
+      if (attachment.attachmentType === "image" || attachment.attachmentType === "video") {
+        visuals.push(attachment);
+        continue;
+      }
+      if (attachment.attachmentType === "audio" || attachment.attachmentType === "voice") {
+        audio.push(attachment);
+        continue;
+      }
+      if (shouldSuppressDuplicatePreviewableFile(attachment, previewableAssetKeys)) {
+        continue;
+      }
+      files.push(attachment);
+    }
+    return { visuals, audio, files };
+  }, [attachments, previewableAssetKeys]);
   if (attachments.length === 0) return null;
 
-  return (
-    <div
-      className={cn(
-        "mt-3 flex min-w-0 flex-wrap gap-2.5",
-        compactBubble ? "w-auto max-w-full self-start" : "w-full",
-        className
-      )}
-    >
-      {attachments.map((att) => {
-        const isPending = att.processingStatus === "pending";
-        const isFailed = att.processingStatus === "failed";
-        const isUnavailable = att.unavailable === true;
-        const progressLabel =
-          isPending && typeof att.uploadProgressPercent === "number"
-            ? `${String(att.uploadProgressPercent)}%`
-            : null;
-        const inlineUrl = resolveInlinePreviewUrl(att) ?? undefined;
-        const externalDownloadUrl =
-          typeof att.externalDownloadUrl === "string" && att.externalDownloadUrl.trim().length > 0
-            ? att.externalDownloadUrl.trim()
-            : null;
-        const link = att.documentLink;
-        const downloadUrl =
-          externalDownloadUrl ??
-          (isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
-            ? undefined
-            : buildChatFileUrl({
-                chatId,
-                storagePath: att.path,
-                download: true,
-                versionId: link?.documentType === "workspace_document" ? link.versionId : null
-              }));
-        const previewUrl = att.localPreviewUrl ?? inlineUrl;
-        const documentLabel = (() => {
-          if (!link) return null;
-          return typeof link.versionNumber === "number" ? `v${link.versionNumber}` : null;
-        })();
+  const renderAttachment = (att: ChatAttachment) => {
+    const isPending = att.processingStatus === "pending";
+    const isFailed = att.processingStatus === "failed";
+    const isUnavailable = att.unavailable === true;
+    const progressLabel =
+      isPending && typeof att.uploadProgressPercent === "number"
+        ? `${String(att.uploadProgressPercent)}%`
+        : null;
+    const inlineUrl = resolveInlinePreviewUrl(att) ?? undefined;
+    const externalDownloadUrl =
+      typeof att.externalDownloadUrl === "string" && att.externalDownloadUrl.trim().length > 0
+        ? att.externalDownloadUrl.trim()
+        : null;
+    const link = att.documentLink;
+    const downloadUrl =
+      externalDownloadUrl ??
+      (isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
+        ? undefined
+        : buildChatFileUrl({
+            chatId,
+            storagePath: att.path,
+            download: true,
+            versionId: link?.documentType === "workspace_document" ? link.versionId : null
+          }));
+    const previewUrl = att.localPreviewUrl ?? inlineUrl;
+    const documentLabel = (() => {
+      if (!link) return null;
+      return typeof link.versionNumber === "number" ? `v${link.versionNumber}` : null;
+    })();
 
-        if (att.attachmentType === "image") {
-          const fullUrl =
-            isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
-              ? previewUrl
-              : buildChatFileUrl({ chatId, storagePath: att.path });
-          return (
-            <div key={att.id} className="relative">
-              {previewUrl ? (
-                <button
-                  type="button"
-                  onClick={() => fullUrl && setOpenImageId(att.id)}
-                  disabled={!fullUrl}
-                  className={cn(
-                    "block overflow-hidden transition focus:ring-2 focus:ring-accent focus:outline-none",
-                    variant === "user-media"
-                      ? `${USER_MEDIA_CARD_RADIUS_CLASS} bg-transparent`
-                      : "rounded-[14px] border border-border hover:border-border-strong"
-                  )}
-                >
-                  <AuthenticatedAttachmentImage
-                    src={previewUrl}
-                    alt={att.originalFilename ?? "image"}
-                    className={cn(
-                      "max-h-48 max-w-[240px] object-cover transition-opacity",
-                      isPending && "opacity-50"
-                    )}
-                  />
-                </button>
-              ) : (
-                <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-border bg-surface-raised">
-                  <FileText className="h-6 w-6 text-text-subtle" />
-                </div>
-              )}
-              {fullUrl && (
-                <ImageLightbox
-                  open={openImageId === att.id}
-                  src={fullUrl}
-                  downloadUrl={downloadUrl ?? fullUrl}
-                  filename={att.originalFilename ?? undefined}
-                  alt={att.originalFilename ?? undefined}
-                  galleryItems={galleryImages.map((image) => ({
-                    src: image.src,
-                    downloadUrl: image.downloadUrl,
-                    filename: image.filename,
-                    alt: image.alt
-                  }))}
-                  currentIndex={galleryImages.findIndex((image) => image.id === att.id)}
-                  onNavigate={(nextIndex) => setOpenImageId(galleryImages[nextIndex]?.id ?? null)}
-                  onClose={() => setOpenImageId(null)}
-                />
-              )}
-              {isPending && (
-                <div
-                  className={cn(
-                    "absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px]",
-                    variant === "user-media" ? USER_MEDIA_CARD_RADIUS_CLASS : "rounded-lg"
-                  )}
-                >
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-raised/85 px-2 py-1 text-[10px] font-medium text-text-muted shadow-sm">
-                    <Loader2 className="h-3 w-3 animate-spin text-accent" />
-                    {progressLabel}
-                  </span>
-                </div>
-              )}
-              {isFailed && (
-                <div
-                  className={cn(
-                    "absolute inset-0 flex items-center justify-center bg-destructive/10",
-                    variant === "user-media" ? USER_MEDIA_CARD_RADIUS_CLASS : "rounded-lg"
-                  )}
-                >
-                  <span className="text-[10px] font-medium text-destructive">
-                    {t("uploadFailed")}
-                  </span>
-                </div>
-              )}
-            </div>
-          );
-        }
-
-        if (att.attachmentType === "audio" || att.attachmentType === "voice") {
-          const audioSrc = previewUrl ?? inlineUrl;
-          return (
-            <div
-              key={att.id}
-              className={cn(
-                "w-full max-w-[min(100%,320px)]",
-                isPending && audioSrc && "opacity-80",
-                variant === "user-media" && "rounded-lg p-1"
-              )}
+    if (att.attachmentType === "image") {
+      const fullUrl =
+        isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
+          ? previewUrl
+          : buildChatFileUrl({ chatId, storagePath: att.path });
+      return (
+        <div key={att.id} className="relative self-start">
+          {previewUrl ? (
+            <button
+              type="button"
+              onClick={() => fullUrl && setOpenImageId(att.id)}
+              disabled={!fullUrl}
+              className={cn("block transition focus:ring-2 focus:ring-accent focus:outline-none")}
             >
-              {audioSrc ? (
-                <VoiceMessagePlayer src={audioSrc} />
-              ) : (
-                <div className="flex items-center gap-2 rounded-full border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
-                  {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  <span className="truncate">{att.originalFilename ?? "Audio"}</span>
-                  {progressLabel ? <span className="text-text-subtle">{progressLabel}</span> : null}
-                </div>
-              )}
+              <ImageAttachmentPreview
+                src={previewUrl}
+                alt={att.originalFilename ?? "image"}
+                pending={isPending}
+                variant={variant}
+              />
+            </button>
+          ) : (
+            <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-border bg-surface-raised">
+              <FileText className="h-6 w-6 text-text-subtle" />
             </div>
-          );
-        }
-
-        if (att.attachmentType === "video") {
-          if (!att.path && externalDownloadUrl) {
-            return (
-              <a
-                key={att.id}
-                href={externalDownloadUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={cn(CHAT_FILE_PILL_SURFACE_CLASS, CHAT_FILE_PILL_SURFACE_HOVER_CLASS)}
-              >
-                <span className={CHAT_FILE_PILL_BADGE_CLASS}>VIDEO</span>
-                <span className={CHAT_FILE_PILL_FILENAME_CLASS}>
-                  {att.originalFilename ?? t("externalVideoDefaultName")}
-                </span>
-                <span className={CHAT_FILE_PILL_META_CLASS}>
-                  {formatBytes(att.sizeBytes)} · {t("externalVideoDownload")}
-                </span>
-              </a>
-            );
-          }
-
-          const fullUrl =
-            isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
-              ? null
-              : buildChatFileUrl({ chatId, storagePath: att.path });
-          return (
-            <VideoAttachmentPreview
-              key={att.id}
-              variant={variant}
-              fullUrl={fullUrl ?? null}
-              previewUrl={previewUrl ?? null}
-              downloadUrl={downloadUrl ?? fullUrl ?? undefined}
+          )}
+          {fullUrl && (
+            <ImageLightbox
+              open={openImageId === att.id}
+              src={fullUrl}
+              downloadUrl={downloadUrl ?? fullUrl}
               filename={att.originalFilename ?? undefined}
-              isPending={isPending}
-              progressLabel={progressLabel}
-              isLightboxOpen={openImageId === att.id}
-              onOpen={() => setOpenImageId(att.id)}
+              alt={att.originalFilename ?? undefined}
+              galleryItems={galleryImages.map((image) => ({
+                src: image.src,
+                downloadUrl: image.downloadUrl,
+                filename: image.filename,
+                alt: image.alt
+              }))}
+              currentIndex={galleryImages.findIndex((image) => image.id === att.id)}
+              onNavigate={(nextIndex) => setOpenImageId(galleryImages[nextIndex]?.id ?? null)}
               onClose={() => setOpenImageId(null)}
             />
-          );
-        }
-
-        const fileContent = (
-          <>
-            {isPending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-text-subtle" />
-            ) : isUnavailable ? (
-              <FileText className="h-3.5 w-3.5 text-text-subtle" />
-            ) : (
-              <span className={CHAT_FILE_PILL_BADGE_CLASS}>{attachmentTypeBadge(att)}</span>
-            )}
-            <span className={CHAT_FILE_PILL_FILENAME_CLASS}>{att.originalFilename ?? "File"}</span>
-            <span className={CHAT_FILE_PILL_META_CLASS}>
-              {isUnavailable ? t("fileDeleted") : (progressLabel ?? formatBytes(att.sizeBytes))}
-            </span>
-            {documentLabel ? (
-              <span className="shrink-0 whitespace-nowrap rounded-full border border-border/70 bg-bg/70 px-1.5 py-0.5 text-[10px] font-medium text-text-subtle">
-                {documentLabel}
-              </span>
-            ) : null}
-          </>
-        );
-        const isPresentationAttachment =
-          (link?.documentType === "presentation" ||
-            link?.descriptorMode === "create_presentation") &&
-          (att.mimeType === "application/pdf" ||
-            (att.originalFilename ?? "").toLowerCase().endsWith(".pdf"));
-        const pptxPrepareUrl =
-          isPresentationAttachment && typeof link?.docId === "string"
-            ? getAssistantDocumentPptxPrepareUrl(link.docId, { versionId: link.versionId })
-            : null;
-
-        if (!downloadUrl) {
-          return (
+          )}
+          {isPending && (
             <div
-              key={att.id}
-              aria-disabled="true"
-              className={cn(CHAT_FILE_PILL_SURFACE_CLASS, "opacity-55")}
+              className={cn(
+                "absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px]",
+                variant === "user-media" ? USER_MEDIA_CARD_RADIUS_CLASS : "rounded-lg"
+              )}
             >
-              {fileContent}
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-raised/85 px-2 py-1 text-[10px] font-medium text-text-muted shadow-sm">
+                <Loader2 className="h-3 w-3 animate-spin text-accent" />
+                {progressLabel}
+              </span>
             </div>
-          );
-        }
-
-        if (pptxPrepareUrl !== null) {
-          // PDF is the primary deliverable; PPTX is explicitly prepared as a
-          // second Gamma render only when the user asks for it from the quiet
-          // action below the banner.
-          return (
-            <div key={att.id} className="flex flex-col items-start">
-              <a
-                href={downloadUrl}
-                download={att.originalFilename ?? undefined}
-                className={cn(CHAT_FILE_PILL_SURFACE_CLASS, CHAT_FILE_PILL_SURFACE_HOVER_CLASS)}
-              >
-                {fileContent}
-              </a>
-              <PresentationPptxPrepareAction
-                href={pptxPrepareUrl}
-                filename={att.originalFilename}
-                onAccepted={onDocumentJobAccepted}
-              />
+          )}
+          {isFailed && (
+            <div
+              className={cn(
+                "absolute inset-0 flex items-center justify-center bg-destructive/10",
+                variant === "user-media" ? USER_MEDIA_CARD_RADIUS_CLASS : "rounded-lg"
+              )}
+            >
+              <span className="text-[10px] font-medium text-destructive">{t("uploadFailed")}</span>
             </div>
-          );
-        }
+          )}
+        </div>
+      );
+    }
 
+    if (att.attachmentType === "audio" || att.attachmentType === "voice") {
+      const audioSrc = previewUrl ?? inlineUrl;
+      return (
+        <div
+          key={att.id}
+          className={cn(
+            "w-full max-w-[min(100%,320px)]",
+            isPending && audioSrc && "opacity-80",
+            variant === "user-media" && "rounded-lg p-1"
+          )}
+        >
+          {audioSrc ? (
+            <VoiceMessagePlayer src={audioSrc} />
+          ) : (
+            <div className="flex items-center gap-2 rounded-full border border-border bg-surface-raised px-3 py-2 text-xs text-text-muted">
+              {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+              <span className="truncate">{att.originalFilename ?? "Audio"}</span>
+              {progressLabel ? <span className="text-text-subtle">{progressLabel}</span> : null}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (att.attachmentType === "video") {
+      if (!att.path && externalDownloadUrl) {
         return (
           <a
             key={att.id}
+            href={externalDownloadUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(CHAT_FILE_PILL_SURFACE_CLASS, CHAT_FILE_PILL_SURFACE_HOVER_CLASS)}
+          >
+            <span className={CHAT_FILE_PILL_BADGE_CLASS}>VIDEO</span>
+            <span className={CHAT_FILE_PILL_FILENAME_CLASS}>
+              {att.originalFilename ?? t("externalVideoDefaultName")}
+            </span>
+            <span className={CHAT_FILE_PILL_META_CLASS}>
+              {formatBytes(att.sizeBytes)} · {t("externalVideoDownload")}
+            </span>
+          </a>
+        );
+      }
+
+      const fullUrl =
+        isUnavailable || att.id.startsWith("local-") || !chatId || !att.path
+          ? null
+          : buildChatFileUrl({ chatId, storagePath: att.path });
+      return (
+        <VideoAttachmentPreview
+          key={att.id}
+          variant={variant}
+          fullUrl={fullUrl ?? null}
+          previewUrl={previewUrl ?? null}
+          downloadUrl={downloadUrl ?? fullUrl ?? undefined}
+          filename={att.originalFilename ?? undefined}
+          isPending={isPending}
+          progressLabel={progressLabel}
+          isLightboxOpen={openImageId === att.id}
+          onOpen={() => setOpenImageId(att.id)}
+          onClose={() => setOpenImageId(null)}
+        />
+      );
+    }
+
+    const fileContent = (
+      <>
+        {isPending ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-text-subtle" />
+        ) : isUnavailable ? (
+          <FileText className="h-3.5 w-3.5 text-text-subtle" />
+        ) : (
+          <span className={CHAT_FILE_PILL_BADGE_CLASS}>{attachmentTypeBadge(att)}</span>
+        )}
+        <span className={CHAT_FILE_PILL_FILENAME_CLASS}>{att.originalFilename ?? "File"}</span>
+        <span className={CHAT_FILE_PILL_META_CLASS}>
+          {isUnavailable ? t("fileDeleted") : (progressLabel ?? formatBytes(att.sizeBytes))}
+        </span>
+        {documentLabel ? (
+          <span className="shrink-0 whitespace-nowrap rounded-full border border-border/70 bg-bg/70 px-1.5 py-0.5 text-[10px] font-medium text-text-subtle">
+            {documentLabel}
+          </span>
+        ) : null}
+      </>
+    );
+    const isPresentationAttachment =
+      (link?.documentType === "presentation" || link?.descriptorMode === "create_presentation") &&
+      (att.mimeType === "application/pdf" ||
+        (att.originalFilename ?? "").toLowerCase().endsWith(".pdf"));
+    const pptxPrepareUrl =
+      isPresentationAttachment && typeof link?.docId === "string"
+        ? getAssistantDocumentPptxPrepareUrl(link.docId, { versionId: link.versionId })
+        : null;
+
+    if (!downloadUrl) {
+      return (
+        <div
+          key={att.id}
+          aria-disabled="true"
+          className={cn(CHAT_FILE_PILL_SURFACE_CLASS, "opacity-55")}
+        >
+          {fileContent}
+        </div>
+      );
+    }
+
+    if (pptxPrepareUrl !== null) {
+      // PDF is the primary deliverable; PPTX is explicitly prepared as a
+      // second Gamma render only when the user asks for it from the quiet
+      // action below the banner.
+      return (
+        <div key={att.id} className="flex flex-col items-start">
+          <a
             href={downloadUrl}
             download={att.originalFilename ?? undefined}
             className={cn(CHAT_FILE_PILL_SURFACE_CLASS, CHAT_FILE_PILL_SURFACE_HOVER_CLASS)}
           >
             {fileContent}
           </a>
-        );
-      })}
+          <PresentationPptxPrepareAction
+            href={pptxPrepareUrl}
+            filename={att.originalFilename}
+            onAccepted={onDocumentJobAccepted}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <a
+        key={att.id}
+        href={downloadUrl}
+        download={att.originalFilename ?? undefined}
+        className={cn(CHAT_FILE_PILL_SURFACE_CLASS, CHAT_FILE_PILL_SURFACE_HOVER_CLASS)}
+      >
+        {fileContent}
+      </a>
+    );
+  };
+
+  return (
+    <div
+      data-testid="attachment-strip"
+      className={cn(
+        "mt-3 flex min-w-0 flex-col gap-2.5",
+        compactBubble ? "w-auto max-w-full self-start" : "w-full",
+        className
+      )}
+    >
+      {groupedAttachments.visuals.length > 0 ? (
+        <div
+          data-testid="attachment-strip-visuals"
+          className="flex min-w-0 flex-wrap items-start gap-2.5"
+        >
+          {groupedAttachments.visuals.map(renderAttachment)}
+        </div>
+      ) : null}
+      {groupedAttachments.audio.length > 0 ? (
+        <div
+          data-testid="attachment-strip-audio"
+          className="flex min-w-0 flex-col items-start gap-2.5"
+        >
+          {groupedAttachments.audio.map(renderAttachment)}
+        </div>
+      ) : null}
+      {groupedAttachments.files.length > 0 ? (
+        <div
+          data-testid="attachment-strip-files"
+          className="flex min-w-0 flex-col items-start gap-2"
+        >
+          {groupedAttachments.files.map(renderAttachment)}
+        </div>
+      ) : null}
     </div>
   );
 }

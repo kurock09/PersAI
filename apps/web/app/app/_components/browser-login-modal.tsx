@@ -6,6 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import {
   AlertCircle,
   CheckCircle2,
+  CircleHelp,
   Download,
   Loader2,
   RefreshCw,
@@ -53,6 +54,7 @@ export function BrowserLoginModal({
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [extensionStatus, setExtensionStatus] = useState<ExtensionBridgeStatus | null>(null);
   const [checkingExtension, setCheckingExtension] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
   const openedViewProfileIdRef = useRef<string | null>(null);
   const completionMode = pendingBrowserLogin?.completionMode ?? "login";
   const bridgeClientKind = pendingBrowserLogin?.bridgeClientKind ?? null;
@@ -77,6 +79,7 @@ export function BrowserLoginModal({
       }
       await openAssistantBrowserProfileView(token, assistantId, pendingBrowserLogin.profileId);
       openedViewProfileIdRef.current = pendingBrowserLogin.profileId;
+      setShowInstructions(false);
     },
     [assistantId, completionMode, pendingBrowserLogin]
   );
@@ -102,7 +105,9 @@ export function BrowserLoginModal({
         });
         setExtensionStatus(registered);
         if (registered.connected) {
-          await openPendingLoginView(token).catch(() => undefined);
+          await openPendingLoginView(token).catch(() => {
+            setShowInstructions(true);
+          });
         }
         return;
       }
@@ -115,7 +120,9 @@ export function BrowserLoginModal({
         setExtensionStatus(next);
         const token = await getToken();
         if (token) {
-          await openPendingLoginView(token).catch(() => undefined);
+          await openPendingLoginView(token).catch(() => {
+            setShowInstructions(true);
+          });
         }
         return;
       }
@@ -132,7 +139,9 @@ export function BrowserLoginModal({
         });
         setExtensionStatus(registered);
         if (registered.connected) {
-          await openPendingLoginView(token).catch(() => undefined);
+          await openPendingLoginView(token).catch(() => {
+            setShowInstructions(true);
+          });
         }
       } catch {
         setExtensionStatus(next);
@@ -157,6 +166,7 @@ export function BrowserLoginModal({
       setCompleteError(null);
       setExtensionStatus(null);
       setCheckingExtension(false);
+      setShowInstructions(false);
       openedViewProfileIdRef.current = null;
     }
   }, [open, pendingBrowserLogin?.profileId]);
@@ -277,6 +287,7 @@ export function BrowserLoginModal({
       : bridgeClientKind === "capacitor" || nativeShell
         ? t("browserLoginMobileBody")
         : t("browserLoginDesktopBody");
+  const showOpenFallbackHint = bridgeTarget && extensionConnected && completionMode === "login";
 
   return createPortal(
     <div
@@ -294,6 +305,15 @@ export function BrowserLoginModal({
           <p className="truncate text-xs text-text-muted">{pendingBrowserLogin.loginUrl}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setShowInstructions((current) => !current)}
+            aria-label={showInstructions ? t("browserLoginHideHelp") : t("browserLoginHelp")}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-text-muted transition hover:bg-surface-hover hover:text-text"
+            data-testid="browser-login-help-toggle"
+          >
+            <CircleHelp className="h-4 w-4" />
+          </button>
           {bridgeTarget ? (
             <button
               type="button"
@@ -321,17 +341,28 @@ export function BrowserLoginModal({
           <section className="rounded-2xl border border-border bg-bg px-4 py-4">
             <p className="text-sm font-semibold text-text">{stepTitle}</p>
             <p className="mt-2 text-sm leading-6 text-text-muted">{stepBody}</p>
-            <div className="mt-4 rounded-xl border border-border/70 bg-surface px-3 py-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-text-subtle">
-                {t("browserLoginHowItWorks")}
-              </p>
-              <ol className="mt-2 space-y-2 text-sm text-text-muted">
-                <li>{t("browserLoginStepOpenWindow")}</li>
-                <li>{t("browserLoginStepFinishOnDevice")}</li>
-                <li>{t("browserLoginStepReturnAndDone")}</li>
-              </ol>
-            </div>
+            {showOpenFallbackHint ? (
+              <p className="mt-3 text-xs text-text-subtle">{t("browserLoginOpenFallbackHint")}</p>
+            ) : null}
           </section>
+
+          {showInstructions ? (
+            <section
+              className="rounded-2xl border border-border bg-bg px-4 py-4"
+              data-testid="browser-login-instructions"
+            >
+              <div className="rounded-xl border border-border/70 bg-surface px-3 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-text-subtle">
+                  {t("browserLoginHowItWorks")}
+                </p>
+                <ol className="mt-2 space-y-2 text-sm text-text-muted">
+                  <li>{t("browserLoginStepOpenWindow")}</li>
+                  <li>{t("browserLoginStepFinishOnDevice")}</li>
+                  <li>{t("browserLoginStepReturnAndDone")}</li>
+                </ol>
+              </div>
+            </section>
+          ) : null}
 
           {bridgeClientKind === "capacitor" || nativeShell ? (
             <section className="rounded-2xl border border-accent/20 bg-accent/[0.06] px-4 py-4">
