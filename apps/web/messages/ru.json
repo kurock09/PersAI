@@ -636,6 +636,8 @@
     "browserLoginExtensionDeveloperInstall": "Публикации в Chrome Web Store пока нет. Для внутреннего тестирования загрузите PersAI Browser Bridge как unpacked-расширение в режиме разработчика Chrome, затем вернитесь сюда и проверьте ещё раз.",
     "browserLoginMobileStatusTitle": "Встроенный браузер готов",
     "browserLoginMobileStatusBody": "PersAI будет использовать окно браузера на этом устройстве. Авторизованная работа в браузере остаётся на вашем устройстве.",
+    "browserLoginMobileReturnHint": "Выполнив вход на сайте, нажмите системную кнопку «Назад», чтобы вернуться сюда, затем нажмите «Готово».",
+    "browserLoginMobileShowSite": "Показать сайт снова",
     "browserLoginFooterTruth": "Авторизованная работа в браузере для этого сценария остаётся на вашем устройстве.",
     "lightboxSave": "Сохранить в галерею",
     "lightboxShare": "Поделиться",

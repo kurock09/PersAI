@@ -433,3 +433,34 @@ export async function registerNativeBrowserBridgeDevice(
 ): Promise<ExtensionBridgeStatus> {
   return connectNativeBridgeSocket(input);
 }
+
+/**
+ * Hide the native browser overlay locally (no server round-trip). The native
+ * `close_view` path persists the profile cookies before hiding, so a login
+ * completed inside the overlay survives the hide. Used by the hardware Back
+ * handler: the overlay covers the whole app, including the modal's Done
+ * button, so Back is the user's way home.
+ */
+export async function hideNativeBrowserBridgeView(profileKey: string): Promise<void> {
+  if (!isNativeBrowserBridgeShell()) {
+    return;
+  }
+  await executeNativeCommand({
+    commandId: `local-close-${Date.now()}`,
+    profileKey,
+    action: "close_view"
+  });
+}
+
+/** Re-show the native overlay on its current page, locally. */
+export async function showNativeBrowserBridgeView(profileKey: string): Promise<void> {
+  if (!isNativeBrowserBridgeShell()) {
+    return;
+  }
+  await executeNativeCommand({
+    commandId: `local-open-${Date.now()}`,
+    profileKey,
+    action: "open_view",
+    stayOnPage: true
+  });
+}

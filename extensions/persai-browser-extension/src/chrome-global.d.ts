@@ -19,6 +19,10 @@ interface ChromeTab {
 interface ChromeWindow {
   id?: number;
   tabs?: ChromeTab[];
+  left?: number;
+  top?: number;
+  width?: number;
+  height?: number;
 }
 
 interface ChromeMessageSender {
@@ -48,8 +52,13 @@ interface ChromeWindowsApi {
     type?: string;
     focused?: boolean;
     state?: string;
+    left?: number;
+    top?: number;
+    width?: number;
+    height?: number;
   }): Promise<ChromeWindow>;
   get(windowId: number): Promise<ChromeWindow>;
+  getLastFocused(): Promise<ChromeWindow>;
   update(
     windowId: number,
     updateInfo: {

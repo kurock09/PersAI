@@ -636,6 +636,8 @@
     "browserLoginExtensionDeveloperInstall": "Chrome Web Store listing is not published yet. For internal testing, load the PersAI Browser Bridge extension unpacked in Chrome developer mode, then return here and check again.",
     "browserLoginMobileStatusTitle": "In-app browser ready",
     "browserLoginMobileStatusBody": "PersAI will use the browser view on this device. Your authenticated browser work stays on your device.",
+    "browserLoginMobileReturnHint": "After signing in on the site, press the system Back button to return here, then press Done.",
+    "browserLoginMobileShowSite": "Show the site again",
     "browserLoginFooterTruth": "Authenticated browser work stays on your device for this flow.",
     "lightboxSave": "Save to gallery",
     "lightboxShare": "Share",

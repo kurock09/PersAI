@@ -52,6 +52,8 @@ import { readState, reconcileProfileRecord, updateState, writeState } from "./st
 const KEEPALIVE_PORT_NAMES = new Set(["persai-page-keepalive", "persai-popup-keepalive"]);
 
 let socket: WebSocket | null = null;
+/** Bridge device id the current socket authenticated with. */
+let socketDeviceId: string | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
 let desiredConnection = false;
@@ -118,6 +120,7 @@ async function connectSocketIfNeeded(): Promise<void> {
   }
   const nextSocket = new WebSocket(registration.websocketUrl);
   socket = nextSocket;
+  socketDeviceId = registration.bridgeDeviceId;
   nextSocket.addEventListener("open", () => {
     reconnectAttempts = 0;
     const payload: LocalBrowserBridgeWebSocketConnectRequest = {
@@ -150,6 +153,7 @@ async function connectSocketIfNeeded(): Promise<void> {
   nextSocket.addEventListener("close", () => {
     if (socket === nextSocket) {
       socket = null;
+      socketDeviceId = null;
     }
     if (desiredConnection) {
       scheduleReconnect();
@@ -189,6 +193,26 @@ async function saveRegistration(
   );
 }
 
+/**
+ * A new registration mints a new bridge device id. If the live socket still
+ * authenticates as the OLD device id, the web modal targets a device the
+ * server considers disconnected and every dispatch 409s. Drop the stale
+ * socket so the reconnect uses the fresh registration.
+ */
+function dropSocketIfDeviceChanged(nextBridgeDeviceId: string): void {
+  if (socket === null || socketDeviceId === nextBridgeDeviceId) {
+    return;
+  }
+  const staleSocket = socket;
+  socket = null;
+  socketDeviceId = null;
+  try {
+    staleSocket.close(1000, "registration_replaced");
+  } catch {
+    // Ignore close failures on torn-down sockets.
+  }
+}
+
 async function registerDeviceViaApi(
   message: Extract<WebBridgeRequestMessage, { type: "persai.bridge.register_device_request" }>
 ): Promise<unknown> {
@@ -216,6 +240,7 @@ async function registerDeviceViaApi(
     deviceLabel: message.payload.deviceLabel ?? null,
     clientVersion: message.payload.clientVersion ?? null
   });
+  dropSocketIfDeviceChanged(payload.bridgeDeviceId);
   await syncDesiredConnection();
   return buildStatus(state);
 }
@@ -227,6 +252,7 @@ async function storeDeviceRegistrationResult(
     ...message.payload,
     apiBaseUrl: message.apiBaseUrl ? normalizeApiBaseUrl(message.apiBaseUrl) : null
   });
+  dropSocketIfDeviceChanged(message.payload.bridgeDeviceId);
   await syncDesiredConnection();
   return buildStatus(state);
 }
@@ -443,16 +469,47 @@ async function setWindowVisibility(
   return persistProfilePatch(record.profileKey, { visible, updatedAt: Date.now() });
 }
 
+/**
+ * Size the login popup at roughly 70% of the user's current window footprint
+ * with a 16:9 shape, centered — instead of Chrome's tiny default popup.
+ */
+async function computeProfileWindowBounds(): Promise<{
+  left?: number;
+  top?: number;
+  width?: number;
+  height?: number;
+}> {
+  try {
+    const focused = await chrome.windows.getLastFocused();
+    const baseWidth = focused.width ?? 1600;
+    const baseHeight = focused.height ?? 900;
+    let width = Math.max(960, Math.round(baseWidth * 0.7));
+    let height = Math.round((width * 9) / 16);
+    const maxHeight = Math.round(baseHeight * 0.9);
+    if (height > maxHeight) {
+      height = maxHeight;
+      width = Math.round((height * 16) / 9);
+    }
+    const left = (focused.left ?? 0) + Math.max(0, Math.round((baseWidth - width) / 2));
+    const top = (focused.top ?? 0) + Math.max(0, Math.round((baseHeight - height) / 2));
+    return { left, top, width, height };
+  } catch {
+    return { width: 1280, height: 720 };
+  }
+}
+
 async function createProfileWindow(
   profileKey: string,
   targetUrl: string | null,
   visible: boolean
 ): Promise<ProfileSessionRecord> {
+  const bounds = visible ? await computeProfileWindowBounds() : {};
   const nextWindow = await chrome.windows.create({
     url: targetUrl && targetUrl.length > 0 ? targetUrl : "about:blank",
     type: "popup",
     focused: visible,
-    state: visible ? "normal" : "minimized"
+    state: visible ? "normal" : "minimized",
+    ...bounds
   });
   const tabId = nextWindow.tabs?.[0]?.id;
   if (typeof nextWindow.id !== "number" || typeof tabId !== "number") {
@@ -619,7 +676,38 @@ async function handleOpenView(
   };
 }
 
+/**
+ * `check_view` is the permission-free liveness check used by `complete-login`
+ * on desktop. MV3 cannot run a DOM snapshot on a third-party origin without a
+ * host permission, and a WebSocket-dispatched command has no user gesture to
+ * request one — so login verification must not depend on DOM access. The
+ * device answering at all proves the bridge is alive; the human pressing Done
+ * in PersAI is the login truth source. Never creates or focuses a window.
+ */
+async function handleCheckView(command: LocalBrowserCommand): Promise<LocalBrowserResult> {
+  const record = await reconcileProfileRecord(command.profileKey);
+  let currentUrl: string | null = record?.lastKnownUrl ?? null;
+  if (record && typeof record.tabId === "number") {
+    try {
+      const tab = await chrome.tabs.get(record.tabId);
+      currentUrl = tab?.url ?? currentUrl;
+    } catch {
+      // Tab is gone; fall back to the last known URL.
+    }
+  }
+  const windowOpen = record !== null && typeof record.windowId === "number";
+  return {
+    commandId: command.commandId,
+    ok: true,
+    finalUrl: currentUrl,
+    warning: windowOpen ? null : "Bridge window is no longer open; using last known state."
+  };
+}
+
 async function executeBrowserCommand(command: LocalBrowserCommand): Promise<LocalBrowserResult> {
+  if (command.action === "check_view") {
+    return handleCheckView(command);
+  }
   const showWindow = command.action === "open_view" || command.showWindow === true;
   let record = await resolveOrCreateProfileWindow(
     command.profileKey,

@@ -3831,20 +3831,38 @@ export async function listAssistantBrowserProfiles(
   return Array.isArray(payload.profiles) ? payload.profiles : [];
 }
 
+async function readApiErrorMessage(response: Response): Promise<string | null> {
+  try {
+    const payload = (await response.json()) as { message?: unknown };
+    if (typeof payload.message === "string" && payload.message.trim().length > 0) {
+      return payload.message;
+    }
+    if (Array.isArray(payload.message) && typeof payload.message[0] === "string") {
+      return payload.message[0];
+    }
+  } catch {
+    // Non-JSON error body.
+  }
+  return null;
+}
+
 export async function completeAssistantBrowserLogin(
   token: string,
   assistantId: string,
-  profileId: string
+  profileId: string,
+  bridgeDeviceId?: string | null
 ): Promise<AssistantBrowserProfileListItem> {
   const response = await fetch(
     `${getApiBaseUrl()}/assistant/${encodeURIComponent(assistantId)}/browser-profiles/${encodeURIComponent(profileId)}/complete-login`,
     {
       method: "POST",
-      headers: getAuthHeaders(token)
+      headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify(bridgeDeviceId ? { bridgeDeviceId } : {})
     }
   );
   if (!response.ok) {
-    throw new Error("Failed to complete browser login.");
+    const message = await readApiErrorMessage(response);
+    throw new Error(message ?? "Failed to complete browser login.");
   }
   const payload = (await response.json()) as { profile?: AssistantBrowserProfileListItem };
   if (!payload.profile) {
@@ -3879,17 +3897,20 @@ export async function reconnectAssistantBrowserProfile(
 export async function openAssistantBrowserProfileView(
   token: string,
   assistantId: string,
-  profileId: string
+  profileId: string,
+  bridgeDeviceId?: string | null
 ): Promise<PendingBrowserLoginState> {
   const response = await fetch(
     `${getApiBaseUrl()}/assistant/${encodeURIComponent(assistantId)}/browser-profiles/${encodeURIComponent(profileId)}/open-live`,
     {
       method: "POST",
-      headers: getAuthHeaders(token)
+      headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify(bridgeDeviceId ? { bridgeDeviceId } : {})
     }
   );
   if (!response.ok) {
-    throw new Error("Failed to open browser profile live view.");
+    const message = await readApiErrorMessage(response);
+    throw new Error(message ?? "Failed to open browser profile live view.");
   }
   const payload = (await response.json()) as Record<string, unknown>;
   const pending = parsePendingBrowserLoginState(payload);

@@ -148,6 +148,7 @@ export class AssistantBrowserProfileService {
     profileId: string;
     assistantId: string;
     workspaceId: string;
+    bridgeDeviceId?: string | null;
   }): Promise<{ profile: AssistantBrowserProfileSettingsItem }> {
     const row = await this.requireOwnedProfile(
       input.profileId,
@@ -165,7 +166,7 @@ export class AssistantBrowserProfileService {
     }
 
     const bridgeClientKind = this.resolvePendingBridgeClientKind(row.bridgeClientKind);
-    const bridgeSessionRef = await this.verifyBridgeLoginSession(row);
+    const bridgeSessionRef = await this.verifyBridgeLoginSession(row, input.bridgeDeviceId ?? null);
     const ttlDays = await this.resolveTtlDaysForAssistant(input.assistantId);
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlDays * 24 * 60 * 60 * 1000);
@@ -179,6 +180,11 @@ export class AssistantBrowserProfileService {
     if (updated === null) {
       throw new NotFoundException("Browser profile was not found.");
     }
+    // Hide the bridge surface now that login is confirmed: on mobile the
+    // native overlay covers the whole app (also persists cookies on close),
+    // on desktop this minimizes the login popup. Fire-and-forget so a slow
+    // or dead device never delays the login confirmation itself.
+    void this.closeBridgeViewBestEffort(updated).catch(() => undefined);
     return { profile: this.toSettingsItem(updated) };
   }
 
@@ -257,6 +263,7 @@ export class AssistantBrowserProfileService {
     profileId: string;
     assistantId: string;
     workspaceId: string;
+    bridgeDeviceId?: string | null;
   }): Promise<
     RuntimeBrowserLoginResult & { profileId: string; completionMode: "login" | "assist" }
   > {
@@ -272,7 +279,10 @@ export class AssistantBrowserProfileService {
     const opened = await this.dispatchBridgeCommand({
       assistantId: row.assistantId,
       workspaceId: row.workspaceId,
-      bridgeDeviceId: row.bridgeSessionRef,
+      // Prefer the client's own connected bridge device: with desktop + mobile
+      // bridges connected simultaneously, the stored ref may point at the other
+      // surface (or a stale registration) and the dispatch would 409.
+      bridgeDeviceId: input.bridgeDeviceId ?? row.bridgeSessionRef,
       command: {
         commandId: randomUUID(),
         profileKey: row.profileKey,
@@ -566,19 +576,36 @@ export class AssistantBrowserProfileService {
       : DEFAULT_PENDING_BRIDGE_CLIENT_KIND;
   }
 
-  private async verifyBridgeLoginSession(row: AssistantBrowserProfileRow): Promise<string> {
+  private async verifyBridgeLoginSession(
+    row: AssistantBrowserProfileRow,
+    clientBridgeDeviceId: string | null
+  ): Promise<string> {
+    const bridgeClientKind = this.resolvePendingBridgeClientKind(row.bridgeClientKind);
+    // The Chrome extension cannot run a DOM snapshot without a host-permission
+    // grant, and MV3 forbids requesting one from a WebSocket-dispatched command
+    // (no user gesture) — a `snapshot` here would ALWAYS fail with
+    // permission_denied. `check_view` is a permission-free liveness/URL check;
+    // the human pressing Done is the login truth source on desktop.
+    const command =
+      bridgeClientKind === "extension"
+        ? {
+            commandId: randomUUID(),
+            profileKey: row.profileKey,
+            action: "check_view" as const
+          }
+        : {
+            commandId: randomUUID(),
+            profileKey: row.profileKey,
+            action: "snapshot" as const,
+            url: row.loginUrl,
+            format: "text" as const,
+            optimizeForSpeed: true
+          };
     const outcome = await this.dispatchBridgeCommand({
       assistantId: row.assistantId,
       workspaceId: row.workspaceId,
-      bridgeDeviceId: row.bridgeSessionRef,
-      command: {
-        commandId: randomUUID(),
-        profileKey: row.profileKey,
-        action: "snapshot",
-        url: row.loginUrl,
-        format: "text",
-        optimizeForSpeed: true
-      },
+      bridgeDeviceId: clientBridgeDeviceId ?? row.bridgeSessionRef,
+      command,
       unavailableMessage:
         "No local browser bridge is connected for this assistant. Continue in PersAI web/app with the extension or mobile bridge connected.",
       failureMessage:
@@ -615,7 +642,7 @@ export class AssistantBrowserProfileService {
     command: {
       commandId: string;
       profileKey: string;
-      action: "snapshot" | "open_view";
+      action: "snapshot" | "open_view" | "check_view";
       url?: string;
       format?: "text";
       optimizeForSpeed?: boolean;

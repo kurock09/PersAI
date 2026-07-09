@@ -23,12 +23,15 @@ import {
 } from "../assistant-api-client";
 import {
   getExtensionBridgeStatus,
+  hideNativeBrowserBridgeView,
   isNativeBrowserBridgeShell,
   PERSAI_BROWSER_BRIDGE_WEB_STORE_URL,
   registerExtensionBridgeDevice,
   registerNativeBrowserBridgeDevice,
+  showNativeBrowserBridgeView,
   type ExtensionBridgeStatus
 } from "../browser-bridge-client";
+import { pushBackHandler } from "./back-handler-stack";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
 
 interface BrowserLoginModalProps {
@@ -57,7 +60,10 @@ export function BrowserLoginModal({
   const [showInstructions, setShowInstructions] = useState(false);
   const [bridgeViewOpened, setBridgeViewOpened] = useState(false);
   const [openingBridgeView, setOpeningBridgeView] = useState(false);
+  const [nativeViewVisible, setNativeViewVisible] = useState(false);
   const openedViewProfileIdRef = useRef<string | null>(null);
+  const extensionStatusRef = useRef<ExtensionBridgeStatus | null>(null);
+  const lastRegisterAttemptRef = useRef<{ scopeKey: string; at: number } | null>(null);
   const completionMode = pendingBrowserLogin?.completionMode ?? "login";
   const bridgeClientKind = pendingBrowserLogin?.bridgeClientKind ?? null;
   const nativeShell = useMemo(() => isNativeBrowserBridgeShell(), []);
@@ -79,97 +85,173 @@ export function BrowserLoginModal({
       ) {
         return;
       }
-      await openAssistantBrowserProfileView(token, assistantId, pendingBrowserLogin.profileId);
+      // Target the device THIS surface registered: with both desktop and
+      // mobile bridges connected, the server otherwise picks ambiguously.
+      await openAssistantBrowserProfileView(
+        token,
+        assistantId,
+        pendingBrowserLogin.profileId,
+        extensionStatusRef.current?.bridgeDeviceId ?? null
+      );
       openedViewProfileIdRef.current = pendingBrowserLogin.profileId;
       setShowInstructions(false);
       setBridgeViewOpened(true);
+      if (nativeTarget) {
+        setNativeViewVisible(true);
+      }
     },
-    [assistantId, completionMode, pendingBrowserLogin]
+    [assistantId, completionMode, nativeTarget, pendingBrowserLogin]
   );
 
-  const refreshExtensionStatus = useCallback(async () => {
-    if (!bridgeTarget) {
-      setExtensionStatus(null);
-      setCheckingExtension(false);
-      return;
-    }
-    setCheckingExtension(true);
-    try {
-      if (nativeTarget) {
-        const token = await getToken();
-        if (!token || !assistantId || !pendingBrowserLogin) {
-          setExtensionStatus(null);
-          return;
-        }
-        const registered = await registerNativeBrowserBridgeDevice({
-          token,
-          assistantId,
-          workspaceId: pendingBrowserLogin.workspaceId
-        });
-        setExtensionStatus(registered);
-        if (registered.connected) {
-          await openPendingLoginView(token).catch(() => {
-            setShowInstructions(true);
-          });
-        }
+  const updateExtensionStatus = useCallback((next: ExtensionBridgeStatus | null) => {
+    extensionStatusRef.current = next;
+    setExtensionStatus(next);
+  }, []);
+
+  const refreshExtensionStatus = useCallback(
+    async (options?: { showChecking?: boolean }) => {
+      const showChecking = options?.showChecking !== false;
+      if (!bridgeTarget) {
+        updateExtensionStatus(null);
+        setCheckingExtension(false);
         return;
       }
-      const next = await getExtensionBridgeStatus();
-      if (
-        next.connected &&
-        next.assistantId === assistantId &&
-        next.workspaceId === pendingBrowserLogin?.workspaceId
-      ) {
-        setExtensionStatus(next);
-        return;
-      }
-      const token = await getToken();
-      if (!token || !assistantId || !pendingBrowserLogin) {
-        setExtensionStatus(next);
-        return;
+      if (showChecking) {
+        setCheckingExtension(true);
       }
       try {
-        const registered = await registerExtensionBridgeDevice({
-          token,
-          assistantId,
-          workspaceId: pendingBrowserLogin.workspaceId
-        });
-        setExtensionStatus(registered);
+        if (nativeTarget) {
+          const token = await getToken();
+          if (!token || !assistantId || !pendingBrowserLogin) {
+            updateExtensionStatus(null);
+            return;
+          }
+          const registered = await registerNativeBrowserBridgeDevice({
+            token,
+            assistantId,
+            workspaceId: pendingBrowserLogin.workspaceId
+          });
+          updateExtensionStatus(registered);
+          if (registered.connected) {
+            await openPendingLoginView(token).catch(() => {
+              setCompleteError(t("browserLoginOpenFailed"));
+            });
+          }
+          return;
+        }
+        const next = await getExtensionBridgeStatus();
+        const sameScope =
+          next.assistantId === assistantId && next.workspaceId === pendingBrowserLogin?.workspaceId;
+        if (
+          sameScope ||
+          (next.assistantId === null &&
+            next.workspaceId === null &&
+            extensionStatusRef.current !== null)
+        ) {
+          updateExtensionStatus(next);
+          return;
+        }
+        const token = await getToken();
+        if (!token || !assistantId || !pendingBrowserLogin) {
+          updateExtensionStatus(next);
+          return;
+        }
+        // Registering mints a NEW bridge device id and forces the extension to
+        // reconnect its socket. Doing that on every 3s poll churns device
+        // identity and makes targeted dispatch miss — throttle hard.
+        const scopeKey = `${assistantId}::${pendingBrowserLogin.workspaceId}`;
+        const lastAttempt = lastRegisterAttemptRef.current;
+        if (
+          lastAttempt !== null &&
+          lastAttempt.scopeKey === scopeKey &&
+          Date.now() - lastAttempt.at < 15_000
+        ) {
+          updateExtensionStatus(extensionStatusRef.current ?? next);
+          return;
+        }
+        lastRegisterAttemptRef.current = { scopeKey, at: Date.now() };
+        try {
+          const registered = await registerExtensionBridgeDevice({
+            token,
+            assistantId,
+            workspaceId: pendingBrowserLogin.workspaceId
+          });
+          updateExtensionStatus(registered);
+        } catch {
+          updateExtensionStatus(extensionStatusRef.current ?? next);
+        }
       } catch {
-        setExtensionStatus(next);
+        if (extensionStatusRef.current === null) {
+          updateExtensionStatus(null);
+        }
+      } finally {
+        if (showChecking) {
+          setCheckingExtension(false);
+        }
       }
-    } catch {
-      setExtensionStatus(null);
-    } finally {
-      setCheckingExtension(false);
-    }
-  }, [
-    assistantId,
-    bridgeTarget,
-    getToken,
-    nativeTarget,
-    openPendingLoginView,
-    pendingBrowserLogin
-  ]);
+    },
+    [
+      assistantId,
+      bridgeTarget,
+      getToken,
+      nativeTarget,
+      openPendingLoginView,
+      pendingBrowserLogin,
+      t,
+      updateExtensionStatus
+    ]
+  );
 
   useEffect(() => {
     if (!open) {
       setCompleting(false);
       setCompleteError(null);
-      setExtensionStatus(null);
+      updateExtensionStatus(null);
       setCheckingExtension(false);
       setShowInstructions(false);
       setBridgeViewOpened(false);
       setOpeningBridgeView(false);
+      setNativeViewVisible(false);
       openedViewProfileIdRef.current = null;
     }
-  }, [open, pendingBrowserLogin?.profileId]);
+  }, [open, pendingBrowserLogin?.profileId, updateExtensionStatus]);
 
   useEffect(() => {
     setBridgeViewOpened(false);
     setOpeningBridgeView(false);
+    setNativeViewVisible(false);
     openedViewProfileIdRef.current = null;
   }, [pendingBrowserLogin?.profileId]);
+
+  /**
+   * While the native overlay covers the app (including this modal's own
+   * buttons), the hardware Back press must hide the overlay and return the
+   * user here — NOT dismiss the modal. Registered after the modal's own
+   * back-to-close handler so it sits on top of the stack.
+   */
+  const pendingProfileKey = pendingBrowserLogin?.profileKey ?? null;
+  useEffect(() => {
+    if (!open || !nativeTarget || !nativeViewVisible || pendingProfileKey === null) {
+      return;
+    }
+    const remove = pushBackHandler(() => {
+      void hideNativeBrowserBridgeView(pendingProfileKey).catch(() => undefined);
+      setNativeViewVisible(false);
+    });
+    return () => remove();
+  }, [nativeTarget, nativeViewVisible, open, pendingProfileKey]);
+
+  const handleShowNativeView = useCallback(async () => {
+    if (pendingProfileKey === null) {
+      return;
+    }
+    try {
+      await showNativeBrowserBridgeView(pendingProfileKey);
+      setNativeViewVisible(true);
+    } catch {
+      setCompleteError(t("browserLoginOpenFailed"));
+    }
+  }, [pendingProfileKey, t]);
 
   /**
    * Kept as a defensive desktop-extension fallback: the primary UX now keeps
@@ -242,9 +324,11 @@ export function BrowserLoginModal({
     if (!open || !bridgeTarget) {
       return;
     }
-    void refreshExtensionStatus();
+    // Only surface the "checking" spinner while we have no status at all;
+    // re-runs of this effect (parent re-renders) must not flicker the UI.
+    void refreshExtensionStatus({ showChecking: extensionStatusRef.current === null });
     const intervalId = window.setInterval(() => {
-      void refreshExtensionStatus();
+      void refreshExtensionStatus({ showChecking: false });
       void checkExtensionPendingCompletionAction();
     }, 3_000);
     return () => window.clearInterval(intervalId);
@@ -274,9 +358,9 @@ export function BrowserLoginModal({
     setCompleteError(null);
     try {
       await openPendingLoginView(token);
-    } catch {
-      setShowInstructions(true);
-      setCompleteError(t("browserLoginOpenFailed"));
+    } catch (error) {
+      const serverMessage = error instanceof Error && error.message ? error.message : null;
+      setCompleteError(serverMessage ?? t("browserLoginOpenFailed"));
     } finally {
       setOpeningBridgeView(false);
     }
@@ -310,12 +394,18 @@ export function BrowserLoginModal({
       if (completionMode === "assist") {
         await dismissAssistantBrowserProfileView(token, assistantId, pendingBrowserLogin.profileId);
       } else {
-        await completeAssistantBrowserLogin(token, assistantId, pendingBrowserLogin.profileId);
+        await completeAssistantBrowserLogin(
+          token,
+          assistantId,
+          pendingBrowserLogin.profileId,
+          extensionStatusRef.current?.bridgeDeviceId ?? null
+        );
       }
       onCompleted?.();
       onDismiss();
-    } catch {
-      setCompleteError(t("browserLoginCompleteFailed"));
+    } catch (error) {
+      const serverMessage = error instanceof Error && error.message ? error.message : null;
+      setCompleteError(serverMessage ?? t("browserLoginCompleteFailed"));
     } finally {
       setCompleting(false);
     }
@@ -385,14 +475,25 @@ export function BrowserLoginModal({
         ? t("browserLoginMobileBody")
         : t("browserLoginDesktopBody");
   const showOpenFallbackHint = bridgeTarget && extensionConnected && completionMode === "login";
+  const compactDesktopModal = extensionTarget && completionMode === "login";
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm"
+      className={cn(
+        "fixed inset-0 z-[100]",
+        compactDesktopModal
+          ? "flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm"
+          : "flex flex-col bg-bg"
+      )}
       data-testid="browser-login-modal-backdrop"
     >
       <div
-        className="flex max-h-[calc(100vh-3rem)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-border bg-bg shadow-2xl"
+        className={cn(
+          "flex flex-col overflow-hidden bg-bg",
+          compactDesktopModal
+            ? "max-h-[calc(100vh-3rem)] w-full max-w-lg rounded-3xl border border-border shadow-2xl"
+            : "min-h-0 flex-1"
+        )}
         role="dialog"
         aria-modal="true"
         aria-label={pendingBrowserLogin.displayName}
@@ -476,13 +577,28 @@ export function BrowserLoginModal({
                   <span className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-full border border-accent/25 bg-accent/10 text-accent">
                     <Smartphone className="h-4.5 w-4.5" />
                   </span>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-text">
                       {t("browserLoginMobileStatusTitle")}
                     </p>
                     <p className="mt-1 text-sm leading-6 text-text-muted">
                       {t("browserLoginMobileStatusBody")}
                     </p>
+                    {bridgeViewOpened ? (
+                      <p className="mt-2 text-xs text-text-subtle">
+                        {t("browserLoginMobileReturnHint")}
+                      </p>
+                    ) : null}
+                    {bridgeViewOpened && !nativeViewVisible ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleShowNativeView()}
+                        className="mt-3 inline-flex min-h-9 items-center justify-center rounded-lg bg-accent px-3 text-xs font-semibold text-white transition hover:bg-accent-hover"
+                        data-testid="browser-login-show-native-view"
+                      >
+                        {t("browserLoginMobileShowSite")}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </section>

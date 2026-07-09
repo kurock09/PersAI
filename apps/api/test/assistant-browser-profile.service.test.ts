@@ -534,7 +534,71 @@ describe("AssistantBrowserProfileService", () => {
     const maxExpiresAt = after + 90 * 24 * 60 * 60 * 1000 + 1_000;
     assert.ok((updated?.expiresAt?.getTime() ?? 0) >= minExpiresAt);
     assert.ok((updated?.expiresAt?.getTime() ?? 0) <= maxExpiresAt);
+    // Extension-kind verification must be permission-free: MV3 cannot run a
+    // DOM snapshot without a host grant and no user gesture exists here.
+    assert.equal(relay.dispatches[0]?.command.action, "check_view");
+  });
+
+  test("completeLogin verifies capacitor profiles with a DOM snapshot", async () => {
+    const repository = new InMemoryAssistantBrowserProfileRepository();
+    repository.seed({
+      id: "pending-cap",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "crm",
+      displayName: "CRM",
+      loginUrl: "https://crm.example/login",
+      originHost: "crm.example",
+      bridgeSessionRef: null,
+      bridgeClientKind: "capacitor",
+      originatingChatId: null,
+      status: "pending_login",
+      lastUsedAt: null,
+      expiresAt: null
+    });
+    const relay = new FakeBrowserBridgeRelayService();
+    relay.nextResult = { commandId: "ignored", ok: true, finalUrl: "https://crm.example/home" };
+    const service = buildService({ repository, relay, ttlDays: 30 });
+
+    const result = await service.completeLogin({
+      profileId: "pending-cap",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1"
+    });
+
+    assert.equal(result.profile.status, "active");
     assert.equal(relay.dispatches[0]?.command.action, "snapshot");
+  });
+
+  test("completeLogin targets the client-provided bridge device", async () => {
+    const repository = new InMemoryAssistantBrowserProfileRepository();
+    repository.seed({
+      id: "pending-target",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "crm",
+      displayName: "CRM",
+      loginUrl: "https://crm.example/login",
+      originHost: "crm.example",
+      bridgeSessionRef: "stale-device",
+      bridgeClientKind: "extension",
+      originatingChatId: null,
+      status: "pending_login",
+      lastUsedAt: null,
+      expiresAt: null
+    });
+    const relay = new FakeBrowserBridgeRelayService();
+    relay.nextResult = { commandId: "ignored", ok: true };
+    const service = buildService({ repository, relay, ttlDays: 30 });
+
+    await service.completeLogin({
+      profileId: "pending-target",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "client-device-7"
+    });
+
+    assert.equal(relay.dispatches[0]?.bridgeDeviceId, "client-device-7");
   });
 
   test("completeLogin fails honestly when no bridge device is connected", async () => {
@@ -604,6 +668,38 @@ describe("AssistantBrowserProfileService", () => {
     assert.equal(result.completionMode, "assist");
     assert.equal(result.bridgeClientKind, "extension");
     assert.equal((await repository.findById("active-1"))?.bridgeSessionRef, "bridge-device-new");
+    assert.equal(relay.dispatches[0]?.command.action, "open_view");
+  });
+
+  test("openLiveView prefers the client-provided bridge device over the stored ref", async () => {
+    const repository = new InMemoryAssistantBrowserProfileRepository();
+    repository.seed({
+      id: "pending-open",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "crm",
+      displayName: "CRM",
+      loginUrl: "https://crm.example/login",
+      originHost: "crm.example",
+      bridgeSessionRef: "other-surface-device",
+      bridgeClientKind: "capacitor",
+      originatingChatId: null,
+      status: "pending_login",
+      lastUsedAt: null,
+      expiresAt: null
+    });
+    const relay = new FakeBrowserBridgeRelayService();
+    relay.nextResult = { commandId: "ignored", ok: true };
+    const service = buildService({ repository, relay });
+
+    await service.openLiveView({
+      profileId: "pending-open",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "my-phone-device"
+    });
+
+    assert.equal(relay.dispatches[0]?.bridgeDeviceId, "my-phone-device");
     assert.equal(relay.dispatches[0]?.command.action, "open_view");
   });
 });

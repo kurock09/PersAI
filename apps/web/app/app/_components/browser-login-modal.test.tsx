@@ -35,6 +35,8 @@ vi.mock("../browser-bridge-client", () => ({
   registerExtensionBridgeDevice: (...args: unknown[]) => registerExtensionBridgeDevice(...args),
   registerNativeBrowserBridgeDevice: (...args: unknown[]) =>
     registerNativeBrowserBridgeDevice(...args),
+  hideNativeBrowserBridgeView: vi.fn().mockResolvedValue(undefined),
+  showNativeBrowserBridgeView: vi.fn().mockResolvedValue(undefined),
   isNativeBrowserBridgeShell: () => false,
   PERSAI_BROWSER_BRIDGE_WEB_STORE_URL: null
 }));
@@ -110,10 +112,13 @@ describe("BrowserLoginModal", () => {
     fireEvent.click(screen.getByTestId("browser-login-open-bridge-view"));
 
     await waitFor(() => {
+      // The modal targets its own connected bridge device so the server never
+      // has to guess between multiple connected surfaces.
       expect(openAssistantBrowserProfileView).toHaveBeenCalledWith(
         "test-token",
         "assistant-1",
-        "profile-1"
+        "profile-1",
+        "device-1"
       );
     });
     expect(screen.getByTestId("browser-login-modal")).toBeInTheDocument();
@@ -206,7 +211,8 @@ describe("BrowserLoginModal", () => {
       expect(completeAssistantBrowserLogin).toHaveBeenCalledWith(
         "test-token",
         "assistant-1",
-        "profile-1"
+        "profile-1",
+        "device-1"
       );
     });
     expect(onCompleted).toHaveBeenCalled();

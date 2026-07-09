@@ -3,7 +3,8 @@ export const LOCAL_BROWSER_COMMAND_ACTIONS = [
   "snapshot",
   "act",
   "open_view",
-  "close_view"
+  "close_view",
+  "check_view"
 ] as const;
 
 export type LocalBrowserCommandAction = (typeof LOCAL_BROWSER_COMMAND_ACTIONS)[number];

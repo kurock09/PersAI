@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
@@ -117,13 +118,15 @@ export class AssistantBrowserProfilesController {
   async openLiveView(
     @Req() req: RequestWithPlatformContext,
     @Param("assistantId") assistantId: string,
-    @Param("profileId") profileId: string
+    @Param("profileId") profileId: string,
+    @Body() body: unknown
   ): Promise<ReconnectLoginResponse> {
     const context = await this.resolveAssistantContext(req, assistantId);
     const result = await this.assistantBrowserProfileService.openLiveView({
       profileId,
       assistantId: context.assistantId,
-      workspaceId: context.workspaceId
+      workspaceId: context.workspaceId,
+      bridgeDeviceId: this.parseOptionalBridgeDeviceId(body)
     });
     return {
       requestId: req.requestId ?? null,
@@ -162,18 +165,38 @@ export class AssistantBrowserProfilesController {
   async completeLogin(
     @Req() req: RequestWithPlatformContext,
     @Param("assistantId") assistantId: string,
-    @Param("profileId") profileId: string
+    @Param("profileId") profileId: string,
+    @Body() body: unknown
   ): Promise<CompleteLoginResponse> {
     const context = await this.resolveAssistantContext(req, assistantId);
     const result = await this.assistantBrowserProfileService.completeLogin({
       profileId,
       assistantId: context.assistantId,
-      workspaceId: context.workspaceId
+      workspaceId: context.workspaceId,
+      bridgeDeviceId: this.parseOptionalBridgeDeviceId(body)
     });
     return {
       requestId: req.requestId ?? null,
       profile: result.profile
     };
+  }
+
+  /**
+   * ADR-140 defect fix: the web/app client passes the bridge device id of ITS
+   * connected surface so dispatch targets that device deterministically instead
+   * of the stale `bridgeSessionRef` or "the single connection" (which breaks as
+   * soon as desktop + mobile bridges are connected for the same assistant).
+   */
+  private parseOptionalBridgeDeviceId(body: unknown): string | null {
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      return null;
+    }
+    const value = (body as Record<string, unknown>).bridgeDeviceId;
+    if (typeof value !== "string") {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   private async resolveAssistantContext(req: RequestWithPlatformContext, assistantId: string) {

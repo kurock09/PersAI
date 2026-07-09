@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-07-09 — ADR-140 login completion truth: `check_view`, explicit device targeting, register throttle, mobile overlay escape
+
+Status: **implemented locally; commit/push pending.**
+
+**Scope:** Functional completion of the ADR-140 login flow across `packages/runtime-contract`, `apps/api` (browser-profile service + controller), `extensions/persai-browser-extension`, and `apps/web` (login modal + bridge client + RU/EN messages). Defect fixes inside ADR-140 scope; no new ADR, no schema change.
+
+**Why (founder report + cluster logs):** After the relay/`open_view` fixes, desktop still could not finish: the site opened (sometimes already logged in) but `Готово` always failed, and mobile never showed the site. Three distinct functional defects:
+
+1. **`complete-login` verification was impossible on desktop.** `verifyBridgeLoginSession` dispatched `snapshot`, which requires `chrome.permissions.request({origins})` host grants; a WebSocket-dispatched service-worker command has no user gesture, so the extension always answered `permission_denied` → 409. The modal could therefore never "see" the logged-in site.
+2. **Device targeting was ambiguous/stale.** With mobile + desktop both registered for the same assistant, `open-live`/`complete-login` used `row.bridgeSessionRef` (whichever device registered last) or failed `bridge_device_ambiguous` / `device_not_connected` when the ref was null/stale.
+3. **Registration churn orphaned live sockets.** The modal's 3s status poll re-registered a fresh `bridgeDeviceId` each tick; the extension kept the old authenticated socket, so targeted dispatch to the newest device id missed.
+
+**What changed:**
+
+- Contract: new `check_view` action in `LOCAL_BROWSER_COMMAND_ACTIONS` (runtime-contract + extension contract copy).
+- API `assistant-browser-profile.service.ts`: extension-kind verification now dispatches `check_view` (permission-free liveness + last-known URL); capacitor keeps `snapshot`. `openLiveView` and `completeLogin` accept an optional client `bridgeDeviceId` (controller parses it from the body) and prefer it over the stored ref. After successful activation the API fire-and-forgets `close_view` so the bridge surface hides itself.
+- Extension `background.ts`: `handleCheckView` (no host permission, no DOM); socket force-reconnect when a newer registration supersedes the authenticated device id (`dropSocketIfDeviceChanged`, `socketDeviceId`); desktop `open_view` popup sized to ~70% of the screen at 16:9 (`computeProfileWindowBounds`, `chrome.windows.getLastFocused`).
+- Web modal: sends its own connected `bridgeDeviceId` on `open-live`/`complete-login`; registration throttled to once per 15s per scope; "checking" spinner only when no status exists yet; server error text surfaced in the modal. Mobile: hardware Back locally hides the native overlay via a client-side `close_view` (`hideNativeBrowserBridgeView`) so `Готово` is reachable, plus a "показать сайт снова" action (`showNativeBrowserBridgeView`) and a return hint; overlay auto-open on connect unchanged.
+
+**Verification:** extension lint/typecheck/test (16)/build PASS; api typecheck + focused browser-profile/relay/cross-pod suites (20) PASS; web typecheck + modal tests (9) PASS; runtime/provider-gateway/sandbox/runtime-contract typechecks PASS; repo-wide lint PASS; `format:check` PASS.
+
+**Residuals:** Mobile still requires an APK rebuild only if the native overlay must inset the modal footer natively; the Back-button escape works with the current APK because Capacitor's `backButton` fires at the activity level. Auto-detect of a successful login (green state without pressing `Готово`) is not implemented. Deploy `api` + `web`, reload the unpacked extension, then run desktop + mobile login acceptance.
+
+**Next recommended step:** Commit/push on explicit request, deploy, reload extension, and re-test: desktop — open site (70% window), sign in, press `Готово` (now `check_view`-verified, device-targeted); mobile — overlay auto-opens the site, Back returns to the modal, `Готово` completes.
+
+---
+
 ## 2026-07-09 — ADR-140 desktop extension `open_view` unblock + compact login modal
 
 Status: **implemented locally; commit/push pending.**
