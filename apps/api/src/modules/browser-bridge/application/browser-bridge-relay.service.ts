@@ -522,21 +522,19 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
       const match = descriptors.find(
         (descriptor) => descriptor.bridgeDeviceId === requestedBridgeDeviceId
       );
-      if (match === undefined) {
+      if (match !== undefined) {
         return {
-          accepted: false,
-          commandId,
-          code: "bridge_device_not_connected",
-          message: "The requested browser bridge device is not connected.",
-          activeBridgeDeviceIds: activeDeviceIds,
-          requestedBridgeDeviceId
+          connectionKey: match.connectionKey,
+          bridgeDeviceId: match.bridgeDeviceId,
+          podId: match.podId
         };
       }
-      return {
-        connectionKey: match.connectionKey,
-        bridgeDeviceId: match.bridgeDeviceId,
-        podId: match.podId
-      };
+      // The caller's remembered device id (e.g. a DB-stored bridgeSessionRef)
+      // is a PREFERENCE, not a hard requirement: reconnect churn (token
+      // refresh, extension restart) routinely mints a new device id, and
+      // failing outright here even though exactly one live connection exists
+      // for this scope is strictly worse than treating the id as absent —
+      // fall through to auto-selection instead of a hard 409.
     }
     if (descriptors.length > 1) {
       return {
@@ -545,6 +543,16 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
         code: "bridge_device_ambiguous",
         message: "Multiple browser bridge devices are connected; specify bridgeDeviceId.",
         activeBridgeDeviceIds: activeDeviceIds
+      };
+    }
+    if (descriptors.length === 0) {
+      return {
+        accepted: false,
+        commandId,
+        code: "bridge_device_not_connected",
+        message: "The requested browser bridge device is not connected.",
+        activeBridgeDeviceIds: activeDeviceIds,
+        requestedBridgeDeviceId
       };
     }
     const only = descriptors[0]!;
@@ -572,30 +580,30 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
     if (requestedBridgeDeviceId !== null) {
       const key = this.buildConnectionKey(workspaceId, assistantId, requestedBridgeDeviceId);
       const record = this.connectionsByKey.get(key);
-      if (record === undefined) {
+      if (record !== undefined) {
         return {
-          accepted: false,
-          commandId,
-          code: "bridge_device_not_connected",
-          message: "The requested browser bridge device is not connected.",
-          activeBridgeDeviceIds: activeDeviceIds,
-          requestedBridgeDeviceId
+          connectionKey: record.connectionKey,
+          bridgeDeviceId: record.bridgeDeviceId,
+          podId: null
         };
       }
-      return {
-        connectionKey: record.connectionKey,
-        bridgeDeviceId: record.bridgeDeviceId,
-        podId: null
-      };
+      // See chooseFromDescriptors: a stale remembered device id must not hard-fail
+      // when exactly one live connection exists for this scope — fall through to
+      // auto-selection instead of a hard 409.
     }
 
     if (connectionKeys.length === 0) {
       return {
         accepted: false,
         commandId,
-        code: "bridge_unavailable",
-        message: "No active browser bridge device is connected for this assistant.",
-        activeBridgeDeviceIds: []
+        code:
+          requestedBridgeDeviceId !== null ? "bridge_device_not_connected" : "bridge_unavailable",
+        message:
+          requestedBridgeDeviceId !== null
+            ? "The requested browser bridge device is not connected."
+            : "No active browser bridge device is connected for this assistant.",
+        activeBridgeDeviceIds: [],
+        ...(requestedBridgeDeviceId !== null ? { requestedBridgeDeviceId } : {})
       };
     }
     if (connectionKeys.length > 1) {

@@ -237,4 +237,65 @@ describe("BrowserBridgeRelayService", () => {
     assert.equal(secondDispatch.accepted, true);
     assert.equal(secondSocket.sent.length, 1);
   });
+
+  test("falls back to the sole live connection when a stale bridgeDeviceId is requested", async () => {
+    // A DB-stored bridgeSessionRef goes stale the moment the device
+    // reconnects with a new id (token refresh, extension restart). Callers
+    // like openLiveView pass that stale id as a *preference* — dispatch must
+    // still succeed against the one connection that is actually live instead
+    // of hard-failing with bridge_device_not_connected.
+    const service = new BrowserBridgeRelayService();
+    const registration = service.registerDevice(
+      buildRegisterRequest(),
+      "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws"
+    );
+    const socket = new FakeSocket();
+    service.attachConnection(buildConnectRequest(registration), socket);
+
+    const dispatch = await service.dispatchCommand({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "some-stale-device-id-from-a-previous-session",
+      command: {
+        commandId: "command-stale-pref",
+        profileKey: "crm",
+        action: "open_view"
+      }
+    });
+    assert.deepEqual(dispatch, {
+      accepted: true,
+      commandId: "command-stale-pref",
+      bridgeDeviceId: registration.bridgeDeviceId
+    });
+    assert.equal(socket.sent.length, 1);
+  });
+
+  test("still reports bridge_device_ambiguous for a stale id when multiple devices are live", async () => {
+    const service = new BrowserBridgeRelayService();
+    const registrationA = service.registerDevice(
+      buildRegisterRequest({ deviceLabel: "Chrome A" }),
+      "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws"
+    );
+    const registrationB = service.registerDevice(
+      buildRegisterRequest({ deviceLabel: "Chrome B" }),
+      "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws"
+    );
+    service.attachConnection(buildConnectRequest(registrationA), new FakeSocket());
+    service.attachConnection(buildConnectRequest(registrationB), new FakeSocket());
+
+    const dispatch = await service.dispatchCommand({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "some-stale-device-id-from-a-previous-session",
+      command: {
+        commandId: "command-stale-ambiguous",
+        profileKey: "crm",
+        action: "open_view"
+      }
+    });
+    assert.equal(dispatch.accepted, false);
+    if (dispatch.accepted === false) {
+      assert.equal(dispatch.code, "bridge_device_ambiguous");
+    }
+  });
 });

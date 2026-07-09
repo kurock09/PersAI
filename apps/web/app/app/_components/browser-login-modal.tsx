@@ -63,7 +63,6 @@ export function BrowserLoginModal({
   const [nativeViewVisible, setNativeViewVisible] = useState(false);
   const openedViewProfileIdRef = useRef<string | null>(null);
   const extensionStatusRef = useRef<ExtensionBridgeStatus | null>(null);
-  const lastRegisterAttemptRef = useRef<{ scopeKey: string; at: number } | null>(null);
   const nativeRefreshInFlightRef = useRef(false);
   const completionMode = pendingBrowserLogin?.completionMode ?? "login";
   const bridgeClientKind = pendingBrowserLogin?.bridgeClientKind ?? null;
@@ -157,7 +156,10 @@ export function BrowserLoginModal({
         // A matching scope is only good enough while the socket is live. Device
         // tokens expire after ~15 min, and the extension cannot mint a new one
         // itself — if the connection is down we must fall through and
-        // re-register (throttled below) so the extension gets a fresh token.
+        // re-register so the extension gets a fresh token.
+        // `registerExtensionBridgeDevice` itself throttles registration across
+        // every open PersAI tab (via localStorage), so it is safe to call on
+        // every poll tick here without re-implementing a per-tab throttle.
         if (
           (sameScope && next.connected) ||
           (next.assistantId === null &&
@@ -172,23 +174,6 @@ export function BrowserLoginModal({
           updateExtensionStatus(next);
           return;
         }
-        // Registering mints a NEW bridge device id and forces the extension to
-        // reconnect its socket. Doing that on every 3s poll churns device
-        // identity and makes targeted dispatch miss — throttle hard.
-        const scopeKey = `${assistantId}::${pendingBrowserLogin.workspaceId}`;
-        const lastAttempt = lastRegisterAttemptRef.current;
-        if (
-          lastAttempt !== null &&
-          lastAttempt.scopeKey === scopeKey &&
-          Date.now() - lastAttempt.at < 15_000
-        ) {
-          // While throttled, prefer the freshly observed status for our own
-          // scope (it is honest about connected=false); never resurrect a
-          // stale "connected" snapshot.
-          updateExtensionStatus(sameScope ? next : (extensionStatusRef.current ?? next));
-          return;
-        }
-        lastRegisterAttemptRef.current = { scopeKey, at: Date.now() };
         try {
           const registered = await registerExtensionBridgeDevice({
             token,

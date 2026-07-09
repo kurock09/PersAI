@@ -209,13 +209,24 @@ function splitOperationsByGoto(
   return segments;
 }
 
-async function getNativeBrowserBridgePlugin(): Promise<NativeBrowserBridgePlugin> {
-  const { registerPlugin } = await import("@capacitor/core");
-  return registerPlugin<NativeBrowserBridgePlugin>("PersaiBrowserBridge");
-}
+/**
+ * Cached Capacitor plugin proxy. CRITICAL: this proxy must never become the
+ * resolution value of a Promise (e.g. returned from an async function).
+ * Capacitor's plugin proxy answers EVERY property access — including `then` —
+ * with a native method wrapper, so promise resolution treats it as a thenable
+ * and calls `proxy.then()`, which throws
+ * `"PersaiBrowserBridge.then()" is not implemented on android` and leaves the
+ * awaiting caller hung forever (every native command then dies as
+ * `bridge_command_timeout`).
+ */
+let nativeBrowserBridgePlugin: NativeBrowserBridgePlugin | null = null;
 
 async function executeNativeCommand(command: LocalBrowserCommand): Promise<LocalBrowserResult> {
-  const plugin = await getNativeBrowserBridgePlugin();
+  if (nativeBrowserBridgePlugin === null) {
+    const { registerPlugin } = await import("@capacitor/core");
+    nativeBrowserBridgePlugin = registerPlugin<NativeBrowserBridgePlugin>("PersaiBrowserBridge");
+  }
+  const plugin = nativeBrowserBridgePlugin;
   const operations = (command.operations ?? []).slice(0, MAX_OPERATION_COUNT);
   const payload: NativeBridgeExecutePayload = {
     command: { ...command, operations },
@@ -425,10 +436,62 @@ export async function getExtensionBridgeStatus(
   );
 }
 
+const REGISTER_THROTTLE_MS = 15_000;
+
+function registerThrottleStorageKey(assistantId: string, workspaceId: string): string {
+  return `persai:bridge:last-register:${assistantId}::${workspaceId}`;
+}
+
+function readLastRegisterAttempt(storageKey: string): number | null {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (raw === null) {
+      return null;
+    }
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch {
+    // Private-mode / storage-disabled browsers: fall back to no throttling.
+    return null;
+  }
+}
+
+function writeLastRegisterAttempt(storageKey: string, at: number): void {
+  try {
+    window.localStorage.setItem(storageKey, String(at));
+  } catch {
+    // Ignore storage failures; the throttle degrades to per-call only.
+  }
+}
+
+/**
+ * Registering mints a NEW bridge device id and makes the extension drop its
+ * live socket and reconnect (see `dropSocketIfDeviceChanged` in
+ * `background.ts`). The login modal polls this every 3s, and — critically —
+ * every open PersAI tab/window runs its own independent poll loop. A
+ * per-component throttle (a React ref) only protects a single tab; with two
+ * tabs open (e.g. a settings page and a chat) each tab throttles to its own
+ * 15s window, so the extension still sees a fresh registration every few
+ * seconds, forcing a reconnect storm that kills any in-flight `open_view`
+ * with `bridge_connection_closed`. Sharing the throttle window via
+ * localStorage makes every tab in the browser respect the same cooldown.
+ */
 export async function registerExtensionBridgeDevice(
   input: RegisterExtensionBridgeDeviceInput,
   timeoutMs = 5_000
 ): Promise<ExtensionBridgeStatus> {
+  const storageKey = registerThrottleStorageKey(input.assistantId, input.workspaceId);
+  const lastAttempt = readLastRegisterAttempt(storageKey);
+  const now = Date.now();
+  if (lastAttempt !== null && now - lastAttempt < REGISTER_THROTTLE_MS) {
+    try {
+      return await getExtensionBridgeStatus(timeoutMs);
+    } catch {
+      // The extension cannot even answer a status probe — fall through to a
+      // real registration attempt instead of failing outright.
+    }
+  }
+  writeLastRegisterAttempt(storageKey, now);
   return requestExtensionBridgeStatus(
     {
       type: "persai.bridge.register_device_request",
