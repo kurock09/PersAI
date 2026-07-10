@@ -215,7 +215,9 @@ function sanitizeBrowserToolResultForModel(
       continueUrl: PERSAI_WEB_BROWSER_LOGIN_CONTINUE_URL,
       ...(displayName === null ? {} : { displayName }),
       delivery:
-        "Tell the user to continue at continueUrl in the PersAI app on this same surface, where the local browser bridge can open the login view."
+        pending?.completionMode === "assist"
+          ? "PersAI has already shown the user a browser-action banner on this surface. Briefly state what user-only step is required, then stop; do not retry browser tools. The Done action will start a new user turn so you can continue."
+          : "Tell the user to continue at continueUrl in the PersAI app on this same surface, where the local browser bridge can open the login view."
     };
   }
   return sanitized;

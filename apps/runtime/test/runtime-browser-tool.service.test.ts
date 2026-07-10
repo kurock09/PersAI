@@ -282,7 +282,16 @@ class FakePersaiInternalApiClientService {
   resolveOutcome: ResolveBrowserProfileOutcome = {
     ok: true,
     profileId: "profile-1",
-    bridgeSessionRef: "device-pinned-1"
+    bridgeSessionRef: "device-pinned-1",
+    pendingBrowserLogin: {
+      profileId: "profile-1",
+      profileKey: "bitrix",
+      displayName: "Bitrix24",
+      loginUrl: "https://example.bitrix24.ru/",
+      workspaceId: "workspace-1",
+      bridgeClientKind: "extension",
+      completionMode: "assist"
+    }
   };
   dispatchOutcome: DispatchLocalBrowserCommandOutcome = {
     accepted: true,
@@ -510,6 +519,32 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.equal(internalApi.dispatchCalls[0]?.bridgeDeviceId, "device-pinned-1");
   assert.equal(internalApi.touchCalls.length, 1);
 
+  internalApi.pollResponses = [
+    {
+      status: "completed",
+      result: {
+        commandId: "command-user-checkpoint",
+        ok: false,
+        finalUrl: "https://example.com/checkout",
+        errorReason: "needs_user_action",
+        warning: "A user-only browser checkpoint was detected."
+      }
+    }
+  ];
+  const userCheckpointResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "act",
+      url: "https://example.com/checkout",
+      profile: "bitrix",
+      operations: [{ kind: "click", selector: "button.checkout" }]
+    }),
+    sessionId: "session-1"
+  });
+  assert.equal(userCheckpointResult.isError, false);
+  assert.equal(userCheckpointResult.payload.reason, "needs_user_action");
+  assert.equal(userCheckpointResult.payload.pendingBrowserLogin?.completionMode, "assist");
+
   internalApi.dispatchOutcome = {
     accepted: false,
     commandId: "command-2",
@@ -578,7 +613,16 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   internalApi.resolveOutcome = {
     ok: true,
     profileId: "profile-1",
-    bridgeSessionRef: "device-pinned-telegram"
+    bridgeSessionRef: "device-pinned-telegram",
+    pendingBrowserLogin: {
+      profileId: "profile-1",
+      profileKey: "bitrix",
+      displayName: "Bitrix24",
+      loginUrl: "https://example.bitrix24.ru/",
+      workspaceId: "workspace-1",
+      bridgeClientKind: "extension",
+      completionMode: "assist"
+    }
   };
   const telegramProfileResult = await service.executeToolCall({
     bundle,
@@ -684,7 +728,16 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   internalApi.resolveOutcome = {
     ok: true,
     profileId: "profile-1",
-    bridgeSessionRef: "device-pinned-open-view"
+    bridgeSessionRef: "device-pinned-open-view",
+    pendingBrowserLogin: {
+      profileId: "profile-1",
+      profileKey: "bitrix",
+      displayName: "Bitrix24",
+      loginUrl: "https://example.bitrix24.ru/",
+      workspaceId: "workspace-1",
+      bridgeClientKind: "extension",
+      completionMode: "assist"
+    }
   };
   internalApi.pollResponses = [
     {

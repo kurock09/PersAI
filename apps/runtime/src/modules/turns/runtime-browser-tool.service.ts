@@ -564,7 +564,8 @@ export class RuntimeBrowserToolService {
         requestedAction: request.action,
         provider: providerId,
         errorReason: bridgeOutcome.result.errorReason ?? "bridge_unavailable",
-        warning: bridgeOutcome.result.warning
+        warning: bridgeOutcome.result.warning,
+        pendingBrowserLogin: resolved.pendingBrowserLogin
       });
     }
     const providerResult = this.normalizeLocalBridgeResult(request, bridgeOutcome.result);
@@ -850,6 +851,7 @@ export class RuntimeBrowserToolService {
     provider: PersaiRuntimeBrowserProviderId;
     errorReason: string;
     warning?: string | null | undefined;
+    pendingBrowserLogin?: RuntimeBrowserToolResult["pendingBrowserLogin"];
   }): RuntimeBrowserToolExecutionResult {
     if (input.errorReason === "needs_user_action") {
       return this.buildBrowserFailureResult({
@@ -858,7 +860,8 @@ export class RuntimeBrowserToolService {
         reason: "needs_user_action",
         warning:
           input.warning ??
-          "The action now requires the user in the opened browser view. Continue in PersAI web/app after the user finishes there.",
+          "A user-only browser checkpoint was detected. Ask the user to complete it in the opened view and press Done in PersAI; do not retry browser actions until then.",
+        pendingBrowserLogin: input.pendingBrowserLogin,
         isError: false
       });
     }

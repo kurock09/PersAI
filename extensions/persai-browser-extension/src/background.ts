@@ -58,6 +58,7 @@ const REGISTRATION_TOKEN_SAFE_AGE_MS = 14 * 60 * 1000;
 const PERMISSION_GRANT_TIMEOUT_MS = 90_000;
 const PERMISSION_GRANT_POLL_MS = 250;
 const SCREENSHOT_PERMISSION_PATTERN = "<all_urls>";
+const ASSISTANT_OWNERSHIP_OVERLAY_ID = "__persai_assistant_ownership__";
 
 let socket: WebSocket | null = null;
 /** Bridge device id the current socket authenticated with. */
@@ -69,6 +70,7 @@ let keepalivePortCount = 0;
 let activeCommandCount = 0;
 let commandQueue = Promise.resolve();
 const permissionGrantInFlight = new Map<string, Promise<boolean>>();
+const assistantOwnedProfileKeys = new Set<string>();
 
 function hasLiveSocket(): boolean {
   return socket !== null && socket.readyState === WebSocket.OPEN;
@@ -151,6 +153,14 @@ async function connectSocketIfNeeded(): Promise<void> {
   });
   nextSocket.addEventListener("message", (event) => {
     const parsed = JSON.parse(String(event.data)) as LocalBrowserCommand;
+    if (
+      parsed.action === "open_view" ||
+      parsed.action === "close_view" ||
+      parsed.action === "check_view"
+    ) {
+      void handleIncomingCommand(parsed);
+      return;
+    }
     commandQueue = commandQueue
       .then(() => handleIncomingCommand(parsed))
       .catch((error) => {
@@ -645,12 +655,90 @@ async function navigateTab(
   }
   await chrome.tabs.update(record.tabId, { url });
   await waitForTabLoad(record.tabId, timeoutMs);
+  if (assistantOwnedProfileKeys.has(record.profileKey)) {
+    await setAssistantOwnershipOverlay(record, true);
+  }
   return persistProfilePatch(record.profileKey, {
     tabId: record.tabId,
     lastKnownUrl: url,
     originPattern: buildOriginPermissionPattern(url),
     updatedAt: Date.now()
   });
+}
+
+function urlsEquivalent(leftValue: string, rightValue?: string | null): boolean {
+  if (!rightValue) {
+    return false;
+  }
+  try {
+    const left = new URL(leftValue);
+    const right = new URL(rightValue);
+    const leftPath = left.pathname || "/";
+    const rightPath = right.pathname || "/";
+    return (
+      left.protocol.toLowerCase() === right.protocol.toLowerCase() &&
+      left.hostname.toLowerCase() === right.hostname.toLowerCase() &&
+      left.port === right.port &&
+      leftPath === rightPath &&
+      left.search === right.search
+    );
+  } catch {
+    return leftValue === rightValue;
+  }
+}
+
+async function setAssistantOwnershipOverlay(
+  record: ProfileSessionRecord,
+  active: boolean
+): Promise<void> {
+  if (typeof record.tabId !== "number") {
+    return;
+  }
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: record.tabId },
+      func: (overlayId: string, enabled: boolean) => {
+        document.getElementById(overlayId)?.remove();
+        if (!enabled || !document.documentElement) {
+          return;
+        }
+        const host = document.createElement("div");
+        host.id = overlayId;
+        host.setAttribute("aria-label", "PersAI assistant browser ownership");
+        Object.assign(host.style, {
+          position: "fixed",
+          inset: "0",
+          zIndex: "2147483647",
+          pointerEvents: "auto",
+          cursor: "not-allowed",
+          background: "transparent"
+        });
+        const shadow = host.attachShadow({ mode: "closed" });
+        const root = document.createElement("div");
+        root.className = "lock";
+        const russian = /^ru(?:-|$)/iu.test(navigator.language);
+        root.innerHTML = `<style>
+          .lock { position: fixed; inset: 0; display: grid; place-items: center; }
+          .pill {
+            opacity: 0; transform: translateY(4px); transition: opacity .14s ease, transform .14s ease;
+            padding: 10px 16px; border-radius: 999px; color: #fff; background: rgba(18,18,24,.82);
+            box-shadow: 0 8px 28px rgba(0,0,0,.22); backdrop-filter: blur(10px);
+            font: 600 14px/1.25 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+            user-select: none;
+          }
+          .lock:hover .pill, .lock:active .pill { opacity: 1; transform: translateY(0); }
+        </style><div class="pill" role="status">${
+          russian ? "Работает ассистент!" : "Assistant is working!"
+        }</div>`;
+        shadow.appendChild(root);
+        document.documentElement.appendChild(host);
+      },
+      args: [ASSISTANT_OWNERSHIP_OVERLAY_ID, active]
+    });
+  } catch {
+    // Restricted Chrome pages cannot host the observer lock. The command will
+    // return its normal structured browser error if page execution is blocked.
+  }
 }
 
 async function executePageRunner(
@@ -812,135 +900,153 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
     return buildPermissionDeniedResult(command.commandId, SCREENSHOT_PERMISSION_PATTERN);
   }
 
-  const timeoutMs = normalizeCommandTimeout(command);
+  assistantOwnedProfileKeys.add(record.profileKey);
+  await setAssistantOwnershipOverlay(record, true);
+  try {
+    const timeoutMs = normalizeCommandTimeout(command);
 
-  if (!command.stayOnPage && typeof command.url === "string" && command.url.length > 0) {
-    record = await navigateTab(record, command.url, timeoutMs);
-  } else if (command.stayOnPage !== true && !record.lastKnownUrl && currentTab?.url) {
-    record = await persistProfilePatch(record.profileKey, {
-      lastKnownUrl: currentTab.url,
-      originPattern: buildOriginPermissionPattern(currentTab.url),
-      updatedAt: Date.now()
-    });
-  }
+    const currentUrl = currentTab?.url ?? record.lastKnownUrl;
+    if (
+      !command.stayOnPage &&
+      typeof command.url === "string" &&
+      command.url.length > 0 &&
+      !urlsEquivalent(command.url, currentUrl)
+    ) {
+      record = await navigateTab(record, command.url, timeoutMs);
+    } else if (command.stayOnPage !== true && !record.lastKnownUrl && currentTab?.url) {
+      record = await persistProfilePatch(record.profileKey, {
+        lastKnownUrl: currentTab.url,
+        originPattern: buildOriginPermissionPattern(currentTab.url),
+        updatedAt: Date.now()
+      });
+    }
 
-  const hostPageScript = await resolveHostScriptSource(command);
-  const segments = splitOperationsByGoto(command.operations ?? []);
-  let finalResult: PageRunnerResult | null = null;
+    const hostPageScript = await resolveHostScriptSource(command);
+    const segments = splitOperationsByGoto(command.operations ?? []);
+    let finalResult: PageRunnerResult | null = null;
 
-  if (segments.length === 0) {
-    finalResult = await executePageRunner(record, [], hostPageScript);
-  } else {
-    for (const segment of segments) {
-      if (segment.navigateTo) {
-        record = await navigateTab(record, segment.navigateTo, timeoutMs);
+    if (segments.length === 0) {
+      finalResult = await executePageRunner(record, [], hostPageScript);
+    } else {
+      for (const segment of segments) {
+        if (segment.navigateTo) {
+          record = await navigateTab(record, segment.navigateTo, timeoutMs);
+        }
+        finalResult = await executePageRunner(record, segment.operations, hostPageScript);
+        if (finalResult.needsUserAction) {
+          await setWindowVisibility(record, true);
+          return {
+            commandId: command.commandId,
+            ok: false,
+            finalUrl: finalResult.finalUrl,
+            title: finalResult.title,
+            content: finalResult.content,
+            truncated: finalResult.truncated,
+            elements: finalResult.elements,
+            extracted: finalResult.extracted,
+            errorReason: NEEDS_USER_ACTION_REASON,
+            warning:
+              mergeWarnings(
+                "A user-only browser checkpoint was detected. Complete it in the visible window.",
+                finalResult.warning
+              ) ?? null
+          };
+        }
       }
-      finalResult = await executePageRunner(record, segment.operations, hostPageScript);
-      if (finalResult.needsUserAction) {
-        await setWindowVisibility(record, true);
+    }
+
+    if (finalResult === null) {
+      finalResult = await executePageRunner(record, [], hostPageScript);
+    }
+
+    if (finalResult.needsUserAction) {
+      await setWindowVisibility(record, true);
+      return {
+        commandId: command.commandId,
+        ok: false,
+        finalUrl: finalResult.finalUrl,
+        title: finalResult.title,
+        content: finalResult.content,
+        truncated: finalResult.truncated,
+        elements: finalResult.elements,
+        extracted: finalResult.extracted,
+        errorReason: NEEDS_USER_ACTION_REASON,
+        warning:
+          mergeWarnings(
+            "A user-only browser checkpoint was detected. Complete it in the visible window.",
+            finalResult.warning
+          ) ?? null
+      };
+    }
+
+    if (command.format === "pdf") {
+      return {
+        ...buildUnsupportedPdfResult(command.commandId),
+        finalUrl: finalResult.finalUrl,
+        title: finalResult.title
+      };
+    }
+
+    if (command.format === "png" || command.format === "jpeg" || command.format === "webp") {
+      if (command.format === "webp") {
+        return {
+          ...buildUnsupportedScreenshotResult(
+            command.commandId,
+            "Chrome tab capture only supports png and jpeg here."
+          ),
+          finalUrl: finalResult.finalUrl,
+          title: finalResult.title
+        };
+      }
+      try {
+        // Keep the observer lock out of assistant screenshots. The page stays
+        // unlocked only for the capture tick and is re-locked before returning.
+        await setAssistantOwnershipOverlay(record, false);
+        const artifact = await captureArtifact(record, command.format);
+        await setAssistantOwnershipOverlay(record, true);
+        if (!artifact) {
+          return {
+            ...buildUnsupportedScreenshotResult(command.commandId),
+            finalUrl: finalResult.finalUrl,
+            title: finalResult.title
+          };
+        }
         return {
           commandId: command.commandId,
-          ok: false,
+          ok: true,
           finalUrl: finalResult.finalUrl,
           title: finalResult.title,
-          content: finalResult.content,
-          truncated: finalResult.truncated,
-          elements: finalResult.elements,
-          extracted: finalResult.extracted,
-          errorReason: NEEDS_USER_ACTION_REASON,
-          warning:
-            mergeWarnings(
-              "User action is required in the visible browser window.",
-              finalResult.warning
-            ) ?? null
+          warning: finalResult.warning ?? null,
+          artifact
+        };
+      } catch (error) {
+        await setAssistantOwnershipOverlay(record, true);
+        return {
+          ...buildUnsupportedScreenshotResult(
+            command.commandId,
+            error instanceof Error ? error.message : "Chrome screenshot capture failed."
+          ),
+          finalUrl: finalResult.finalUrl,
+          title: finalResult.title
         };
       }
     }
-  }
 
-  if (finalResult === null) {
-    finalResult = await executePageRunner(record, [], hostPageScript);
-  }
-
-  if (finalResult.needsUserAction) {
-    await setWindowVisibility(record, true);
     return {
       commandId: command.commandId,
-      ok: false,
+      ok: true,
       finalUrl: finalResult.finalUrl,
       title: finalResult.title,
       content: finalResult.content,
       truncated: finalResult.truncated,
       elements: finalResult.elements,
       extracted: finalResult.extracted,
-      errorReason: NEEDS_USER_ACTION_REASON,
-      warning:
-        mergeWarnings(
-          "User action is required in the visible browser window.",
-          finalResult.warning
-        ) ?? null
+      warning: finalResult.warning ?? null
     };
+  } finally {
+    assistantOwnedProfileKeys.delete(record.profileKey);
+    await setAssistantOwnershipOverlay(record, false);
   }
-
-  if (command.format === "pdf") {
-    return {
-      ...buildUnsupportedPdfResult(command.commandId),
-      finalUrl: finalResult.finalUrl,
-      title: finalResult.title
-    };
-  }
-
-  if (command.format === "png" || command.format === "jpeg" || command.format === "webp") {
-    if (command.format === "webp") {
-      return {
-        ...buildUnsupportedScreenshotResult(
-          command.commandId,
-          "Chrome tab capture only supports png and jpeg here."
-        ),
-        finalUrl: finalResult.finalUrl,
-        title: finalResult.title
-      };
-    }
-    try {
-      const artifact = await captureArtifact(record, command.format);
-      if (!artifact) {
-        return {
-          ...buildUnsupportedScreenshotResult(command.commandId),
-          finalUrl: finalResult.finalUrl,
-          title: finalResult.title
-        };
-      }
-      return {
-        commandId: command.commandId,
-        ok: true,
-        finalUrl: finalResult.finalUrl,
-        title: finalResult.title,
-        warning: finalResult.warning ?? null,
-        artifact
-      };
-    } catch (error) {
-      return {
-        ...buildUnsupportedScreenshotResult(
-          command.commandId,
-          error instanceof Error ? error.message : "Chrome screenshot capture failed."
-        ),
-        finalUrl: finalResult.finalUrl,
-        title: finalResult.title
-      };
-    }
-  }
-
-  return {
-    commandId: command.commandId,
-    ok: true,
-    finalUrl: finalResult.finalUrl,
-    title: finalResult.title,
-    content: finalResult.content,
-    truncated: finalResult.truncated,
-    elements: finalResult.elements,
-    extracted: finalResult.extracted,
-    warning: finalResult.warning ?? null
-  };
 }
 
 async function handleIncomingCommand(command: LocalBrowserCommand): Promise<void> {

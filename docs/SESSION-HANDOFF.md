@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-07-10 — ADR-140 browser ownership + explicit user checkpoint UX
+
+Status: **implemented and fully verified locally; Android 1.0.7 installed on the connected phone; PersAI deploy/live acceptance pending.**
+
+Baseline SHAs: PersAI `1f4fc7be`; `persai-mobile` `82833e3`.
+
+**Scope and cause:** Founder acceptance exposed that the bridge's `needs_user_action` contour treated any page text containing generic commerce words such as `payment`, `оплат`, or `карта` as a human-only checkpoint. A normal Lavka cart therefore opened the visible window and rejected every later `snapshot`/`act`, leading the assistant to invent the false architectural claim that visibility itself blocks background work. The missing product distinction was browser ownership: visibility is only presentation, while assistant-owned execution and explicit user handoff are separate states.
+
+**What changed:** Normal profile-backed `snapshot`/`act` is assistant-owned. If its desktop window or mobile WebView is visible, a full-page observer lock blocks user input and reveals localized `Работает ассистент!` / `Assistant is working!` on hover/tap; assistant DOM and coordinate operations continue underneath, screenshots exclude the lock, and desktop `open_view`/`close_view` controls can run while a page command is in flight. Mobile session cards can reveal that active observer view, and the native-view Back handler now has explicit priority over settings/navigation handlers so the first Back hides the overlay without destroying the retained assistant session. Reopening an already loaded URL no longer performs a redundant navigation: live logs proved that old behavior consumed 31 seconds (navigation timeout plus DOM wait) before returning a successful result. Configured-session refresh is now background-only, so its card remains visible while open/delete state reconciles. Generic cart/payment copy no longer triggers handoff. Strong CAPTCHA/anti-bot/OTP contours and sensitive target controls still preflight to `needs_user_action` before the protected click/type.
+
+**Handoff UX:** A real checkpoint now carries the active profile's `completionMode: "assist"` state through API → runtime → SSE. The web/app renders a compact action banner rather than the old assist modal. `Открыть браузер` re-shows the same device view; `Готово` hides it, clears the pending checkpoint, and emits a new semantic user turn (`Готово. Продолжай работу в браузере.`), so the assistant resumes naturally. Runtime instructions now say explicitly that a visible window does not block assistant work and forbid retry/open-live loops after structured `needs_user_action`.
+
+**Mobile release:** native Android/iOS ownership overlays and equivalent-URL navigation suppression are implemented at source parity. Android `1.0.7` / `versionCode 9` built successfully, was exported into PersAI's mobile download surface, and was installed successfully on the connected phone. iOS remains source-only on Windows.
+
+**Verification:** mandatory recursive lint, format check, API typecheck, and web typecheck PASS; full recursive repository test suite PASS; focused Back/settings/modal suites PASS (91 tests); extension build + lint PASS; mobile bridge build + 7 tests PASS; Android release Java compile, full release assembly/export, connected-phone install, and package version check PASS (`1.0.7`, code 9).
+
+**Next recommended step:** deploy PersAI/reload the extension, then live-accept (1) one-Back overlay dismissal, (2) an already-loaded profile snapshot without the former 31-second navigation delay, (3) ordinary Lavka cart snapshot/act without handoff, and (4) a real CAPTCHA/OTP checkpoint → banner → Done → resumed assistant turn.
+
+---
+
 ## 2026-07-10 — ADR-140 live Mail.ru follow-up: deterministic desktop sizing, inline permission grant, Android hidden runner
 
 Status: **implemented, live-debugged, release-exported, and verified locally; deploy + live acceptance pending.**

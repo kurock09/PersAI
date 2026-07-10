@@ -34,18 +34,22 @@ Live acceptance (post-deploy):
 4. `browser.login` on Capacitor opens the native bridge view inside the system-bar/display-cutout safe area; after manual login, Back → Done completes through lightweight `check_view` (cookie flush + liveness, no page runner) and reaches `active` without a long spinner or `Failed to fetch`.
 5. `browser.snapshot` / `browser.act` with `profile` returns authenticated content through the local bridge without re-login.
 6. Profile-backed `act` using a selector from `page.elements` succeeds or returns an honest per-operation warning, never a transport-shaped live-link fallback.
-7. `needs_user_action` opens a visible bridge view rather than pretending to finish inside the hidden flow.
-8. Forced true expiry still returns `browser_profile_expired` business error, not stack trace.
-9. Web re-auth reopens the modal/banner without any assistant-visible `liveUrl`.
-10. Telegram public no-profile browser reads still work through headless Browserless.
-11. Telegram logged-in/profile-backed browser work returns structured `open_in_app` / `bridge_unavailable` semantics with PersAI web/app copy, not login links or live URLs.
-12. Delete profile from settings removes the row and prevents reuse.
-13. Keep a connected bridge idle for at least 15 minutes, then run a profile-backed snapshot: the same stable `bridgeDeviceId` remains targetable (or renews in place) and no `bridge_unavailable` occurs.
-14. With two Chrome installations connected, log a profile in on one installation, renew/reconnect that installation, and verify the profile remains pinned to its original stable device id rather than becoming ambiguous.
-15. On the first desktop `snapshot`/`act`, the extension opens a focused, non-technical PersAI browser-access window (not the bridge-status popup), explains Chrome's broad-access requirement, waits for the explicit user click, and resumes the original command. Later text and PNG/JPEG commands succeed without another permission prompt or the `activeTab` / `<all_urls>` capture error.
-16. Click an active configured-session card in desktop settings: only one consistently sized extension window opens; no web modal is shown. Force an open error and verify the modal then appears, while closing it does not reopen the extension window.
-17. Click an active configured-session card in mobile settings: the native browser overlay opens directly without the web modal; one system Back press hides the overlay and returns to the app.
-18. On Android, return from an active Mail.ru profile to PersAI, then invoke hidden profile-backed `snapshot` and `act`: page-runner Promise/timer work completes while the overlay remains absent and does not end in `Timed out waiting for page execution` / secondary `bridge_connection_closed`. While the command is pending, the underlying PersAI UI remains tappable/typeable.
+7. Ordinary cart/product page text containing generic `payment` / `оплат` / `карта` vocabulary does **not** return `needs_user_action`; normal profile `snapshot`/`act` continues.
+8. While assistant-owned `snapshot`/`act` is in flight, opening the same configured session is observer-only: desktop/mobile page input is blocked, hover/tap reveals localized `Assistant is working!`, assistant coordinate/DOM actions still reach the underlying page, and screenshots do not contain the ownership overlay.
+9. A strong CAPTCHA/anti-bot/OTP contour or sensitive payment/verification target returns structured `needs_user_action` **before** the protected operation, opens the same view for user input, and emits an assist banner in PersAI. Done hides the view and starts a continuation turn; the next assistant command reclaims ownership.
+10. Mobile Back from an observer or user-action view hides the native overlay and returns to PersAI without destroying the retained profile/session.
+11. A profile snapshot whose requested URL is equivalent to the retained page (including empty-path versus `/`) skips navigation and returns without paying the former ~31-second navigation-timeout + DOM-wait path.
+12. Forced true expiry still returns `browser_profile_expired` business error, not stack trace.
+13. Web re-auth reopens the modal/banner without any assistant-visible `liveUrl`.
+14. Telegram public no-profile browser reads still work through headless Browserless.
+15. Telegram logged-in/profile-backed browser work returns structured `open_in_app` / `bridge_unavailable` semantics with PersAI web/app copy, not login links or live URLs.
+16. Delete profile from settings removes the row and prevents reuse.
+17. Keep a connected bridge idle for at least 15 minutes, then run a profile-backed snapshot: the same stable `bridgeDeviceId` remains targetable (or renews in place) and no `bridge_unavailable` occurs.
+18. With two Chrome installations connected, log a profile in on one installation, renew/reconnect that installation, and verify the profile remains pinned to its original stable device id rather than becoming ambiguous.
+19. On the first desktop `snapshot`/`act`, the extension opens a focused, non-technical PersAI browser-access window (not the bridge-status popup), explains Chrome's broad-access requirement, waits for the explicit user click, and resumes the original command. Later text and PNG/JPEG commands succeed without another permission prompt or the `activeTab` / `<all_urls>` capture error.
+20. Click an active configured-session card in desktop settings: only one consistently sized extension window opens; no web modal is shown. Force an open error and verify the modal then appears, while closing it does not reopen the extension window.
+21. Click an active configured-session card in mobile settings: the native browser overlay opens directly without the web modal; one system Back press hides the overlay and returns to the app, while the configured-session card remains mounted during background reconciliation.
+22. On Android, return from an active Mail.ru profile to PersAI, then invoke hidden profile-backed `snapshot` and `act`: page-runner Promise/timer work completes while the overlay remains absent and does not end in `Timed out waiting for page execution` / secondary `bridge_connection_closed`. While the command is pending, the underlying PersAI UI remains tappable/typeable.
 
 ## ADR-133 Slice 1 path-contract focused checks
 

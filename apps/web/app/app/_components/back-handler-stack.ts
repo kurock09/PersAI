@@ -14,7 +14,8 @@
  *
  *   1. Modals/lightboxes/sidebars register a close handler when they open.
  *   2. The bridge listens to Capacitor's `backButton` event.
- *   3. On a press, the top handler (if any) is invoked → modal closes →
+ *   3. On a press, the highest-priority handler (latest wins ties) is invoked →
+ *      the native browser can outrank settings/navigation surfaces →
  *      its useEffect cleanup pops itself from the stack. Otherwise the
  *      bridge falls back to `window.history.back()` (App Router treats
  *      this as a soft pop) or `App.exitApp()` at the root.
@@ -25,24 +26,35 @@
 
 type BackHandler = () => void;
 
-const stack: BackHandler[] = [];
+type BackHandlerEntry = {
+  handler: BackHandler;
+  priority: number;
+};
 
-export function pushBackHandler(handler: BackHandler): () => void {
-  stack.push(handler);
+const stack: BackHandlerEntry[] = [];
+
+export function pushBackHandler(handler: BackHandler, options?: { priority?: number }): () => void {
+  const entry = { handler, priority: options?.priority ?? 0 };
+  stack.push(entry);
   return () => {
     // Remove a specific handler (the one that registered) — usually the
     // top entry, but if cleanups race we still want to remove the right
     // one without disturbing other modal levels.
-    const idx = stack.lastIndexOf(handler);
+    const idx = stack.lastIndexOf(entry);
     if (idx !== -1) stack.splice(idx, 1);
   };
 }
 
-/** Invokes the topmost handler. Returns true if one was found. */
+/** Invokes the highest-priority handler; latest registration wins ties. */
 export function consumeBackPress(): boolean {
-  const top = stack[stack.length - 1];
-  if (!top) return false;
-  top();
+  let selected: BackHandlerEntry | undefined;
+  for (const entry of stack) {
+    if (selected === undefined || entry.priority >= selected.priority) {
+      selected = entry;
+    }
+  }
+  if (selected === undefined) return false;
+  selected.handler();
   return true;
 }
 

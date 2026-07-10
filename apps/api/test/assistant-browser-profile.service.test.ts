@@ -489,7 +489,16 @@ describe("AssistantBrowserProfileService", () => {
       {
         ok: true,
         profileId: "active-1",
-        bridgeSessionRef: "bridge-device-1"
+        bridgeSessionRef: "bridge-device-1",
+        pendingBrowserLogin: {
+          profileId: "active-1",
+          profileKey: "crm",
+          displayName: "CRM",
+          loginUrl: "https://crm.example/login",
+          workspaceId: "workspace-1",
+          bridgeClientKind: "extension",
+          completionMode: "assist"
+        }
       }
     );
   });

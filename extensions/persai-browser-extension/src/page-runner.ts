@@ -79,19 +79,27 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
   };
 
   const collectInteractiveElements = (): RuntimeBrowserInteractiveElement[] => {
-    const candidates = [...document.querySelectorAll("a, button, input, textarea, select, [role='button'], [role='link']")].filter(
-      isVisible
-    );
+    const candidates = [
+      ...document.querySelectorAll(
+        "a, button, input, textarea, select, [role='button'], [role='link']"
+      )
+    ].filter(isVisible);
     const counts = new Map<string, number>();
     return candidates
       .map((element, index) => ({ element, index, score: scoreInteractiveElement(element) }))
-      .sort((left, right) => (right.score !== left.score ? right.score - left.score : left.index - right.index))
+      .sort((left, right) =>
+        right.score !== left.score ? right.score - left.score : left.index - right.index
+      )
       .slice(0, input.maxElements)
       .map(({ element }) => {
         const selector = buildSelector(element);
         const count = counts.get(selector) ?? 0;
         counts.set(selector, count + 1);
-        const htmlElement = element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLAnchorElement;
+        const htmlElement = element as
+          | HTMLInputElement
+          | HTMLTextAreaElement
+          | HTMLSelectElement
+          | HTMLAnchorElement;
         const ariaLabelRaw = element.getAttribute("aria-label");
         return {
           selector,
@@ -99,12 +107,15 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
           text:
             normalizeText(
               element.textContent ||
-                ("value" in htmlElement && typeof htmlElement.value === "string" ? htmlElement.value : "") ||
+                ("value" in htmlElement && typeof htmlElement.value === "string"
+                  ? htmlElement.value
+                  : "") ||
                 ariaLabelRaw ||
                 ""
             ) || null,
           role: element.getAttribute("role"),
-          type: "type" in htmlElement && typeof htmlElement.type === "string" ? htmlElement.type : null,
+          type:
+            "type" in htmlElement && typeof htmlElement.type === "string" ? htmlElement.type : null,
           href: element instanceof HTMLAnchorElement ? element.href : null,
           placeholder:
             "placeholder" in htmlElement && typeof htmlElement.placeholder === "string"
@@ -138,7 +149,8 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
         typeof result === "object" &&
         Array.isArray((result as { elements?: RuntimeBrowserInteractiveElement[] }).elements)
       ) {
-        const elements = (result as { elements?: RuntimeBrowserInteractiveElement[] }).elements ?? [];
+        const elements =
+          (result as { elements?: RuntimeBrowserInteractiveElement[] }).elements ?? [];
         return elements.length > 0 ? elements.slice(0, input.maxElements) : genericElements;
       }
     } catch {
@@ -180,27 +192,47 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
 
   const extractItems = (selector: string, maxItems: number): RuntimeBrowserExtractedItem[] => {
     const counts = new Map<string, number>();
-    return [...document.querySelectorAll(selector)]
-      .slice(0, maxItems)
-      .map((element) => {
-        const builtSelector = buildSelector(element);
-        const count = counts.get(builtSelector) ?? 0;
-        counts.set(builtSelector, count + 1);
-        return {
-          selector: builtSelector,
-          tagName: element.tagName.toLowerCase(),
-          text: normalizeText(element.textContent) || null,
-          href: element instanceof HTMLAnchorElement ? element.href : null,
-          ariaLabel: normalizeText(element.getAttribute("aria-label")) || null,
-          ...(count > 0 ? { matchIndex: count } : {})
-        };
-      });
+    return [...document.querySelectorAll(selector)].slice(0, maxItems).map((element) => {
+      const builtSelector = buildSelector(element);
+      const count = counts.get(builtSelector) ?? 0;
+      counts.set(builtSelector, count + 1);
+      return {
+        selector: builtSelector,
+        tagName: element.tagName.toLowerCase(),
+        text: normalizeText(element.textContent) || null,
+        href: element instanceof HTMLAnchorElement ? element.href : null,
+        ariaLabel: normalizeText(element.getAttribute("aria-label")) || null,
+        ...(count > 0 ? { matchIndex: count } : {})
+      };
+    });
   };
 
   const mightNeedUserAction = (pageText: string): boolean =>
-    /(captcha|recaptcha|hcaptcha|cloudflare|challenge|payment|pay now|card number|cvv|3-d secure|3ds|verification code|otp|капча|оплат|карта|смс-код)/i.test(
+    /(captcha|recaptcha|hcaptcha|cf-chl|verify you are human|confirm you are human|checking your browser|verification code|enter (?:the )?(?:security )?code|one[-\s]?time (?:password|code)|otp|2fa|3-d secure|3ds challenge|капча|подтвердите,? что вы не робот|проверка,? что вы не робот|код подтверждения|одноразовый код|код из смс|смс-код)/i.test(
       pageText
     );
+  const sensitiveControlRe =
+    /(pay[-_\s]?now|checkout|place[-_\s]?order|confirm[-_\s]?(?:order|purchase|payment)|purchase[-_\s]?now|card[-_\s]?number|cc-number|cvv|security[-_\s]?code|verification[-_\s]?code|one-time-code|otp|3-d secure|3ds|оплатить|перейти к оплате|оформить заказ|подтвердить заказ|номер карты|код подтверждения|код из смс|смс-код)/i;
+  const controlNeedsUserAction = (element: Element | null, selector = ""): boolean => {
+    if (!(element instanceof HTMLElement)) {
+      return sensitiveControlRe.test(selector);
+    }
+    return sensitiveControlRe.test(
+      [
+        selector,
+        element.id,
+        element.getAttribute("name"),
+        element.getAttribute("type"),
+        element.getAttribute("autocomplete"),
+        element.getAttribute("aria-label"),
+        element.getAttribute("title"),
+        element.getAttribute("placeholder"),
+        element.textContent
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+  };
 
   const waitForDomReadyBeforeRead = async (): Promise<void> => {
     const startedAt = Date.now();
@@ -233,20 +265,44 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
   return (async () => {
     const extracted: RuntimeBrowserExtractedItem[] = [];
     const warnings: string[] = [];
+    await waitForDomReadyBeforeRead();
+    let needsUserAction = mightNeedUserAction(collectContent().content);
 
     for (const [index, operation] of input.operations.entries()) {
+      if (needsUserAction) {
+        break;
+      }
       try {
         switch (operation.kind) {
           case "click": {
-            const element = getIndexedElement(operation.selector, operation.matchIndex) as HTMLElement;
+            const element = getIndexedElement(
+              operation.selector,
+              operation.matchIndex
+            ) as HTMLElement;
+            if (controlNeedsUserAction(element, operation.selector)) {
+              needsUserAction = true;
+              break;
+            }
             element.click();
             await sleep(input.settleAfterMutationMs);
             break;
           }
           case "click_at": {
+            const ownershipOverlay = document.getElementById("__persai_assistant_ownership__");
+            const previousPointerEvents = ownershipOverlay?.style.pointerEvents ?? "";
+            if (ownershipOverlay instanceof HTMLElement) {
+              ownershipOverlay.style.pointerEvents = "none";
+            }
             const element = document.elementFromPoint(operation.x, operation.y);
+            if (ownershipOverlay instanceof HTMLElement) {
+              ownershipOverlay.style.pointerEvents = previousPointerEvents;
+            }
             if (!(element instanceof HTMLElement)) {
               throw new Error("No clickable element at the requested coordinates.");
+            }
+            if (controlNeedsUserAction(element)) {
+              needsUserAction = true;
+              break;
             }
             element.click();
             await sleep(input.settleAfterMutationMs);
@@ -273,8 +329,12 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
           }
           case "press": {
             const target = document.activeElement ?? document.body;
-            target?.dispatchEvent(new KeyboardEvent("keydown", { key: operation.key, bubbles: true }));
-            target?.dispatchEvent(new KeyboardEvent("keyup", { key: operation.key, bubbles: true }));
+            target?.dispatchEvent(
+              new KeyboardEvent("keydown", { key: operation.key, bubbles: true })
+            );
+            target?.dispatchEvent(
+              new KeyboardEvent("keyup", { key: operation.key, bubbles: true })
+            );
             await sleep(input.settleAfterMutationMs);
             break;
           }
@@ -290,6 +350,10 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
           }
           case "select_option": {
             const element = getIndexedElement(operation.selector, operation.matchIndex);
+            if (controlNeedsUserAction(element, operation.selector)) {
+              needsUserAction = true;
+              break;
+            }
             if (!(element instanceof HTMLSelectElement)) {
               throw new Error("Target element is not a select.");
             }
@@ -301,6 +365,10 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
           }
           case "type": {
             const element = getIndexedElement(operation.selector, operation.matchIndex);
+            if (controlNeedsUserAction(element, operation.selector)) {
+              needsUserAction = true;
+              break;
+            }
             if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
               throw new Error("Target element is not typable.");
             }
@@ -343,8 +411,9 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
     await waitForDomReadyBeforeRead();
     const snapshot = collectContent();
     const finalElements = applyHostScript(collectInteractiveElements());
-    const warning = warnings.length > 0 ? `Browser operation warnings: ${warnings.join("; ")}` : null;
-    const needsUserAction = mightNeedUserAction(snapshot.content);
+    const warning =
+      warnings.length > 0 ? `Browser operation warnings: ${warnings.join("; ")}` : null;
+    needsUserAction = needsUserAction || mightNeedUserAction(snapshot.content);
 
     return {
       finalUrl: window.location.href,

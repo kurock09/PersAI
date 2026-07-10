@@ -47,6 +47,7 @@ export type ResolveBrowserProfileForToolResult =
       ok: true;
       profileId: string;
       bridgeSessionRef: string;
+      pendingBrowserLogin: PendingBrowserLoginState;
     }
   | {
       ok: false;
@@ -238,7 +239,16 @@ export class AssistantBrowserProfileService {
     return {
       ok: true,
       profileId: row.id,
-      bridgeSessionRef: row.bridgeSessionRef
+      bridgeSessionRef: row.bridgeSessionRef,
+      pendingBrowserLogin: {
+        profileId: row.id,
+        profileKey: row.profileKey,
+        displayName: row.displayName,
+        loginUrl: row.loginUrl,
+        workspaceId: row.workspaceId,
+        bridgeClientKind: this.resolvePendingBridgeClientKind(row.bridgeClientKind),
+        completionMode: "assist"
+      }
     };
   }
 

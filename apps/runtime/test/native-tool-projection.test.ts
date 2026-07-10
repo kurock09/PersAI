@@ -655,8 +655,18 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     browserActionDescription,
-    /hidden device window/i,
-    "browser action schema must explain hidden-window local bridge semantics"
+    /visible window does not block assistant operations/i,
+    "browser action schema must separate browser visibility from assistant ownership"
+  );
+  assert.match(
+    browserActionDescription,
+    /page is locked for user input/i,
+    "browser action schema must explain the assistant-owned observer lock"
+  );
+  assert.match(
+    browserActionDescription,
+    /Only a structured needs_user_action result/i,
+    "browser action schema must reserve handoff for explicit user checkpoints"
   );
   assert.match(
     browserActionDescription,

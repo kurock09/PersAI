@@ -1,4 +1,8 @@
-import type { LocalBrowserCommand, LocalBrowserResult, RuntimeBrowserOperation } from "./contract.js";
+import type {
+  LocalBrowserCommand,
+  LocalBrowserResult,
+  RuntimeBrowserOperation
+} from "./contract.js";
 import {
   DEFAULT_COMMAND_TIMEOUT_MS,
   EXECUTOR_ERROR_REASON,
@@ -9,8 +13,10 @@ import {
   UNSUPPORTED_SCREENSHOT_REASON
 } from "./constants.js";
 
-const SENSITIVE_TEXT_RE =
-  /(captcha|recaptcha|hcaptcha|cloudflare|challenge|verification code|verify you are human|otp|2fa|3-d secure|3ds|payment|pay(?:[-_\s]|$)|card(?:[-_\s]|$)|card number|cvv|security code|капча|подтвердите|оплат|карта|смс-код)/i;
+const USER_CHECKPOINT_TEXT_RE =
+  /(captcha|recaptcha|hcaptcha|cf-chl|verify you are human|confirm you are human|checking your browser|verification code|enter (?:the )?(?:security )?code|one[-\s]?time (?:password|code)|otp|2fa|3-d secure|3ds challenge|капча|подтвердите,? что вы не робот|проверка,? что вы не робот|код подтверждения|одноразовый код|код из смс|смс-код)/i;
+const SENSITIVE_OPERATION_RE =
+  /(pay[-_\s]?now|checkout|place[-_\s]?order|confirm[-_\s]?(?:order|purchase|payment)|purchase[-_\s]?now|card[-_\s]?number|cvv|security[-_\s]?code|verification[-_\s]?code|otp|3-d secure|3ds|оплатить|перейти к оплате|оформить заказ|подтвердить заказ|номер карты|код подтверждения|код из смс|смс-код)/i;
 
 export function computeReconnectDelayMs(attempt: number): number {
   const safeAttempt = Number.isInteger(attempt) && attempt > 0 ? attempt : 0;
@@ -62,7 +68,10 @@ export function buildUnsupportedPdfResult(commandId: string): LocalBrowserResult
   );
 }
 
-export function buildUnsupportedScreenshotResult(commandId: string, detail?: string | null): LocalBrowserResult {
+export function buildUnsupportedScreenshotResult(
+  commandId: string,
+  detail?: string | null
+): LocalBrowserResult {
   return buildErrorResult(
     commandId,
     UNSUPPORTED_SCREENSHOT_REASON,
@@ -84,7 +93,7 @@ export function buildNeedsUserActionResult(
   return buildErrorResult(
     commandId,
     NEEDS_USER_ACTION_REASON,
-    mergeWarnings("User action is required in the visible browser window.", detail) ?? undefined
+    mergeWarnings("A user-only browser checkpoint was detected.", detail) ?? undefined
   );
 }
 
@@ -93,7 +102,7 @@ export function shouldSurfaceNeedsUserAction(input: {
   operations?: RuntimeBrowserOperation[] | null;
 }): boolean {
   const pageText = input.pageText ?? "";
-  if (SENSITIVE_TEXT_RE.test(pageText)) {
+  if (USER_CHECKPOINT_TEXT_RE.test(pageText)) {
     return true;
   }
   for (const operation of input.operations ?? []) {
@@ -101,16 +110,16 @@ export function shouldSurfaceNeedsUserAction(input: {
       continue;
     }
     const selectorText = "selector" in operation ? String(operation.selector ?? "") : "";
-    if (SENSITIVE_TEXT_RE.test(selectorText)) {
+    if (SENSITIVE_OPERATION_RE.test(selectorText)) {
       return true;
     }
-    if (operation.kind === "type" && SENSITIVE_TEXT_RE.test(operation.text)) {
+    if (operation.kind === "type" && SENSITIVE_OPERATION_RE.test(operation.text)) {
       return true;
     }
-    if (operation.kind === "press" && SENSITIVE_TEXT_RE.test(operation.key)) {
+    if (operation.kind === "press" && SENSITIVE_OPERATION_RE.test(operation.key)) {
       return true;
     }
-    if (operation.kind === "select_option" && SENSITIVE_TEXT_RE.test(operation.value)) {
+    if (operation.kind === "select_option" && SENSITIVE_OPERATION_RE.test(operation.value)) {
       return true;
     }
   }

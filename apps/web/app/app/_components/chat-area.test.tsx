@@ -9,6 +9,8 @@ const chatMessageBubbleMock = vi.hoisted(() => vi.fn());
 const getTokenMock = vi.hoisted(() => vi.fn(async (): Promise<string | null> => null));
 const openSidebarMock = vi.hoisted(() => vi.fn());
 const openSettingsMock = vi.hoisted(() => vi.fn());
+const openAssistantBrowserProfileViewMock = vi.hoisted(() => vi.fn());
+const dismissAssistantBrowserProfileViewMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -48,6 +50,8 @@ vi.mock("./assistant-avatar", () => ({
 }));
 
 vi.mock("../assistant-api-client", () => ({
+  dismissAssistantBrowserProfileView: dismissAssistantBrowserProfileViewMock,
+  openAssistantBrowserProfileView: openAssistantBrowserProfileViewMock,
   patchAssistantWebChat: vi.fn(async () => undefined),
   postAssistantMemoryDoNotRemember: vi.fn(async () => undefined),
   transcribeVoice: vi.fn(async () => "")
@@ -84,6 +88,8 @@ afterEach(() => {
   intersectionObserverCallback = null;
   chatMessageBubbleMock.mockClear();
   getTokenMock.mockClear();
+  openAssistantBrowserProfileViewMock.mockReset();
+  dismissAssistantBrowserProfileViewMock.mockReset();
   openSidebarMock.mockClear();
   sessionStorage.clear();
   projectFilesEvents.resetProjectFilesHintStateForTests();
@@ -381,10 +387,15 @@ describe("ChatArea", () => {
     });
   });
 
-  it("routes assist-mode browser banner cancel through abortBrowserLogin for dismiss-only handling", async () => {
-    const abortBrowserLogin = vi.fn().mockResolvedValue(undefined);
+  it("keeps assist checkpoints in a banner and resumes the assistant after Done", async () => {
+    getTokenMock.mockResolvedValue("token-1");
+    openAssistantBrowserProfileViewMock.mockResolvedValue({});
+    dismissAssistantBrowserProfileViewMock.mockResolvedValue(undefined);
+    const clearPendingBrowserLogin = vi.fn();
+    const send = vi.fn().mockResolvedValue(undefined);
     render(
       <ChatArea
+        assistantId="assistant-1"
         chat={{
           ...createChat("Hello", { isStreaming: false }),
           pendingBrowserLogin: {
@@ -396,18 +407,33 @@ describe("ChatArea", () => {
             bridgeClientKind: "extension",
             completionMode: "assist"
           },
-          browserLoginModalOpen: false,
-          abortBrowserLogin,
-          reopenBrowserLogin: vi.fn()
+          browserLoginModalOpen: true,
+          clearPendingBrowserLogin,
+          send
         }}
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "browserLoginCancel" }));
+    expect(screen.getByTestId("browser-assist-banner")).toBeInTheDocument();
+    expect(screen.queryByTestId("browser-login-modal")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "browserAssistOpen" }));
     await waitFor(() => {
-      expect(abortBrowserLogin).toHaveBeenCalledTimes(1);
+      expect(openAssistantBrowserProfileViewMock).toHaveBeenCalledWith(
+        "token-1",
+        "assistant-1",
+        "profile-1"
+      );
     });
-    expect(screen.getByText("browserLoginAssistContinueHint")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "browserLoginAssistDone" }));
+    await waitFor(() => {
+      expect(dismissAssistantBrowserProfileViewMock).toHaveBeenCalledWith(
+        "token-1",
+        "assistant-1",
+        "profile-1"
+      );
+      expect(clearPendingBrowserLogin).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith("browserAssistResumeMessage");
+    });
   });
 
   it("shows localized provider failure guidance", () => {

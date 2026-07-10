@@ -2042,23 +2042,30 @@ export function AssistantSettings({
     }
   }, [assistant?.id, getToken]);
 
-  const refreshBrowserProfiles = useCallback(async () => {
-    if (!assistant?.id) {
-      setBrowserProfiles([]);
-      return;
-    }
-    const token = await getToken();
-    if (!token) return;
-    setBrowserProfilesLoading(true);
-    try {
-      const profiles = await listAssistantBrowserProfiles(token, assistant.id);
-      setBrowserProfiles(profiles);
-    } catch {
-      // Keep the last known list when refresh fails.
-    } finally {
-      setBrowserProfilesLoading(false);
-    }
-  }, [assistant?.id, getToken]);
+  const refreshBrowserProfiles = useCallback(
+    async (options?: { background?: boolean }) => {
+      if (!assistant?.id) {
+        setBrowserProfiles([]);
+        return;
+      }
+      const token = await getToken();
+      if (!token) return;
+      if (options?.background !== true) {
+        setBrowserProfilesLoading(true);
+      }
+      try {
+        const profiles = await listAssistantBrowserProfiles(token, assistant.id);
+        setBrowserProfiles(profiles);
+      } catch {
+        // Keep the last known list when refresh fails.
+      } finally {
+        if (options?.background !== true) {
+          setBrowserProfilesLoading(false);
+        }
+      }
+    },
+    [assistant?.id, getToken]
+  );
 
   const handleDeleteBrowserProfile = useCallback(
     async (profileId: string) => {
@@ -2068,7 +2075,7 @@ export function AssistantSettings({
       setBrowserProfilesActionId(profileId);
       try {
         await deleteAssistantBrowserProfile(token, assistant.id, profileId);
-        await refreshBrowserProfiles();
+        await refreshBrowserProfiles({ background: true });
       } finally {
         setBrowserProfilesActionId(null);
       }
@@ -2116,7 +2123,7 @@ export function AssistantSettings({
           const pending = await reconnectAssistantBrowserProfile(token, assistant.id, profile.id);
           setSettingsBrowserLogin(pending);
         }
-        await refreshBrowserProfiles();
+        await refreshBrowserProfiles({ background: true });
       } finally {
         setBrowserProfilesActionId(null);
       }
@@ -2128,10 +2135,13 @@ export function AssistantSettings({
     if (nativeAssistProfileKey === null) {
       return;
     }
-    return pushBackHandler(() => {
-      void hideNativeBrowserBridgeView(nativeAssistProfileKey).catch(() => undefined);
-      setNativeAssistProfileKey(null);
-    });
+    return pushBackHandler(
+      () => {
+        void hideNativeBrowserBridgeView(nativeAssistProfileKey).catch(() => undefined);
+        setNativeAssistProfileKey(null);
+      },
+      { priority: 100 }
+    );
   }, [nativeAssistProfileKey]);
 
   useEffect(() => {

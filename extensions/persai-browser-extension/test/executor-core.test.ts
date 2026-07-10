@@ -39,6 +39,12 @@ test("shouldSurfaceNeedsUserAction detects challenge and payment flows", () => {
     }),
     false
   );
+  assert.equal(
+    shouldSurfaceNeedsUserAction({
+      pageText: "Корзина · Оплата картой доступна при оформлении заказа"
+    }),
+    false
+  );
 });
 
 test("structured unsupported results stay honest", () => {

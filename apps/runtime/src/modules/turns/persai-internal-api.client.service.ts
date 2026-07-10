@@ -83,6 +83,7 @@ export type ResolveBrowserProfileOutcome =
       ok: true;
       profileId: string;
       bridgeSessionRef: string;
+      pendingBrowserLogin: PendingBrowserLoginState;
     }
   | {
       ok: false;
@@ -3200,7 +3201,13 @@ export class PersaiInternalApiClientService {
     if (response.ok) {
       const payload = this.asObject(response.body);
       if (payload?.ok === true) {
-        if (typeof payload.profileId !== "string" || typeof payload.bridgeSessionRef !== "string") {
+        const pendingBrowserLogin = this.parsePendingBrowserLoginState(payload.pendingBrowserLogin);
+        if (
+          typeof payload.profileId !== "string" ||
+          typeof payload.bridgeSessionRef !== "string" ||
+          pendingBrowserLogin === null ||
+          pendingBrowserLogin.completionMode !== "assist"
+        ) {
           throw new BadGatewayException(
             "PersAI internal API returned an invalid browser-profiles resolve response."
           );
@@ -3208,7 +3215,8 @@ export class PersaiInternalApiClientService {
         return {
           ok: true,
           profileId: payload.profileId,
-          bridgeSessionRef: payload.bridgeSessionRef
+          bridgeSessionRef: payload.bridgeSessionRef,
+          pendingBrowserLogin
         };
       }
       if (

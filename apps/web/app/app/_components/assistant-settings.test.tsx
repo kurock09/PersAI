@@ -404,6 +404,9 @@ describe("integrations section", () => {
     await waitFor(() => {
       expect(localBridgeMocks.pushBackHandler).toHaveBeenCalledTimes(1);
     });
+    expect(localBridgeMocks.pushBackHandler).toHaveBeenCalledWith(expect.any(Function), {
+      priority: 100
+    });
     const backHandler = localBridgeMocks.pushBackHandler.mock.calls[0]?.[0] as
       | (() => void)
       | undefined;

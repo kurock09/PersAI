@@ -26,6 +26,8 @@ import { ChatInput, type ChatInputHandle } from "./chat-input";
 import { AssistantAvatar } from "./assistant-avatar";
 import {
   type AssistantChatMode,
+  dismissAssistantBrowserProfileView,
+  openAssistantBrowserProfileView,
   patchAssistantWebChat,
   postAssistantMemoryDoNotRemember,
   transcribeVoice
@@ -532,7 +534,52 @@ export function ChatArea({
     [chat.chatId, chatMode, getToken, onTitleChanged, openSidebar, paidLightModeActive]
   );
 
-  const showBrowserLoginChip = chat.pendingBrowserLogin !== null && !chat.browserLoginModalOpen;
+  const pendingBrowserAssist =
+    chat.pendingBrowserLogin?.completionMode === "assist" ? chat.pendingBrowserLogin : null;
+  const [browserAssistAction, setBrowserAssistAction] = useState<"open" | "done" | null>(null);
+  const [browserAssistError, setBrowserAssistError] = useState<string | null>(null);
+  const handleOpenBrowserAssist = useCallback(async () => {
+    if (!assistantId || pendingBrowserAssist === null || browserAssistAction !== null) {
+      return;
+    }
+    setBrowserAssistAction("open");
+    setBrowserAssistError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        throw new Error(t("browserAssistActionFailed"));
+      }
+      await openAssistantBrowserProfileView(token, assistantId, pendingBrowserAssist.profileId);
+    } catch {
+      setBrowserAssistError(t("browserAssistActionFailed"));
+    } finally {
+      setBrowserAssistAction(null);
+    }
+  }, [assistantId, browserAssistAction, getToken, pendingBrowserAssist, t]);
+  const handleCompleteBrowserAssist = useCallback(async () => {
+    if (!assistantId || pendingBrowserAssist === null || browserAssistAction !== null) {
+      return;
+    }
+    setBrowserAssistAction("done");
+    setBrowserAssistError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        throw new Error(t("browserAssistActionFailed"));
+      }
+      await dismissAssistantBrowserProfileView(token, assistantId, pendingBrowserAssist.profileId);
+      chat.clearPendingBrowserLogin();
+      await chat.send(t("browserAssistResumeMessage"));
+    } catch {
+      setBrowserAssistError(t("browserAssistActionFailed"));
+    } finally {
+      setBrowserAssistAction(null);
+    }
+  }, [assistantId, browserAssistAction, chat, getToken, pendingBrowserAssist, t]);
+  const showBrowserLoginChip =
+    chat.pendingBrowserLogin !== null &&
+    chat.pendingBrowserLogin.completionMode !== "assist" &&
+    !chat.browserLoginModalOpen;
   const browserLoginChipHintKey =
     chat.pendingBrowserLogin?.completionMode === "assist"
       ? "browserLoginAssistContinueHint"
@@ -1024,6 +1071,45 @@ export function ChatArea({
           </div>
         </div>
       ) : null}
+      {pendingBrowserAssist !== null ? (
+        <div className="px-3 md:px-4" data-testid="browser-assist-banner">
+          <div className="mx-auto mb-2 flex w-full max-w-[50rem] flex-col gap-2 rounded-xl border border-accent/25 bg-accent/[0.08] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-text">{t("browserAssistBannerTitle")}</p>
+              <p className="mt-0.5 text-[11px] leading-4 text-text-muted">
+                {t("browserAssistBannerBody", { site: pendingBrowserAssist.displayName })}
+              </p>
+              {browserAssistError ? (
+                <p className="mt-1 text-[11px] text-destructive">{browserAssistError}</p>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleOpenBrowserAssist()}
+                disabled={browserAssistAction !== null}
+                className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-bg px-3 text-xs font-medium text-text transition hover:bg-surface-hover disabled:cursor-wait disabled:opacity-60"
+              >
+                {browserAssistAction === "open" ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                {t("browserAssistOpen")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleCompleteBrowserAssist()}
+                disabled={browserAssistAction !== null}
+                className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-lg bg-accent px-3 text-xs font-semibold text-white transition hover:bg-accent-hover disabled:cursor-wait disabled:opacity-60"
+              >
+                {browserAssistAction === "done" ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                {t("browserLoginAssistDone")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {showBrowserLoginChip ? (
         <div className="px-3 md:px-4">
           <div className="mx-auto mb-2 flex w-full max-w-[50rem] items-center justify-between gap-3 rounded-lg border border-accent/20 bg-accent/[0.06] px-3 py-2">
@@ -1076,7 +1162,7 @@ export function ChatArea({
         activeDocumentJobs={chat.activeDocumentJobs}
       />
       <BrowserLoginModal
-        open={chat.browserLoginModalOpen}
+        open={chat.browserLoginModalOpen && chat.pendingBrowserLogin?.completionMode !== "assist"}
         assistantId={assistantId}
         pendingBrowserLogin={chat.pendingBrowserLogin}
         onDismiss={chat.dismissBrowserLogin}

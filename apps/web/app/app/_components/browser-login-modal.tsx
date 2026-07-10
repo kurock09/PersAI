@@ -238,10 +238,13 @@ export function BrowserLoginModal({
     if (!open || !nativeTarget || !nativeViewVisible || pendingProfileKey === null) {
       return;
     }
-    const remove = pushBackHandler(() => {
-      void hideNativeBrowserBridgeView(pendingProfileKey).catch(() => undefined);
-      setNativeViewVisible(false);
-    });
+    const remove = pushBackHandler(
+      () => {
+        void hideNativeBrowserBridgeView(pendingProfileKey).catch(() => undefined);
+        setNativeViewVisible(false);
+      },
+      { priority: 100 }
+    );
     return () => remove();
   }, [nativeTarget, nativeViewVisible, open, pendingProfileKey]);
 
