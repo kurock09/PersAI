@@ -15,6 +15,8 @@ describe("PAGE_RUNNER_SOURCE", () => {
 
     expect(navigationAssignment).toBeGreaterThanOrEqual(0);
     expect(fallbackClick).toBeGreaterThan(navigationAssignment);
-    expect(PAGE_RUNNER_SOURCE).toMatch(/navigationUrl:\s*requestedNavigationUrl/);
+    expect(PAGE_RUNNER_SOURCE).toMatch(
+      /\.\.\.\(requestedNavigationUrl \? \{ navigationUrl: requestedNavigationUrl \} : \{\}\)/
+    );
   });
 });

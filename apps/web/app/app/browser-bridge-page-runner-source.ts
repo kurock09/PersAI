@@ -214,6 +214,6 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     extracted: extracted.length > 0 ? extracted.slice(0, input.maxExtractItems) : null,
     warning: warnings.length > 0 ? "Browser operation warnings: " + warnings.join("; ") : null,
     needsUserAction: needsUserAction || userCheckpointRe.test(snapshot.content),
-    navigationUrl: requestedNavigationUrl
+    ...(requestedNavigationUrl ? { navigationUrl: requestedNavigationUrl } : {})
   };
 }`;

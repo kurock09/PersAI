@@ -2,17 +2,17 @@
 
 ## 2026-07-10 — ADR-140 Capacitor cross-origin navigation completion
 
-Status: **implemented and verified locally; Android 1.0.13 installed; PersAI deploy + live Mail.ru acceptance pending.**
+Status: **Mail.ru accepted live; Lavka null-navigation repair implemented locally; Android 1.0.14 installed; deploy + live acceptance pending.**
 
 Baseline SHAs: PersAI `7cf3cbee`; `persai-mobile` `4f5825b`.
 
-**Live evidence:** After strict current-surface affinity deployed, runtime logs proved all founder Mail.ru calls targeted `bridgeTarget=current_turn bridgeKind=capacitor`; snapshot and two acts returned successfully and touched the profile, with no Chrome permission error. Nevertheless direct `goto https://account.mail.ru/login` reported the old `mail.ru` document. Native code showed two deterministic races: `onPageCommitVisible` completed the pending goto even when that callback belonged to a previous page, and a cross-origin redirect replaced the original navigation awaiter with a nested cookie-activation load whose no-op completion lost the command.
+**Live evidence:** After strict current-surface affinity deployed, runtime logs proved all founder Mail.ru calls targeted `bridgeTarget=current_turn bridgeKind=capacitor`; the 1.0.13 anchor handoff then passed live snapshot, article click, navigation, screenshot, and attachment delivery. A fresh Lavka Capacitor profile loaded and snapshotted correctly, but every ordinary non-anchor `act` failed in ~1–2 seconds with `Target URL must include a valid http or https origin`, while runtime logs showed the valid `https://lavka.yandex.ru/` command URL.
 
-**Repair:** Android now gates commit/finish/error callbacks until the specifically requested navigation has started, keeps cross-origin cookie activation under one command, tolerates URL canonicalization, skips stale command URLs before a leading goto, and accepts visited-history URL commitment. Live 1.0.12 finally isolated the 109.8-second hang: an `act` with `click` followed by `goto` clicked an ordinary `<a href>`, navigation destroyed the ephemeral JavaScript runner before its native callback, and native waited until its execution deadline. The shared page runner now treats HTTP(S) anchor clicks as declarative navigation: it returns `navigationUrl` before touching the page; Android/iOS then activate destination cookies, navigate natively, and continue remaining segments. Equivalent following goto segments are not reloaded. Existing profiles/cookies remain valid. Android release is `1.0.13` / `versionCode 15`, exported and installed; the matching PersAI runner must deploy before live acceptance.
+**Repair:** Android now gates navigation completion correctly and the shared runner hands HTTP(S) anchors to native before page teardown. The Lavka failure was a serialization boundary defect introduced by that handoff: ordinary actions returned `navigationUrl: null`, and Android `JSONObject.optString` exposed JSON null as the literal string `"null"`; native then tried to navigate to `"null"`. The runner now omits `navigationUrl` unless it has an actual target, and Android defensively maps JSON null to Java null. Android release is `1.0.14` / `versionCode 16`, exported and installed; profiles/cookies remain valid.
 
 **Verification:** mobile bridge TypeScript build + 9 tests PASS; Android plugin unit tests and debug assembly PASS; release Java compile, lintVital, assembly/export, and signed APK install PASS. Focused web runner tests PASS. Full repository lint, format check, API typecheck, and web typecheck PASS. iOS is source-reviewed only on Windows.
 
-**Next recommended step:** commit/push both repos, deploy PersAI, then on installed 1.0.13 run one anchor click to `account.mail.ru/login`, direct goto, and one-press Back. Profile recreation is not part of acceptance.
+**Next recommended step:** commit/push both repos, deploy PersAI, then on installed 1.0.14 retry one Lavka search-field `act`, add one product, and press Back once. Profile recreation is not part of acceptance.
 
 ---
 
