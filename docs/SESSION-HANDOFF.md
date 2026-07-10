@@ -10,7 +10,7 @@ Baseline SHAs: PersAI `f6e2a01e`; `persai-mobile` `4f5825b`.
 
 **Repair:** Mobile settings now ensures its native bridge is connected and sends that installation's `bridgeDeviceId`; desktop settings and chat assist Open likewise require and send the current connected surface. Relay dispatch results now carry the server-authenticated `deviceKind`. Successful `open-live` atomically stores both selected `bridgeSessionRef` and `bridgeClientKind`, and returns that selected kind, so the next assistant turn remains on the surface the user actually opened. Client-provided kind is not trusted.
 
-**Verification:** relay + browser-profile service suites PASS (21 tests); focused web settings/chat/scheduler suites PASS (111 tests); API typecheck PASS.
+**Verification:** relay + browser-profile service suites PASS (21 tests); focused web settings/chat/scheduler suites PASS (111 tests); full API suite PASS; mandatory lint/format/API+web typechecks and runtime/runtime-contract typechecks PASS. Initial CI found one stale cross-pod dispatch expectation missing the new `deviceKind`; the fixture was repaired and the full API suite then passed locally.
 
 **Next recommended step:** deploy, authorize ADB, tap the `mail-ru` card once in mobile settings, verify DB binding changes to `capacitor`, then run direct `e.mail.ru` navigation and one-press Back acceptance with phone/API logs.
 

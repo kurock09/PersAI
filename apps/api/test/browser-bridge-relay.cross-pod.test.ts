@@ -186,7 +186,8 @@ describe("BrowserBridgeRelayService cross-pod (coordinator)", () => {
     assert.deepEqual(dispatch, {
       accepted: true,
       commandId: "command-x",
-      bridgeDeviceId: registration.bridgeDeviceId
+      bridgeDeviceId: registration.bridgeDeviceId,
+      deviceKind: "extension"
     });
     // The command was forwarded to pod A and delivered over its local socket.
     assert.equal(socket.sent.length, 1);
