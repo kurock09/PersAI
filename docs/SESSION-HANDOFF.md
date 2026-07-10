@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-10 — ADR-140 current-surface profile affinity repair
+
+Status: **implemented and focused-verified locally; deploy/live acceptance pending.**
+
+Baseline SHAs: PersAI `f6e2a01e`; `persai-mobile` `4f5825b`.
+
+**Live cause:** Founder mobile acceptance returned `Host permission was denied for https://mail.ru/*`, an error Android WebView cannot produce. Live DB inspection proved `mail-ru` stored `bridgeClientKind: "extension"` and Chrome `bridgeSessionRef: 6649bcb0-4962-4b5f-b60c-02ccd9abf119`. The settings card determined it was in Capacitor but called `open-live` without the current device ID; API therefore dispatched to the stored Chrome ref and returned `bridgeClientKind: extension`. The same omission existed in chat's assist-banner Open action. This also invalidated mobile Back acceptance because the web handler was cleared when the server truth said the opened surface was extension.
+
+**Repair:** Mobile settings now ensures its native bridge is connected and sends that installation's `bridgeDeviceId`; desktop settings and chat assist Open likewise require and send the current connected surface. Relay dispatch results now carry the server-authenticated `deviceKind`. Successful `open-live` atomically stores both selected `bridgeSessionRef` and `bridgeClientKind`, and returns that selected kind, so the next assistant turn remains on the surface the user actually opened. Client-provided kind is not trusted.
+
+**Verification:** relay + browser-profile service suites PASS (21 tests); focused web settings/chat/scheduler suites PASS (111 tests); API typecheck PASS.
+
+**Next recommended step:** deploy, authorize ADB, tap the `mail-ru` card once in mobile settings, verify DB binding changes to `capacitor`, then run direct `e.mail.ru` navigation and one-press Back acceptance with phone/API logs.
+
+---
+
 ## 2026-07-10 — ADR-140 mobile priority view controls + committed-navigation completion
 
 Status: **implemented and focused-verified locally; Android 1.0.9 installed; PersAI deploy/live acceptance pending.**

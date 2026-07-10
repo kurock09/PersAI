@@ -183,10 +183,17 @@ class InMemoryAssistantBrowserProfileRepository implements AssistantBrowserProfi
     }
   }
 
-  async updateBridgeSessionRef(id: string, bridgeSessionRef: string | null): Promise<void> {
+  async updateBridgeBinding(
+    id: string,
+    input: {
+      bridgeSessionRef: string | null;
+      bridgeClientKind: LocalBrowserBridgeDeviceKind;
+    }
+  ): Promise<void> {
     const row = this.rows.get(id);
     if (row) {
-      row.bridgeSessionRef = bridgeSessionRef;
+      row.bridgeSessionRef = input.bridgeSessionRef;
+      row.bridgeClientKind = input.bridgeClientKind;
     }
   }
 
@@ -224,6 +231,7 @@ class FakeBrowserBridgeRelayService {
   }> = [];
   nextAccepted = true;
   nextBridgeDeviceId = "bridge-device-1";
+  nextDeviceKind: LocalBrowserBridgeDeviceKind = "extension";
   nextUnavailableCode = "bridge_unavailable";
   nextResult: LocalBrowserResult = { commandId: "pending", ok: true };
   private results = new Map<string, LocalBrowserResult>();
@@ -254,7 +262,8 @@ class FakeBrowserBridgeRelayService {
     return {
       accepted: true as const,
       commandId: input.command.commandId,
-      bridgeDeviceId: this.nextBridgeDeviceId
+      bridgeDeviceId: this.nextBridgeDeviceId,
+      deviceKind: this.nextDeviceKind
     };
   }
 
@@ -698,10 +707,12 @@ describe("AssistantBrowserProfileService", () => {
       expiresAt: null
     });
     const relay = new FakeBrowserBridgeRelayService();
+    relay.nextBridgeDeviceId = "my-phone-device";
+    relay.nextDeviceKind = "capacitor";
     relay.nextResult = { commandId: "ignored", ok: true };
     const service = buildService({ repository, relay });
 
-    await service.openLiveView({
+    const result = await service.openLiveView({
       profileId: "pending-open",
       assistantId: "assistant-1",
       workspaceId: "workspace-1",
@@ -710,5 +721,8 @@ describe("AssistantBrowserProfileService", () => {
 
     assert.equal(relay.dispatches[0]?.bridgeDeviceId, "my-phone-device");
     assert.equal(relay.dispatches[0]?.command.action, "open_view");
+    assert.equal(result.bridgeClientKind, "capacitor");
+    assert.equal((await repository.findById("pending-open"))?.bridgeSessionRef, "my-phone-device");
+    assert.equal((await repository.findById("pending-open"))?.bridgeClientKind, "capacitor");
   });
 });

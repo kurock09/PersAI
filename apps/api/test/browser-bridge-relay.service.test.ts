@@ -90,7 +90,8 @@ describe("BrowserBridgeRelayService", () => {
     assert.deepEqual(dispatch, {
       accepted: true,
       commandId: "command-1",
-      bridgeDeviceId: registration.bridgeDeviceId
+      bridgeDeviceId: registration.bridgeDeviceId,
+      deviceKind: "extension"
     });
     assert.equal(socket.sent.length, 1);
     assert.deepEqual(JSON.parse(socket.sent[0] ?? "{}"), {
@@ -280,7 +281,8 @@ describe("BrowserBridgeRelayService", () => {
     assert.deepEqual(dispatch, {
       accepted: true,
       commandId: "command-stale-pref",
-      bridgeDeviceId: registration.bridgeDeviceId
+      bridgeDeviceId: registration.bridgeDeviceId,
+      deviceKind: "extension"
     });
     assert.equal(socket.sent.length, 1);
   });

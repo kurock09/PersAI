@@ -112,7 +112,12 @@ import {
 } from "../assistant-api-client";
 import { AssistantAvatar } from "./assistant-avatar";
 import { BrowserLoginModal } from "./browser-login-modal";
-import { hideNativeBrowserBridgeView, isNativeBrowserBridgeShell } from "../browser-bridge-client";
+import {
+  getExtensionBridgeStatus,
+  hideNativeBrowserBridgeView,
+  isNativeBrowserBridgeShell,
+  registerNativeBrowserBridgeDevice
+} from "../browser-bridge-client";
 import { pushBackHandler } from "./back-handler-stack";
 import { VoicePreviewButton } from "../../_components/voice-preview-button";
 import { AssistantSupportSection } from "./assistant-support-section";
@@ -2096,7 +2101,28 @@ export function AssistantSettings({
             setNativeAssistProfileKey(profile.profileKey);
           }
           try {
-            const pending = await openAssistantBrowserProfileView(token, assistant.id, profile.id);
+            const bridgeStatus = nativeSurface
+              ? await registerNativeBrowserBridgeDevice({
+                  token,
+                  assistantId: assistant.id,
+                  workspaceId: assistant.workspaceId
+                })
+              : await getExtensionBridgeStatus();
+            const bridgeDeviceId =
+              bridgeStatus.connected &&
+              bridgeStatus.assistantId === assistant.id &&
+              bridgeStatus.workspaceId === assistant.workspaceId
+                ? bridgeStatus.bridgeDeviceId
+                : null;
+            if (bridgeDeviceId === null) {
+              throw new Error("The current browser bridge surface is not connected.");
+            }
+            const pending = await openAssistantBrowserProfileView(
+              token,
+              assistant.id,
+              profile.id,
+              bridgeDeviceId
+            );
             // Configured sessions open their browser surface directly. The
             // one-time web modal is reserved for login/reconnect or an honest
             // open failure; keeping it closed also prevents two visible

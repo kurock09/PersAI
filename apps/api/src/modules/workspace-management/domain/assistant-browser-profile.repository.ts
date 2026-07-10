@@ -72,7 +72,13 @@ export interface AssistantBrowserProfileRepository {
       expiresAt: Date;
     }
   ): Promise<void>;
-  updateBridgeSessionRef(id: string, bridgeSessionRef: string | null): Promise<void>;
+  updateBridgeBinding(
+    id: string,
+    input: {
+      bridgeSessionRef: string | null;
+      bridgeClientKind: LocalBrowserBridgeDeviceKind;
+    }
+  ): Promise<void>;
   touch(id: string, lastUsedAt: Date, expiresAt: Date): Promise<void>;
   markExpired(id: string): Promise<void>;
   deleteById(id: string): Promise<boolean>;

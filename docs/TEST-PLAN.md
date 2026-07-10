@@ -50,6 +50,7 @@ Live acceptance (post-deploy):
 20. Click an active configured-session card in desktop settings: only one consistently sized extension window opens; no web modal is shown. Force an open error and verify the modal then appears, while closing it does not reopen the extension window.
 21. Click an active configured-session card in mobile settings: the native browser overlay opens directly without the web modal; one system Back press hides the overlay and returns to the app, while the configured-session card remains mounted during background reconciliation.
 22. On Android, return from an active Mail.ru profile to PersAI, then invoke hidden profile-backed `snapshot` and `act`: page-runner Promise/timer work completes while the overlay remains absent and does not end in `Timed out waiting for page execution` / secondary `bridge_connection_closed`. While the command is pending, the underlying PersAI UI remains tappable/typeable.
+23. With desktop extension and mobile bridge both connected, tap an active profile card on mobile. `open-live` targets the phone's current `bridgeDeviceId`, persists matching `bridgeSessionRef + bridgeClientKind: capacitor`, and the next assistant profile command remains on mobile (never returning a Chrome host-permission error). Repeat from desktop and verify the pair atomically rebinds to the selected extension.
 
 ## ADR-133 Slice 1 path-contract focused checks
 

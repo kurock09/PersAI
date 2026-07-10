@@ -103,7 +103,12 @@ export type BrowserBridgeDispatchOutcome =
   | BrowserBridgeDispatchUnavailableResult;
 
 type ConnectionSelection =
-  | { connectionKey: string; bridgeDeviceId: string; podId: string | null }
+  | {
+      connectionKey: string;
+      bridgeDeviceId: string;
+      deviceKind: LocalBrowserBridgeDeviceKind;
+      podId: string | null;
+    }
   | BrowserBridgeDispatchUnavailableResult;
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
@@ -345,7 +350,12 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
           requestedBridgeDeviceId: selection.bridgeDeviceId
         };
       }
-      return { accepted: true, commandId, bridgeDeviceId: selection.bridgeDeviceId };
+      return {
+        accepted: true,
+        commandId,
+        bridgeDeviceId: selection.bridgeDeviceId,
+        deviceKind: selection.deviceKind
+      };
     }
 
     const envelope: ForwardedCommandEnvelope = {
@@ -373,7 +383,12 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
         requestedBridgeDeviceId: selection.bridgeDeviceId
       };
     }
-    return { accepted: true, commandId, bridgeDeviceId: selection.bridgeDeviceId };
+    return {
+      accepted: true,
+      commandId,
+      bridgeDeviceId: selection.bridgeDeviceId,
+      deviceKind: selection.deviceKind
+    };
   }
 
   async getCommandResult(commandId: string): Promise<LocalBrowserBridgeGetCommandResultResult> {
@@ -530,6 +545,7 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
         return {
           connectionKey: match.connectionKey,
           bridgeDeviceId: match.bridgeDeviceId,
+          deviceKind: match.deviceKind,
           podId: match.podId
         };
       }
@@ -563,6 +579,7 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
     return {
       connectionKey: only.connectionKey,
       bridgeDeviceId: only.bridgeDeviceId,
+      deviceKind: only.deviceKind,
       podId: only.podId
     };
   }
@@ -588,6 +605,7 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
         return {
           connectionKey: record.connectionKey,
           bridgeDeviceId: record.bridgeDeviceId,
+          deviceKind: record.deviceKind,
           podId: null
         };
       }
@@ -632,6 +650,7 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
     return {
       connectionKey: record.connectionKey,
       bridgeDeviceId: record.bridgeDeviceId,
+      deviceKind: record.deviceKind,
       podId: null
     };
   }

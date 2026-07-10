@@ -45,6 +45,7 @@ import type {
   PersaiRuntimeBrowserProfileErrorReason
 } from "@persai/runtime-contract";
 import {
+  LOCAL_BROWSER_BRIDGE_DEVICE_KINDS,
   PERSAI_RUNTIME_BROWSER_PROFILE_ERROR_REASONS,
   PERSAI_RUNTIME_TODO_WRITE_STATUSES
 } from "@persai/runtime-contract";
@@ -3364,12 +3365,15 @@ export class PersaiInternalApiClientService {
       if (
         payload?.accepted === true &&
         typeof payload.commandId === "string" &&
-        typeof payload.bridgeDeviceId === "string"
+        typeof payload.bridgeDeviceId === "string" &&
+        typeof payload.deviceKind === "string" &&
+        LOCAL_BROWSER_BRIDGE_DEVICE_KINDS.some((kind) => kind === payload.deviceKind)
       ) {
         return {
           accepted: true,
           commandId: payload.commandId,
-          bridgeDeviceId: payload.bridgeDeviceId
+          bridgeDeviceId: payload.bridgeDeviceId,
+          deviceKind: payload.deviceKind as LocalBrowserBridgeDispatchCommandResult["deviceKind"]
         };
       }
       if (

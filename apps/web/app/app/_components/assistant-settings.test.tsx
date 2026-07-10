@@ -87,6 +87,8 @@ const browserProfileMocks = vi.hoisted(() => ({
 
 const localBridgeMocks = vi.hoisted(() => ({
   isNativeBrowserBridgeShell: vi.fn(),
+  getExtensionBridgeStatus: vi.fn(),
+  registerNativeBrowserBridgeDevice: vi.fn(),
   hideNativeBrowserBridgeView: vi.fn(),
   pushBackHandler: vi.fn()
 }));
@@ -159,6 +161,10 @@ vi.mock("./browser-login-modal", () => ({
 
 vi.mock("../browser-bridge-client", () => ({
   isNativeBrowserBridgeShell: () => localBridgeMocks.isNativeBrowserBridgeShell(),
+  getExtensionBridgeStatus: (...args: unknown[]) =>
+    localBridgeMocks.getExtensionBridgeStatus(...args),
+  registerNativeBrowserBridgeDevice: (...args: unknown[]) =>
+    localBridgeMocks.registerNativeBrowserBridgeDevice(...args),
   hideNativeBrowserBridgeView: (...args: unknown[]) =>
     localBridgeMocks.hideNativeBrowserBridgeView(...args)
 }));
@@ -321,6 +327,18 @@ function renderSettings(
 describe("integrations section", () => {
   beforeEach(() => {
     localBridgeMocks.isNativeBrowserBridgeShell.mockReturnValue(false);
+    localBridgeMocks.getExtensionBridgeStatus.mockResolvedValue({
+      connected: true,
+      assistantId: "assistant-1",
+      workspaceId: "ws-1",
+      bridgeDeviceId: "extension-device-1"
+    });
+    localBridgeMocks.registerNativeBrowserBridgeDevice.mockResolvedValue({
+      connected: true,
+      assistantId: "assistant-1",
+      workspaceId: "ws-1",
+      bridgeDeviceId: "mobile-device-1"
+    });
     localBridgeMocks.hideNativeBrowserBridgeView.mockResolvedValue(undefined);
     localBridgeMocks.pushBackHandler.mockReturnValue(vi.fn());
     browserProfileMocks.listAssistantBrowserProfiles.mockResolvedValue([
@@ -369,7 +387,8 @@ describe("integrations section", () => {
       expect(browserProfileMocks.openAssistantBrowserProfileView).toHaveBeenCalledWith(
         "token-1",
         "assistant-1",
-        "profile-1"
+        "profile-1",
+        "extension-device-1"
       );
     });
     expect(screen.queryByTestId("browser-login-modal")).not.toBeInTheDocument();

@@ -305,14 +305,17 @@ export class AssistantBrowserProfileService {
       failureMessage:
         "The connected browser bridge could not open the browser view. Reopen the login flow and try again."
     });
-    await this.repository.updateBridgeSessionRef(row.id, opened.bridgeSessionRef);
+    await this.repository.updateBridgeBinding(row.id, {
+      bridgeSessionRef: opened.bridgeSessionRef,
+      bridgeClientKind: opened.deviceKind
+    });
     return {
       profileId: row.id,
       profileKey: row.profileKey,
       displayName: row.displayName,
       loginUrl: row.loginUrl,
       workspaceId: row.workspaceId,
-      bridgeClientKind: this.resolvePendingBridgeClientKind(row.bridgeClientKind),
+      bridgeClientKind: opened.deviceKind,
       status: row.status,
       completionMode
     };
@@ -651,7 +654,11 @@ export class AssistantBrowserProfileService {
     };
     unavailableMessage: string;
     failureMessage: string;
-  }): Promise<{ bridgeSessionRef: string; result: LocalBrowserResult }> {
+  }): Promise<{
+    bridgeSessionRef: string;
+    deviceKind: LocalBrowserBridgeDeviceKind;
+    result: LocalBrowserResult;
+  }> {
     const dispatched = await this.browserBridgeRelayService.dispatchCommand({
       assistantId: input.assistantId,
       workspaceId: input.workspaceId,
@@ -669,6 +676,7 @@ export class AssistantBrowserProfileService {
     }
     return {
       bridgeSessionRef: dispatched.bridgeDeviceId,
+      deviceKind: dispatched.deviceKind,
       result: polled
     };
   }

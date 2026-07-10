@@ -296,7 +296,8 @@ class FakePersaiInternalApiClientService {
   dispatchOutcome: DispatchLocalBrowserCommandOutcome = {
     accepted: true,
     commandId: "command-1",
-    bridgeDeviceId: "device-1"
+    bridgeDeviceId: "device-1",
+    deviceKind: "extension"
   };
   pollResponses: LocalBrowserBridgeGetCommandResultResult[] = [];
   profiles: RuntimeBrowserProfileListItem[] = [
@@ -566,7 +567,8 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   internalApi.dispatchOutcome = {
     accepted: true,
     commandId: "command-1",
-    bridgeDeviceId: "device-1"
+    bridgeDeviceId: "device-1",
+    deviceKind: "extension"
   };
 
   internalApi.resolveOutcome = {

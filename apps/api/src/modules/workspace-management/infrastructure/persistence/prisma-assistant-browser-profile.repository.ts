@@ -186,10 +186,16 @@ export class PrismaAssistantBrowserProfileRepository implements AssistantBrowser
     });
   }
 
-  async updateBridgeSessionRef(id: string, bridgeSessionRef: string | null): Promise<void> {
+  async updateBridgeBinding(
+    id: string,
+    input: {
+      bridgeSessionRef: string | null;
+      bridgeClientKind: LocalBrowserBridgeDeviceKind;
+    }
+  ): Promise<void> {
     await this.prisma.assistantBrowserProfile.update({
       where: { id },
-      data: { bridgeSessionRef }
+      data: input
     });
   }
 

@@ -32,6 +32,7 @@ import {
   postAssistantMemoryDoNotRemember,
   transcribeVoice
 } from "../assistant-api-client";
+import { getCurrentLocalBrowserBridgeStatus } from "../browser-bridge-client";
 import { useShellActions } from "./app-shell";
 import {
   dispatchProjectModeActivated,
@@ -549,7 +550,22 @@ export function ChatArea({
       if (!token) {
         throw new Error(t("browserAssistActionFailed"));
       }
-      await openAssistantBrowserProfileView(token, assistantId, pendingBrowserAssist.profileId);
+      const bridgeStatus = await getCurrentLocalBrowserBridgeStatus();
+      const bridgeDeviceId =
+        bridgeStatus.connected &&
+        bridgeStatus.assistantId === assistantId &&
+        bridgeStatus.workspaceId === pendingBrowserAssist.workspaceId
+          ? bridgeStatus.bridgeDeviceId
+          : null;
+      if (bridgeDeviceId === null) {
+        throw new Error(t("browserAssistActionFailed"));
+      }
+      await openAssistantBrowserProfileView(
+        token,
+        assistantId,
+        pendingBrowserAssist.profileId,
+        bridgeDeviceId
+      );
     } catch {
       setBrowserAssistError(t("browserAssistActionFailed"));
     } finally {

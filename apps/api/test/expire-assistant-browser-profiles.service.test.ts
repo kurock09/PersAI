@@ -67,7 +67,7 @@ class InMemoryAssistantBrowserProfileRepository implements AssistantBrowserProfi
     return undefined;
   }
 
-  async updateBridgeSessionRef(): Promise<void> {
+  async updateBridgeBinding(): Promise<void> {
     return undefined;
   }
 

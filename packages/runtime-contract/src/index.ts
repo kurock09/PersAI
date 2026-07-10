@@ -4138,6 +4138,7 @@ export interface LocalBrowserBridgeDispatchCommandResult {
   accepted: boolean;
   commandId: string;
   bridgeDeviceId: string;
+  deviceKind: LocalBrowserBridgeDeviceKind;
 }
 
 export interface LocalBrowserBridgeGetCommandResultRequest {

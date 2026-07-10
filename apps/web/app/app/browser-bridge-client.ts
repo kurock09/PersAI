@@ -198,6 +198,10 @@ function toBridgeStatus(): ExtensionBridgeStatus {
   };
 }
 
+export async function getCurrentLocalBrowserBridgeStatus(): Promise<ExtensionBridgeStatus> {
+  return isNativeBrowserBridgeShell() ? toBridgeStatus() : getExtensionBridgeStatus();
+}
+
 function splitOperationsByGoto(
   operations: RuntimeBrowserOperation[]
 ): Array<{ navigateTo: string | null; operations: RuntimeBrowserOperation[] }> {

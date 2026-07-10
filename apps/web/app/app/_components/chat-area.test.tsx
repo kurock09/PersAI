@@ -11,6 +11,7 @@ const openSidebarMock = vi.hoisted(() => vi.fn());
 const openSettingsMock = vi.hoisted(() => vi.fn());
 const openAssistantBrowserProfileViewMock = vi.hoisted(() => vi.fn());
 const dismissAssistantBrowserProfileViewMock = vi.hoisted(() => vi.fn());
+const getCurrentLocalBrowserBridgeStatusMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -57,6 +58,11 @@ vi.mock("../assistant-api-client", () => ({
   transcribeVoice: vi.fn(async () => "")
 }));
 
+vi.mock("../browser-bridge-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../browser-bridge-client")>()),
+  getCurrentLocalBrowserBridgeStatus: getCurrentLocalBrowserBridgeStatusMock
+}));
+
 let intersectionObserverCallback: ((entries: Array<{ isIntersecting: boolean }>) => void) | null =
   null;
 
@@ -90,6 +96,7 @@ afterEach(() => {
   getTokenMock.mockClear();
   openAssistantBrowserProfileViewMock.mockReset();
   dismissAssistantBrowserProfileViewMock.mockReset();
+  getCurrentLocalBrowserBridgeStatusMock.mockReset();
   openSidebarMock.mockClear();
   sessionStorage.clear();
   projectFilesEvents.resetProjectFilesHintStateForTests();
@@ -389,6 +396,12 @@ describe("ChatArea", () => {
 
   it("keeps assist checkpoints in a banner and resumes the assistant after Done", async () => {
     getTokenMock.mockResolvedValue("token-1");
+    getCurrentLocalBrowserBridgeStatusMock.mockResolvedValue({
+      connected: true,
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "mobile-device-1"
+    });
     openAssistantBrowserProfileViewMock.mockResolvedValue({});
     dismissAssistantBrowserProfileViewMock.mockResolvedValue(undefined);
     const clearPendingBrowserLogin = vi.fn();
@@ -421,7 +434,8 @@ describe("ChatArea", () => {
       expect(openAssistantBrowserProfileViewMock).toHaveBeenCalledWith(
         "token-1",
         "assistant-1",
-        "profile-1"
+        "profile-1",
+        "mobile-device-1"
       );
     });
     fireEvent.click(screen.getByRole("button", { name: "browserLoginAssistDone" }));
