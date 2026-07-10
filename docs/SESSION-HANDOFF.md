@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-140 quiet settings cards + Android active-work screen policy
+
+Status: **implemented locally; Android 1.0.23 release exported; device acceptance pending.**
+
+**Scope:** Founder-directed removal of the redundant action copy from configured browser-profile cards, plus preventing Android's display from timing out during active hidden browser automation. This preserves the existing clickable-card action, explicit handoff UX, and observer lock; it does not introduce a persistent foreground service or alter browser-routing behavior.
+
+**Repair:** Settings cards no longer render `Open browser window` / reconnect action text; the complete card remains clickable and status/error labels are unchanged. During each active Android assistant-owned `snapshot` or `act`, the coordinator applies `FLAG_KEEP_SCREEN_ON`. A process-wide active-command count retains the flag across overlapping profile commands and releases it after the final result or setup failure. Android version advances to `1.0.23` / `versionCode 25`.
+
+**Verification:** focused web login-modal test (10) PASS; mobile browser-bridge TypeScript tests (11) PASS; Android bridge unit tests, debug assembly, signed release assembly, lintVital, and export to PersAI's download surface PASS.
+
+**Next recommended step:** install Android `1.0.23`, run a hidden profile-backed command longer than the device display timeout, confirm the display remains awake only until the command completes, and verify the configured-card action still opens its retained browser surface.
+
+---
+
+## 2026-07-10 — ADR-140 quiet login handoff + deterministic desktop bounds
+
+Status: **implemented locally; deploy, extension reload, and mobile acceptance pending.**
+
+**Scope:** Founder-directed login/handoff presentation cleanup plus the remaining assistant-initiated desktop popup sizing defect. This is a UX and extension lifecycle repair within ADR-140; no browser-routing, profile, or permission architecture changed.
+
+**Repair:** Login now leads with one compact action: `Завершите вход на своём устройстве`, a centered `Открыть <профиль>` pill, and one sentence explaining that a login lets the assistant act. The permanent instruction/status cards and footer privacy copy are removed. A connected bridge is a quiet inline green indicator; `?` reveals the short help only on demand. Missing/disconnected desktop extension state is the sole compact warning, with install/retry action and no infrastructure prose. Mobile uses the same compact pre-open surface, then reveals the native browser only after explicit Open; Back still returns to Done/Cancel. Footer controls use the shared pill treatment. Extension window restoration now performs Chrome state restoration and the canonical 70%/16:9 bounds update separately because Chrome can ignore dimensions when both changes are bundled in one `windows.update`.
+
+**Verification:** focused browser-login modal test (10), extension typecheck, and extension test suite (16) PASS. No commit or push.
+
+**Next recommended step:** deploy PersAI, reload the unpacked extension, then verify (1) assistant-triggered active-profile view opens as centered 16:9 desktop window, (2) new desktop login has no status/instruction card when connected, (3) mobile Open → native browser → Back → Done works with the same concise UI.
+
+---
+
+## 2026-07-10 — ADR-131/ADR-137 file/session execution regression repair
+
+Status: **implemented and locally verified; deploy and live acceptance remain pending.**
+
+Baseline SHA: PersAI `52556813`.
+
+**Repair:** Real web/Telegram turns now resolve one canonical chat id, with runtime preferring top-level context then web/Telegram context before safe canonical-chat lookup. Both web sync and stream carry the same ID in top-level and web context. Chat-scoped manifest listing fails closed before Prisma when the value is absent or non-UUID. `document.render` threads `originChatId` to storage write resolution. The pod bridge creates the effective cwd for every command, does not mark a zero-object session hydrate as successful, and rehydrates the current session/shared cache before session execution. GCS plus `workspace_file_metadata` remain authoritative.
+
+**Verification:** recursive lint, format check, API/web/runtime/sandbox typechecks, API focused suite (30), runtime focused suite (17 plus hydration/execution files), and sandbox focused suite (53) PASS. `prisma generate` ran through API typecheck. No commit or push.
+
+**Out of scope:** broader ADR reopening, architecture changes, commit/push, deploy, and live acceptance.
+
+**Next recommended step:** deploy this repair, then live-test ordinary web `document.render`, fresh empty-session `shell`, and storage-plane `files.write` followed by `shell` in the same session.
+
+---
+
 ## 2026-07-10 — ADR-140 explicit model-owned browser handoff
 
 Status: **implemented, fully verified, and Android release exported locally; deploy/install/live acceptance pending.**
@@ -184,7 +228,7 @@ Status: **implemented locally; commit/push in progress.**
 
 1. **Mobile: every native bridge command hung forever (root cause of "site never loads").** `browser-bridge-client.ts`'s `getNativeBrowserBridgePlugin()` was an `async` function that returned Capacitor's plugin proxy. Capacitor's `registerPlugin` proxy answers **every** property access — including `then` — with a native method wrapper. Resolving a Promise with that proxy as the value makes JS treat it as a thenable and call `proxy.then()`, which Capacitor rejects with `"PersaiBrowserBridge.then()" is not implemented on android` (confirmed verbatim in live `adb logcat`: `Capacitor/Console: Uncaught (in promise) Error: "PersaiBrowserBridge.then()" is not implemented on android`). The awaiting caller (`executeNativeCommand`) never resolved or rejected, so every native command (including `open_view`) silently hung until the server-side dispatch timed out (`bridge_command_timeout`, confirmed in the live Redis command-state dump). Fix: cache the plugin proxy in a module-level variable instead of ever returning/awaiting it as a promise resolution value.
 2. **Desktop: cross-tab device-registration storm killed in-flight commands.** The 15s registration throttle added in the previous slice lived in a React `useRef` — scoped to a single component instance/tab. With more than one PersAI tab/window open (e.g. a settings page and a chat, which is exactly how the founder was testing), each tab ran its own independent 3s poll + 15s throttle, so the extension still saw a fresh device registration every few seconds combined across tabs. Each registration mints a new bridge device id and forces the extension to close its live socket and reconnect (`dropSocketIfDeviceChanged`), so a command dispatched in the small window between registrations died with `bridge_connection_closed` — confirmed live in cluster logs (`browser-bridge/devices` 201s every 5-40s, `open-live` calls failing with `bridge_connection_closed` after 20-120s). Fix: moved the throttle into `registerExtensionBridgeDevice` itself, backed by `localStorage` so every open tab shares the same cooldown window.
-3. **Stale remembered `bridgeDeviceId` hard-failed dispatch even with exactly one live connection.** `openLiveView`/`completeLogin` pass the caller's last-known `bridgeDeviceId` (DB `bridgeSessionRef`, or the settings-card click path which passes none and falls back to the stored ref) as a *hint* to the relay's connection selector. The selector (`chooseFromDescriptors` / `selectLocalConnection`) treated a non-null id as a **hard requirement**: if it didn't match a live connection — which happens constantly given defect 2's churn — dispatch failed immediately with `bridge_device_not_connected`/`bridge_unavailable` even when exactly one connection was live and would have worked fine. This is the direct explanation for the assistant's live `browser.open_live` tool-call test failing with `bridge_unavailable` while the profile showed `active`. Fix: a stale/unmatched requested id now falls through to the same auto-selection logic used when no id is supplied (single live connection → use it; zero → unavailable; multiple → ambiguous, still asking for disambiguation), instead of hard-failing on principle.
+3. **Stale remembered `bridgeDeviceId` hard-failed dispatch even with exactly one live connection.** `openLiveView`/`completeLogin` pass the caller's last-known `bridgeDeviceId` (DB `bridgeSessionRef`, or the settings-card click path which passes none and falls back to the stored ref) as a _hint_ to the relay's connection selector. The selector (`chooseFromDescriptors` / `selectLocalConnection`) treated a non-null id as a **hard requirement**: if it didn't match a live connection — which happens constantly given defect 2's churn — dispatch failed immediately with `bridge_device_not_connected`/`bridge_unavailable` even when exactly one connection was live and would have worked fine. This is the direct explanation for the assistant's live `browser.open_live` tool-call test failing with `bridge_unavailable` while the profile showed `active`. Fix: a stale/unmatched requested id now falls through to the same auto-selection logic used when no id is supplied (single live connection → use it; zero → unavailable; multiple → ambiguous, still asking for disambiguation), instead of hard-failing on principle.
 
 **Also confirmed (informational, not a new code defect):** the founder observed error text still mentioning Telegram in a live assistant response after the web-channel-truth fix (`9fe39f1b`) was deployed. Verified the fix logic is correct and deployed (`buildChannelContextDeveloperSection` only emits the Telegram section when `channel === "telegram"`; the browser tool's `isTelegramSurface` gate likewise only fires for `transportSurface === "telegram"`). Most likely explanation is provider-side prompt-cache reuse of a pre-deploy cached prefix for a conversation that was already in flight; expected to self-resolve as new turns roll the cache. No code change made for this; revisit only if it recurs on fresh turns after this deploy.
 

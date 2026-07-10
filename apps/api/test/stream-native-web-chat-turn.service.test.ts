@@ -160,6 +160,7 @@ describe("WebRuntimeStreamClientService", () => {
           assistantId: "assistant-1",
           publishedVersionId: "version-1",
           runtimeTier: "paid_shared_restricted",
+          chatId: "chat-1",
           surfaceThreadKey: "thread-1",
           userId: "user-1",
           workspaceId: "workspace-1",
@@ -207,6 +208,12 @@ describe("WebRuntimeStreamClientService", () => {
           updatedAt: "2026-04-11T12:59:00.000Z"
         }
       ]);
+      assert.deepEqual(capturedBody?.channelContext, {
+        chatId: "chat-1",
+        web: {
+          chatId: "chat-1"
+        }
+      });
       assert.deepEqual(chunks, [
         { type: "delta", delta: "hello", accumulated: "hello" },
         {

@@ -26,6 +26,8 @@ export class ListWorkspaceFilesFromManifestService {
   // generously and rely on the derivation step to collapse subtree rows
   // into one entry per immediate child.
   private static readonly MAX_MANIFEST_ROWS_PER_LIST = 1_000;
+  private static readonly UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   constructor(private readonly workspaceFileMetadataService: WorkspaceFileMetadataService) {}
 
@@ -48,6 +50,9 @@ export class ListWorkspaceFilesFromManifestService {
     input: ListWorkspaceFilesFromManifestInput
   ): Promise<ListWorkspaceFilesFromManifestOutcome> {
     this.assertWorkspacePrefix(input.pathPrefix);
+    if (input.scope === "chat" && !this.isCanonicalChatId(input.currentChatId)) {
+      return { items: [] };
+    }
     const normalizedPrefix = this.normalizeDirectoryPrefix(input.pathPrefix);
     const searchPrefix = `${normalizedPrefix}/`;
 
@@ -141,14 +146,18 @@ export class ListWorkspaceFilesFromManifestService {
     originAssistantId?: string;
   } {
     if (input.scope === "chat") {
-      return input.currentChatId === null
-        ? { originChatId: "__persai_no_chat_scope__" }
-        : { originChatId: input.currentChatId };
+      return this.isCanonicalChatId(input.currentChatId)
+        ? { originChatId: input.currentChatId }
+        : {};
     }
     if (input.scope === "assistant") {
       return { originAssistantId: input.currentAssistantId };
     }
     return {};
+  }
+
+  private isCanonicalChatId(value: string | null): value is string {
+    return value !== null && ListWorkspaceFilesFromManifestService.UUID_PATTERN.test(value);
   }
 
   private readScope(value: unknown): ListWorkspaceFilesFromManifestInput["scope"] {

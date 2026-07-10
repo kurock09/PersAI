@@ -1120,6 +1120,7 @@ export class FakeTurnContextHydrationService {
   presenceBlock: string | null = null;
   openLoopRefsDeveloperBlock: string | null = null;
   availableWorkingFileRefsOverride: RuntimeFileHandle[] = [];
+  canonicalChatId: string | null = null;
 
   async buildMessages(
     ..._args: unknown[]
@@ -1136,6 +1137,29 @@ export class FakeTurnContextHydrationService {
   async computeOpenLoopRefsDeveloperBlock(..._args: unknown[]): Promise<string | null> {
     void _args.length;
     return this.openLoopRefsDeveloperBlock;
+  }
+
+  async resolveCanonicalChatId(..._args: unknown[]): Promise<string | null> {
+    const [input] = _args as [RuntimeTurnRequest | null | undefined];
+    if (this.canonicalChatId !== null) {
+      return this.canonicalChatId;
+    }
+    if (typeof input?.channelContext?.chatId === "string" && input.channelContext.chatId.length > 0) {
+      return input.channelContext.chatId;
+    }
+    if (
+      typeof input?.channelContext?.web?.chatId === "string" &&
+      input.channelContext.web.chatId.length > 0
+    ) {
+      return input.channelContext.web.chatId;
+    }
+    if (
+      typeof input?.channelContext?.telegram?.chatId === "string" &&
+      input.channelContext.telegram.chatId.length > 0
+    ) {
+      return input.channelContext.telegram.chatId;
+    }
+    return null;
   }
 
   chatPlanBlockResults: Array<{

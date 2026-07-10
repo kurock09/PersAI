@@ -543,12 +543,15 @@ async function setWindowVisibility(
   visible: boolean
 ): Promise<ProfileSessionRecord> {
   if (typeof record.windowId === "number") {
-    const bounds = visible ? await computeProfileWindowBounds() : {};
-    await chrome.windows.update(record.windowId, {
-      state: visible ? "normal" : "minimized",
-      focused: visible,
-      ...bounds
-    });
+    if (!visible) {
+      await chrome.windows.update(record.windowId, { state: "minimized", focused: false });
+    } else {
+      // Chrome may ignore size updates when they are bundled with a transition
+      // from minimized to normal. Normalize the restored window first, then
+      // apply the canonical desktop bounds as a separate update.
+      await chrome.windows.update(record.windowId, { state: "normal", focused: true });
+      await chrome.windows.update(record.windowId, await computeProfileWindowBounds());
+    }
   }
   return persistProfilePatch(record.profileKey, { visible, updatedAt: Date.now() });
 }

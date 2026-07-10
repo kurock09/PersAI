@@ -107,6 +107,8 @@ describe("BrowserLoginModal", () => {
 
     expect(await screen.findByTestId("browser-login-modal")).toBeInTheDocument();
     expect(await screen.findByTestId("browser-login-open-bridge-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("browser-login-extension-status")).not.toBeInTheDocument();
+    expect(screen.getByText("browserLoginOpenSiteHint")).toBeInTheDocument();
     expect(openAssistantBrowserProfileView).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("browser-login-open-bridge-view"));

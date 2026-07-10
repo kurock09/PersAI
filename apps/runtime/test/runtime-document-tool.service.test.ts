@@ -4,7 +4,10 @@ import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import { RuntimeDocumentToolService } from "../src/modules/turns/runtime-document-tool.service";
 
 function createStoragePlaneStub(input?: {
-  resolveWritePath?: (targetPath: string) => Promise<string> | string;
+  resolveWritePath?: (args: {
+    targetPath: string;
+    chatId: string | null;
+  }) => Promise<string> | string;
   writeTextFile?: (args: {
     targetPath: string;
     content: string;
@@ -18,9 +21,9 @@ function createStoragePlaneStub(input?: {
   }>;
 }) {
   return {
-    async resolveWritePath(args: { targetPath: string }) {
+    async resolveWritePath(args: { targetPath: string; chatId: string | null }) {
       if (input?.resolveWritePath !== undefined) {
-        return input.resolveWritePath(args.targetPath);
+        return input.resolveWritePath(args);
       }
       return args.targetPath;
     },
@@ -392,7 +395,7 @@ describe("RuntimeDocumentToolService", () => {
       },
       {
         storagePlane: createStoragePlaneStub({
-          resolveWritePath(targetPath) {
+          resolveWritePath({ targetPath }) {
             storageCalls.push({ kind: "resolve", path: targetPath });
             return targetPath.endsWith(".md") ? resolvedMarkdownPath : targetPath;
           },
@@ -482,6 +485,81 @@ describe("RuntimeDocumentToolService", () => {
     assert.doesNotMatch(programSource, /PERSAI_OUTPUT_PATH/);
     assert.match(programSource, /HTML\(string=build_html_document\(\)/);
     assert.deepEqual(metadataPaths, [wp("monthly.pdf")]);
+  });
+
+  test("renders authored PDF with the canonical origin chat id on write-path resolution", async () => {
+    const resolveCalls: Array<{ targetPath: string; chatId: string | null }> = [];
+    const service = createDocumentToolService(
+      {
+        async upsertWorkspaceFileMetadata() {
+          return;
+        },
+        async inspectDocumentInWorkspace() {
+          return {
+            accepted: true as const,
+            sourcePath: wp("reports/monthly.pdf"),
+            inspectPath: wp("reports/monthly.inspect.json"),
+            format: "pdf" as const,
+            counts: {
+              pageCount: 1,
+              sheetCount: null,
+              formulaCount: null,
+              blankSheetCount: null,
+              paragraphCount: 1,
+              headingCount: 1,
+              tableCount: 0,
+              textCharCount: 22
+            },
+            warnings: [],
+            suggestedReadPaths: [],
+            editMethod: "shell_native",
+            siblingMarkdownPath: null,
+            extractedMdPath: null
+          };
+        }
+      },
+      {
+        storagePlane: createStoragePlaneStub({
+          resolveWritePath(args) {
+            resolveCalls.push(args);
+            return args.targetPath;
+          }
+        }),
+        sandbox: createDocumentSandbox({ mimeType: "application/pdf", sizeBytes: 321 })
+      }
+    );
+
+    const result = await service.executeToolCall({
+      bundle: createBundle(),
+      toolCall: {
+        id: "tool-render-pdf-chat-origin",
+        name: "document",
+        arguments: {
+          action: "render",
+          requestedName: "monthly.pdf",
+          format: "pdf",
+          content: "# Monthly\n\nSummary body."
+        }
+      },
+      sessionId: "session-1",
+      requestId: "request-render-pdf-chat-origin",
+      originChatId: "chat-web-1",
+      conversation: {
+        channel: "web",
+        externalThreadKey: "thread-1"
+      },
+      deferToAsyncDocumentJob: {
+        sourceUserMessageId: "msg-render-chat-origin",
+        sourceUserMessageText: "Make the monthly PDF",
+        currentAttachments: [],
+        availableAttachments: []
+      }
+    });
+
+    assert.equal(result.isError, false);
+    assert.equal(resolveCalls.length, 1);
+    assert.equal(resolveCalls[0]?.targetPath, wp("monthly.md"));
+    assert.equal(resolveCalls[0]?.chatId, "chat-web-1");
   });
 
   test("renders authored XLSX from Markdown tables and writes sibling markdown", async () => {
@@ -894,7 +972,7 @@ describe("RuntimeDocumentToolService", () => {
       },
       {
         storagePlane: createStoragePlaneStub({
-          resolveWritePath(targetPath) {
+          resolveWritePath({ targetPath }) {
             return targetPath.endsWith("report.md") ? sourceMarkdownPath : targetPath;
           },
           async writeTextFile(args) {

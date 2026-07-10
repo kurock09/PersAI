@@ -6588,12 +6588,6 @@ function BrowserSiteCard({
               {statusLabel}
             </p>
           ) : null}
-          <span className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-text-subtle transition-colors group-hover:text-text">
-            {profile.status === "active"
-              ? t("browserProfileOpenView")
-              : t("browserProfileReconnect")}
-            <ChevronRight className="h-3.5 w-3.5" />
-          </span>
         </div>
       </div>
       <div className="ml-3 flex w-7 shrink-0 flex-col items-center justify-between self-stretch py-0.5">

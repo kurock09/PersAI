@@ -16,6 +16,8 @@ import type { SandboxConfig } from "@persai/config";
 import {
   type RuntimeSandboxPolicy,
   DEFAULT_RUNTIME_SANDBOX_POLICY,
+  classifyVisibleWorkspacePath,
+  isValidVisibleWorkspacePath,
   normalizeWorkspacePath
 } from "@persai/runtime-contract";
 import { SANDBOX_CONFIG } from "./sandbox-config";
@@ -26,6 +28,7 @@ import {
   buildBootstrapHydrateSubPaths,
   buildSharedOnlyHydrateSubPath,
   collectOnDemandHydratePaths,
+  isWithinBootstrapHydrateScope,
   toWorkspaceGcsSubPath,
   type WorkspaceHydrateScopeLabel
 } from "./workspace-mount-hydrate";
@@ -103,6 +106,11 @@ export type PodFileReadResult = {
 export type SessionPodStagingFile = {
   absolutePath: string;
   contents: Buffer;
+};
+
+type WorkspaceHydrateResult = {
+  listedObjectCount: number;
+  hydratedObjectCount: number;
 };
 
 type BridgeError = Error & { code: string; blocked: boolean };
@@ -524,6 +532,14 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       siblingHandles
     );
     const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
+    await this.recoverExecCwdFromStoragePlane({
+      podName,
+      namespace,
+      workspaceId,
+      assistantId,
+      runtimeSessionId: options.runtimeSessionId,
+      podCwd
+    });
     const onDemandPaths = collectOnDemandHydratePaths({
       assistantId,
       runtimeSessionId: options.runtimeSessionId,
@@ -1223,7 +1239,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         const hydratedSessionId = await this.readPodHydrateSessionId(podName, namespace);
         if (hydratedSessionId !== runtimeSessionId) {
           const workspaceHydrateStartedAt = Date.now();
-          await this.hydrateBootstrapWorkspaceMounts(
+          const hydrateResult = await this.hydrateBootstrapWorkspaceMounts(
             podName,
             namespace,
             workspaceId,
@@ -1231,7 +1247,12 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             runtimeSessionId,
             "session"
           );
-          await this.writePodHydrateSessionId(podName, namespace, runtimeSessionId);
+          if (
+            hydrateResult.listedObjectCount > 0 &&
+            hydrateResult.hydratedObjectCount === hydrateResult.listedObjectCount
+          ) {
+            await this.writePodHydrateSessionId(podName, namespace, runtimeSessionId);
+          }
           this.observability?.recordSnapshotColdPull(
             "session",
             Date.now() - workspaceHydrateStartedAt
@@ -1246,7 +1267,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         );
         if (!sharedHydrated) {
           const workspaceHydrateStartedAt = Date.now();
-          await this.hydrateBootstrapWorkspaceMounts(
+          const hydrateResult = await this.hydrateBootstrapWorkspaceMounts(
             podName,
             namespace,
             workspaceId,
@@ -1254,22 +1275,27 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             runtimeSessionId,
             "shared_only"
           );
-          const sharedMarkerScript = [
-            "set -e",
-            `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL)} > ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_MARKER)}`,
-            `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL)}`
-          ].join("\n");
-          const sharedMarkerOk = await this.runStdinlessProbe(
-            podName,
-            namespace,
-            sharedMarkerScript,
-            WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL
-          );
-          if (!sharedMarkerOk) {
-            throw createBridgeError(
-              "process_spawn_failed",
-              `Failed to record shared workspace hydrate marker for handle=${assistantHandle}.`
+          if (
+            hydrateResult.listedObjectCount > 0 &&
+            hydrateResult.hydratedObjectCount === hydrateResult.listedObjectCount
+          ) {
+            const sharedMarkerScript = [
+              "set -e",
+              `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL)} > ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_MARKER)}`,
+              `printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL)}`
+            ].join("\n");
+            const sharedMarkerOk = await this.runStdinlessProbe(
+              podName,
+              namespace,
+              sharedMarkerScript,
+              WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL
             );
+            if (!sharedMarkerOk) {
+              throw createBridgeError(
+                "process_spawn_failed",
+                `Failed to record shared workspace hydrate marker for handle=${assistantHandle}.`
+              );
+            }
           }
           this.observability?.recordSnapshotColdPull(
             "shared",
@@ -1395,30 +1421,40 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     assistantId: string,
     runtimeSessionId: string | null,
     scope: "session" | "shared_only"
-  ): Promise<void> {
+  ): Promise<WorkspaceHydrateResult> {
     if (this.objectStorage === null) {
-      return;
+      return {
+        listedObjectCount: 0,
+        hydratedObjectCount: 0
+      };
     }
     if (scope === "shared_only" || runtimeSessionId === null) {
       const sharedSubPath = buildSharedOnlyHydrateSubPath(assistantId);
-      await this.hydrateWorkspaceMountPrefix(
+      return await this.hydrateWorkspaceMountPrefix(
         podName,
         namespace,
         workspaceId,
         sharedSubPath,
         "shared"
       );
-      return;
     }
+    let listedObjectCount = 0;
+    let hydratedObjectCount = 0;
     for (const hydrateScope of buildBootstrapHydrateSubPaths({ assistantId, runtimeSessionId })) {
-      await this.hydrateWorkspaceMountPrefix(
+      const hydrateResult = await this.hydrateWorkspaceMountPrefix(
         podName,
         namespace,
         workspaceId,
         hydrateScope.subPath,
         hydrateScope.scope
       );
+      listedObjectCount += hydrateResult.listedObjectCount;
+      hydratedObjectCount += hydrateResult.hydratedObjectCount;
     }
+    return {
+      listedObjectCount,
+      hydratedObjectCount
+    };
   }
 
   private async hydrateWorkspaceMountOnDemandSubPath(
@@ -1470,15 +1506,21 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     workspaceId: string,
     gcsSubPath: string,
     scope: WorkspaceHydrateScopeLabel
-  ): Promise<void> {
+  ): Promise<WorkspaceHydrateResult> {
     if (this.objectStorage === null) {
-      return;
+      return {
+        listedObjectCount: 0,
+        hydratedObjectCount: 0
+      };
     }
     if (gcsSubPath.length === 0) {
       this.logger.warn(
         `workspace_mount_hydrate_skipped_empty_sub_path workspace=${workspaceId} scope=${scope}`
       );
-      return;
+      return {
+        listedObjectCount: 0,
+        hydratedObjectCount: 0
+      };
     }
     const workspacePrefix = this.objectStorage.buildWorkspacePrefix({
       workspaceId,
@@ -1491,13 +1533,19 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(
         `workspace_mount_hydrate_list_failed workspace=${workspaceId} scope=${scope} sub_path=${gcsSubPath} error=${describeUnknownError(error)}`
       );
-      return;
+      return {
+        listedObjectCount: 0,
+        hydratedObjectCount: 0
+      };
     }
     if (keys.length === 0) {
       this.logger.log(
         `workspace_mount_hydrate_done workspace=${workspaceId} scope=${scope} sub_path=${gcsSubPath} objects=0 elapsed_ms=0 concurrency=${WORKSPACE_MOUNT_HYDRATE_CONCURRENCY}`
       );
-      return;
+      return {
+        listedObjectCount: 0,
+        hydratedObjectCount: 0
+      };
     }
     const startedAt = Date.now();
     const workspaceRoot = "/workspace/";
@@ -1507,7 +1555,17 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         return { key, relPath };
       })
       .filter(({ relPath }) => relPath.length > 0 && !relPath.endsWith("/"));
+    if (hydrateTargets.length === 0) {
+      this.logger.log(
+        `workspace_mount_hydrate_done workspace=${workspaceId} scope=${scope} sub_path=${gcsSubPath} objects=0 elapsed_ms=${Date.now() - startedAt} concurrency=0`
+      );
+      return {
+        listedObjectCount: 0,
+        hydratedObjectCount: 0
+      };
+    }
     let nextIndex = 0;
+    let hydratedObjectCount = 0;
     const workerCount = Math.min(WORKSPACE_MOUNT_HYDRATE_CONCURRENCY, hydrateTargets.length);
     const workers = Array.from({ length: workerCount }, async () => {
       for (;;) {
@@ -1517,19 +1575,27 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         if (target === undefined) {
           return;
         }
-        await this.hydrateWorkspaceMountObjectFromGcs(
-          podName,
-          namespace,
-          workspaceId,
-          target.key,
-          `${workspaceRoot}${gcsSubPath}/${target.relPath}`.replace(/\/+/g, "/")
-        );
+        if (
+          await this.hydrateWorkspaceMountObjectFromGcs(
+            podName,
+            namespace,
+            workspaceId,
+            target.key,
+            `${workspaceRoot}${gcsSubPath}/${target.relPath}`.replace(/\/+/g, "/")
+          )
+        ) {
+          hydratedObjectCount += 1;
+        }
       }
     });
     await Promise.allSettled(workers);
     this.logger.log(
       `workspace_mount_hydrate_done workspace=${workspaceId} scope=${scope} sub_path=${gcsSubPath} objects=${hydrateTargets.length} elapsed_ms=${Date.now() - startedAt} concurrency=${workerCount}`
     );
+    return {
+      listedObjectCount: hydrateTargets.length,
+      hydratedObjectCount
+    };
   }
 
   private async hydrateWorkspaceMountObjectFromGcs(
@@ -1538,9 +1604,9 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     workspaceId: string,
     key: string,
     absolutePath: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (this.objectStorage === null) {
-      return;
+      return false;
     }
     let buffer: Buffer;
     try {
@@ -1549,7 +1615,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(
         `workspace_mount_hydrate_download_failed workspace=${workspaceId} key=${key} error=${describeUnknownError(error)}`
       );
-      return;
+      return false;
     }
     try {
       await this.writePodFileBytes(
@@ -1564,7 +1630,40 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(
         `workspace_mount_hydrate_write_failed workspace=${workspaceId} path=${absolutePath} error=${describeUnknownError(error)}`
       );
+      return false;
     }
+    return true;
+  }
+
+  private async recoverExecCwdFromStoragePlane(input: {
+    podName: string;
+    namespace: string;
+    workspaceId: string;
+    assistantId: string;
+    runtimeSessionId: string;
+    podCwd: string;
+  }): Promise<void> {
+    if (!input.podCwd.startsWith("/workspace/")) {
+      return;
+    }
+    if (!isValidVisibleWorkspacePath(input.podCwd)) {
+      return;
+    }
+    const pathInfo = classifyVisibleWorkspacePath(input.podCwd);
+    if (!isWithinBootstrapHydrateScope(pathInfo, input.assistantId, input.runtimeSessionId)) {
+      return;
+    }
+    const gcsSubPath = toWorkspaceGcsSubPath(input.podCwd);
+    if (gcsSubPath.length === 0) {
+      return;
+    }
+    await this.hydrateWorkspaceMountPrefix(
+      input.podName,
+      input.namespace,
+      input.workspaceId,
+      gcsSubPath,
+      "on_demand"
+    );
   }
 
   private async writePodFileBytes(
@@ -1840,7 +1939,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     const execArgs = [
       "/bin/sh",
       "-c",
-      `cd ${posixSingleQuote(options.podCwd)} && ${posixCommandArray([options.command, ...options.args])}`
+      `mkdir -p ${posixSingleQuote(options.podCwd)} && cd ${posixSingleQuote(options.podCwd)} && ${posixCommandArray([options.command, ...options.args])}`
     ];
 
     const stdoutCollector = new LimitedCollector(

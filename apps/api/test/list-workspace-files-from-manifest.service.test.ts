@@ -188,17 +188,19 @@ describe("ListWorkspaceFilesFromManifestService", () => {
   });
 
   test("chat scope lists only rows from the current chat", async () => {
+    const currentChatId = "11111111-1111-4111-8111-111111111111";
+    const otherChatId = "22222222-2222-4222-8222-222222222222";
     const { service, calls } = buildService([
       {
         ...baseRows[0]!,
         path: `${sessionRoot}/current.md`,
-        originChatId: "chat-current",
+        originChatId: currentChatId,
         originAssistantId: "assistant-1"
       },
       {
         ...baseRows[1]!,
         path: "/workspace/assistants/assistant-1/sessions/runtime-session-other/other.md",
-        originChatId: "chat-other",
+        originChatId: otherChatId,
         originAssistantId: "assistant-1"
       }
     ]);
@@ -207,10 +209,10 @@ describe("ListWorkspaceFilesFromManifestService", () => {
       pathPrefix: sessionRoot,
       assistantId: "alice",
       scope: "chat",
-      currentChatId: "chat-current",
+      currentChatId,
       currentAssistantId: "assistant-1"
     });
-    assert.equal(calls[0]?.originChatId, "chat-current");
+    assert.equal(calls[0]?.originChatId, currentChatId);
     assert.deepEqual(
       out.items.map((item) => item.path),
       [`${sessionRoot}/current.md`]
@@ -251,6 +253,27 @@ describe("ListWorkspaceFilesFromManifestService", () => {
       `${assistantSharedRoot}/assistant-past.md`,
       `${assistantSharedRoot}/current.md`
     ]);
+  });
+
+  test("chat scope without a canonical UUID fails closed without manifest filtering", async () => {
+    const { service, calls } = buildService([
+      {
+        ...baseRows[0]!,
+        path: `${sessionRoot}/current.md`,
+        originChatId: "chat-current",
+        originAssistantId: "assistant-1"
+      }
+    ]);
+    const out = await service.execute({
+      workspaceId: "workspace-1",
+      pathPrefix: sessionRoot,
+      assistantId: "alice",
+      scope: "chat",
+      currentChatId: "__persai_no_chat_scope__",
+      currentAssistantId: "assistant-1"
+    });
+    assert.equal(calls.length, 0);
+    assert.deepEqual(out.items, []);
   });
 
   test("parses raw input and trims required fields", () => {

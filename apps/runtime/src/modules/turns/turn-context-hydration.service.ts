@@ -372,6 +372,27 @@ export class TurnContextHydrationService {
     private readonly persaiInternalApiClient: PersaiInternalApiClientService
   ) {}
 
+  async resolveCanonicalChatId(
+    input: RuntimeTurnRequest | null | undefined
+  ): Promise<string | null> {
+    const topLevelChatId = normalizeOptionalString(input?.channelContext?.chatId);
+    if (topLevelChatId !== null) {
+      return topLevelChatId;
+    }
+    const webChatId = normalizeOptionalString(input?.channelContext?.web?.chatId);
+    if (webChatId !== null) {
+      return webChatId;
+    }
+    const telegramChatId = normalizeOptionalString(input?.channelContext?.telegram?.chatId);
+    if (telegramChatId !== null) {
+      return telegramChatId;
+    }
+    if (input === null || input === undefined || !this.shouldFallbackCanonicalChatId(input)) {
+      return null;
+    }
+    return (await this.loadAssistantChatRowMeta(input.conversation))?.id ?? null;
+  }
+
   async buildMessages(
     input: RuntimeTurnRequest,
     bundle: AssistantRuntimeBundle
@@ -1175,6 +1196,21 @@ export class TurnContextHydrationService {
       lastMessageAt: chat.lastMessageAt,
       lastCrossSessionCarryOverAt: chat.lastCrossSessionCarryOverAt
     };
+  }
+
+  private shouldFallbackCanonicalChatId(input: RuntimeTurnRequest): boolean {
+    const canonicalSurface = toHydratedCanonicalSurface(input.conversation.channel);
+    if (canonicalSurface === null) {
+      return false;
+    }
+    const externalThreadKey = normalizeOptionalString(input.conversation.externalThreadKey);
+    if (externalThreadKey === null) {
+      return false;
+    }
+    if (externalThreadKey.startsWith("system:")) {
+      return false;
+    }
+    return true;
   }
 
   private async loadCrossSessionCarryOverHydration(

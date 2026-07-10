@@ -568,7 +568,7 @@ export class TurnExecutionService {
         const executionClass = this.classifyInteractiveExecutionClass(input, execution);
         return this.runtimeExecutionAdmissionService.runWithAdmission(executionClass, async () => {
           const turnState = this.createTurnExecutionState();
-          this.initializeTurnDeliveryContext(turnState, input);
+          await this.initializeTurnDeliveryContext(turnState, input);
           this.applyPreparedTurnExecutionState(turnState, execution);
           const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
           return this.finalizeAcceptedTurnWithPostTurnEffects({
@@ -608,7 +608,7 @@ export class TurnExecutionService {
             promptMode: "background_worker"
           });
           const turnState = this.createTurnExecutionState();
-          this.initializeTurnDeliveryContext(turnState, input);
+          await this.initializeTurnDeliveryContext(turnState, input);
           this.applyPreparedTurnExecutionState(turnState, execution);
           const result = await this.executeAcceptedTurn(acceptedTurn, execution, input, turnState);
           return this.finalizeAcceptedTurnWithPostTurnEffects({
@@ -651,10 +651,10 @@ export class TurnExecutionService {
           trace
         });
         const executionClass = this.classifyInteractiveExecutionClass(input, execution);
+        const turnState = this.createTurnExecutionState();
+        await this.initializeTurnDeliveryContext(turnState, input);
+        this.applyPreparedTurnExecutionState(turnState, execution);
         return this.runtimeExecutionAdmissionService.runStreamWithAdmission(executionClass, () => {
-          const turnState = this.createTurnExecutionState();
-          this.initializeTurnDeliveryContext(turnState, input);
-          this.applyPreparedTurnExecutionState(turnState, execution);
           return this.streamAcceptedTurn(
             acceptedTurn,
             execution,
@@ -830,8 +830,10 @@ export class TurnExecutionService {
         conversation: input.conversation,
         currentAttachments: input.message.attachments
       });
+    const currentChatId = await this.turnContextHydrationService.resolveCanonicalChatId(input);
     const developerInstructionSections = this.buildBaseDeveloperInstructionSections({
       request: input,
+      currentChatId,
       projectedTools,
       availableWorkingFileHandles,
       deepModeEnabled: input.deepMode === true,
@@ -2068,6 +2070,7 @@ export class TurnExecutionService {
 
   private buildBaseDeveloperInstructionSections(input: {
     request?: RuntimeTurnRequest;
+    currentChatId: string | null;
     projectedTools: RuntimeNativeToolProjection | undefined;
     availableWorkingFileHandles: RuntimeFileHandle[];
     deepModeEnabled: boolean;
@@ -2086,7 +2089,7 @@ export class TurnExecutionService {
     const workingFilesSection = this.buildWorkingFilesDeveloperSection(
       input.availableWorkingFileHandles,
       {
-        currentChatId: this.resolveCurrentChatId(input.request),
+        currentChatId: input.currentChatId,
         producedPaths: new Set<string>()
       }
     );
@@ -3333,6 +3336,7 @@ export class TurnExecutionService {
       return outcome;
     }
 
+    const currentChatId = turnState.currentChatId;
     switch (toolCall.name) {
       case execution.bundle.runtime.sharedCompaction.summarizeToolCode: {
         if (isToolContractDescribeCall(toolCall.arguments)) {
@@ -3457,7 +3461,7 @@ export class TurnExecutionService {
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
           channel: acceptedTurn.session.conversation.channel,
-          chatId: this.resolveCurrentChatId(input),
+          chatId: currentChatId,
           externalThreadKey: this.resolveSurfaceThreadKey(acceptedTurn.session.conversation),
           messageId: null,
           sourceUserMessageText: input.message.text,
@@ -3480,7 +3484,7 @@ export class TurnExecutionService {
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
-          chatId: this.resolveCurrentChatId(input),
+          chatId: currentChatId,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString()
         });
@@ -3513,7 +3517,7 @@ export class TurnExecutionService {
           bundle: execution.bundle,
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
-          chatId: this.resolveCurrentChatId(input),
+          chatId: currentChatId,
           transportSurface: acceptedTurn.session.conversation.channel,
           bridgeDeviceId: input.channelContext?.web?.localBrowserBridgeDeviceId ?? null,
           bridgeDeviceKind: input.channelContext?.web?.localBrowserBridgeDeviceKind ?? null,
@@ -3558,7 +3562,7 @@ export class TurnExecutionService {
             currentAttachments: execution.currentMessageAttachments,
             availableAttachments: documentSourceAttachments
           },
-          originChatId: this.resolveCurrentChatId(input)
+          originChatId: currentChatId
         });
         return this.createToolExecutionOutcome(
           toolCall,
@@ -3608,7 +3612,7 @@ export class TurnExecutionService {
           availableAttachments: availableImageAttachments,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
-          chatId: this.resolveCurrentChatId(input),
+          chatId: currentChatId,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString(),
           ...(this.shouldDeferMediaToolExecution(input)
@@ -3641,7 +3645,7 @@ export class TurnExecutionService {
           availableAttachments: availableImageAttachments,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
-          chatId: this.resolveCurrentChatId(input),
+          chatId: currentChatId,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString(),
           ...(this.shouldDeferMediaToolExecution(input)
@@ -3669,7 +3673,7 @@ export class TurnExecutionService {
               availableAttachments: [],
               sessionId: acceptedTurn.session.sessionId,
               requestId: acceptedTurn.receipt.requestId,
-              chatId: this.resolveCurrentChatId(input),
+              chatId: currentChatId,
               sourceUserMessageText: input.message.text,
               sourceUserMessageCreatedAt: new Date().toISOString()
             })
@@ -3684,7 +3688,7 @@ export class TurnExecutionService {
               ),
               sessionId: acceptedTurn.session.sessionId,
               requestId: acceptedTurn.receipt.requestId,
-              chatId: this.resolveCurrentChatId(input),
+              chatId: currentChatId,
               sourceUserMessageText: input.message.text,
               sourceUserMessageCreatedAt: new Date().toISOString(),
               ...(this.shouldDeferMediaToolExecution(input)
@@ -3710,7 +3714,7 @@ export class TurnExecutionService {
           toolCall,
           sessionId: acceptedTurn.session.sessionId,
           requestId: acceptedTurn.receipt.requestId,
-          chatId: this.resolveCurrentChatId(input),
+          chatId: currentChatId,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString()
         });
@@ -5229,12 +5233,12 @@ export class TurnExecutionService {
     recordFirstIterationToolsJsonCharCount(turnState.catalogToolMetrics, tools);
   }
 
-  private initializeTurnDeliveryContext(
+  private async initializeTurnDeliveryContext(
     turnState: TurnExecutionState,
     input: RuntimeTurnRequest
-  ): void {
+  ): Promise<void> {
     turnState.workspaceId = input.bundle.workspaceId;
-    turnState.currentChatId = this.resolveCurrentChatId(input);
+    turnState.currentChatId = await this.turnContextHydrationService.resolveCanonicalChatId(input);
     turnState.deliveryFacts = createEmptyTurnDeliveryFacts();
   }
 
@@ -5996,22 +6000,6 @@ export class TurnExecutionService {
     return trimmed.length === 0 ? null : trimmed;
   }
 
-  private resolveCurrentChatId(request: RuntimeTurnRequest | null | undefined): string | null {
-    const canonicalChatId = request?.channelContext?.chatId;
-    if (typeof canonicalChatId === "string" && canonicalChatId.trim().length > 0) {
-      return canonicalChatId.trim();
-    }
-    const webChatId = request?.channelContext?.web?.chatId;
-    if (typeof webChatId === "string" && webChatId.trim().length > 0) {
-      return webChatId.trim();
-    }
-    const telegramChatId = request?.channelContext?.telegram?.chatId;
-    if (typeof telegramChatId === "string" && telegramChatId.trim().length > 0) {
-      return telegramChatId.trim();
-    }
-    return null;
-  }
-
   private extractProducedFileHandles(
     payload: ToolExecutionOutcome["payload"]
   ): RuntimeFileHandle[] {
@@ -6095,8 +6083,10 @@ export class TurnExecutionService {
     );
     const openLoopRefsBlock =
       await this.turnContextHydrationService.computeOpenLoopRefsDeveloperBlock(input);
+    const currentChatId = await this.turnContextHydrationService.resolveCanonicalChatId(input);
     const developerInstructionSections = this.buildBaseDeveloperInstructionSections({
       request: input,
+      currentChatId,
       projectedTools: execution.projectedTools,
       availableWorkingFileHandles: execution.availableWorkingFileHandles,
       deepModeEnabled: execution.deepModeEnabled,

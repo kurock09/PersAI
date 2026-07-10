@@ -152,6 +152,7 @@ export class WebRuntimeStreamClientService {
         ? {}
         : { skillStateContext: input.skillStateContext }),
       channelContext: {
+        chatId: input.chatId,
         web: {
           chatId: input.chatId,
           ...(input.bridgeDeviceId === undefined

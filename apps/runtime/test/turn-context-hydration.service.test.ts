@@ -507,6 +507,55 @@ export async function runTurnContextHydrationServiceTest(): Promise<void> {
   const request = createRuntimeTurnRequest();
   const runtimeBundle = createRuntimeBundle();
 
+  const requestWithoutChannelContext: RuntimeTurnRequest = {
+    ...request,
+    conversation: {
+      ...request.conversation,
+      externalThreadKey: "web-1782153682653"
+    }
+  };
+  assert.equal(await service.resolveCanonicalChatId(requestWithoutChannelContext), "chat-1");
+
+  const requestWithExplicitCanonicalChatId: RuntimeTurnRequest = {
+    ...request,
+    channelContext: {
+      chatId: "chat-top-level-1",
+      web: {
+        chatId: "chat-web-1"
+      },
+      telegram: {
+        schema: "persai.runtime.telegramContext.v1",
+        chatId: "chat-telegram-1",
+        chat: {
+          id: "telegram-thread-1",
+          type: "private",
+          title: null
+        },
+        sender: {
+          telegramUserId: "telegram-user-1",
+          username: null,
+          firstName: null,
+          lastName: null,
+          displayName: null
+        },
+        accessMode: "owner_only"
+      }
+    }
+  };
+  assert.equal(
+    await service.resolveCanonicalChatId(requestWithExplicitCanonicalChatId),
+    "chat-top-level-1"
+  );
+
+  const syntheticRequest: RuntimeTurnRequest = {
+    ...request,
+    conversation: {
+      ...request.conversation,
+      externalThreadKey: "system:background-task:task-1"
+    }
+  };
+  assert.equal(await service.resolveCanonicalChatId(syntheticRequest), null);
+
   prisma.messages = [
     {
       id: "message-1",

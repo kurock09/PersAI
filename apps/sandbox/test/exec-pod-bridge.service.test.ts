@@ -542,6 +542,68 @@ test("ExecPodBridgeService: ensureWorkspaceMountBootstrapped re-hydrates when ru
   assert.equal(hydratedSessionId, "s2");
 });
 
+test("ExecPodBridgeService: zero-object session hydrate does not suppress a later real hydrate", async () => {
+  const keys: string[] = [];
+  let hydratedSessionId: string | null = null;
+  const { ensureWorkspaceMountBootstrapped, listPrefixCalls } = buildHydrateTestBridge({
+    keys,
+    downloadObject: async () => Buffer.from("data"),
+    execCommand: async (_podName, _namespace, request) => {
+      const shell = request.args[1] ?? "";
+      if (
+        shell.includes("/tmp/.persai_workspace_hydrate_session") &&
+        shell.includes("cat ") &&
+        !shell.includes("cat >")
+      ) {
+        return { exitCode: 0, stdout: hydratedSessionId ?? "", stderr: "" };
+      }
+      if (
+        shell.includes("/tmp/.persai_workspace_hydrate_session") &&
+        request.stdin !== undefined &&
+        request.stdin !== null
+      ) {
+        hydratedSessionId = request.stdin.toString("utf8");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+  });
+
+  const callsBeforeFirst = listPrefixCalls.length;
+  await ensureWorkspaceMountBootstrapped(
+    "pod-zero",
+    "persai-dev",
+    "ws-zero",
+    "bot",
+    "s1",
+    "session"
+  );
+  const firstCallCount = listPrefixCalls.length - callsBeforeFirst;
+  assert.ok(firstCallCount > 0, "first empty session bootstrap must still inspect scoped prefixes");
+  assert.equal(
+    hydratedSessionId,
+    null,
+    "zero-object hydrate must not mark the session as successfully hydrated"
+  );
+
+  keys.push("assistant-media/workspaces/ws-zero/workspace/assistants/bot/sessions/s1/report.txt");
+  const callsBeforeSecond = listPrefixCalls.length;
+  await ensureWorkspaceMountBootstrapped(
+    "pod-zero",
+    "persai-dev",
+    "ws-zero",
+    "bot",
+    "s1",
+    "session"
+  );
+  const secondCallCount = listPrefixCalls.length - callsBeforeSecond;
+  assert.ok(
+    secondCallCount > 0,
+    "same-session bootstrap must retry after a zero-object hydrate once real objects appear"
+  );
+  assert.equal(hydratedSessionId, "s1");
+});
+
 test("ExecPodBridgeService: hydrateBootstrapWorkspaceMounts caps in-flight work at the concurrency constant", async () => {
   const totalKeys = WORKSPACE_MOUNT_HYDRATE_CONCURRENCY * 2 + 3;
   const keys = Array.from({ length: totalKeys }, (_, index) => {
@@ -1104,6 +1166,221 @@ test("ExecPodBridgeService: session runInPod does not push workspace tree before
     command.some((part) => part.includes("echo hi"))
   );
   assert.ok(commandExec !== undefined, "the command must still run against the live pod");
+});
+
+test("ExecPodBridgeService: session runInPod guarantees the pod cwd exists before exec", async () => {
+  const ctx: MockK8sContext = {
+    createdPods: [],
+    podPhaseSequence: ["Running"],
+    execResponses: [{ exitCode: 0, stdout: "", stderr: "" }],
+    deletedPods: [],
+    execCallCount: 0,
+    execCommands: []
+  };
+
+  const bridge = buildMockBridge(ctx);
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-bridge-session-cwd-"));
+  const nestedCwd = join(
+    workspaceRoot,
+    "assistants",
+    "assistant-1",
+    "sessions",
+    "session-1",
+    "reports"
+  );
+  try {
+    await fs.mkdir(nestedCwd, { recursive: true });
+    await bridge.runInPod({
+      jobId: "job-session-cwd",
+      runtimeSessionId: "session-1",
+      assistantId: "assistant-1",
+      assistantHandle: "test-handle",
+      siblingHandles: [],
+      workspaceId: "workspace-1",
+      workspaceRoot,
+      absoluteCwd: nestedCwd,
+      command: "/bin/sh",
+      args: ["-c", "echo hi"],
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+    });
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
+
+  const commandExec = ctx.execCommands.find((command) =>
+    command.some((part) => part.includes("echo hi"))
+  );
+  const shell = commandExec?.[2] ?? "";
+  assert.ok(
+    shell.includes("mkdir -p '/workspace/assistants/assistant-1/sessions/session-1/reports'"),
+    "session exec must create the pod cwd before changing into it"
+  );
+  assert.ok(
+    shell.includes("cd '/workspace/assistants/assistant-1/sessions/session-1/reports'"),
+    "session exec must still cd into the requested hierarchical cwd"
+  );
+});
+
+test("ExecPodBridgeService: later canonical session write is visible to the next shell run", async () => {
+  const workspaceId = "ws-fresh-shell";
+  const assistantId = "assistant-1";
+  const runtimeSessionId = "session-1";
+  const visibleSessionRoot = `/workspace/assistants/${assistantId}/sessions/${runtimeSessionId}`;
+  const workspaceRoot = await fs.mkdtemp(join(tmpdir(), "persai-bridge-fresh-shell-"));
+  const sessionRoot = join(workspaceRoot, "assistants", assistantId, "sessions", runtimeSessionId);
+  await fs.mkdir(sessionRoot, { recursive: true });
+
+  const objectStorageKeys: string[] = [];
+  const storedObjects = new Map<string, Buffer>();
+  const podFiles = new Map<string, Buffer>();
+  let hydratedSessionId: string | null = null;
+
+  const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
+  Object.defineProperty(bridge, "objectStorage", {
+    configurable: true,
+    value: {
+      buildWorkspacePrefix: ({
+        workspaceId: currentWorkspaceId,
+        subPath
+      }: {
+        workspaceId: string;
+        subPath?: string;
+      }) => {
+        const base = `assistant-media/workspaces/${currentWorkspaceId}/workspace/`;
+        if (subPath === undefined || subPath.length === 0) {
+          return base;
+        }
+        return `${base}${subPath.replace(/\/+$/g, "")}/`;
+      },
+      buildWorkspaceObjectKey: ({
+        workspaceId: currentWorkspaceId,
+        workspaceRelPath
+      }: {
+        workspaceId: string;
+        workspaceRelPath: string;
+      }) => `assistant-media/workspaces/${currentWorkspaceId}${workspaceRelPath}`,
+      listPrefix: async (prefix: string) =>
+        objectStorageKeys.filter((key) => key.startsWith(prefix)),
+      downloadObject: async (key: string) => {
+        const buffer = storedObjects.get(key);
+        if (buffer === undefined) {
+          throw new Error(`missing object ${key}`);
+        }
+        return Buffer.from(buffer);
+      }
+    }
+  });
+  Object.defineProperty(bridge, "k8sApi", {
+    configurable: true,
+    value: {
+      async readNamespacedPod() {
+        return { status: { phase: "Running" } } as never;
+      }
+    }
+  });
+  Object.defineProperty(bridge, "pullWorkspace", {
+    configurable: true,
+    value: async () => undefined
+  });
+  Object.defineProperty(bridge, "runStdinlessProbe", {
+    configurable: true,
+    value: async () => true
+  });
+  Object.defineProperty(bridge, "execCommand", {
+    configurable: true,
+    value: async (
+      _podName: string,
+      _namespace: string,
+      request: {
+        command: string;
+        args: string[];
+        podCwd: string;
+        stdin?: Buffer | null;
+      }
+    ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> => {
+      const shell = request.args[1] ?? "";
+      if (
+        request.command === "/bin/sh" &&
+        shell.includes("/tmp/.persai_workspace_hydrate_session") &&
+        shell.includes("cat ") &&
+        !shell.includes("cat >")
+      ) {
+        return { exitCode: 0, stdout: hydratedSessionId ?? "", stderr: "" };
+      }
+      if (
+        shell.includes("/tmp/.persai_workspace_hydrate_session") &&
+        request.stdin !== undefined &&
+        request.stdin !== null
+      ) {
+        hydratedSessionId = request.stdin.toString("utf8");
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      const writeMatch = shell.match(/cat > '([^']+)'$/);
+      if (writeMatch !== null) {
+        podFiles.set(writeMatch[1]!, Buffer.from(request.stdin ?? Buffer.alloc(0)));
+        return { exitCode: 0, stdout: "", stderr: "" };
+      }
+      if (
+        request.command === "/bin/bash" &&
+        request.args[0] === "-lc" &&
+        request.args[1] === "cat report.txt"
+      ) {
+        const filePath = `${request.podCwd}/report.txt`;
+        const bytes = podFiles.get(filePath);
+        if (bytes === undefined) {
+          return { exitCode: 1, stdout: "", stderr: "missing report.txt" };
+        }
+        return { exitCode: 0, stdout: bytes.toString("utf8"), stderr: "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+  });
+
+  try {
+    await bridge.runInPod({
+      jobId: "job-empty-session",
+      runtimeSessionId,
+      assistantId,
+      assistantHandle: "test-handle",
+      siblingHandles: [],
+      workspaceId,
+      workspaceRoot,
+      absoluteCwd: sessionRoot,
+      command: "/bin/bash",
+      args: ["-lc", "true"],
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+    });
+    assert.equal(
+      hydratedSessionId,
+      null,
+      "an empty first session bootstrap must leave the hydrate marker unset"
+    );
+
+    const reportPath = `${visibleSessionRoot}/report.txt`;
+    const objectKey = `assistant-media/workspaces/${workspaceId}${reportPath}`;
+    objectStorageKeys.push(objectKey);
+    storedObjects.set(objectKey, Buffer.from("hello from storage plane", "utf8"));
+
+    const result = await bridge.runInPod({
+      jobId: "job-read-report",
+      runtimeSessionId,
+      assistantId,
+      assistantHandle: "test-handle",
+      siblingHandles: [],
+      workspaceId,
+      workspaceRoot,
+      absoluteCwd: sessionRoot,
+      command: "/bin/bash",
+      args: ["-lc", "cat report.txt"],
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, "hello from storage plane");
+    assert.equal(hydratedSessionId, runtimeSessionId);
+  } finally {
+    await removePathWithRetries(workspaceRoot);
+  }
 });
 
 test("ExecPodBridgeService: session runInPod writes staging files directly into the pod", async () => {

@@ -1230,7 +1230,8 @@ export class RuntimeDocumentToolService {
       sessionId: input.sessionId,
       requestId: `${input.requestId}:resolve-source-markdown`,
       outputPath: this.deriveSiblingMarkdownPath(input.outputPath),
-      replace: false
+      replace: false,
+      originChatId: input.originChatId
     });
     await this.writeWorkspaceTextFile({
       bundle: input.bundle,
@@ -1901,11 +1902,12 @@ export class RuntimeDocumentToolService {
     requestId: string;
     outputPath: string;
     replace: boolean;
+    originChatId: string | null;
   }): Promise<string> {
     return this.storagePlaneFilesService.resolveWritePath({
       bundle: input.bundle,
       sessionId: input.sessionId,
-      chatId: null,
+      chatId: input.originChatId,
       targetPath: input.outputPath,
       replace: input.replace
     });

@@ -58,7 +58,10 @@ Live acceptance (post-deploy):
 28. Without opening settings first, send a fresh browser instruction from Capacitor while desktop Chrome is also connected. Runtime logs `bridgeTarget=current_turn bridgeKind=capacitor`; Android receives the command; Chrome receives nothing. Then send from connected desktop and verify only that extension receives it. Disconnect each current surface in turn and verify the request fails honestly without falling back to the other device. Each successful switch persists the relay-authenticated ref/kind pair.
 29. On a retained Lavka Capacitor profile, run an ordinary non-anchor `act` such as focusing or typing into search. An absent declarative navigation target must be omitted by the runner and decoded as null by native; it must never attempt to load the literal `"null"` or return `Target URL must include a valid http or https origin`.
 30. From a different retained Lavka path, run `act` with top-level URL `https://lavka.yandex.ru/search` and no `stayOnPage`. If Yandex immediately canonicalizes it to `/`, the observed valid main-frame navigation action must start the pending redirect chain and complete normally; it must not wait for the 30-second navigation deadline. A stale commit callback without a corresponding main-frame navigation action must remain rejected.
-31. On desktop extension and Capacitor, open a page that builds content after `DOMContentLoaded`. Snapshot must wait for an `interactive` document with a body and 750 ms of DOM quiet, without text-length/control-count/site heuristics or a second readiness wait. A continuously mutating page must still return within the 10-second cap with current content and `page.loadStatus: "partial"`; a quiet page returns `"stable"`.
+31. On Android, start a background profile-backed `snapshot` or `act` and leave the phone untouched longer than the system display timeout. The screen remains awake until the final success/error result, then the normal display-timeout policy resumes. Repeating with concurrent commands must keep the screen awake until the last command completes.
+32. On desktop extension and Capacitor, open a page that builds content after `DOMContentLoaded`. Snapshot must wait for an `interactive` document with a body and 750 ms of DOM quiet, without text-length/control-count/site heuristics or a second readiness wait. A continuously mutating page must still return within the 10-second cap with current content and `page.loadStatus: "partial"`; a quiet page returns `"stable"`.
+33. Start a new desktop or mobile browser login. The completion surface shows only the completion title, centered `Open <profile>` pill, concise helper copy, quiet connected indicator, and pill Done/Cancel actions. Detailed help appears only after `?`; connected state has no status card. Missing desktop extension shows only a compact install/retry warning.
+34. On desktop, reveal a saved profile from an assistant handoff after it was minimized or previously small. The same extension window restores centered at 70% of the largest normal Chrome window in 16:9, rather than retaining minimized/popup dimensions. On mobile, the native browser opens only after explicit Open and system Back returns to the concise completion surface.
 
 ## ADR-133 Slice 1 path-contract focused checks
 
@@ -190,6 +193,32 @@ Interpretation rules:
 4. Removed model-facing verbs (`document.extract`, `document.edit`, `document.register_version`) remain hard-rejected. Internal extraction/OCR code may keep extraction naming only behind `document.inspect`.
 5. Shell overwrite registration flows through sandbox `producedFiles` → metadata upsert → `documentSync` → PROD auto-attach rules (`v+1` always; single `v1` yes; multi `v1` no).
 6. After deploy, live validation must prove real chat delivery and download links for net-new render, convert, Case A source edit/re-render, and Case B shell-produced document attach.
+
+## ADR-131 / ADR-137 bounded file/session execution repair focused checks
+
+When a change touches canonical chat-id threading for real web/Telegram turns, chat-scoped manifest gating, `document.render` origin tagging, session-pod hydrate/recovery, or fresh-session `shell` / `exec` execution, run:
+
+```bash
+corepack pnpm --filter @persai/api exec tsx test/send-web-chat-turn.service.test.ts test/stream-web-chat-turn.service.test.ts test/stream-native-web-chat-turn.service.test.ts test/send-native-telegram-turn.service.test.ts test/handle-internal-telegram-turn.service.test.ts test/register-chat-attachment.service.test.ts test/upsert-workspace-file-metadata-from-runtime.service.test.ts
+corepack pnpm --filter @persai/runtime exec tsx test/runtime-files-tool.service.test.ts test/runtime-files-tool.attach.test.ts test/runtime-document-tool.service.test.ts test/turn-context-hydration.service.test.ts test/turn-execution.service.test.ts test/turn-execution-discovered-file-paths.test.ts
+corepack pnpm --filter @persai/sandbox exec tsx test/exec-pod-bridge.service.test.ts test/workspace-mount-hydrate.test.ts test/workspace-file-bridge.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/sandbox run typecheck
+corepack pnpm run format:check
+```
+
+Interpretation rules:
+
+1. Web sync (`send-web-chat-turn`) and web stream (`stream-web-chat-turn` / `stream-native-web-chat-turn`) must propagate the same canonical `assistant_chat.id` into runtime-facing current-chat context. Real Telegram turns must carry or derive that same canonical chat UUID through `send-native-telegram-turn` / `handle-internal-telegram-turn`. Synthetic/background paths must not invent a chat UUID just to satisfy scope checks.
+2. Chat-scoped manifest list/read/attach behavior must fail closed when the current chat id is missing or not a UUID. No `unknown`, `web`, `telegram`, or other non-UUID sentinel may widen the manifest query.
+3. `document.render` and related runtime storage-plane upserts must persist `originChatId` from the canonical current chat so later chat-scoped `files.list` and attachment delivery stay aligned with the producing turn.
+4. GCS + `workspace_file_metadata` remain canonical. Session-pod hydrate/recovery is cache only: a fresh storage-plane write from `files.write`, `document.render`, or delivery must become visible to later `shell` / `exec` through targeted hydrate/recovery, not by treating existing pod bytes as authority.
+5. `shell` / `exec` must create the effective cwd when it does not exist and must still run successfully in a brand-new empty session with zero hydrated objects.
+6. Zero-object bootstrap hydrate must not mark the mount/session hydrated in a way that suppresses later targeted hydrate/recovery for fresh storage-plane writes.
+7. The focused local proof set for this repair is: web sync turn, web stream turn, real Telegram turn, one `document.render` write, then a later `shell` in the same session seeing that fresh file without a full workspace reset.
+8. After deploy, live validation must prove: (a) web sync and web stream expose identical current-chat file visibility, (b) a Telegram real turn gets that same scoped file truth, (c) a fresh empty session can run `shell` before any files exist, and (d) a storage-plane write becomes visible to later `shell` through targeted hydrate/recovery without manual pod recycle.
+9. This focused pack does not replace the standard AGENTS broad gate; run the repo-wide lint, format, and required typechecks before calling the slice clean.
 
 ## ADR-093 clean PROD launch readiness — verification discipline
 
