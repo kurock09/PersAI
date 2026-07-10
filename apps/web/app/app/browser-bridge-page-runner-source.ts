@@ -1,4 +1,4 @@
-export const PAGE_RUNNER_SOURCE = String.raw`(input) => {
+export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
   const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
   const normalizeText = (value) => typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
   const isVisible = (element) => {

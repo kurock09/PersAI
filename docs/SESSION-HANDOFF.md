@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-10 — ADR-140 mobile page-runner compile repair
+
+Status: **implemented and focused-verified locally; Android 1.0.8 exported; install + PersAI deploy/live acceptance pending.**
+
+Baseline SHAs: PersAI `512ddae0`; `persai-mobile` `8ad8e7c`.
+
+**Live cause:** After the ownership rollout, a real profile snapshot dispatched successfully and remained pending for exactly 120 seconds before returning `bridge_command_timeout`. Cluster polling proved the command stayed pending; connected-phone rendering proved the retained WebView entered background execution. Direct evaluation of the exact deployed `PAGE_RUNNER_SOURCE` then reproduced the root failure immediately: `SyntaxError: await is only valid in async functions`. The generated source declared `(input) => { ... await ... }` instead of `async (input) => { ... }`. Native wrappers evaluated that string before entering their Promise catch and ignored the `evaluateJavascript` completion error, so no runner callback could arrive and only the outer timeout was visible.
+
+**Repair:** Both PersAI and packaged mobile page-runner sources are async again. Web and mobile tests now compile the final generated string and assert `AsyncFunction`, preventing source-shape tests from missing executable syntax. Android/iOS wrappers also catch synchronous `eval`/setup failures and immediately return the real structured error instead of waiting for command timeout. Android release is `1.0.8` / `versionCode 10`.
+
+**Verification:** focused web runner/chat suites PASS (30 tests); mobile bridge TypeScript build + 8 tests PASS; Android release Java compile and release assembly/export PASS.
+
+**Next recommended step:** install Android 1.0.8, deploy PersAI, then repeat the same Mail.ru profile snapshot while collecting phone + cluster timestamps. Back ordering remains a secondary acceptance item after snapshot execution is proven.
+
+---
+
 ## 2026-07-10 — ADR-140 browser ownership + explicit user checkpoint UX
 
 Status: **implemented and fully verified locally; Android 1.0.7 installed on the connected phone; PersAI deploy/live acceptance pending.**
