@@ -1809,6 +1809,7 @@ export interface RuntimeBrowserPage {
   initialUrl: string;
   finalUrl: string;
   title: string | null;
+  loadStatus?: "stable" | "partial" | null;
   content: string;
   truncated: boolean;
   elements: RuntimeBrowserInteractiveElement[];
@@ -1883,6 +1884,7 @@ export interface LocalBrowserResult {
   ok: boolean;
   finalUrl?: string | null;
   title?: string | null;
+  loadStatus?: "stable" | "partial" | null;
   content?: string | null;
   truncated?: boolean | null;
   elements?: RuntimeBrowserInteractiveElement[] | null;
@@ -4095,6 +4097,7 @@ export interface ProviderGatewayBrowserActionResult {
   initialUrl: string;
   finalUrl: string;
   title: string | null;
+  loadStatus?: "stable" | "partial" | null;
   content: string;
   truncated: boolean;
   elements: RuntimeBrowserInteractiveElement[];

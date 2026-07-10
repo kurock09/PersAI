@@ -135,6 +135,7 @@ export interface LocalBrowserResult {
   ok: boolean;
   finalUrl?: string | null;
   title?: string | null;
+  loadStatus?: "stable" | "partial" | null;
   content?: string | null;
   truncated?: boolean | null;
   elements?: RuntimeBrowserInteractiveElement[] | null;

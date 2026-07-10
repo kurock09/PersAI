@@ -17,6 +17,7 @@ export interface PageRunnerInput {
 export interface PageRunnerResult {
   finalUrl: string;
   title: string | null;
+  loadStatus: "stable" | "partial";
   content: string;
   truncated: boolean;
   elements: RuntimeBrowserInteractiveElement[];
@@ -206,38 +207,74 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
     });
   };
 
-  const waitForDomReadyBeforeRead = async (): Promise<void> => {
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < input.domReadyTimeoutMs) {
-      const readyState = document.readyState;
-      const body = document.body;
-      const text = body && typeof body.innerText === "string" ? normalizeText(body.innerText) : "";
-      if (text.length >= 40) {
-        return;
-      }
-      let visibleControls = 0;
-      for (const element of document.querySelectorAll(
-        "a, button, input, textarea, select, [role='button'], [data-testid]"
-      )) {
-        if (!isVisible(element)) {
-          continue;
+  const waitForDomStabilityBeforeRead = (): Promise<"stable" | "partial"> =>
+    new Promise((resolve) => {
+      const quietIntervalMs = 750;
+      let observer: MutationObserver | null = null;
+      let quietTimer: number | null = null;
+      let timeoutTimer: number | null = null;
+      let settled = false;
+      let quietWindowStarted = false;
+
+      const cleanup = (): void => {
+        observer?.disconnect();
+        observer = null;
+        document.removeEventListener("DOMContentLoaded", beginQuietWindow);
+        document.removeEventListener("readystatechange", beginQuietWindow);
+        if (quietTimer !== null) {
+          window.clearTimeout(quietTimer);
+          quietTimer = null;
         }
-        visibleControls += 1;
-        if (visibleControls >= 2) {
+        if (timeoutTimer !== null) {
+          window.clearTimeout(timeoutTimer);
+          timeoutTimer = null;
+        }
+      };
+
+      const finish = (loadStatus: "stable" | "partial"): void => {
+        if (settled) {
           return;
         }
+        settled = true;
+        cleanup();
+        resolve(loadStatus);
+      };
+
+      const resetQuietWindow = (): void => {
+        if (quietTimer !== null) {
+          window.clearTimeout(quietTimer);
+        }
+        quietTimer = window.setTimeout(() => finish("stable"), quietIntervalMs);
+      };
+
+      function beginQuietWindow(): void {
+        if (settled || quietWindowStarted || document.readyState === "loading" || !document.body) {
+          return;
+        }
+        quietWindowStarted = true;
+        observer = new MutationObserver(resetQuietWindow);
+        observer.observe(document.documentElement, {
+          attributes: true,
+          childList: true,
+          characterData: true,
+          subtree: true
+        });
+        resetQuietWindow();
       }
-      if (readyState === "complete" && text.length > 0) {
-        return;
-      }
-      await sleep(200);
-    }
-  };
+
+      timeoutTimer = window.setTimeout(
+        () => finish("partial"),
+        Math.max(0, input.domReadyTimeoutMs)
+      );
+      document.addEventListener("DOMContentLoaded", beginQuietWindow);
+      document.addEventListener("readystatechange", beginQuietWindow);
+      beginQuietWindow();
+    });
 
   return (async () => {
     const extracted: RuntimeBrowserExtractedItem[] = [];
     const warnings: string[] = [];
-    await waitForDomReadyBeforeRead();
+    const loadStatus = await waitForDomStabilityBeforeRead();
 
     for (const [index, operation] of input.operations.entries()) {
       try {
@@ -360,7 +397,6 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
       }
     }
 
-    await waitForDomReadyBeforeRead();
     const snapshot = collectContent();
     const finalElements = applyHostScript(collectInteractiveElements());
     const warning =
@@ -368,6 +404,7 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
     return {
       finalUrl: window.location.href,
       title: document.title || null,
+      loadStatus,
       content: snapshot.content,
       truncated: snapshot.truncated,
       elements: finalElements,

@@ -6,6 +6,7 @@ import {
   computeReconnectDelayMs,
   mergeWarnings
 } from "../src/executor-core.js";
+import { runPageCommandInPage } from "../src/page-runner.js";
 
 test("computeReconnectDelayMs uses bounded backoff", () => {
   assert.equal(computeReconnectDelayMs(0), 1_000);
@@ -31,4 +32,12 @@ test("structured unsupported results stay honest", () => {
     errorReason: "permission_denied",
     warning: "Host permission was denied for https://lavka.yandex.ru/*."
   });
+});
+
+test("page runner uses the bounded mutation-observed readiness gate", () => {
+  const source = runPageCommandInPage.toString();
+  assert.doesNotMatch(source, /text\.length\s*>=\s*40|visibleControls/);
+  assert.match(source, /MutationObserver/);
+  assert.match(source, /quietIntervalMs\s*=\s*750/);
+  assert.match(source, /loadStatus/);
 });

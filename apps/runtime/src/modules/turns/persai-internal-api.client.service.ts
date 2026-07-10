@@ -3525,6 +3525,9 @@ export class PersaiInternalApiClientService {
     if (typeof row.title === "string" || row.title === null) {
       result.title = row.title;
     }
+    if (row.loadStatus === "stable" || row.loadStatus === "partial" || row.loadStatus === null) {
+      result.loadStatus = row.loadStatus;
+    }
     if (typeof row.content === "string" || row.content === null) {
       result.content = row.content;
     }

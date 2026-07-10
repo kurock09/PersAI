@@ -966,7 +966,8 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
       return {
         ...buildUnsupportedPdfResult(command.commandId),
         finalUrl: finalResult.finalUrl,
-        title: finalResult.title
+        title: finalResult.title,
+        loadStatus: finalResult.loadStatus
       };
     }
 
@@ -978,7 +979,8 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
             "Chrome tab capture only supports png and jpeg here."
           ),
           finalUrl: finalResult.finalUrl,
-          title: finalResult.title
+          title: finalResult.title,
+          loadStatus: finalResult.loadStatus
         };
       }
       try {
@@ -991,7 +993,8 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
           return {
             ...buildUnsupportedScreenshotResult(command.commandId),
             finalUrl: finalResult.finalUrl,
-            title: finalResult.title
+            title: finalResult.title,
+            loadStatus: finalResult.loadStatus
           };
         }
         return {
@@ -999,6 +1002,7 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
           ok: true,
           finalUrl: finalResult.finalUrl,
           title: finalResult.title,
+          loadStatus: finalResult.loadStatus,
           warning: finalResult.warning ?? null,
           artifact
         };
@@ -1010,7 +1014,8 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
             error instanceof Error ? error.message : "Chrome screenshot capture failed."
           ),
           finalUrl: finalResult.finalUrl,
-          title: finalResult.title
+          title: finalResult.title,
+          loadStatus: finalResult.loadStatus
         };
       }
     }
@@ -1020,6 +1025,7 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
       ok: true,
       finalUrl: finalResult.finalUrl,
       title: finalResult.title,
+      loadStatus: finalResult.loadStatus,
       content: finalResult.content,
       truncated: finalResult.truncated,
       elements: finalResult.elements,

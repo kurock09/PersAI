@@ -215,6 +215,9 @@ export class BrowserBridgeWebSocketServer {
     if (title !== undefined) {
       result.title = title;
     }
+    if (payload.loadStatus === "stable" || payload.loadStatus === "partial") {
+      result.loadStatus = payload.loadStatus;
+    }
     const content = optionalString(payload.content, "content");
     if (content !== undefined) {
       result.content = content;

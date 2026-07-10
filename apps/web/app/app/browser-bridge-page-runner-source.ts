@@ -78,18 +78,58 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     if (!element) throw new Error("No element at index " + String(index) + " for selector: " + selector);
     return element;
   };
-  const waitForDomReadyBeforeRead = async () => {
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < input.domReadyTimeoutMs) {
-      const text = document.body && typeof document.body.innerText === "string" ? normalizeText(document.body.innerText) : "";
-      if (text.length >= 40 || (document.readyState === "complete" && text.length > 0)) return;
-      await sleep(200);
+  const waitForDomStabilityBeforeRead = () => new Promise((resolve) => {
+    const quietIntervalMs = 750;
+    let observer = null;
+    let quietTimer = null;
+    let timeoutTimer = null;
+    let settled = false;
+    let quietWindowStarted = false;
+    const cleanup = () => {
+      observer?.disconnect();
+      observer = null;
+      document.removeEventListener("DOMContentLoaded", beginQuietWindow);
+      document.removeEventListener("readystatechange", beginQuietWindow);
+      if (quietTimer !== null) {
+        window.clearTimeout(quietTimer);
+        quietTimer = null;
+      }
+      if (timeoutTimer !== null) {
+        window.clearTimeout(timeoutTimer);
+        timeoutTimer = null;
+      }
+    };
+    const finish = (loadStatus) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(loadStatus);
+    };
+    const resetQuietWindow = () => {
+      if (quietTimer !== null) window.clearTimeout(quietTimer);
+      quietTimer = window.setTimeout(() => finish("stable"), quietIntervalMs);
+    };
+    function beginQuietWindow() {
+      if (settled || quietWindowStarted || document.readyState === "loading" || !document.body) return;
+      quietWindowStarted = true;
+      observer = new MutationObserver(resetQuietWindow);
+      observer.observe(document.documentElement, {
+        attributes: true,
+        childList: true,
+        characterData: true,
+        subtree: true
+      });
+      resetQuietWindow();
     }
-  };
+    timeoutTimer = window.setTimeout(() => finish("partial"), Math.max(0, input.domReadyTimeoutMs));
+    document.addEventListener("DOMContentLoaded", beginQuietWindow);
+    document.addEventListener("readystatechange", beginQuietWindow);
+    beginQuietWindow();
+  });
   const extracted = [];
   const warnings = [];
   let requestedNavigationUrl = null;
-  await waitForDomReadyBeforeRead();
+  const loadStatus = await waitForDomStabilityBeforeRead();
   for (const [index, operation] of (input.operations ?? []).entries()) {
     try {
       switch (operation.kind) {
@@ -190,13 +230,11 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     }
     if (requestedNavigationUrl) break;
   }
-  if ((input.operations ?? []).length > 0 && !requestedNavigationUrl) {
-    await waitForDomReadyBeforeRead();
-  }
   const snapshot = collectContent();
   return {
     finalUrl: window.location.href,
     title: document.title || null,
+    loadStatus,
     content: snapshot.content,
     truncated: snapshot.truncated,
     elements: collectInteractiveElements(),

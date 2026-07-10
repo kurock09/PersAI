@@ -389,6 +389,7 @@ class FakePersaiInternalApiClientService {
         ok: true,
         finalUrl: "https://example.com/",
         title: "Profile page",
+        loadStatus: "partial",
         content: "hello from local bridge",
         truncated: false,
         elements: [],
@@ -507,6 +508,7 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
         ok: true,
         finalUrl: "https://example.com/",
         title: "Profile page",
+        loadStatus: "partial",
         content: "hello from local bridge",
         truncated: false,
         elements: [],
@@ -534,6 +536,7 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   });
   assert.equal(profileSnapshot.isError, false);
   assert.equal(profileSnapshot.payload.provider, "local_bridge");
+  assert.equal(profileSnapshot.payload.page?.loadStatus, "partial");
   assert.equal(providerGateway.browserCalls.length, 0);
   assert.equal(internalApi.dispatchCalls.length, 1);
   assert.equal(internalApi.dispatchCalls[0]?.command.action, "snapshot");

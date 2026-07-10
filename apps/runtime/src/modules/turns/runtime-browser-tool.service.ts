@@ -865,6 +865,9 @@ export class RuntimeBrowserToolService {
           initialUrl: providerResult.initialUrl,
           finalUrl: providerResult.finalUrl,
           title: providerResult.title,
+          ...(providerResult.loadStatus === undefined
+            ? {}
+            : { loadStatus: providerResult.loadStatus }),
           content: pageContent,
           truncated: providerResult.truncated,
           elements: providerResult.elements,
@@ -905,6 +908,7 @@ export class RuntimeBrowserToolService {
     result: {
       finalUrl?: string | null;
       title?: string | null;
+      loadStatus?: "stable" | "partial" | null;
       content?: string | null;
       truncated?: boolean | null;
       elements?: RuntimeBrowserInteractiveElement[] | null;
@@ -922,6 +926,10 @@ export class RuntimeBrowserToolService {
       initialUrl: request.url,
       finalUrl: result.finalUrl ?? request.url,
       title: result.title ?? null,
+      loadStatus:
+        result.loadStatus === "stable" || result.loadStatus === "partial"
+          ? result.loadStatus
+          : null,
       content: result.content ?? "",
       truncated: result.truncated === true,
       elements: Array.isArray(result.elements) ? result.elements : [],
