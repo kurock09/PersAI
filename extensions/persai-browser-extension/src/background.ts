@@ -17,6 +17,7 @@ import {
   MAX_OPERATION_COUNT,
   SOCKET_IDLE_CLOSE_REASON
 } from "./constants.js";
+import { shouldKeepBridgeConnection } from "./connection-policy.js";
 import {
   buildExecutorFailureResult,
   buildPermissionDeniedResult,
@@ -27,7 +28,11 @@ import {
   normalizeCommandTimeout
 } from "./executor-core.js";
 import { resolveHostScriptSource } from "./host-scripts.js";
-import type { WebBridgeEnvelope, WebBridgeRequestMessage } from "./messages.js";
+import type {
+  WebBridgeEnvelope,
+  WebBridgeRequestMessage,
+  WebBridgeResponseEnvelope
+} from "./messages.js";
 import {
   buildOriginPermissionPattern,
   isPersaiWebOrigin,
@@ -96,7 +101,18 @@ function scheduleReconnect(): void {
 }
 
 async function syncDesiredConnection(): Promise<void> {
-  desiredConnection = keepalivePortCount > 0 || activeCommandCount > 0;
+  const state = await readState();
+  // A configured extension bridge is a device service, not a tab-scoped
+  // request. Content-script ports still keep MV3 alive, but their disconnect
+  // (including extension reload/navigation) must not deliberately close an
+  // already registered relay socket and make open_live unavailable.
+  desiredConnection = shouldKeepBridgeConnection({
+    keepalivePortCount,
+    activeCommandCount,
+    registrationUpdatedAt: state.registration?.updatedAt ?? null,
+    now: Date.now(),
+    registrationMaxAgeMs: REGISTRATION_TOKEN_SAFE_AGE_MS
+  });
   if (desiredConnection) {
     await connectSocketIfNeeded();
     return;
@@ -367,8 +383,23 @@ function isKeepalivePort(port: ChromeRuntimePort): boolean {
 function bindKeepalivePort(port: ChromeRuntimePort): void {
   keepalivePortCount += 1;
   void syncDesiredConnection();
+  let connected = true;
+
+  const reply = (message: WebBridgeResponseEnvelope): void => {
+    if (!connected) {
+      return;
+    }
+    try {
+      port.postMessage(message);
+    } catch {
+      // MV3 content-script ports can disconnect while an async bridge request
+      // is awaiting fetch/storage. There is no recipient left to notify.
+      connected = false;
+    }
+  };
 
   port.onDisconnect.addListener(() => {
+    connected = false;
     keepalivePortCount = Math.max(0, keepalivePortCount - 1);
     void syncDesiredConnection();
   });
@@ -380,7 +411,7 @@ function bindKeepalivePort(port: ChromeRuntimePort): void {
     }
     void handleWebBridgeRequest(envelope.payload)
       .then((result) => {
-        port.postMessage({
+        reply({
           source: BRIDGE_MESSAGE_SOURCE,
           requestId: envelope.requestId,
           ok: true,
@@ -388,7 +419,7 @@ function bindKeepalivePort(port: ChromeRuntimePort): void {
         });
       })
       .catch((error) => {
-        port.postMessage({
+        reply({
           source: BRIDGE_MESSAGE_SOURCE,
           requestId: envelope.requestId,
           ok: false,

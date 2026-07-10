@@ -407,7 +407,7 @@ describe("integrations section", () => {
     expect(screen.queryByTestId("browser-login-modal")).not.toBeInTheDocument();
   });
 
-  it("shows the assist modal only when direct profile opening fails", async () => {
+  it("keeps an active profile when direct opening fails", async () => {
     browserProfileMocks.openAssistantBrowserProfileView.mockRejectedValueOnce(
       new Error("bridge_unavailable")
     );
@@ -415,7 +415,11 @@ describe("integrations section", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /Bitrix24/i }));
 
-    expect(await screen.findByTestId("browser-login-modal")).toBeInTheDocument();
+    expect(
+      await screen.findByText(enMessages.settings.browserProfileOpenFailed)
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("browser-login-modal")).not.toBeInTheDocument();
+    expect(browserProfileMocks.deleteAssistantBrowserProfile).not.toHaveBeenCalled();
   });
 
   it("returns from a directly opened native profile with the app Back handler", async () => {

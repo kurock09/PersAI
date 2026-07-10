@@ -3084,11 +3084,27 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         }
       }, HEADERS_TIMEOUT_MS);
       const nativeBridgeShell = isNativeBrowserBridgeShell();
-      const currentBridgeStatus =
-        getCachedCurrentLocalBrowserBridgeStatus() ??
-        (await getCurrentLocalBrowserBridgeStatus(nativeBridgeShell ? 1_200 : 250).catch(
-          () => null
-        ));
+      const cachedBridgeStatus = getCachedCurrentLocalBrowserBridgeStatus();
+      // Registration returns before the extension WebSocket necessarily
+      // reaches OPEN, so a freshly cached `connected:false` is not terminal.
+      // Probe the live bridge instead of sending a turn without its device id;
+      // that mismatch made assistant-triggered open_live fail while the same
+      // profile still opened from Settings moments later.
+      let currentBridgeStatus =
+        cachedBridgeStatus?.connected === true
+          ? cachedBridgeStatus
+          : await getCurrentLocalBrowserBridgeStatus(1_200).catch(() => null);
+      if (!nativeBridgeShell && currentBridgeStatus !== null && !currentBridgeStatus.connected) {
+        for (const retryDelayMs of [100, 200, 300]) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, retryDelayMs));
+          currentBridgeStatus = await getCurrentLocalBrowserBridgeStatus(500).catch(
+            () => currentBridgeStatus
+          );
+          if (currentBridgeStatus?.connected === true) {
+            break;
+          }
+        }
+      }
       const currentBridgeDeviceId =
         currentBridgeStatus?.connected === true &&
         currentBridgeStatus.assistantId === currentAssistantId &&

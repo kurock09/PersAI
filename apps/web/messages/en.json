@@ -1220,6 +1220,7 @@
     "browserProfileDelete": "Remove site",
     "browserProfileReconnect": "Reconnect",
     "browserProfileOpenView": "Open browser window",
+    "browserProfileOpenFailed": "The extension is not connected right now. Your session is saved — check the extension and try opening it again.",
     "telegramReadyToConnect": "Ready to connect",
     "openIntegration": "Open",
     "reminderDelivery": "Reminder delivery",

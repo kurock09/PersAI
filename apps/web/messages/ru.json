@@ -1220,6 +1220,7 @@
     "browserProfileDelete": "Удалить сайт",
     "browserProfileReconnect": "Переподключить",
     "browserProfileOpenView": "Открыть окно браузера",
+    "browserProfileOpenFailed": "Расширение сейчас не подключено. Сессия сохранена — проверьте расширение и повторите открытие.",
     "telegramReadyToConnect": "Готов к подключению",
     "openIntegration": "Открыть",
     "reminderDelivery": "Доставка напоминаний",

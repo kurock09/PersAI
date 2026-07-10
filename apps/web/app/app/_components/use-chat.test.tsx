@@ -302,6 +302,55 @@ describe("useChat", () => {
     );
   });
 
+  it("rechecks a cached disconnected extension before starting the turn", async () => {
+    browserBridgeMocks.getCachedCurrentLocalBrowserBridgeStatus.mockReturnValue({
+      connected: false,
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "extension-device-1"
+    });
+    browserBridgeMocks.getCurrentLocalBrowserBridgeStatus.mockResolvedValue({
+      connected: true,
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "extension-device-1"
+    });
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onCompleted?.({
+          transport: {
+            assistantMessage: { id: "assistant-message-1", content: "Done" }
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1", { assistantId: "assistant-1" }), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.send("Open mail");
+    });
+
+    expect(browserBridgeMocks.getCurrentLocalBrowserBridgeStatus).toHaveBeenCalledWith(1_200);
+    expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledWith(
+      "token-1",
+      expect.objectContaining({
+        bridgeDeviceId: "extension-device-1",
+        bridgeDeviceKind: "extension"
+      }),
+      expect.any(Object),
+      expect.any(AbortSignal)
+    );
+  });
+
   it("flushes buffered assistant text before tool activity is shown", async () => {
     const streamGate: { release: () => void } = {
       release: () => undefined

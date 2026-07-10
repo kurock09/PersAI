@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-140 Chrome bridge lifecycle + safe configured-session recovery
+
+Status: **implemented and fully verified locally; live extension reload acceptance pending.**
+
+**Scope:** Repair the founder-reported split where a saved profile opened from Settings but assistant-triggered `open_live` returned `bridge_unavailable`, and remove the destructive/misleading login-modal fallback for an already active profile. This is an ADR-140 regression repair; browser routing, profile persistence, and the model-owned user-action banner contract are unchanged.
+
+**Cause and repair:** The extension treated its relay socket as desired only while a specific content-script port or command was alive, so a tab reload/disconnect deliberately closed an otherwise fresh registered device. Web turn startup could then reuse the registration response's short-lived cached `connected:false` state and omit `bridgeDeviceId`, while Settings performed a fresh status read and succeeded later. A fresh registration now independently keeps the extension socket desired; async port replies are guarded after disconnect; web re-probes any cached disconnected status (with bounded retries) before sending the current-surface identity. An active Settings profile open failure now produces inline retry guidance and never enters `BrowserLoginModal`; Cancel no longer has any configured-profile deletion path. Explicit trash remains deletion. The genuine login modal's disconnected-extension warning is a centered two-line stack with its retry pill below; native/Capacitor registration and Back/overlay behavior remain separate and are regression-tested.
+
+**Verification:** mandatory recursive lint, format check, API typecheck, and web typecheck PASS. The full recursive repository test suite PASS. Extension lint/typecheck/build plus all 19 extension tests PASS. Focused browser login/settings/chat/use-chat/connection-maintainer suites PASS (212 after the initial assertion-fixture correction, plus isolated settings rerun 81/81); CI affected-path detector PASS (7). Mobile-target modal coverage confirms it registers the native bridge and never renders desktop extension recovery UI; existing direct-native settings Back test remains green.
+
+**Next recommended step:** deploy web, reload the unpacked extension, then verify an immediate assistant-triggered saved-profile open after extension/tab reload reaches the same centered 16:9 window as Settings and that an intentionally unavailable extension leaves the active profile intact.
+
+---
+
 ## 2026-07-11 — ADR-140 quiet settings cards + Android active-work screen policy
 
 Status: **implemented locally; Android 1.0.23 release exported; device acceptance pending.**

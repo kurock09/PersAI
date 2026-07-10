@@ -5,6 +5,7 @@
 
 ## 2026-07-11
 
+- **Fix (ADR-140 Chrome bridge lifecycle + non-destructive configured-session recovery; local).** Assistant-triggered browser turns no longer trust a freshly cached `connected:false` status: web re-probes the live current surface before starting the turn and carries its exact extension device id. The extension keeps a relay socket desired for the lifetime of a fresh registration rather than tying it to one content-script port, and safely drops late replies after a tab/port disconnect. An active Settings profile that cannot open now stays saved and shows a quiet inline connection error; it no longer enters the login modal or exposes a Cancel path that deletes the profile. The actual login modal's disconnected-extension block is one centered text stack with the retry button on its own row; Capacitor does not render it.
 - **Fix + UX (ADR-140 quiet configured-session cards + Android active-work display; local).** Configured browser-profile cards keep their full click target but no longer render the redundant `Open browser window` / reconnect action label. While Android executes an assistant-owned profile `snapshot` or `act`, the native coordinator holds `FLAG_KEEP_SCREEN_ON`; a global active-command count releases it on the final result/error so normal display timeout resumes immediately afterward. Android `1.0.23` / `versionCode 25` passed bridge/unit/debug/release checks and was exported to the PersAI download surface.
 
 ## 2026-07-10

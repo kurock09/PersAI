@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "@clerk/nextjs";
-import { CircleHelp, Download, Loader2, RefreshCw, X } from "lucide-react";
+import { CircleHelp, Loader2, RefreshCw, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
 import {
@@ -16,7 +16,6 @@ import {
   getExtensionBridgeStatus,
   hideNativeBrowserBridgeView,
   isNativeBrowserBridgeShell,
-  PERSAI_BROWSER_BRIDGE_WEB_STORE_URL,
   registerExtensionBridgeDevice,
   registerNativeBrowserBridgeDevice,
   showNativeBrowserBridgeView,
@@ -613,48 +612,22 @@ export function BrowserLoginModal({
 
             {extensionTarget && !extensionConnected ? (
               <section
-                className="w-full rounded-2xl border border-warning/30 bg-warning/[0.06] px-4 py-3 text-left"
+                className="w-full rounded-2xl border border-warning/30 bg-warning/[0.06] px-4 py-3 text-center"
                 data-testid="browser-login-extension-status"
               >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-text">{extensionStatusLabel}</p>
-                    <p className="mt-0.5 text-xs leading-5 text-text-muted">
-                      {extensionAvailable
-                        ? t("browserLoginExtensionReconnectHint")
-                        : t("browserLoginExtensionInstallHint")}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {!extensionAvailable && PERSAI_BROWSER_BRIDGE_WEB_STORE_URL !== null ? (
-                      <a
-                        href={PERSAI_BROWSER_BRIDGE_WEB_STORE_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-warning/30 bg-bg px-3 text-xs font-semibold text-text transition hover:bg-surface-hover"
-                        data-testid="browser-login-extension-cta"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        {t("browserLoginInstallExtension")}
-                      </a>
-                    ) : null}
-                    {!extensionAvailable && PERSAI_BROWSER_BRIDGE_WEB_STORE_URL === null ? (
-                      <span
-                        className="max-w-40 text-xs leading-5 text-text-muted"
-                        data-testid="browser-login-extension-dev-guidance"
-                      >
-                        {t("browserLoginExtensionDeveloperInstall")}
-                      </span>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void refreshExtensionStatus()}
-                      className="inline-flex min-h-9 items-center justify-center rounded-full border border-warning/30 px-3 text-xs font-medium text-text transition hover:bg-warning/10"
-                    >
-                      {t("browserLoginCheckBridge")}
-                    </button>
-                  </div>
-                </div>
+                <p className="text-sm font-medium text-text">{extensionStatusLabel}</p>
+                <p className="mt-0.5 text-xs leading-5 text-text-muted">
+                  {extensionAvailable
+                    ? t("browserLoginExtensionReconnectHint")
+                    : t("browserLoginExtensionInstallHint")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void refreshExtensionStatus()}
+                  className="mt-3 inline-flex min-h-9 items-center justify-center rounded-full border border-warning/30 px-3 text-xs font-medium text-text transition hover:bg-warning/10"
+                >
+                  {t("browserLoginCheckBridge")}
+                </button>
               </section>
             ) : null}
           </div>

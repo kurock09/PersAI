@@ -8,6 +8,7 @@ const openAssistantBrowserProfileView = vi.fn();
 const getExtensionBridgeStatus = vi.fn();
 const registerExtensionBridgeDevice = vi.fn();
 const registerNativeBrowserBridgeDevice = vi.fn();
+const isNativeBrowserBridgeShell = vi.fn(() => false);
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
@@ -37,7 +38,7 @@ vi.mock("../browser-bridge-client", () => ({
     registerNativeBrowserBridgeDevice(...args),
   hideNativeBrowserBridgeView: vi.fn().mockResolvedValue(undefined),
   showNativeBrowserBridgeView: vi.fn().mockResolvedValue(undefined),
-  isNativeBrowserBridgeShell: () => false,
+  isNativeBrowserBridgeShell: () => isNativeBrowserBridgeShell(),
   PERSAI_BROWSER_BRIDGE_WEB_STORE_URL: null
 }));
 
@@ -59,9 +60,11 @@ describe("BrowserLoginModal", () => {
     getExtensionBridgeStatus.mockReset();
     registerExtensionBridgeDevice.mockReset();
     registerNativeBrowserBridgeDevice.mockReset();
+    isNativeBrowserBridgeShell.mockReset();
+    isNativeBrowserBridgeShell.mockReturnValue(false);
   });
 
-  it("shows developer-mode install guidance when the desktop extension is unavailable", async () => {
+  it("shows a compact retry block when the desktop extension is unavailable", async () => {
     getExtensionBridgeStatus.mockRejectedValue(new Error("missing"));
 
     render(
@@ -77,9 +80,9 @@ describe("BrowserLoginModal", () => {
     expect(screen.getByTestId("browser-login-modal")).toBeInTheDocument();
     expect(await screen.findByTestId("browser-login-extension-status")).toBeInTheDocument();
     expect(screen.queryByTestId("browser-login-extension-cta")).not.toBeInTheDocument();
-    expect(screen.getByTestId("browser-login-extension-dev-guidance")).toHaveTextContent(
-      "browserLoginExtensionDeveloperInstall"
-    );
+    expect(screen.getByText("browserLoginExtensionUnavailable")).toBeInTheDocument();
+    expect(screen.getByText("browserLoginExtensionInstallHint")).toBeInTheDocument();
+    expect(screen.getByText("browserLoginCheckBridge")).toBeInTheDocument();
     expect(screen.getByTestId("browser-login-complete")).toBeDisabled();
   });
 
@@ -177,6 +180,38 @@ describe("BrowserLoginModal", () => {
     fireEvent.click(screen.getByTestId("browser-login-complete"));
     expect(completeAssistantBrowserLogin).not.toHaveBeenCalled();
     expect(dismissAssistantBrowserProfileView).not.toHaveBeenCalled();
+  });
+
+  it("uses the native bridge on mobile without rendering extension recovery UI", async () => {
+    isNativeBrowserBridgeShell.mockReturnValue(true);
+    registerNativeBrowserBridgeDevice.mockResolvedValue({
+      connected: true,
+      desiredConnection: true,
+      bridgeDeviceId: "mobile-device-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileCount: 1,
+      lastProfileKey: "bitrix"
+    });
+
+    render(
+      <BrowserLoginModal
+        open
+        assistantId="assistant-1"
+        pendingBrowserLogin={{
+          ...pendingBrowserLogin,
+          bridgeClientKind: "capacitor"
+        }}
+        onDismiss={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(registerNativeBrowserBridgeDevice).toHaveBeenCalled();
+    });
+    expect(screen.queryByTestId("browser-login-extension-status")).not.toBeInTheDocument();
+    expect(getExtensionBridgeStatus).not.toHaveBeenCalled();
   });
 
   it("keeps a working web Done fallback when the branded window fails to open", async () => {

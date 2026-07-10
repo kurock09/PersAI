@@ -113,8 +113,6 @@ import {
 import { AssistantAvatar } from "./assistant-avatar";
 import { BrowserLoginModal } from "./browser-login-modal";
 import {
-  getCachedCurrentLocalBrowserBridgeStatus,
-  getCurrentLocalBrowserBridgeStatus,
   getExtensionBridgeStatus,
   hideNativeBrowserBridgeView,
   isNativeBrowserBridgeShell,
@@ -1382,6 +1380,7 @@ export function AssistantSettings({
   const [browserProfiles, setBrowserProfiles] = useState<AssistantBrowserProfileListItem[]>([]);
   const [browserProfilesLoading, setBrowserProfilesLoading] = useState(false);
   const [browserProfilesActionId, setBrowserProfilesActionId] = useState<string | null>(null);
+  const [browserProfileOpenError, setBrowserProfileOpenError] = useState<string | null>(null);
   const [settingsBrowserLogin, setSettingsBrowserLogin] = useState<PendingBrowserLoginState | null>(
     null
   );
@@ -2091,31 +2090,8 @@ export function AssistantSettings({
   );
 
   const handleCancelSettingsBrowserLogin = useCallback(async () => {
-    const pending = settingsBrowserLogin;
     setSettingsBrowserLogin(null);
-    if (!pending || !assistant?.id) {
-      return;
-    }
-    try {
-      const token = await getToken();
-      if (!token) {
-        return;
-      }
-      const bridgeStatus =
-        getCachedCurrentLocalBrowserBridgeStatus() ??
-        (await getCurrentLocalBrowserBridgeStatus(250).catch(() => null));
-      const bridgeDeviceId =
-        bridgeStatus?.connected === true &&
-        bridgeStatus.assistantId === assistant.id &&
-        bridgeStatus.workspaceId === pending.workspaceId
-          ? bridgeStatus.bridgeDeviceId
-          : null;
-      await deleteAssistantBrowserProfile(token, assistant.id, pending.profileId, bridgeDeviceId);
-      await refreshBrowserProfiles({ background: true });
-    } catch {
-      // Cancellation is optimistic; profile cleanup remains best-effort.
-    }
-  }, [assistant?.id, getToken, refreshBrowserProfiles, settingsBrowserLogin]);
+  }, []);
 
   const handleOpenBrowserProfile = useCallback(
     async (profile: AssistantBrowserProfileListItem) => {
@@ -2123,6 +2099,7 @@ export function AssistantSettings({
       const token = await getToken();
       if (!token) return;
       setBrowserProfilesActionId(profile.id);
+      setBrowserProfileOpenError(null);
       try {
         if (profile.status === "active") {
           const nativeSurface = isNativeBrowserBridgeShell();
@@ -2164,15 +2141,11 @@ export function AssistantSettings({
             }
           } catch {
             setNativeAssistProfileKey(null);
-            setSettingsBrowserLogin({
-              profileId: profile.id,
-              profileKey: profile.profileKey,
-              displayName: profile.displayName,
-              loginUrl: profile.loginUrl,
-              workspaceId: assistant.workspaceId,
-              bridgeClientKind: nativeSurface ? "capacitor" : "extension",
-              completionMode: "assist"
-            });
+            // A configured session stays configured when its current bridge is
+            // unavailable. The login modal is only for login/reconnect; using
+            // it here made Cancel look like profile deletion.
+            setSettingsBrowserLogin(null);
+            setBrowserProfileOpenError(t("browserProfileOpenFailed"));
           }
         } else {
           const pending = await reconnectAssistantBrowserProfile(token, assistant.id, profile.id);
@@ -2183,7 +2156,7 @@ export function AssistantSettings({
         setBrowserProfilesActionId(null);
       }
     },
-    [assistant?.id, assistant?.workspaceId, getToken, refreshBrowserProfiles]
+    [assistant?.id, assistant?.workspaceId, getToken, refreshBrowserProfiles, t]
   );
 
   useEffect(() => {
@@ -4853,6 +4826,14 @@ export function AssistantSettings({
               {t("connectedSites")}
             </h3>
           </div>
+          {browserProfileOpenError ? (
+            <p
+              className="mb-3 rounded-xl border border-warning/25 bg-warning/[0.06] px-3 py-2 text-xs leading-5 text-text-muted"
+              role="status"
+            >
+              {browserProfileOpenError}
+            </p>
+          ) : null}
           {browserProfilesLoading ? (
             <div className="flex items-center gap-2 py-2 text-xs text-text-muted">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
