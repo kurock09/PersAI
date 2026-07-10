@@ -1304,6 +1304,8 @@ describe("StreamWebChatTurnService", () => {
     let capturedWebRuntimeUserMessage = "";
     let capturedOpenMediaJobs: unknown[] | undefined;
     let capturedJobDeliveryUpdates: unknown[] | undefined;
+    let capturedBridgeDeviceId: string | undefined;
+    let capturedBridgeDeviceKind: string | undefined;
 
     const service = new StreamWebChatTurnService(
       {
@@ -1342,11 +1344,15 @@ describe("StreamWebChatTurnService", () => {
           userMessage: string;
           openMediaJobs?: unknown[];
           jobDeliveryUpdates?: unknown[];
+          bridgeDeviceId?: string;
+          bridgeDeviceKind?: string;
         }) {
           webRuntimeCalls += 1;
           capturedWebRuntimeUserMessage = input.userMessage;
           capturedOpenMediaJobs = input.openMediaJobs;
           capturedJobDeliveryUpdates = input.jobDeliveryUpdates;
+          capturedBridgeDeviceId = input.bridgeDeviceId;
+          capturedBridgeDeviceKind = input.bridgeDeviceKind;
           yield { type: "delta", delta: "native", accumulated: "native" };
           yield {
             type: "tool",
@@ -1470,7 +1476,9 @@ describe("StreamWebChatTurnService", () => {
         quotaDegradeReason: null,
         userId: "user-1",
         workspaceId: "workspace-1",
-        workspaceTimezone: "UTC"
+        workspaceTimezone: "UTC",
+        bridgeDeviceId: "mobile-device-1",
+        bridgeDeviceKind: "capacitor"
       } as never,
       {
         isClientAborted: () => false,
@@ -1491,6 +1499,8 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(outcome.status, "completed");
     assert.equal(webRuntimeCalls, 1);
     assert.equal(capturedWebRuntimeUserMessage, "hello");
+    assert.equal(capturedBridgeDeviceId, "mobile-device-1");
+    assert.equal(capturedBridgeDeviceKind, "capacitor");
     assert.deepEqual(capturedOpenMediaJobs, [
       {
         jobId: "job-1",

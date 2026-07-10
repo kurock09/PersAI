@@ -15,6 +15,7 @@ const MAX_INTERACTIVE_ELEMENTS = 200;
 const MAX_EXTRACT_ITEMS = 50;
 const MAX_DOM_READY_WAIT_MS = 10_000;
 const DEFAULT_MUTATION_SETTLE_MS = 800;
+const CURRENT_BRIDGE_STATUS_CACHE_MS = 30_000;
 const DEFAULT_MAX_CHARS = 12_000;
 const NATIVE_REGISTRATION_SAFE_AGE_MS = 14 * 60 * 1000;
 const NATIVE_RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
@@ -186,8 +187,25 @@ function getBridgeApiBaseUrl(): string {
   return "http://localhost:3001";
 }
 
+let currentBridgeStatusCache: { status: ExtensionBridgeStatus; observedAt: number } | null = null;
+
+function rememberCurrentBridgeStatus(status: ExtensionBridgeStatus): ExtensionBridgeStatus {
+  currentBridgeStatusCache = { status, observedAt: Date.now() };
+  return status;
+}
+
+export function getCachedCurrentLocalBrowserBridgeStatus(): ExtensionBridgeStatus | null {
+  if (
+    currentBridgeStatusCache === null ||
+    Date.now() - currentBridgeStatusCache.observedAt > CURRENT_BRIDGE_STATUS_CACHE_MS
+  ) {
+    return null;
+  }
+  return currentBridgeStatusCache.status;
+}
+
 function toBridgeStatus(): ExtensionBridgeStatus {
-  return {
+  return rememberCurrentBridgeStatus({
     connected: nativeBridgeState.socket?.readyState === WebSocket.OPEN,
     desiredConnection: nativeBridgeState.registration !== null,
     bridgeDeviceId: nativeBridgeState.registration?.bridgeDeviceId ?? null,
@@ -195,11 +213,13 @@ function toBridgeStatus(): ExtensionBridgeStatus {
     workspaceId: nativeBridgeState.workspaceId,
     profileCount: 0,
     lastProfileKey: null
-  };
+  });
 }
 
-export async function getCurrentLocalBrowserBridgeStatus(): Promise<ExtensionBridgeStatus> {
-  return isNativeBrowserBridgeShell() ? toBridgeStatus() : getExtensionBridgeStatus();
+export async function getCurrentLocalBrowserBridgeStatus(
+  timeoutMs = EXTENSION_STATUS_TIMEOUT_MS
+): Promise<ExtensionBridgeStatus> {
+  return isNativeBrowserBridgeShell() ? toBridgeStatus() : getExtensionBridgeStatus(timeoutMs);
 }
 
 function splitOperationsByGoto(
@@ -481,7 +501,7 @@ async function requestExtensionBridgeStatus(
           reject(new Error("Bridge status response was malformed."));
           return;
         }
-        resolve(envelope.result);
+        resolve(rememberCurrentBridgeStatus(envelope.result));
       });
     };
 

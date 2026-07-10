@@ -32,6 +32,8 @@ export interface WebRuntimeTurnClientInput {
   publishedVersionId: string;
   runtimeTier: RuntimeTier;
   surfaceThreadKey: string;
+  bridgeDeviceId?: string;
+  bridgeDeviceKind?: "extension" | "capacitor";
   userId: string;
   workspaceId: string;
   userMessageId: string;
@@ -140,7 +142,13 @@ export class WebRuntimeTurnClientService {
         : { skillStateContext: input.skillStateContext }),
       channelContext: {
         web: {
-          chatId: input.chatId
+          chatId: input.chatId,
+          ...(input.bridgeDeviceId === undefined
+            ? {}
+            : { localBrowserBridgeDeviceId: input.bridgeDeviceId }),
+          ...(input.bridgeDeviceKind === undefined
+            ? {}
+            : { localBrowserBridgeDeviceKind: input.bridgeDeviceKind })
         }
       }
     };

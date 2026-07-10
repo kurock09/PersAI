@@ -213,6 +213,44 @@ describe("BrowserBridgeRelayService cross-pod (coordinator)", () => {
     await relayB.onModuleDestroy();
   });
 
+  test("strict current-surface dispatch does not fall back to another pod's device", async () => {
+    const shared = new SharedBridgeState();
+    const coordinatorA = new FakeCoordinatorForPod("pod-A", shared);
+    const coordinatorB = new FakeCoordinatorForPod("pod-B", shared);
+    const relayA = new BrowserBridgeRelayService(coordinatorA as never);
+    const relayB = new BrowserBridgeRelayService(coordinatorB as never);
+    relayA.onModuleInit();
+    relayB.onModuleInit();
+
+    const registration = relayA.registerDevice(
+      buildRegisterRequest(),
+      "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws"
+    );
+    const socket = new FakeSocket();
+    relayA.attachConnection(buildConnectRequest(registration), socket);
+
+    const dispatch = await relayB.dispatchCommand({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "disconnected-current-mobile",
+      requireBridgeDeviceId: true,
+      command: {
+        commandId: "command-strict-cross-pod",
+        profileKey: "crm",
+        action: "snapshot"
+      }
+    });
+
+    assert.equal(dispatch.accepted, false);
+    if (!dispatch.accepted) {
+      assert.equal(dispatch.code, "bridge_device_not_connected");
+    }
+    assert.equal(socket.sent.length, 0);
+
+    await relayA.onModuleDestroy();
+    await relayB.onModuleDestroy();
+  });
+
   test("dispatch reports device_not_connected when the owner pod is gone", async () => {
     const shared = new SharedBridgeState();
     const coordinatorA = new FakeCoordinatorForPod("pod-A", shared);

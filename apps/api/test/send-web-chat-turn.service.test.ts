@@ -117,6 +117,46 @@ describe("SendWebChatTurnService", () => {
     );
   });
 
+  test("parseInput carries current mobile bridge affinity as a complete pair", () => {
+    const service = Object.create(SendWebChatTurnService.prototype) as SendWebChatTurnService;
+
+    assert.deepEqual(
+      service.parseInput({
+        surfaceThreadKey: "thread-1",
+        message: "open mail",
+        bridgeDeviceId: "mobile-device-1",
+        bridgeDeviceKind: "capacitor"
+      }),
+      {
+        surfaceThreadKey: "thread-1",
+        message: "open mail",
+        bridgeDeviceId: "mobile-device-1",
+        bridgeDeviceKind: "capacitor"
+      }
+    );
+    assert.throws(
+      () =>
+        service.parseInput({
+          surfaceThreadKey: "thread-1",
+          message: "open mail",
+          bridgeDeviceId: "mobile-device-1"
+        }),
+      /bridgeDeviceKind is required/
+    );
+    assert.deepEqual(
+      service.parseInput({
+        surfaceThreadKey: "thread-1",
+        message: "open mail",
+        bridgeDeviceKind: "extension"
+      }),
+      {
+        surfaceThreadKey: "thread-1",
+        message: "open mail",
+        bridgeDeviceKind: "extension"
+      }
+    );
+  });
+
   test("replays duplicate clientTurnId without starting a second web runtime turn", async () => {
     let webRuntimeCalls = 0;
     const completedState = {
@@ -230,6 +270,8 @@ describe("SendWebChatTurnService", () => {
     let capturedWebRuntimeUserMessage = "";
     let capturedOpenMediaJobs: unknown[] | undefined;
     let capturedJobDeliveryUpdates: unknown[] | undefined;
+    let capturedBridgeDeviceId: string | undefined;
+    let capturedBridgeDeviceKind: string | undefined;
 
     const service = new SendWebChatTurnService(
       {
@@ -254,11 +296,15 @@ describe("SendWebChatTurnService", () => {
           userMessage: string;
           openMediaJobs?: unknown[];
           jobDeliveryUpdates?: unknown[];
+          bridgeDeviceId?: string;
+          bridgeDeviceKind?: string;
         }) => {
           webRuntimeCalls += 1;
           capturedWebRuntimeUserMessage = input.userMessage;
           capturedOpenMediaJobs = input.openMediaJobs;
           capturedJobDeliveryUpdates = input.jobDeliveryUpdates;
+          capturedBridgeDeviceId = input.bridgeDeviceId;
+          capturedBridgeDeviceKind = input.bridgeDeviceKind;
           return {
             assistantMessage: "native",
             respondedAt: "2026-04-05T12:00:01.000Z",
@@ -367,11 +413,15 @@ describe("SendWebChatTurnService", () => {
 
     const result = await service.execute("user-1", {
       surfaceThreadKey: "thread-1",
-      message: "hello"
+      message: "hello",
+      bridgeDeviceId: "mobile-device-1",
+      bridgeDeviceKind: "capacitor"
     });
 
     assert.equal(webRuntimeCalls, 1);
     assert.equal(capturedWebRuntimeUserMessage, "hello");
+    assert.equal(capturedBridgeDeviceId, "mobile-device-1");
+    assert.equal(capturedBridgeDeviceKind, "capacitor");
     assert.deepEqual(capturedOpenMediaJobs, [
       {
         jobId: "job-1",

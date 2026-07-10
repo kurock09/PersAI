@@ -357,6 +357,8 @@ export class AssistantBrowserProfileService {
     assistantId: string;
     workspaceId: string;
     profileKey: string;
+    bridgeDeviceId?: string;
+    bridgeDeviceKind?: LocalBrowserBridgeDeviceKind;
   }): Promise<void> {
     const profileKey = this.requireNonEmptyString(input.profileKey, "profileKey");
     const row = await this.repository.findByAssistantAndKey(input.assistantId, profileKey);
@@ -371,6 +373,12 @@ export class AssistantBrowserProfileService {
     const ttlDays = await this.resolveTtlDaysForAssistant(input.assistantId);
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlDays * 24 * 60 * 60 * 1000);
+    if (input.bridgeDeviceId !== undefined && input.bridgeDeviceKind !== undefined) {
+      await this.repository.updateBridgeBinding(row.id, {
+        bridgeSessionRef: input.bridgeDeviceId,
+        bridgeClientKind: input.bridgeDeviceKind
+      });
+    }
     await this.repository.touch(row.id, now, expiresAt);
   }
 

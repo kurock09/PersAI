@@ -68,6 +68,12 @@ export class InternalRuntimeBrowserBridgeController {
     if (bridgeDeviceId !== undefined) {
       request.bridgeDeviceId = bridgeDeviceId;
     }
+    if (row.requireBridgeDeviceId !== undefined) {
+      if (typeof row.requireBridgeDeviceId !== "boolean") {
+        throw new BadRequestException("requireBridgeDeviceId must be boolean or undefined.");
+      }
+      request.requireBridgeDeviceId = row.requireBridgeDeviceId;
+    }
     return request;
   }
 

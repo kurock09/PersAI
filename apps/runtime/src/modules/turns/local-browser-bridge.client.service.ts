@@ -1,11 +1,16 @@
 import { Injectable } from "@nestjs/common";
-import type { LocalBrowserCommand, LocalBrowserResult } from "@persai/runtime-contract";
+import type {
+  LocalBrowserBridgeDeviceKind,
+  LocalBrowserCommand,
+  LocalBrowserResult
+} from "@persai/runtime-contract";
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 
 export type LocalBrowserBridgeCommandOutcome =
   | {
       ok: true;
       bridgeDeviceId: string;
+      deviceKind: LocalBrowserBridgeDeviceKind;
       result: LocalBrowserResult;
     }
   | {
@@ -24,6 +29,7 @@ export class LocalBrowserBridgeClient {
     assistantId: string;
     workspaceId: string;
     bridgeDeviceId?: string | null;
+    requireBridgeDeviceId?: boolean;
     command: LocalBrowserCommand;
   }): Promise<LocalBrowserBridgeCommandOutcome> {
     const dispatched = await this.persaiInternalApiClientService.dispatchLocalBrowserCommand(input);
@@ -49,6 +55,7 @@ export class LocalBrowserBridgeClient {
       return {
         ok: true,
         bridgeDeviceId: dispatched.bridgeDeviceId,
+        deviceKind: dispatched.deviceKind,
         result:
           polled.result ??
           ({

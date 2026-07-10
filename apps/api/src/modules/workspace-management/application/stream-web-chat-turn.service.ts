@@ -106,6 +106,8 @@ export interface StreamWebChatTurnPrepared {
   clientTurnId?: string;
   welcomeTurn?: boolean;
   welcomeLocale?: string;
+  bridgeDeviceId?: string;
+  bridgeDeviceKind?: "extension" | "capacitor";
 }
 
 export interface StreamWebChatTurnRequest {
@@ -117,6 +119,8 @@ export interface StreamWebChatTurnRequest {
   clientTurnId?: string;
   welcomeTurn?: boolean;
   welcomeLocale?: string;
+  bridgeDeviceId?: string;
+  bridgeDeviceKind?: "extension" | "capacitor";
 }
 
 export type StreamWebChatTurnPreparation =
@@ -307,7 +311,13 @@ export class StreamWebChatTurnService {
           traceHandle: trace,
           ...(request.clientTurnId !== undefined ? { clientTurnId: request.clientTurnId } : {}),
           ...(request.welcomeTurn ? { welcomeTurn: true } : {}),
-          ...(request.welcomeLocale !== undefined ? { welcomeLocale: request.welcomeLocale } : {})
+          ...(request.welcomeLocale !== undefined ? { welcomeLocale: request.welcomeLocale } : {}),
+          ...(request.bridgeDeviceId === undefined
+            ? {}
+            : { bridgeDeviceId: request.bridgeDeviceId }),
+          ...(request.bridgeDeviceKind === undefined
+            ? {}
+            : { bridgeDeviceKind: request.bridgeDeviceKind })
         }
       };
     } catch (error) {
@@ -460,6 +470,10 @@ export class StreamWebChatTurnService {
       surfaceThreadKey: prepared.chat.surfaceThreadKey,
       userId: prepared.userId,
       workspaceId: prepared.workspaceId,
+      ...(prepared.bridgeDeviceId === undefined ? {} : { bridgeDeviceId: prepared.bridgeDeviceId }),
+      ...(prepared.bridgeDeviceKind === undefined
+        ? {}
+        : { bridgeDeviceKind: prepared.bridgeDeviceKind }),
       userMessageId: prepared.userMessage.id,
       userMessage: baseMessage,
       attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
@@ -979,6 +993,8 @@ export class StreamWebChatTurnService {
     surfaceThreadKey: string;
     userId: string;
     workspaceId: string;
+    bridgeDeviceId?: string;
+    bridgeDeviceKind?: "extension" | "capacitor";
     userMessageId: string;
     userMessage: string;
     attachments: WebRuntimeStreamClientInput["attachments"];
@@ -1003,6 +1019,8 @@ export class StreamWebChatTurnService {
       surfaceThreadKey: input.surfaceThreadKey,
       userId: input.userId,
       workspaceId: input.workspaceId,
+      ...(input.bridgeDeviceId === undefined ? {} : { bridgeDeviceId: input.bridgeDeviceId }),
+      ...(input.bridgeDeviceKind === undefined ? {} : { bridgeDeviceKind: input.bridgeDeviceKind }),
       userMessageId: input.userMessageId,
       userMessage: input.userMessage,
       attachments: input.attachments,

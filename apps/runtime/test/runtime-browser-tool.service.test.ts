@@ -269,12 +269,20 @@ class FakePersaiInternalApiClientService {
     displayName: string;
     loginUrl: string;
     originatingChatId?: string | null;
+    bridgeClientKind?: "extension" | "capacitor";
   }> = [];
-  touchCalls: Array<{ assistantId: string; workspaceId: string; profileKey: string }> = [];
+  touchCalls: Array<{
+    assistantId: string;
+    workspaceId: string;
+    profileKey: string;
+    bridgeDeviceId?: string;
+    bridgeDeviceKind?: "extension" | "capacitor";
+  }> = [];
   dispatchCalls: Array<{
     assistantId: string;
     workspaceId: string;
     bridgeDeviceId?: string | null;
+    requireBridgeDeviceId?: boolean;
     command: { action: string };
   }> = [];
   pollCalls: string[] = [];
@@ -341,6 +349,7 @@ class FakePersaiInternalApiClientService {
     displayName: string;
     loginUrl: string;
     originatingChatId?: string | null;
+    bridgeClientKind?: "extension" | "capacitor";
   }): Promise<StartBrowserLoginOutcome> {
     this.startLoginCalls.push(input);
     return {
@@ -358,6 +367,7 @@ class FakePersaiInternalApiClientService {
     assistantId: string;
     workspaceId: string;
     bridgeDeviceId?: string | null;
+    requireBridgeDeviceId?: boolean;
     command: { action: string };
   }): Promise<DispatchLocalBrowserCommandOutcome> {
     this.dispatchCalls.push(input);
@@ -392,6 +402,8 @@ class FakePersaiInternalApiClientService {
     assistantId: string;
     workspaceId: string;
     profileKey: string;
+    bridgeDeviceId?: string;
+    bridgeDeviceKind?: "extension" | "capacitor";
   }): Promise<void> {
     this.touchCalls.push(input);
   }
@@ -503,6 +515,12 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
       }
     }
   ];
+  internalApi.dispatchOutcome = {
+    accepted: true,
+    commandId: "command-mobile",
+    bridgeDeviceId: "device-mobile-1",
+    deviceKind: "capacitor"
+  };
   const profileSnapshot = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({
@@ -510,15 +528,35 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
       url: "https://example.com/",
       profile: "bitrix"
     }),
-    sessionId: "session-1"
+    sessionId: "session-1",
+    bridgeDeviceId: "device-mobile-1",
+    bridgeDeviceKind: "capacitor"
   });
   assert.equal(profileSnapshot.isError, false);
   assert.equal(profileSnapshot.payload.provider, "local_bridge");
   assert.equal(providerGateway.browserCalls.length, 0);
   assert.equal(internalApi.dispatchCalls.length, 1);
   assert.equal(internalApi.dispatchCalls[0]?.command.action, "snapshot");
-  assert.equal(internalApi.dispatchCalls[0]?.bridgeDeviceId, "device-pinned-1");
+  assert.equal(internalApi.dispatchCalls[0]?.bridgeDeviceId, "device-mobile-1");
+  assert.equal(internalApi.dispatchCalls[0]?.requireBridgeDeviceId, true);
   assert.equal(internalApi.touchCalls.length, 1);
+  assert.equal(internalApi.touchCalls[0]?.bridgeDeviceId, "device-mobile-1");
+  assert.equal(internalApi.touchCalls[0]?.bridgeDeviceKind, "capacitor");
+
+  const disconnectedMobile = createService();
+  const disconnectedMobileResult = await disconnectedMobile.service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "snapshot",
+      url: "https://example.com/",
+      profile: "bitrix"
+    }),
+    sessionId: "session-mobile-disconnected",
+    bridgeDeviceKind: "capacitor"
+  });
+  assert.equal(disconnectedMobileResult.isError, false);
+  assert.equal(disconnectedMobileResult.payload.reason, "bridge_unavailable");
+  assert.equal(disconnectedMobile.internalApi.dispatchCalls.length, 0);
 
   internalApi.pollResponses = [
     {

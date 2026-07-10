@@ -18,6 +18,7 @@ import {
   type PersaiRuntimeBrowserAction,
   type PersaiRuntimeBrowserProviderId,
   type PersaiRuntimeBrowserSnapshotFormat,
+  type LocalBrowserBridgeDeviceKind,
   type RuntimeBrowserExtractedItem,
   type RuntimeBrowserInteractiveElement,
   type ProviderGatewayBrowserActionRequest,
@@ -62,6 +63,8 @@ export class RuntimeBrowserToolService {
     sessionId: string;
     chatId?: string | null;
     transportSurface?: string | null;
+    bridgeDeviceId?: string | null;
+    bridgeDeviceKind?: LocalBrowserBridgeDeviceKind | null;
     sourceUserMessageText?: string | null;
     sourceUserMessageCreatedAt?: string | null;
   }): Promise<RuntimeBrowserToolExecutionResult> {
@@ -279,6 +282,7 @@ export class RuntimeBrowserToolService {
       sessionId: string;
       chatId?: string | null;
       transportSurface?: string | null;
+      bridgeDeviceKind?: LocalBrowserBridgeDeviceKind | null;
     },
     request: RuntimeBrowserRequest,
     providerId: PersaiRuntimeBrowserProviderId,
@@ -318,7 +322,10 @@ export class RuntimeBrowserToolService {
       workspaceId: params.bundle.metadata.workspaceId,
       displayName: request.displayName ?? "",
       loginUrl: request.url,
-      originatingChatId: params.chatId ?? null
+      originatingChatId: params.chatId ?? null,
+      ...(params.bridgeDeviceKind === null || params.bridgeDeviceKind === undefined
+        ? {}
+        : { bridgeClientKind: params.bridgeDeviceKind })
     });
 
     const pendingBrowserLogin = {
@@ -357,6 +364,8 @@ export class RuntimeBrowserToolService {
       sessionId: string;
       chatId?: string | null;
       transportSurface?: string | null;
+      bridgeDeviceId?: string | null;
+      bridgeDeviceKind?: LocalBrowserBridgeDeviceKind | null;
     },
     request: RuntimeBrowserRequest,
     providerId: PersaiRuntimeBrowserProviderId,
@@ -432,10 +441,21 @@ export class RuntimeBrowserToolService {
         isError: resolved.pendingBrowserLogin === undefined
       };
     }
+    const currentSurfaceTargeted =
+      params.bridgeDeviceKind !== null && params.bridgeDeviceKind !== undefined;
+    if (currentSurfaceTargeted && !params.bridgeDeviceId) {
+      return this.buildBridgeUnavailableResult({
+        requestedAction: request.action,
+        provider: providerId,
+        code: "bridge_unavailable",
+        message: `The current ${params.bridgeDeviceKind} browser bridge is not connected.`
+      });
+    }
     const openView = await this.localBrowserBridgeClient.executeCommand({
       assistantId: params.bundle.metadata.assistantId,
       workspaceId: params.bundle.metadata.workspaceId,
-      bridgeDeviceId: resolved.bridgeSessionRef,
+      bridgeDeviceId: params.bridgeDeviceId ?? resolved.bridgeSessionRef,
+      requireBridgeDeviceId: currentSurfaceTargeted,
       command: {
         commandId: randomUUID(),
         profileKey,
@@ -458,6 +478,18 @@ export class RuntimeBrowserToolService {
         errorReason: openView.result.errorReason ?? "bridge_unavailable",
         warning: openView.result.warning
       });
+    }
+    try {
+      await this.persaiInternalApiClientService.touchBrowserProfile({
+        assistantId: params.bundle.metadata.assistantId,
+        workspaceId: params.bundle.metadata.workspaceId,
+        profileKey,
+        bridgeDeviceId: openView.bridgeDeviceId,
+        bridgeDeviceKind: openView.deviceKind
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`browser_profile_touch_failed profileKey=${profileKey} reason=${detail}`);
     }
 
     return {
@@ -487,6 +519,8 @@ export class RuntimeBrowserToolService {
       sourceUserMessageText?: string | null;
       sourceUserMessageCreatedAt?: string | null;
       transportSurface?: string | null;
+      bridgeDeviceId?: string | null;
+      bridgeDeviceKind?: LocalBrowserBridgeDeviceKind | null;
     },
     request: RuntimeBrowserRequest,
     providerId: PersaiRuntimeBrowserProviderId
@@ -529,15 +563,31 @@ export class RuntimeBrowserToolService {
         isError: resolved.pendingBrowserLogin === undefined
       };
     }
+    const currentSurfaceTargeted =
+      params.bridgeDeviceKind !== null && params.bridgeDeviceKind !== undefined;
+    if (currentSurfaceTargeted && !params.bridgeDeviceId) {
+      return this.buildBridgeUnavailableResult({
+        requestedAction: request.action,
+        provider: providerId,
+        code: "bridge_unavailable",
+        message: `The current ${params.bridgeDeviceKind} browser bridge is not connected.`
+      });
+    }
     const workerConfig = this.resolveWorkerToolConfig(params.bundle, "browser");
     const optimizeForSpeed = request.optimizeForSpeed ?? true;
+    const targetBridgeDeviceId = params.bridgeDeviceId ?? resolved.bridgeSessionRef;
     this.logger.log(
-      `[browser-action] action=${request.action} url=${request.url} profile=${"set"} operations=${request.operations.length}`
+      `[browser-action] action=${request.action} url=${request.url} profile=${"set"} operations=${
+        request.operations.length
+      } bridgeTarget=${params.bridgeDeviceId ? "current_turn" : "stored_profile"} bridgeKind=${
+        params.bridgeDeviceKind ?? resolved.pendingBrowserLogin.bridgeClientKind
+      }`
     );
     const bridgeOutcome = await this.localBrowserBridgeClient.executeCommand({
       assistantId: params.bundle.metadata.assistantId,
       workspaceId: params.bundle.metadata.workspaceId,
-      bridgeDeviceId: resolved.bridgeSessionRef,
+      bridgeDeviceId: targetBridgeDeviceId,
+      requireBridgeDeviceId: currentSurfaceTargeted,
       command: {
         commandId: randomUUID(),
         profileKey,
@@ -573,7 +623,11 @@ export class RuntimeBrowserToolService {
       params,
       request,
       providerResult,
-      profileKey
+      profileKey,
+      bridgeBinding: {
+        bridgeDeviceId: bridgeOutcome.bridgeDeviceId,
+        bridgeDeviceKind: bridgeOutcome.deviceKind
+      }
     });
     return finalized;
   }
@@ -635,6 +689,10 @@ export class RuntimeBrowserToolService {
     request: RuntimeBrowserRequest;
     providerResult: ProviderGatewayBrowserActionResult;
     profileKey: string | null;
+    bridgeBinding?: {
+      bridgeDeviceId: string;
+      bridgeDeviceKind: LocalBrowserBridgeDeviceKind;
+    };
   }): Promise<RuntimeBrowserToolExecutionResult> {
     const { params, request, providerResult, profileKey } = input;
     const artifacts: RuntimeOutputArtifact[] = [];
@@ -691,7 +749,8 @@ export class RuntimeBrowserToolService {
         await this.persaiInternalApiClientService.touchBrowserProfile({
           assistantId: params.bundle.metadata.assistantId,
           workspaceId: params.bundle.metadata.workspaceId,
-          profileKey
+          profileKey,
+          ...(input.bridgeBinding === undefined ? {} : input.bridgeBinding)
         });
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);

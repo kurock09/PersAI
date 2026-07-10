@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-10 — ADR-140 strict current-surface turn affinity
+
+Status: **implemented and focused-verified locally; deploy/live acceptance pending.**
+
+Baseline SHAs: PersAI `5f066378`; `persai-mobile` `4f5825b` (no APK change in this slice).
+
+**Live evidence:** During founder mobile acceptance at 11:00 UTC, phone logcat recorded no browser command at all. Runtime profile actions instead resolved `mail-ru` to DB `bridgeSessionRef: 6649bcb0-4962-4b5f-b60c-02ccd9abf119`, `bridgeClientKind: extension`; snapshot and one act completed through Chrome, while redirecting act calls remained in Chrome for ~116–120 seconds. The prior configured-card repair only rebound a profile when the user explicitly opened its settings card; an ordinary chat turn carried no identity for the active Capacitor bridge, so runtime still used the stored desktop affinity.
+
+**Repair:** Every interactive web/app chat send declares its current surface kind (`capacitor` or `extension`) and, when connected, that surface's live `bridgeDeviceId`. The fields travel through both streaming and sync web turn paths into runtime channel context. Profile-backed browser commands require an exact match when a current-turn device ID exists; relay is forbidden to fall back to another connected installation. If the current surface declares a kind but has no connected ID, runtime returns an honest current-surface `bridge_unavailable` without dispatching to the profile's stored device. Legacy/background turns without surface metadata may still use stored affinity. Successful commands and `open_live` persist the relay-authenticated device ref + kind together before TTL touch. Thus phone turns stay on the phone and desktop turns stay in that desktop Chrome installation; switching devices rebinds the logical profile after each successful local command. Cookies remain device-local, so first use on each device may require its own login.
+
+**Verification:** focused web suites PASS (89); API send/stream/relay/profile suites PASS (52) plus strict cross-pod PASS; runtime browser suite PASS. Full API, web (874 tests), and runtime suites PASS. Repository lint + format and web/API/runtime/runtime-contract typechecks PASS.
+
+**Next recommended step:** deploy, send a fresh mobile chat instruction using `mail-ru`, verify runtime logs `bridgeTarget=current_turn bridgeKind=capacitor`, verify logcat receives the command and Chrome receives none, and verify DB changes to `bridgeClientKind: capacitor` after first success. Then retest direct `e.mail.ru` navigation and one-press Back before starting desktop UX repairs.
+
+---
+
 ## 2026-07-10 — ADR-140 current-surface profile affinity repair
 
 Status: **implemented and focused-verified locally; deploy/live acceptance pending.**

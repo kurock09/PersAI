@@ -99,15 +99,30 @@ export class InternalRuntimeBrowserProfilesController {
     assistantId: string;
     workspaceId: string;
     profileKey: string;
+    bridgeDeviceId?: string;
+    bridgeDeviceKind?: "extension" | "capacitor";
   } {
     if (body === null || typeof body !== "object" || Array.isArray(body)) {
       throw new BadRequestException("Request body must be an object.");
     }
     const row = body as Record<string, unknown>;
+    const bridgeDeviceId =
+      typeof row.bridgeDeviceId === "string" && row.bridgeDeviceId.trim().length > 0
+        ? row.bridgeDeviceId.trim()
+        : undefined;
+    const bridgeDeviceKind = this.optionalBridgeDeviceKind(row.bridgeDeviceKind);
+    if ((bridgeDeviceId === undefined) !== (bridgeDeviceKind === undefined)) {
+      throw new BadRequestException(
+        "bridgeDeviceId and bridgeDeviceKind must be provided together or omitted."
+      );
+    }
     return {
       assistantId: this.requiredString(row.assistantId, "assistantId"),
       workspaceId: this.requiredString(row.workspaceId, "workspaceId"),
-      profileKey: this.requiredString(row.profileKey, "profileKey")
+      profileKey: this.requiredString(row.profileKey, "profileKey"),
+      ...(bridgeDeviceId === undefined || bridgeDeviceKind === undefined
+        ? {}
+        : { bridgeDeviceId, bridgeDeviceKind })
     };
   }
 
@@ -128,6 +143,7 @@ export class InternalRuntimeBrowserProfilesController {
     displayName: string;
     loginUrl: string;
     originatingChatId?: string | null;
+    bridgeClientKind?: "extension" | "capacitor";
   } {
     if (body === null || typeof body !== "object" || Array.isArray(body)) {
       throw new BadRequestException("Request body must be an object.");
@@ -145,10 +161,22 @@ export class InternalRuntimeBrowserProfilesController {
         : row.originatingChatId === null
           ? null
           : undefined;
+    const bridgeClientKind = this.optionalBridgeDeviceKind(row.bridgeClientKind);
     return {
       ...parsed,
-      ...(originatingChatId === undefined ? {} : { originatingChatId })
+      ...(originatingChatId === undefined ? {} : { originatingChatId }),
+      ...(bridgeClientKind === undefined ? {} : { bridgeClientKind })
     };
+  }
+
+  private optionalBridgeDeviceKind(value: unknown): "extension" | "capacitor" | undefined {
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (value === "extension" || value === "capacitor") {
+      return value;
+    }
+    throw new BadRequestException("Bridge device kind must be extension, capacitor, or omitted.");
   }
 
   private parseCompleteLoginBody(body: unknown): {

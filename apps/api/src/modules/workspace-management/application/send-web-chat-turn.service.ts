@@ -76,6 +76,8 @@ export function resolveWelcomeTurnInstruction(locale?: string): string {
 export interface SendWebChatTurnRequest {
   surfaceThreadKey: string;
   message: string;
+  bridgeDeviceId?: string;
+  bridgeDeviceKind?: "extension" | "capacitor";
   title?: string | null;
   chatMode?: AssistantChatMode;
   deepModeEnabled?: boolean;
@@ -112,6 +114,16 @@ function normalizeOptionalClientTurnId(value: unknown): string | undefined {
   }
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new BadRequestException("clientTurnId must be a non-empty string or omitted.");
+  }
+  return value.trim();
+}
+
+function normalizeOptionalBridgeDeviceId(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== "string" || value.trim().length === 0 || value.trim().length > 128) {
+    throw new BadRequestException("bridgeDeviceId must be a non-empty string or omitted.");
   }
   return value.trim();
 }
@@ -226,6 +238,22 @@ export class SendWebChatTurnService {
       throw new BadRequestException("chatMode conflicts with deepModeEnabled.");
     }
     const clientTurnId = normalizeOptionalClientTurnId(body.clientTurnId);
+    const bridgeDeviceId = normalizeOptionalBridgeDeviceId(body.bridgeDeviceId);
+    const bridgeDeviceKind =
+      body.bridgeDeviceKind === undefined || body.bridgeDeviceKind === null
+        ? undefined
+        : body.bridgeDeviceKind === "extension" || body.bridgeDeviceKind === "capacitor"
+          ? body.bridgeDeviceKind
+          : (() => {
+              throw new BadRequestException(
+                "bridgeDeviceKind must be extension, capacitor, or omitted."
+              );
+            })();
+    if (bridgeDeviceId !== undefined && bridgeDeviceKind === undefined) {
+      throw new BadRequestException(
+        "bridgeDeviceKind is required when bridgeDeviceId is provided."
+      );
+    }
     const welcomeTurn = body.welcomeTurn === true;
 
     if (typeof surfaceThreadKey !== "string" || surfaceThreadKey.trim().length === 0) {
@@ -245,6 +273,8 @@ export class SendWebChatTurnService {
       ...(chatMode === undefined ? {} : { chatMode }),
       ...(deepModeEnabled === undefined ? {} : { deepModeEnabled }),
       ...(clientTurnId !== undefined ? { clientTurnId } : {}),
+      ...(bridgeDeviceId === undefined ? {} : { bridgeDeviceId }),
+      ...(bridgeDeviceKind === undefined ? {} : { bridgeDeviceKind }),
       ...(welcomeTurn ? { welcomeTurn: true } : {}),
       ...(welcomeLocale !== undefined ? { welcomeLocale } : {})
     };
@@ -368,6 +398,10 @@ export class SendWebChatTurnService {
         userId: prepared.userId,
         workspaceId: prepared.workspaceId,
         surfaceThreadKey: prepared.chat.surfaceThreadKey,
+        ...(request.bridgeDeviceId === undefined ? {} : { bridgeDeviceId: request.bridgeDeviceId }),
+        ...(request.bridgeDeviceKind === undefined
+          ? {}
+          : { bridgeDeviceKind: request.bridgeDeviceKind }),
         userMessageId: prepared.userMessage.id,
         userMessage: baseMessage,
         attachments: userAttachments.map((attachment) => toRuntimeAttachmentRef(attachment)),
@@ -830,6 +864,8 @@ export class SendWebChatTurnService {
     userId: string;
     workspaceId: string;
     surfaceThreadKey: string;
+    bridgeDeviceId?: string;
+    bridgeDeviceKind?: "extension" | "capacitor";
     userMessageId: string;
     userMessage: string;
     attachments: WebRuntimeTurnClientInput["attachments"];
@@ -853,6 +889,8 @@ export class SendWebChatTurnService {
       userId: input.userId,
       workspaceId: input.workspaceId,
       surfaceThreadKey: input.surfaceThreadKey,
+      ...(input.bridgeDeviceId === undefined ? {} : { bridgeDeviceId: input.bridgeDeviceId }),
+      ...(input.bridgeDeviceKind === undefined ? {} : { bridgeDeviceKind: input.bridgeDeviceKind }),
       userMessageId: input.userMessageId,
       userMessage: input.userMessage,
       attachments: input.attachments,

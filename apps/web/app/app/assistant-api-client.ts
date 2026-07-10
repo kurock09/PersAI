@@ -359,6 +359,8 @@ export interface AssistantWebChatStreamPayload {
   surfaceThreadKey: string;
   message: string;
   clientTurnId?: string;
+  bridgeDeviceId?: string;
+  bridgeDeviceKind?: "extension" | "capacitor";
   title?: string | null;
   chatMode?: AssistantChatMode;
   deepModeEnabled?: boolean;

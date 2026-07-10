@@ -113,7 +113,7 @@ Table `assistant_browser_profiles` (`AssistantBrowserProfile`):
 - `displayName`, `loginUrl`, `originHost` (from login URL, for settings favicon)
 - `bridgeSessionRef` — nullable local-bridge session/window ref for the currently active device session
 - `bridgeClientKind` — nullable `extension | capacitor`; required when the profile is awaiting or using a local bridge
-- current-device `open-live` success updates `bridgeSessionRef` and `bridgeClientKind` together from the server-authenticated selected connection; these fields must never describe different installations/surfaces
+- current-device `open-live` success and successful turn-scoped local-bridge execution update `bridgeSessionRef` and `bridgeClientKind` together from the server-authenticated selected connection; these fields must never describe different installations/surfaces
 - `status`: `pending_login` | `active` | `expired`
 - `lastUsedAt`, `expiresAt` — sliding TTL from last successful `snapshot`/`act` with `profile`
 

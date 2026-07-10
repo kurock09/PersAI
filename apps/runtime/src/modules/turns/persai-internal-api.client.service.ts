@@ -3287,6 +3287,7 @@ export class PersaiInternalApiClientService {
     loginUrl: string;
     browserCredentialSecretId?: string;
     originatingChatId?: string | null;
+    bridgeClientKind?: "extension" | "capacitor";
   }): Promise<StartBrowserLoginOutcome> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");
@@ -3468,6 +3469,8 @@ export class PersaiInternalApiClientService {
     assistantId: string;
     workspaceId: string;
     profileKey: string;
+    bridgeDeviceId?: string;
+    bridgeDeviceKind?: "extension" | "capacitor";
   }): Promise<void> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("PersAI internal API base URL is not configured.");

@@ -3515,6 +3515,8 @@ export class TurnExecutionService {
           sessionId: acceptedTurn.session.sessionId,
           chatId: this.resolveCurrentChatId(input),
           transportSurface: acceptedTurn.session.conversation.channel,
+          bridgeDeviceId: input.channelContext?.web?.localBrowserBridgeDeviceId ?? null,
+          bridgeDeviceKind: input.channelContext?.web?.localBrowserBridgeDeviceKind ?? null,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString()
         });

@@ -306,7 +306,8 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
       input.workspaceId,
       input.assistantId,
       input.bridgeDeviceId ?? null,
-      commandId
+      commandId,
+      input.requireBridgeDeviceId === true
     );
     if (!("connectionKey" in selection)) {
       return selection;
@@ -506,19 +507,47 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
     workspaceId: string,
     assistantId: string,
     requestedBridgeDeviceId: string | null,
-    commandId: string
+    commandId: string,
+    requireBridgeDeviceId: boolean
   ): Promise<ConnectionSelection> {
     if (this.coordinator?.isEnabled()) {
       const descriptors = await this.coordinator.listScopeConnections(workspaceId, assistantId);
       if (descriptors.length > 0) {
-        return this.chooseFromDescriptors(descriptors, requestedBridgeDeviceId, commandId);
+        const coordinated = this.chooseFromDescriptors(
+          descriptors,
+          requestedBridgeDeviceId,
+          commandId,
+          requireBridgeDeviceId
+        );
+        if ("connectionKey" in coordinated || !requireBridgeDeviceId) {
+          return coordinated;
+        }
+        // A just-attached socket can exist locally before its Redis descriptor
+        // becomes visible. For strict current-surface dispatch, check that exact
+        // local identity before reporting it disconnected; never auto-select.
+        const local = this.selectLocalConnection(
+          workspaceId,
+          assistantId,
+          requestedBridgeDeviceId,
+          commandId,
+          true
+        );
+        if ("connectionKey" in local) {
+          const record = this.connectionsByKey.get(local.connectionKey);
+          if (record !== undefined) {
+            void this.coordinator.registerConnection(this.toDescriptor(record));
+          }
+          return local;
+        }
+        return coordinated;
       }
       // Registry may lag behind a freshly attached local socket; fall back to the local view.
       const local = this.selectLocalConnection(
         workspaceId,
         assistantId,
         requestedBridgeDeviceId,
-        commandId
+        commandId,
+        requireBridgeDeviceId
       );
       if ("connectionKey" in local) {
         const record = this.connectionsByKey.get(local.connectionKey);
@@ -528,13 +557,20 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
       }
       return local;
     }
-    return this.selectLocalConnection(workspaceId, assistantId, requestedBridgeDeviceId, commandId);
+    return this.selectLocalConnection(
+      workspaceId,
+      assistantId,
+      requestedBridgeDeviceId,
+      commandId,
+      requireBridgeDeviceId
+    );
   }
 
   private chooseFromDescriptors(
     descriptors: BridgeConnectionDescriptor[],
     requestedBridgeDeviceId: string | null,
-    commandId: string
+    commandId: string,
+    requireBridgeDeviceId: boolean
   ): ConnectionSelection {
     const activeDeviceIds = descriptors.map((descriptor) => descriptor.bridgeDeviceId);
     if (requestedBridgeDeviceId !== null) {
@@ -547,6 +583,16 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
           bridgeDeviceId: match.bridgeDeviceId,
           deviceKind: match.deviceKind,
           podId: match.podId
+        };
+      }
+      if (requireBridgeDeviceId) {
+        return {
+          accepted: false,
+          commandId,
+          code: "bridge_device_not_connected",
+          message: "The requested browser bridge device is not connected.",
+          activeBridgeDeviceIds: activeDeviceIds,
+          requestedBridgeDeviceId
         };
       }
       // The caller's remembered device id (e.g. a DB-stored bridgeSessionRef)
@@ -588,7 +634,8 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
     workspaceId: string,
     assistantId: string,
     requestedBridgeDeviceId: string | null,
-    commandId: string
+    commandId: string,
+    requireBridgeDeviceId: boolean
   ): ConnectionSelection {
     const scopeKey = this.buildAssistantScopeKey(workspaceId, assistantId);
     const connectionKeys = [...(this.scopeToConnectionKeys.get(scopeKey) ?? [])].filter((key) =>
@@ -607,6 +654,16 @@ export class BrowserBridgeRelayService implements OnModuleInit, OnModuleDestroy 
           bridgeDeviceId: record.bridgeDeviceId,
           deviceKind: record.deviceKind,
           podId: null
+        };
+      }
+      if (requireBridgeDeviceId) {
+        return {
+          accepted: false,
+          commandId,
+          code: "bridge_device_not_connected",
+          message: "The requested browser bridge device is not connected.",
+          activeBridgeDeviceIds: activeDeviceIds,
+          requestedBridgeDeviceId
         };
       }
       // See chooseFromDescriptors: a stale remembered device id must not hard-fail

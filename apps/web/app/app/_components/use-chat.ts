@@ -39,6 +39,11 @@ import {
 } from "../assistant-api-client";
 import type { RuntimeTodoItem, RuntimeTurnToolInvocation } from "@persai/runtime-contract";
 import { isKnowledgeEligibleFile } from "../chat-file-policy";
+import {
+  getCachedCurrentLocalBrowserBridgeStatus,
+  getCurrentLocalBrowserBridgeStatus,
+  isNativeBrowserBridgeShell
+} from "../browser-bridge-client";
 import type { ActivityEvent } from "./activity-badge";
 import { dispatchProjectFilesChanged } from "./project-files-events";
 import { scopeThreadKey, useStreamingThreadsRegistry } from "./streaming-threads";
@@ -1033,6 +1038,7 @@ function delay(ms: number): Promise<void> {
 export function useChat(threadKey: string, options?: UseChatOptions): UseChatReturn {
   const { getToken } = useAuth();
   const t = useTranslations("chat");
+  const currentAssistantId = options?.assistantId ?? null;
   const assistantScopedThreadKey = scopeThreadKey(threadKey, options?.assistantId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
@@ -3063,10 +3069,24 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           }
         }
       }, HEADERS_TIMEOUT_MS);
+      const nativeBridgeShell = isNativeBrowserBridgeShell();
+      const currentBridgeStatus =
+        getCachedCurrentLocalBrowserBridgeStatus() ??
+        (await getCurrentLocalBrowserBridgeStatus(nativeBridgeShell ? 1_200 : 250).catch(
+          () => null
+        ));
+      const currentBridgeDeviceId =
+        currentBridgeStatus?.connected === true &&
+        currentBridgeStatus.assistantId === currentAssistantId &&
+        typeof currentBridgeStatus.bridgeDeviceId === "string"
+          ? currentBridgeStatus.bridgeDeviceId
+          : null;
       const streamPayload = {
         surfaceThreadKey: threadKey,
         message: trimmed,
         clientTurnId,
+        bridgeDeviceKind: nativeBridgeShell ? ("capacitor" as const) : ("extension" as const),
+        ...(currentBridgeDeviceId === null ? {} : { bridgeDeviceId: currentBridgeDeviceId }),
         ...(options?.chatMode === undefined ? {} : { chatMode: options.chatMode }),
         ...(options?.deepModeEnabled === undefined
           ? {}
@@ -3764,6 +3784,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       cacheThreadHistorySnapshot,
       clearThreadLiveActivity,
       clearSoftDetachReconcileTimer,
+      currentAssistantId,
       markStreaming,
       refreshChatPlan,
       refreshCompactionState,

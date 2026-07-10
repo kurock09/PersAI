@@ -21,6 +21,12 @@ const assistantApiMocks = vi.hoisted(() => ({
   stopAssistantWebChatTurn: vi.fn()
 }));
 
+const browserBridgeMocks = vi.hoisted(() => ({
+  isNativeBrowserBridgeShell: vi.fn(),
+  getCachedCurrentLocalBrowserBridgeStatus: vi.fn(),
+  getCurrentLocalBrowserBridgeStatus: vi.fn()
+}));
+
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({
     getToken: clerkMocks.getToken
@@ -48,6 +54,13 @@ vi.mock("../assistant-api-client", async () => {
     stopAssistantWebChatTurn: assistantApiMocks.stopAssistantWebChatTurn
   };
 });
+
+vi.mock("../browser-bridge-client", () => ({
+  isNativeBrowserBridgeShell: browserBridgeMocks.isNativeBrowserBridgeShell,
+  getCachedCurrentLocalBrowserBridgeStatus:
+    browserBridgeMocks.getCachedCurrentLocalBrowserBridgeStatus,
+  getCurrentLocalBrowserBridgeStatus: browserBridgeMocks.getCurrentLocalBrowserBridgeStatus
+}));
 
 const CHAT_SESSION_ROOT = "/workspace/assistants/assistant-1/sessions/runtime-session-1";
 
@@ -105,6 +118,14 @@ describe("useChat", () => {
     assistantApiMocks.uploadAssistantKnowledgeSource.mockReset();
     assistantApiMocks.streamAssistantWebChatTurn.mockReset();
     assistantApiMocks.stopAssistantWebChatTurn.mockReset();
+    browserBridgeMocks.isNativeBrowserBridgeShell.mockReset();
+    browserBridgeMocks.getCachedCurrentLocalBrowserBridgeStatus.mockReset();
+    browserBridgeMocks.getCurrentLocalBrowserBridgeStatus.mockReset();
+    browserBridgeMocks.isNativeBrowserBridgeShell.mockReturnValue(false);
+    browserBridgeMocks.getCachedCurrentLocalBrowserBridgeStatus.mockReturnValue(null);
+    browserBridgeMocks.getCurrentLocalBrowserBridgeStatus.mockRejectedValue(
+      new Error("bridge unavailable")
+    );
     assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValue({
       status: "unknown",
       chat: null,
@@ -190,6 +211,91 @@ describe("useChat", () => {
         title: "Добро пожаловать",
         welcomeTurn: true,
         welcomeLocale: "ru"
+      }),
+      expect.any(Object),
+      expect.any(AbortSignal)
+    );
+  });
+
+  it("carries the connected Capacitor bridge device on the current turn", async () => {
+    browserBridgeMocks.isNativeBrowserBridgeShell.mockReturnValue(true);
+    browserBridgeMocks.getCurrentLocalBrowserBridgeStatus.mockResolvedValue({
+      connected: true,
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "mobile-device-1"
+    });
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onCompleted?.({
+          transport: {
+            assistantMessage: { id: "assistant-message-1", content: "Done" }
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1", { assistantId: "assistant-1" }), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.send("Open mail");
+    });
+
+    expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledWith(
+      "token-1",
+      expect.objectContaining({
+        bridgeDeviceId: "mobile-device-1",
+        bridgeDeviceKind: "capacitor"
+      }),
+      expect.any(Object),
+      expect.any(AbortSignal)
+    );
+  });
+
+  it("carries the connected extension device on a desktop turn", async () => {
+    browserBridgeMocks.getCachedCurrentLocalBrowserBridgeStatus.mockReturnValue({
+      connected: true,
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "extension-device-1"
+    });
+    assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+      async (
+        _token: string,
+        _payload: unknown,
+        handlers: {
+          onCompleted?: (payload: { transport: unknown }) => void;
+        }
+      ) => {
+        handlers.onCompleted?.({
+          transport: {
+            assistantMessage: { id: "assistant-message-1", content: "Done" }
+          }
+        });
+      }
+    );
+
+    const { result } = renderHook(() => useChat("thread-1", { assistantId: "assistant-1" }), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+    });
+
+    await act(async () => {
+      await result.current.send("Open mail");
+    });
+
+    expect(assistantApiMocks.streamAssistantWebChatTurn).toHaveBeenCalledWith(
+      "token-1",
+      expect.objectContaining({
+        bridgeDeviceId: "extension-device-1",
+        bridgeDeviceKind: "extension"
       }),
       expect.any(Object),
       expect.any(AbortSignal)

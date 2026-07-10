@@ -287,6 +287,35 @@ describe("BrowserBridgeRelayService", () => {
     assert.equal(socket.sent.length, 1);
   });
 
+  test("does not route a current-surface command to another live device", async () => {
+    const service = new BrowserBridgeRelayService();
+    const registration = service.registerDevice(
+      buildRegisterRequest(),
+      "wss://api.persai.dev/api/v1/assistant/browser-bridge/ws"
+    );
+    const socket = new FakeSocket();
+    service.attachConnection(buildConnectRequest(registration), socket);
+
+    const dispatch = await service.dispatchCommand({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "current-mobile-device-that-disconnected",
+      requireBridgeDeviceId: true,
+      command: {
+        commandId: "command-current-surface",
+        profileKey: "crm",
+        action: "snapshot"
+      }
+    });
+
+    assert.equal(dispatch.accepted, false);
+    if (!dispatch.accepted) {
+      assert.equal(dispatch.code, "bridge_device_not_connected");
+      assert.equal(dispatch.requestedBridgeDeviceId, "current-mobile-device-that-disconnected");
+    }
+    assert.equal(socket.sent.length, 0);
+  });
+
   test("still reports bridge_device_ambiguous for a stale id when multiple devices are live", async () => {
     const service = new BrowserBridgeRelayService();
     const registrationA = service.registerDevice(

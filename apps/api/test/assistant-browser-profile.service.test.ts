@@ -655,6 +655,39 @@ describe("AssistantBrowserProfileService", () => {
     );
   });
 
+  test("touchProfile rebinds a successful turn to its authenticated mobile device", async () => {
+    const repository = new InMemoryAssistantBrowserProfileRepository();
+    repository.seed({
+      id: "active-mobile",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "mail",
+      displayName: "Mail",
+      loginUrl: "https://mail.ru/",
+      originHost: "mail.ru",
+      bridgeSessionRef: "old-extension-device",
+      bridgeClientKind: "extension",
+      originatingChatId: null,
+      status: "active",
+      lastUsedAt: null,
+      expiresAt: null
+    });
+    const service = buildService({ repository });
+
+    await service.touchProfile({
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "mail",
+      bridgeDeviceId: "mobile-device-1",
+      bridgeDeviceKind: "capacitor"
+    });
+
+    const updated = await repository.findById("active-mobile");
+    assert.equal(updated?.bridgeSessionRef, "mobile-device-1");
+    assert.equal(updated?.bridgeClientKind, "capacitor");
+    assert.ok(updated?.lastUsedAt instanceof Date);
+  });
+
   test("openLiveView shows an active profile in assist mode and pins the chosen device", async () => {
     const repository = new InMemoryAssistantBrowserProfileRepository();
     repository.seed({

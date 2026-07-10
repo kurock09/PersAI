@@ -111,6 +111,9 @@ export interface RuntimeChannelContext {
   /** Web chat UUID for session-scoped file visibility and manifest origin tagging. */
   web?: {
     chatId: string;
+    /** Current local bridge installation carried by this web/app turn. */
+    localBrowserBridgeDeviceId?: string;
+    localBrowserBridgeDeviceKind?: LocalBrowserBridgeDeviceKind;
   };
 }
 
@@ -4131,6 +4134,8 @@ export interface LocalBrowserBridgeDispatchCommandRequest {
   assistantId: string;
   workspaceId: string;
   bridgeDeviceId?: string | null;
+  /** Refuse fallback to another connected installation when the requested device is absent. */
+  requireBridgeDeviceId?: boolean;
   command: LocalBrowserCommand;
 }
 
