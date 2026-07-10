@@ -93,6 +93,7 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
   );
   const extracted = [];
   const warnings = [];
+  let requestedNavigationUrl = null;
   await waitForDomReadyBeforeRead();
   let needsUserAction = userCheckpointRe.test(collectContent().content);
   for (const [index, operation] of (input.operations ?? []).entries()) {
@@ -102,8 +103,14 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
         case "click": {
           const element = getIndexedElement(operation.selector, operation.matchIndex);
           if (controlNeedsUserAction(element, operation.selector)) { needsUserAction = true; break; }
-          element.click();
-          await sleep(input.settleAfterMutationMs);
+          const anchor = element.closest?.("a[href]");
+          const anchorUrl = anchor instanceof HTMLAnchorElement ? anchor.href : "";
+          if (/^https?:\/\//i.test(anchorUrl)) {
+            requestedNavigationUrl = anchorUrl;
+          } else {
+            element.click();
+            await sleep(input.settleAfterMutationMs);
+          }
           break;
         }
         case "click_at": {
@@ -192,8 +199,11 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     } catch (error) {
       warnings.push("op_" + String(index) + " (" + operation.kind + "): " + (error instanceof Error ? error.message : "Operation failed."));
     }
+    if (requestedNavigationUrl) break;
   }
-  await waitForDomReadyBeforeRead();
+  if ((input.operations ?? []).length > 0 && !requestedNavigationUrl) {
+    await waitForDomReadyBeforeRead();
+  }
   const snapshot = collectContent();
   return {
     finalUrl: window.location.href,
@@ -203,6 +213,7 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     elements: collectInteractiveElements(),
     extracted: extracted.length > 0 ? extracted.slice(0, input.maxExtractItems) : null,
     warning: warnings.length > 0 ? "Browser operation warnings: " + warnings.join("; ") : null,
-    needsUserAction: needsUserAction || userCheckpointRe.test(snapshot.content)
+    needsUserAction: needsUserAction || userCheckpointRe.test(snapshot.content),
+    navigationUrl: requestedNavigationUrl
   };
 }`;

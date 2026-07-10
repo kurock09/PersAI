@@ -8,4 +8,13 @@ describe("PAGE_RUNNER_SOURCE", () => {
     expect(typeof runner).toBe("function");
     expect((runner as { constructor: { name: string } }).constructor.name).toBe("AsyncFunction");
   });
+
+  it("hands anchor navigation back to native before clicking", () => {
+    const navigationAssignment = PAGE_RUNNER_SOURCE.indexOf("requestedNavigationUrl = anchorUrl");
+    const fallbackClick = PAGE_RUNNER_SOURCE.indexOf("element.click()", navigationAssignment);
+
+    expect(navigationAssignment).toBeGreaterThanOrEqual(0);
+    expect(fallbackClick).toBeGreaterThan(navigationAssignment);
+    expect(PAGE_RUNNER_SOURCE).toMatch(/navigationUrl:\s*requestedNavigationUrl/);
+  });
 });

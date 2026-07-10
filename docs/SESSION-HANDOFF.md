@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-10 — ADR-140 Capacitor cross-origin navigation completion
+
+Status: **implemented and verified locally; Android 1.0.13 installed; PersAI deploy + live Mail.ru acceptance pending.**
+
+Baseline SHAs: PersAI `7cf3cbee`; `persai-mobile` `4f5825b`.
+
+**Live evidence:** After strict current-surface affinity deployed, runtime logs proved all founder Mail.ru calls targeted `bridgeTarget=current_turn bridgeKind=capacitor`; snapshot and two acts returned successfully and touched the profile, with no Chrome permission error. Nevertheless direct `goto https://account.mail.ru/login` reported the old `mail.ru` document. Native code showed two deterministic races: `onPageCommitVisible` completed the pending goto even when that callback belonged to a previous page, and a cross-origin redirect replaced the original navigation awaiter with a nested cookie-activation load whose no-op completion lost the command.
+
+**Repair:** Android now gates commit/finish/error callbacks until the specifically requested navigation has started, keeps cross-origin cookie activation under one command, tolerates URL canonicalization, skips stale command URLs before a leading goto, and accepts visited-history URL commitment. Live 1.0.12 finally isolated the 109.8-second hang: an `act` with `click` followed by `goto` clicked an ordinary `<a href>`, navigation destroyed the ephemeral JavaScript runner before its native callback, and native waited until its execution deadline. The shared page runner now treats HTTP(S) anchor clicks as declarative navigation: it returns `navigationUrl` before touching the page; Android/iOS then activate destination cookies, navigate natively, and continue remaining segments. Equivalent following goto segments are not reloaded. Existing profiles/cookies remain valid. Android release is `1.0.13` / `versionCode 15`, exported and installed; the matching PersAI runner must deploy before live acceptance.
+
+**Verification:** mobile bridge TypeScript build + 9 tests PASS; Android plugin unit tests and debug assembly PASS; release Java compile, lintVital, assembly/export, and signed APK install PASS. Focused web runner tests PASS. Full repository lint, format check, API typecheck, and web typecheck PASS. iOS is source-reviewed only on Windows.
+
+**Next recommended step:** commit/push both repos, deploy PersAI, then on installed 1.0.13 run one anchor click to `account.mail.ru/login`, direct goto, and one-press Back. Profile recreation is not part of acceptance.
+
+---
+
 ## 2026-07-10 — ADR-140 strict current-surface turn affinity
 
 Status: **implemented and focused-verified locally; deploy/live acceptance pending.**
