@@ -2,17 +2,17 @@
 
 ## 2026-07-10 — ADR-140 Capacitor cross-origin navigation completion
 
-Status: **Mail.ru accepted live; Lavka null-navigation repair implemented locally; Android 1.0.14 installed; deploy + live acceptance pending.**
+Status: **Mail.ru and ordinary Lavka actions accepted live; canonical-redirect timeout repair implemented locally; Android 1.0.15 installed; deploy + live acceptance pending.**
 
 Baseline SHAs: PersAI `7cf3cbee`; `persai-mobile` `4f5825b`.
 
-**Live evidence:** After strict current-surface affinity deployed, runtime logs proved all founder Mail.ru calls targeted `bridgeTarget=current_turn bridgeKind=capacitor`; the 1.0.13 anchor handoff then passed live snapshot, article click, navigation, screenshot, and attachment delivery. A fresh Lavka Capacitor profile loaded and snapshotted correctly, but every ordinary non-anchor `act` failed in ~1–2 seconds with `Target URL must include a valid http or https origin`, while runtime logs showed the valid `https://lavka.yandex.ru/` command URL.
+**Live evidence:** Mail.ru passed snapshot, article click, navigation, screenshot, and attachment delivery. Lavka then completed many profile-backed actions in 1–6 seconds, but two searches paused exactly 30.4 seconds. Persisted tool exchanges proved both requested `https://lavka.yandex.ru/search`, while Yandex canonicalized that route to `https://lavka.yandex.ru/`; both failed with `Timed out waiting for page navigation (requested=.../search, current=.../)`. A retry with `stayOnPage:true` succeeded immediately.
 
-**Repair:** Android now gates navigation completion correctly and the shared runner hands HTTP(S) anchors to native before page teardown. The Lavka failure was a serialization boundary defect introduced by that handoff: ordinary actions returned `navigationUrl: null`, and Android `JSONObject.optString` exposed JSON null as the literal string `"null"`; native then tried to navigate to `"null"`. The runner now omits `navigationUrl` unless it has an actual target, and Android defensively maps JSON null to Java null. Android release is `1.0.14` / `versionCode 16`, exported and installed; profiles/cookies remain valid.
+**Repair:** Android now gates navigation completion correctly, omits/decodes absent declarative targets safely, and treats a valid main-frame navigation action observed while a request is pending as proof that the current navigation/redirect chain started. This preserves the stale previous-page commit wall while allowing immediate canonical/server redirects whose first callback already has a different path. iOS applies the same navigation-action rule. Android release is `1.0.15` / `versionCode 17`, exported and installed; profiles/cookies remain valid.
 
 **Verification:** mobile bridge TypeScript build + 9 tests PASS; Android plugin unit tests and debug assembly PASS; release Java compile, lintVital, assembly/export, and signed APK install PASS. Focused web runner tests PASS. Full repository lint, format check, API typecheck, and web typecheck PASS. iOS is source-reviewed only on Windows.
 
-**Next recommended step:** commit/push both repos, deploy PersAI, then on installed 1.0.14 retry one Lavka search-field `act`, add one product, and press Back once. Profile recreation is not part of acceptance.
+**Next recommended step:** commit/push both repos, deploy PersAI, then on installed 1.0.15 request `/search` without `stayOnPage` and verify Yandex canonicalization completes without the former 30-second timeout. Profile recreation is not part of acceptance.
 
 ---
 
