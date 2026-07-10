@@ -125,6 +125,12 @@ let nativeConnectInFlight: Promise<ExtensionBridgeStatus> | null = null;
 let nativeReconnectTimer: number | null = null;
 let nativeReconnectAttempts = 0;
 
+export function bypassesNativeBrowserExecutionQueue(
+  action: LocalBrowserCommand["action"]
+): boolean {
+  return action === "open_view" || action === "close_view" || action === "check_view";
+}
+
 export function isNativeBrowserBridgeShell(): boolean {
   if (typeof window === "undefined") {
     return false;
@@ -374,6 +380,10 @@ async function openNativeBridgeSocket(
     });
     socket.addEventListener("message", (event) => {
       const parsed = JSON.parse(String(event.data)) as LocalBrowserCommand;
+      if (bypassesNativeBrowserExecutionQueue(parsed.action)) {
+        void handleNativeBridgeCommand(parsed);
+        return;
+      }
       nativeBridgeState.commandQueue = nativeBridgeState.commandQueue.then(() =>
         handleNativeBridgeCommand(parsed)
       );

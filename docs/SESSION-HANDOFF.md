@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-10 — ADR-140 mobile priority view controls + committed-navigation completion
+
+Status: **implemented and focused-verified locally; Android 1.0.9 installed; PersAI deploy/live acceptance pending.**
+
+Baseline SHAs: PersAI `ee29c4fa`; `persai-mobile` `2402a58`.
+
+**Live cause:** The repaired Mail.ru snapshot completed in about one second, proving the generated runner fix. A later direct-login `act` (`d462865d-d90a-43b2-b8e9-0425b152a9f8`) dispatched at `08:42:50.437Z`, remained pending for the full 120-second command lifetime, and returned from Android only at `08:44:50.859Z`, after API cleanup, as `dropped late or unknown result`. A settings `open-live` submitted during that command completed after `98.65s`, then opened the browser after the turn had ended. If Back had already cleared the web handler while waiting, this delayed open left no browser handler and later Back presses navigated/exited the app. A subsequent uncontended `open-live` completed server-side in `586ms`, confirming that the long settings spinner was queue contention, not profile refresh or API latency.
+
+**Repair:** Capacitor `open_view`, `close_view`, and `check_view` now bypass the serial `snapshot`/`act` execution queue, matching desktop extension semantics; view reveal/hide therefore remains responsive while an assistant page command is pending. Android navigation now proceeds on `onPageCommitVisible` rather than waiting indefinitely for `onPageFinished` on long-lived login pages. Navigation wait is capped at 30 seconds, and all native runner/navigation deadlines reserve transport time before the API's outer deadline so an error cannot arrive only after command cleanup. Android release is `1.0.9` / `versionCode 11`.
+
+**Verification:** focused web bridge/settings suites PASS (83 tests); mobile bridge TypeScript build + 8 tests PASS; Android release Java compile, lintVital, assembly/export, install, and package-version check PASS.
+
+**Next recommended step:** deploy PersAI, then repeat: (1) direct Mail.ru login navigation while immediately opening the same profile from settings, (2) one Back press to hide, (3) reopen the card once. Verify open latency remains sub-second and the app stays foregrounded.
+
+---
+
 ## 2026-07-10 — ADR-140 mobile page-runner compile repair
 
 Status: **implemented and focused-verified locally; Android 1.0.8 exported; install + PersAI deploy/live acceptance pending.**

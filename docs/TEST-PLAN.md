@@ -19,7 +19,7 @@ corepack pnpm --filter @persai/runtime exec tsx test/runtime-browser-tool.servic
 corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test.ts
 corepack pnpm --filter @persai/runtime exec tsx test/sanitize-tool-result-for-model.test.ts
 corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-browser.service.test.ts
-corepack pnpm --filter @persai/web exec vitest run app/app/browser-bridge-page-runner-source.test.ts app/app/_components/browser-login-modal.test.tsx app/app/_components/browser-bridge-connection-maintainer.test.tsx app/app/_components/assistant-settings.test.tsx app/app/_components/chat-area.test.tsx app/app/_components/use-chat.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/browser-bridge-client.test.ts app/app/browser-bridge-page-runner-source.test.ts app/app/_components/browser-login-modal.test.tsx app/app/_components/browser-bridge-connection-maintainer.test.tsx app/app/_components/assistant-settings.test.tsx app/app/_components/chat-area.test.tsx app/app/_components/use-chat.test.tsx --config vitest.config.ts
 corepack pnpm --filter @persai/api run typecheck
 corepack pnpm --filter @persai/runtime run typecheck
 corepack pnpm --filter @persai/provider-gateway run typecheck
