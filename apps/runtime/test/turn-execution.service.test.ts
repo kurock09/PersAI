@@ -1144,7 +1144,10 @@ export class FakeTurnContextHydrationService {
     if (this.canonicalChatId !== null) {
       return this.canonicalChatId;
     }
-    if (typeof input?.channelContext?.chatId === "string" && input.channelContext.chatId.length > 0) {
+    if (
+      typeof input?.channelContext?.chatId === "string" &&
+      input.channelContext.chatId.length > 0
+    ) {
       return input.channelContext.chatId;
     }
     if (
