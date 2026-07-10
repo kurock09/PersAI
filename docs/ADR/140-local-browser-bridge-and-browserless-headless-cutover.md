@@ -492,6 +492,29 @@ New plugin `persai-browser-bridge` in `C:\Users\alex\Documents\persai-mobile`:
 
 **Gate result:** verification matrix is code-complete locally. Focused browser suites, repo-wide lint, format check, required typechecks, and provider-gateway full tests are green.
 
+## 2026-07-10 repair — explicit model-owned user handoff
+
+This repair corrects the earlier post-closure ownership addendum: browser clients must not infer a user checkpoint from page text, selector names, form attributes, or operation values. That inference mixed safety policy with execution control, produced false positives, changed window state without a model decision, and could loop indefinitely.
+
+The durable contract is:
+
+- `snapshot` and `act` execute normally and never emit `needs_user_action` from client-side content parsing.
+- CAPTCHA, OTP/verification, payment, and irreversible actions remain forbidden for autonomous execution by model/tool guidance.
+- When manual work is genuinely required, the model explicitly calls `browser.request_user_action` with the saved `profile` and a concise `userActionPrompt`.
+- The runtime resolves the profile and returns `completionMode: "assist"` plus that prompt without dispatching `open_view`.
+- PersAI renders the chat handoff card before any browser surface is revealed. Open is a user gesture that reveals the current extension/Capacitor surface; Done dispatches `close_view`, clears the handoff, and starts the continuation turn.
+- `open_live` remains a separate explicit-view action for cases where the user asked to see a saved session; it is not the completion protocol.
+- Assistant-owned observer locking remains unchanged during ordinary commands.
+
+Desktop cancellation is also side-effect-free across the full lifecycle:
+
+- `close_view` first reconciles an existing profile window and succeeds without creating one when no window exists.
+- Cancel clears pending UI state before network cleanup and aborts any unsettled browser-open fetch.
+- Profile deletion accepts the authenticated caller's current bridge ID, allowing targeted `close_view` even before `bridgeSessionRef` has been persisted.
+- Extension `open_view`, `close_view`, and `check_view` retain their priority over page work but are serialized with each other, so Close received after an in-flight Open is the terminal visibility action.
+
+A pending login cancelled before Open, or while Open is still settling, therefore cannot manufacture or reveal a late small popup.
+
 ## Verification matrix
 
 | Scenario | Backend | Expected |
@@ -503,7 +526,7 @@ New plugin `persai-browser-bridge` in `C:\Users\alex\Documents\persai-mobile`:
 | `login` on Capacitor | Local bridge (Capacitor) | Modal → visible WebView overlay → user completes → status `active` |
 | `snapshot` with active profile, background | Local bridge, hidden window | Text + elements from real logged-in page; no visible UI change |
 | `act` chain with active profile, background | Local bridge, hidden window | Ops executed in real session; per-op warnings ok; no visible UI change |
-| Assistant asks for user help mid-flow (captcha) | `open_view` | Window / WebView becomes visible; user acts; assistant continues |
+| Assistant asks for user help mid-flow (captcha/OTP) | `request_user_action` → user clicks Open | Chat card appears first; window / WebView becomes visible only from the user's action; Done hides it and starts continuation |
 | User opens site card from settings | User-initiated `open_view` | Window / WebView becomes visible; login state preserved |
 | Existing DB profile after migration | (no execution) | Status `expired`; user prompted to re-login on next assistant use |
 | Profile TTL expiry (30d idle) | Scheduler + bridge close | Row → `expired`; on-device cookies of that profile may be cleared by the bridge close command |

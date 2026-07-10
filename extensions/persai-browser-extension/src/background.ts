@@ -15,7 +15,6 @@ import {
   MAX_EXTRACT_ITEMS,
   MAX_INTERACTIVE_ELEMENTS,
   MAX_OPERATION_COUNT,
-  NEEDS_USER_ACTION_REASON,
   SOCKET_IDLE_CLOSE_REASON
 } from "./constants.js";
 import {
@@ -69,6 +68,7 @@ let desiredConnection = false;
 let keepalivePortCount = 0;
 let activeCommandCount = 0;
 let commandQueue = Promise.resolve();
+let viewCommandQueue = Promise.resolve();
 const permissionGrantInFlight = new Map<string, Promise<boolean>>();
 const assistantOwnedProfileKeys = new Set<string>();
 
@@ -158,7 +158,21 @@ async function connectSocketIfNeeded(): Promise<void> {
       parsed.action === "close_view" ||
       parsed.action === "check_view"
     ) {
-      void handleIncomingCommand(parsed);
+      viewCommandQueue = viewCommandQueue
+        .then(() => handleIncomingCommand(parsed))
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : "Unknown view command failure.";
+          if (hasLiveSocket()) {
+            socket?.send(
+              JSON.stringify({
+                commandId: parsed.commandId,
+                ok: false,
+                errorReason: EXECUTOR_ERROR_REASON,
+                warning: message
+              } satisfies LocalBrowserResult)
+            );
+          }
+        });
       return;
     }
     commandQueue = commandQueue
@@ -868,24 +882,32 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
   if (command.action === "check_view") {
     return handleCheckView(command);
   }
+  if (command.action === "close_view") {
+    const existing = await reconcileProfileRecord(command.profileKey);
+    if (existing === null) {
+      return {
+        commandId: command.commandId,
+        ok: true,
+        finalUrl: null,
+        warning: null
+      };
+    }
+    const hidden = await setWindowVisibility(existing, false);
+    await updateState((state) => setAwaitingCompletion(state, hidden.profileKey, false));
+    await refreshBadgeFromState();
+    return {
+      commandId: command.commandId,
+      ok: true,
+      finalUrl: hidden.lastKnownUrl ?? null,
+      warning: "Bridge window minimized."
+    };
+  }
   const showWindow = command.action === "open_view" || command.showWindow === true;
   let record = await resolveOrCreateProfileWindow(
     command.profileKey,
     command.url ?? null,
     showWindow
   );
-  if (command.action === "close_view") {
-    record = await setWindowVisibility(record, false);
-    await updateState((state) => setAwaitingCompletion(state, record.profileKey, false));
-    await refreshBadgeFromState();
-    return {
-      commandId: command.commandId,
-      ok: true,
-      finalUrl: record.lastKnownUrl ?? null,
-      warning: "Bridge window minimized."
-    };
-  }
-
   if (showWindow && !record.visible) {
     record = await setWindowVisibility(record, true);
   }
@@ -933,50 +955,11 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
           record = await navigateTab(record, segment.navigateTo, timeoutMs);
         }
         finalResult = await executePageRunner(record, segment.operations, hostPageScript);
-        if (finalResult.needsUserAction) {
-          await setWindowVisibility(record, true);
-          return {
-            commandId: command.commandId,
-            ok: false,
-            finalUrl: finalResult.finalUrl,
-            title: finalResult.title,
-            content: finalResult.content,
-            truncated: finalResult.truncated,
-            elements: finalResult.elements,
-            extracted: finalResult.extracted,
-            errorReason: NEEDS_USER_ACTION_REASON,
-            warning:
-              mergeWarnings(
-                "A user-only browser checkpoint was detected. Complete it in the visible window.",
-                finalResult.warning
-              ) ?? null
-          };
-        }
       }
     }
 
     if (finalResult === null) {
       finalResult = await executePageRunner(record, [], hostPageScript);
-    }
-
-    if (finalResult.needsUserAction) {
-      await setWindowVisibility(record, true);
-      return {
-        commandId: command.commandId,
-        ok: false,
-        finalUrl: finalResult.finalUrl,
-        title: finalResult.title,
-        content: finalResult.content,
-        truncated: finalResult.truncated,
-        elements: finalResult.elements,
-        extracted: finalResult.extracted,
-        errorReason: NEEDS_USER_ACTION_REASON,
-        warning:
-          mergeWarnings(
-            "A user-only browser checkpoint was detected. Complete it in the visible window.",
-            finalResult.warning
-          ) ?? null
-      };
     }
 
     if (command.format === "pdf") {

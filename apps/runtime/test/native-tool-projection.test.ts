@@ -179,7 +179,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
         credentialToolCode: "browser",
         providerIds: ["browserless"],
         defaultProviderId: "browserless",
-        actions: ["snapshot", "act", "login", "list_profiles"],
+        actions: ["snapshot", "act", "login", "request_user_action", "list_profiles"],
         confirmationRequiredActions: ["act", "login"]
       }
     },
@@ -655,8 +655,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     browserActionDescription,
-    /visible window does not block assistant operations/i,
-    "browser action schema must separate browser visibility from assistant ownership"
+    /Profile-backed work is assistant-owned while a command runs/i,
+    "browser action schema must preserve explicit assistant ownership"
   );
   assert.match(
     browserActionDescription,
@@ -665,8 +665,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     browserActionDescription,
-    /Only a structured needs_user_action result/i,
-    "browser action schema must reserve handoff for explicit user checkpoints"
+    /Call "request_user_action" only when a person must perform a manual browser step/i,
+    "browser action schema must reserve handoff for an explicit model decision"
   );
   assert.match(
     browserActionDescription,
@@ -700,8 +700,8 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     browserOperationsDescription,
-    /needs_user_action.*open_live/i,
-    "browser operations schema must teach open_live for visible user-help handoff"
+    /request_user_action.*userActionPrompt/i,
+    "browser operations schema must teach the explicit user-action handoff"
   );
   assert.match(
     browserOperationsDescription,

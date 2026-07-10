@@ -398,6 +398,39 @@ describe("AssistantBrowserProfileService", () => {
     assert.equal(relay.dispatches[0]?.command.action, "close_view");
   });
 
+  test("deleteProfile closes the current device even before profile binding completes", async () => {
+    const repository = new InMemoryAssistantBrowserProfileRepository();
+    repository.seed({
+      id: "pending-cancel",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileKey: "cancel-me",
+      displayName: "Cancel me",
+      loginUrl: "https://example.com/login",
+      originHost: "example.com",
+      bridgeSessionRef: null,
+      bridgeClientKind: "extension",
+      originatingChatId: null,
+      status: "pending_login",
+      lastUsedAt: null,
+      expiresAt: null
+    });
+    const relay = new FakeBrowserBridgeRelayService();
+    const service = buildService({ repository, relay });
+
+    await service.deleteProfile({
+      profileId: "pending-cancel",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      bridgeDeviceId: "current-device"
+    });
+
+    assert.equal(relay.dispatches.length, 1);
+    assert.equal(relay.dispatches[0]?.bridgeDeviceId, "current-device");
+    assert.equal(relay.dispatches[0]?.command.action, "close_view");
+    assert.equal(await repository.findById("pending-cancel"), null);
+  });
+
   test("resolveProfileForTool returns pending browser login state with bridge fields only", async () => {
     const repository = new InMemoryAssistantBrowserProfileRepository();
     repository.seed({

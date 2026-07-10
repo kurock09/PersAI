@@ -33,6 +33,9 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
     bridgeClientKind: candidate.bridgeClientKind,
     ...(candidate.completionMode === "assist" || candidate.completionMode === "login"
       ? { completionMode: candidate.completionMode }
+      : {}),
+    ...(isNonEmptyString(candidate.userActionPrompt)
+      ? { userActionPrompt: candidate.userActionPrompt.trim().slice(0, 500) }
       : {})
   };
 }

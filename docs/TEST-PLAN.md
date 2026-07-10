@@ -34,16 +34,17 @@ Live acceptance (post-deploy):
 4. `browser.login` on Capacitor opens the native bridge view inside the system-bar/display-cutout safe area; after manual login, Back → Done completes through lightweight `check_view` (cookie flush + liveness, no page runner) and reaches `active` without a long spinner or `Failed to fetch`.
 5. `browser.snapshot` / `browser.act` with `profile` returns authenticated content through the local bridge without re-login.
 6. Profile-backed `act` using a selector from `page.elements` succeeds or returns an honest per-operation warning, never a transport-shaped live-link fallback.
-7. Ordinary cart/product page text containing generic `payment` / `оплат` / `карта` vocabulary does **not** return `needs_user_action`; normal profile `snapshot`/`act` continues.
+7. Page text, selectors, form attributes, and typed values never infer `needs_user_action`; ordinary profile `snapshot`/`act` continues regardless of CAPTCHA/OTP/payment vocabulary.
 8. While assistant-owned `snapshot`/`act` is in flight, opening the same configured session is observer-only: desktop/mobile page input is blocked, hover/tap reveals localized `Assistant is working!`, assistant coordinate/DOM actions still reach the underlying page, and screenshots do not contain the ownership overlay.
-9. A strong CAPTCHA/anti-bot/OTP contour or sensitive payment/verification target returns structured `needs_user_action` **before** the protected operation, opens the same view for user input, and emits an assist banner in PersAI. Done hides the view and starts a continuation turn; the next assistant command reclaims ownership.
+9. For CAPTCHA, OTP/verification, payment, irreversible confirmation, or another manual step, the model calls `browser.request_user_action` with the saved profile and exact `userActionPrompt`. PersAI shows the handoff card without opening the page. User Open reveals the current surface; Done hides it and starts a continuation turn; no browser command is retried before that turn.
 10. Mobile Back from an observer or user-action view hides the native overlay and returns to PersAI without destroying the retained profile/session.
 11. A profile snapshot whose requested URL is equivalent to the retained page (including empty-path versus `/`) skips navigation and returns without paying the former ~31-second navigation-timeout + DOM-wait path.
 12. Forced true expiry still returns `browser_profile_expired` business error, not stack trace.
 13. Web re-auth reopens the modal/banner without any assistant-visible `liveUrl`.
-14. Telegram public no-profile browser reads still work through headless Browserless.
-15. Telegram logged-in/profile-backed browser work returns structured `open_in_app` / `bridge_unavailable` semantics with PersAI web/app copy, not login links or live URLs.
-16. Delete profile from settings removes the row and prevents reuse.
+14. Start a new desktop browser login and press Cancel before Open; repeat by pressing Open and immediately Cancel before the request settles. Pending UI clears immediately, the profile is deleted, the open request is aborted, targeted Close is ordered after any accepted Open, and no extension window is created, focused, resized, flashed, or revealed late.
+15. Telegram public no-profile browser reads still work through headless Browserless.
+16. Telegram logged-in/profile-backed browser work returns structured `open_in_app` / `bridge_unavailable` semantics with PersAI web/app copy, not login links or live URLs.
+17. Delete profile from settings removes the row and prevents reuse.
 17. Keep a connected bridge idle for at least 15 minutes, then run a profile-backed snapshot: the same stable `bridgeDeviceId` remains targetable (or renews in place) and no `bridge_unavailable` occurs.
 18. With two Chrome installations connected, log a profile in on one installation, renew/reconnect that installation, and verify the profile remains pinned to its original stable device id rather than becoming ambiguous.
 19. On the first desktop `snapshot`/`act`, the extension opens a focused, non-technical PersAI browser-access window (not the bridge-status popup), explains Chrome's broad-access requirement, waits for the explicit user click, and resumes the original command. Later text and PNG/JPEG commands succeed without another permission prompt or the `activeTab` / `<all_urls>` capture error.

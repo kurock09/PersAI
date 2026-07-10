@@ -19,4 +19,8 @@ describe("PAGE_RUNNER_SOURCE", () => {
       /\.\.\.\(requestedNavigationUrl \? \{ navigationUrl: requestedNavigationUrl \} : \{\}\)/
     );
   });
+
+  it("does not infer user handoffs from page text or selectors", () => {
+    expect(PAGE_RUNNER_SOURCE).not.toMatch(/needsUserAction|userCheckpointRe|sensitiveControlRe/);
+  });
 });

@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-10 — ADR-140 explicit model-owned browser handoff
+
+Status: **implemented, fully verified, and Android release exported locally; deploy/install/live acceptance pending.**
+
+Baseline SHAs: PersAI `af5f5918`; `persai-mobile` `dcb2743`.
+
+**Cause:** the bridge still parsed page text, selectors, and typed values for CAPTCHA/OTP/payment vocabulary. Those guesses changed command execution, opened the browser immediately, and created recurring `needs_user_action` loops. Separately, desktop cancellation had two defects: `close_view` could create a missing profile window before hiding it, and a still-pending `open-live` could complete after Cancel because the UI cleared only after API deletion and extension view commands ran concurrently.
+
+**Repair:** browser handoff is now exclusively model-owned through `browser({action:"request_user_action", profile, userActionPrompt})`. The tool creates a PersAI chat card without opening a window. The user reads the exact instruction, clicks Open to reveal the current desktop/mobile surface, performs the step, returns to PersAI, and clicks Done; Done closes/hides the surface and starts the continuation turn. Page runners and native/extension wrappers no longer inspect page wording or controls, no longer emit `needs_user_action`, and never change visibility from an inferred checkpoint. CAPTCHA, OTP/verification, payment, and irreversible actions remain a model safety wall in the tool contract: the model must request the explicit handoff rather than perform them. Ordinary assistant-owned execution keeps the existing observer lock. Desktop `close_view` now reconciles an existing window first and returns success without creating one when none exists. Cancel clears local pending state immediately, aborts an unsettled web `open-live`, passes the current device ID to deletion so API can close before profile binding exists, and extension `open_view` / `close_view` / `check_view` execute in arrival order on a dedicated priority queue. Android release advances to `1.0.16` / `versionCode 18`.
+
+**Verification:** mandatory recursive lint, format check, API/web/runtime/runtime-contract typechecks PASS. Full API, runtime, provider-gateway, sandbox, extension, and admin-MCP suites PASS. Full web suite initially hit broad 5-second worker-contention timeouts unrelated to this slice; rerun with two workers passed all 75 files / 876 tests. Follow-up cancel-race verification: API profile suite PASS (15, including unbound current-device close); focused web cancel/settings/use-chat/client suites PASS (248); web/API typechecks PASS; extension typecheck/test/build PASS (15). Mobile bridge build/tests PASS (9); Android plugin unit tests and signed release assembly/export PASS. Android 1.0.16 is available on PersAI's download surface. iOS remains source-reviewed on Windows.
+
+**Next recommended step:** commit/push both repos, deploy PersAI, install Android 1.0.16, reload the unpacked extension, then live-accept explicit CAPTCHA/OTP handoff and immediate desktop login Cancel with no popup.
+
+---
+
 ## 2026-07-10 — ADR-140 Capacitor cross-origin navigation completion
 
 Status: **Mail.ru and ordinary Lavka actions accepted live; canonical-redirect timeout repair implemented locally; Android 1.0.15 installed; deploy + live acceptance pending.**

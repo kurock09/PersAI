@@ -3276,7 +3276,10 @@ export class PersaiInternalApiClientService {
       loginUrl: row.loginUrl,
       workspaceId: row.workspaceId,
       bridgeClientKind,
-      ...(completionMode === undefined ? {} : { completionMode })
+      ...(completionMode === undefined ? {} : { completionMode }),
+      ...(typeof row.userActionPrompt === "string" && row.userActionPrompt.trim().length > 0
+        ? { userActionPrompt: row.userActionPrompt.trim().slice(0, 500) }
+        : {})
     };
   }
 

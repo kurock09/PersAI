@@ -3814,7 +3814,10 @@ export function parsePendingBrowserLoginState(value: unknown): PendingBrowserLog
     loginUrl: row.loginUrl,
     workspaceId: row.workspaceId,
     bridgeClientKind: row.bridgeClientKind,
-    ...(completionMode === undefined ? {} : { completionMode })
+    ...(completionMode === undefined ? {} : { completionMode }),
+    ...(typeof row.userActionPrompt === "string" && row.userActionPrompt.trim().length > 0
+      ? { userActionPrompt: row.userActionPrompt.trim().slice(0, 500) }
+      : {})
   };
 }
 
@@ -3900,14 +3903,16 @@ export async function openAssistantBrowserProfileView(
   token: string,
   assistantId: string,
   profileId: string,
-  bridgeDeviceId?: string | null
+  bridgeDeviceId?: string | null,
+  options?: { signal?: AbortSignal }
 ): Promise<PendingBrowserLoginState> {
   const response = await fetch(
     `${getApiBaseUrl()}/assistant/${encodeURIComponent(assistantId)}/browser-profiles/${encodeURIComponent(profileId)}/open-live`,
     {
       method: "POST",
       headers: { ...getAuthHeaders(token), "Content-Type": "application/json" },
-      body: JSON.stringify(bridgeDeviceId ? { bridgeDeviceId } : {})
+      body: JSON.stringify(bridgeDeviceId ? { bridgeDeviceId } : {}),
+      ...(options?.signal ? { signal: options.signal } : {})
     }
   );
   if (!response.ok) {
@@ -3942,10 +3947,12 @@ export async function dismissAssistantBrowserProfileView(
 export async function deleteAssistantBrowserProfile(
   token: string,
   assistantId: string,
-  profileId: string
+  profileId: string,
+  bridgeDeviceId?: string | null
 ): Promise<void> {
+  const query = bridgeDeviceId ? `?bridgeDeviceId=${encodeURIComponent(bridgeDeviceId)}` : "";
   const response = await fetch(
-    `${getApiBaseUrl()}/assistant/${encodeURIComponent(assistantId)}/browser-profiles/${encodeURIComponent(profileId)}`,
+    `${getApiBaseUrl()}/assistant/${encodeURIComponent(assistantId)}/browser-profiles/${encodeURIComponent(profileId)}${query}`,
     {
       method: "DELETE",
       headers: getAuthHeaders(token)

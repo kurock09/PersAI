@@ -22,7 +22,6 @@ export interface PageRunnerResult {
   elements: RuntimeBrowserInteractiveElement[];
   extracted: RuntimeBrowserExtractedItem[] | null;
   warning?: string | null;
-  needsUserAction?: boolean;
 }
 
 export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunnerResult> {
@@ -207,33 +206,6 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
     });
   };
 
-  const mightNeedUserAction = (pageText: string): boolean =>
-    /(captcha|recaptcha|hcaptcha|cf-chl|verify you are human|confirm you are human|checking your browser|verification code|enter (?:the )?(?:security )?code|one[-\s]?time (?:password|code)|otp|2fa|3-d secure|3ds challenge|капча|подтвердите,? что вы не робот|проверка,? что вы не робот|код подтверждения|одноразовый код|код из смс|смс-код)/i.test(
-      pageText
-    );
-  const sensitiveControlRe =
-    /(pay[-_\s]?now|checkout|place[-_\s]?order|confirm[-_\s]?(?:order|purchase|payment)|purchase[-_\s]?now|card[-_\s]?number|cc-number|cvv|security[-_\s]?code|verification[-_\s]?code|one-time-code|otp|3-d secure|3ds|оплатить|перейти к оплате|оформить заказ|подтвердить заказ|номер карты|код подтверждения|код из смс|смс-код)/i;
-  const controlNeedsUserAction = (element: Element | null, selector = ""): boolean => {
-    if (!(element instanceof HTMLElement)) {
-      return sensitiveControlRe.test(selector);
-    }
-    return sensitiveControlRe.test(
-      [
-        selector,
-        element.id,
-        element.getAttribute("name"),
-        element.getAttribute("type"),
-        element.getAttribute("autocomplete"),
-        element.getAttribute("aria-label"),
-        element.getAttribute("title"),
-        element.getAttribute("placeholder"),
-        element.textContent
-      ]
-        .filter(Boolean)
-        .join(" ")
-    );
-  };
-
   const waitForDomReadyBeforeRead = async (): Promise<void> => {
     const startedAt = Date.now();
     while (Date.now() - startedAt < input.domReadyTimeoutMs) {
@@ -266,12 +238,8 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
     const extracted: RuntimeBrowserExtractedItem[] = [];
     const warnings: string[] = [];
     await waitForDomReadyBeforeRead();
-    let needsUserAction = mightNeedUserAction(collectContent().content);
 
     for (const [index, operation] of input.operations.entries()) {
-      if (needsUserAction) {
-        break;
-      }
       try {
         switch (operation.kind) {
           case "click": {
@@ -279,10 +247,6 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
               operation.selector,
               operation.matchIndex
             ) as HTMLElement;
-            if (controlNeedsUserAction(element, operation.selector)) {
-              needsUserAction = true;
-              break;
-            }
             element.click();
             await sleep(input.settleAfterMutationMs);
             break;
@@ -299,10 +263,6 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
             }
             if (!(element instanceof HTMLElement)) {
               throw new Error("No clickable element at the requested coordinates.");
-            }
-            if (controlNeedsUserAction(element)) {
-              needsUserAction = true;
-              break;
             }
             element.click();
             await sleep(input.settleAfterMutationMs);
@@ -350,10 +310,6 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
           }
           case "select_option": {
             const element = getIndexedElement(operation.selector, operation.matchIndex);
-            if (controlNeedsUserAction(element, operation.selector)) {
-              needsUserAction = true;
-              break;
-            }
             if (!(element instanceof HTMLSelectElement)) {
               throw new Error("Target element is not a select.");
             }
@@ -365,10 +321,6 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
           }
           case "type": {
             const element = getIndexedElement(operation.selector, operation.matchIndex);
-            if (controlNeedsUserAction(element, operation.selector)) {
-              needsUserAction = true;
-              break;
-            }
             if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
               throw new Error("Target element is not typable.");
             }
@@ -413,8 +365,6 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
     const finalElements = applyHostScript(collectInteractiveElements());
     const warning =
       warnings.length > 0 ? `Browser operation warnings: ${warnings.join("; ")}` : null;
-    needsUserAction = needsUserAction || mightNeedUserAction(snapshot.content);
-
     return {
       finalUrl: window.location.href,
       title: document.title || null,
@@ -422,8 +372,7 @@ export function runPageCommandInPage(input: PageRunnerInput): Promise<PageRunner
       truncated: snapshot.truncated,
       elements: finalElements,
       extracted: extracted.length > 0 ? extracted.slice(0, input.maxExtractItems) : null,
-      warning,
-      needsUserAction
+      warning
     };
   })();
 }

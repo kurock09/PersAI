@@ -51,6 +51,21 @@ describe("extractPendingBrowserLoginFromTurn", () => {
     assert.deepEqual(result, pending);
   });
 
+  test("preserves an explicit model-authored browser handoff prompt", () => {
+    assert.deepEqual(
+      parsePendingBrowserLoginState({
+        ...pending,
+        completionMode: "assist",
+        userActionPrompt: "  Enter the SMS code and submit the form.  "
+      }),
+      {
+        ...pending,
+        completionMode: "assist",
+        userActionPrompt: "Enter the SMS code and submit the form."
+      }
+    );
+  });
+
   test("ignores failed browser login invocations", () => {
     const result = extractPendingBrowserLoginFromTurn(
       [{ name: "browser", iteration: 0, ok: false, toolCallId: "tool-call-1" }],

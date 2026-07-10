@@ -51,7 +51,7 @@ const BROWSER_CONFIG = {
   credentialToolCode: "browser",
   providerIds: ["browserless", "local_bridge"],
   defaultProviderId: "browserless",
-  actions: ["snapshot", "act", "login", "open_live", "list_profiles"],
+  actions: ["snapshot", "act", "login", "request_user_action", "open_live", "list_profiles"],
   confirmationRequiredActions: ["act", "login"]
 } satisfies RuntimeBrowserConfig;
 
@@ -580,9 +580,9 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
     }),
     sessionId: "session-1"
   });
-  assert.equal(userCheckpointResult.isError, false);
-  assert.equal(userCheckpointResult.payload.reason, "needs_user_action");
-  assert.equal(userCheckpointResult.payload.pendingBrowserLogin?.completionMode, "assist");
+  assert.equal(userCheckpointResult.isError, true);
+  assert.equal(userCheckpointResult.payload.reason, "browser_failed");
+  assert.equal(userCheckpointResult.payload.pendingBrowserLogin, undefined);
 
   internalApi.dispatchOutcome = {
     accepted: false,
@@ -789,6 +789,26 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
       }
     }
   ];
+  const dispatchCountBeforeHandoff = internalApi.dispatchCalls.length;
+  const requestUserActionResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "request_user_action",
+      profile: "lavka",
+      userActionPrompt: "Enter the SMS code and submit the form."
+    }),
+    sessionId: "session-1",
+    bridgeDeviceId: "device-current",
+    bridgeDeviceKind: "extension"
+  });
+  assert.equal(requestUserActionResult.isError, false);
+  assert.equal(requestUserActionResult.payload.action, "user_action_requested");
+  assert.equal(
+    requestUserActionResult.payload.pendingBrowserLogin?.userActionPrompt,
+    "Enter the SMS code and submit the form."
+  );
+  assert.equal(internalApi.dispatchCalls.length, dispatchCountBeforeHandoff);
+
   const openLiveResult = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({ action: "open_live", profile: "lavka" }),

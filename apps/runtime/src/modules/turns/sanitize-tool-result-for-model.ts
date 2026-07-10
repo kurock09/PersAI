@@ -201,11 +201,13 @@ function sanitizeBrowserToolResultForModel(
         : null;
   const shouldAttachWebLoginDelivery =
     sanitized.action === "login" ||
+    sanitized.action === "user_action_requested" ||
     sanitized.action === "opened_live" ||
+    sanitized.requestedAction === "request_user_action" ||
     sanitized.requestedAction === "open_live" ||
     sanitized.pendingBrowserLogin !== null;
   if (shouldAttachWebLoginDelivery) {
-    // By the time `action` reaches "login"/"opened_live" here, the caller
+    // By the time browser login/live-handoff actions reach here, the caller
     // (runtime-browser-tool.service's `isTelegramSurface` gate) has already
     // diverted any Telegram-surface request to a "skipped"/"open_in_app"
     // result instead. So this branch only ever runs for non-Telegram
@@ -216,7 +218,7 @@ function sanitizeBrowserToolResultForModel(
       ...(displayName === null ? {} : { displayName }),
       delivery:
         pending?.completionMode === "assist"
-          ? "PersAI has already shown the user a browser-action banner on this surface. Briefly state what user-only step is required, then stop; do not retry browser tools. The Done action will start a new user turn so you can continue."
+          ? "PersAI has shown the explicit browser handoff card on this surface. Briefly tell the user to use that card, then stop; do not retry browser tools. The live page opens only from the user's Open action, and Done starts a new user turn so you can continue."
           : "Tell the user to continue at continueUrl in the PersAI app on this same surface, where the local browser bridge can open the login view."
     };
   }

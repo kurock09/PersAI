@@ -1186,20 +1186,34 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       setBrowserLoginDismissedState(true);
       return;
     }
+    browserLoginDismissedByThreadRef.current.delete(assistantScopedThreadKey);
+    setBrowserLoginDismissedState(false);
+    applyPendingBrowserLoginForThread(assistantScopedThreadKey, null);
     const assistantId = options?.assistantId;
     if (pending !== null && typeof assistantId === "string" && assistantId.length > 0) {
       try {
         const token = await getToken();
         if (token) {
-          await deleteAssistantBrowserProfile(token, assistantId, pending.profileId);
+          const bridgeStatus =
+            getCachedCurrentLocalBrowserBridgeStatus() ??
+            (await getCurrentLocalBrowserBridgeStatus(250).catch(() => null));
+          const bridgeDeviceId =
+            bridgeStatus?.connected === true &&
+            bridgeStatus.assistantId === assistantId &&
+            bridgeStatus.workspaceId === pending.workspaceId
+              ? bridgeStatus.bridgeDeviceId
+              : null;
+          await deleteAssistantBrowserProfile(
+            token,
+            assistantId,
+            pending.profileId,
+            bridgeDeviceId
+          );
         }
       } catch {
         // Best-effort provider cleanup; still clear local pending-login state.
       }
     }
-    browserLoginDismissedByThreadRef.current.delete(assistantScopedThreadKey);
-    setBrowserLoginDismissedState(false);
-    applyPendingBrowserLoginForThread(assistantScopedThreadKey, null);
   }, [applyPendingBrowserLoginForThread, assistantScopedThreadKey, getToken, options?.assistantId]);
   currentThreadKeyRef.current = assistantScopedThreadKey;
   const setThreadPendingSend = useCallback(

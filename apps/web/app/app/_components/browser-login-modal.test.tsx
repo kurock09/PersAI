@@ -118,7 +118,8 @@ describe("BrowserLoginModal", () => {
         "test-token",
         "assistant-1",
         "profile-1",
-        "device-1"
+        "device-1",
+        { signal: expect.any(Object) }
       );
     });
     expect(screen.getByTestId("browser-login-modal")).toBeInTheDocument();
@@ -304,6 +305,47 @@ describe("BrowserLoginModal", () => {
     fireEvent.click(screen.getByText("browserLoginCancel"));
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(onDismiss).not.toHaveBeenCalled();
+    expect(openAssistantBrowserProfileView).not.toHaveBeenCalled();
+  });
+
+  it("aborts an in-flight desktop open before cancelling login", async () => {
+    getExtensionBridgeStatus.mockResolvedValue({
+      connected: true,
+      desiredConnection: true,
+      bridgeDeviceId: "device-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileCount: 1,
+      lastProfileKey: "bitrix"
+    });
+    let openSignal: AbortSignal | undefined;
+    openAssistantBrowserProfileView.mockImplementation(
+      async (...args: unknown[]) =>
+        await new Promise<void>((_resolve, reject) => {
+          openSignal = (args[4] as { signal?: AbortSignal } | undefined)?.signal;
+          openSignal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError"))
+          );
+        })
+    );
+    const onCancel = vi.fn();
+
+    render(
+      <BrowserLoginModal
+        open
+        assistantId="assistant-1"
+        pendingBrowserLogin={pendingBrowserLogin}
+        onDismiss={vi.fn()}
+        onCancel={onCancel}
+      />
+    );
+
+    fireEvent.click(await screen.findByTestId("browser-login-open-bridge-view"));
+    await waitFor(() => expect(openSignal).toBeDefined());
+    fireEvent.click(screen.getByText("browserLoginCancel"));
+
+    expect(openSignal?.aborted).toBe(true);
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it("cancels assist mode via dismiss-view semantics", async () => {

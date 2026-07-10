@@ -4,8 +4,7 @@ import {
   buildPermissionDeniedResult,
   buildUnsupportedPdfResult,
   computeReconnectDelayMs,
-  mergeWarnings,
-  shouldSurfaceNeedsUserAction
+  mergeWarnings
 } from "../src/executor-core.js";
 
 test("computeReconnectDelayMs uses bounded backoff", () => {
@@ -17,34 +16,6 @@ test("computeReconnectDelayMs uses bounded backoff", () => {
 test("mergeWarnings drops empty items and preserves order", () => {
   assert.equal(mergeWarnings("first", "", null, "second"), "first; second");
   assert.equal(mergeWarnings("", null, undefined), null);
-});
-
-test("shouldSurfaceNeedsUserAction detects challenge and payment flows", () => {
-  assert.equal(
-    shouldSurfaceNeedsUserAction({
-      pageText: "Please verify you are human to continue."
-    }),
-    true
-  );
-  assert.equal(
-    shouldSurfaceNeedsUserAction({
-      operations: [{ kind: "click", selector: "button[data-testid='pay-now']" }]
-    }),
-    true
-  );
-  assert.equal(
-    shouldSurfaceNeedsUserAction({
-      pageText: "Normal product listing",
-      operations: [{ kind: "click", selector: "button.buy" }]
-    }),
-    false
-  );
-  assert.equal(
-    shouldSurfaceNeedsUserAction({
-      pageText: "Корзина · Оплата картой доступна при оформлении заказа"
-    }),
-    false
-  );
 });
 
 test("structured unsupported results stay honest", () => {

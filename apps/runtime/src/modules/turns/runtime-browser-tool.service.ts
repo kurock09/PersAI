@@ -116,7 +116,10 @@ export class RuntimeBrowserToolService {
       return this.executeListProfiles(params.bundle, request);
     }
     const usesLocalBridge =
-      request.action === "login" || request.action === "open_live" || request.profile !== null;
+      request.action === "login" ||
+      request.action === "request_user_action" ||
+      request.action === "open_live" ||
+      request.profile !== null;
     const providerId: PersaiRuntimeBrowserProviderId = usesLocalBridge
       ? "local_bridge"
       : "browserless";
@@ -124,6 +127,9 @@ export class RuntimeBrowserToolService {
     try {
       if (request.action === "login") {
         return await this.executeLogin(params, request, providerId, policy);
+      }
+      if (request.action === "request_user_action") {
+        return await this.executeRequestUserAction(params, request, providerId, policy);
       }
       if (request.action === "open_live") {
         return await this.executeOpenLive(params, request, providerId, policy);
@@ -351,6 +357,98 @@ export class RuntimeBrowserToolService {
         pendingBrowserLogin: {
           ...pendingBrowserLogin,
           completionMode: "login"
+        }
+      },
+      artifacts: [],
+      isError: false
+    };
+  }
+
+  private async executeRequestUserAction(
+    params: {
+      bundle: AssistantRuntimeBundle;
+      transportSurface?: string | null;
+      bridgeDeviceId?: string | null;
+      bridgeDeviceKind?: LocalBrowserBridgeDeviceKind | null;
+    },
+    request: RuntimeBrowserRequest,
+    providerId: PersaiRuntimeBrowserProviderId,
+    policy: RuntimeToolPolicy
+  ): Promise<RuntimeBrowserToolExecutionResult> {
+    const profileKey = request.profile?.trim() ?? "";
+    const userActionPrompt = request.userActionPrompt?.trim() ?? "";
+    if (profileKey.length === 0 || userActionPrompt.length === 0) {
+      return this.buildBrowserFailureResult({
+        requestedAction: request.action,
+        provider: providerId,
+        reason: "invalid_arguments",
+        warning: 'browser action "request_user_action" requires profile and userActionPrompt.',
+        isError: true
+      });
+    }
+    if (this.isTelegramSurface(params.transportSurface)) {
+      return this.buildOpenInAppResult({
+        requestedAction: request.action,
+        provider: providerId
+      });
+    }
+    if (params.bridgeDeviceKind !== null && params.bridgeDeviceKind !== undefined) {
+      if (!params.bridgeDeviceId) {
+        return this.buildBridgeUnavailableResult({
+          requestedAction: request.action,
+          provider: providerId,
+          code: "bridge_unavailable",
+          message: `The current ${params.bridgeDeviceKind} browser bridge is not connected.`
+        });
+      }
+    }
+
+    const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
+      assistantId: params.bundle.metadata.assistantId,
+      toolCode: "browser",
+      dailyCallLimit: policy.dailyCallLimit
+    });
+    if (!quotaOutcome.allowed) {
+      return this.buildBrowserFailureResult({
+        requestedAction: request.action,
+        provider: providerId,
+        reason: quotaOutcome.code,
+        warning: quotaOutcome.message
+      });
+    }
+
+    const resolved = await this.persaiInternalApiClientService.resolveBrowserProfile({
+      assistantId: params.bundle.metadata.assistantId,
+      profileKey
+    });
+    if (!resolved.ok) {
+      return this.buildBrowserFailureResult({
+        requestedAction: request.action,
+        provider: providerId,
+        reason: resolved.reason,
+        warning: this.profileErrorWarning(resolved.reason),
+        ...(resolved.pendingBrowserLogin === undefined
+          ? {}
+          : { pendingBrowserLogin: resolved.pendingBrowserLogin }),
+        isError: resolved.pendingBrowserLogin === undefined
+      });
+    }
+
+    return {
+      payload: {
+        toolCode: "browser",
+        executionMode: "worker",
+        provider: providerId,
+        requestedAction: request.action,
+        page: null,
+        action: "user_action_requested",
+        reason: null,
+        warning:
+          "User action requested. The PersAI chat will show a handoff card; do not retry browser automation until the user presses Done.",
+        pendingBrowserLogin: {
+          ...resolved.pendingBrowserLogin,
+          completionMode: "assist",
+          userActionPrompt
         }
       },
       artifacts: [],
@@ -614,8 +712,7 @@ export class RuntimeBrowserToolService {
         requestedAction: request.action,
         provider: providerId,
         errorReason: bridgeOutcome.result.errorReason ?? "bridge_unavailable",
-        warning: bridgeOutcome.result.warning,
-        pendingBrowserLogin: resolved.pendingBrowserLogin
+        warning: bridgeOutcome.result.warning
       });
     }
     const providerResult = this.normalizeLocalBridgeResult(request, bridgeOutcome.result);
@@ -910,20 +1007,7 @@ export class RuntimeBrowserToolService {
     provider: PersaiRuntimeBrowserProviderId;
     errorReason: string;
     warning?: string | null | undefined;
-    pendingBrowserLogin?: RuntimeBrowserToolResult["pendingBrowserLogin"];
   }): RuntimeBrowserToolExecutionResult {
-    if (input.errorReason === "needs_user_action") {
-      return this.buildBrowserFailureResult({
-        requestedAction: input.requestedAction,
-        provider: input.provider,
-        reason: "needs_user_action",
-        warning:
-          input.warning ??
-          "A user-only browser checkpoint was detected. Ask the user to complete it in the opened view and press Done in PersAI; do not retry browser actions until then.",
-        pendingBrowserLogin: input.pendingBrowserLogin,
-        isError: false
-      });
-    }
     if (
       input.errorReason === "bridge_unavailable" ||
       input.errorReason === "command_timeout" ||
@@ -1019,6 +1103,18 @@ export class RuntimeBrowserToolService {
     if ("displayName" in args && args.displayName !== null && displayName === null) {
       return new Error("browser displayName must be a non-empty string when provided.");
     }
+    const userActionPrompt =
+      args.userActionPrompt === undefined || args.userActionPrompt === null
+        ? null
+        : this.asNonEmptyString(args.userActionPrompt);
+    if (
+      ("userActionPrompt" in args && args.userActionPrompt !== null && userActionPrompt === null) ||
+      (userActionPrompt?.length ?? 0) > 500
+    ) {
+      return new Error(
+        "browser userActionPrompt must be a non-empty string of at most 500 characters when provided."
+      );
+    }
 
     const format =
       args.format === undefined || args.format === null
@@ -1113,6 +1209,27 @@ export class RuntimeBrowserToolService {
         maxChars: null,
         operations: [],
         profile,
+        format,
+        optimizeForSpeed,
+        snapshotSelector,
+        fullPage
+      };
+    }
+
+    if (action === "request_user_action") {
+      if (profile === null || userActionPrompt === null) {
+        return new Error(
+          'browser action "request_user_action" requires profile and userActionPrompt.'
+        );
+      }
+      return {
+        toolCode: "browser",
+        action,
+        url: "",
+        maxChars: null,
+        operations: [],
+        profile,
+        userActionPrompt,
         format,
         optimizeForSpeed,
         snapshotSelector,

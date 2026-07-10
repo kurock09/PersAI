@@ -179,8 +179,13 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
   );
   assert.match(
     text,
-    /needs_user_action.*open_live/i,
-    "browser guidance must teach open_live for visible user-help handoff"
+    /request_user_action.*handoff card/i,
+    "browser guidance must teach the explicit model-owned user handoff"
+  );
+  assert.doesNotMatch(
+    text,
+    /runtime returns `needs_user_action`/i,
+    "browser guidance must not depend on implicit page heuristics"
   );
   assert.match(
     text,

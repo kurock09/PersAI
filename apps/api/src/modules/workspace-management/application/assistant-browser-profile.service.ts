@@ -339,13 +339,14 @@ export class AssistantBrowserProfileService {
     profileId: string;
     assistantId: string;
     workspaceId: string;
+    bridgeDeviceId?: string | null;
   }): Promise<{ deleted: true }> {
     const row = await this.requireOwnedProfile(
       input.profileId,
       input.assistantId,
       input.workspaceId
     );
-    await this.closeBridgeViewBestEffort(row);
+    await this.closeBridgeViewBestEffort(row, input.bridgeDeviceId ?? null);
     const deleted = await this.repository.deleteById(row.id);
     if (!deleted) {
       throw new NotFoundException("Browser profile was not found.");
@@ -626,15 +627,19 @@ export class AssistantBrowserProfileService {
     return outcome.bridgeSessionRef;
   }
 
-  private async closeBridgeViewBestEffort(row: AssistantBrowserProfileRow): Promise<void> {
-    if (row.bridgeSessionRef === null) {
+  private async closeBridgeViewBestEffort(
+    row: AssistantBrowserProfileRow,
+    bridgeDeviceIdOverride: string | null = null
+  ): Promise<void> {
+    const bridgeDeviceId = bridgeDeviceIdOverride?.trim() || row.bridgeSessionRef;
+    if (bridgeDeviceId === null) {
       return;
     }
     const commandId = randomUUID();
     const outcome = await this.browserBridgeRelayService.dispatchCommand({
       assistantId: row.assistantId,
       workspaceId: row.workspaceId,
-      bridgeDeviceId: row.bridgeSessionRef,
+      bridgeDeviceId,
       command: {
         commandId,
         profileKey: row.profileKey,

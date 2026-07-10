@@ -1565,6 +1565,7 @@ export const PERSAI_RUNTIME_BROWSER_ACTIONS = [
   "snapshot",
   "act",
   "login",
+  "request_user_action",
   "open_live",
   "list_profiles"
 ] as const;
@@ -1612,8 +1613,10 @@ export interface PendingBrowserLoginState {
   loginUrl: string;
   workspaceId: string;
   bridgeClientKind: LocalBrowserBridgeDeviceKind;
-  /** When "assist", the live view is for captcha/confirmation on an already-active profile — Done dismisses without completing login. */
+  /** When "assist", the model explicitly requested a live user handoff on an already-active profile. */
   completionMode?: "login" | "assist";
+  /** Model-authored, user-facing description of the exact manual browser step. */
+  userActionPrompt?: string;
 }
 
 export interface RuntimeBrowserProfileListItem {
@@ -1784,6 +1787,8 @@ export interface RuntimeBrowserRequest {
   fullPage?: boolean | null;
   /** When true, skip the opening navigation to url and run operations on the current page. */
   stayOnPage?: boolean | null;
+  /** Required for request_user_action: concise manual step shown in the PersAI handoff card. */
+  userActionPrompt?: string | null;
 }
 
 export interface RuntimeBrowserInteractiveElement {
@@ -1828,7 +1833,14 @@ export interface RuntimeBrowserResult {
 }
 
 export interface RuntimeBrowserToolResult extends RuntimeBrowserResult {
-  action: "snapshot" | "acted" | "skipped" | "login" | "opened_live" | "listed_profiles";
+  action:
+    | "snapshot"
+    | "acted"
+    | "skipped"
+    | "login"
+    | "user_action_requested"
+    | "opened_live"
+    | "listed_profiles";
   reason: PersaiRuntimeBrowserProfileErrorReason | string | null;
   warning: string | null;
   billingFacts?: RuntimeBillingFacts | null;

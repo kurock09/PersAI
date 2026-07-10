@@ -113,6 +113,8 @@ import {
 import { AssistantAvatar } from "./assistant-avatar";
 import { BrowserLoginModal } from "./browser-login-modal";
 import {
+  getCachedCurrentLocalBrowserBridgeStatus,
+  getCurrentLocalBrowserBridgeStatus,
   getExtensionBridgeStatus,
   hideNativeBrowserBridgeView,
   isNativeBrowserBridgeShell,
@@ -2087,6 +2089,33 @@ export function AssistantSettings({
     },
     [assistant?.id, getToken, refreshBrowserProfiles]
   );
+
+  const handleCancelSettingsBrowserLogin = useCallback(async () => {
+    const pending = settingsBrowserLogin;
+    setSettingsBrowserLogin(null);
+    if (!pending || !assistant?.id) {
+      return;
+    }
+    try {
+      const token = await getToken();
+      if (!token) {
+        return;
+      }
+      const bridgeStatus =
+        getCachedCurrentLocalBrowserBridgeStatus() ??
+        (await getCurrentLocalBrowserBridgeStatus(250).catch(() => null));
+      const bridgeDeviceId =
+        bridgeStatus?.connected === true &&
+        bridgeStatus.assistantId === assistant.id &&
+        bridgeStatus.workspaceId === pending.workspaceId
+          ? bridgeStatus.bridgeDeviceId
+          : null;
+      await deleteAssistantBrowserProfile(token, assistant.id, pending.profileId, bridgeDeviceId);
+      await refreshBrowserProfiles({ background: true });
+    } catch {
+      // Cancellation is optimistic; profile cleanup remains best-effort.
+    }
+  }, [assistant?.id, getToken, refreshBrowserProfiles, settingsBrowserLogin]);
 
   const handleOpenBrowserProfile = useCallback(
     async (profile: AssistantBrowserProfileListItem) => {
@@ -6485,7 +6514,7 @@ export function AssistantSettings({
         assistantId={assistant?.id}
         pendingBrowserLogin={settingsBrowserLogin}
         onDismiss={() => setSettingsBrowserLogin(null)}
-        onCancel={() => setSettingsBrowserLogin(null)}
+        onCancel={() => void handleCancelSettingsBrowserLogin()}
         onCompleted={() => {
           setSettingsBrowserLogin(null);
           void refreshBrowserProfiles();

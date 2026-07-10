@@ -19,7 +19,6 @@ export const SOCKET_IDLE_CLOSE_REASON = "bridge_inactive";
 export const UNSUPPORTED_PDF_REASON = "unsupported_pdf";
 export const UNSUPPORTED_SCREENSHOT_REASON = "unsupported_screenshot";
 export const PERMISSION_DENIED_REASON = "permission_denied";
-export const NEEDS_USER_ACTION_REASON = "needs_user_action";
 export const EXECUTOR_ERROR_REASON = "bridge_executor_error";
 export const BRIDGE_MESSAGE_SOURCE = "persai-browser-extension";
 

@@ -1093,7 +1093,8 @@ export function ChatArea({
             <div className="min-w-0">
               <p className="text-xs font-semibold text-text">{t("browserAssistBannerTitle")}</p>
               <p className="mt-0.5 text-[11px] leading-4 text-text-muted">
-                {t("browserAssistBannerBody", { site: pendingBrowserAssist.displayName })}
+                {pendingBrowserAssist.userActionPrompt ??
+                  t("browserAssistBannerBody", { site: pendingBrowserAssist.displayName })}
               </p>
               {browserAssistError ? (
                 <p className="mt-1 text-[11px] text-destructive">{browserAssistError}</p>

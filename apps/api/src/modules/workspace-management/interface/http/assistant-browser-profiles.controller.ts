@@ -6,6 +6,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Query,
   Req,
   UnauthorizedException
 } from "@nestjs/common";
@@ -74,13 +75,15 @@ export class AssistantBrowserProfilesController {
   async deleteProfile(
     @Req() req: RequestWithPlatformContext,
     @Param("assistantId") assistantId: string,
-    @Param("profileId") profileId: string
+    @Param("profileId") profileId: string,
+    @Query("bridgeDeviceId") bridgeDeviceId?: string
   ): Promise<DeleteProfileResponse> {
     const context = await this.resolveAssistantContext(req, assistantId);
     await this.assistantBrowserProfileService.deleteProfile({
       profileId,
       assistantId: context.assistantId,
-      workspaceId: context.workspaceId
+      workspaceId: context.workspaceId,
+      bridgeDeviceId: bridgeDeviceId?.trim() || null
     });
     return {
       requestId: req.requestId ?? null,

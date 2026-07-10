@@ -5109,7 +5109,11 @@ export class TurnExecutionService {
         loginUrl: candidate.loginUrl,
         workspaceId: candidate.workspaceId,
         bridgeClientKind: candidate.bridgeClientKind,
-        ...(completionMode === undefined ? {} : { completionMode })
+        ...(completionMode === undefined ? {} : { completionMode }),
+        ...(typeof candidate.userActionPrompt === "string" &&
+        candidate.userActionPrompt.trim().length > 0
+          ? { userActionPrompt: candidate.userActionPrompt.trim().slice(0, 500) }
+          : {})
       };
     } catch {
       return undefined;

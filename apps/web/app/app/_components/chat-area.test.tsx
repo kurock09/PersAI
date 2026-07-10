@@ -394,7 +394,7 @@ describe("ChatArea", () => {
     });
   });
 
-  it("keeps assist checkpoints in a banner and resumes the assistant after Done", async () => {
+  it("shows an explicit browser handoff card and resumes the assistant after Done", async () => {
     getTokenMock.mockResolvedValue("token-1");
     getCurrentLocalBrowserBridgeStatusMock.mockResolvedValue({
       connected: true,
@@ -418,7 +418,8 @@ describe("ChatArea", () => {
             loginUrl: "https://lavka.yandex.ru/",
             workspaceId: "workspace-1",
             bridgeClientKind: "extension",
-            completionMode: "assist"
+            completionMode: "assist",
+            userActionPrompt: "Enter the SMS code and submit the form."
           },
           browserLoginModalOpen: true,
           clearPendingBrowserLogin,
@@ -428,6 +429,7 @@ describe("ChatArea", () => {
     );
 
     expect(screen.getByTestId("browser-assist-banner")).toBeInTheDocument();
+    expect(screen.getByText("Enter the SMS code and submit the form.")).toBeInTheDocument();
     expect(screen.queryByTestId("browser-login-modal")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "browserAssistOpen" }));
     await waitFor(() => {

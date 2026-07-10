@@ -87,6 +87,8 @@ const browserProfileMocks = vi.hoisted(() => ({
 
 const localBridgeMocks = vi.hoisted(() => ({
   isNativeBrowserBridgeShell: vi.fn(),
+  getCachedCurrentLocalBrowserBridgeStatus: vi.fn(),
+  getCurrentLocalBrowserBridgeStatus: vi.fn(),
   getExtensionBridgeStatus: vi.fn(),
   registerNativeBrowserBridgeDevice: vi.fn(),
   hideNativeBrowserBridgeView: vi.fn(),
@@ -161,6 +163,10 @@ vi.mock("./browser-login-modal", () => ({
 
 vi.mock("../browser-bridge-client", () => ({
   isNativeBrowserBridgeShell: () => localBridgeMocks.isNativeBrowserBridgeShell(),
+  getCachedCurrentLocalBrowserBridgeStatus: () =>
+    localBridgeMocks.getCachedCurrentLocalBrowserBridgeStatus(),
+  getCurrentLocalBrowserBridgeStatus: (...args: unknown[]) =>
+    localBridgeMocks.getCurrentLocalBrowserBridgeStatus(...args),
   getExtensionBridgeStatus: (...args: unknown[]) =>
     localBridgeMocks.getExtensionBridgeStatus(...args),
   registerNativeBrowserBridgeDevice: (...args: unknown[]) =>
@@ -327,6 +333,13 @@ function renderSettings(
 describe("integrations section", () => {
   beforeEach(() => {
     localBridgeMocks.isNativeBrowserBridgeShell.mockReturnValue(false);
+    localBridgeMocks.getCachedCurrentLocalBrowserBridgeStatus.mockReturnValue(null);
+    localBridgeMocks.getCurrentLocalBrowserBridgeStatus.mockResolvedValue({
+      connected: false,
+      assistantId: null,
+      workspaceId: null,
+      bridgeDeviceId: null
+    });
     localBridgeMocks.getExtensionBridgeStatus.mockResolvedValue({
       connected: true,
       assistantId: "assistant-1",

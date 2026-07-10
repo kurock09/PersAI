@@ -64,6 +64,7 @@ export function BrowserLoginModal({
   const openedViewProfileIdRef = useRef<string | null>(null);
   const extensionStatusRef = useRef<ExtensionBridgeStatus | null>(null);
   const nativeRefreshInFlightRef = useRef(false);
+  const openViewAbortControllerRef = useRef<AbortController | null>(null);
   const completionMode = pendingBrowserLogin?.completionMode ?? "login";
   const bridgeClientKind = pendingBrowserLogin?.bridgeClientKind ?? null;
   const nativeShell = useMemo(() => isNativeBrowserBridgeShell(), []);
@@ -85,14 +86,32 @@ export function BrowserLoginModal({
       ) {
         return;
       }
+      openViewAbortControllerRef.current?.abort();
+      const abortController = new AbortController();
+      openViewAbortControllerRef.current = abortController;
       // Target the device THIS surface registered: with both desktop and
       // mobile bridges connected, the server otherwise picks ambiguously.
-      await openAssistantBrowserProfileView(
-        token,
-        assistantId,
-        pendingBrowserLogin.profileId,
-        extensionStatusRef.current?.bridgeDeviceId ?? null
-      );
+      try {
+        await openAssistantBrowserProfileView(
+          token,
+          assistantId,
+          pendingBrowserLogin.profileId,
+          extensionStatusRef.current?.bridgeDeviceId ?? null,
+          { signal: abortController.signal }
+        );
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          return;
+        }
+        throw error;
+      } finally {
+        if (openViewAbortControllerRef.current === abortController) {
+          openViewAbortControllerRef.current = null;
+        }
+      }
+      if (abortController.signal.aborted) {
+        return;
+      }
       openedViewProfileIdRef.current = pendingBrowserLogin.profileId;
       setShowInstructions(false);
       setBridgeViewOpened(true);
@@ -208,6 +227,8 @@ export function BrowserLoginModal({
 
   useEffect(() => {
     if (!open) {
+      openViewAbortControllerRef.current?.abort();
+      openViewAbortControllerRef.current = null;
       setCompleting(false);
       setCompleteError(null);
       updateExtensionStatus(null);
@@ -221,6 +242,8 @@ export function BrowserLoginModal({
   }, [open, pendingBrowserLogin?.profileId, updateExtensionStatus]);
 
   useEffect(() => {
+    openViewAbortControllerRef.current?.abort();
+    openViewAbortControllerRef.current = null;
     setBridgeViewOpened(false);
     setOpeningBridgeView(false);
     setNativeViewVisible(false);
@@ -444,6 +467,8 @@ export function BrowserLoginModal({
 
   const handleCancel = useCallback(async () => {
     if (completionMode !== "assist") {
+      openViewAbortControllerRef.current?.abort();
+      openViewAbortControllerRef.current = null;
       onCancel();
       return;
     }

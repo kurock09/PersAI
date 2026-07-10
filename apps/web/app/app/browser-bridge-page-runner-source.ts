@@ -86,23 +86,15 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
       await sleep(200);
     }
   };
-  const userCheckpointRe = /(captcha|recaptcha|hcaptcha|cf-chl|verify you are human|confirm you are human|checking your browser|verification code|enter (?:the )?(?:security )?code|one[-\s]?time (?:password|code)|otp|2fa|3-d secure|3ds challenge|капча|подтвердите,? что вы не робот|проверка,? что вы не робот|код подтверждения|одноразовый код|код из смс|смс-код)/i;
-  const sensitiveControlRe = /(pay[-_\s]?now|checkout|place[-_\s]?order|confirm[-_\s]?(?:order|purchase|payment)|purchase[-_\s]?now|card[-_\s]?number|cc-number|cvv|security[-_\s]?code|verification[-_\s]?code|one-time-code|otp|3-d secure|3ds|оплатить|перейти к оплате|оформить заказ|подтвердить заказ|номер карты|код подтверждения|код из смс|смс-код)/i;
-  const controlNeedsUserAction = (element, selector = "") => sensitiveControlRe.test(
-    [selector, element?.id, element?.getAttribute?.("name"), element?.getAttribute?.("type"), element?.getAttribute?.("autocomplete"), element?.getAttribute?.("aria-label"), element?.getAttribute?.("title"), element?.getAttribute?.("placeholder"), element?.textContent].filter(Boolean).join(" ")
-  );
   const extracted = [];
   const warnings = [];
   let requestedNavigationUrl = null;
   await waitForDomReadyBeforeRead();
-  let needsUserAction = userCheckpointRe.test(collectContent().content);
   for (const [index, operation] of (input.operations ?? []).entries()) {
-    if (needsUserAction) break;
     try {
       switch (operation.kind) {
         case "click": {
           const element = getIndexedElement(operation.selector, operation.matchIndex);
-          if (controlNeedsUserAction(element, operation.selector)) { needsUserAction = true; break; }
           const anchor = element.closest?.("a[href]");
           const anchorUrl = anchor instanceof HTMLAnchorElement ? anchor.href : "";
           if (/^https?:\/\//i.test(anchorUrl)) {
@@ -120,7 +112,6 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
           const element = document.elementFromPoint(operation.x, operation.y);
           if (ownershipOverlay instanceof HTMLElement) ownershipOverlay.style.pointerEvents = previousPointerEvents;
           if (!(element instanceof HTMLElement)) throw new Error("No clickable element at the requested coordinates.");
-          if (controlNeedsUserAction(element)) { needsUserAction = true; break; }
           element.click();
           await sleep(input.settleAfterMutationMs);
           break;
@@ -160,7 +151,6 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
         }
         case "select_option": {
           const element = getIndexedElement(operation.selector, operation.matchIndex);
-          if (controlNeedsUserAction(element, operation.selector)) { needsUserAction = true; break; }
           if (!(element instanceof HTMLSelectElement)) throw new Error("Target element is not a select.");
           element.value = operation.value;
           element.dispatchEvent(new Event("input", { bubbles: true }));
@@ -170,7 +160,6 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
         }
         case "type": {
           const element = getIndexedElement(operation.selector, operation.matchIndex);
-          if (controlNeedsUserAction(element, operation.selector)) { needsUserAction = true; break; }
           if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) throw new Error("Target element is not typable.");
           element.value = "";
           element.dispatchEvent(new Event("input", { bubbles: true }));
@@ -213,7 +202,6 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     elements: collectInteractiveElements(),
     extracted: extracted.length > 0 ? extracted.slice(0, input.maxExtractItems) : null,
     warning: warnings.length > 0 ? "Browser operation warnings: " + warnings.join("; ") : null,
-    needsUserAction: needsUserAction || userCheckpointRe.test(snapshot.content),
     ...(requestedNavigationUrl ? { navigationUrl: requestedNavigationUrl } : {})
   };
 }`;
