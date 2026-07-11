@@ -35,10 +35,13 @@ describe("PAGE_RUNNER_SOURCE", () => {
 
   it("hands anchor navigation back to native before clicking", () => {
     const navigationAssignment = PAGE_RUNNER_SOURCE.indexOf("requestedNavigationUrl = anchorUrl");
-    const fallbackClick = PAGE_RUNNER_SOURCE.indexOf("element.click()", navigationAssignment);
+    const fallbackActivation = PAGE_RUNNER_SOURCE.indexOf(
+      "activatePointerTarget",
+      navigationAssignment
+    );
 
     expect(navigationAssignment).toBeGreaterThanOrEqual(0);
-    expect(fallbackClick).toBeGreaterThan(navigationAssignment);
+    expect(fallbackActivation).toBeGreaterThan(navigationAssignment);
     expect(PAGE_RUNNER_SOURCE).toMatch(
       /\.\.\.\(requestedNavigationUrl \? \{ navigationUrl: requestedNavigationUrl \} : \{\}\)/
     );
@@ -115,6 +118,82 @@ describe("PAGE_RUNNER_SOURCE", () => {
 
     expect(result.navigationUrl).toBeUndefined();
     expect(clickSpy).toHaveBeenCalledTimes(1);
+    clickSpy.mockRestore();
+  });
+
+  it("hands Enter in GET search forms back to native before synthesizing key events", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("MutationObserver", TestMutationObserver);
+    document.body.innerHTML = `
+      <form action="/search" method="get">
+        <input id="q" name="text" value="бриошь" />
+      </form>
+    `;
+    const field = document.getElementById("q");
+    field?.focus();
+    const runner = Function(`"use strict"; return (${PAGE_RUNNER_SOURCE});`)() as (input: {
+      maxChars: number;
+      maxElements: number;
+      maxExtractItems: number;
+      settleAfterMutationMs: number;
+      domReadyTimeoutMs: number;
+      operations: Array<{ kind: string; key: string }>;
+    }) => Promise<{ navigationUrl?: string }>;
+
+    const resultPromise = runner({
+      maxChars: 1_000,
+      maxElements: 10,
+      maxExtractItems: 10,
+      settleAfterMutationMs: 0,
+      domReadyTimeoutMs: 1_000,
+      operations: [{ kind: "press", key: "Enter" }]
+    });
+    await vi.advanceTimersByTimeAsync(750);
+    const result = await resultPromise;
+
+    expect(result.navigationUrl).toBeTruthy();
+    const parsed = new URL(result.navigationUrl!);
+    expect(parsed.pathname).toBe("/search");
+    expect(parsed.searchParams.get("text")).toBe("бриошь");
+  });
+
+  it("uses native pointer tap when nativePointer is enabled", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("MutationObserver", TestMutationObserver);
+    vi.stubGlobal("webkit", undefined);
+    document.body.innerHTML = `<button id="add">Add</button>`;
+    const requestPointerTap = vi.fn();
+    (
+      window as Window & {
+        PersaiBrowserBridgeNative?: { requestPointerTap: typeof requestPointerTap };
+      }
+    ).PersaiBrowserBridgeNative = { requestPointerTap };
+    const clickSpy = vi.spyOn(HTMLButtonElement.prototype, "click");
+    const runner = Function(`"use strict"; return (${PAGE_RUNNER_SOURCE});`)() as (input: {
+      maxChars: number;
+      maxElements: number;
+      maxExtractItems: number;
+      settleAfterMutationMs: number;
+      domReadyTimeoutMs: number;
+      nativePointer: boolean;
+      operations: Array<{ kind: string; selector: string }>;
+    }) => Promise<unknown>;
+
+    const resultPromise = runner({
+      maxChars: 1_000,
+      maxElements: 10,
+      maxExtractItems: 10,
+      settleAfterMutationMs: 0,
+      domReadyTimeoutMs: 1_000,
+      nativePointer: true,
+      operations: [{ kind: "click", selector: "#add" }]
+    });
+    await vi.runAllTimersAsync();
+    await resultPromise;
+
+    expect(requestPointerTap).toHaveBeenCalledTimes(1);
+    expect(clickSpy).not.toHaveBeenCalled();
+    delete (window as Window & { PersaiBrowserBridgeNative?: unknown }).PersaiBrowserBridgeNative;
     clickSpy.mockRestore();
   });
 

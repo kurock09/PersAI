@@ -105,6 +105,100 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     }
     return target.href;
   };
+  const resolveGetFormNavigationUrlFromField = (field) => {
+    if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement)) return null;
+    const form = field.form;
+    if (!(form instanceof HTMLFormElement)) return null;
+    const method = (form.getAttribute("method") || "get").trim().toLowerCase();
+    if (method !== "get") return null;
+    let target;
+    try {
+      target = new URL(form.getAttribute("action") || "", window.location.href);
+    } catch {
+      return null;
+    }
+    if (!/^https?:$/i.test(target.protocol)) return null;
+    const formData = new FormData(form);
+    for (const [key, value] of formData.entries()) {
+      if (typeof value === "string") target.searchParams.append(key, value);
+    }
+    return target.href;
+  };
+  const withoutOwnershipOverlay = async (fn) => {
+    const ownershipOverlay = document.getElementById("__persai_assistant_ownership__");
+    const previousPointerEvents = ownershipOverlay instanceof HTMLElement ? ownershipOverlay.style.pointerEvents : "";
+    if (ownershipOverlay instanceof HTMLElement) ownershipOverlay.style.pointerEvents = "none";
+    try {
+      return await fn();
+    } finally {
+      if (ownershipOverlay instanceof HTMLElement) ownershipOverlay.style.pointerEvents = previousPointerEvents;
+    }
+  };
+  const requestNativePointerTap = (x, y) => new Promise((resolve, reject) => {
+    const bridge = window.PersaiBrowserBridgeNative;
+    if (input.nativePointer && bridge && typeof bridge.requestPointerTap === "function") {
+      try {
+        bridge.requestPointerTap(x, y);
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+      return;
+    }
+    const handler = window.webkit?.messageHandlers?.persaiBrowserBridgeNative;
+    if (input.nativePointer && handler && typeof handler.postMessage === "function") {
+      const syncId = Math.random().toString(36).slice(2);
+      const timeoutId = window.setTimeout(() => {
+        delete window.__persaiPointerTapWait;
+        reject(new Error("Native pointer tap timed out."));
+      }, 3000);
+      window.__persaiPointerTapWait = (id) => {
+        if (id !== syncId) return;
+        window.clearTimeout(timeoutId);
+        delete window.__persaiPointerTapWait;
+        resolve();
+      };
+      handler.postMessage({
+        type: "pointer_tap",
+        syncId,
+        x,
+        y,
+        runId: typeof window.__persaiRunnerRunId === "string" ? window.__persaiRunnerRunId : null
+      });
+      return;
+    }
+    reject(new Error("Native pointer tap is unavailable."));
+  });
+  const activatePointerTarget = async (element) => {
+    if (!(element instanceof HTMLElement)) throw new Error("Target element is not clickable.");
+    try {
+      element.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
+    } catch {}
+    const rect = element.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    if (input.nativePointer) {
+      try {
+        await withoutOwnershipOverlay(() => requestNativePointerTap(x, y));
+        await sleep(input.settleAfterMutationMs);
+        return;
+      } catch {}
+    }
+    element.click();
+    await sleep(input.settleAfterMutationMs);
+  };
+  const activatePointerAt = async (x, y, fallbackElement) => {
+    if (input.nativePointer) {
+      try {
+        await withoutOwnershipOverlay(() => requestNativePointerTap(x, y));
+        await sleep(input.settleAfterMutationMs);
+        return;
+      } catch {}
+    }
+    if (!(fallbackElement instanceof HTMLElement)) throw new Error("No clickable element at the requested coordinates.");
+    fallbackElement.click();
+    await sleep(input.settleAfterMutationMs);
+  };
   const waitForDomStabilityBeforeRead = () => new Promise((resolve) => {
     const quietIntervalMs = 750;
     let observer = null;
@@ -171,21 +265,14 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
             if (formNavigationUrl) {
               requestedNavigationUrl = formNavigationUrl;
             } else {
-              element.click();
-              await sleep(input.settleAfterMutationMs);
+              await activatePointerTarget(element);
             }
           }
           break;
         }
         case "click_at": {
-          const ownershipOverlay = document.getElementById("__persai_assistant_ownership__");
-          const previousPointerEvents = ownershipOverlay?.style.pointerEvents ?? "";
-          if (ownershipOverlay instanceof HTMLElement) ownershipOverlay.style.pointerEvents = "none";
-          const element = document.elementFromPoint(operation.x, operation.y);
-          if (ownershipOverlay instanceof HTMLElement) ownershipOverlay.style.pointerEvents = previousPointerEvents;
-          if (!(element instanceof HTMLElement)) throw new Error("No clickable element at the requested coordinates.");
-          element.click();
-          await sleep(input.settleAfterMutationMs);
+          const element = await withoutOwnershipOverlay(() => document.elementFromPoint(operation.x, operation.y));
+          await activatePointerAt(operation.x, operation.y, element);
           break;
         }
         case "extract": {
@@ -206,9 +293,23 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
           break;
         }
         case "press": {
-          const target = document.activeElement ?? document.body;
-          target?.dispatchEvent(new KeyboardEvent("keydown", { key: operation.key, bubbles: true }));
-          target?.dispatchEvent(new KeyboardEvent("keyup", { key: operation.key, bubbles: true }));
+          const key = operation.key === "Return" ? "Enter" : operation.key;
+          const activeField = document.activeElement;
+          if (key === "Enter") {
+            const formNavigationUrl = resolveGetFormNavigationUrlFromField(activeField);
+            if (formNavigationUrl) {
+              requestedNavigationUrl = formNavigationUrl;
+              break;
+            }
+          }
+          const bridge = window.PersaiBrowserBridgeNative;
+          if (input.nativePointer && bridge && typeof bridge.requestKeyPress === "function" && (key === "Enter" || key === "Tab" || key === "Backspace")) {
+            bridge.requestKeyPress(key);
+          } else {
+            const target = activeField ?? document.body;
+            target?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+            target?.dispatchEvent(new KeyboardEvent("keyup", { key, bubbles: true }));
+          }
           await sleep(input.settleAfterMutationMs);
           break;
         }

@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-140 native pointer tap for Capacitor WebView interactions
+
+Status: **implemented locally; Android 1.0.30 exported; commit/push pending.**
+
+**Scope:** Production fix for mobile browser bridge clicks/Enter on touch-first SPAs (Lavka, WB). Android dispatches real `MotionEvent` taps; shared page runner uses native pointer when `nativePointer: true`; Enter in GET search forms uses declarative navigation handoff like submit buttons. No UA spoofing, no runtime `stayOnPage` defaults.
+
+**Cause:** Logcat proved profile WebView sessions persist across turns. Mobile Lavka ignored synthetic `element.click()`; ADR-140 `isTrusted` boundary required native pointer input on Capacitor.
+
+**Verification:** PersAI lint/format/typecheck PASS; web page-runner tests 11/11; mobile bridge tests 14/14; Android `1.0.30` / `versionCode 32` release build + export PASS.
+
+**Next recommended step:** deploy web, install Android 1.0.30, re-run Lavka cart scenario on phone.
+
+---
+
 ## 2026-07-11 — ADR-141 open_view blank-screen regression fix
 
 Status: **implemented locally; Android 1.0.27 export + commit/push pending.**
