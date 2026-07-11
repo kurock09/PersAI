@@ -169,6 +169,15 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     }
     reject(new Error("Native pointer tap is unavailable."));
   });
+  const shouldHandoffAnchorNavigation = (anchorUrl) => {
+    if (!/^https?:\/\//i.test(anchorUrl)) return false;
+    if (!input.nativePointer) return true;
+    try {
+      return new URL(anchorUrl).origin !== new URL(window.location.href).origin;
+    } catch {
+      return true;
+    }
+  };
   const activatePointerTarget = async (element) => {
     if (!(element instanceof HTMLElement)) throw new Error("Target element is not clickable.");
     try {
@@ -258,7 +267,7 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
           const element = getIndexedElement(operation.selector, operation.matchIndex);
           const anchor = element.closest?.("a[href]");
           const anchorUrl = anchor instanceof HTMLAnchorElement ? anchor.href : "";
-          if (/^https?:\/\//i.test(anchorUrl)) {
+          if (shouldHandoffAnchorNavigation(anchorUrl)) {
             requestedNavigationUrl = anchorUrl;
           } else {
             const formNavigationUrl = resolveGetFormNavigationUrl(element);

@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-140 same-origin SPA link clicks on Capacitor
+
+Status: **implemented locally; Android 1.0.31 exported; commit/push pending.**
+
+Baseline SHAs: PersAI (pre-commit); `persai-mobile` (pre-commit).
+
+**Scope:** Stop assistant link clicks on Lavka/mobile SPA from forcing `webView.loadUrl()` (F5) and re-triggering «Где продолжим?». Same-origin `<a href>` clicks with `nativePointer` now use native `MotionEvent` taps; cross-origin anchors and GET-form submits still use declarative native navigation handoff.
+
+**Cause:** Page runner sent every anchor click to `navigationUrl` → `loadUrl`. Manual user taps stayed in SPA; assistant reload looked like F5.
+
+**Verification:** PersAI lint/format/typecheck + page-runner tests; mobile bridge 14/14; Android `1.0.31` / `versionCode 33` release build + export PASS.
+
+**Next recommended step:** install Android 1.0.31, re-test Lavka: «Корзина»/«Каталог» without modal spam; «Увеличить» + Enter search separately.
+
+---
+
 ## 2026-07-11 — ADR-140 native pointer tap for Capacitor WebView interactions
 
 Status: **implemented locally; Android 1.0.30 exported; commit/push done; deploy/install/live Lavka acceptance pending.**

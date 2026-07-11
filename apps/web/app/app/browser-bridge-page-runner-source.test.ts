@@ -34,17 +34,18 @@ describe("PAGE_RUNNER_SOURCE", () => {
   });
 
   it("hands anchor navigation back to native before clicking", () => {
-    const navigationAssignment = PAGE_RUNNER_SOURCE.indexOf("requestedNavigationUrl = anchorUrl");
-    const fallbackActivation = PAGE_RUNNER_SOURCE.indexOf(
-      "activatePointerTarget",
-      navigationAssignment
-    );
-
-    expect(navigationAssignment).toBeGreaterThanOrEqual(0);
-    expect(fallbackActivation).toBeGreaterThan(navigationAssignment);
+    expect(PAGE_RUNNER_SOURCE).toMatch(/shouldHandoffAnchorNavigation/);
     expect(PAGE_RUNNER_SOURCE).toMatch(
       /\.\.\.\(requestedNavigationUrl \? \{ navigationUrl: requestedNavigationUrl \} : \{\}\)/
     );
+  });
+
+  it("keeps same-origin anchor clicks on the native pointer path", () => {
+    expect(PAGE_RUNNER_SOURCE).toMatch(/shouldHandoffAnchorNavigation/);
+    expect(PAGE_RUNNER_SOURCE).toMatch(
+      /new URL\(anchorUrl\)\.origin !== new URL\(window\.location\.href\)\.origin/
+    );
+    expect(PAGE_RUNNER_SOURCE).toMatch(/if \(shouldHandoffAnchorNavigation\(anchorUrl\)\)/);
   });
 
   it("hands GET form submit navigation back to native before clicking", async () => {
