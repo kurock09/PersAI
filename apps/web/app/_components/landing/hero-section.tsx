@@ -29,7 +29,7 @@ export async function LandingHeroSection() {
           ) : null}
         </h1>
 
-        <p className="animate-fade-in-up-delay mt-6 max-w-[34rem] text-sm leading-relaxed text-text-muted sm:text-lg">
+        <p className="animate-fade-in-up-delay mt-6 max-w-[34rem] text-base leading-relaxed text-text-muted sm:text-lg">
           {t("subtitle")}
         </p>
       </div>

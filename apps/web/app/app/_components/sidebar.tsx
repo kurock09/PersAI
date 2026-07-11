@@ -1022,7 +1022,7 @@ function ChatListItem({
             if (e.key === "Escape") setRenaming(false);
           }}
           onBlur={() => void handleRename()}
-          className="min-w-0 flex-1 rounded-lg border border-accent bg-surface-raised px-2 py-1.5 text-xs text-text outline-none"
+          className="min-w-0 flex-1 rounded-lg border border-accent bg-surface-raised px-2 py-1.5 text-base text-text outline-none md:text-sm"
           maxLength={80}
         />
       </div>

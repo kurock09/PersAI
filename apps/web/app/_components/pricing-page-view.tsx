@@ -430,14 +430,14 @@ export function PricingPageView({
           {plans.length === 0 ? (
             <div className="mx-auto mt-10 w-full max-w-2xl rounded-3xl border border-border/80 bg-surface/70 p-6 text-center">
               <p className="text-lg font-medium text-text">{t("emptyTitle")}</p>
-              <p className="mt-2 text-sm text-text-muted">{t("emptyBody")}</p>
+              <p className="mt-2 text-base text-text-muted md:text-sm">{t("emptyBody")}</p>
             </div>
           ) : (
             <>
               {pricingFeedback ? (
                 <div
                   className={cn(
-                    "mx-auto mt-6 w-full max-w-3xl rounded-2xl border px-4 py-3 text-sm",
+                    "mx-auto mt-6 w-full max-w-3xl rounded-2xl border px-4 py-3 text-base md:text-sm",
                     pricingFeedback.type === "ok"
                       ? "border-emerald-500/20 bg-emerald-500/10 text-text"
                       : "border-danger/20 bg-danger/10 text-danger"
@@ -563,7 +563,9 @@ export function PricingPageView({
 
                       <div className="mt-3">
                         {subtitle ? (
-                          <p className="text-sm leading-6 text-text-muted">{subtitle}</p>
+                          <p className="text-base leading-6 text-text-muted md:text-sm">
+                            {subtitle}
+                          </p>
                         ) : null}
                       </div>
 
@@ -595,7 +597,7 @@ export function PricingPageView({
                         {(highlights.length > 0 ? highlights : facts).map((item) => (
                           <li
                             key={item}
-                            className="flex items-start gap-2.5 text-sm leading-6 text-text-muted"
+                            className="flex items-start gap-2.5 text-base leading-6 text-text-muted md:text-sm"
                           >
                             <Check
                               className={cn(
@@ -618,7 +620,7 @@ export function PricingPageView({
                             {t("alreadyActive")}
                           </div>
                         ) : showFreeSettingsHint ? (
-                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-sm leading-6 text-text-muted">
+                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-base leading-6 text-text-muted md:text-sm">
                             {t("freePlanSettingsHint")}{" "}
                             <Link
                               href={freeSettingsHref}
@@ -628,19 +630,19 @@ export function PricingPageView({
                             </Link>
                           </p>
                         ) : showScheduledFreeHint ? (
-                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-sm leading-6 text-text-muted">
+                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-base leading-6 text-text-muted md:text-sm">
                             {t("switchToFreeScheduled")}
                           </p>
                         ) : showTrialFreeHint ? (
-                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-sm leading-6 text-text-muted">
+                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-base leading-6 text-text-muted md:text-sm">
                             {t("trialFreePlanHint")}
                           </p>
                         ) : showFreePlanBillingLoadingHint ? (
-                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-sm leading-6 text-text-muted">
+                          <p className="rounded-2xl border border-border/70 bg-bg/60 px-4 py-3 text-base leading-6 text-text-muted md:text-sm">
                             {t("freePlanBillingLoadingHint")}
                           </p>
                         ) : showFreePlanBillingUnavailableHint ? (
-                          <p className="rounded-2xl border border-danger/20 bg-danger/10 px-4 py-3 text-sm leading-6 text-danger">
+                          <p className="rounded-2xl border border-danger/20 bg-danger/10 px-4 py-3 text-base leading-6 text-danger md:text-sm">
                             {t("billingStateUnavailable")}
                           </p>
                         ) : signedIn ? (
@@ -689,7 +691,7 @@ export function PricingPageView({
                       ? t("reviewUpgradeTitle")
                       : t("reviewDowngradeTitle")}
                   </h3>
-                  <p className="mt-1 text-sm text-text-muted">
+                  <p className="mt-1 text-base text-text-muted md:text-sm">
                     {reviewState.kind === "upgrade"
                       ? t("reviewUpgradeBody", {
                           currentPlan: reviewState.currentPlanName ?? t("dateUnavailable"),
@@ -721,7 +723,7 @@ export function PricingPageView({
               </div>
             </div>
             <div className="space-y-4 px-5 py-5 sm:px-6">
-              <div className="rounded-2xl border border-border/80 bg-surface-raised/40 p-4 text-sm text-text-muted">
+              <div className="rounded-2xl border border-border/80 bg-surface-raised/40 p-4 text-base text-text-muted md:text-sm">
                 {reviewState.kind === "upgrade"
                   ? t("reviewUpgradeHelp", {
                       targetPlan: reviewState.targetPlanName,

@@ -616,12 +616,12 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                   : t("titleWithPlan", { plan: planLabel ?? "" })
                 : t("title")}
             </h1>
-            <p className="mt-3 text-sm leading-6 text-text-muted">
+            <p className="mt-3 text-base leading-6 text-text-muted md:text-sm">
               {resolveCheckoutSubtitle(paymentIntent, t)}
             </p>
 
             {loading ? (
-              <div className="mt-8 flex items-center gap-3 rounded-2xl border border-border/70 bg-bg/60 px-4 py-4 text-sm text-text-muted">
+              <div className="mt-8 flex items-center gap-3 rounded-2xl border border-border/70 bg-bg/60 px-4 py-4 text-base text-text-muted md:text-sm">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {t("loading")}
               </div>
@@ -630,8 +630,10 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                 <div className="flex items-start gap-3">
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-danger">{t("errorTitle")}</p>
-                    <p className="mt-1 text-sm leading-6 text-text-muted">{error}</p>
+                    <p className="text-base font-medium text-danger md:text-sm">
+                      {t("errorTitle")}
+                    </p>
+                    <p className="mt-1 text-base leading-6 text-text-muted md:text-sm">{error}</p>
                   </div>
                 </div>
                 <Link
@@ -652,8 +654,10 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                 {staticCheckoutState !== null ? (
                   <div className="mt-5 space-y-4 sm:mt-6">
                     <div className="rounded-2xl border border-border/70 bg-bg/60 p-4">
-                      <p className="text-sm font-medium text-text">{staticCheckoutState.title}</p>
-                      <p className="mt-1 text-sm leading-6 text-text-muted">
+                      <p className="text-base font-medium text-text md:text-sm">
+                        {staticCheckoutState.title}
+                      </p>
+                      <p className="mt-1 text-base leading-6 text-text-muted md:text-sm">
                         {staticCheckoutState.body}
                       </p>
                     </div>
@@ -707,7 +711,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                   <div className="mt-5 space-y-4 sm:mt-6">
                     <div className="overflow-hidden">
                       {mountingPaymentForm || !paymentFormVisible ? (
-                        <div className="flex min-h-[16rem] items-center justify-center gap-3 text-sm text-text-muted">
+                        <div className="flex min-h-[16rem] items-center justify-center gap-3 text-base text-text-muted md:text-sm">
                           <Loader2 className="h-4 w-4 animate-spin" />
                           {t("loadingPaymentForm")}
                         </div>
@@ -722,12 +726,12 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                     </div>
 
                     {paymentError ? (
-                      <div className="rounded-2xl border border-danger/20 bg-danger/8 px-4 py-3 text-sm text-text-muted">
+                      <div className="rounded-2xl border border-danger/20 bg-danger/8 px-4 py-3 text-base text-text-muted md:text-sm">
                         {paymentError}
                       </div>
                     ) : null}
 
-                    <details className="group rounded-2xl border border-border/70 bg-bg/40 p-4 text-sm text-text-muted">
+                    <details className="group rounded-2xl border border-border/70 bg-bg/40 p-4 text-base text-text-muted md:text-sm">
                       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium text-text transition-colors hover:text-text-muted">
                         <span>{t("paymentHelpTitle")}</span>
                         <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
@@ -777,7 +781,7 @@ export default function BillingCheckoutPage({ params }: { params?: { paymentInte
                     </button>
                   </div>
                 ) : (
-                  <div className="mt-5 rounded-2xl border border-border/70 bg-bg/60 p-4 text-sm leading-6 text-text-muted sm:mt-6">
+                  <div className="mt-5 rounded-2xl border border-border/70 bg-bg/60 p-4 text-base leading-6 text-text-muted md:text-sm sm:mt-6">
                     {t("unsupportedMode")}
                   </div>
                 )}

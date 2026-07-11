@@ -12,7 +12,7 @@ export function PublicAuthCardHeader(props: { title: ReactNode; description?: Re
       <div className="min-w-0 pr-2">
         <h2 className="text-lg font-semibold text-text">{title}</h2>
         {description ? (
-          <p className="mt-1 text-xs leading-relaxed text-text-muted">{description}</p>
+          <p className="mt-1 text-base leading-relaxed text-text-muted md:text-sm">{description}</p>
         ) : null}
       </div>
 

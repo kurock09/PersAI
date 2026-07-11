@@ -237,7 +237,7 @@ export default function SignInPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={t("emailPlaceholder")}
                 autoFocus
-                className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-base text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent md:text-sm"
               />
               {fieldErrors?.identifier && (
                 <p className="mt-1 text-xs text-destructive">
@@ -330,7 +330,7 @@ export default function SignInPage() {
                 placeholder={t("codePlaceholder")}
                 autoFocus
                 maxLength={8}
-                className="mt-5 w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-center text-lg tracking-widest text-text placeholder:text-sm placeholder:tracking-normal placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                className="mt-5 w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-center text-lg tracking-widest text-text placeholder:text-base placeholder:tracking-normal placeholder:text-text-subtle md:placeholder:text-sm outline-none transition-colors focus:border-accent"
               />
 
               <button
@@ -384,7 +384,7 @@ export default function SignInPage() {
                 onChange={(e) => setResetEmail(e.target.value)}
                 placeholder={t("emailPlaceholder")}
                 autoFocus
-                className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-base text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent md:text-sm"
               />
 
               <button
@@ -431,7 +431,7 @@ export default function SignInPage() {
                 placeholder={t("codePlaceholder")}
                 autoFocus
                 maxLength={8}
-                className="mt-5 w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-center text-lg tracking-widest text-text placeholder:text-sm placeholder:tracking-normal placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                className="mt-5 w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-center text-lg tracking-widest text-text placeholder:text-base placeholder:tracking-normal placeholder:text-text-subtle md:placeholder:text-sm outline-none transition-colors focus:border-accent"
               />
 
               <button

@@ -118,7 +118,7 @@ function PillarCard(props: { number: number; tone: PillarTone; title: string; bo
         {String(props.number).padStart(2, "0")}
       </span>
       <h3 className="text-lg font-semibold leading-snug text-text">{props.title}</h3>
-      <p className="mt-3 text-sm leading-relaxed text-text-muted">{props.body}</p>
+      <p className="mt-3 text-base leading-relaxed text-text-muted md:text-sm">{props.body}</p>
     </article>
   );
 }

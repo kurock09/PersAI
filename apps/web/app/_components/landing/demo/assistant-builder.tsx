@@ -88,7 +88,7 @@ function InstructionField({
         <span className="mb-2 block text-[11px] font-medium uppercase tracking-[0.16em] text-text-subtle">
           {instructionLabel}
         </span>
-        <span className="block min-h-[4.25rem] text-sm leading-relaxed text-text">
+        <span className="block min-h-[4.25rem] text-base leading-relaxed text-text md:text-sm">
           {instructionValue}
           {!isDone ? (
             <span className="ml-0.5 inline-block h-4 w-1 rounded-sm bg-accent/65 align-middle" />
@@ -244,7 +244,7 @@ export function AssistantBuilder({
           <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-text-subtle">
             {labels.title}
           </p>
-          <p className="mt-1 text-sm text-text-muted">{labels.subtitle}</p>
+          <p className="mt-1 text-base text-text-muted md:text-sm">{labels.subtitle}</p>
         </div>
 
         <AvatarGrid selected={step >= 1} />

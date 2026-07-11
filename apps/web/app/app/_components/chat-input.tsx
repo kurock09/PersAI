@@ -1165,7 +1165,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               className="mt-0.5 h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:cursor-not-allowed"
             />
             <span className="min-w-0">
-              <span className="block text-sm text-text">{t("knowledgeAddToBase")}</span>
+              <span className="block text-base text-text md:text-sm">
+                {t("knowledgeAddToBase")}
+              </span>
               <span className="block text-xs text-text-muted">{t("knowledgeAddToBaseHint")}</span>
             </span>
           </label>
@@ -1209,7 +1211,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
         {isTranscribing && (
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2">
             <Loader2 className="h-4 w-4 animate-spin text-accent" />
-            <span className="text-sm text-text-muted">{t("transcribing")}</span>
+            <span className="text-base text-text-muted md:text-sm">{t("transcribing")}</span>
           </div>
         )}
 
@@ -1503,7 +1505,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               onPaste={handlePaste}
               style={{ resize: "none" }}
               className={cn(
-                "flex-1 resize-none bg-transparent text-sm leading-5 text-text placeholder:text-text-subtle",
+                "flex-1 resize-none bg-transparent text-base leading-6 text-text placeholder:text-text-subtle md:text-sm md:leading-5",
                 "outline-none",
                 "max-h-[200px] py-2.5 pl-0.5 pr-1",
                 isTouchDevice && isRecording && "opacity-0"

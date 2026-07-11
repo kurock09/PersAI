@@ -200,7 +200,7 @@ export function DemoComposer(props: DemoComposerProps) {
           placeholder={placeholder}
           disabled={disabled}
           aria-label={placeholder}
-          className="flex-1 bg-transparent px-0.5 text-sm leading-5 text-text outline-none placeholder:text-text-subtle disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex-1 bg-transparent px-0.5 text-base leading-6 text-text outline-none placeholder:text-text-subtle disabled:cursor-not-allowed disabled:opacity-50 md:text-sm md:leading-5"
           onChange={(e) => onChange(e.target.value)}
           onFocus={onFocus}
           onKeyDown={(e) => {
@@ -229,7 +229,9 @@ export function DemoComposer(props: DemoComposerProps) {
       >
         <Paperclip className="h-4 w-4" aria-hidden="true" />
       </button>
-      <span className="flex-1 px-0.5 text-sm leading-5 text-text-subtle">{placeholder}</span>
+      <span className="flex-1 px-0.5 text-base leading-6 text-text-subtle md:text-sm md:leading-5">
+        {placeholder}
+      </span>
       {endSlot}
     </div>
   );

@@ -38,7 +38,7 @@ export function OfflineGate() {
         <h2 id="offline-title" className="mb-2 text-lg font-medium text-text">
           {t("title")}
         </h2>
-        <p className="mb-6 text-sm text-text-muted">{t("message")}</p>
+        <p className="mb-6 text-base text-text-muted md:text-sm">{t("message")}</p>
         <button
           type="button"
           onClick={() => {

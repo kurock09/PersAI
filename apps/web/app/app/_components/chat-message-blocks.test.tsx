@@ -135,7 +135,7 @@ describe("assistant response blocks", () => {
     expect(screen.getByText("H3")).toBeInTheDocument();
     expect(screen.getByText("H1")).toHaveClass("text-[19px]");
     expect(screen.getByText("H2")).toHaveClass("text-[17px]");
-    expect(screen.getByText("H3")).toHaveClass("text-[14px]");
+    expect(screen.getByText("H3")).toHaveClass("text-base", "md:text-[14px]");
   });
 
   it("preserves single-line breaks inside assistant body paragraphs", () => {

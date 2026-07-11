@@ -40,7 +40,7 @@ interface AssistantRowProps {
  * Two-column flex layout:
  *   - Left: `w-11` (44 px) gutter, visible on md+, contains `AssistantAvatar size="sm"`.
  *     On mobile the gutter is hidden so content runs full-width.
- *   - Right: `min-w-0 flex-1` prose column, `text-sm text-text leading-relaxed`.
+ *   - Right: `min-w-0 flex-1` prose column, `text-base md:text-sm text-text leading-relaxed`.
  *
  * This approach is self-contained: no extra left padding on the thread
  * container is needed, and the avatar is always visible at md+ regardless
@@ -66,7 +66,7 @@ export function AssistantRow({
       </div>
       {/* Prose content — full-width flex-1, matches chat-message.tsx */}
       <div className="min-w-0 flex-1">
-        <div className="min-w-0 max-w-full break-words text-sm leading-relaxed text-text">
+        <div className="min-w-0 max-w-full break-words text-base leading-relaxed text-text md:text-sm">
           {children}
         </div>
       </div>
@@ -78,7 +78,7 @@ export function UserBubble({ children }: { children: ReactNode }) {
   return (
     <div className="group relative flex items-center justify-end py-2 md:py-3">
       <div className="flex max-w-[92%] flex-col items-end gap-1 sm:max-w-[85%] md:max-w-[75%]">
-        <div className="min-w-0 max-w-full rounded-2xl rounded-br-md bg-accent/15 px-3 py-2 text-sm leading-relaxed text-text md:px-4 md:py-2.5">
+        <div className="min-w-0 max-w-full rounded-2xl rounded-br-md bg-accent/15 px-3 py-2 text-base leading-relaxed text-text md:px-4 md:py-2.5 md:text-sm">
           {children}
         </div>
       </div>

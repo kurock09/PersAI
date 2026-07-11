@@ -564,7 +564,9 @@ export function BrowserLoginModal({
           <div className="mx-auto flex w-full max-w-md flex-col items-center gap-5 text-center">
             <section>
               <p className="text-lg font-semibold tracking-tight text-text">{stepTitle}</p>
-              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-text-muted">{stepBody}</p>
+              <p className="mx-auto mt-2 max-w-sm text-base leading-6 text-text-muted md:text-sm">
+                {stepBody}
+              </p>
             </section>
 
             {bridgeTarget && extensionConnected && completionMode === "login" ? (
@@ -595,8 +597,10 @@ export function BrowserLoginModal({
                 className="w-full rounded-2xl border border-border bg-bg px-4 py-4 text-left"
                 data-testid="browser-login-instructions"
               >
-                <p className="text-sm font-medium text-text">{t("browserLoginHowItWorks")}</p>
-                <p className="mt-1 text-sm leading-6 text-text-muted">
+                <p className="text-base font-medium text-text md:text-sm">
+                  {t("browserLoginHowItWorks")}
+                </p>
+                <p className="mt-1 text-base leading-6 text-text-muted md:text-sm">
                   {t("browserLoginHelpBody")}
                 </p>
               </section>

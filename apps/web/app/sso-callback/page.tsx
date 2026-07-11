@@ -96,7 +96,7 @@ export default function SSOCallbackPage() {
     <div className="flex min-h-screen items-center justify-center">
       <div className="flex flex-col items-center gap-3">
         <Loader2 className="h-6 w-6 animate-spin text-accent" />
-        <p className="text-sm text-text-muted">{t("signingIn")}</p>
+        <p className="text-base text-text-muted md:text-sm">{t("signingIn")}</p>
       </div>
     </div>
   );

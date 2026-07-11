@@ -56,7 +56,7 @@ export function HomeDashboard({ data, onSettingsClick }: HomeDashboardProps) {
             className="mb-5"
           />
           <h1 className="text-2xl font-bold text-text sm:text-3xl">{assistantName}</h1>
-          <p className="mt-2 text-sm text-text-muted">{greeting}</p>
+          <p className="mt-2 text-base text-text-muted md:text-sm">{greeting}</p>
           {daysTogether !== null && daysTogether > 1 && (
             <p className="mt-3 rounded-full bg-surface-raised px-4 py-1.5 text-[11px] text-text-subtle">
               {t("togetherFor", { days: daysTogether })}

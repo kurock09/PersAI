@@ -58,9 +58,7 @@ export async function LandingFinaleSection() {
           ) : null}
         </h2>
 
-        <p className="mt-5 max-w-[34rem] text-sm leading-relaxed text-text-muted sm:text-base">
-          {t("body")}
-        </p>
+        <p className="mt-5 max-w-[34rem] text-base leading-relaxed text-text-muted">{t("body")}</p>
 
         <div className="mt-6 grid w-full max-w-2xl gap-2 sm:grid-cols-3">
           {trustItems.map((item) => (

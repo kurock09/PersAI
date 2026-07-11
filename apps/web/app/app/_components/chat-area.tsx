@@ -787,7 +787,7 @@ export function ChatArea({
           <div className="min-w-0 flex-1">
             {chat.issue.classId === "voice_transcription_empty" ? (
               <>
-                <p className={`text-sm font-medium ${issueTextClass}`}>
+                <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
                   {t("voiceTranscriptionEmptyTitle")}
                 </p>
                 <p className="mt-0.5 text-xs text-text-muted">
@@ -796,7 +796,7 @@ export function ChatArea({
               </>
             ) : chat.issue.classId === "compaction_unavailable" ? (
               <>
-                <p className={`text-sm font-medium ${issueTextClass}`}>
+                <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
                   {t("issueCompactionUnavailable")}
                 </p>
                 <p className="mt-0.5 text-xs text-text-muted">
@@ -805,7 +805,7 @@ export function ChatArea({
               </>
             ) : chat.issue.classId === "provider_failure" ? (
               <>
-                <p className={`text-sm font-medium ${issueTextClass}`}>
+                <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
                   {t("issueProviderFailure")}
                 </p>
                 <p className="mt-0.5 text-xs text-text-muted">
@@ -814,7 +814,9 @@ export function ChatArea({
               </>
             ) : (
               <>
-                <p className={`text-sm font-medium ${issueTextClass}`}>{chat.issue.message}</p>
+                <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
+                  {chat.issue.message}
+                </p>
                 <p className="mt-0.5 text-xs text-text-muted">{chat.issue.guidance}</p>
               </>
             )}
@@ -1505,7 +1507,7 @@ function EmptyState({
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
       <AssistantAvatar avatarUrl={avatarUrl} avatarEmoji={avatarEmoji} size="lg" className="mb-6" />
       <h2 className="text-xl font-semibold text-text">{assistantName}</h2>
-      <p className="mt-2 text-sm text-text-muted">{greeting}</p>
+      <p className="mt-2 text-base text-text-muted md:text-sm">{greeting}</p>
       {daysTogether !== null && daysTogether > 1 && (
         <p className="mt-4 rounded-full bg-surface-raised px-4 py-1.5 text-[11px] text-text-subtle">
           {t("togetherFor", { days: daysTogether })}

@@ -560,8 +560,10 @@ function ConnectedView({
               <AlertCircle className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-text">{t("claimRequiredTitle")}</p>
-              <p className="mt-1 text-xs leading-relaxed text-text-muted">
+              <p className="text-base font-semibold text-text md:text-sm">
+                {t("claimRequiredTitle")}
+              </p>
+              <p className="mt-1 text-base leading-relaxed text-text-muted md:text-sm">
                 {t("claimInstructionShort")}
               </p>
             </div>

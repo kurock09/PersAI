@@ -193,7 +193,7 @@ export default function ProfilePage() {
       </button>
 
       <h1 className="text-2xl font-bold text-text">{t("account")}</h1>
-      <p className="mt-1 text-sm text-text-muted">{t("manageProfile")}</p>
+      <p className="mt-1 text-base text-text-muted md:text-sm">{t("manageProfile")}</p>
 
       <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
         <div className="rounded-2xl border border-border bg-surface p-5">
@@ -258,7 +258,7 @@ export default function ProfilePage() {
         <Section icon={<Mail className="h-4 w-4" />} title={t("email")}>
           {user.emailAddresses.map((email) => (
             <div key={email.id} className="flex items-center gap-2">
-              <span className="text-sm text-text">{email.emailAddress}</span>
+              <span className="text-base text-text md:text-sm">{email.emailAddress}</span>
               {email.id === user.primaryEmailAddressId && (
                 <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
                   {t("primary")}
@@ -271,7 +271,7 @@ export default function ProfilePage() {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <Section icon={<User className="h-4 w-4" />} title={t("profileDetails")}>
-          <p className="mb-4 text-sm text-text-muted">{t("profileDetailsHelp")}</p>
+          <p className="mb-4 text-base text-text-muted md:text-sm">{t("profileDetailsHelp")}</p>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1 block text-xs text-text-muted">{t("firstName")}</span>
@@ -309,7 +309,7 @@ export default function ProfilePage() {
         </Section>
 
         <Section icon={<KeyRound className="h-4 w-4" />} title={t("passwordTitle")}>
-          <p className="mb-4 text-sm text-text-muted">{t("passwordHelp")}</p>
+          <p className="mb-4 text-base text-text-muted md:text-sm">{t("passwordHelp")}</p>
           <div className="space-y-3">
             <label className="block">
               <span className="mb-1 block text-xs text-text-muted">{t("currentPassword")}</span>
@@ -433,7 +433,12 @@ function Section({
 function FeedbackLine({ feedback }: { feedback: { type: "ok" | "err"; text: string } | null }) {
   if (!feedback) return null;
   return (
-    <p className={cn("mt-3 text-sm", feedback.type === "ok" ? "text-success" : "text-destructive")}>
+    <p
+      className={cn(
+        "mt-3 text-base md:text-sm",
+        feedback.type === "ok" ? "text-success" : "text-destructive"
+      )}
+    >
       {feedback.text}
     </p>
   );

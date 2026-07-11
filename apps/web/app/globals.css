@@ -131,10 +131,16 @@ button:not(:disabled),
   margin: 0 0 0.625rem;
   padding: 0 0 0 0.625rem;
   color: color-mix(in srgb, var(--accent-premium) 72%, var(--text) 28%);
-  font-size: 0.9375rem;
+  font-size: 1rem;
   font-weight: 600;
   line-height: 1.5rem;
   letter-spacing: 0;
+}
+
+@media (min-width: 768px) {
+  .assistant-response-header {
+    font-size: 0.9375rem;
+  }
 }
 
 .assistant-response-header::before {

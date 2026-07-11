@@ -835,7 +835,7 @@ export default function SetupWizardPage() {
               <h2 className="mt-5 text-2xl font-semibold text-text sm:text-3xl">
                 {completionScreen.title}
               </h2>
-              <p className="mt-3 text-sm leading-relaxed text-text-muted sm:text-base">
+              <p className="mt-3 text-base leading-relaxed text-text-muted">
                 {completionScreen.body}
               </p>
               <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/8 px-4 py-2 text-sm text-text">
@@ -1121,7 +1121,7 @@ export default function SetupWizardPage() {
                         <h1 className="mt-1 text-2xl font-semibold leading-tight text-text sm:text-3xl">
                           {t("step2Title")}
                         </h1>
-                        <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                        <p className="mt-2 text-base leading-relaxed text-text-muted md:text-sm">
                           {t("step2Subtitle", { name: assistantName })}
                         </p>
                       </div>
@@ -1268,7 +1268,9 @@ export default function SetupWizardPage() {
                 <h1 className="text-2xl font-semibold text-text sm:text-3xl">
                   {t("step3Title", { name: assistantName })}
                 </h1>
-                <p className="mt-2 text-sm leading-relaxed text-text-muted">{t("step3Subtitle")}</p>
+                <p className="mt-2 text-base leading-relaxed text-text-muted md:text-sm">
+                  {t("step3Subtitle")}
+                </p>
 
                 {/* Simulated chat */}
                 <div className="mt-8 w-full max-w-3xl rounded-3xl border border-border bg-surface p-6 text-left shadow-[0_0_0_1px_rgba(255,255,255,0.02)] sm:p-7">
@@ -1292,7 +1294,9 @@ export default function SetupWizardPage() {
                       )}
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-text">{assistantName}</p>
+                      <p className="truncate text-base font-semibold text-text md:text-sm">
+                        {assistantName}
+                      </p>
                       <p className="text-[10px] text-text-subtle">
                         {t("introducingTo", { user: userName || "you" })}
                       </p>
@@ -1302,7 +1306,9 @@ export default function SetupWizardPage() {
                     {previewLoading ? (
                       <div className="flex min-h-[120px] items-center gap-3 py-2">
                         <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
-                        <p className="text-sm text-text-muted">{t("previewLoading")}</p>
+                        <p className="text-base text-text-muted md:text-sm">
+                          {t("previewLoading")}
+                        </p>
                       </div>
                     ) : (
                       <div className="max-h-[360px] min-h-[140px] overflow-y-auto pr-1">
@@ -1329,7 +1335,9 @@ export default function SetupWizardPage() {
                 </button>
 
                 {(previewError || error) && (
-                  <p className="mt-4 text-sm text-destructive">{previewError ?? error}</p>
+                  <p className="mt-4 text-base text-destructive md:text-sm">
+                    {previewError ?? error}
+                  </p>
                 )}
 
                 <p className="mt-6 text-[10px] text-text-subtle/60 max-w-xs">{t("termsNotice")}</p>
@@ -1535,7 +1543,9 @@ function CountrySelect({
           open ? "border-accent" : "border-border hover:border-border-strong"
         )}
       >
-        <span className={cn("flex-1 text-sm", selected ? "text-text" : "text-text-subtle")}>
+        <span
+          className={cn("flex-1 text-base md:text-sm", selected ? "text-text" : "text-text-subtle")}
+        >
           {display}
         </span>
         <ChevronDown
@@ -1552,7 +1562,7 @@ function CountrySelect({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("searchCountry")}
-              className="w-full bg-transparent text-sm text-text placeholder:text-text-subtle outline-none"
+              className="w-full bg-transparent text-base text-text placeholder:text-text-subtle outline-none md:text-sm"
             />
           </div>
           <div className="custom-scrollbar max-h-56 overflow-y-auto py-1">
@@ -1568,7 +1578,7 @@ function CountrySelect({
                     setOpen(false);
                   }}
                   className={cn(
-                    "flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-left text-sm transition-colors",
+                    "flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-1.5 text-left text-base transition-colors md:text-sm",
                     option.code === value
                       ? "bg-accent/10 text-accent"
                       : "text-text-muted hover:bg-surface-hover hover:text-text"
@@ -1657,7 +1667,9 @@ function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: str
           open ? "border-accent" : "border-border hover:border-border-strong"
         )}
       >
-        <span className={cn("flex-1 text-sm", value ? "text-text" : "text-text-subtle")}>
+        <span
+          className={cn("flex-1 text-base md:text-sm", value ? "text-text" : "text-text-subtle")}
+        >
           {display}
         </span>
         <ChevronDown
@@ -1675,7 +1687,7 @@ function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: str
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={t("searchTimezone")}
-              className="w-full bg-transparent text-sm text-text placeholder:text-text-subtle outline-none"
+              className="w-full bg-transparent text-base text-text placeholder:text-text-subtle outline-none md:text-sm"
             />
           </div>
           <div className="custom-scrollbar max-h-44 overflow-y-auto py-1">
@@ -1688,7 +1700,7 @@ function TimezoneSelect({ value, onChange }: { value: string; onChange: (tz: str
                   type="button"
                   onClick={() => select(tz)}
                   className={cn(
-                    "flex w-full cursor-pointer px-3 py-1.5 text-left text-sm transition-colors",
+                    "flex w-full cursor-pointer px-3 py-1.5 text-left text-base transition-colors md:text-sm",
                     tz === value
                       ? "bg-accent/10 text-accent"
                       : "text-text-muted hover:bg-surface-hover hover:text-text"

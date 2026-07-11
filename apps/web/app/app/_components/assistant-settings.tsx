@@ -637,7 +637,9 @@ function AssistantSwitcherModal({
             >
               {t("switchAssistantTitle")}
             </h2>
-            <p className="mt-1 text-sm text-text-muted">{t("switchAssistantSubtitle")}</p>
+            <p className="mt-1 text-base text-text-muted md:text-sm">
+              {t("switchAssistantSubtitle")}
+            </p>
           </div>
           <button
             type="button"
@@ -722,7 +724,7 @@ function AssistantSwitcherModal({
               )}
             </button>
           ) : (
-            <p className="text-sm text-text-muted">{t("assistantLimitReachedNote")}</p>
+            <p className="text-base text-text-muted md:text-sm">{t("assistantLimitReachedNote")}</p>
           )}
           {assistantLimit ? (
             <p className="mt-2 text-[11px] text-text-subtle">
@@ -2780,7 +2782,7 @@ export function AssistantSettings({
                           <div className="flex items-baseline gap-3">
                             <p
                               className={cn(
-                                "min-w-0 flex-1 text-sm leading-6 text-text",
+                                "min-w-0 flex-1 text-base leading-6 text-text md:text-sm",
                                 expanded ? "whitespace-pre-wrap" : "truncate"
                               )}
                             >
@@ -2938,7 +2940,7 @@ export function AssistantSettings({
                           <div className="flex items-baseline gap-3">
                             <p
                               className={cn(
-                                "min-w-0 flex-1 text-sm leading-6 text-text",
+                                "min-w-0 flex-1 text-base leading-6 text-text md:text-sm",
                                 expanded ? "whitespace-pre-wrap" : "truncate"
                               )}
                             >
@@ -3858,7 +3860,7 @@ export function AssistantSettings({
     return (
       <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
         <Sparkles className="mb-4 h-10 w-10 text-text-subtle" />
-        <p className="text-sm text-text-muted">{t("noAssistant")}</p>
+        <p className="text-base text-text-muted md:text-sm">{t("noAssistant")}</p>
         <p className="mt-1 text-xs text-text-subtle">{t("createFromMain")}</p>
       </div>
     );
@@ -3911,7 +3913,7 @@ export function AssistantSettings({
                       value={draftName}
                       onChange={(e) => setDraftName(e.target.value)}
                       placeholder={t("assistantNamePlaceholder")}
-                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong"
+                      className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-base text-text placeholder:text-text-subtle outline-none transition-colors focus:border-border-strong md:text-sm"
                     />
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                       <div className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] text-text-muted">
@@ -4059,7 +4061,7 @@ export function AssistantSettings({
                   onChange={(e) => setDraftInstructions(e.target.value)}
                   placeholder={t("behaviorPlaceholder")}
                   rows={5}
-                  className="mt-3 min-h-[144px] w-full resize-y rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none focus:border-border-strong"
+                  className="mt-3 min-h-[144px] w-full resize-y rounded-xl border border-border bg-surface-raised px-4 py-3 text-base text-text placeholder:text-text-subtle outline-none focus:border-border-strong md:text-sm"
                 />
               </div>
 
@@ -4443,10 +4445,10 @@ export function AssistantSettings({
                     </div>
                     <div className="min-w-0 flex-1">
                       <h3 className="text-base font-semibold text-text">{t("reset")}</h3>
-                      <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                      <p className="mt-2 text-base leading-relaxed text-text-muted md:text-sm">
                         {t("resetScopeWarning")}
                       </p>
-                      <p className="mt-2 text-sm leading-relaxed text-text-muted">
+                      <p className="mt-2 text-base leading-relaxed text-text-muted md:text-sm">
                         {t("resetClearing")}
                       </p>
                     </div>
@@ -5511,7 +5513,7 @@ export function AssistantSettings({
                               value={otherVoiceLanguageSearch}
                               onChange={(event) => setOtherVoiceLanguageSearch(event.target.value)}
                               placeholder={t("charactersFormVoiceLanguageSearchPlaceholder")}
-                              className={userFieldClassName("text-xs")}
+                              className={userFieldClassName()}
                             />
                           </div>
                         ) : null}
@@ -6299,7 +6301,7 @@ export function AssistantSettings({
                   </div>
                   <div className="space-y-4 px-5 py-5 sm:px-6">
                     {billingSubscriptionLoading ? (
-                      <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-surface-raised/40 px-4 py-4 text-sm text-text-muted">
+                      <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-surface-raised/40 px-4 py-4 text-base text-text-muted md:text-sm">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <span>{t("billingSettingsLoading")}</span>
                       </div>

@@ -3,6 +3,10 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-12
+
+- **UX (mobile typography Telegram-like; local).** Product surfaces now use ~16px main readable text and form controls on phone (`text-base md:text-sm`) while desktop stays denser; shared `userFieldClassName` cascades to profile/setup/auth/settings, chat composer/messages, landing/pricing/checkout, and related copy. Small chrome (timestamps, badges, captions, pills) unchanged. Admin/APK out of scope. Deploy + phone visual check pending.
+
 ## 2026-07-11
 
 - **Fix (ADR-140 desktop extension committed-navigation completion; local).** Live cluster evidence showed ria.ru/lenta.ru/habr.com acts holding the serial extension queue for exactly 120 seconds: desktop waited for `tabs.onUpdated status=complete` before entering the already-bounded 10-second DOM reader. Navigation now proceeds on a new main-frame `webNavigation.onCommitted` document (mobile `onPageCommitVisible` parity), rejects the prior `documentId`, caps commit wait at 30 seconds, and reserves 5 seconds for result transport. Extension lint/typecheck/build and 22/22 tests pass; reload + live acceptance pending.

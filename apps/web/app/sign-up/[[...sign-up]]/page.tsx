@@ -119,7 +119,7 @@ export default function SignUpPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={t("emailPlaceholder")}
                 autoFocus
-                className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-sm text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                className="w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-base text-text placeholder:text-text-subtle outline-none transition-colors focus:border-accent md:text-sm"
               />
               {fieldErrors?.emailAddress && (
                 <p className="mt-1 text-xs text-destructive">
@@ -207,7 +207,7 @@ export default function SignUpPage() {
                 placeholder={t("codePlaceholder")}
                 autoFocus
                 maxLength={8}
-                className="mt-5 w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-center text-lg tracking-widest text-text placeholder:text-sm placeholder:tracking-normal placeholder:text-text-subtle outline-none transition-colors focus:border-accent"
+                className="mt-5 w-full rounded-xl border border-border bg-surface-raised px-4 py-3 text-center text-lg tracking-widest text-text placeholder:text-base placeholder:tracking-normal placeholder:text-text-subtle md:placeholder:text-sm outline-none transition-colors focus:border-accent"
               />
               {fieldErrors?.code && (
                 <p className="mt-1 text-xs text-destructive">
@@ -279,7 +279,7 @@ function SignUpCompleteSplash() {
     <PublicAuthShell showFooter>
       <div className="flex flex-col items-center gap-3">
         <Loader2 className="h-8 w-8 animate-spin text-accent" />
-        <p className="text-sm text-text-muted">{t("signingIn")}</p>
+        <p className="text-base text-text-muted md:text-sm">{t("signingIn")}</p>
       </div>
     </PublicAuthShell>
   );

@@ -393,7 +393,7 @@ function InlineStreamingStatus({
         };
 
   return (
-    <span className="animate-fade-in-inline-status inline-flex items-center gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none">
+    <span className="animate-fade-in-inline-status inline-flex items-center gap-2 text-base text-text-muted/78 italic motion-reduce:animate-none md:text-sm">
       <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/65 align-middle" />
       <span className="inline-flex items-baseline gap-1.5">
         <span>{statusParts.label}</span>
@@ -674,7 +674,7 @@ const markdownComponents: Record<string, React.ComponentType<any>> = {
   pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   table: ({ children, ...props }: React.ComponentPropsWithoutRef<"table">) => (
     <div className="my-3 overflow-x-auto rounded-lg border border-border">
-      <table className="min-w-full text-sm" {...props}>
+      <table className="min-w-full text-base md:text-sm" {...props}>
         {children}
       </table>
     </div>
@@ -1136,7 +1136,7 @@ function AssistantSectionTitle({ title, level }: { title: string; level?: 1 | 2 
       ? "mb-3 mt-2 text-[19px] font-semibold leading-[1.35] tracking-[-0.02em] text-text"
       : effectiveLevel === 2
         ? "mb-3 mt-1.5 text-[17px] font-semibold leading-[1.4] tracking-[-0.015em] text-text"
-        : "mb-2.5 mt-1 text-[14px] font-semibold leading-[1.45] tracking-[-0.005em] text-text";
+        : "mb-2.5 mt-1 text-base font-semibold leading-[1.45] tracking-[-0.005em] text-text md:text-[14px]";
 
   return <div className={className}>{title}</div>;
 }
@@ -2204,7 +2204,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                       isUserSendFailed && "opacity-80"
                     )}
                   >
-                    <p className="max-w-full whitespace-pre-wrap text-left text-sm leading-relaxed break-words">
+                    <p className="max-w-full whitespace-pre-wrap text-left text-base leading-relaxed break-words md:text-sm">
                       {message.content}
                     </p>
                   </div>
@@ -2219,7 +2219,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
                 )}
               >
                 {!hideUserVoiceTranscript && !hideUserTextForAttachmentsOnly && (
-                  <p className="max-w-full whitespace-pre-wrap text-sm leading-relaxed break-words text-left">
+                  <p className="max-w-full whitespace-pre-wrap text-base leading-relaxed break-words text-left md:text-sm">
                     {message.content}
                   </p>
                 )}
@@ -2287,7 +2287,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
             )}
           </>
         ) : (
-          <div className="prose-invert min-w-0 max-w-full text-sm break-words text-text [overflow-wrap:anywhere]">
+          <div className="prose-invert min-w-0 max-w-full text-base break-words text-text [overflow-wrap:anywhere] md:text-sm">
             <ThoughtBlock message={message} />
             <IterationBlocks blocks={assistantSegments.iterationBlocks} />
             {isStreaming ? (

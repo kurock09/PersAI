@@ -145,12 +145,10 @@ export function PublicSitePageView(props: {
                   </h3>
                 ),
                 p: ({ children }) => (
-                  <p className="mt-5 text-[15px] leading-[1.9] text-text-muted sm:text-[16px]">
-                    {children}
-                  </p>
+                  <p className="mt-5 text-base leading-[1.9] text-text-muted">{children}</p>
                 ),
                 ul: ({ children }) => (
-                  <ul className="mt-6 space-y-3 pl-0 text-[15px] leading-[1.9] text-text-muted sm:text-[16px]">
+                  <ul className="mt-6 space-y-3 pl-0 text-base leading-[1.9] text-text-muted">
                     {children}
                   </ul>
                 ),

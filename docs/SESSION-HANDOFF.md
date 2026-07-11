@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Mobile typography Telegram-like (16px readable)
+
+Status: **implemented locally; web deploy + phone visual check pending.**
+
+Baseline SHA: PersAI `a907deed` (pre-typography slice).
+
+**Scope:** Mobile-only product typography toward Telegram comfort: main readable text and form controls ~16px on phone (`text-base md:text-sm`), desktop unchanged. Inputs/textarea/select ≥16px on mobile to avoid iOS focus-zoom. Timestamps, badges, captions, code labels, and CTA/pill buttons stay small. Admin out of scope. APK untouched (Capacitor loads web).
+
+**Touched surfaces:** shared `userFieldClassName` cascade (profile/setup/password/telegram/support/settings), auth email/OTP placeholders, chat composer + bubbles + empty/issue copy, setup Country/Timezone selects, assistant settings inline fields, landing/hero/demo/pricing/packages/checkout/home/offline/browser-login/public-site, assistant markdown H3 + response header CSS.
+
+**Verification:** web lint PASS; format:check PASS; web typecheck PASS; full web suite 896/896 PASS; web production build PASS. One stale H3 typography assertion was updated to lock `text-base md:text-[14px]`.
+
+**Next recommended step:** deploy web; on a real phone confirm chat/composer/auth/setup feel ~TG 16px with no iOS input zoom, desktop still denser 14px.
+
+---
+
 ## 2026-07-12 — Desktop extension committed-navigation completion
 
 Status: **implemented locally; unpacked extension rebuild/reload + live acceptance required.**

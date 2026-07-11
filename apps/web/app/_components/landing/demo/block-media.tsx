@@ -251,7 +251,7 @@ export function BlockMedia({ reversed = false }: { reversed?: boolean }) {
         <h3 className="mt-5 max-w-md text-2xl font-semibold leading-tight tracking-[-0.02em] text-text sm:text-3xl">
           {t("landing.blocks.media.title")}
         </h3>
-        <p className="mt-4 max-w-md text-sm leading-relaxed text-text-muted sm:text-base">
+        <p className="mt-4 max-w-md text-base leading-relaxed text-text-muted">
           {t("landing.blocks.media.body")}
         </p>
       </div>

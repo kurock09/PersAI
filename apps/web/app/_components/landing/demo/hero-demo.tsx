@@ -157,7 +157,7 @@ function MessageRow({
       return (
         <AssistantRow showAvatar={showAssistantAvatar}>
           <ChannelFrame label={tx("landing.demo.channelLabel")}>
-            <p className="text-sm text-text-muted">{tx(m.textKey ?? "")}</p>
+            <p className="text-base text-text-muted md:text-sm">{tx(m.textKey ?? "")}</p>
           </ChannelFrame>
         </AssistantRow>
       );

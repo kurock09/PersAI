@@ -301,7 +301,7 @@ function PackageTypeCard({
       </div>
       <div className="mt-4 flex-1 space-y-2.5">
         {items.length === 0 ? (
-          <div className="rounded-xl border border-border/70 bg-bg/35 px-4 py-4 text-sm text-text-muted">
+          <div className="rounded-xl border border-border/70 bg-bg/35 px-4 py-4 text-base text-text-muted md:text-sm">
             {pickMetaText(locale, meta.emptyHint)}
           </div>
         ) : (
@@ -318,7 +318,7 @@ function PackageTypeCard({
         )}
       </div>
       {!toolEnabled ? (
-        <div className="mt-4 rounded-xl border border-amber-500/18 bg-amber-500/7 px-4 py-3 text-sm leading-6 text-text-muted">
+        <div className="mt-4 rounded-xl border border-amber-500/18 bg-amber-500/7 px-4 py-3 text-base leading-6 text-text-muted md:text-sm">
           {resolveDisabledHint(locale, type, toolState)}
         </div>
       ) : null}
@@ -383,7 +383,7 @@ function SummaryBlock({
       <div className="mt-5 flex flex-col gap-5 lg:flex-row lg:items-stretch">
         <div className="flex-1">
           {!hasSelection ? (
-            <p className="text-sm text-text-muted">
+            <p className="text-base text-text-muted md:text-sm">
               {locale === "ru"
                 ? "Выберите хотя бы один пакет в категориях выше."
                 : "Pick at least one package from the categories above."}
@@ -395,7 +395,7 @@ function SummaryBlock({
                   key={type}
                   className="flex items-baseline justify-between gap-4 py-2.5 first:pt-0 last:pb-0"
                 >
-                  <span className="text-sm text-text">
+                  <span className="text-base text-text md:text-sm">
                     <span className="text-text-subtle">
                       {pickMetaText(locale, PACKAGE_TYPE_META[type].summaryLabel)}
                     </span>{" "}
@@ -404,7 +404,7 @@ function SummaryBlock({
                       {formatPackageLabel(locale, item)}
                     </span>
                   </span>
-                  <span className="shrink-0 text-sm font-semibold tabular-nums text-text">
+                  <span className="shrink-0 text-base font-semibold tabular-nums text-text md:text-sm">
                     {formatPrice(item.amountMinor, item.currency, locale)}
                   </span>
                 </li>
@@ -646,7 +646,7 @@ export default function PackagesPage() {
         ) : null}
 
         {!loading && error ? (
-          <div className="mx-auto mt-8 w-full max-w-3xl rounded-2xl border border-danger/20 bg-danger/10 px-4 py-3 text-sm text-danger">
+          <div className="mx-auto mt-8 w-full max-w-3xl rounded-2xl border border-danger/20 bg-danger/10 px-4 py-3 text-base text-danger md:text-sm">
             <div className="flex items-start gap-2">
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{error}</span>
