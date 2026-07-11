@@ -4,7 +4,7 @@
 
 Status: **implemented locally; Android 1.0.34 exported; commit/push done.**
 
-Baseline SHAs: PersAI `pending`; `persai-mobile` `b0645c2`.
+Baseline SHAs: PersAI `5cea92f4`; `persai-mobile` `b0645c2`.
 
 **Scope:** Android `dispatchPointerTap` now multiplies page-runner CSS client coordinates by WebView `getScale()` (fallback `DisplayMetrics.density`) before `MotionEvent`. Logcat prints `cssX/cssY`, `viewX/viewY`, `scaleUsed`. iOS unchanged (JS `elementFromPoint` stays in CSS). No runner / web payload change required for this slice.
 
