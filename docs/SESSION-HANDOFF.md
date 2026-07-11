@@ -1,18 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-140 Android finger PointerProperties MotionEvent
+
+Status: **implemented locally; Android 1.0.35 exported; install on device done; commit/push pending.**
+
+Baseline SHAs: PersAI (this slice); `persai-mobile` (this slice).
+
+**Scope:** APK-only. `dispatchPointerTap` now builds `MotionEvent` with `PointerProperties` (`TOOL_TYPE_FINGER`) + `PointerCoords` + `SOURCE_TOUCHSCREEN` in `obtain`, matching Chromium `TouchEventSynthesizer` / documented WebView injection. Also briefly enables `focusable` / `focusableInTouchMode` for the tap. Logcat adds `toolType=FINGER`. CSS→view scale from 1.0.34 unchanged. No runner / web payload change.
+
+**Why:** Live 1.0.34 showed correct `viewX ≈ cssX * scale` and `sameNode: true`, but Lavka still ignored taps — simplified `MotionEvent.obtain(x,y)` lacks finger pointer metadata WebView expects.
+
+**Verification:** mobile bridge 17/17; Android `1.0.35` / `versionCode 37` release build + export + `adb install` PASS (`versionName=1.0.35`).
+
+**Next recommended step:** live-retest Lavka «В корзину» / «Увеличить»; confirm logcat `toolType=FINGER` and whether cart/qty buttons react.
+
+---
+
 ## 2026-07-11 — ADR-140 Android CSS→view pointer-tap scale
 
-Status: **implemented locally; Android 1.0.34 exported; commit/push done.**
+Status: **superseded for tap delivery by 1.0.35 finger MotionEvent; scale math retained.**
 
 Baseline SHAs: PersAI `5cea92f4`; `persai-mobile` `b0645c2`.
 
-**Scope:** Android `dispatchPointerTap` now multiplies page-runner CSS client coordinates by WebView `getScale()` (fallback `DisplayMetrics.density`) before `MotionEvent`. Logcat prints `cssX/cssY`, `viewX/viewY`, `scaleUsed`. iOS unchanged (JS `elementFromPoint` stays in CSS). No runner / web payload change required for this slice.
+**Scope:** Android `dispatchPointerTap` multiplies page-runner CSS client coordinates by WebView `getScale()` before `MotionEvent`. Logcat prints `cssX/cssY`, `viewX/viewY`, `scaleUsed`.
 
-**Audit (log numbers):** 1.0.33 Lavka run showed `viewport.w=411`, `dpr=2.625`, `webViewW=1080`, `density=scale=2.625`, while MotionEvent received unscaled CSS taps (`327` into a `1080`-wide view).
+**Audit (log numbers):** 1.0.33 Lavka run showed `viewport.w=411`, `dpr=2.625`, `webViewW=1080`, while MotionEvent received unscaled CSS taps.
 
 **Verification:** mobile bridge 16/16; Android `1.0.34` / `versionCode 36` release build + export + device install PASS.
-
-**Next recommended step:** live-retest Lavka «В корзину» / «Увеличить» / «Уже есть»; confirm `pointer_tap` lines show `viewX ≈ cssX * scaleUsed`.
 
 ---
 
