@@ -392,17 +392,6 @@ export class RuntimeBrowserToolService {
         provider: providerId
       });
     }
-    if (params.bridgeDeviceKind !== null && params.bridgeDeviceKind !== undefined) {
-      if (!params.bridgeDeviceId) {
-        return this.buildBridgeUnavailableResult({
-          requestedAction: request.action,
-          provider: providerId,
-          code: "bridge_unavailable",
-          message: `The current ${params.bridgeDeviceKind} browser bridge is not connected.`
-        });
-      }
-    }
-
     const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
       assistantId: params.bundle.metadata.assistantId,
       toolCode: "browser",

@@ -812,6 +812,25 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   );
   assert.equal(internalApi.dispatchCalls.length, dispatchCountBeforeHandoff);
 
+  const disconnectedHandoffResult = await service.executeToolCall({
+    bundle,
+    toolCall: createToolCall({
+      action: "request_user_action",
+      profile: "lavka",
+      userActionPrompt: "Complete the CAPTCHA, then return to PersAI."
+    }),
+    sessionId: "session-1",
+    bridgeDeviceKind: "extension"
+  });
+  assert.equal(disconnectedHandoffResult.isError, false);
+  assert.equal(disconnectedHandoffResult.payload.action, "user_action_requested");
+  assert.equal(disconnectedHandoffResult.payload.pendingBrowserLogin?.completionMode, "assist");
+  assert.equal(
+    disconnectedHandoffResult.payload.pendingBrowserLogin?.userActionPrompt,
+    "Complete the CAPTCHA, then return to PersAI."
+  );
+  assert.equal(internalApi.dispatchCalls.length, dispatchCountBeforeHandoff);
+
   const openLiveResult = await service.executeToolCall({
     bundle,
     toolCall: createToolCall({ action: "open_live", profile: "lavka" }),
