@@ -23,6 +23,7 @@ import { useAppData, type AppData } from "./use-app-data";
 import { useHistoryBackToClose } from "./use-history-back-to-close";
 import { BackButtonBridge } from "./back-button-bridge";
 import { BrowserBridgeConnectionMaintainer } from "./browser-bridge-connection-maintainer";
+import { NativeBrowserPreview } from "./native-browser-preview";
 import { AppUrlOpenBridge } from "../../_components/app-url-open-bridge";
 import { OfflineGate } from "./offline-gate";
 import { StreamingThreadsProvider } from "./streaming-threads";
@@ -213,6 +214,7 @@ export function AppShell({
               assistantId={appData.assistant?.id ?? null}
               workspaceId={appData.assistant?.workspaceId ?? null}
             />
+            <NativeBrowserPreview />
             {children}
           </StreamingThreadsProvider>
         </ShellActionsContext.Provider>
@@ -231,6 +233,7 @@ export function AppShell({
             assistantId={appData.assistant?.id ?? null}
             workspaceId={appData.assistant?.workspaceId ?? null}
           />
+          <NativeBrowserPreview />
           {/*
           Bento layout on desktop: outer chrome frame (`bg-chrome`) shows
           between the sidebar and main panels via `md:gap-2 md:p-2`. On

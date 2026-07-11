@@ -97,6 +97,17 @@ type NativeBridgeExecutePayload = {
 
 type NativeBrowserBridgePlugin = {
   executeCommand(options: { payloadJson: string }): Promise<LocalBrowserResult>;
+  addListener(
+    eventName: "browserPreview",
+    listener: (event: NativeBrowserPreviewEvent) => void
+  ): Promise<{ remove: () => Promise<void> }>;
+};
+
+export type NativeBrowserPreviewEvent = {
+  phase: "start" | "update" | "end";
+  profileKey: string;
+  pageUrl: string | null;
+  imageDataUrl: string | null;
 };
 
 type NativeBridgeRuntimeState = {
@@ -257,12 +268,17 @@ function splitOperationsByGoto(
  */
 let nativeBrowserBridgePlugin: NativeBrowserBridgePlugin | null = null;
 
-async function executeNativeCommand(command: LocalBrowserCommand): Promise<LocalBrowserResult> {
-  if (nativeBrowserBridgePlugin === null) {
-    const { registerPlugin } = await import("@capacitor/core");
-    nativeBrowserBridgePlugin = registerPlugin<NativeBrowserBridgePlugin>("PersaiBrowserBridge");
+async function ensureNativeBrowserBridgePlugin(): Promise<void> {
+  if (nativeBrowserBridgePlugin !== null) {
+    return;
   }
-  const plugin = nativeBrowserBridgePlugin;
+  const { registerPlugin } = await import("@capacitor/core");
+  nativeBrowserBridgePlugin = registerPlugin<NativeBrowserBridgePlugin>("PersaiBrowserBridge");
+}
+
+async function executeNativeCommand(command: LocalBrowserCommand): Promise<LocalBrowserResult> {
+  await ensureNativeBrowserBridgePlugin();
+  const plugin = nativeBrowserBridgePlugin!;
   const operations = (command.operations ?? []).slice(0, MAX_OPERATION_COUNT);
   const payload: NativeBridgeExecutePayload = {
     command: { ...command, operations },
@@ -276,6 +292,19 @@ async function executeNativeCommand(command: LocalBrowserCommand): Promise<Local
     domReadyTimeoutMs: MAX_DOM_READY_WAIT_MS
   };
   return plugin.executeCommand({ payloadJson: JSON.stringify(payload) });
+}
+
+export async function subscribeNativeBrowserPreview(
+  listener: (event: NativeBrowserPreviewEvent) => void
+): Promise<() => Promise<void>> {
+  if (!isNativeBrowserBridgeShell()) {
+    return async () => undefined;
+  }
+  await ensureNativeBrowserBridgePlugin();
+  const handle = await nativeBrowserBridgePlugin!.addListener("browserPreview", listener);
+  return async () => {
+    await handle.remove();
+  };
 }
 
 async function sendNativeBridgeResult(result: LocalBrowserResult): Promise<void> {

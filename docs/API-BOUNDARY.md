@@ -311,6 +311,7 @@ Current active internal `runtime → api` endpoints (served by `apps/api` on the
 - Active browser-profile boundary rules:
   - persistent authenticated browser work runs only through the local browser bridge path; no revived legacy reconnect branch or persistent Browserless session path is active boundary truth
   - every interactive web/app turn declares its current extension/Capacitor kind and may carry that surface's connected bridge ID in `channelContext.web`; when present, the ID is a strict target (never a fallback preference), while a declared surface with no connected ID fails locally instead of dispatching to another installation; successful commands rebind profile affinity from relay-authenticated truth
+  - `browserPreview` is a Capacitor plugin event, not an HTTP/runtime API: bounded in-memory preview bytes stay on the device and are neither accepted nor returned by PersAI server routes
   - product-owned recovery must distinguish `pending_login`, reconnectable re-auth, and truly expired profiles before the assistant narrates expiry
   - ordinary web chat must not expose assistant-visible browser live URLs; web/app re-auth is modal/banner state owned by product UI
   - Telegram may still use headless Browserless for public no-profile reads, but logged-in/profile-backed browser work must return structured `open_in_app` / `bridge_unavailable` semantics with honest PersAI web/app handoff copy

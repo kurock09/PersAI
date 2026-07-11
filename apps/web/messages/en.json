@@ -646,6 +646,7 @@
     "browserLoginMobileStatusBody": "PersAI will use the browser view on this device. Your authenticated browser work stays on your device.",
     "browserLoginMobileReturnHint": "After signing in on the site, press the system Back button to return here, then press Done.",
     "browserLoginMobileShowSite": "Show the site again",
+    "browserPreviewOpen": "Open browser",
     "browserLoginFooterTruth": "Authenticated browser work stays on your device for this flow.",
     "lightboxSave": "Save to gallery",
     "lightboxShare": "Share",

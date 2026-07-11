@@ -47,6 +47,37 @@ describe("PAGE_RUNNER_SOURCE", () => {
     expect(PAGE_RUNNER_SOURCE).not.toMatch(/needsUserAction|userCheckpointRe|sensitiveControlRe/);
   });
 
+  it("notifies the optional native preview hook after every operation", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("MutationObserver", TestMutationObserver);
+    const previewStep = vi.fn();
+    vi.stubGlobal("__persaiBrowserPreviewStep", previewStep);
+    const runner = Function(`"use strict"; return (${PAGE_RUNNER_SOURCE});`)() as (input: {
+      maxChars: number;
+      maxElements: number;
+      maxExtractItems: number;
+      settleAfterMutationMs: number;
+      domReadyTimeoutMs: number;
+      operations: unknown[];
+    }) => Promise<unknown>;
+
+    const result = runner({
+      maxChars: 1_000,
+      maxElements: 10,
+      maxExtractItems: 10,
+      settleAfterMutationMs: 0,
+      domReadyTimeoutMs: 1_000,
+      operations: [
+        { kind: "extract", selector: "body", maxItems: 1 },
+        { kind: "extract", selector: "body", maxItems: 1 }
+      ]
+    });
+    await vi.advanceTimersByTimeAsync(750);
+    await result;
+
+    expect(previewStep).toHaveBeenCalledTimes(2);
+  });
+
   it("waits for a mutation-free quiet window before returning a stable snapshot", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("MutationObserver", TestMutationObserver);

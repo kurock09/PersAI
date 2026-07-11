@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-141 native browser activity thumbnail
+
+Status: **implemented, verified, committed, and pushed; Android 1.0.24 exported; deploy/install/live and iOS acceptance pending.**
+
+Baseline SHAs: PersAI `675919ec` (pre-push); `persai-mobile` `0e3eece`.
+
+**Scope:** Capacitor App only: show a small, premium image companion while an assistant operates a retained authenticated browser, refresh it at browser-operation boundaries, and reveal the existing native browser on tap. Size from the actual viewport/safe area only. Desktop Chrome extension behavior, chat status copy, browser routing, session identity, and profile persistence are out of scope.
+
+**Implementation:** The shared page runner invokes an optional best-effort native hook after each operation. Android and iOS capture a bounded local JPEG from their existing retained WebView/WKWebView and emit start/update/end events through the Capacitor plugin; no second browser view is created and no preview bytes reach the server or persistence. iOS capture is explicitly decoupled from command startup/completion, so an optional snapshot callback cannot hold browser execution open. The app-shell companion renders only in a native Capacitor shell, contains no text status, preserves the captured viewport proportions, and calls the existing `open_view` path for the same profile on tap. Event support is optional so an older APK continues browser execution without the companion. Audit confirmed desktop 16:9 geometry cannot flow through this path: `BrowserLoginModal` uses compact desktop geometry only for `extensionTarget`, while native overlays already fill their safe-area host. The modal now reads Capacitor identity on each render rather than freezing an early pre-bridge result; no Fold/tablet/UA heuristic or special layout was added. Android advances to `1.0.24` / `versionCode 26`.
+
+**Verification:** AGENTS.md gate PASS (`lint`, `format:check`, API/web `typecheck`); full CI lane PASS (`pnpm run test`, `test:step2`, `build`, `test:ci-detect-affected`). Local `prisma:migrate:check` failed only on a pre-existing failed local migration (`20260501120000_adr079_knowledge_skills_foundation`), unrelated to this slice. Mobile bridge build/tests PASS (12); Android `1.0.24` exported to PersAI download surface. iOS is source-reviewed only because Xcode is unavailable on Windows.
+
+**Next recommended step:** deploy web, install Android `1.0.24`, run TEST-PLAN item 36 on narrow/wide/rotated viewports, and confirm each browser step refreshes the miniature with tap reopening the same retained session. iOS requires Xcode build/device acceptance.
+
+---
+
 ## 2026-07-11 — ADR-140 Chrome bridge lifecycle + safe configured-session recovery
 
 Status: **implemented and fully verified locally; live extension reload acceptance pending.**

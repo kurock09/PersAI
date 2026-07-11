@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useAuth } from "@clerk/nextjs";
 import { CircleHelp, Loader2, RefreshCw, X } from "lucide-react";
@@ -57,7 +57,10 @@ export function BrowserLoginModal({
   const openViewAbortControllerRef = useRef<AbortController | null>(null);
   const completionMode = pendingBrowserLogin?.completionMode ?? "login";
   const bridgeClientKind = pendingBrowserLogin?.bridgeClientKind ?? null;
-  const nativeShell = useMemo(() => isNativeBrowserBridgeShell(), []);
+  // Capacitor injects its bridge at runtime. Read shell identity on every
+  // render instead of freezing an early pre-bridge value for this modal's
+  // lifetime; viewport width and stored profile kind never decide layout.
+  const nativeShell = isNativeBrowserBridgeShell();
   const extensionTarget = bridgeClientKind === "extension" && !nativeShell;
   const nativeTarget = bridgeClientKind === "capacitor" || nativeShell;
   const bridgeTarget = extensionTarget || nativeTarget;

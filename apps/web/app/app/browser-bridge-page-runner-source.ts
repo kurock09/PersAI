@@ -228,6 +228,11 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     } catch (error) {
       warnings.push("op_" + String(index) + " (" + operation.kind + "): " + (error instanceof Error ? error.message : "Operation failed."));
     }
+    try {
+      globalThis.__persaiBrowserPreviewStep?.();
+    } catch {
+      // Native preview updates are best-effort and must never affect browser execution.
+    }
     if (requestedNavigationUrl) break;
   }
   const snapshot = collectContent();

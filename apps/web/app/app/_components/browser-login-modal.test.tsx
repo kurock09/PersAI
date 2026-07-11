@@ -214,6 +214,36 @@ describe("BrowserLoginModal", () => {
     expect(getExtensionBridgeStatus).not.toHaveBeenCalled();
   });
 
+  it("keeps native full-screen layout when a profile still carries extension kind", async () => {
+    isNativeBrowserBridgeShell.mockReturnValue(true);
+    registerNativeBrowserBridgeDevice.mockResolvedValue({
+      connected: true,
+      desiredConnection: true,
+      bridgeDeviceId: "mobile-device-1",
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      profileCount: 1,
+      lastProfileKey: "bitrix"
+    });
+
+    render(
+      <BrowserLoginModal
+        open
+        assistantId="assistant-1"
+        pendingBrowserLogin={pendingBrowserLogin}
+        onDismiss={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(registerNativeBrowserBridgeDevice).toHaveBeenCalled();
+    });
+    expect(screen.getByTestId("browser-login-modal-backdrop")).toHaveClass("flex-col", "bg-bg");
+    expect(screen.getByTestId("browser-login-modal-backdrop")).not.toHaveClass("items-center");
+    expect(screen.queryByTestId("browser-login-extension-status")).not.toBeInTheDocument();
+  });
+
   it("keeps a working web Done fallback when the branded window fails to open", async () => {
     getExtensionBridgeStatus.mockResolvedValue({
       connected: true,
