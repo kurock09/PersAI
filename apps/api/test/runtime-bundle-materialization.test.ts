@@ -233,7 +233,7 @@ function createInput(order: "alpha" | "beta") {
                   toolCode: "browser",
                   family: "browser_interaction",
                   outcomeKind: "structured_output",
-                  timeoutMs: 120000,
+                  timeoutMs: 45000,
                   confirmationRule: "required_for_mutations",
                   supportsProviderRouting: true,
                   failureBehavior: "surface_error"
@@ -255,7 +255,7 @@ function createInput(order: "alpha" | "beta") {
                   failureBehavior: "surface_error",
                   supportsProviderRouting: true,
                   confirmationRule: "required_for_mutations",
-                  timeoutMs: 120000,
+                  timeoutMs: 45000,
                   outcomeKind: "structured_output",
                   family: "browser_interaction",
                   toolCode: "browser"
@@ -502,7 +502,7 @@ async function run(): Promise<void> {
         toolCode: "browser",
         family: "browser_interaction",
         outcomeKind: "structured_output",
-        timeoutMs: 120000,
+        timeoutMs: 45000,
         confirmationRule: "required_for_mutations",
         supportsProviderRouting: true,
         failureBehavior: "surface_error"

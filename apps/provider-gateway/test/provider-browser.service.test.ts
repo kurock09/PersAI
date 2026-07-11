@@ -138,7 +138,7 @@ export async function runProviderBrowserServiceTest(): Promise<void> {
       action: "snapshot",
       operations: [],
       maxChars: 12000,
-      timeoutMs: 120000,
+      timeoutMs: 45000,
       format: "text",
       optimizeForSpeed: false
     });
