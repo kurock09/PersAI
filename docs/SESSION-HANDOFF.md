@@ -4,7 +4,7 @@
 
 Status: **implemented locally; Android 1.0.33 exported; commit/push done.**
 
-Baseline SHAs: PersAI `pending`; `persai-mobile` `a350c30`.
+Baseline SHAs: PersAI `bf934f73`; `persai-mobile` `a350c30`.
 
 **Scope:** Add `runner_diag` logcat lines before every native pointer tap (`target` vs `hit` vs `tap` coords, `sameNode`, viewport). Restore HTTP(S) anchor clicks to declarative `navigationUrl` handoff. Harden Android `pointer_tap` (`SOURCE_TOUCHSCREEN`, overlay lift, webView metrics in log line).
 
