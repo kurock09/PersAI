@@ -1,8 +1,24 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-140 Android CSS→view pointer-tap scale
+
+Status: **implemented locally; Android 1.0.34 exported; commit/push done.**
+
+Baseline SHAs: PersAI `pending`; `persai-mobile` `b0645c2`.
+
+**Scope:** Android `dispatchPointerTap` now multiplies page-runner CSS client coordinates by WebView `getScale()` (fallback `DisplayMetrics.density`) before `MotionEvent`. Logcat prints `cssX/cssY`, `viewX/viewY`, `scaleUsed`. iOS unchanged (JS `elementFromPoint` stays in CSS). No runner / web payload change required for this slice.
+
+**Audit (log numbers):** 1.0.33 Lavka run showed `viewport.w=411`, `dpr=2.625`, `webViewW=1080`, `density=scale=2.625`, while MotionEvent received unscaled CSS taps (`327` into a `1080`-wide view).
+
+**Verification:** mobile bridge 16/16; Android `1.0.34` / `versionCode 36` release build + export + device install PASS.
+
+**Next recommended step:** live-retest Lavka «В корзину» / «Увеличить» / «Уже есть»; confirm `pointer_tap` lines show `viewX ≈ cssX * scaleUsed`.
+
+---
+
 ## 2026-07-11 — ADR-140 Lavka tap diagnostics + anchor handoff restore
 
-Status: **implemented locally; Android 1.0.33 exported; commit/push done.**
+Status: **implemented locally; Android 1.0.33 exported; commit/push done; superseded for coord scale by 1.0.34.**
 
 Baseline SHAs: PersAI `bf934f73`; `persai-mobile` `a350c30`.
 
