@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import {
   buildPermissionDeniedResult,
   buildUnsupportedPdfResult,
+  computeNavigationCommitTimeoutMs,
   computeReconnectDelayMs,
   mergeWarnings
 } from "../src/executor-core.js";
@@ -17,6 +20,12 @@ test("computeReconnectDelayMs uses bounded backoff", () => {
   assert.equal(computeReconnectDelayMs(0), 1_000);
   assert.equal(computeReconnectDelayMs(2), 5_000);
   assert.equal(computeReconnectDelayMs(999), 30_000);
+});
+
+test("navigation commit wait is capped and reserves command transport time", () => {
+  assert.equal(computeNavigationCommitTimeoutMs(120_000), 30_000);
+  assert.equal(computeNavigationCommitTimeoutMs(20_000), 15_000);
+  assert.equal(computeNavigationCommitTimeoutMs(5_000), 0);
 });
 
 test("mergeWarnings drops empty items and preserves order", () => {
@@ -45,4 +54,14 @@ test("page runner uses the bounded mutation-observed readiness gate", () => {
   assert.match(source, /MutationObserver/);
   assert.match(source, /quietIntervalMs\s*=\s*750/);
   assert.match(source, /loadStatus/);
+});
+
+test("desktop navigation waits for main-frame commit instead of full load", async () => {
+  const backgroundSource = await readFile(
+    resolve(import.meta.dirname, "..", "src", "background.ts"),
+    "utf8"
+  );
+  assert.match(backgroundSource, /webNavigation\.onCommitted/);
+  assert.match(backgroundSource, /frameId !== 0/);
+  assert.doesNotMatch(backgroundSource, /waitForTabLoad|status === "complete"/);
 });

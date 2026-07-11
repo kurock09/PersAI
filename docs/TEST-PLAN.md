@@ -4,6 +4,23 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-143 tiered tool observation projection (focused checks)
+
+When a change touches model-facing tool history projection, prior-tool-exchange replay, or in-turn `toolHistory` wiring, run:
+
+```bash
+corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/project-tool-exchanges-for-model.test.ts runProjectToolExchangesForModelTest
+corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/turn-execution.service.test.ts runTurnExecutionServiceTest
+corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/turn-context-hydration.service.test.ts runTurnContextHydrationServiceTest
+corepack pnpm --filter @persai/runtime run typecheck
+```
+
+Regression / live (post-deploy):
+
+1. Long browser loop / Lavka: the model still completes the turn with projected history (newest exchange structurally full; older steps compact/masked); provider input must not reintroduce a second truncate path alongside projection.
+2. Cluster logs for tool-loop iterations include one `[toolHistoryProjection] requestId=… rawChars=… projectedChars=… fullCount=… compactCount=… maskedCount=…` line per projected in-turn provider build; `projectedChars` should be materially below `rawChars` on multi-step browser turns.
+3. Canonical stored `toolExchanges` remain full; only provider-facing history is projected.
+
 ## ADR-140 local browser bridge + headless Browserless boundary (focused checks)
 
 When a change touches browser profiles, the local bridge relay/runtime path, Telegram/browser handoff copy, headless Browserless public-read behavior, or browser settings/modal UX, run:
@@ -61,9 +78,10 @@ Live acceptance (post-deploy):
 31. On Android, start a background profile-backed `snapshot` or `act` and leave the phone untouched longer than the system display timeout. The screen remains awake until the final success/error result, then the normal display-timeout policy resumes. Repeating with concurrent commands must keep the screen awake until the last command completes.
 32. On desktop extension and Capacitor, open a page that builds content after `DOMContentLoaded`. Snapshot must wait for an `interactive` document with a body and 750 ms of DOM quiet, without text-length/control-count/site heuristics or a second readiness wait. A continuously mutating page must still return within the 10-second cap with current content and `page.loadStatus: "partial"`; a quiet page returns `"stable"`.
 33. Start a new desktop or mobile browser login. The completion surface shows only the completion title, centered `Open <profile>` pill, concise helper copy, quiet connected indicator, and pill Done/Cancel actions. Detailed help appears only after `?`; connected state has no status card. Missing desktop extension shows a compact two-line warning with its retry button centered on a separate row; that extension-only block never renders in the Capacitor flow.
-34. On desktop, reveal a saved profile from an assistant handoff after it was minimized or previously small. The same extension window restores centered at 70% of the largest normal Chrome window in 16:9, rather than retaining minimized/popup dimensions. On mobile, the native browser opens only after explicit Open and system Back returns to the concise completion surface.
+34. On desktop, reveal a saved profile from Settings or an assistant handoff after it was minimized or previously small. The same extension window restores centered at 70% of the largest normal Chrome window in 16:9, rather than retaining minimized/popup dimensions. Also verify the first assistant `snapshot`/`act` that creates a new profile window (hidden/`showWindow: false`) still allocates that canonical 16:9 size before minimize — not Chrome's narrow default popup. On mobile, the native browser opens only after explicit Open and system Back returns to the concise completion surface.
 35. Reload/navigate the PersAI tab while the Chrome extension has a fresh registration. Content-port disconnect must not throw `Attempting to use a disconnected port object` or intentionally close the registered relay socket. Immediately send an assistant browser instruction while the cached bridge status is still `connected:false`; web must re-probe the live extension and include its exact `bridgeDeviceId`, so assistant-triggered `open_live` reaches the same extension window as the Settings card.
 36. In the Capacitor app, run a profile-backed `act` containing multiple operations. A small image-only browser miniature appears after native capture, refreshes after every operation, preserves the current viewport ratio, and has only a small favicon treatment; tapping it reveals the same retained native browser profile. It briefly lingers after completion and disappears. Repeat on a narrow phone, an open Fold/tablet-sized window, and after rotation: sizing follows only the available viewport and safe area, with no device/UA/Fold branch. Desktop web renders no miniature and keeps the extension's 16:9 window unchanged. Capture/listener failure or an older APK must not alter the browser command result.
+37. On desktop extension, run profile-backed acts that navigate across long-lived pages such as ria.ru, lenta.ru, and habr.com. Navigation must proceed after a new main-frame `webNavigation.onCommitted` document and then use the existing 10-second DOM-stability gate; it must not wait for `tab.status=complete` or end in an exact 120-second `bridge_command_timeout`. A commit carrying the previous main-frame `documentId` must not release the command, while canonical/server redirect commits remain valid.
 
 ## ADR-133 Slice 1 path-contract focused checks
 

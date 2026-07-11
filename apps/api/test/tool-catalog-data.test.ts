@@ -174,7 +174,7 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
   );
   assert.match(
     text,
-    /Prefer those selectors.*instead of guessing/i,
+    /Prefer them/i,
     "browser guidance must tell the model to reuse selectors from page.elements"
   );
   assert.match(
@@ -187,20 +187,25 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
     /runtime returns `needs_user_action`/i,
     "browser guidance must not depend on implicit page heuristics"
   );
-  assert.match(
+  assert.doesNotMatch(
     text,
-    /kind:"scroll".*before re-reading content/i,
-    'browser guidance must point the model at kind:"scroll" for empty/placeholder catalog-style pages'
+    /E-commerce|add-to-cart|soft hyphens|cart sidebar|populate cards once scrolled/i,
+    "browser guidance must not embed site-flow shopping/SPA heuristics"
   );
   assert.match(
     text,
-    /Chain a full interaction into one `act` call instead of one operation per call/i,
+    /Skills\/scenarios/i,
+    "browser guidance must point site-specific flows at Skills/scenarios"
+  );
+  assert.match(
+    text,
+    /Chain up to \d+ ordered ops per act/i,
     "browser guidance must tell the model to chain operations into a single act call"
   );
   assert.match(
     text,
-    /kind:"wait_for_selector".*continue the chain in the same call/i,
-    'browser guidance must teach kind:"wait_for_selector" as the bridge across content-opening steps'
+    /wait_for_selector in the same act/i,
+    "browser guidance must teach wait_for_selector as an in-act dependency mechanic"
   );
   assert.match(
     text,
@@ -214,7 +219,7 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
   );
   assert.match(
     text,
-    /hidden browser window/i,
+    /hidden local window/i,
     "browser guidance must explain hidden-window local bridge semantics"
   );
   assert.match(
@@ -224,17 +229,17 @@ function testBrowserCatalogRowReflectsAdr139Guidance(): void {
   );
   assert.match(
     text,
-    /structured runtime\/API reason codes/i,
+    /structured reason codes/i,
     "browser guidance must tell the model to speak from structured runtime/API reason codes"
   );
   assert.match(
     text,
-    /Do not start a fresh login or invent a new profile name unless the runtime\/tool result explicitly points/i,
+    /Do not invent a profile or re-login unless the runtime\/tool result explicitly requires it/i,
     "browser guidance must pin that login should be started only when structured runtime/tool state explicitly points there"
   );
   assert.match(
     text,
-    /Do not promise raw URLs/i,
+    /Do not promise raw login URLs/i,
     "browser guidance must forbid promising raw login URLs in ordinary web chat"
   );
   assert.match(text, /click_at/i, "browser guidance must document click_at viewport clicks");
@@ -382,7 +387,7 @@ function testCatalogRowsKeepSelectionGuideAsSingleOwner(): void {
   assert.match(toolText("browser"), /list_profiles/);
   assert.match(toolText("browser"), /action:"login"/);
   assert.match(toolText("browser"), /optimizeForSpeed/);
-  assert.match(toolText("browser"), /format:"pdf"/);
+  assert.match(toolText("browser"), /format png\/pdf|format:"pdf"/);
   assert.doesNotMatch(toolText("memory_search"), /Use BEFORE web tools|specific public URL/i);
   assert.doesNotMatch(toolText("memory_get"), /No referenceId is available/i);
   assert.doesNotMatch(

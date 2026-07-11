@@ -2197,12 +2197,46 @@ async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
       );
     }
 
-    // Test 6: over-budget replay drops the oldest turn first and applies the
-    // result/argument caps deterministically.
+    // Test 6: over-budget replay drops the oldest turn first; model-facing
+    // results use ADR-143 projection (structured compact / tier marker), not
+    // naive char-tail truncate. Argument bounding stays under the same
+    // projection policy.
     {
       const { svc, prisma } = buildMinimalHarness();
       const oversizedResult = "A".repeat(5_000);
       const oversizedArguments = { payload: "x".repeat(2_000) };
+      const browserPageContent = "DOM-".repeat(400);
+      const browserElements = Array.from({ length: 12 }, (_, index) => ({
+        index,
+        tag: "button",
+        role: "button",
+        name: `Control ${String(index)}`,
+        text: `Buy item ${String(index)}`,
+        selector: `#el-${String(index)}`,
+        bounds: { x: index, y: index, width: 40, height: 20 }
+      }));
+      const makeBrowserPayload = (action: string): string =>
+        JSON.stringify({
+          toolCode: "browser",
+          executionMode: "worker",
+          provider: "local_bridge",
+          requestedAction: action,
+          page: {
+            initialUrl: "https://shop.example/catalog",
+            finalUrl: "https://shop.example/catalog",
+            title: "Catalog",
+            content: browserPageContent,
+            truncated: false,
+            elements: browserElements,
+            extracted: [{ kind: "text", value: "extracted-body".repeat(40) }],
+            observedAt: "2026-07-11T00:00:00.000Z",
+            tookMs: 120,
+            warning: null
+          },
+          action,
+          reason: null,
+          warning: null
+        });
       prisma.messages = [
         { id: "u-1", author: "user", content: "q1", attachments: [] },
         {
@@ -2221,13 +2255,20 @@ async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
         {
           id: "a-2",
           author: "assistant",
-          content: "assistant capped",
+          content: "assistant browser",
           attachments: [],
           toolExchanges: [
             makeExchange({
-              id: "capped-1",
+              id: "browser-old",
+              name: "browser",
               arguments: oversizedArguments,
-              content: oversizedResult
+              content: makeBrowserPayload("snapshot")
+            }),
+            makeExchange({
+              id: "browser-new",
+              name: "browser",
+              arguments: { action: "snapshot" },
+              content: makeBrowserPayload("snapshot")
             })
           ]
         },
@@ -2243,30 +2284,58 @@ async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
       ];
       const messages = await svc.buildMessages(buildMinimalRequest("u-4"), createRuntimeBundle());
       const assistantHeavy = findHydratedMessage(messages, "assistant", "assistant heavy");
-      const assistantCapped = findHydratedMessage(messages, "assistant", "assistant capped");
+      const assistantBrowser = findHydratedMessage(messages, "assistant", "assistant browser");
       const assistantBinary = findHydratedMessage(messages, "assistant", "assistant binary");
       assert.ok(assistantHeavy, "replay test 6: heavy assistant message must be present");
-      assert.ok(assistantCapped, "replay test 6: capped assistant message must be present");
+      assert.ok(assistantBrowser, "replay test 6: browser assistant message must be present");
       assert.ok(assistantBinary, "replay test 6: binary assistant message must be present");
       assert.equal(
         assistantHeavy?.priorToolExchanges,
         undefined,
         "replay test 6: oldest replay turn must be dropped first when the total budget is exceeded"
       );
-      const cappedExchange = assistantCapped?.priorToolExchanges?.[0];
-      assert.ok(cappedExchange, "replay test 6: capped assistant turn must retain replay");
-      assert.ok(
-        cappedExchange?.toolResult.content.startsWith(
-          "[tool result truncated: 3000 chars omitted, showing tail]\n"
-        ),
-        "replay test 6: oversized tool_result content must keep the tail with the top marker"
+
+      const browserExchanges = assistantBrowser?.priorToolExchanges ?? [];
+      assert.equal(
+        browserExchanges.length,
+        2,
+        "replay test 6: browser assistant turn must retain projected replay"
+      );
+      const olderBrowser = JSON.parse(browserExchanges[0]!.toolResult.content) as Record<
+        string,
+        unknown
+      >;
+      const newerBrowser = JSON.parse(browserExchanges[1]!.toolResult.content) as Record<
+        string,
+        unknown
+      >;
+      assert.equal(
+        olderBrowser._observationTier,
+        "compact",
+        "replay test 6: older browser exchange in a replayed turn must be structured compact"
+      );
+      assert.equal(olderBrowser.toolCode, "browser");
+      assert.equal(olderBrowser.elementCount, 12);
+      assert.equal(
+        "page" in olderBrowser,
+        false,
+        "replay test 6: compact browser must drop page.content / page.elements"
       );
       assert.equal(
-        cappedExchange?.toolResult.content.endsWith(oversizedResult.slice(-2_000)),
-        true,
-        "replay test 6: truncated tool_result must preserve the original tail bytes"
+        typeof olderBrowser.content,
+        "undefined",
+        "replay test 6: compact browser must not keep raw page content"
       );
-      const serializedArguments = JSON.stringify(cappedExchange?.toolCall.arguments ?? {});
+      assert.equal(
+        newerBrowser._observationTier,
+        "full",
+        "replay test 6: newest browser exchange in a replayed turn stays full"
+      );
+      const newerPage = newerBrowser.page as Record<string, unknown>;
+      assert.ok(Array.isArray(newerPage.elements), "replay test 6: full browser keeps elements");
+      assert.equal(newerPage.content, browserPageContent);
+
+      const serializedArguments = JSON.stringify(browserExchanges[0]!.toolCall.arguments);
       assert.ok(
         serializedArguments.length <= 600,
         "replay test 6: replayed tool arguments must stay within the serialized cap"
@@ -2275,11 +2344,16 @@ async function runCrossSessionCarryOverM3_2LongIdleAcceptance(): Promise<void> {
         serializedArguments.includes("tool arguments truncated"),
         "replay test 6: oversized tool arguments must carry the truncation marker"
       );
+
+      const binaryProjected = JSON.parse(
+        assistantBinary?.priorToolExchanges?.[0]?.toolResult.content ?? "{}"
+      ) as Record<string, unknown>;
       assert.equal(
-        assistantBinary?.priorToolExchanges?.[0]?.toolResult.content,
+        binaryProjected.content,
         "[binary content omitted]",
-        "replay test 6: binary tool_result content must be replaced with the binary placeholder"
+        "replay test 6: binary tool_result content must be replaced via projection"
       );
+      assert.equal(binaryProjected._observationTier, "full");
     }
   }
 }

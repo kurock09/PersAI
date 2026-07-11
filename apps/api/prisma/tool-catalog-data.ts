@@ -1,9 +1,9 @@
 import type { ToolCatalogCapabilityGroup, ToolCatalogToolClass } from "@prisma/client";
 import {
+  DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT,
+  DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH,
   MAX_RUNTIME_BROWSER_EXTRACT_ITEMS,
-  MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS,
-  MAX_RUNTIME_BROWSER_OPERATIONS,
-  MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS
+  MAX_RUNTIME_BROWSER_OPERATIONS
 } from "@persai/runtime-contract";
 
 export type ToolPolicyClass = "plan_managed" | "platform_managed" | "hidden_internal";
@@ -243,40 +243,22 @@ GOTCHAS:
     description: "Automated web browser for interactive page navigation and content extraction.",
     modelDescription:
       "Use a real browser for JavaScript-rendered or interactive pages when web_search or web_fetch are insufficient.",
-    modelUsageGuidance: `WHEN TO USE: Live, interactive, JavaScript-rendered, or logged-in web pages where plain web_fetch cannot reach the needed state — especially CRM/portals that require browser state across turns.
-WHEN NOT TO USE: Static public pages with a known URL (prefer web_fetch) or facts discoverable via web_search without interaction.
+    modelUsageGuidance: `WHEN TO USE: Live/interactive/JS-rendered/logged-in pages where web_fetch cannot reach the needed state, or when a saved profile must reuse cookies across turns.
+WHEN NOT TO USE: Static public pages (prefer web_fetch) or facts via web_search. Site-specific shopping/portal flows belong in engaged Skills/scenarios — not here.
 EXAMPLES:
-- browser({action:"list_profiles"}) — list saved per-assistant browser sessions and their profileKey/status.
-- browser({action:"login", displayName:"Bitrix24", url:"https://…/login"}) — start product-owned local-browser login or re-auth; reuse the returned profileKey after the user completes login on their device.
-- browser({action:"request_user_action", profile:"profileKey", userActionPrompt:"Enter the SMS code and submit the form."}) — create a chat handoff card for an explicit manual browser step; the live view opens only after the user clicks the card.
-- browser({action:"open_live", profile:"profileKey"}) — reopen the visible browser view only when the user explicitly asks to see the saved session; this is not a completion handoff.
-- browser({action:"snapshot", url:"…", profile:"profileKey"}) — inspect an authenticated page with a saved session; text results may include page.elements with reusable CSS selectors (up to 200 currently-visible interactive controls).
-- browser({action:"act", url:"…", profile:"profileKey", stayOnPage:true, operations:[…]}) — continue on the current page without reopening navigation; chain kind:"goto" inside operations for mid-flow navigation.
-- browser({action:"act", url:"…", profile:"profileKey", operations:[{kind:"extract", selector:"article a"}]}) — structured matches land in page.extracted; act also returns page.elements — do not snapshot again just to re-read selectors.
-- browser({action:"act", url:"…", profile:"profileKey", operations:[{kind:"click_at", x:640, y:360}]}) — viewport click when selectors fail; x/y must come from a png read via files.preview (see GOTCHAS).
-- browser({action:"snapshot", url:"…", profile:"profileKey", format:"pdf"}) — export a PDF artifact; deliver via files.attach.
-- browser({action:"snapshot", url:"…", format:"png"}) — viewport screenshot artifact (fixed 1280x720); use files.preview on the returned workspace path to read click coordinates before click_at.
+- browser({action:"list_profiles"})
+- browser({action:"login", displayName:"Acme Portal", url:"https://…/login"}) — product-owned login; reuse returned profileKey after the user finishes.
+- browser({action:"request_user_action", profile:"profileKey", userActionPrompt:"Enter the SMS code and submit."}) — handoff card; live view opens only after the user clicks it.
+- browser({action:"open_live", profile:"profileKey"}) — only when the user asks to see the saved session.
+- browser({action:"snapshot"|"act", url:"…", profile:"profileKey", …}) — read/interact; act may use stayOnPage, operations, extract, click_at; snapshot may use format png/pdf for files.preview/attach.
 GOTCHAS:
-- Prefer \`snapshot\` first to inspect the page. Use \`act\` only when interaction is required.
-- Pass \`profile\` on \`snapshot\`/\`act\` to reuse cookies; omit \`profile\` only for public pages.
-- A completed login usually lasts on that device until the site expires cookies; do not start a fresh login if a saved profile already exists.
-- Runtime chooses the backend for you: saved-profile work uses the local browser bridge, while public no-profile snapshot/pdf/screenshot requests may use a headless backend. Do not choose or narrate the backend yourself.
-- Profile-backed work usually runs in a hidden browser window on the user's device. Use \`request_user_action\` only for CAPTCHA, OTP/verification, payment, irreversible confirmation, or another genuinely manual step. It creates the PersAI handoff card without auto-opening the page.
-- Profile-backed text \`snapshot\` and \`act\` may return \`page.elements\` with up to ${String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS)} currently-visible interactive controls and reusable CSS selectors (duplicate selectors may include \`matchIndex\`). Prefer those selectors in follow-up \`act\` calls instead of guessing new selectors. \`act\` already returns fresh \`page.elements\` — avoid a separate snapshot after every step.
-- Chain up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)} operations in one \`act\`: \`goto\` (mid-flow navigation), \`hover\` (hover-only controls), \`extract\` (structured \`page.extracted\`, up to ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)} items total), \`scroll\`, \`wait_for_selector\`, then \`click\`/\`type\`.
-- Vision fallback for stubborn controls: \`snapshot\` with \`format:"png"\` (browser viewport is fixed 1280x720; keep \`fullPage:false\` when you need click coordinates) → \`files({action:"preview", path:"<workspace path from screenshot result>"})\` to read the target control center in that image → \`act\` with \`kind:"click_at"\` using those viewport x,y integers. Do not guess coordinates from text layout.
-- Chain a full interaction into one \`act\` call instead of one operation per call: \`operations\` runs its steps in order in a single call. When a step opens new content (click loads a product page, expands a panel, triggers client-side navigation), add \`kind:"wait_for_selector"\` for a selector on that new content right after it, then continue the chain in the same call (e.g. click a search result → wait_for_selector on the add-to-cart control → click it) instead of stopping to take a separate snapshot.
-- Before reading \`snapshot\`/\`act\` page state the platform polls for SPA DOM hydration for up to ${String(MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS / 1000)}s (body text or visible controls) — independent of \`optimizeForSpeed\`. If the listing is still empty after that, use \`scroll\` then re-snapshot; do not stack redundant \`wait_for_timeout\` before the first read.
-- If a page (catalog, feed, search results) renders but shows an empty or placeholder list right after navigation, add a \`kind:"scroll"\` operation (optionally with a \`selector\`) before re-reading content — many sites only populate cards once scrolled into view.
-- E-commerce add-to-cart on search/catalog grids: stay on listing results — do not open a product detail page just to add; add is often an in-page fetch that navigation aborts. After \`click\` on a listing add control, insert \`wait_for_selector\` for an on-card confirmation control (same \`matchIndex\`) before the next \`kind:"goto"\`. Resolve \`matchIndex\` from \`extract\` on listing product links (prefer stable href slug over visible title; titles may contain soft hyphens). Avoid global increase/decrease \`matchIndex\` when a cart sidebar is visible — sidebar controls shift indices. Budget: up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)} ops ≈ four add cycles per \`act\` when each cycle is \`goto\` + \`click\` + \`wait_for_selector\`. Host-specific selectors and site flows live in engaged scenarios and optional per-host browser scripts — not in tool defaults.
-- Do not infer a user checkpoint from page text or selectors. When you determine that manual help is required, call \`request_user_action\` with the exact instruction and stop browser calls until the user's Done turn resumes.
-- If \`act\` returns per-operation warnings, continue from the returned page state/\`page.elements\` and retry only when the observed page supports it; do not jump to "bot protection", "profile expired", or similar from one failed selector.
-- If runtime returns \`bridge_unavailable\` or \`open_in_app\`, tell the user to continue in PersAI web/app where the local browser bridge is available.
-- Speak from structured runtime/API reason codes for pending login, user re-auth, expired profiles, bridge unavailability, or open-in-app handoff.
-- Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to missing profile, pending login, or user re-auth state.
-- On ordinary web chat, login and re-auth stay product-owned UI state. Do not promise raw URLs or hidden implementation details in the assistant reply.
-- \`optimizeForSpeed:true\` on \`snapshot\`/\`act\` speeds table scraping (blocks heavy assets).
-- Saved profiles expire after plan TTL inactivity; true missing/pending/expired states return structured business errors — use \`login\` only when the runtime/tool result actually points to that state.`,
+- Prefer snapshot to inspect; act only when interaction is required. Pass profile to reuse cookies; omit only for public pages.
+- list_profiles before login. Do not invent a profile or re-login unless the runtime/tool result explicitly requires it.
+- Runtime chooses the backend (local bridge for profiles; headless may serve public snapshot/pdf/screenshot). Do not narrate it. Profile-backed work usually runs in a hidden local window.
+- request_user_action only for CAPTCHA, OTP/verification, payment, irreversible confirmation, or another step you cannot safely perform. Stop browser calls until Done. Never infer a checkpoint from page text/selectors.
+- page.elements = reusable CSS selectors (matchIndex when duplicated). Prefer them; act returns fresh elements — do not snapshot only to re-read selectors. Chain up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)} ordered ops per act (goto/hover/extract≤${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)}/scroll/wait_for_selector/click/type/press/select_option/click_at/wait_for_timeout). Use wait_for_selector in the same act when a later step depends on content opened earlier.
+- click_at: png at ${String(DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH)}x${String(DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT)} (fullPage:false) → files({action:"preview", path:"…"}) → x,y. Do not guess coordinates.
+- On per-operation warnings, continue from returned page state when supported. Speak from structured reason codes. On bridge_unavailable/open_in_app, tell the user to continue in PersAI web/app. Do not promise raw login URLs. optimizeForSpeed may block heavy assets. Trust structured errors for expired/missing/pending profiles.`,
     capabilityGroup: "knowledge" as ToolCatalogCapabilityGroup,
     toolClass: "cost_driving" as ToolCatalogToolClass,
     requiredCredentialId: "tool_browser",
@@ -524,7 +506,7 @@ GOTCHAS:
 - scenarioKey is the exact <scenario key="..."> value from <available_scenarios>; opaque slug, must match verbatim.
 - action="list" and action="describe" are read-only: no side effects, safe to call speculatively, and they return bounded detail as a normal tool result.
 - After action="engage", the engage result returns instruction.body + the active scenario's full structure — read those before any other action.
-PLAN INTAKE: When the engage result includes a scenario (scenario.steps is a non-empty array), IMMEDIATELY follow up with a single todo_write({action:"add", items:[...]}) call whose items mirror the scenario's steps in order — one row per step, content set to a short title derived from each step's directive, status:"in_progress" on the first item and status:"pending" on the rest. This makes the plan model-authored from the very first move so subsequent in_progress/complete transitions are natural. Do not skip this step even if the user has not asked for a plan — the scenario is the plan.`,
+PLAN INTAKE: When engage returns a scenario with steps, immediately call todo_write({action:"add", items:[...]}) — one row per step, short titles from directives, first in_progress, rest pending. Do not skip this; the scenario is the plan.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "platform_managed"
@@ -556,23 +538,22 @@ GOTCHAS:
     description:
       "Manage a chat-scoped hierarchical plan of in-progress, pending, and completed todos for the current conversation.",
     modelDescription: "Manage a chat-scoped todo list for the current conversation.",
-    modelUsageGuidance: `WHEN TO USE: The user's request requires multi-step work, branching subtasks, or visible progress tracking across several tool calls or assistant turns. Open the plan immediately on the first turn you recognise this — do not wait until you have already started. Use one of: action="add" (mint new items), action="update" (rewrite content, change status, or reparent an existing item by id), action="complete" (mark an item done by id), action="remove" (soft-delete an item and its descendants by id), action="clear" (wipe the entire chat plan).
-WHEN NOT TO USE: Single-step requests, pure chitchat, simple Q&A, or anything the user can finish in one assistant turn without sub-work. Do not mirror trivial actions into todos just to look busy. Do not store secrets, transient turn context, or long-form notes in todo content — use memory_write for durable facts and the message body for explanations.
+    modelUsageGuidance: `WHEN TO USE: Multi-step work, branching subtasks, or progress across several tool calls/turns. Open the plan as soon as you recognize that. Actions: add | update | complete | remove | clear (details in the schema).
+WHEN NOT TO USE: Single-step requests, chitchat, or simple Q&A. Do not invent busywork todos. Do not put secrets, transient turn context, or long notes in content — use memory_write for durable facts and the message for explanations.
 EXAMPLES:
-- todo_write({action:"add", items:[{content:"Research current pricing tiers", status:"in_progress"}, {content:"Draft proposal section"}]}) — open a plan at the start of a multi-step request.
-- todo_write({action:"add", items:[{content:"Compile source list", parentId:"<server-id-of-research-step>"}]}) — add a child under an existing parent by its server-minted id.
-- todo_write({action:"complete", id:"<server-id>"}) — close out a finished step before starting the next one.
-- todo_write({action:"update", id:"<server-id>", content:"Draft proposal section (focus on pricing tiers)"}) — sharpen wording without changing identity.
-- todo_write({action:"clear"}) — abandon the plan when the conversation pivots away from the original multi-step work.
-SCENARIO INTAKE: When skill({action:"engage", scenarioKey:"..."}) returns a scenario, your very next move is a todo_write({action:"add", items:[...]}) that mirrors the scenario's steps in order (one row per scenario step, content = short title from the step's directive, first item status:"in_progress", rest status:"pending"). This is how a scenario becomes your plan.
-LIFECYCLE: You own every row in the plan. The moment you start substantive work on a step, switch it to in_progress via todo_write({action:"update", id:"<row-id>", status:"in_progress"}); the moment the step is actually delivered (not just announced), call todo_write({action:"complete", id:"<row-id>"}) BEFORE you move to the next step. Never leave a finished step at pending. Only one in_progress sibling per parent — close the previous step before starting the next. If the conversation pivots away, either complete what is genuinely done and call action="clear" on the rest, or call action="clear" alone to abandon the plan.
+- todo_write({action:"add", items:[{content:"Research pricing tiers", status:"in_progress"}, {content:"Draft proposal"}]}) — open a multi-step plan.
+- todo_write({action:"add", items:[{content:"Compile sources", parentId:"<server-id>"}]}) — add a child under an existing parent.
+- todo_write({action:"complete", id:"<server-id>"}) — close a finished step before starting the next.
+- todo_write({action:"clear"}) — abandon the plan when the conversation pivots away.
+SCENARIO INTAKE: When skill.engage returns a scenario with steps, your next call must be todo_write({action:"add", items:[...]}) — one row per step, short title from each directive, first status:"in_progress", rest "pending". The scenario is the plan.
+LIFECYCLE: in_progress when you start real work; complete when delivered (before the next step). Only one in_progress sibling per parent. On pivot: complete what is done and/or clear.
 GOTCHAS:
-- Use the exact ids returned in the previous todo_write response's todos window — or the "by id <id>" tail on each row in <persai_chat_plan> — when calling update/complete/remove or attaching a parentId; ids are server-minted UUIDs.
-- parentId attaches a child to an existing item; the server rejects cycles, unknown parents, and parents that are already completed.
-- Only one in_progress sibling per parent scope — extras passed at add are coerced to pending with a warning; on update, a sibling switch is rejected with reason="sibling_in_progress".
-- complete on a parent is rejected while it still has open children — close children first.
-- completed items are immutable; remove them or clear the whole plan if you need a fresh slate. Do not try to re-open a completed item.
-- The response always returns the current rendered window (all in_progress, most recent pending, recently completed up to the cap). Use that window to plan the next step; ignore your local copy if it disagrees.`,
+- Use exact ids from the last todo_write todos window or the "by id <id>" tail in <persai_chat_plan>.
+- parentId: server rejects cycles, unknown parents, and completed parents.
+- Only one in_progress sibling per parent (extras on add coerced to pending; update may return sibling_in_progress).
+- complete on a parent is rejected while open children remain.
+- completed items are immutable — remove/clear instead of reopening.
+- The response window is the source of truth for the next step.`,
     capabilityGroup: "workspace_ops" as ToolCatalogCapabilityGroup,
     toolClass: "utility" as ToolCatalogToolClass,
     policyClass: "plan_managed"

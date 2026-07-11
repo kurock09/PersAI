@@ -23,6 +23,7 @@ import {
   buildPermissionDeniedResult,
   buildUnsupportedPdfResult,
   buildUnsupportedScreenshotResult,
+  computeNavigationCommitTimeoutMs,
   computeReconnectDelayMs,
   mergeWarnings,
   normalizeCommandTimeout
@@ -586,24 +587,52 @@ async function openPermissionGrantWindow(pattern: string): Promise<void> {
   });
 }
 
-async function waitForTabLoad(tabId: number, timeoutMs: number): Promise<void> {
-  const tab = await chrome.tabs.get(tabId);
-  if (tab?.status === "complete") {
-    return;
+async function navigateAndWaitForMainFrameCommit(
+  tabId: number,
+  url: string,
+  timeoutMs: number
+): Promise<void> {
+  const previousDocumentId = await chrome.webNavigation
+    .getFrame({ tabId, frameId: 0 })
+    .then((frame) => frame?.documentId ?? null)
+    .catch(() => null);
+  const commitTimeoutMs = computeNavigationCommitTimeoutMs(timeoutMs);
+  if (commitTimeoutMs <= 0) {
+    throw new Error("No command time remains for browser navigation.");
   }
+
   await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(onUpdated);
-      reject(new Error("Timed out waiting for tab navigation."));
-    }, timeoutMs);
-    const onUpdated = (updatedTabId: number, changeInfo: { status?: string }) => {
-      if (updatedTabId === tabId && changeInfo.status === "complete") {
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(onUpdated);
+    let settled = false;
+    const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      chrome.webNavigation.onCommitted.removeListener(onCommitted);
+      if (error) {
+        reject(error);
+      } else {
         resolve();
       }
     };
-    chrome.tabs.onUpdated.addListener(onUpdated);
+    const onCommitted = (details: ChromeWebNavigationDetails): void => {
+      if (details.tabId !== tabId || details.frameId !== 0) return;
+      if (
+        previousDocumentId !== null &&
+        typeof details.documentId === "string" &&
+        details.documentId === previousDocumentId
+      ) {
+        return;
+      }
+      finish();
+    };
+    const timer = setTimeout(() => {
+      finish(new Error("Timed out waiting for main-frame navigation commit."));
+    }, commitTimeoutMs);
+
+    chrome.webNavigation.onCommitted.addListener(onCommitted);
+    void chrome.tabs.update(tabId, { url }).catch((error: unknown) => {
+      finish(error instanceof Error ? error : new Error("Failed to start tab navigation."));
+    });
   });
 }
 
@@ -676,17 +705,29 @@ async function createProfileWindow(
   targetUrl: string | null,
   visible: boolean
 ): Promise<ProfileSessionRecord> {
-  const bounds = visible ? await computeProfileWindowBounds() : {};
+  // Always size at create time. Assistant snapshot/act creates the profile
+  // window minimized (`showWindow: false`); previously that path omitted
+  // bounds and Chrome used its tiny default popup (~narrow/portrait). If
+  // minimize is ignored or the window is later revealed, the user saw a
+  // mobile-width shell while Settings `open_view` still looked correct
+  // because that path always applied the canonical 70%/16:9 bounds.
+  const bounds = await computeProfileWindowBounds();
   const nextWindow = await chrome.windows.create({
     url: targetUrl && targetUrl.length > 0 ? targetUrl : "about:blank",
     type: "popup",
     focused: visible,
-    state: visible ? "normal" : "minimized",
+    state: "normal",
     ...bounds
   });
   const tabId = nextWindow.tabs?.[0]?.id;
   if (typeof nextWindow.id !== "number" || typeof tabId !== "number") {
     throw new Error("Chrome did not create a usable bridge window.");
+  }
+  // Reinforce bounds after create (Chrome can ignore create-time size), then
+  // minimize when the command should stay hidden.
+  await chrome.windows.update(nextWindow.id, bounds);
+  if (!visible) {
+    await chrome.windows.update(nextWindow.id, { state: "minimized", focused: false });
   }
   return persistProfilePatch(profileKey, {
     windowId: nextWindow.id,
@@ -710,6 +751,16 @@ async function resolveOrCreateProfileWindow(
       // left the window marked visible while the user resized it (or while an
       // old extension build created it at the legacy tiny popup size).
       return setWindowVisibility(existing, true);
+    }
+    // Hidden assistant snapshot/act must still keep the remembered window at
+    // the canonical desktop size. Older builds created minimized windows
+    // without width/height; Chrome then kept a narrow default popup that
+    // later appeared on screen without going through open_view.
+    try {
+      await chrome.windows.update(existing.windowId, await computeProfileWindowBounds());
+    } catch {
+      // Window may have been closed between reconcile and update; create below
+      // only runs when ids are missing, so ignore and keep the record.
     }
     return existing;
   }
@@ -747,8 +798,7 @@ async function navigateTab(
   if (typeof record.tabId !== "number") {
     throw new Error("No bridge tab exists for this profile.");
   }
-  await chrome.tabs.update(record.tabId, { url });
-  await waitForTabLoad(record.tabId, timeoutMs);
+  await navigateAndWaitForMainFrameCommit(record.tabId, url, timeoutMs);
   if (isProfileObserverLocked(record.profileKey)) {
     await setAssistantOwnershipOverlay(record, true);
   }
@@ -833,11 +883,7 @@ async function setAssistantOwnershipOverlay(
         ] as const;
         const blockInteraction = (event: Event) => {
           const overlay = document.getElementById(overlayId);
-          if (
-            !event.isTrusted ||
-            overlay === null ||
-            overlay.style.pointerEvents === "none"
-          ) {
+          if (!event.isTrusted || overlay === null || overlay.style.pointerEvents === "none") {
             return;
           }
           event.preventDefault();
@@ -959,7 +1005,7 @@ async function captureArtifact(
  * own does not require a Chrome host permission grant — only DOM access
  * (`chrome.scripting.executeScript`, `chrome.tabs.captureVisibleTab`) does.
  * So this path deliberately skips the browser-access permission gate and never
- * blocks on `waitForTabLoad`; it kicks the navigation and returns
+ * blocks on a page-load completion gate; it kicks the navigation and returns
  * immediately so the API `open-live` call resolves well under its timeout
  * instead of racing a fast permission-denied 409 or a slow page-load 409.
  */
@@ -1007,10 +1053,7 @@ async function handleOpenView(
   } else {
     observerLockedProfileKeys.delete(record.profileKey);
   }
-  await setAssistantOwnershipOverlay(
-    finalRecord,
-    isProfileObserverLocked(finalRecord.profileKey)
-  );
+  await setAssistantOwnershipOverlay(finalRecord, isProfileObserverLocked(finalRecord.profileKey));
   await updateState((state) => setAwaitingCompletion(state, record.profileKey, true));
   await refreshBadgeFromState();
 
@@ -1086,10 +1129,7 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
       observerLockedProfileKeys.delete(command.profileKey);
     }
     if (existing !== null) {
-      await setAssistantOwnershipOverlay(
-        existing,
-        isProfileObserverLocked(existing.profileKey)
-      );
+      await setAssistantOwnershipOverlay(existing, isProfileObserverLocked(existing.profileKey));
     }
     return {
       commandId: command.commandId,

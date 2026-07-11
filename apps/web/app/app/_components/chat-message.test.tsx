@@ -16,44 +16,126 @@ vi.mock("@clerk/nextjs", () => ({
 
 vi.mock("next-intl", () => ({
   useTranslations: () => (key: string, values?: Record<string, number>) => {
+    const n = values?.n ?? 0;
+    const steps = values?.steps ?? 0;
+    const ruSteps = (count: number) =>
+      count === 1 ? "шаг" : count >= 2 && count <= 4 ? "шага" : "шагов";
+    const ruCommands = (count: number) =>
+      count === 1 ? "команда" : count >= 2 && count <= 4 ? "команды" : "команд";
+    const ruSearches = (count: number) =>
+      count === 1 ? "поиск" : count >= 2 && count <= 4 ? "поиска" : "поисков";
+    const ruPages = (count: number) =>
+      count === 1 ? "страница" : count >= 2 && count <= 4 ? "страницы" : "страниц";
+    const ruOps = (count: number) =>
+      count === 1 ? "операция" : count >= 2 && count <= 4 ? "операции" : "операций";
+    const ruUpdates = (count: number) =>
+      count === 1 ? "обновление" : count >= 2 && count <= 4 ? "обновления" : "обновлений";
+    const ruGens = (count: number) =>
+      count === 1 ? "генерация" : count >= 2 && count <= 4 ? "генерации" : "генераций";
+    const ruEdits = (count: number) =>
+      count === 1 ? "правка" : count >= 2 && count <= 4 ? "правки" : "правок";
+    const ruErrors = (count: number) =>
+      count === 1 ? "ошибка" : count >= 2 && count <= 4 ? "ошибки" : "ошибок";
+    const ruCards = (count: number) =>
+      count === 1 ? "карточка" : count >= 2 && count <= 4 ? "карточки" : "карточек";
+    const ruSources = (count: number) =>
+      count === 1 ? "источник" : count >= 2 && count <= 4 ? "источника" : "источников";
+
     if (key === "processBadge.worked") {
-      const steps = values?.steps ?? 0;
-      const suffix = steps === 1 ? "шаг" : steps >= 2 && steps <= 4 ? "шага" : "шагов";
-      return `Выполнено · ${String(steps)} ${suffix}`;
+      return `Выполнено · ${String(steps)} ${ruSteps(steps)}`;
     }
     if (key === "processBadge.exploredSearches") {
-      const n = values?.n ?? 0;
-      const suffix = n === 1 ? "источник" : n >= 2 && n <= 4 ? "источника" : "источников";
-      return `Найдено · ${String(n)} ${suffix}`;
+      return `Найдено · ${String(n)} ${ruSources(n)}`;
     }
     if (key === "processBadge.knowledgeFetches") {
-      return `Прочитано · ${String(values?.n ?? 0)} карточка`;
+      return `Прочитано · ${String(n)} ${ruCards(n)}`;
     }
     if (key === "processBadge.generatedImages") {
-      return `Сгенерировано · ${String(values?.n ?? 0)} изобр.`;
+      return `Сгенерировано · ${String(n)} изобр.`;
     }
     if (key === "processBadge.editedImages") {
-      return `Отредактировано · ${String(values?.n ?? 0)} изобр.`;
+      return `Отредактировано · ${String(n)} изобр.`;
     }
     if (key === "processBadge.generatedVideos") {
-      return `Сгенерировано · ${String(values?.n ?? 0)} видео`;
+      return `Сгенерировано · ${String(n)} видео`;
     }
     if (key === "processBadge.preparedDocuments") {
-      return `Подготовлено · ${String(values?.n ?? 0)} документ`;
+      return `Подготовлено · ${String(n)} документ`;
     }
     if (key === "processBadge.wroteFiles") {
-      return `Записано · ${String(values?.n ?? 0)} файл`;
+      return `Записано · ${String(n)} файл`;
     }
     if (key === "processBadge.readFiles") {
-      return `Прочитано · ${String(values?.n ?? 0)} файл`;
+      return `Прочитано · ${String(n)} файл`;
     }
     if (key === "processBadge.ranCommands") {
-      return `Запущено · ${String(values?.n ?? 0)} команда`;
+      return `Запущено · ${String(n)} ${ruCommands(n)}`;
     }
     if (key === "processBadge.readPages") {
-      const n = values?.n ?? 0;
-      const suffix = n === 1 ? "страница" : n >= 2 && n <= 4 ? "страницы" : "страниц";
-      return `Прочитано · ${String(n)} ${suffix}`;
+      return `Прочитано · ${String(n)} ${ruPages(n)}`;
+    }
+    if (key === "processBadge.micro.browser") {
+      return `В браузере · ${String(n)} ${ruSteps(n)}`;
+    }
+    if (key === "processBadge.micro.sandbox") {
+      return `В песочнице · ${String(n)} ${ruCommands(n)}`;
+    }
+    if (key === "processBadge.micro.knowledgeSearch") {
+      return `В знаниях · ${String(n)} ${ruSearches(n)}`;
+    }
+    if (key === "processBadge.micro.knowledgeFetch") {
+      return `Прочитано из знаний · ${String(n)} ${ruCards(n)}`;
+    }
+    if (key === "processBadge.micro.webSearch") {
+      return `В сети · ${String(n)} ${ruSearches(n)}`;
+    }
+    if (key === "processBadge.micro.webFetch") {
+      return `Прочитано · ${String(n)} ${ruPages(n)}`;
+    }
+    if (key === "processBadge.micro.files") {
+      return `Файлы · ${String(n)} ${ruOps(n)}`;
+    }
+    if (key === "processBadge.micro.workspaceSearch") {
+      return `Поиск по файлам · ${String(n)} ${ruSteps(n)}`;
+    }
+    if (key === "processBadge.micro.todo") {
+      return `План · ${String(n)} ${ruUpdates(n)}`;
+    }
+    if (key === "processBadge.micro.skill") {
+      return `Навыки · ${String(n)} ${ruSteps(n)}`;
+    }
+    if (key === "processBadge.micro.imageGenerate") {
+      return `Изображения · ${String(n)} ${ruGens(n)}`;
+    }
+    if (key === "processBadge.micro.imageEdit") {
+      return `Изображения · ${String(n)} ${ruEdits(n)}`;
+    }
+    if (key === "processBadge.micro.videoGenerate") {
+      return `Видео · ${String(n)} ${ruGens(n)}`;
+    }
+    if (key === "processBadge.micro.document") {
+      return `Документы · ${String(n)} ${ruSteps(n)}`;
+    }
+    if (key === "processBadge.micro.memory") {
+      return `Память · ${String(n)} ${ruSearches(n)}`;
+    }
+    if (key === "processBadge.micro.cron") {
+      return `Расписание · ${String(n)} ${ruSteps(n)}`;
+    }
+    if (key === "processBadge.micro.message") {
+      return `Сообщения · ${String(n)} ${ruSteps(n)}`;
+    }
+    if (key === "processBadge.micro.sessions") {
+      return `Сессии · ${String(n)} ${ruSteps(n)}`;
+    }
+    if (key === "processBadge.micro.requestUserAction") {
+      return `Запрос к тебе · ${String(n)} ${ruSteps(n)}`;
+    }
+    if (key === "processBadge.micro.other") {
+      return `Другое · ${String(n)} ${ruSteps(n)}`;
+    }
+    if (key === "processBadge.micro.failedSuffix") {
+      return ` · ${String(n)} ${ruErrors(n)}`;
     }
     return key;
   }
@@ -1277,7 +1359,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByText("ок")).toBeInTheDocument();
   });
 
-  it("expands a process badge to show text and tool rows", () => {
+  it("expands a process badge to show notes then tool micro-report", () => {
     render(
       <ChatMessageBubble
         chatId="chat-1"
@@ -1292,13 +1374,13 @@ describe("ChatMessageBubble — pre-response status", () => {
 
     const badge = screen.getByRole("button", { name: "Выполнено · 2 шага" });
     expect(screen.queryByText("сейчас")).not.toBeInTheDocument();
-    expect(screen.queryByText(/web fetch/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Прочитано · 1 страница/)).not.toBeInTheDocument();
 
     fireEvent.click(badge);
 
     expect(badge).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("сейчас")).toBeInTheDocument();
-    expect(screen.getByText(/web fetch \(failed\)/)).toBeInTheDocument();
+    expect(screen.getByText("Прочитано · 1 страница · 1 ошибка")).toBeInTheDocument();
   });
 
   it("renders only final text for an empty assistant message body with no working notes or tools", () => {
@@ -1446,7 +1528,7 @@ describe("ChatMessageBubble — pre-response status", () => {
     expect(screen.getByRole("button", { name: "Запущено · 1 команда" })).toBeInTheDocument();
   });
 
-  it("expand committed badge shows all pieces in chronological order", () => {
+  it("expand committed badge groups notes first then tool family micro-report", () => {
     render(
       <ChatMessageBubble
         chatId="chat-1"
@@ -1466,14 +1548,43 @@ describe("ChatMessageBubble — pre-response status", () => {
     fireEvent.click(badge);
 
     const alpha = screen.getByText("alpha");
-    const webFetch = screen.getByText(/web fetch/);
     const beta = screen.getByText("beta");
-    const imageGenerate = screen.getByText(/image generate/);
-    expect(alpha.compareDocumentPosition(webFetch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(webFetch.compareDocumentPosition(beta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const webFetch = screen.getByText("Прочитано · 1 страница");
+    const imageGenerate = screen.getByText("Изображения · 1 генерация");
+    expect(alpha.compareDocumentPosition(beta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(beta.compareDocumentPosition(webFetch) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(
-      beta.compareDocumentPosition(imageGenerate) & Node.DOCUMENT_POSITION_FOLLOWING
+      webFetch.compareDocumentPosition(imageGenerate) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  it("expand groups repeated tools into one family line with count", () => {
+    render(
+      <ChatMessageBubble
+        chatId="chat-1"
+        message={makeAssistantMessage({
+          status: "committed",
+          content: "Готово.",
+          toolInvocations: [
+            { name: "browser", iteration: 0, ok: true },
+            { name: "browser", iteration: 1, ok: true },
+            { name: "browser", iteration: 2, ok: true },
+            { name: "browser", iteration: 3, ok: true },
+            { name: "shell", iteration: 4, ok: true },
+            { name: "todo_write", iteration: 5, ok: true }
+          ]
+        })}
+      />
+    );
+
+    const badge = screen.getByRole("button", { name: "Выполнено · 6 шагов" });
+    fireEvent.click(badge);
+
+    expect(screen.getByText("В браузере · 4 шага")).toBeInTheDocument();
+    expect(screen.getByText("В песочнице · 1 команда")).toBeInTheDocument();
+    expect(screen.getByText("План · 1 обновление")).toBeInTheDocument();
+    expect(screen.queryByText(/browser/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/todo write/)).not.toBeInTheDocument();
   });
 
   // ADR-125 follow-up: per-message engagement annotation moved to the chat

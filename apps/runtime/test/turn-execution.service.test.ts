@@ -7333,6 +7333,113 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     false
   );
 
+  // ── ADR-143 Slice S2 — in-turn toolHistory projection ──
+  // Provider-facing toolHistory must be tier-projected (newest full, next 4
+  // compact, older masked). Canonical turnState / completed toolExchanges stay
+  // full and must not carry forced `_observationTier` markers.
+  {
+    const observationProjectionRequest = createRuntimeTurnRequest();
+    observationProjectionRequest.bundle.bundleHash = request.bundle.bundleHash;
+    const providerCallsBeforeObservationProjection = providerGatewayClient.calls.length;
+    providerGatewayClient.resultQueue = [
+      {
+        provider: "openai",
+        model: "gpt-5.4",
+        text: null,
+        respondedAt: "2026-07-11T12:00:40.000Z",
+        usage: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4",
+          inputTokens: 20,
+          outputTokens: 0,
+          totalTokens: 20
+        },
+        stopReason: "tool_calls",
+        toolCalls: Array.from({ length: 6 }, (_, index) => ({
+          id: `tool-call-obs-${String(index + 1)}`,
+          name: "memory_write",
+          arguments: {
+            kind: "preference",
+            memory: `Observation memory ${String(index + 1)}`,
+            layer: "long"
+          }
+        }))
+      },
+      {
+        provider: "openai",
+        model: "gpt-5.4",
+        text: "reply after observation projection",
+        respondedAt: "2026-07-11T12:00:41.000Z",
+        usage: {
+          providerKey: "openai",
+          modelKey: "gpt-5.4",
+          inputTokens: 40,
+          outputTokens: 12,
+          totalTokens: 52
+        },
+        stopReason: "completed",
+        toolCalls: []
+      }
+    ];
+    turnAcceptanceService.result = createAcceptedTurn();
+    (turnAcceptanceService.result as AcceptedRuntimeTurn).receipt.bundleHash =
+      request.bundle.bundleHash;
+    const observationProjectionCompleted = await service.createTurn(observationProjectionRequest);
+    assert.equal(
+      observationProjectionCompleted.assistantText,
+      "reply after observation projection"
+    );
+    assert.equal(providerGatewayClient.calls.length, providerCallsBeforeObservationProjection + 2);
+    const projectedToolHistory =
+      providerGatewayClient.calls[providerCallsBeforeObservationProjection + 1]?.toolHistory ?? [];
+    assert.equal(
+      projectedToolHistory.length,
+      6,
+      "ADR-143 S2: follow-up provider request must include all six in-turn exchanges."
+    );
+    const projectedTiers = projectedToolHistory.map((exchange) => {
+      const parsed = JSON.parse(exchange.toolResult.content) as {
+        _observationTier?: string;
+      };
+      return parsed._observationTier;
+    });
+    assert.deepEqual(
+      projectedTiers,
+      ["masked", "compact", "compact", "compact", "compact", "full"],
+      "ADR-143 S2: older toolHistory entries must be compact/masked; newest must stay full."
+    );
+    const newestProjected = JSON.parse(projectedToolHistory[5]?.toolResult.content ?? "{}") as {
+      action?: string;
+      requestedKind?: string;
+      _observationTier?: string;
+    };
+    assert.equal(newestProjected._observationTier, "full");
+    assert.equal(newestProjected.action, "remembered");
+    assert.equal(newestProjected.requestedKind, "preference");
+
+    const storedExchanges = observationProjectionCompleted.toolExchanges ?? [];
+    assert.equal(
+      storedExchanges.length,
+      6,
+      "ADR-143 S2: completed turn must persist all six full toolExchanges."
+    );
+    for (const exchange of storedExchanges) {
+      const parsed = JSON.parse(exchange.toolResult.content) as {
+        action?: string;
+        requestedKind?: string;
+        _observationTier?: string;
+      };
+      assert.equal(
+        parsed._observationTier,
+        undefined,
+        "ADR-143 S2: stored toolExchanges must remain canonical full (no projection marker)."
+      );
+      assert.equal(parsed.action, "remembered");
+      assert.equal(parsed.requestedKind, "preference");
+    }
+    await flushTaskQueue();
+  }
+
   // ── ADR-074 Slice L1 — adaptive tool loop limits per execution mode ──
   // These three integration scenarios assert the runtime wiring of
   // `ToolBudgetPolicy`. The policy itself is unit-tested separately in
@@ -7620,18 +7727,32 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     ["r2-par-1", "r2-par-2", "r2-par-3"],
     "ADR-074 R2 regression: toolHistory must remain in model-declared order even when safe calls finish out of order."
   );
-  const parallelSafeHistoryUrls = (providerGatewayClient.calls.at(-1)?.toolHistory ?? []).map(
+  // ADR-143 S2: provider-facing toolHistory is projected. Argument order stays
+  // declaration-stable for all tiers; full `document.url` is only guaranteed on
+  // the newest (full) exchange.
+  assert.deepEqual(
+    (providerGatewayClient.calls.at(-1)?.toolHistory ?? []).map(
+      (entry) => entry.toolCall.arguments.url ?? null
+    ),
+    ["https://example.com/a", "https://example.com/b", "https://example.com/c"],
+    "ADR-074 R2 regression: projected toolHistory must keep model-declared argument order."
+  );
+  const parallelSafeHistoryTiers = (providerGatewayClient.calls.at(-1)?.toolHistory ?? []).map(
     (entry) => {
       const payload = JSON.parse(entry.toolResult.content) as {
+        _observationTier?: string;
         document?: { url?: string | null };
       };
-      return payload.document?.url ?? null;
+      return {
+        tier: payload._observationTier ?? null,
+        documentUrl: payload.document?.url ?? null
+      };
     }
   );
-  assert.deepEqual(parallelSafeHistoryUrls, [
-    "https://example.com/a",
-    "https://example.com/b",
-    "https://example.com/c"
+  assert.deepEqual(parallelSafeHistoryTiers, [
+    { tier: "compact", documentUrl: null },
+    { tier: "compact", documentUrl: null },
+    { tier: "full", documentUrl: "https://example.com/c" }
   ]);
   providerGatewayClient.webFetchDelayQueueMs = [];
   providerGatewayClient.webFetchResultQueue = [];

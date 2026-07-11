@@ -108,6 +108,10 @@ import {
 import { RuntimeBrowserToolService } from "./runtime-browser-tool.service";
 import { RuntimeDocumentToolService } from "./runtime-document-tool.service";
 import { stringifyToolResultPayloadForModel } from "./sanitize-tool-result-for-model";
+import {
+  formatToolHistoryProjectionMetricsLog,
+  projectToolExchangesForModelWithMetrics
+} from "./project-tool-exchanges-for-model";
 import { RuntimeFilesToolService } from "./runtime-files-tool.service";
 import { RuntimeImageEditToolService } from "./runtime-image-edit-tool.service";
 import { RuntimeImageGenerateToolService } from "./runtime-image-generate-tool.service";
@@ -4248,6 +4252,19 @@ export class TurnExecutionService {
       input.workingFilesContext
     );
     const pendingFilePreviewBlocks = input.pendingFilePreviewBlocks ?? [];
+    let projectedToolHistory: ProviderGatewayToolExchange[] | undefined;
+    if (input.toolHistory.length > 0) {
+      const { exchanges, metrics } = projectToolExchangesForModelWithMetrics(input.toolHistory, {
+        mode: "in_turn"
+      });
+      this.logger.log(
+        formatToolHistoryProjectionMetricsLog({
+          requestId: input.requestMetadata.runtimeRequestId,
+          metrics
+        })
+      );
+      projectedToolHistory = exchanges;
+    }
     return {
       ...baseRequest,
       ...(developerInstructions === null ? {} : { developerInstructions }),
@@ -4261,7 +4278,7 @@ export class TurnExecutionService {
                 content: assistantText
               }
             ],
-      ...(input.toolHistory.length === 0 ? {} : { toolHistory: input.toolHistory }),
+      ...(projectedToolHistory === undefined ? {} : { toolHistory: projectedToolHistory }),
       ...(pendingFilePreviewBlocks.length === 0
         ? {}
         : { toolFollowUpUserContent: pendingFilePreviewBlocks }),

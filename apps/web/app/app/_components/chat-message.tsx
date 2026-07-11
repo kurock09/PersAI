@@ -862,27 +862,123 @@ function buildIterationBlocks(
   return blocks;
 }
 
-function toolDisplayName(name: string): string {
+type ToolFamilyId =
+  | "browser"
+  | "sandbox"
+  | "knowledgeSearch"
+  | "knowledgeFetch"
+  | "webSearch"
+  | "webFetch"
+  | "files"
+  | "workspaceSearch"
+  | "todo"
+  | "skill"
+  | "imageGenerate"
+  | "imageEdit"
+  | "videoGenerate"
+  | "document"
+  | "memory"
+  | "cron"
+  | "message"
+  | "sessions"
+  | "requestUserAction"
+  | "other";
+
+type ToolFamilyMicroRow = {
+  family: ToolFamilyId;
+  count: number;
+  failedCount: number;
+};
+
+function resolveToolFamily(name: string): ToolFamilyId {
   switch (name) {
-    case "web_search":
-      return "web search";
-    case "web_fetch":
-      return "web fetch";
-    case "image_generate":
-      return "image generate";
-    case "image_edit":
-      return "image edit";
-    case "video_generate":
-      return "video generate";
+    case "browser":
+      return "browser";
+    case "shell":
+    case "exec":
+      return "sandbox";
     case "knowledge_search":
-      return "knowledge search";
+      return "knowledgeSearch";
     case "knowledge_fetch":
-      return "knowledge fetch";
+      return "knowledgeFetch";
+    case "web_search":
+      return "webSearch";
+    case "web_fetch":
+      return "webFetch";
+    case "files":
+    case "files_write":
+    case "files.write":
+    case "files_read":
+    case "files.read":
+    case "files_list":
+    case "files_preview":
+      return "files";
+    case "grep":
+    case "glob":
+      return "workspaceSearch";
     case "todo_write":
-      return "todo write";
+      return "todo";
+    case "skill":
+      return "skill";
+    case "image_generate":
+      return "imageGenerate";
+    case "image_edit":
+      return "imageEdit";
+    case "video_generate":
+      return "videoGenerate";
+    case "document":
+      return "document";
+    case "memory_search":
+      return "memory";
+    case "cron":
+      return "cron";
+    case "message":
+      return "message";
+    case "sessions_list":
+    case "sessions_history":
+    case "sessions_send":
+    case "session_status":
+      return "sessions";
+    case "request_user_action":
+      return "requestUserAction";
     default:
-      return name.replace(/_/g, " ");
+      return "other";
   }
+}
+
+function buildToolFamilyMicroRows(pieces: IterationProcessPiece[]): ToolFamilyMicroRow[] {
+  const order: ToolFamilyId[] = [];
+  const counts = new Map<ToolFamilyId, { count: number; failedCount: number }>();
+
+  for (const piece of pieces) {
+    if (piece.kind !== "tool") continue;
+    const family = resolveToolFamily(piece.tool.name);
+    const current = counts.get(family);
+    if (!current) {
+      order.push(family);
+      counts.set(family, {
+        count: 1,
+        failedCount: piece.tool.ok ? 0 : 1
+      });
+      continue;
+    }
+    current.count += 1;
+    if (!piece.tool.ok) current.failedCount += 1;
+  }
+
+  return order.map((family) => {
+    const entry = counts.get(family)!;
+    return { family, count: entry.count, failedCount: entry.failedCount };
+  });
+}
+
+function formatToolFamilyMicroRow(
+  row: ToolFamilyMicroRow,
+  t: ReturnType<typeof useTranslations>
+): string {
+  const base = t(`processBadge.micro.${row.family}`, { n: row.count });
+  if (row.failedCount <= 0) return base;
+  return `${base}${t("processBadge.micro.failedSuffix", { n: row.failedCount })}`;
 }
 
 function resolveProcessBadgeLabel(
@@ -936,6 +1032,10 @@ function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
   const [expanded, setExpanded] = useState(false);
   const t = useTranslations("chat");
   const label = resolveProcessBadgeLabel(pieces, t);
+  const textPieces = pieces.filter(
+    (piece): piece is Extract<IterationProcessPiece, { kind: "text" }> => piece.kind === "text"
+  );
+  const toolMicroRows = buildToolFamilyMicroRows(pieces);
 
   if (pieces.length === 0) {
     return null;
@@ -957,25 +1057,27 @@ function ProcessBadge({ pieces }: { pieces: IterationProcessPiece[] }) {
         <span>{label}</span>
       </button>
       {expanded ? (
-        <div className="mt-2 space-y-2 border-l border-border/70 pl-3 text-sm text-text-muted/72">
-          {pieces.map((piece, index) =>
-            piece.kind === "text" ? (
-              <div key={`text-${index}-${piece.markdown}`} className="leading-relaxed">
-                <MarkdownFragment content={piece.markdown} />
-              </div>
-            ) : (
-              <div
-                key={`tool-${index}-${piece.tool.toolCallId ?? piece.tool.name}`}
-                className="leading-relaxed"
-              >
-                <span aria-hidden="true">• </span>
-                <span>
-                  {toolDisplayName(piece.tool.name)}
-                  {piece.tool.ok ? "" : " (failed)"}
-                </span>
-              </div>
-            )
-          )}
+        <div className="mt-2 border-l border-border/70 pl-3">
+          {textPieces.length > 0 ? (
+            <div className="space-y-2 text-sm text-text-muted/72">
+              {textPieces.map((piece, index) => (
+                <div key={`text-${index}-${piece.markdown}`} className="leading-relaxed">
+                  <MarkdownFragment content={piece.markdown} />
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {toolMicroRows.length > 0 ? (
+            <div
+              className={`space-y-0.5 text-xs leading-snug text-text-subtle/80 ${
+                textPieces.length > 0 ? "mt-2" : ""
+              }`}
+            >
+              {toolMicroRows.map((row) => (
+                <div key={row.family}>{formatToolFamilyMicroRow(row, t)}</div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

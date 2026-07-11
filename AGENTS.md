@@ -31,6 +31,8 @@ Additional UX ADR **closed locally 2026-07-11:** `docs/ADR/141-native-browser-ac
 
 Additional UX ADR **closed 2026-07-11:** `docs/ADR/142-turn-scoped-local-browser-observer-lock.md` (mobile + desktop retained browser profiles remain observer-only across the whole assistant turn; trusted user click/scroll/swipe/keyboard input is blocked until stream completion or explicit `request_user_action`; Android 1.0.37 built/exported/installed, web + extension deploy and live acceptance pending; do not reopen for new scope).
 
+Additional orchestration program **closed locally 2026-07-11:** `docs/ADR/143-tiered-tool-observation-projection.md` (S1–S5 local gate green — one production model-facing projection for in-turn `toolHistory` and cross-turn `priorToolExchanges`: tiers `full`/`compact`/`masked`, tool-aware compactors for browser/shell/exec/files, full canonical storage unchanged, naive D8 char-tail truncate deleted, `[toolHistoryProjection]` metrics log; `MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS` stays 200; deploy + Lavka live smoke pending; do not reopen for new scope).
+
 Additional orchestration program **superseded by ADR-140 (do not implement new scope):** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` and `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`.
 
 ## Repo rules

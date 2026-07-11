@@ -73,6 +73,21 @@ interface ChromeWindowsApi {
   ): Promise<ChromeWindow>;
 }
 
+interface ChromeWebNavigationDetails {
+  tabId: number;
+  frameId: number;
+  url: string;
+  documentId?: string;
+}
+
+interface ChromeWebNavigationApi {
+  getFrame(input: {
+    tabId: number;
+    frameId: number;
+  }): Promise<{ documentId?: string; url?: string } | null>;
+  onCommitted: ChromeListener<(details: ChromeWebNavigationDetails) => void>;
+}
+
 interface ChromeScriptingApi {
   executeScript<T>(input: {
     target: { tabId: number };
@@ -114,5 +129,6 @@ declare const chrome: {
   scripting: ChromeScriptingApi;
   storage: { local: ChromeStorageArea };
   tabs: ChromeTabsApi;
+  webNavigation: ChromeWebNavigationApi;
   windows: ChromeWindowsApi;
 };

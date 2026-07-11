@@ -1,7 +1,9 @@
 import type { LocalBrowserCommand, LocalBrowserResult } from "./contract.js";
 import {
+  COMMAND_TRANSPORT_RESERVE_MS,
   DEFAULT_COMMAND_TIMEOUT_MS,
   EXECUTOR_ERROR_REASON,
+  MAX_NAVIGATION_COMMIT_WAIT_MS,
   PERMISSION_DENIED_REASON,
   RECONNECT_BACKOFF_MS,
   UNSUPPORTED_PDF_REASON,
@@ -17,6 +19,17 @@ export function normalizeCommandTimeout(command: LocalBrowserCommand): number {
   return Number.isInteger(command.timeoutMs) && Number(command.timeoutMs) > 0
     ? Number(command.timeoutMs)
     : DEFAULT_COMMAND_TIMEOUT_MS;
+}
+
+export function computeNavigationCommitTimeoutMs(commandTimeoutMs: number): number {
+  const safeCommandTimeoutMs =
+    Number.isFinite(commandTimeoutMs) && commandTimeoutMs > 0
+      ? Math.floor(commandTimeoutMs)
+      : DEFAULT_COMMAND_TIMEOUT_MS;
+  return Math.max(
+    0,
+    Math.min(MAX_NAVIGATION_COMMIT_WAIT_MS, safeCommandTimeoutMs - COMMAND_TRANSPORT_RESERVE_MS)
+  );
 }
 
 export function mergeWarnings(...warnings: Array<string | null | undefined>): string | null {

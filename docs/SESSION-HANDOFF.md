@@ -1,5 +1,101 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Desktop extension committed-navigation completion
+
+Status: **implemented locally; unpacked extension rebuild/reload + live acceptance required.**
+
+Baseline SHA: PersAI `1503b23d` (pre-slice; tree already dirty with ADR-143, descriptor cleanup, chat process-badge UX, and extension 16:9 repair).
+
+**Live evidence / cause:** Cluster runtime request `659ef36f-c689-428f-9769-50177543b73d` dispatched desktop extension acts successfully, but ria.ru, lenta.ru, and habr.com each held the serial extension queue for the exact outer 120-second command lifetime. The existing 10-second DOM-stability gate never started: desktop `navigateTab` first waited for `tabs.onUpdated status=complete` using the full command timeout, and long-lived/background pages did not reach that event. This is the desktop equivalent of the mobile committed-navigation defect already repaired with `onPageCommitVisible`.
+
+**Repair:** Desktop navigation now listens for `chrome.webNavigation.onCommitted` on the target tab's main frame, rejects the previous `documentId` as stale, accepts canonical/redirect commits, and then enters the existing 10-second DOM-stability reader. Commit wait is capped at 30 seconds and reserves 5 seconds inside the outer command lifetime so failures can reach API before relay cleanup. The manifest declares `webNavigation`; the old full-load wait is deleted.
+
+**Verification:** extension lint PASS; typecheck PASS; tests 22/22 PASS; build PASS and ignored local `dist` regenerated. Final repository gate PASS: Helm lint/template, recursive lint + format, full typecheck, Prisma generate, full recursive tests, Step 2 smoke/E2E, and full production build. Prisma migrate check was explicitly skipped at founder direction because local Docker/PostgreSQL was unavailable.
+
+**Next recommended step:** reload the unpacked extension from `extensions/persai-browser-extension/dist`, then repeat desktop acts across ria.ru/lenta.ru/habr.com. Each command should proceed after main-frame commit + bounded DOM readiness instead of producing exact 120-second `bridge_command_timeout`.
+
+---
+
+## 2026-07-12 — Assistant-created extension window 16:9
+
+Status: **implemented locally; reload unpacked extension required.**
+
+Baseline SHA: PersAI `1503b23d` (pre-slice; tree already dirty with ADR-143 + chat process-badge UX).
+
+**Scope / cause:** Settings session-banner `open-live` correctly opened a centered 70%/16:9 popup. Assistant-driven `snapshot`/`act` creates the same profile window with `showWindow: false` and previously skipped width/height, so Chrome used its narrow default popup (portrait shell; site went mobile). Founder screenshot: ya.ru mobile layout inside a tall thin Chrome window.
+
+**Repair:** `createProfileWindow` always applies canonical bounds, reinforces with a post-create `windows.update`, then minimizes when hidden. `resolveOrCreateProfileWindow` also re-applies bounds on hidden reuse of an existing window (without forcing minimize, so a user-opened observer window is not yanked away).
+
+**Next recommended step:** rebuild + reload unpacked extension from `dist`, close any old narrow profile popup, ask the assistant to open a saved browser profile again, and confirm the window matches Settings 16:9 (even if briefly visible before minimize).
+
+---
+
+## 2026-07-12 — Chat process badge micro-report grouping
+
+Status: **implemented locally; web deploy pending.**
+
+**Scope:** Expanded process badge (`Выполнено · N шагов`) no longer interleaves raw tool bullets with working notes. Notes stay at the top; below is a denser gray micro-report grouped by tool family with RU|EN counts (browser, sandbox, knowledge, web, files, todo, …). Collapsed badge labels unchanged.
+
+**Verification:** focused `chat-message.test.tsx` 58/58 PASS.
+
+**Next recommended step:** deploy web; spot-check a multi-tool Lavka turn expand panel in RU and EN.
+
+---
+
+## 2026-07-12 — todo_write descriptor cleanup
+
+Status: **implemented locally; catalog sync/deploy pending.**
+
+**Scope:** Compressed `todo_write` guidance; kept SCENARIO INTAKE (skill.engage with steps → immediate todo_write add). Skill PLAN INTAKE aligned/shortened. Focused `tool-catalog-data` tests PASS.
+
+**Next recommended step:** same as browser cleanup — sync/deploy catalog to persai-dev.
+
+---
+
+## 2026-07-12 — Browser tool descriptor cleanup (honest contract)
+
+Status: **implemented locally; catalog sync/deploy pending if DB seed differs from code.**
+
+**Scope:** Removed e-commerce/SPA/listing heuristics and overlay UX narration from `browser` tool catalog guidance + native schema descriptions. Left platform API contract only; site flows stay in Skills/scenarios. Locked tests updated; `tool-catalog-data` + `native-tool-projection` focused suites PASS.
+
+**Next recommended step:** deploy/sync tool catalog to persai-dev so live assistants pick up cleaned guidance; Lavka skill/scenario remains the shopping playbook owner.
+
+---
+
+## 2026-07-11 — ADR-143 tiered tool observation projection (S1–S5 local land)
+
+Status: **implemented locally / landed — S1–S5 local gate green; deploy + Lavka/long-browser live smoke remain.**
+
+Baseline SHA: PersAI `1503b23d` (pre-land).
+
+**Scope:** One production model-facing projection for in-turn `toolHistory` and cross-turn `priorToolExchanges` (`full` / `compact` / `masked`, tool-aware compactors). Canonical `toolExchanges` stay full. Naive D8 char-tail truncate deleted. Element cap 200 unchanged. No dual path / feature flag.
+
+**Landed:**
+
+- S1 — `project-tool-exchanges-for-model` + policy/compactors + unit/fixture tests
+- S2 — in-turn `buildToolLoopProviderRequest` wiring; storage remains full
+- S3 — cross-turn replay cutover; `capToolResultContent` / `PRIOR_TOOL_RESULT_MAX_CHARS` removed
+- S4 — `[toolHistoryProjection]` metrics log; docs/TEST-PLAN updated
+- S5 — orchestrator gate PASS: recursive lint, format:check, api/web/runtime typecheck; focused suites projection + hydration + cache-guard + turn-execution PASS; anti-legacy greps empty
+
+**Next recommended step:** commit/push when asked, deploy runtime, then Lavka/long-browser live smoke (confirm projected history still completes multi-step browser turns).
+
+---
+
+## 2026-07-11 — ADR-143 tiered tool observation projection (S0)
+
+Status: **superseded by S1–S4 local land above.**
+
+Baseline SHA: PersAI `1503b23d`.
+
+**Scope:** One production model-facing projection for long tool loops. In-turn `toolHistory` and cross-turn `priorToolExchanges` share tiers `full` / `compact` / `masked` with tool-aware compactors (browser/shell/exec/files). Canonical `toolExchanges` stay full. Naive D8 char-tail truncate is removed on the same cutover. Element cap 200 unchanged. No dual path / feature flag.
+
+**Docs:** `docs/ADR/143-tiered-tool-observation-projection.md`; `AGENTS.md` lists ADR-143 as active orchestration program.
+
+**Next recommended step:** S5 orchestrator gate (see top entry).
+
+---
+
 ## 2026-07-11 — ADR-142 turn-scoped local-browser observer lock (1.0.37)
 
 Status: **implemented; mobile commit `f0ed986` pushed; Android 1.0.37 built/exported/installed; PersAI web/extension deploy and live acceptance pending.**
@@ -23,6 +119,7 @@ Status: **implemented locally; Android 1.0.36 exported + installed; commit/push 
 Baseline SHAs: PersAI `de1f1b53`; `persai-mobile` `c5f30d6`.
 
 **Log facts (lavka-live-logcat, pre-1.0.34 APK):**
+
 - `pointer_tap x=` without `cssX/viewX` → taps injected at CSS coords into 1080px-wide view (miss by ~2.625×).
 - `runner_diag` «Увеличить»: `sameNode:false`, `hit=data-testid=modal-text` (age gate over button).
 - `runner_diag` «На сайте»: `sameNode:false`, `hit` text «На сайте» over `cart-button`.
@@ -30,6 +127,7 @@ Baseline SHAs: PersAI `de1f1b53`; `persai-mobile` `c5f30d6`.
 - Escape (`dispatchKeyEvent`) closes modals; pointer taps did not.
 
 **Fix (1.0.36):**
+
 - **Native:** `prepareWebViewForPointerInjection` (alpha 1, enabled, focus) before each tap; DOWN→MOVE→UP finger sequence; log `downConsumed/moveConsumed/upConsumed`; stop re-adding ownership overlay immediately after tap (race).
 - **Runner (web payload):** `resolvePointerActivation` retargets to occluding interactive element; `dispatchDomPointerSequence` after native tap; keep ownership overlay disabled through settle sleep.
 
@@ -138,6 +236,7 @@ Baseline SHAs: PersAI `20fefaaf`; `persai-mobile` `f85b561` (pre–round-2 commi
 **Scope:** Anti-flicker preview chip between multi-step browser runs; refresh miniature after DOM/page load; softer shadow and lower top offset.
 
 **Changes:**
+
 - Web chip: `PREVIEW_IDLE_MS` 20s; idle timer resets on start/update/end (not hide on end); removed `AnimatePresence`; top `calc(10dvh + 0.875rem + safe-area)`; shadow ÷3 (`0_6px_16px` @ 0.11).
 - Page runner: optional `__persaiBrowserPreviewStep` after `collectContent()` (post–DOM-ready frame).
 - Native: debounced preview emit on page commit/finish (Android) and navigation commit/finish (iOS) while `assistantExecutionDepth > 0`.

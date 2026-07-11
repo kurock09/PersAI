@@ -10,7 +10,6 @@ import {
   MIN_RUNTIME_IMAGE_GENERATE_COUNT,
   MAX_RUNTIME_BROWSER_MAX_CHARS,
   MAX_RUNTIME_BROWSER_EXTRACT_ITEMS,
-  MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS,
   MAX_RUNTIME_BROWSER_OPERATIONS,
   MAX_RUNTIME_BROWSER_WAIT_TIMEOUT_MS,
   DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH,
@@ -839,11 +838,7 @@ function createBrowserToolDefinition(
           type: "string",
           enum: ["describe", ...bundle.runtime.browser.actions],
           description:
-            'Use "describe" to load the full tool contract. Use "list_profiles" first. If a saved profile already exists for the target site, never call "login" again — use "snapshot"/"act" for normal work. Call "request_user_action" only when a person must perform a manual browser step: CAPTCHA, OTP/verification entry, payment, irreversible confirmation, or another step you cannot safely perform. Pass the saved profile and an exact userActionPrompt; PersAI shows a chat handoff card and opens the live view only after the user clicks it. Stop browser calls until the user presses Done and a new turn resumes. Never infer or auto-trigger this handoff from page wording alone. Call "open_live" only when the user explicitly asks to view a saved session and no completion handoff is needed. Call "login" only when "list_profiles" shows no profile for that site origin. A completed login usually lasts on that device until the site expires cookies. Runtime chooses the backend: saved-profile work uses the local browser bridge, while public no-profile snapshot/pdf/screenshot requests may use a headless backend. Do not choose or narrate the backend yourself. Profile-backed work is assistant-owned while a command runs: the page is locked for user input and shows "Assistant is working!" on hover/tap if visible. "snapshot" inspects a page; "act" performs bounded browser operations and returns fresh page text plus page.elements (and page.extracted when extract ops ran). Profile-backed text snapshots and acts may return page.elements with up to ' +
-            String(MAX_RUNTIME_BROWSER_INTERACTIVE_ELEMENTS) +
-            " currently-visible interactive controls and reusable CSS selectors; duplicate selectors may include matchIndex — pass the same matchIndex on follow-up acts. Prefer those selectors on follow-up acts instead of a separate snapshot after every step. When selectors fail or are missing, use the vision fallback: png snapshot at the fixed " +
-            browserViewportLabel +
-            ' viewport, then files({action:"preview", path:"<workspace path from the screenshot result>"}) to read the target control center in that image, then act with kind="click_at" using those viewport x,y integers — do not guess coordinates from text layout. If act returns per-operation warnings, continue from the observed page state/elements and speak from structured runtime/API reason codes. If runtime returns bridge_unavailable or open_in_app, tell the user to continue in PersAI web/app where the local browser bridge is available. Do not start a fresh login or invent a new profile name unless the runtime/tool result explicitly points to that state.'
+            'Use "describe" to load the full tool contract. Prefer "list_profiles" before "login". Reuse an existing profile with "snapshot"/"act"; call "login" only when list_profiles shows none for that site or the runtime result requires re-auth. Use "request_user_action" only for an explicit manual step (CAPTCHA, OTP/verification, payment, irreversible confirmation) with profile + userActionPrompt — stop browser calls until Done. Use "open_live" only when the user asks to view a saved session. Runtime chooses the backend; do not narrate it. "snapshot" reads page text; "act" runs operations and returns fresh page.elements (and page.extracted after extract).'
         },
         url: {
           type: "string",
@@ -853,26 +848,26 @@ function createBrowserToolDefinition(
         displayName: {
           type: "string",
           description:
-            'Human-readable profile label chosen by the assistant. Required for action="login". The product owns the local-browser login/re-auth UI; do not promise raw URLs, background details, or a model-chosen backend in chat.'
+            'Human-readable profile label. Required for action="login". Do not promise raw URLs or implementation details in chat.'
         },
         profile: {
           type: "string",
           description:
-            'Stable profileKey from "login" or "list_profiles". Required for "request_user_action" and "open_live". Optional for "snapshot" and "act" to reuse a saved session. Profile-backed snapshot/act usually runs in a hidden local browser window on the user\'s device. When a text snapshot exposes page.elements, prefer those selectors for follow-up act calls instead of guessing.'
+            'Stable profileKey from "login" or "list_profiles". Required for "request_user_action" and "open_live". Optional on "snapshot"/"act" to reuse cookies. Prefer selectors from page.elements when present.'
         },
         userActionPrompt: {
           type: "string",
           maxLength: 500,
           description:
-            'Required only for action="request_user_action". Concisely tell the user what to do in the live browser, for example "Enter the SMS code and submit the form." Do not include secrets or claim the action is already complete.'
+            'Required for action="request_user_action". Concise instruction for the live browser (for example "Enter the SMS code and submit."). No secrets; do not claim the step is already done.'
         },
         format: {
           type: "string",
           enum: [...PERSAI_RUNTIME_BROWSER_SNAPSHOT_FORMATS],
           description:
-            'Snapshot output format. Default "text". Use "pdf", "png", "jpeg", or "webp" on action="snapshot" to export an artifact attachable via files.attach. Image snapshots use a fixed ' +
+            'Snapshot output format. Default "text". Image/pdf artifacts are attachable via files.attach. Image snapshots use a fixed ' +
             browserViewportLabel +
-            " browser viewport — keep fullPage:false (default) when you need click_at coordinates; use files.preview on the saved workspace path to read x,y from the image before act."
+            " viewport — keep fullPage:false when you need click_at coordinates; read x,y via files.preview."
         },
         snapshotSelector: {
           type: "string",
@@ -892,7 +887,7 @@ function createBrowserToolDefinition(
         stayOnPage: {
           type: "boolean",
           description:
-            'When true on action="act", skip the opening navigation to url and run operations on the current page in the saved profile. Use with the last observed finalUrl (or any valid http(s) url placeholder). Chain kind="goto" inside operations for mid-flow navigation.'
+            'When true on action="act", skip opening navigation to url and run operations on the current page. Chain kind="goto" inside operations for mid-flow navigation.'
         },
         maxChars: {
           type: "integer",
@@ -903,7 +898,7 @@ function createBrowserToolDefinition(
         operations: {
           type: "array",
           maxItems: MAX_RUNTIME_BROWSER_OPERATIONS,
-          description: `Required for action="act". Steps run in order within this single call (up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)}) — chain a full interaction instead of issuing one act per step. act returns page.elements (and page.extracted after kind="extract"); do not snapshot again just to re-read selectors from the previous act. Prefer CSS selectors copied from the latest page.elements; when matchIndex is present, pass it on click/type/hover/wait ops. kind="goto" navigates mid-chain; kind="hover" reveals hover-only controls; kind="extract" returns structured matches in page.extracted (up to ${String(MAX_RUNTIME_BROWSER_EXTRACT_ITEMS)} items per extract op). Vision fallback when selectors fail: (1) snapshot with format:"png" (viewport ${browserViewportLabel}; avoid fullPage:true unless you will remap coordinates), (2) files({action:"preview", path:"<workspace path from screenshot result>"}) to determine the target control center in that image, (3) kind:"click_at" with those viewport x,y integers in the same or next act. When a step opens new content, insert kind="wait_for_selector" for a selector on that new content directly after it, then continue the chain — do not stop the chain and take a separate snapshot just to re-check for a selector you can wait for instead. If you determine that a person must perform a CAPTCHA, OTP/verification, payment, irreversible confirmation, or another manual step, stop act calls and use request_user_action with an exact userActionPrompt. If a list or grid looks empty right after navigation, use kind="scroll" before re-reading content — many sites only populate cards once scrolled into view.`,
+          description: `Required for action="act". Up to ${String(MAX_RUNTIME_BROWSER_OPERATIONS)} ordered steps in one call. Returns page.elements (and page.extracted after extract). Prefer selectors from the latest page.elements; pass matchIndex when present. Use wait_for_selector in the same act when a later step depends on content opened earlier. click_at: png snapshot at ${browserViewportLabel} → files.preview → viewport x,y (do not guess). For a manual CAPTCHA/OTP/payment/irreversible step, stop and call request_user_action.`,
           items: {
             type: "object",
             additionalProperties: false,
@@ -916,7 +911,7 @@ function createBrowserToolDefinition(
               selector: {
                 type: "string",
                 description:
-                  'CSS selector for click/type/hover/extract/select/wait_for_selector operations. Prefer selectors copied from page.elements. Optional for kind="scroll": scrolls that element into view, or scrolls the viewport down by one page when omitted.'
+                  "CSS selector for click/type/hover/extract/select/wait_for_selector. Prefer page.elements. Optional for scroll: scrolls that element into view, or the viewport by one page when omitted."
               },
               url: {
                 type: "string",
@@ -938,13 +933,13 @@ function createBrowserToolDefinition(
                 type: "integer",
                 minimum: 0,
                 maximum: 10_000,
-                description: `Viewport X in pixels when kind="click_at". Must match the ${browserViewportLabel} png from files.preview (0..${String(DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH - 1)} for a full viewport shot).`
+                description: `Viewport X for kind="click_at" from files.preview on a ${browserViewportLabel} png (0..${String(DEFAULT_RUNTIME_BROWSER_VIEWPORT_WIDTH - 1)} for a full viewport shot).`
               },
               y: {
                 type: "integer",
                 minimum: 0,
                 maximum: 10_000,
-                description: `Viewport Y in pixels when kind="click_at". Must match the ${browserViewportLabel} png from files.preview (0..${String(DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT - 1)} for a full viewport shot).`
+                description: `Viewport Y for kind="click_at" from files.preview on a ${browserViewportLabel} png (0..${String(DEFAULT_RUNTIME_BROWSER_VIEWPORT_HEIGHT - 1)} for a full viewport shot).`
               },
               text: {
                 type: "string",

@@ -133,6 +133,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     modulePath: "./sanitize-tool-result-for-model.test.ts",
     exportName: "runSanitizeToolResultForModelTest"
   },
+  {
+    modulePath: "./project-tool-exchanges-for-model.test.ts",
+    exportName: "runProjectToolExchangesForModelTest"
+  },
   { modulePath: "./turn-execution.service.test.ts", exportName: "runTurnExecutionServiceTest" },
   { modulePath: "./turn-execution.service.test.ts", exportName: "runRecentPdfsHintTests" },
   {

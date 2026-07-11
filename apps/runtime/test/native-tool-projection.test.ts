@@ -653,35 +653,15 @@ export async function runNativeToolProjectionTest(): Promise<void> {
     /page\.elements/i,
     "browser action schema must teach that profile-backed text results may return page.elements"
   );
-  assert.match(
+  assert.doesNotMatch(
     browserActionDescription,
-    /Profile-backed work is assistant-owned while a command runs/i,
-    "browser action schema must preserve explicit assistant ownership"
+    /Assistant is working!|page is locked for user input/i,
+    "browser action schema must not narrate overlay/observer UX"
   );
   assert.match(
     browserActionDescription,
-    /page is locked for user input/i,
-    "browser action schema must explain the assistant-owned observer lock"
-  );
-  assert.match(
-    browserActionDescription,
-    /Call "request_user_action" only when a person must perform a manual browser step/i,
+    /Use "request_user_action" only for an explicit manual step/i,
     "browser action schema must reserve handoff for an explicit model decision"
-  );
-  assert.match(
-    browserActionDescription,
-    /per-operation warnings/i,
-    "browser action schema must mention per-operation warnings"
-  );
-  assert.match(
-    browserActionDescription,
-    /structured runtime\/API reason codes/i,
-    "browser action schema must tell the model to speak from structured runtime/API reason codes"
-  );
-  assert.match(
-    browserActionDescription,
-    /Do not start a fresh login or invent a new profile name unless the runtime\/tool result explicitly points/i,
-    "browser action schema must pin that login should be started only when structured runtime/tool state explicitly points there"
   );
   assert.match(
     browserDisplayNameDescription,
@@ -690,37 +670,37 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     browserProfileDescription,
-    /prefer those selectors.*instead of guessing/i,
+    /Prefer selectors from page\.elements/i,
     "browser profile schema must tell the model to reuse page.elements selectors"
   );
   assert.match(
     browserOperationsDescription,
-    /Prefer (CSS )?selectors copied from the latest page\.elements/i,
+    /Prefer selectors from the latest page\.elements/i,
     "browser operations schema must prefer selectors copied from page.elements"
   );
   assert.match(
     browserOperationsDescription,
-    /request_user_action.*userActionPrompt/i,
-    "browser operations schema must teach the explicit user-action handoff"
+    /request_user_action/i,
+    "browser operations schema must mention the explicit user-action handoff"
+  );
+  assert.doesNotMatch(
+    browserOperationsDescription,
+    /populate cards once scrolled|empty right after navigation/i,
+    "browser operations schema must not embed empty-listing SPA heuristics"
   );
   assert.match(
     browserOperationsDescription,
-    /kind="scroll".*before re-reading content/i,
-    'browser operations schema must point the model at kind="scroll" for empty/placeholder catalog-style pages'
-  );
-  assert.match(
-    browserOperationsDescription,
-    /Steps run in order within this single call/i,
+    /ordered steps in one call/i,
     "browser operations schema must teach that multiple steps run in one act call"
   );
   assert.match(
     browserOperationsDescription,
-    /insert kind="wait_for_selector".*then continue the chain/i,
-    "browser operations schema must teach chaining wait_for_selector after content-opening steps instead of a separate snapshot"
+    /wait_for_selector in the same act/i,
+    "browser operations schema must teach wait_for_selector as an in-act dependency mechanic"
   );
   assert.match(
     browserOperationsDescription,
-    /files\(\{action:"preview"/i,
+    /files\.preview/i,
     "browser operations schema must teach files.preview before click_at"
   );
   assert.match(
@@ -740,12 +720,12 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   );
   assert.match(
     browserSelectorDescription,
-    /Prefer selectors copied from page\.elements/i,
+    /Prefer page\.elements/i,
     "browser selector schema must reinforce page.elements selector reuse"
   );
   assert.match(
     browserSelectorDescription,
-    /Optional for kind="scroll".*scrolls that element into view/i,
+    /Optional for scroll: scrolls that element into view/i,
     "browser selector schema must document optional scroll-into-view semantics"
   );
   assert.doesNotMatch(

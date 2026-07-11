@@ -12,4 +12,5 @@ test("manifest keeps broad screenshot access optional and user-granted", async (
 
   assert.deepEqual(manifest.optional_host_permissions, ["<all_urls>"]);
   assert.equal(manifest.permissions?.includes("<all_urls>"), false);
+  assert.equal(manifest.permissions?.includes("webNavigation"), true);
 });
