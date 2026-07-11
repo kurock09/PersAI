@@ -236,6 +236,11 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     if (requestedNavigationUrl) break;
   }
   const snapshot = collectContent();
+  try {
+    globalThis.__persaiBrowserPreviewStep?.();
+  } catch {
+    // Native preview updates are best-effort and must never affect browser execution.
+  }
   return {
     finalUrl: window.location.href,
     title: document.title || null,

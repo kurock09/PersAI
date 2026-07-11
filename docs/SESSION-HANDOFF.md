@@ -1,5 +1,24 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-141 native browser activity thumbnail (UX round 2)
+
+Status: **implemented locally; Android 1.0.26 exported; commit/push + deploy/install/live pending.**
+
+Baseline SHAs: PersAI `20fefaaf`; `persai-mobile` `f85b561` (pre–round-2 commit).
+
+**Scope:** Anti-flicker preview chip between multi-step browser runs; refresh miniature after DOM/page load; softer shadow and lower top offset.
+
+**Changes:**
+- Web chip: `PREVIEW_IDLE_MS` 20s; idle timer resets on start/update/end (not hide on end); removed `AnimatePresence`; top `calc(10dvh + 0.875rem + safe-area)`; shadow ÷3 (`0_6px_16px` @ 0.11).
+- Page runner: optional `__persaiBrowserPreviewStep` after `collectContent()` (post–DOM-ready frame).
+- Native: debounced preview emit on page commit/finish (Android) and navigation commit/finish (iOS) while `assistantExecutionDepth > 0`.
+
+**Verification:** lint/format/typecheck PASS; web preview + page-runner tests 11/11; mobile bridge tests 12/12; Android `1.0.26` / `versionCode 28` release build+export PASS.
+
+**Next recommended step:** commit/push both repos, deploy web, install Android 1.0.26, live-accept multi-step browser run: chip stays visible between steps, updates after page load, styling OK.
+
+---
+
 ## 2026-07-11 — ADR-141 native browser activity thumbnail
 
 Status: **ADR-141 UX follow-up + invisible session-card open fix committed and pushed; Android 1.0.25 exported; deploy/install/live pending.**

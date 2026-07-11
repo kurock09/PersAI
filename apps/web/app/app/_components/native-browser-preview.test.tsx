@@ -75,7 +75,7 @@ describe("NativeBrowserPreview", () => {
     expect(preview).toBeInTheDocument();
     expect(preview).toHaveStyle({
       width: "clamp(9rem, 38vw, 22rem)",
-      top: "calc(0.875rem + env(safe-area-inset-top))"
+      top: "calc(10dvh + 0.875rem + env(safe-area-inset-top))"
     });
 
     fireEvent.click(preview);
@@ -109,9 +109,14 @@ describe("NativeBrowserPreview", () => {
     expect(screen.getByTestId("native-browser-preview")).toBeInTheDocument();
 
     act(() => {
-      vi.advanceTimersByTime(9_000);
+      vi.advanceTimersByTime(19_000);
     });
     expect(screen.getByTestId("native-browser-preview")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    expect(screen.queryByTestId("native-browser-preview")).not.toBeInTheDocument();
   });
 
   it("uses native favicon data when provided", async () => {

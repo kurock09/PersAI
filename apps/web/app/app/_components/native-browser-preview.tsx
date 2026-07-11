@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Globe2 } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { useTranslations } from "next-intl";
 import {
   hideNativeBrowserBridgeView,
@@ -13,7 +13,7 @@ import {
 } from "../browser-bridge-client";
 import { pushBackHandler } from "./back-handler-stack";
 
-const PREVIEW_LINGER_MS = 10_000;
+const PREVIEW_IDLE_MS = 20_000;
 
 function resolveFaviconUrl(event: NativeBrowserPreviewEvent): string | null {
   if (event.faviconDataUrl) {
@@ -39,6 +39,7 @@ export function NativeBrowserPreview() {
   const [preview, setPreview] = useState<NativeBrowserPreviewEvent | null>(null);
   const [overlayOpenProfileKey, setOverlayOpenProfileKey] = useState<string | null>(null);
   const [faviconFailed, setFaviconFailed] = useState(false);
+  const [hasEntered, setHasEntered] = useState(false);
   const hideTimerRef = useRef<number | null>(null);
 
   const clearHideTimer = useCallback(() => {
@@ -48,12 +49,13 @@ export function NativeBrowserPreview() {
     }
   }, []);
 
-  const scheduleHide = useCallback(() => {
+  const scheduleIdleHide = useCallback(() => {
     clearHideTimer();
     hideTimerRef.current = window.setTimeout(() => {
       setPreview(null);
+      setHasEntered(false);
       hideTimerRef.current = null;
-    }, PREVIEW_LINGER_MS);
+    }, PREVIEW_IDLE_MS);
   }, [clearHideTimer]);
 
   useEffect(() => {
@@ -70,14 +72,12 @@ export function NativeBrowserPreview() {
         setOverlayOpenProfileKey((current) => (current === event.profileKey ? null : current));
         return;
       }
-      if (event.phase === "end") {
-        scheduleHide();
-        return;
-      }
-      clearHideTimer();
       if (event.imageDataUrl !== null) {
         setPreview(event);
       }
+      // Any assistant preview activity resets the idle clock; end/start/update
+      // must not hide the chip between back-to-back browser steps.
+      scheduleIdleHide();
     })
       .then((remove) => {
         if (disposed) {
@@ -97,7 +97,7 @@ export function NativeBrowserPreview() {
         void removeListener();
       }
     };
-  }, [clearHideTimer, nativeShell, scheduleHide]);
+  }, [clearHideTimer, nativeShell, scheduleIdleHide]);
 
   useEffect(() => {
     if (overlayOpenProfileKey === null) {
@@ -125,57 +125,56 @@ export function NativeBrowserPreview() {
     [preview]
   );
 
-  if (!nativeShell) {
+  if (!nativeShell || preview?.imageDataUrl === null || preview?.imageDataUrl === undefined) {
     return null;
   }
 
   return (
-    <AnimatePresence>
-      {preview?.imageDataUrl ? (
-        <motion.button
-          type="button"
-          key={preview.profileKey}
-          initial={{ opacity: 0, scale: 0.94, y: -10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.96, y: -8 }}
-          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-          onClick={() => {
-            void showNativeBrowserBridgeView(preview.profileKey)
-              .then(() => {
-                setOverlayOpenProfileKey(preview.profileKey);
-              })
-              .catch(() => undefined);
-          }}
-          aria-label={t("browserPreviewOpen")}
-          data-testid="native-browser-preview"
-          className="fixed z-[85] overflow-hidden rounded-[22px] border border-white/20 bg-black/20 shadow-[0_18px_48px_rgba(0,0,0,0.32)] ring-1 ring-black/10 backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-          style={{
-            width: "clamp(9rem, 38vw, 22rem)",
-            right: "max(0.875rem, env(safe-area-inset-right))",
-            top: "calc(0.875rem + env(safe-area-inset-top))"
-          }}
-        >
+    <motion.button
+      type="button"
+      initial={hasEntered ? false : { opacity: 0, scale: 0.99, y: -4 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ duration: 0.15, ease: [0.22, 1, 0.36, 1] }}
+      onAnimationComplete={() => {
+        if (!hasEntered) {
+          setHasEntered(true);
+        }
+      }}
+      onClick={() => {
+        void showNativeBrowserBridgeView(preview.profileKey)
+          .then(() => {
+            setOverlayOpenProfileKey(preview.profileKey);
+          })
+          .catch(() => undefined);
+      }}
+      aria-label={t("browserPreviewOpen")}
+      data-testid="native-browser-preview"
+      className="fixed z-[85] overflow-hidden rounded-[22px] border border-white/15 bg-black/15 shadow-[0_6px_16px_rgba(0,0,0,0.11)] ring-1 ring-black/5 backdrop-blur-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      style={{
+        width: "clamp(9rem, 38vw, 22rem)",
+        right: "max(0.875rem, env(safe-area-inset-right))",
+        top: "calc(10dvh + 0.875rem + env(safe-area-inset-top))"
+      }}
+    >
+      <img
+        src={preview.imageDataUrl}
+        alt=""
+        className="block h-auto max-h-[42dvh] w-full object-contain"
+        draggable={false}
+      />
+      <span className="absolute left-2.5 top-2.5 grid h-7 w-7 place-items-center overflow-hidden rounded-full border border-white/30 bg-black/40 shadow-sm backdrop-blur-sm">
+        {faviconUrl !== null && !faviconFailed ? (
           <img
-            src={preview.imageDataUrl}
+            src={faviconUrl}
             alt=""
-            className="block h-auto max-h-[42dvh] w-full object-contain"
-            draggable={false}
+            className="h-4 w-4 rounded-sm object-contain"
+            referrerPolicy="no-referrer"
+            onError={() => setFaviconFailed(true)}
           />
-          <span className="absolute left-2.5 top-2.5 grid h-7 w-7 place-items-center overflow-hidden rounded-full border border-white/35 bg-black/45 shadow-sm backdrop-blur-md">
-            {faviconUrl !== null && !faviconFailed ? (
-              <img
-                src={faviconUrl}
-                alt=""
-                className="h-4 w-4 rounded-sm object-contain"
-                referrerPolicy="no-referrer"
-                onError={() => setFaviconFailed(true)}
-              />
-            ) : (
-              <Globe2 className="h-3.5 w-3.5 text-white/90" />
-            )}
-          </span>
-        </motion.button>
-      ) : null}
-    </AnimatePresence>
+        ) : (
+          <Globe2 className="h-3.5 w-3.5 text-white/90" />
+        )}
+      </span>
+    </motion.button>
   );
 }

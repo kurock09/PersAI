@@ -47,7 +47,7 @@ describe("PAGE_RUNNER_SOURCE", () => {
     expect(PAGE_RUNNER_SOURCE).not.toMatch(/needsUserAction|userCheckpointRe|sensitiveControlRe/);
   });
 
-  it("notifies the optional native preview hook after every operation", async () => {
+  it("notifies the optional native preview hook after every operation and DOM capture", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("MutationObserver", TestMutationObserver);
     const previewStep = vi.fn();
@@ -75,7 +75,7 @@ describe("PAGE_RUNNER_SOURCE", () => {
     await vi.advanceTimersByTimeAsync(750);
     await result;
 
-    expect(previewStep).toHaveBeenCalledTimes(2);
+    expect(previewStep).toHaveBeenCalledTimes(3);
   });
 
   it("waits for a mutation-free quiet window before returning a stable snapshot", async () => {
