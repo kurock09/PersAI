@@ -4,7 +4,7 @@
 
 Status: **implemented, verified, committed, and pushed; Android 1.0.24 exported; deploy/install/live and iOS acceptance pending.**
 
-Baseline SHAs: PersAI `675919ec` (pre-push); `persai-mobile` `0e3eece`.
+Baseline SHAs: PersAI `e10ea694`; `persai-mobile` `0e3eece`.
 
 **Scope:** Capacitor App only: show a small, premium image companion while an assistant operates a retained authenticated browser, refresh it at browser-operation boundaries, and reveal the existing native browser on tap. Size from the actual viewport/safe area only. Desktop Chrome extension behavior, chat status copy, browser routing, session identity, and profile persistence are out of scope.
 
