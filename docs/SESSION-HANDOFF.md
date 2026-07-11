@@ -2,7 +2,9 @@
 
 ## 2026-07-11 — ADR-140 native pointer tap for Capacitor WebView interactions
 
-Status: **implemented locally; Android 1.0.30 exported; commit/push pending.**
+Status: **implemented locally; Android 1.0.30 exported; commit/push done; deploy/install/live Lavka acceptance pending.**
+
+Baseline SHAs: PersAI `5ac0dfe3`; `persai-mobile` `247c182`.
 
 **Scope:** Production fix for mobile browser bridge clicks/Enter on touch-first SPAs (Lavka, WB). Android dispatches real `MotionEvent` taps; shared page runner uses native pointer when `nativePointer: true`; Enter in GET search forms uses declarative navigation handoff like submit buttons. No UA spoofing, no runtime `stayOnPage` defaults.
 
