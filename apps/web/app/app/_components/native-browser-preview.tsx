@@ -5,21 +5,41 @@ import { Globe2 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslations } from "next-intl";
 import {
+  hideNativeBrowserBridgeView,
   isNativeBrowserBridgeShell,
   showNativeBrowserBridgeView,
   subscribeNativeBrowserPreview,
   type NativeBrowserPreviewEvent
 } from "../browser-bridge-client";
+import { pushBackHandler } from "./back-handler-stack";
 
-const PREVIEW_LINGER_MS = 2_500;
+const PREVIEW_LINGER_MS = 10_000;
+
+function resolveFaviconUrl(
+  event: NativeBrowserPreviewEvent
+): string | null {
+  if (event.faviconDataUrl) {
+    return event.faviconDataUrl;
+  }
+  if (event.pageUrl === null || event.pageUrl === undefined) {
+    return null;
+  }
+  try {
+    const host = new URL(event.pageUrl).hostname;
+    if (!host) {
+      return null;
+    }
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`;
+  } catch {
+    return null;
+  }
+}
 
 export function NativeBrowserPreview() {
   const t = useTranslations("chat");
-  // Capacitor injects its bridge at runtime. Read shell identity on every
-  // render instead of freezing an early pre-bridge value for this component's
-  // lifetime; viewport width never decides whether the preview is shown.
   const nativeShell = isNativeBrowserBridgeShell();
   const [preview, setPreview] = useState<NativeBrowserPreviewEvent | null>(null);
+  const [overlayOpenProfileKey, setOverlayOpenProfileKey] = useState<string | null>(null);
   const [faviconFailed, setFaviconFailed] = useState(false);
   const hideTimerRef = useRef<number | null>(null);
 
@@ -29,6 +49,14 @@ export function NativeBrowserPreview() {
       hideTimerRef.current = null;
     }
   }, []);
+
+  const scheduleHide = useCallback(() => {
+    clearHideTimer();
+    hideTimerRef.current = window.setTimeout(() => {
+      setPreview(null);
+      hideTimerRef.current = null;
+    }, PREVIEW_LINGER_MS);
+  }, [clearHideTimer]);
 
   useEffect(() => {
     if (!nativeShell) {
@@ -40,18 +68,17 @@ export function NativeBrowserPreview() {
       if (disposed) {
         return;
       }
-      clearHideTimer();
+      if (event.phase === "overlay_hidden") {
+        setOverlayOpenProfileKey((current) =>
+          current === event.profileKey ? null : current
+        );
+        return;
+      }
       if (event.phase === "end") {
-        hideTimerRef.current = window.setTimeout(() => {
-          setPreview(null);
-          hideTimerRef.current = null;
-        }, PREVIEW_LINGER_MS);
+        scheduleHide();
         return;
       }
-      if (event.phase === "start" && event.imageDataUrl === null) {
-        setPreview(null);
-        return;
-      }
+      clearHideTimer();
       if (event.imageDataUrl !== null) {
         setPreview(event);
       }
@@ -74,22 +101,30 @@ export function NativeBrowserPreview() {
         void removeListener();
       }
     };
-  }, [clearHideTimer, nativeShell]);
+  }, [clearHideTimer, nativeShell, scheduleHide]);
+
+  useEffect(() => {
+    if (overlayOpenProfileKey === null) {
+      return;
+    }
+    const remove = pushBackHandler(() => {
+      void hideNativeBrowserBridgeView(overlayOpenProfileKey)
+        .catch(() => undefined)
+        .finally(() => {
+          setOverlayOpenProfileKey(null);
+        });
+    }, { priority: 100 });
+    return remove;
+  }, [overlayOpenProfileKey]);
 
   useEffect(() => {
     setFaviconFailed(false);
-  }, [preview?.pageUrl]);
+  }, [preview?.pageUrl, preview?.faviconDataUrl]);
 
-  const faviconUrl = useMemo(() => {
-    if (preview?.pageUrl === null || preview?.pageUrl === undefined) {
-      return null;
-    }
-    try {
-      return new URL("/favicon.ico", preview.pageUrl).toString();
-    } catch {
-      return null;
-    }
-  }, [preview?.pageUrl]);
+  const faviconUrl = useMemo(
+    () => (preview === null ? null : resolveFaviconUrl(preview)),
+    [preview]
+  );
 
   if (!nativeShell) {
     return null;
@@ -101,24 +136,26 @@ export function NativeBrowserPreview() {
         <motion.button
           type="button"
           key={preview.profileKey}
-          initial={{ opacity: 0, scale: 0.94, y: 10 }}
+          initial={{ opacity: 0, scale: 0.94, y: -10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.96, y: 8 }}
+          exit={{ opacity: 0, scale: 0.96, y: -8 }}
           transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-          onClick={() =>
-            void showNativeBrowserBridgeView(preview.profileKey).catch(() => undefined)
-          }
+          onClick={() => {
+            void showNativeBrowserBridgeView(preview.profileKey)
+              .then(() => {
+                setOverlayOpenProfileKey(preview.profileKey);
+              })
+              .catch(() => undefined);
+          }}
           aria-label={t("browserPreviewOpen")}
           data-testid="native-browser-preview"
           className="fixed z-[85] overflow-hidden rounded-[22px] border border-white/20 bg-black/20 shadow-[0_18px_48px_rgba(0,0,0,0.32)] ring-1 ring-black/10 backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           style={{
             width: "clamp(9rem, 38vw, 22rem)",
             right: "max(0.875rem, env(safe-area-inset-right))",
-            bottom: "calc(5.75rem + env(safe-area-inset-bottom))"
+            top: "calc(0.875rem + env(safe-area-inset-top))"
           }}
         >
-          {/* Native sends a viewport-proportional image, so its intrinsic ratio
-              adapts to the actual phone/tablet window without device heuristics. */}
           <img
             src={preview.imageDataUrl}
             alt=""
@@ -131,7 +168,6 @@ export function NativeBrowserPreview() {
                 src={faviconUrl}
                 alt=""
                 className="h-4 w-4 rounded-sm object-contain"
-                crossOrigin="anonymous"
                 referrerPolicy="no-referrer"
                 onError={() => setFaviconFailed(true)}
               />

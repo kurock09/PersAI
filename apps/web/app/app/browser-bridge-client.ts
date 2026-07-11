@@ -104,10 +104,11 @@ type NativeBrowserBridgePlugin = {
 };
 
 export type NativeBrowserPreviewEvent = {
-  phase: "start" | "update" | "end";
+  phase: "start" | "update" | "end" | "overlay_hidden";
   profileKey: string;
   pageUrl: string | null;
   imageDataUrl: string | null;
+  faviconDataUrl?: string | null;
 };
 
 type NativeBridgeRuntimeState = {

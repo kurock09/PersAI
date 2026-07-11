@@ -753,6 +753,8 @@ describe("AssistantBrowserProfileService", () => {
     assert.equal(result.bridgeClientKind, "extension");
     assert.equal((await repository.findById("active-1"))?.bridgeSessionRef, "bridge-device-new");
     assert.equal(relay.dispatches[0]?.command.action, "open_view");
+    assert.equal(relay.dispatches[0]?.command.stayOnPage, true);
+    assert.equal(relay.dispatches[0]?.command.url, undefined);
   });
 
   test("openLiveView prefers the client-provided bridge device over the stored ref", async () => {

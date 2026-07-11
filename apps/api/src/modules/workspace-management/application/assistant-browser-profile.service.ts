@@ -297,7 +297,9 @@ export class AssistantBrowserProfileService {
         commandId: randomUUID(),
         profileKey: row.profileKey,
         action: "open_view",
-        url: row.loginUrl,
+        ...(completionMode === "assist"
+          ? { stayOnPage: true }
+          : { url: row.loginUrl }),
         showWindow: true
       },
       unavailableMessage:
@@ -661,6 +663,7 @@ export class AssistantBrowserProfileService {
       profileKey: string;
       action: "snapshot" | "open_view" | "check_view";
       url?: string;
+      stayOnPage?: boolean;
       format?: "text";
       optimizeForSpeed?: boolean;
       showWindow?: boolean;

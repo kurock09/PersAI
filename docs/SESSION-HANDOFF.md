@@ -2,11 +2,17 @@
 
 ## 2026-07-11 — ADR-141 native browser activity thumbnail
 
-Status: **implemented, verified, committed, and pushed; Android 1.0.24 exported; deploy/install/live and iOS acceptance pending.**
+Status: **ADR-141 UX follow-up + invisible session-card open fix landed locally; Android 1.0.25 exported; commit/push pending.**
 
-Baseline SHAs: PersAI `e10ea694`; `persai-mobile` `0e3eece`.
+Baseline SHAs: PersAI `997fa3b9`; `persai-mobile` `0e3eece` (pre-1.0.25 push).
 
-**Scope:** Capacitor App only: show a small, premium image companion while an assistant operates a retained authenticated browser, refresh it at browser-operation boundaries, and reveal the existing native browser on tap. Size from the actual viewport/safe area only. Desktop Chrome extension behavior, chat status copy, browser routing, session identity, and profile persistence are out of scope.
+**Scope:** Preview chip top-right, 10s linger, favicon, Back closes overlay without site history; fix configured-session open hanging/invisible after assistant browser work.
+
+**Root cause (session card):** `openLiveView` dispatched `open_view` with `loginUrl`, so native waited on a full navigation before replying — API poll spun forever while the overlay could stay at background alpha. Active profiles now send `stayOnPage: true`; native `open_view` completes immediately after `showSession` + cookie flush and `presentSessionForUser` resets alpha/focus.
+
+**Verification:** lint/format/typecheck PASS; web preview tests 4/4; mobile bridge tests 12/12; Android 1.0.25 release build+export PASS; `test:ci-detect-affected` 7/7.
+
+**Next recommended step:** commit/push both repos, deploy web, install Android 1.0.25, re-test: assistant browser run → manual session card open → visible overlay; preview top-right/back/linger/favicon.
 
 **Implementation:** The shared page runner invokes an optional best-effort native hook after each operation. Android and iOS capture a bounded local JPEG from their existing retained WebView/WKWebView and emit start/update/end events through the Capacitor plugin; no second browser view is created and no preview bytes reach the server or persistence. iOS capture is explicitly decoupled from command startup/completion, so an optional snapshot callback cannot hold browser execution open. The app-shell companion renders only in a native Capacitor shell, contains no text status, preserves the captured viewport proportions, and calls the existing `open_view` path for the same profile on tap. Event support is optional so an older APK continues browser execution without the companion. Audit confirmed desktop 16:9 geometry cannot flow through this path: `BrowserLoginModal` uses compact desktop geometry only for `extensionTarget`, while native overlays already fill their safe-area host. The modal now reads Capacitor identity on each render rather than freezing an early pre-bridge result; no Fold/tablet/UA heuristic or special layout was added. Android advances to `1.0.24` / `versionCode 26`.
 
