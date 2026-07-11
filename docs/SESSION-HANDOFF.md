@@ -2,9 +2,9 @@
 
 ## 2026-07-11 — ADR-140 same-origin SPA link clicks on Capacitor
 
-Status: **implemented locally; Android 1.0.31 exported; commit/push pending.**
+Status: **implemented locally; Android 1.0.31 exported; commit/push done.**
 
-Baseline SHAs: PersAI (pre-commit); `persai-mobile` (pre-commit).
+Baseline SHAs: PersAI `2ac2c7ca`; `persai-mobile` `16b2819`.
 
 **Scope:** Stop assistant link clicks on Lavka/mobile SPA from forcing `webView.loadUrl()` (F5) and re-triggering «Где продолжим?». Same-origin `<a href>` clicks with `nativePointer` now use native `MotionEvent` taps; cross-origin anchors and GET-form submits still use declarative native navigation handoff.
 
