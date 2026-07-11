@@ -33,19 +33,17 @@ describe("PAGE_RUNNER_SOURCE", () => {
     expect((runner as { constructor: { name: string } }).constructor.name).toBe("AsyncFunction");
   });
 
+  it("emits runner diagnostics for native pointer activation", () => {
+    expect(PAGE_RUNNER_SOURCE).toMatch(/logRunnerDiag/);
+    expect(PAGE_RUNNER_SOURCE).toMatch(/pointer_target/);
+    expect(PAGE_RUNNER_SOURCE).toMatch(/describeElementForDiag/);
+  });
+
   it("hands anchor navigation back to native before clicking", () => {
-    expect(PAGE_RUNNER_SOURCE).toMatch(/shouldHandoffAnchorNavigation/);
+    expect(PAGE_RUNNER_SOURCE).toMatch(/requestedNavigationUrl = anchorUrl/);
     expect(PAGE_RUNNER_SOURCE).toMatch(
       /\.\.\.\(requestedNavigationUrl \? \{ navigationUrl: requestedNavigationUrl \} : \{\}\)/
     );
-  });
-
-  it("keeps same-origin anchor clicks on the native pointer path", () => {
-    expect(PAGE_RUNNER_SOURCE).toMatch(/shouldHandoffAnchorNavigation/);
-    expect(PAGE_RUNNER_SOURCE).toMatch(
-      /new URL\(anchorUrl\)\.origin !== new URL\(window\.location\.href\)\.origin/
-    );
-    expect(PAGE_RUNNER_SOURCE).toMatch(/if \(shouldHandoffAnchorNavigation\(anchorUrl\)\)/);
   });
 
   it("hands GET form submit navigation back to native before clicking", async () => {
@@ -164,11 +162,15 @@ describe("PAGE_RUNNER_SOURCE", () => {
     vi.stubGlobal("webkit", undefined);
     document.body.innerHTML = `<button id="add">Add</button>`;
     const requestPointerTap = vi.fn();
+    const logRunnerDiag = vi.fn();
     (
       window as Window & {
-        PersaiBrowserBridgeNative?: { requestPointerTap: typeof requestPointerTap };
+        PersaiBrowserBridgeNative?: {
+          requestPointerTap: typeof requestPointerTap;
+          logRunnerDiag: typeof logRunnerDiag;
+        };
       }
-    ).PersaiBrowserBridgeNative = { requestPointerTap };
+    ).PersaiBrowserBridgeNative = { requestPointerTap, logRunnerDiag };
     const clickSpy = vi.spyOn(HTMLButtonElement.prototype, "click");
     const runner = Function(`"use strict"; return (${PAGE_RUNNER_SOURCE});`)() as (input: {
       maxChars: number;

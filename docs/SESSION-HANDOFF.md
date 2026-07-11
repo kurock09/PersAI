@@ -1,10 +1,24 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-140 Lavka tap diagnostics + anchor handoff restore
+
+Status: **implemented locally; Android 1.0.33 exported; commit/push done.**
+
+Baseline SHAs: PersAI `pending`; `persai-mobile` `a350c30`.
+
+**Scope:** Add `runner_diag` logcat lines before every native pointer tap (`target` vs `hit` vs `tap` coords, `sameNode`, viewport). Restore HTTP(S) anchor clicks to declarative `navigationUrl` handoff. Harden Android `pointer_tap` (`SOURCE_TOUCHSCREEN`, overlay lift, webView metrics in log line).
+
+**Verification:** mobile bridge 15/15; PersAI lint/format/typecheck + page-runner tests 12/12; Android `1.0.33` / `versionCode 35` release build + export PASS.
+
+**Next recommended step:** deploy web, install Android 1.0.33, re-run Lavka click tests, compare `runner_diag` `target`/`hit`/`sameNode` with `pointer_tap` lines in logcat.
+
+---
+
 ## 2026-07-11 — ADR-140 same-origin SPA link clicks on Capacitor
 
-Status: **implemented locally; Android 1.0.31 exported; commit/push done.**
+Status: **superseded locally by 1.0.33 anchor handoff restore; do not treat 1.0.31 same-origin pointer-only path as current truth.**
 
-Baseline SHAs: PersAI `2ac2c7ca`; `persai-mobile` `16b2819`.
+Baseline SHAs: PersAI `0dd7a2c2`; `persai-mobile` `16b2819`.
 
 **Scope:** Stop assistant link clicks on Lavka/mobile SPA from forcing `webView.loadUrl()` (F5) and re-triggering «Где продолжим?». Same-origin `<a href>` clicks with `nativePointer` now use native `MotionEvent` taps; cross-origin anchors and GET-form submits still use declarative native navigation handoff.
 
@@ -12,7 +26,7 @@ Baseline SHAs: PersAI `2ac2c7ca`; `persai-mobile` `16b2819`.
 
 **Verification:** PersAI lint/format/typecheck + page-runner tests; mobile bridge 14/14; Android `1.0.31` / `versionCode 33` release build + export PASS.
 
-**Next recommended step:** install Android 1.0.31, re-test Lavka: «Корзина»/«Каталог» without modal spam; «Увеличить» + Enter search separately.
+**Next recommended step:** deploy web (runner source), live-test Lavka on phone: «Корзина»/«Каталог» without modal spam; «Увеличить» + Enter search separately.
 
 ---
 

@@ -124,6 +124,35 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     }
     return target.href;
   };
+  const logRunnerDiag = (event, payload) => {
+    const bridge = window.PersaiBrowserBridgeNative;
+    const line = JSON.stringify({ event, pageUrl: window.location.href, ...payload });
+    if (bridge && typeof bridge.logRunnerDiag === "function") {
+      try {
+        bridge.logRunnerDiag(line);
+      } catch {}
+    }
+  };
+  const describeElementForDiag = (element) => {
+    if (!(element instanceof Element)) return null;
+    const rect = element.getBoundingClientRect();
+    const anchor = element.closest?.("a[href]");
+    return {
+      tag: element.tagName.toLowerCase(),
+      id: element.id || null,
+      ariaLabel: element.getAttribute("aria-label"),
+      dataTestId: element.getAttribute("data-testid"),
+      href: anchor instanceof HTMLAnchorElement ? anchor.href : null,
+      text: normalizeText(element.textContent).slice(0, 80) || null,
+      rect: {
+        left: Math.round(rect.left * 100) / 100,
+        top: Math.round(rect.top * 100) / 100,
+        width: Math.round(rect.width * 100) / 100,
+        height: Math.round(rect.height * 100) / 100
+      },
+      selector: buildSelector(element)
+    };
+  };
   const withoutOwnershipOverlay = async (fn) => {
     const ownershipOverlay = document.getElementById("__persai_assistant_ownership__");
     const previousPointerEvents = ownershipOverlay instanceof HTMLElement ? ownershipOverlay.style.pointerEvents : "";
@@ -169,16 +198,7 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     }
     reject(new Error("Native pointer tap is unavailable."));
   });
-  const shouldHandoffAnchorNavigation = (anchorUrl) => {
-    if (!/^https?:\/\//i.test(anchorUrl)) return false;
-    if (!input.nativePointer) return true;
-    try {
-      return new URL(anchorUrl).origin !== new URL(window.location.href).origin;
-    } catch {
-      return true;
-    }
-  };
-  const activatePointerTarget = async (element) => {
+  const activatePointerTarget = async (element, context = {}) => {
     if (!(element instanceof HTMLElement)) throw new Error("Target element is not clickable.");
     try {
       element.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
@@ -188,7 +208,21 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     const y = rect.top + rect.height / 2;
     if (input.nativePointer) {
       try {
-        await withoutOwnershipOverlay(() => requestNativePointerTap(x, y));
+        await withoutOwnershipOverlay(async () => {
+          let hit = null;
+          try { hit = document.elementFromPoint(x, y); } catch { hit = null; }
+          try {
+            logRunnerDiag("pointer_target", {
+              ...context,
+              target: describeElementForDiag(element),
+              hit: describeElementForDiag(hit),
+              tap: { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 },
+              viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio },
+              sameNode: hit === element || (hit instanceof Node && element.contains(hit))
+            });
+          } catch {}
+          await requestNativePointerTap(x, y);
+        });
         await sleep(input.settleAfterMutationMs);
         return;
       } catch {}
@@ -196,10 +230,26 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     element.click();
     await sleep(input.settleAfterMutationMs);
   };
-  const activatePointerAt = async (x, y, fallbackElement) => {
+  const activatePointerAt = async (x, y, fallbackElement, context = {}) => {
     if (input.nativePointer) {
       try {
-        await withoutOwnershipOverlay(() => requestNativePointerTap(x, y));
+        await withoutOwnershipOverlay(async () => {
+          let hit = null;
+          try { hit = document.elementFromPoint(x, y); } catch { hit = null; }
+          try {
+            logRunnerDiag("pointer_at", {
+              ...context,
+              fallback: describeElementForDiag(fallbackElement),
+              hit: describeElementForDiag(hit),
+              tap: { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 },
+              viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio },
+              sameNode:
+                hit === fallbackElement ||
+                (hit instanceof Node && fallbackElement instanceof Node && fallbackElement.contains(hit))
+            });
+          } catch {}
+          await requestNativePointerTap(x, y);
+        });
         await sleep(input.settleAfterMutationMs);
         return;
       } catch {}
@@ -267,21 +317,44 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
           const element = getIndexedElement(operation.selector, operation.matchIndex);
           const anchor = element.closest?.("a[href]");
           const anchorUrl = anchor instanceof HTMLAnchorElement ? anchor.href : "";
-          if (shouldHandoffAnchorNavigation(anchorUrl)) {
+          if (/^https?:\/\//i.test(anchorUrl)) {
+            logRunnerDiag("anchor_handoff", {
+              opKind: "click",
+              opSelector: operation.selector,
+              opMatchIndex: resolveMatchIndex(operation.matchIndex),
+              anchorUrl,
+              anchor: describeElementForDiag(anchor),
+              target: describeElementForDiag(element)
+            });
             requestedNavigationUrl = anchorUrl;
           } else {
             const formNavigationUrl = resolveGetFormNavigationUrl(element);
             if (formNavigationUrl) {
+              logRunnerDiag("form_handoff", {
+                opKind: "click",
+                opSelector: operation.selector,
+                opMatchIndex: resolveMatchIndex(operation.matchIndex),
+                navigationUrl: formNavigationUrl,
+                target: describeElementForDiag(element)
+              });
               requestedNavigationUrl = formNavigationUrl;
             } else {
-              await activatePointerTarget(element);
+              await activatePointerTarget(element, {
+                opKind: "click",
+                opSelector: operation.selector,
+                opMatchIndex: resolveMatchIndex(operation.matchIndex)
+              });
             }
           }
           break;
         }
         case "click_at": {
           const element = await withoutOwnershipOverlay(() => document.elementFromPoint(operation.x, operation.y));
-          await activatePointerAt(operation.x, operation.y, element);
+          await activatePointerAt(operation.x, operation.y, element, {
+            opKind: "click_at",
+            opX: operation.x,
+            opY: operation.y
+          });
           break;
         }
         case "extract": {
