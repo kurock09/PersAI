@@ -1639,7 +1639,8 @@ export interface RuntimeBrowserLoginResult {
 export const DEFAULT_RUNTIME_BROWSER_MAX_CHARS = 12_000;
 export const MIN_RUNTIME_BROWSER_MAX_CHARS = 500;
 export const MAX_RUNTIME_BROWSER_MAX_CHARS = 20_000;
-export const DEFAULT_RUNTIME_BROWSER_TIMEOUT_MS = 120_000;
+/** Single bridge command budget. Unreachable/slow sites must fail inside this, not hang the turn. */
+export const DEFAULT_RUNTIME_BROWSER_TIMEOUT_MS = 45_000;
 export const MIN_RUNTIME_BROWSER_TIMEOUT_MS = 1_000;
 export const MAX_RUNTIME_BROWSER_TIMEOUT_MS = 120_000;
 export const MAX_RUNTIME_BROWSER_OPERATIONS = 12;

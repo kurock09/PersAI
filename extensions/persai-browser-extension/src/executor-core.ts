@@ -4,6 +4,7 @@ import {
   DEFAULT_COMMAND_TIMEOUT_MS,
   EXECUTOR_ERROR_REASON,
   MAX_NAVIGATION_COMMIT_WAIT_MS,
+  MAX_PAGE_RUNNER_WAIT_MS,
   PERMISSION_DENIED_REASON,
   RECONNECT_BACKOFF_MS,
   UNSUPPORTED_PDF_REASON,
@@ -21,6 +22,14 @@ export function normalizeCommandTimeout(command: LocalBrowserCommand): number {
     : DEFAULT_COMMAND_TIMEOUT_MS;
 }
 
+export function computeCommandDeadlineMs(commandTimeoutMs: number): number {
+  const safeCommandTimeoutMs =
+    Number.isFinite(commandTimeoutMs) && commandTimeoutMs > 0
+      ? Math.floor(commandTimeoutMs)
+      : DEFAULT_COMMAND_TIMEOUT_MS;
+  return Math.max(0, safeCommandTimeoutMs - COMMAND_TRANSPORT_RESERVE_MS);
+}
+
 export function computeNavigationCommitTimeoutMs(commandTimeoutMs: number): number {
   const safeCommandTimeoutMs =
     Number.isFinite(commandTimeoutMs) && commandTimeoutMs > 0
@@ -30,6 +39,38 @@ export function computeNavigationCommitTimeoutMs(commandTimeoutMs: number): numb
     0,
     Math.min(MAX_NAVIGATION_COMMIT_WAIT_MS, safeCommandTimeoutMs - COMMAND_TRANSPORT_RESERVE_MS)
   );
+}
+
+export function computePageRunnerTimeoutMs(remainingCommandMs: number): number {
+  if (!(Number.isFinite(remainingCommandMs) && remainingCommandMs > 0)) {
+    return 0;
+  }
+  return Math.min(MAX_PAGE_RUNNER_WAIT_MS, Math.floor(remainingCommandMs));
+}
+
+export async function raceWithTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  if (!(timeoutMs > 0)) {
+    throw new Error(timeoutMessage);
+  }
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 export function mergeWarnings(...warnings: Array<string | null | undefined>): string | null {

@@ -45,8 +45,8 @@ const MAX_CHAT_UPLOAD_MB = Math.floor(MAX_CHAT_UPLOAD_BYTES / (1024 * 1024));
 
 /** Ignore thumb jitter before computing swipe distance. */
 const VOICE_GESTURE_SLOP_PX = 12;
-/** Mic action column width in the composer (`w-10`). */
-const VOICE_MIC_COLUMN_PX = 40;
+/** Mic/send action column width in the composer (`w-9` / 36px). */
+const VOICE_MIC_COLUMN_PX = 36;
 /** Trash target diameter (`h-8 w-8`). */
 const VOICE_TRASH_SIZE_PX = 32;
 /** Keep trash left of the mic so a holding thumb does not cover it. */
@@ -59,13 +59,16 @@ const VOICE_PILL_MAX_STRETCH_PX =
 /** Finger within this distance of the trash center arms cancel. */
 const VOICE_TRASH_ARM_TOLERANCE_PX = 36;
 const VOICE_HOLD_MIN_MS = 280;
-/** Above one line of text (leading-5 + py-2.5×2) the composer uses a fixed radius, not a pill. */
-const COMPOSER_SINGLE_LINE_HEIGHT_PX = 40;
+/**
+ * Single-line textarea scrollHeight budget (16px text × leading-22 + py-1.5×2).
+ * Above this the shell switches from a true pill to a fixed 22px radius.
+ */
+const COMPOSER_SINGLE_LINE_HEIGHT_PX = 38;
 
-/** Circular 40px targets; hover only on fine pointers (2026 chat UX baseline). */
+/** Circular 36px targets nested inside the pill with ~4px inset (TG-like). */
 const composerIconButtonClass = (opts: { disabled?: boolean; active?: boolean }) =>
   cn(
-    "flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-colors select-none",
+    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors select-none",
     opts.disabled
       ? "cursor-default text-text-subtle/40"
       : cn(
@@ -76,7 +79,7 @@ const composerIconButtonClass = (opts: { disabled?: boolean; active?: boolean })
   );
 
 const composerActionSlotClass =
-  "absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] select-none active:scale-[0.96]";
+  "absolute inset-0 flex items-center justify-center rounded-full transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] select-none active:scale-[0.96]";
 
 const composerSendButtonClass = (disabled: boolean) =>
   cn(
@@ -1333,8 +1336,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             ref={composerShellRef}
             data-testid="chat-composer-shell"
             className={cn(
-              "relative flex min-h-12 items-end gap-0.5 border border-border/80 bg-surface-raised py-1 pl-1 pr-1.5 shadow-sm transition-[border-color,box-shadow,border-radius] focus-within:border-border-strong focus-within:shadow-md",
-              isComposerMultiline ? "rounded-[22px]" : "rounded-full",
+              "relative flex min-h-11 gap-0.5 border border-border/80 bg-surface-raised p-1 shadow-sm transition-[border-color,box-shadow,border-radius] focus-within:border-border-strong focus-within:shadow-md",
+              isComposerMultiline ? "items-end rounded-[22px]" : "items-center rounded-full",
               dragActive && "border-accent bg-accent/5",
               sendBlockedByFailedSlot && "opacity-90",
               isTouchDevice && isRecording && "touch-none overflow-visible"
@@ -1389,7 +1392,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               })}
               title={t("attachFile")}
             >
-              <Paperclip className="h-5 w-5 md:h-4 md:w-4" />
+              <Paperclip className="h-[22px] w-[22px]" strokeWidth={2.15} />
             </button>
 
             {/*
@@ -1505,14 +1508,14 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               onPaste={handlePaste}
               style={{ resize: "none" }}
               className={cn(
-                "flex-1 resize-none bg-transparent text-base leading-6 text-text placeholder:text-text-subtle md:text-sm md:leading-5",
+                "flex-1 resize-none bg-transparent text-base leading-[22px] text-text placeholder:text-text-subtle md:text-sm md:leading-5",
                 "outline-none",
-                "max-h-[200px] py-2.5 pl-0.5 pr-1",
+                "max-h-[200px] py-1.5 pl-0.5 pr-1",
                 isTouchDevice && isRecording && "opacity-0"
               )}
             />
 
-            <div className="relative z-30 mb-0.5 h-10 w-10 shrink-0 self-end overflow-visible">
+            <div className="relative z-30 h-9 w-9 shrink-0 self-end overflow-visible">
               <AnimatePresence>
                 {isTouchDevice && isRecording && (
                   <motion.div
@@ -1528,7 +1531,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     }}
                     data-testid="voice-stretch-pill"
                     className={cn(
-                      "pointer-events-none absolute top-1/2 right-0 z-[5] h-9 -translate-y-1/2 rounded-full border",
+                      "pointer-events-none absolute inset-y-0 right-0 z-[5] rounded-full border",
                       cancelArmed
                         ? "border-destructive/40 bg-destructive/12"
                         : "border-accent/25 bg-accent/10"
@@ -1598,7 +1601,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   aria-hidden={!showMic}
                   tabIndex={showMic ? 0 : -1}
                 >
-                  <Mic className="h-5 w-5 md:h-4 md:w-4" />
+                  <Mic className="h-[22px] w-[22px]" strokeWidth={2.15} />
                 </button>
               ) : null}
               <button
@@ -1618,7 +1621,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 aria-hidden={!showSend}
                 tabIndex={showSend ? 0 : -1}
               >
-                <Send className="h-[18px] w-[18px] md:h-4 md:w-4" strokeWidth={2.25} />
+                <Send className="h-[18px] w-[18px]" strokeWidth={2.35} />
               </button>
             </div>
           </div>

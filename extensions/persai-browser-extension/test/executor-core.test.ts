@@ -5,9 +5,12 @@ import { resolve } from "node:path";
 import {
   buildPermissionDeniedResult,
   buildUnsupportedPdfResult,
+  computeCommandDeadlineMs,
   computeNavigationCommitTimeoutMs,
+  computePageRunnerTimeoutMs,
   computeReconnectDelayMs,
-  mergeWarnings
+  mergeWarnings,
+  raceWithTimeout
 } from "../src/executor-core.js";
 import { LOCAL_BROWSER_COMMAND_ACTIONS } from "../src/contract.js";
 import { runPageCommandInPage } from "../src/page-runner.js";
@@ -24,8 +27,29 @@ test("computeReconnectDelayMs uses bounded backoff", () => {
 
 test("navigation commit wait is capped and reserves command transport time", () => {
   assert.equal(computeNavigationCommitTimeoutMs(120_000), 30_000);
+  assert.equal(computeNavigationCommitTimeoutMs(45_000), 30_000);
   assert.equal(computeNavigationCommitTimeoutMs(20_000), 15_000);
   assert.equal(computeNavigationCommitTimeoutMs(5_000), 0);
+});
+
+test("page runner and command deadlines stay inside the outer budget", () => {
+  assert.equal(computeCommandDeadlineMs(45_000), 40_000);
+  assert.equal(computeCommandDeadlineMs(20_000), 15_000);
+  assert.equal(computePageRunnerTimeoutMs(40_000), 15_000);
+  assert.equal(computePageRunnerTimeoutMs(8_000), 8_000);
+  assert.equal(computePageRunnerTimeoutMs(0), 0);
+});
+
+test("raceWithTimeout rejects when the work does not finish", async () => {
+  await assert.rejects(
+    () =>
+      raceWithTimeout(
+        new Promise(() => undefined),
+        20,
+        "Timed out after 20ms waiting for the page runner."
+      ),
+    /Timed out after 20ms waiting for the page runner/
+  );
 });
 
 test("mergeWarnings drops empty items and preserves order", () => {
@@ -63,5 +87,7 @@ test("desktop navigation waits for main-frame commit instead of full load", asyn
   );
   assert.match(backgroundSource, /webNavigation\.onCommitted/);
   assert.match(backgroundSource, /frameId !== 0/);
+  assert.match(backgroundSource, /raceWithTimeout/);
+  assert.match(backgroundSource, /computePageRunnerTimeoutMs/);
   assert.doesNotMatch(backgroundSource, /waitForTabLoad|status === "complete"/);
 });

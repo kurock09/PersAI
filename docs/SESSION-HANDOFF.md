@@ -1,5 +1,35 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Chat composer TG pill geometry + mode chip
+
+Status: **implemented locally; visual check on phone/desktop pending.**
+
+Baseline SHA: PersAI `cbde74f5` (post mobile-typography; tree also carries browser fail-fast work).
+
+**Cause:** After mobile 16px typography, composer single-line `scrollHeight` exceeded the old 40px pill threshold (`leading-6` + `py-2.5`), so the shell flipped to `rounded-[22px]`, grew tall, and left mic/clip icons visually small.
+
+**Repair:** Compact TG-like pill — `min-h-11` + uniform `p-1` inset (~4px around the action circle), `rounded-full` while single-line, tighter `leading-[22px]`/`py-1.5`, 36px attach/action targets, expressive 22px Paperclip/Mic (same on desktop), send circle fills the inset. Chat-mode chip scaled up on mobile (`text-xs`, larger icon/padding) so it matches the composer.
+
+**Verification:** focused `chat-input` + `chat-area` 57/57 PASS; web lint + typecheck PASS. Full gate with browser fail-fast: recursive lint PASS, format:check PASS, api/web/runtime/runtime-contract/extension typecheck PASS, extension 24/24, worker-tools + browser-bridge relay PASS.
+
+**Next recommended step:** hard-refresh web on phone + desktop; confirm empty composer is a true pill, icons centered, action-circle inset minimal, mode chip not tiny vs input.
+
+---
+
+## 2026-07-12 — Browser fail-fast on unreachable sites (no 120s hang)
+
+Status: **implemented locally; extension Reload required; API/runtime deploy required for the 45s default budget.**
+
+Baseline SHA: PersAI `cbde74f5`.
+
+**Live evidence:** After the committed-navigation fix, SpaceX retries in RU still held the serial bridge for exact ~120s (`snapshot url=https://www.spacex.com/` at 23:11:19 → next command 23:13:19; earlier act `dfd0a2bb` also 120.3s). Dead/slow loads can skip re-navigate when the URL already matches and then hang inside `chrome.scripting.executeScript` until the outer relay timeout.
+
+**Repair:** Extension page-runner inject is raced at ≤15s; whole command is raced at `timeoutMs - 5s` transport reserve; navigate/inject timeouts interrupt the wedged tab via `about:blank` so the queue continues. Default browser worker/relay budget lowered 120s → 45s (`DEFAULT_RUNTIME_BROWSER_TIMEOUT_MS` + worker baseline); max remains 120s for explicit long commands. Commit wait stays capped at 30s.
+
+**Next recommended step:** Reload unpacked extension from `extensions/persai-browser-extension/dist`, deploy API (worker timeout), repeat SpaceX — expect structured failure ≤~30–45s, not 120s.
+
+---
+
 ## 2026-07-12 — Mobile typography Telegram-like (16px readable)
 
 Status: **implemented locally; web deploy + phone visual check pending.**

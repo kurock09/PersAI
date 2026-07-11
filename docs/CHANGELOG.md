@@ -5,6 +5,8 @@
 
 ## 2026-07-12
 
+- **UX (chat composer TG pill geometry + mode chip; local).** Restored true single-line `rounded-full` after 16px typography broke the multiline threshold; compact `min-h-11` shell with ~4px inset around the 36px mic/send circle, larger centered Paperclip/Mic on mobile+desktop, and a slightly larger mobile chat-mode chip. Focused chat-input/chat-area tests PASS.
+- **Fix (ADR-140 browser fail-fast on unreachable sites; local).** Live SpaceX retries in RU still burned exact ~120s on snapshot/act (URL already matched → skip navigate → hung `executeScript`, or outer relay timeout). Extension now races page-runner inject ≤15s and the whole command at `timeoutMs - 5s`, interrupts wedged tabs with `about:blank`, and the default browser worker/relay budget is 45s (max remains 120s). Reload extension + deploy API required for live acceptance.
 - **UX (mobile typography Telegram-like; local).** Product surfaces now use ~16px main readable text and form controls on phone (`text-base md:text-sm`) while desktop stays denser; shared `userFieldClassName` cascades to profile/setup/auth/settings, chat composer/messages, landing/pricing/checkout, and related copy. Small chrome (timestamps, badges, captions, pills) unchanged. Admin/APK out of scope. Deploy + phone visual check pending.
 
 ## 2026-07-11

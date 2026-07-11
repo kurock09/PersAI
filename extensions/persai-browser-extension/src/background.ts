@@ -23,10 +23,13 @@ import {
   buildPermissionDeniedResult,
   buildUnsupportedPdfResult,
   buildUnsupportedScreenshotResult,
+  computeCommandDeadlineMs,
   computeNavigationCommitTimeoutMs,
+  computePageRunnerTimeoutMs,
   computeReconnectDelayMs,
   mergeWarnings,
-  normalizeCommandTimeout
+  normalizeCommandTimeout,
+  raceWithTimeout
 } from "./executor-core.js";
 import { resolveHostScriptSource } from "./host-scripts.js";
 import type {
@@ -798,7 +801,12 @@ async function navigateTab(
   if (typeof record.tabId !== "number") {
     throw new Error("No bridge tab exists for this profile.");
   }
-  await navigateAndWaitForMainFrameCommit(record.tabId, url, timeoutMs);
+  try {
+    await navigateAndWaitForMainFrameCommit(record.tabId, url, timeoutMs);
+  } catch (error) {
+    await interruptTabLoad(record.tabId);
+    throw error;
+  }
   if (isProfileObserverLocked(record.profileKey)) {
     await setAssistantOwnershipOverlay(record, true);
   }
@@ -951,16 +959,29 @@ async function setAssistantOwnershipOverlay(
   }
 }
 
+async function interruptTabLoad(tabId: number): Promise<void> {
+  // Cancel a wedged navigation/renderer so the serial command queue can move on.
+  // about:blank keeps the profile window and cookie jar; the next act re-navigates.
+  try {
+    await chrome.tabs.update(tabId, { url: "about:blank" });
+  } catch {
+    // Tab may already be gone; the caller still returns the timeout error.
+  }
+}
+
 async function executePageRunner(
   record: ProfileSessionRecord,
   operations: RuntimeBrowserOperation[],
-  hostPageScript: string | null
+  hostPageScript: string | null,
+  remainingCommandMs: number
 ): Promise<PageRunnerResult> {
   if (typeof record.tabId !== "number") {
     throw new Error("No bridge tab exists for this profile.");
   }
-  const injection = await chrome.scripting.executeScript({
-    target: { tabId: record.tabId },
+  const tabId = record.tabId;
+  const runnerTimeoutMs = computePageRunnerTimeoutMs(remainingCommandMs);
+  const injectionPromise = chrome.scripting.executeScript({
+    target: { tabId },
     func: runPageCommandInPage,
     args: [
       {
@@ -968,12 +989,23 @@ async function executePageRunner(
         maxElements: MAX_INTERACTIVE_ELEMENTS,
         maxExtractItems: MAX_EXTRACT_ITEMS,
         settleAfterMutationMs: DEFAULT_MUTATION_SETTLE_MS,
-        domReadyTimeoutMs: MAX_DOM_READY_WAIT_MS,
+        domReadyTimeoutMs: Math.min(MAX_DOM_READY_WAIT_MS, runnerTimeoutMs),
         hostPageScript,
         operations: operations.slice(0, MAX_OPERATION_COUNT)
       }
     ]
   });
+  let injection: Awaited<typeof injectionPromise>;
+  try {
+    injection = await raceWithTimeout(
+      injectionPromise,
+      runnerTimeoutMs,
+      `Timed out after ${String(runnerTimeoutMs)}ms waiting for the page runner.`
+    );
+  } catch (error) {
+    await interruptTabLoad(tabId);
+    throw error;
+  }
   const result = injection?.[0]?.result as PageRunnerResult | undefined;
   if (!result) {
     throw new Error("The page runner returned no result.");
@@ -1163,6 +1195,9 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
   await setAssistantOwnershipOverlay(record, true);
   try {
     const timeoutMs = normalizeCommandTimeout(command);
+    const commandStartedAt = Date.now();
+    const remainingCommandMs = (): number =>
+      Math.max(0, computeCommandDeadlineMs(timeoutMs) - (Date.now() - commandStartedAt));
 
     const currentUrl = currentTab?.url ?? record.lastKnownUrl;
     if (
@@ -1171,7 +1206,7 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
       command.url.length > 0 &&
       !urlsEquivalent(command.url, currentUrl)
     ) {
-      record = await navigateTab(record, command.url, timeoutMs);
+      record = await navigateTab(record, command.url, remainingCommandMs());
     } else if (command.stayOnPage !== true && !record.lastKnownUrl && currentTab?.url) {
       record = await persistProfilePatch(record.profileKey, {
         lastKnownUrl: currentTab.url,
@@ -1185,18 +1220,23 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
     let finalResult: PageRunnerResult | null = null;
 
     if (segments.length === 0) {
-      finalResult = await executePageRunner(record, [], hostPageScript);
+      finalResult = await executePageRunner(record, [], hostPageScript, remainingCommandMs());
     } else {
       for (const segment of segments) {
         if (segment.navigateTo) {
-          record = await navigateTab(record, segment.navigateTo, timeoutMs);
+          record = await navigateTab(record, segment.navigateTo, remainingCommandMs());
         }
-        finalResult = await executePageRunner(record, segment.operations, hostPageScript);
+        finalResult = await executePageRunner(
+          record,
+          segment.operations,
+          hostPageScript,
+          remainingCommandMs()
+        );
       }
     }
 
     if (finalResult === null) {
-      finalResult = await executePageRunner(record, [], hostPageScript);
+      finalResult = await executePageRunner(record, [], hostPageScript, remainingCommandMs());
     }
 
     if (command.format === "pdf") {
@@ -1278,8 +1318,14 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
 async function handleIncomingCommand(command: LocalBrowserCommand): Promise<void> {
   activeCommandCount += 1;
   await syncDesiredConnection();
+  const timeoutMs = normalizeCommandTimeout(command);
+  const deadlineMs = computeCommandDeadlineMs(timeoutMs);
   try {
-    const result = await executeBrowserCommand(command);
+    const result = await raceWithTimeout(
+      executeBrowserCommand(command),
+      deadlineMs,
+      `Timed out after ${String(deadlineMs)}ms waiting for the local browser command.`
+    );
     if (hasLiveSocket()) {
       socket?.send(JSON.stringify(result));
     }

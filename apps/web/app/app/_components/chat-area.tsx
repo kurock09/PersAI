@@ -1398,7 +1398,7 @@ function ChatModeToggle({
           title={chatModeCaption(t, mode, paidLightModeActive)}
           onClick={() => setMenuOpen((open) => !open)}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface-raised/90 px-2.5 py-1 text-[11px] font-semibold text-text shadow-sm backdrop-blur-sm transition-colors md:px-3 md:py-1.5",
+            "inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface-raised/90 px-3 py-1.5 text-xs font-semibold text-text shadow-sm backdrop-blur-sm transition-colors md:px-3 md:py-1.5 md:text-[11px]",
             mode !== "normal" && "border-accent-premium/25 text-accent-premium",
             menuOpen && "border-border-strong bg-surface-raised",
             disabled && "cursor-not-allowed opacity-50"
@@ -1407,14 +1407,14 @@ function ChatModeToggle({
           <ChatModeIcon
             mode={mode}
             className={cn(
-              "h-3.5 w-3.5",
+              "h-4 w-4 md:h-3.5 md:w-3.5",
               mode === "normal" ? "text-text-muted" : "text-accent-premium"
             )}
           />
           <span>{chatModeLabel(t, mode)}</span>
           <ChevronDown
             className={cn(
-              "h-3 w-3 text-text-subtle transition-transform",
+              "h-3.5 w-3.5 text-text-subtle transition-transform md:h-3 md:w-3",
               menuOpen && "rotate-180"
             )}
           />
@@ -1438,7 +1438,7 @@ function ChatModeToggle({
                   disabled={disabled || optionLimited}
                   onClick={() => selectMode(option)}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[11px] font-semibold transition-colors",
+                    "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition-colors md:text-[11px]",
                     optionLimited ? "cursor-not-allowed opacity-45" : "cursor-pointer",
                     mode === option
                       ? option === "normal"
@@ -1453,7 +1453,7 @@ function ChatModeToggle({
                   <ChatModeIcon
                     mode={option}
                     className={cn(
-                      "h-3.5 w-3.5 shrink-0",
+                      "h-4 w-4 shrink-0 md:h-3.5 md:w-3.5",
                       optionLimited
                         ? "text-text-subtle"
                         : option === "normal"
@@ -1466,7 +1466,7 @@ function ChatModeToggle({
                     <span className="block">{chatModeLabel(t, option)}</span>
                     <span
                       className={cn(
-                        "block text-[10px] font-normal",
+                        "block text-[11px] font-normal md:text-[10px]",
                         optionLimited ? "text-text-subtle/80" : "text-text-subtle"
                       )}
                     >

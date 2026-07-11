@@ -8,7 +8,7 @@ const WORKER_TOOL_BASELINES: Record<string, Omit<RuntimeWorkerToolConfig, "toolC
   browser: {
     family: "browser_interaction",
     outcomeKind: "structured_output",
-    timeoutMs: 120_000,
+    timeoutMs: 45_000,
     confirmationRule: "required_for_mutations",
     supportsProviderRouting: true,
     failureBehavior: "surface_error"
