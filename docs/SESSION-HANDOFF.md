@@ -2,9 +2,9 @@
 
 ## 2026-07-11 — ADR-140 Android finger PointerProperties MotionEvent
 
-Status: **implemented locally; Android 1.0.35 exported; installed; commit done; push in progress.**
+Status: **implemented locally; Android 1.0.35 exported; installed; commit/push done.**
 
-Baseline SHAs: PersAI `5bc7e123`; `persai-mobile` `6484d05`.
+Baseline SHAs: PersAI `a7842a22` (export) / `ab074a77` (docs); `persai-mobile` `6484d05`.
 
 **Scope:** APK-only. `dispatchPointerTap` now builds `MotionEvent` with `PointerProperties` (`TOOL_TYPE_FINGER`) + `PointerCoords` + `SOURCE_TOUCHSCREEN` in `obtain`, matching Chromium `TouchEventSynthesizer` / documented WebView injection. Also briefly enables `focusable` / `focusableInTouchMode` for the tap. Logcat adds `toolType=FINGER`. CSS→view scale from 1.0.34 unchanged. No runner / web payload change.
 
