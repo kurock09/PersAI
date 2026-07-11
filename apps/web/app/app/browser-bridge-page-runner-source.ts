@@ -163,6 +163,51 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
       if (ownershipOverlay instanceof HTMLElement) ownershipOverlay.style.pointerEvents = previousPointerEvents;
     }
   };
+  const isInteractiveElement = (element) => {
+    if (!(element instanceof Element)) return false;
+    if (element instanceof HTMLButtonElement || element instanceof HTMLAnchorElement) return true;
+    const role = element.getAttribute("role");
+    return role === "button" || role === "link";
+  };
+  const resolvePointerActivation = (element, hit, x, y) => {
+    const sameNode = hit === element || (hit instanceof Node && element.contains(hit));
+    if (sameNode) return { element, x, y, occluded: false, sameNode: true };
+    const hitInteractive = hit instanceof Element ? hit.closest("button, a[href], [role='button'], [role='link']") : null;
+    if (hitInteractive instanceof HTMLElement && isInteractiveElement(hitInteractive)) {
+      const hitRect = hitInteractive.getBoundingClientRect();
+      return {
+        element: hitInteractive,
+        x: hitRect.left + hitRect.width / 2,
+        y: hitRect.top + hitRect.height / 2,
+        occluded: true,
+        sameNode: false
+      };
+    }
+    return { element, x, y, occluded: false, sameNode: false };
+  };
+  const dispatchDomPointerSequence = (element, x, y) => {
+    if (!(element instanceof HTMLElement)) return;
+    try { element.focus({ preventScroll: true }); } catch {}
+    const eventInit = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      clientX: x,
+      clientY: y,
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      button: 0,
+      buttons: 1
+    };
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+      try {
+        const Ctor = type.startsWith("pointer") ? PointerEvent : MouseEvent;
+        element.dispatchEvent(new Ctor(type, eventInit));
+      } catch {}
+    }
+  };
   const requestNativePointerTap = (x, y) => new Promise((resolve, reject) => {
     const bridge = window.PersaiBrowserBridgeNative;
     if (input.nativePointer && bridge && typeof bridge.requestPointerTap === "function") {
@@ -204,26 +249,32 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
       element.scrollIntoView({ behavior: "instant", block: "center", inline: "center" });
     } catch {}
     const rect = element.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
+    let x = rect.left + rect.width / 2;
+    let y = rect.top + rect.height / 2;
     if (input.nativePointer) {
       try {
         await withoutOwnershipOverlay(async () => {
           let hit = null;
           try { hit = document.elementFromPoint(x, y); } catch { hit = null; }
+          const activation = resolvePointerActivation(element, hit, x, y);
+          x = activation.x;
+          y = activation.y;
           try {
-            logRunnerDiag("pointer_target", {
+            logRunnerDiag(activation.occluded ? "pointer_occluded" : "pointer_target", {
               ...context,
               target: describeElementForDiag(element),
               hit: describeElementForDiag(hit),
+              activated: describeElementForDiag(activation.element),
               tap: { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 },
               viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio },
-              sameNode: hit === element || (hit instanceof Node && element.contains(hit))
+              sameNode: activation.sameNode,
+              occluded: activation.occluded
             });
           } catch {}
           await requestNativePointerTap(x, y);
+          dispatchDomPointerSequence(activation.element, x, y);
+          await sleep(input.settleAfterMutationMs);
         });
-        await sleep(input.settleAfterMutationMs);
         return;
       } catch {}
     }
@@ -236,21 +287,32 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
         await withoutOwnershipOverlay(async () => {
           let hit = null;
           try { hit = document.elementFromPoint(x, y); } catch { hit = null; }
+          const activation = resolvePointerActivation(
+            fallbackElement instanceof HTMLElement ? fallbackElement : null,
+            hit,
+            x,
+            y
+          );
+          x = activation.x;
+          y = activation.y;
           try {
-            logRunnerDiag("pointer_at", {
+            logRunnerDiag(activation.occluded ? "pointer_at_occluded" : "pointer_at", {
               ...context,
               fallback: describeElementForDiag(fallbackElement),
               hit: describeElementForDiag(hit),
+              activated: describeElementForDiag(activation.element),
               tap: { x: Math.round(x * 100) / 100, y: Math.round(y * 100) / 100 },
               viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio },
-              sameNode:
-                hit === fallbackElement ||
-                (hit instanceof Node && fallbackElement instanceof Node && fallbackElement.contains(hit))
+              sameNode: activation.sameNode,
+              occluded: activation.occluded
             });
           } catch {}
           await requestNativePointerTap(x, y);
+          if (activation.element instanceof HTMLElement) {
+            dispatchDomPointerSequence(activation.element, x, y);
+          }
+          await sleep(input.settleAfterMutationMs);
         });
-        await sleep(input.settleAfterMutationMs);
         return;
       } catch {}
     }

@@ -36,6 +36,8 @@ describe("PAGE_RUNNER_SOURCE", () => {
   it("emits runner diagnostics for native pointer activation", () => {
     expect(PAGE_RUNNER_SOURCE).toMatch(/logRunnerDiag/);
     expect(PAGE_RUNNER_SOURCE).toMatch(/pointer_target/);
+    expect(PAGE_RUNNER_SOURCE).toMatch(/pointer_occluded/);
+    expect(PAGE_RUNNER_SOURCE).toMatch(/dispatchDomPointerSequence/);
     expect(PAGE_RUNNER_SOURCE).toMatch(/describeElementForDiag/);
   });
 

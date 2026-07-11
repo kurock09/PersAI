@@ -1,10 +1,33 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-140 Android Lavka pointer activation system (1.0.36)
+
+Status: **implemented locally; Android 1.0.36 exported + installed; commit/push pending; web deploy required for runner changes.**
+
+Baseline SHAs: PersAI (pending); `persai-mobile` (pending).
+
+**Log facts (lavka-live-logcat, pre-1.0.34 APK):**
+- `pointer_tap x=` without `cssX/viewX` → taps injected at CSS coords into 1080px-wide view (miss by ~2.625×).
+- `runner_diag` «Увеличить»: `sameNode:false`, `hit=data-testid=modal-text` (age gate over button).
+- `runner_diag` «На сайте»: `sameNode:false`, `hit` text «На сайте» over `cart-button`.
+- `runner_diag` «В корзину»: `sameNode:true` but cart stayed empty on unscaled APK.
+- Escape (`dispatchKeyEvent`) closes modals; pointer taps did not.
+
+**Fix (1.0.36):**
+- **Native:** `prepareWebViewForPointerInjection` (alpha 1, enabled, focus) before each tap; DOWN→MOVE→UP finger sequence; log `downConsumed/moveConsumed/upConsumed`; stop re-adding ownership overlay immediately after tap (race).
+- **Runner (web payload):** `resolvePointerActivation` retargets to occluding interactive element; `dispatchDomPointerSequence` after native tap; keep ownership overlay disabled through settle sleep.
+
+**Verification:** mobile bridge 19/19; PersAI web runner tests 12/12 + lint/format/typecheck PASS; Android `1.0.36` / `versionCode 38` built, exported, `adb install` PASS.
+
+**Next recommended step:** deploy web (runner), retest Lavka «+» / «В корзину»; logcat must show `cssX/viewX`, `toolType=FINGER`, `downConsumed=true`.
+
+---
+
 ## 2026-07-11 — ADR-140 Android finger PointerProperties MotionEvent
 
-Status: **implemented locally; Android 1.0.35 exported; installed; commit/push done.**
+Status: **superseded by 1.0.36 pointer activation system; finger MotionEvent retained.**
 
-Baseline SHAs: PersAI `a7842a22` (export) / `ab074a77` (docs); `persai-mobile` `6484d05`.
+Baseline SHAs: PersAI `a7842a22` (export) / `ea2096cb` (docs); `persai-mobile` `6484d05`.
 
 **Scope:** APK-only. `dispatchPointerTap` now builds `MotionEvent` with `PointerProperties` (`TOOL_TYPE_FINGER`) + `PointerCoords` + `SOURCE_TOUCHSCREEN` in `obtain`, matching Chromium `TouchEventSynthesizer` / documented WebView injection. Also briefly enables `focusable` / `focusableInTouchMode` for the tap. Logcat adds `toolType=FINGER`. CSS→view scale from 1.0.34 unchanged. No runner / web payload change.
 
