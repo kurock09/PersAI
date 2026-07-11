@@ -2,9 +2,9 @@
 
 ## 2026-07-11 — ADR-140 Android Lavka pointer activation system (1.0.36)
 
-Status: **implemented locally; Android 1.0.36 exported + installed; commit/push pending; web deploy required for runner changes.**
+Status: **implemented locally; Android 1.0.36 exported + installed; commit/push done; web deploy required for runner changes.**
 
-Baseline SHAs: PersAI (pending); `persai-mobile` (pending).
+Baseline SHAs: PersAI `de1f1b53`; `persai-mobile` `c5f30d6`.
 
 **Log facts (lavka-live-logcat, pre-1.0.34 APK):**
 - `pointer_tap x=` without `cssX/viewX` → taps injected at CSS coords into 1080px-wide view (miss by ~2.625×).
