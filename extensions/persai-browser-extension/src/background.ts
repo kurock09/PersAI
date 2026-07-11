@@ -76,6 +76,11 @@ let commandQueue = Promise.resolve();
 let viewCommandQueue = Promise.resolve();
 const permissionGrantInFlight = new Map<string, Promise<boolean>>();
 const assistantOwnedProfileKeys = new Set<string>();
+const observerLockedProfileKeys = new Set<string>();
+
+function isProfileObserverLocked(profileKey: string): boolean {
+  return assistantOwnedProfileKeys.has(profileKey) || observerLockedProfileKeys.has(profileKey);
+}
 
 function hasLiveSocket(): boolean {
   return socket !== null && socket.readyState === WebSocket.OPEN;
@@ -357,6 +362,33 @@ async function buildStatusForWeb(profileKey: string | null): Promise<Record<stri
   return { ...base, pendingCompletionAction: action };
 }
 
+async function applyObserverLockFromWeb(
+  active: boolean,
+  profileKey: string | null
+): Promise<Record<string, unknown>> {
+  const state = await readState();
+  const profileKeys =
+    profileKey === null
+      ? Array.from(
+          new Set([...Object.keys(state.profiles), ...Array.from(observerLockedProfileKeys)])
+        )
+      : [profileKey];
+  await Promise.all(
+    profileKeys.map(async (key) => {
+      if (active) {
+        observerLockedProfileKeys.add(key);
+      } else {
+        observerLockedProfileKeys.delete(key);
+      }
+      const record = await reconcileProfileRecord(key);
+      if (record !== null) {
+        await setAssistantOwnershipOverlay(record, isProfileObserverLocked(key));
+      }
+    })
+  );
+  return { active, profileKeys };
+}
+
 async function resolvePendingCompletionFromPopup(
   profileKey: string,
   action: PendingCompletionAction
@@ -373,6 +405,8 @@ async function handleWebBridgeRequest(message: WebBridgeRequestMessage): Promise
       return storeDeviceRegistrationResult(message);
     case "persai.bridge.status":
       return buildStatusForWeb(message.profileKey ?? null);
+    case "persai.bridge.set_observer_lock":
+      return applyObserverLockFromWeb(message.active, message.profileKey ?? null);
   }
 }
 
@@ -434,6 +468,18 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
   bindKeepalivePort(port);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== "complete") {
+    return;
+  }
+  void readState().then(async (state) => {
+    const record = Object.values(state.profiles).find((candidate) => candidate.tabId === tabId);
+    if (record && isProfileObserverLocked(record.profileKey)) {
+      await setAssistantOwnershipOverlay(record, true);
+    }
+  });
 });
 
 chrome.runtime.onMessage.addListener(
@@ -703,7 +749,7 @@ async function navigateTab(
   }
   await chrome.tabs.update(record.tabId, { url });
   await waitForTabLoad(record.tabId, timeoutMs);
-  if (assistantOwnedProfileKeys.has(record.profileKey)) {
+  if (isProfileObserverLocked(record.profileKey)) {
     await setAssistantOwnershipOverlay(record, true);
   }
   return persistProfilePatch(record.profileKey, {
@@ -758,9 +804,54 @@ async function setAssistantOwnershipOverlay(
     await chrome.scripting.executeScript({
       target: { tabId: record.tabId },
       func: (overlayId: string, enabled: boolean) => {
+        const ownerWindow = window as Window & {
+          __persaiObserverLockCleanup?: () => void;
+        };
+        ownerWindow.__persaiObserverLockCleanup?.();
+        delete ownerWindow.__persaiObserverLockCleanup;
         document.getElementById(overlayId)?.remove();
         if (!enabled || !document.documentElement) {
           return;
+        }
+        const htmlOverflow = document.documentElement.style.overflow;
+        const bodyOverflow = document.body?.style.overflow ?? "";
+        const blockedEvents = [
+          "click",
+          "dblclick",
+          "mousedown",
+          "mouseup",
+          "pointerdown",
+          "pointermove",
+          "pointerup",
+          "touchstart",
+          "touchmove",
+          "touchend",
+          "wheel",
+          "keydown",
+          "keyup",
+          "contextmenu"
+        ] as const;
+        const blockInteraction = (event: Event) => {
+          const overlay = document.getElementById(overlayId);
+          if (
+            !event.isTrusted ||
+            overlay === null ||
+            overlay.style.pointerEvents === "none"
+          ) {
+            return;
+          }
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        };
+        for (const eventName of blockedEvents) {
+          window.addEventListener(eventName, blockInteraction, {
+            capture: true,
+            passive: false
+          });
+        }
+        document.documentElement.style.overflow = "hidden";
+        if (document.body) {
+          document.body.style.overflow = "hidden";
         }
         const host = document.createElement("div");
         host.id = overlayId;
@@ -771,7 +862,10 @@ async function setAssistantOwnershipOverlay(
           zIndex: "2147483647",
           pointerEvents: "auto",
           cursor: "not-allowed",
-          background: "transparent"
+          background: "transparent",
+          touchAction: "none",
+          overscrollBehavior: "none",
+          userSelect: "none"
         });
         const shadow = host.attachShadow({ mode: "closed" });
         const root = document.createElement("div");
@@ -792,6 +886,16 @@ async function setAssistantOwnershipOverlay(
         }</div>`;
         shadow.appendChild(root);
         document.documentElement.appendChild(host);
+        ownerWindow.__persaiObserverLockCleanup = () => {
+          for (const eventName of blockedEvents) {
+            window.removeEventListener(eventName, blockInteraction, true);
+          }
+          document.documentElement.style.overflow = htmlOverflow;
+          if (document.body) {
+            document.body.style.overflow = bodyOverflow;
+          }
+          host.remove();
+        };
       },
       args: [ASSISTANT_OWNERSHIP_OVERLAY_ID, active]
     });
@@ -898,6 +1002,15 @@ async function handleOpenView(
     }
   }
 
+  if (command.observerOnly === true) {
+    observerLockedProfileKeys.add(record.profileKey);
+  } else {
+    observerLockedProfileKeys.delete(record.profileKey);
+  }
+  await setAssistantOwnershipOverlay(
+    finalRecord,
+    isProfileObserverLocked(finalRecord.profileKey)
+  );
   await updateState((state) => setAwaitingCompletion(state, record.profileKey, true));
   await refreshBadgeFromState();
 
@@ -965,6 +1078,26 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
       warning: "Bridge window minimized."
     };
   }
+  if (command.action === "set_observer_lock") {
+    const existing = await reconcileProfileRecord(command.profileKey);
+    if (command.observerOnly === true) {
+      observerLockedProfileKeys.add(command.profileKey);
+    } else {
+      observerLockedProfileKeys.delete(command.profileKey);
+    }
+    if (existing !== null) {
+      await setAssistantOwnershipOverlay(
+        existing,
+        isProfileObserverLocked(existing.profileKey)
+      );
+    }
+    return {
+      commandId: command.commandId,
+      ok: true,
+      finalUrl: existing?.lastKnownUrl ?? null,
+      warning: null
+    };
+  }
   const showWindow = command.action === "open_view" || command.showWindow === true;
   let record = await resolveOrCreateProfileWindow(
     command.profileKey,
@@ -986,6 +1119,7 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
   }
 
   assistantOwnedProfileKeys.add(record.profileKey);
+  observerLockedProfileKeys.add(record.profileKey);
   await setAssistantOwnershipOverlay(record, true);
   try {
     const timeoutMs = normalizeCommandTimeout(command);
@@ -1097,7 +1231,7 @@ async function executeBrowserCommand(command: LocalBrowserCommand): Promise<Loca
     };
   } finally {
     assistantOwnedProfileKeys.delete(record.profileKey);
-    await setAssistantOwnershipOverlay(record, false);
+    await setAssistantOwnershipOverlay(record, isProfileObserverLocked(record.profileKey));
   }
 }
 

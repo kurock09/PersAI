@@ -31,10 +31,18 @@ export interface BridgeStatusRequestMessage {
   profileKey?: string | null;
 }
 
+export interface SetObserverLockFromWebMessage {
+  type: "persai.bridge.set_observer_lock";
+  active: boolean;
+  /** Omit to apply the requested state to every retained bridge profile. */
+  profileKey?: string | null;
+}
+
 export type WebBridgeRequestMessage =
   | RegisterDeviceFromWebMessage
   | RegisterDeviceResultFromWebMessage
-  | BridgeStatusRequestMessage;
+  | BridgeStatusRequestMessage
+  | SetObserverLockFromWebMessage;
 
 export interface WebBridgeEnvelope {
   source: "persai-browser-extension";

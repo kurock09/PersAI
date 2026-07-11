@@ -29,6 +29,8 @@ Additional orchestration program **closed locally 2026-07-08:** `docs/ADR/140-lo
 
 Additional UX ADR **closed locally 2026-07-11:** `docs/ADR/141-native-browser-activity-thumbnail.md` (Capacitor-only bounded local browser miniatures after assistant operation boundaries, tap reopens the same retained native view, no server persistence or desktop extension change, no Fold/tablet/UA heuristics; Android 1.0.24 built/exported, deploy/install/live acceptance and iOS Xcode/device acceptance pending; do not reopen for new scope).
 
+Additional UX ADR **closed 2026-07-11:** `docs/ADR/142-turn-scoped-local-browser-observer-lock.md` (mobile + desktop retained browser profiles remain observer-only across the whole assistant turn; trusted user click/scroll/swipe/keyboard input is blocked until stream completion or explicit `request_user_action`; Android 1.0.37 built/exported/installed, web + extension deploy and live acceptance pending; do not reopen for new scope).
+
 Additional orchestration program **superseded by ADR-140 (do not implement new scope):** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` and `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`.
 
 ## Repo rules

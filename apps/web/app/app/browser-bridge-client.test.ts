@@ -6,6 +6,7 @@ describe("native browser command scheduling", () => {
     expect(bypassesNativeBrowserExecutionQueue("open_view")).toBe(true);
     expect(bypassesNativeBrowserExecutionQueue("close_view")).toBe(true);
     expect(bypassesNativeBrowserExecutionQueue("check_view")).toBe(true);
+    expect(bypassesNativeBrowserExecutionQueue("set_observer_lock")).toBe(true);
     expect(bypassesNativeBrowserExecutionQueue("snapshot")).toBe(false);
     expect(bypassesNativeBrowserExecutionQueue("act")).toBe(false);
   });

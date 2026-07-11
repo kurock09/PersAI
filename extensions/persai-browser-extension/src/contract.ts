@@ -4,7 +4,8 @@ export const LOCAL_BROWSER_COMMAND_ACTIONS = [
   "act",
   "open_view",
   "close_view",
-  "check_view"
+  "check_view",
+  "set_observer_lock"
 ] as const;
 
 export type LocalBrowserCommandAction = (typeof LOCAL_BROWSER_COMMAND_ACTIONS)[number];
@@ -118,6 +119,7 @@ export interface LocalBrowserCommand {
   action: LocalBrowserCommandAction;
   url?: string | null;
   stayOnPage?: boolean | null;
+  observerOnly?: boolean | null;
   operations?: RuntimeBrowserOperation[] | null;
   format?: PersaiRuntimeBrowserSnapshotFormat | null;
   optimizeForSpeed?: boolean | null;

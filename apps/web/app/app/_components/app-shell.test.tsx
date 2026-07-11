@@ -81,7 +81,8 @@ vi.mock("./offline-gate", () => ({
 }));
 
 vi.mock("./streaming-threads", () => ({
-  StreamingThreadsProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>
+  StreamingThreadsProvider: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  useStreamingThreadsRegistry: () => ({ activeThreads: new Set<string>() })
 }));
 
 vi.mock("../me-api-client", () => ({

@@ -1,5 +1,21 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-142 turn-scoped local-browser observer lock (1.0.37)
+
+Status: **implemented; mobile commit `f0ed986` pushed; Android 1.0.37 built/exported/installed; PersAI web/extension deploy and live acceptance pending.**
+
+Baseline SHAs: PersAI `3f99dce1`; `persai-mobile` `83e5bb2`.
+
+**Scope:** A profile used by assistant `snapshot`/`act` now stays observer-only across the whole streaming turn, not only while one bridge command is executing. Mobile miniature open preserves read-only ownership. Trusted click/pointer/touch/scroll/wheel/context-menu/keyboard input is blocked on Chrome extension, Android, and iOS; assistant DOM/native actions continue underneath. Stream completion sends the local `set_observer_lock` release. Existing model-owned `request_user_action` `open_view` remains interactive and clears the lock.
+
+**Verification:** mobile bridge tests 20/20 + Android release build/install; full PersAI workspace tests PASS (including web 895/895, extension 20/20, sandbox 97/97), full workspace typecheck PASS, CI affected-detector tests 7/7, and mandatory repo lint/format/API+web typechecks PASS. Installed version confirmed `1.0.37` / `versionCode 39`.
+
+**Residuals:** Web + Chrome extension must be deployed/reloaded for desktop and turn-end release behavior. iOS is source-implemented but still needs Xcode/device acceptance. Live two-surface input-blocking acceptance remains pending.
+
+**Next recommended step:** deploy web/extension, then during one long Lavka turn open the retained view on Android and desktop and verify click/scroll/swipe/keyboard do nothing; verify control returns at stream end and immediately on `request_user_action`.
+
+---
+
 ## 2026-07-11 — ADR-140 Android Lavka pointer activation system (1.0.36)
 
 Status: **implemented locally; Android 1.0.36 exported + installed; commit/push done; web deploy required for runner changes.**

@@ -6,7 +6,12 @@ import {
   computeReconnectDelayMs,
   mergeWarnings
 } from "../src/executor-core.js";
+import { LOCAL_BROWSER_COMMAND_ACTIONS } from "../src/contract.js";
 import { runPageCommandInPage } from "../src/page-runner.js";
+
+test("local contract carries the turn observer lock action", () => {
+  assert.equal(LOCAL_BROWSER_COMMAND_ACTIONS.includes("set_observer_lock"), true);
+});
 
 test("computeReconnectDelayMs uses bounded backoff", () => {
   assert.equal(computeReconnectDelayMs(0), 1_000);

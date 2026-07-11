@@ -69,6 +69,7 @@ ADR-140 closes the persistent Browserless session era. The active browser archit
 - `apps/provider-gateway` owns only the retained headless Browserless public no-profile path (`snapshot` / `screenshot` / `pdf`) and does not own persistent sessions, BQL profile execution, or live login flows
 - authenticated CRM/portal work runs only through the local bridge (Chrome extension on web, Capacitor bridge in the app); no persistent cloud Browserless path remains active
 - Capacitor may surface a transient local-only browser activity thumbnail from the retained native WebView after assistant operation boundaries; the image is bounded in native code, crosses only the local plugin event bridge, is never persisted, and opens that same retained view on tap
+- after a profile-backed browser command starts, that retained desktop/mobile surface remains observer-only for the whole assistant turn; local trusted input is blocked until stream completion or an explicit model-owned `request_user_action` transfers ownership
 - web/app re-auth is product-owned modal/banner UX; Telegram cannot host local browser execution and must return structured `open_in_app` / `bridge_unavailable` semantics for logged-in browser work
 
 ### Sandbox plane

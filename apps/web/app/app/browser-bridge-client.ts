@@ -45,10 +45,19 @@ type BridgeRegisterDeviceRequestMessage = {
   };
 };
 
+type BridgeSetObserverLockMessage = {
+  type: "persai.bridge.set_observer_lock";
+  active: boolean;
+  profileKey?: string;
+};
+
 type WebBridgeEnvelope = {
   source: typeof BRIDGE_MESSAGE_SOURCE;
   requestId: string;
-  payload: BridgeStatusRequestMessage | BridgeRegisterDeviceRequestMessage;
+  payload:
+    | BridgeStatusRequestMessage
+    | BridgeRegisterDeviceRequestMessage
+    | BridgeSetObserverLockMessage;
 };
 
 type WebBridgeResponseEnvelope = {
@@ -137,11 +146,17 @@ const nativeBridgeState: NativeBridgeRuntimeState = {
 let nativeConnectInFlight: Promise<ExtensionBridgeStatus> | null = null;
 let nativeReconnectTimer: number | null = null;
 let nativeReconnectAttempts = 0;
+const nativeObserverLockedProfileKeys = new Set<string>();
 
 export function bypassesNativeBrowserExecutionQueue(
   action: LocalBrowserCommand["action"]
 ): boolean {
-  return action === "open_view" || action === "close_view" || action === "check_view";
+  return (
+    action === "open_view" ||
+    action === "close_view" ||
+    action === "check_view" ||
+    action === "set_observer_lock"
+  );
 }
 
 export function isNativeBrowserBridgeShell(): boolean {
@@ -302,7 +317,12 @@ export async function subscribeNativeBrowserPreview(
     return async () => undefined;
   }
   await ensureNativeBrowserBridgePlugin();
-  const handle = await nativeBrowserBridgePlugin!.addListener("browserPreview", listener);
+  const handle = await nativeBrowserBridgePlugin!.addListener("browserPreview", (event) => {
+    if (event.phase !== "overlay_hidden") {
+      nativeObserverLockedProfileKeys.add(event.profileKey);
+    }
+    listener(event);
+  });
   return async () => {
     await handle.remove();
   };
@@ -317,6 +337,9 @@ async function sendNativeBridgeResult(result: LocalBrowserResult): Promise<void>
 
 async function handleNativeBridgeCommand(command: LocalBrowserCommand): Promise<void> {
   try {
+    if (command.action === "snapshot" || command.action === "act") {
+      nativeObserverLockedProfileKeys.add(command.profileKey);
+    }
     await sendNativeBridgeResult(await executeNativeCommand(command));
   } catch (error) {
     await sendNativeBridgeResult({
@@ -562,6 +585,22 @@ export async function getExtensionBridgeStatus(
   );
 }
 
+function postExtensionObserverLock(active: boolean, profileKey?: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const envelope: WebBridgeEnvelope = {
+    source: BRIDGE_MESSAGE_SOURCE,
+    requestId: `persai-observer-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    payload: {
+      type: "persai.bridge.set_observer_lock",
+      active,
+      ...(profileKey ? { profileKey } : {})
+    }
+  };
+  window.postMessage(envelope, window.location.origin);
+}
+
 const REGISTER_THROTTLE_MS = 15_000;
 
 function registerThrottleStorageKey(assistantId: string, workspaceId: string): string {
@@ -668,6 +707,30 @@ export async function showNativeBrowserBridgeView(profileKey: string): Promise<v
     commandId: `local-open-${Date.now()}`,
     profileKey,
     action: "open_view",
-    stayOnPage: true
+    stayOnPage: true,
+    observerOnly: true
   });
+}
+
+/**
+ * End the turn-scoped observer state. Native profiles are known from commands
+ * and preview events; the extension owns its complete retained-profile list.
+ */
+export async function releaseLocalBrowserObserverLocks(): Promise<void> {
+  if (!isNativeBrowserBridgeShell()) {
+    postExtensionObserverLock(false);
+    return;
+  }
+  const profileKeys = Array.from(nativeObserverLockedProfileKeys);
+  await Promise.all(
+    profileKeys.map(async (profileKey) => {
+      await executeNativeCommand({
+        commandId: `local-observer-release-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        profileKey,
+        action: "set_observer_lock",
+        observerOnly: false
+      });
+      nativeObserverLockedProfileKeys.delete(profileKey);
+    })
+  );
 }
