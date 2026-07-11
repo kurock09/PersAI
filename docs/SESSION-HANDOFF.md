@@ -2,9 +2,9 @@
 
 ## 2026-07-11 — ADR-141 native browser activity thumbnail
 
-Status: **ADR-141 UX follow-up + invisible session-card open fix landed locally; Android 1.0.25 exported; commit/push pending.**
+Status: **ADR-141 UX follow-up + invisible session-card open fix committed and pushed; Android 1.0.25 exported; deploy/install/live pending.**
 
-Baseline SHAs: PersAI `997fa3b9`; `persai-mobile` `0e3eece` (pre-1.0.25 push).
+Baseline SHAs: PersAI `e358f3bc`; `persai-mobile` `f85b561`.
 
 **Scope:** Preview chip top-right, 10s linger, favicon, Back closes overlay without site history; fix configured-session open hanging/invisible after assistant browser work.
 
