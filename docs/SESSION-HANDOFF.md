@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — iPhone Capacitor fail-fast (no 120s hang)
+
+Status: **implemented in persai-mobile; iOS rebuild/install required. Android source updated for runner cap parity.**
+
+Baseline: PersAI `f1f44078` (API 45s default already deployed); persai-mobile `f0ed986`.
+
+**Live evidence:** Turn `4f207bce…` on `bridgeKind=capacitor`: ya.ru snapshot OK (~7s), then `act operations=3` held poll **120.4s** (`4ee7b053…`); lenta.ru snapshot still long after. Root cause on iOS: `lastCommandTimeoutMs = max(120_000, …)` floor plus nav/runner budgets inheriting the full command timeout with no WebView interrupt — desktop fail-fast does not apply to Capacitor.
+
+**Repair (persai-mobile):** Remove iOS 120s floor; default 45s; nav commit wait capped at 30s; page-runner ≤15s; on timeout `stopLoading` + `about:blank`. Android: default 45s, runner ≤15s, same interrupt on nav/runner timeout (nav commit was already ≤30s).
+
+**Next recommended step:** rebuild/install iOS app from Xcode (and Android APK when convenient); re-run ya.ru/lenta/spacex on iPhone — expect structured failure ≤~15–30s, not 120s.
+
+---
+
 ## 2026-07-12 — Chat composer TG pill geometry + mode chip
 
 Status: **implemented locally; visual check on phone/desktop pending.**
