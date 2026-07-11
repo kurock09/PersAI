@@ -78,6 +78,33 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
     if (!element) throw new Error("No element at index " + String(index) + " for selector: " + selector);
     return element;
   };
+  const resolveGetFormNavigationUrl = (element) => {
+    const isSubmitter =
+      (element instanceof HTMLButtonElement &&
+        (element.type === "submit" || element.type === "")) ||
+      (element instanceof HTMLInputElement &&
+        (element.type === "submit" || element.type === "image"));
+    if (!isSubmitter) return null;
+    const form =
+      element instanceof HTMLButtonElement || element instanceof HTMLInputElement
+        ? element.form
+        : null;
+    if (!(form instanceof HTMLFormElement)) return null;
+    const method = (form.getAttribute("method") || "get").trim().toLowerCase();
+    if (method !== "get") return null;
+    let target;
+    try {
+      target = new URL(form.getAttribute("action") || "", window.location.href);
+    } catch {
+      return null;
+    }
+    if (!/^https?:$/i.test(target.protocol)) return null;
+    const formData = new FormData(form, element);
+    for (const [key, value] of formData.entries()) {
+      if (typeof value === "string") target.searchParams.append(key, value);
+    }
+    return target.href;
+  };
   const waitForDomStabilityBeforeRead = () => new Promise((resolve) => {
     const quietIntervalMs = 750;
     let observer = null;
@@ -140,8 +167,13 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
           if (/^https?:\/\//i.test(anchorUrl)) {
             requestedNavigationUrl = anchorUrl;
           } else {
-            element.click();
-            await sleep(input.settleAfterMutationMs);
+            const formNavigationUrl = resolveGetFormNavigationUrl(element);
+            if (formNavigationUrl) {
+              requestedNavigationUrl = formNavigationUrl;
+            } else {
+              element.click();
+              await sleep(input.settleAfterMutationMs);
+            }
           }
           break;
         }
