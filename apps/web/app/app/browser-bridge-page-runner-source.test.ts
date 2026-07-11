@@ -48,6 +48,12 @@ describe("PAGE_RUNNER_SOURCE", () => {
     );
   });
 
+  it("flushes a partial runner result when the page navigates away mid-act", () => {
+    expect(PAGE_RUNNER_SOURCE).toMatch(/flushNavigationAbort/);
+    expect(PAGE_RUNNER_SOURCE).toMatch(/addEventListener\("pagehide"/);
+    expect(PAGE_RUNNER_SOURCE).toMatch(/Page navigated during browser act; runner aborted early/);
+  });
+
   it("hands GET form submit navigation back to native before clicking", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("MutationObserver", TestMutationObserver);

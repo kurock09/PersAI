@@ -17,6 +17,10 @@ const MAX_DOM_READY_WAIT_MS = 10_000;
 const DEFAULT_MUTATION_SETTLE_MS = 800;
 const CURRENT_BRIDGE_STATUS_CACHE_MS = 30_000;
 const DEFAULT_MAX_CHARS = 12_000;
+/** Keep the serial Capacitor queue moving even if native executeCommand never returns. */
+const NATIVE_COMMAND_TRANSPORT_RESERVE_MS = 5_000;
+const MAX_NATIVE_COMMAND_WAIT_MS = 40_000;
+const DEFAULT_NATIVE_COMMAND_TIMEOUT_MS = 45_000;
 const NATIVE_REGISTRATION_SAFE_AGE_MS = 14 * 60 * 1000;
 const NATIVE_RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
 
@@ -335,12 +339,54 @@ async function sendNativeBridgeResult(result: LocalBrowserResult): Promise<void>
   nativeBridgeState.socket.send(JSON.stringify(result));
 }
 
+async function raceWithTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<T> {
+  if (!(timeoutMs > 0)) {
+    throw new Error(timeoutMessage);
+  }
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+function computeNativeCommandDeadlineMs(command: LocalBrowserCommand): number {
+  const timeoutMs =
+    Number.isInteger(command.timeoutMs) && Number(command.timeoutMs) > 0
+      ? Number(command.timeoutMs)
+      : DEFAULT_NATIVE_COMMAND_TIMEOUT_MS;
+  return Math.max(
+    1_000,
+    Math.min(MAX_NATIVE_COMMAND_WAIT_MS, timeoutMs - NATIVE_COMMAND_TRANSPORT_RESERVE_MS)
+  );
+}
+
 async function handleNativeBridgeCommand(command: LocalBrowserCommand): Promise<void> {
   try {
     if (command.action === "snapshot" || command.action === "act") {
       nativeObserverLockedProfileKeys.add(command.profileKey);
     }
-    await sendNativeBridgeResult(await executeNativeCommand(command));
+    const deadlineMs = computeNativeCommandDeadlineMs(command);
+    const result = await raceWithTimeout(
+      executeNativeCommand(command),
+      deadlineMs,
+      `Timed out after ${String(deadlineMs)}ms waiting for the native browser command.`
+    );
+    await sendNativeBridgeResult(result);
   } catch (error) {
     await sendNativeBridgeResult({
       commandId: command.commandId,

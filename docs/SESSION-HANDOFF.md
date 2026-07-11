@@ -1,5 +1,17 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Capacitor act queue wedge (page navigation kills runner)
+
+Status: **implemented locally in PersAI web + persai-mobile; web deploy unblocks iPhone without Xcode rebuild.**
+
+**Real cause (not network / not dead sites):** Live ya.ru snapshot ~7s OK proves the page loads. `act` with ops clicks a control that navigates; the in-page runner JS world dies before `postMessage`, so native `executeCommand` never returns. The serial Capacitor `commandQueue` then blocks every later command until the ~120s relay timeout. Russian sites that load fine still trigger this on ordinary clicks.
+
+**Repair:** (1) Page runner flushes a partial result on `pagehide`/`beforeunload` via iOS webkit handler / Android `onRunnerResult`. (2) Web Capacitor client races `executeCommand` at ≤40s so a wedged native plugin cannot hold the queue. (3) persai-mobile client + page-runner copies mirrored. Prior native 15s/30s caps still need iOS rebuild for belt-and-suspenders.
+
+**Next recommended step:** deploy PersAI web; hard-refresh/reopen iPhone app on remote web; re-run ya.ru act — queue must move within ≤~40s even before a new IPA.
+
+---
+
 ## 2026-07-12 — iPhone Capacitor fail-fast (no 120s hang)
 
 Status: **implemented in persai-mobile; iOS rebuild/install required. Android source updated for runner cap parity.**

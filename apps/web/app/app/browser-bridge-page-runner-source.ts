@@ -371,8 +371,42 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
   const extracted = [];
   const warnings = [];
   let requestedNavigationUrl = null;
+  let navigationAborted = false;
+  const flushNavigationAbort = () => {
+    if (navigationAborted) return;
+    navigationAborted = true;
+    const runId = typeof window.__persaiRunnerRunId === "string" ? window.__persaiRunnerRunId : null;
+    if (!runId) return;
+    const partial = {
+      finalUrl: window.location.href,
+      title: document.title || null,
+      loadStatus: "partial",
+      content: "",
+      truncated: false,
+      elements: [],
+      extracted: null,
+      warning: "Page navigated during browser act; runner aborted early.",
+      navigationUrl: window.location.href
+    };
+    try {
+      const bridge = window.PersaiBrowserBridgeNative;
+      if (bridge && typeof bridge.onRunnerResult === "function") {
+        bridge.onRunnerResult(runId, JSON.stringify({ ok: true, result: partial }));
+        return;
+      }
+    } catch {}
+    try {
+      const handler = window.webkit?.messageHandlers?.persaiBrowserBridgeNative;
+      if (handler && typeof handler.postMessage === "function") {
+        handler.postMessage({ runId, ok: true, result: partial });
+      }
+    } catch {}
+  };
+  window.addEventListener("pagehide", flushNavigationAbort, true);
+  window.addEventListener("beforeunload", flushNavigationAbort, true);
   const loadStatus = await waitForDomStabilityBeforeRead();
   for (const [index, operation] of (input.operations ?? []).entries()) {
+    if (navigationAborted) break;
     try {
       switch (operation.kind) {
         case "click": {
@@ -511,6 +545,12 @@ export const PAGE_RUNNER_SOURCE = String.raw`async (input) => {
       // Native preview updates are best-effort and must never affect browser execution.
     }
     if (requestedNavigationUrl) break;
+  }
+  window.removeEventListener("pagehide", flushNavigationAbort, true);
+  window.removeEventListener("beforeunload", flushNavigationAbort, true);
+  if (navigationAborted && !requestedNavigationUrl) {
+    requestedNavigationUrl = window.location.href;
+    warnings.push("Page navigated during browser act; runner aborted early.");
   }
   const snapshot = collectContent();
   try {
