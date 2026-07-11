@@ -15,9 +15,7 @@ import { pushBackHandler } from "./back-handler-stack";
 
 const PREVIEW_LINGER_MS = 10_000;
 
-function resolveFaviconUrl(
-  event: NativeBrowserPreviewEvent
-): string | null {
+function resolveFaviconUrl(event: NativeBrowserPreviewEvent): string | null {
   if (event.faviconDataUrl) {
     return event.faviconDataUrl;
   }
@@ -69,9 +67,7 @@ export function NativeBrowserPreview() {
         return;
       }
       if (event.phase === "overlay_hidden") {
-        setOverlayOpenProfileKey((current) =>
-          current === event.profileKey ? null : current
-        );
+        setOverlayOpenProfileKey((current) => (current === event.profileKey ? null : current));
         return;
       }
       if (event.phase === "end") {
@@ -107,13 +103,16 @@ export function NativeBrowserPreview() {
     if (overlayOpenProfileKey === null) {
       return;
     }
-    const remove = pushBackHandler(() => {
-      void hideNativeBrowserBridgeView(overlayOpenProfileKey)
-        .catch(() => undefined)
-        .finally(() => {
-          setOverlayOpenProfileKey(null);
-        });
-    }, { priority: 100 });
+    const remove = pushBackHandler(
+      () => {
+        void hideNativeBrowserBridgeView(overlayOpenProfileKey)
+          .catch(() => undefined)
+          .finally(() => {
+            setOverlayOpenProfileKey(null);
+          });
+      },
+      { priority: 100 }
+    );
     return remove;
   }, [overlayOpenProfileKey]);
 
