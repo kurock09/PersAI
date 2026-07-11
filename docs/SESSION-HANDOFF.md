@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-11 — ADR-141 open_view blank-screen regression fix
+
+Status: **implemented locally; Android 1.0.27 export + commit/push pending.**
+
+**Symptom:** Clicking an active configured-session card opened a blank desktop window (white) or mobile overlay (black).
+
+**Root cause:** `openLiveView` for active profiles sent only `stayOnPage: true` without `url`. Bridge clients showed the retained WebView/tab as-is; when no http(s) page was loaded (`about:blank`), users saw an empty surface.
+
+**Fix:** API now always includes `url: loginUrl` for `open_view`; with `stayOnPage: true` only when assist mode. Extension + Android/iOS `open_view` navigate to the fallback URL when no retained http(s) page exists, but still return immediately (no full navigation wait).
+
+**Next recommended step:** deploy web, reload extension, install Android 1.0.27, live-accept manual session-card open on desktop + mobile.
+
+---
+
 ## 2026-07-11 — ADR-141 native browser activity thumbnail (UX round 2)
 
 Status: **implemented locally; Android 1.0.26 exported; commit/push + deploy/install/live pending.**

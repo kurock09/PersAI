@@ -735,6 +735,18 @@ function urlsEquivalent(leftValue: string, rightValue?: string | null): boolean 
   }
 }
 
+function isRetainedBridgePageUrl(url: string | null | undefined): boolean {
+  if (!url || url.trim().length === 0) {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 async function setAssistantOwnershipOverlay(
   record: ProfileSessionRecord,
   active: boolean
@@ -854,10 +866,27 @@ async function handleOpenView(
   const targetUrl = typeof command.url === "string" && command.url.length > 0 ? command.url : null;
   let finalRecord = record;
   let navigationWarning: string | null = null;
-
-  if (targetUrl !== null && targetUrl !== record.lastKnownUrl && typeof record.tabId === "number") {
+  let currentUrl: string | null = finalRecord.lastKnownUrl ?? null;
+  if (typeof finalRecord.tabId === "number") {
     try {
-      await chrome.tabs.update(record.tabId, { url: targetUrl });
+      const tab = await chrome.tabs.get(finalRecord.tabId);
+      currentUrl = tab.url ?? currentUrl;
+    } catch {
+      // Tab is gone; fall back to the last known URL.
+    }
+  }
+
+  const shouldNavigate =
+    targetUrl !== null &&
+    typeof finalRecord.tabId === "number" &&
+    (command.stayOnPage === true
+      ? !isRetainedBridgePageUrl(currentUrl)
+      : !urlsEquivalent(targetUrl, currentUrl));
+
+  if (shouldNavigate && typeof finalRecord.tabId === "number") {
+    const tabId = finalRecord.tabId;
+    try {
+      await chrome.tabs.update(tabId, { url: targetUrl });
       finalRecord = await persistProfilePatch(record.profileKey, {
         lastKnownUrl: targetUrl,
         originPattern: buildOriginPermissionPattern(targetUrl),
