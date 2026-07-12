@@ -5,6 +5,7 @@
 
 ## 2026-07-12
 
+- **UX (narrow desktop chat padding + matched chat-row height; local).** Message column keeps `md:px-4` so text aligns with the composer pill on narrow desktop panes; New chat and mobile chat rows share `h-11`. Focused sidebar/chat-area tests PASS.
 - **UX (inline chat actions match row; local).** Mobile Delete|Rename no longer uses a separate white `h-9` chip — full row height, text + divider only over the revealed strip.
 - **UX (plan circle right + chat chrome polish; local).** Mobile plan collapses to a true right-side circle and expands left; pill→list/composer radius snaps without stadium lag. Theme/language captions removed. Mobile Delete|Rename is a divider chip with bold reddish delete (no fills); desktop ⋯ loses hover circle and gains spacing from the timestamp. Scroll-to-bottom is an `h-11` circle above the mic; single-line composer hides phantom scrollbars on narrow desktop windows. Focused web UX suites 132/132; web lint/format/typecheck PASS.
 - **UX (chat message 14px + plan clear confirm geometry; local).** Mobile chat message body returns to 14px (`text-sm`); composer/input unchanged at 16px. Plan trash sits in the right circle of the compact pill; clear confirmation morphs the same `h-11` header row instead of a second strip that fattened the stadium. Focused plan/message-block tests 37/37 PASS; visual acceptance pending.

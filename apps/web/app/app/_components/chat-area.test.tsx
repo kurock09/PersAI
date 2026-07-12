@@ -707,6 +707,22 @@ describe("ChatArea", () => {
     );
   });
 
+  it("keeps message column padding aligned with the composer pill envelope on desktop", () => {
+    const { container } = render(
+      <ChatArea chat={createChat("Hello", { isStreaming: false })} title="Aligned" />
+    );
+
+    const messageColumn = Array.from(container.querySelectorAll("div")).find(
+      (node) =>
+        node.className.includes("max-w-[50rem]") &&
+        node.className.includes("pt-[5.5rem]") &&
+        node.className.includes("md:px-4")
+    );
+    expect(messageColumn).toBeTruthy();
+    expect(messageColumn?.className).toMatch(/\bpx-3\b/);
+    expect(messageColumn?.className).not.toMatch(/md:px-0/);
+  });
+
   it("renders the chat title as a TG name-pill headline", () => {
     render(
       <ChatArea chat={createChat("Hello", { isStreaming: false })} title="Very long chat title" />

@@ -633,7 +633,7 @@ export function ChatArea({
               createdAt={assistantCreatedAt}
             />
           ) : (
-            <div className="mx-auto w-full max-w-[50rem] px-3 pt-[5.5rem] pb-[7.5rem] md:px-0 md:pt-24 md:pb-32">
+            <div className="mx-auto w-full max-w-[50rem] px-3 pt-[5.5rem] pb-[7.5rem] md:px-4 md:pt-24 md:pb-32">
               <div ref={sentinelRef} className="h-1" />
               {chat.olderMessagesLoading && (
                 <div className="flex justify-center py-3">

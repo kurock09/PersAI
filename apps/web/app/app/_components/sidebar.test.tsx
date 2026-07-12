@@ -293,13 +293,14 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
 
     expect(screen.getByTestId("chat-row-surface-thread-a")).toHaveClass(
-      "min-h-11",
+      "h-11",
       "gap-1.5",
-      "py-2.5",
+      "md:h-auto",
       "md:min-h-0",
       "md:py-2"
     );
     expect(screen.getByRole("button", { name: "chatActions" })).toHaveClass("h-10", "w-10");
+    expect(screen.getByRole("button", { name: "newChat" })).toHaveClass("h-11");
   });
 
   it("opens premium inline mobile actions without filled delete and requires a second delete tap", async () => {

@@ -387,7 +387,7 @@ export function Sidebar({
               router.push("/app/chat" as Route);
             });
           }}
-          className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-raised px-3 py-2.5 text-base font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-hover md:text-sm"
+          className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-raised px-3 text-base font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-hover md:h-9 md:text-sm"
         >
           <MessageSquarePlus className="h-4 w-4 text-text-muted" />
           {t("newChat")}
@@ -1393,7 +1393,7 @@ function ChatListItem({
         onTouchCancel={cancelSwipe}
         style={{ transform: `translateX(${rowOffset}px)` }}
         className={cn(
-          "group relative z-10 flex min-h-11 w-full items-center gap-1.5 rounded-lg bg-surface px-2.5 py-2.5 text-left [touch-action:pan-y] md:min-h-0 md:gap-1 md:py-2",
+          "group relative z-10 flex h-11 w-full items-center gap-1.5 rounded-lg bg-surface px-2.5 text-left [touch-action:pan-y] md:h-auto md:min-h-0 md:gap-1 md:py-2",
           !swiping && "transition-[transform,background-color] duration-200 ease-out",
           isActive
             ? "bg-chat-active-tint text-text"

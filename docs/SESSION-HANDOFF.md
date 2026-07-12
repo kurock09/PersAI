@@ -1,5 +1,24 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Narrow desktop chat padding + row height match
+
+Status: **implemented locally; commit/push in progress.**
+
+Baseline SHA: PersAI `5941f143`.
+
+**Chat column:** Message list keeps `px-3 md:px-4` (no `md:px-0`) so body text
+aligns with the composer / header pill envelope on narrow desktop panes.
+
+**Sidebar:** Mobile New chat and chat rows share fixed `h-11` height.
+
+**Verification:** sidebar + chat-area focused 68/68 PASS; web lint,
+format:check, web+api typecheck PASS.
+
+**Next:** touch-capability chat-list UX (not viewport-only) remains the next
+recommended product fix.
+
+---
+
 ## 2026-07-12 — Plan circle right + chrome polish
 
 Status: **implemented locally; pushed pending after this commit.**
