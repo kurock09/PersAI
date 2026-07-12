@@ -1044,6 +1044,10 @@ describe("ChatInput", () => {
       />
     );
 
+    const chrome = screen.getByTestId("chat-composer-chrome");
+    expect(chrome.className).not.toMatch(/\bborder-t\b/);
+    expect(chrome.className).toMatch(/-mt-/);
+
     const mic = screen.getByTitle("voiceMessage");
     expect(mic).toHaveAttribute("aria-hidden", "false");
     // Slot centering depends on absolute inset-0; `relative` must not win via merge.

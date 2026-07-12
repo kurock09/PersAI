@@ -188,13 +188,12 @@ describe("ChatArea", () => {
     const patchMock = vi.mocked(patchAssistantWebChat);
     render(<ChatArea chat={createChat("Hello", { isStreaming: false })} />);
 
-    // Mobile chip uses md:hidden; in jsdom the desktop breakpoint often wins, so
-    // query the touch-only control as hidden rather than stubbing viewport CSS.
-    fireEvent.click(screen.getByRole("button", { name: "modeMenuAria", hidden: true }));
+    fireEvent.click(screen.getByRole("button", { name: "modeMenuAria" }));
     const menu = screen.getByRole("menu");
     expect(menu.className).toContain("top-full");
     expect(menu.className).toContain("mt-2");
     expect(menu.className).toContain("right-0");
+    expect(menu.className).toContain("rounded-[1.25rem]");
     expect(menu.className).not.toContain("left-0");
     expect(menu.className).not.toContain("bottom-full");
     fireEvent.click(screen.getByRole("menuitem", { name: /modeProjectLabel/ }));
@@ -708,17 +707,14 @@ describe("ChatArea", () => {
     );
   });
 
-  it("renders the chat title as quiet single-line context", () => {
+  it("renders the chat title as a TG name-pill headline", () => {
     render(
       <ChatArea chat={createChat("Hello", { isStreaming: false })} title="Very long chat title" />
     );
 
-    expect(screen.getByRole("heading", { name: "Very long chat title" })).toHaveClass(
-      "text-sm",
-      "font-medium",
-      "text-text-muted",
-      "truncate"
-    );
+    const title = screen.getByRole("heading", { name: "Very long chat title" });
+    expect(title).toHaveClass("truncate", "text-base", "font-semibold");
+    expect(title.className).toMatch(/md:text-sm/);
   });
 
   it("shows a quiet scroll-to-bottom button when reading older messages", () => {
@@ -895,32 +891,30 @@ describe("ChatArea", () => {
       expect(screen.queryByText("activeSkillPrefix")).not.toBeInTheDocument();
     });
 
-    it("falls back to mode caption when no skill engagement is active", () => {
+    it("does not duplicate mode caption in the name pill (mode lives in the third control)", () => {
       render(<ChatArea chat={createChat("Hello", { isStreaming: false })} chatMode="smart" />);
 
-      expect(screen.getByText("modeDeepCaption")).toBeInTheDocument();
+      expect(screen.queryByText("modeDeepCaption")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "modeMenuAria" })).toBeInTheDocument();
     });
 
-    it("renders no subtitle when chat is normal mode and no skill is engaged", () => {
+    it("renders no skill subtitle when chat is normal mode and no skill is engaged", () => {
       render(<ChatArea chat={createChat("Hello", { isStreaming: false })} chatMode="normal" />);
 
       expect(screen.queryByText("modeDeepCaption")).not.toBeInTheDocument();
       expect(screen.queryByText("modeProjectCaption")).not.toBeInTheDocument();
     });
 
-    it("keeps the mode icon visible alongside the skill chip when a non-normal mode is active", () => {
-      const { container } = render(
+    it("shows skill text in the name pill without requiring a mode icon beside it", () => {
+      render(
         <ChatArea
           chat={chatWithEngagement({ skillDisplayName: "Маркетолог", scenarioDisplayName: null })}
           chatMode="smart"
         />
       );
 
-      // Sparkles is the Smart-mode icon (lucide injects an svg with class
-      // containing "lucide-sparkles"). Presence proves the icon was rendered.
-      const sparkles = container.querySelector("svg.lucide-sparkles");
-      expect(sparkles).not.toBeNull();
       expect(screen.getByText("Маркетолог")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "modeMenuAria" })).toBeInTheDocument();
     });
   });
 });

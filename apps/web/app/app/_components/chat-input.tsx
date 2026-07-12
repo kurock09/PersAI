@@ -1134,8 +1134,23 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   }, [handleHoldPointerEnd, isTouchDevice, updateCancelFromPointer]);
 
   return (
-    <div className="border-t border-border bg-bg px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:border-t-0 md:px-4 md:py-3">
-      <div className="mx-auto w-full max-w-[50rem]">
+    <div
+      data-testid="chat-composer-chrome"
+      className={cn(
+        // Pull the dissolve veil over the message list so trailing text softens into the composer (TG).
+        "relative z-20 -mt-8 px-3 pt-8 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:-mt-10 md:px-4 md:pt-10 md:pb-3"
+      )}
+    >
+      {/* Blur fades in from the top; color wash solidifies toward the pill. No hard border-t. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] [mask-image:linear-gradient(to_bottom,transparent_0%,#000_46%,#000_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,#000_46%,#000_100%)]"
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-bg/55 to-bg"
+      />
+      <div className="relative mx-auto w-full max-w-[50rem]">
         {pendingFiles.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {pendingFiles.map((file, idx) => (

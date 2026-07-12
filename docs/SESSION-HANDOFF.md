@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Chat header TG floating pills + upward dissolve
+
+Status: **implemented locally; visual check on phone/desktop pending.**
+
+Baseline SHA: PersAI `3f2c8e5d` (tree already carried composer dissolve chrome).
+
+**Scope:** Telegram-like chat chrome top:
+- Menu **circle** (mobile) · name **pill** (title 16px on mobile + skill/scenario line) · mode control (**circle icon-only on mobile**, **text pill on desktop**)
+- Header height matches composer (`h-11`); upward fade+blur dissolve (inverse of bottom chrome)
+- Desktop controls constrained to the same `max-w-[50rem]` envelope as the composer (not pane edges)
+- Plan card → pill when collapsed, `rounded-[1.375rem]` when expanded (mobile + desktop)
+- Mode menu restyled with circular icons per option
+
+**Verification:** chat-area + chat-plan-card 51/51 PASS; web typecheck PASS.
+
+**Next recommended step:** hard-refresh chat on phone + desktop; confirm floating header pills, mode circle→menu, plan pill, and message dissolve under header/footer.
+
+---
+
+## 2026-07-12 — Chat composer TG dissolve chrome (fade + blur)
+
+Status: **implemented locally; visual check on phone/desktop pending.**
+
+Baseline SHA: PersAI `3f2c8e5d`.
+
+**Scope:** Telegram-like bottom chrome — remove the composer top border line; wrap the input block in a top→bottom transparency gradient + backdrop blur, pulled slightly over the message list (`-mt` + extra `pt`) so trailing chat text softens into the composer. Mobile and desktop.
+
+**Verification:** focused `chat-input` 28/28 PASS; web typecheck PASS.
+
+**Next recommended step:** hard-refresh chat on phone + desktop; scroll long thread so last messages pass under the composer — expect dissolve, no hard separator line.
+
+---
+
 ## 2026-07-12 — Android 1.0.38 ship (fail-fast + queue wedge + iOS remote restore)
 
 Status: **Android 1.0.38 / versionCode 40 built, exported into PersAI public mobile download, and `adb install -r` Success on connected device. Bridge tests 20/20; APK badging confirms 1.0.38/40. iOS SceneDelegate startup fix from remote `cursor/fix-ios-spm-paths-8036` cherry-picked onto mobile main (was never on main; not overwritten earlier).**

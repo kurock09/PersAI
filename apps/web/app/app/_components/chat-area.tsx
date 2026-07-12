@@ -603,20 +603,37 @@ export function ChatArea({
 
   return (
     <div className="relative flex h-full flex-col">
-      {/* Header: title on the left, mode toggle pinned right on all form factors. */}
-      <header className="border-b border-border px-3 py-2.5 md:px-5 md:py-3">
-        <div className="flex items-center gap-3">
+      {/* Floating TG-style header: menu circle · name pill · mode circle/pill + upward dissolve. */}
+      <header
+        data-testid="chat-header-chrome"
+        className="relative z-20 -mb-8 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-8 md:-mb-10 md:px-4 md:pt-3 md:pb-10"
+      >
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] [mask-image:linear-gradient(to_top,transparent_0%,#000_46%,#000_100%)] [-webkit-mask-image:linear-gradient(to_top,transparent_0%,#000_46%,#000_100%)]"
+        />
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-t from-transparent via-bg/55 to-bg"
+        />
+        {/* Same envelope as composer + messages so desktop name/mode sit as one column, not pane edges. */}
+        <div className="relative mx-auto flex w-full max-w-[50rem] items-center gap-2">
           <button
             type="button"
             onClick={openSidebar}
-            className="cursor-pointer rounded-xl border border-border bg-surface-raised p-2.5 text-text-muted shadow-sm transition-colors active:bg-surface-hover hover:bg-surface-hover hover:text-text md:hidden"
+            className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-surface-raised/90 text-text-muted shadow-sm backdrop-blur-sm transition-colors active:bg-surface-hover hover:bg-surface-hover hover:text-text md:hidden"
             aria-label="Open sidebar"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-5 w-5" strokeWidth={1.75} />
           </button>
-          <div className="min-w-0 flex-1">
+          <div
+            className={cn(
+              "flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/70 bg-surface-raised/90 px-3.5 py-1.5 shadow-sm backdrop-blur-sm",
+              editing && "border-accent/50"
+            )}
+          >
             {editing ? (
-              <div className="flex min-w-0 items-center gap-1.5">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
                 <input
                   ref={inputRef}
                   type="text"
@@ -628,20 +645,20 @@ export function ChatArea({
                   }}
                   onBlur={() => void commitEdit()}
                   maxLength={80}
-                  className="min-w-0 flex-1 rounded-lg border border-accent/50 bg-bg/70 px-2.5 py-1.5 text-base font-semibold tracking-tight text-text outline-none md:text-[17px]"
+                  className="min-w-0 flex-1 bg-transparent text-base font-semibold tracking-tight text-text outline-none md:text-sm"
                 />
                 <button
                   type="button"
                   onClick={() => void commitEdit()}
-                  className="cursor-pointer rounded-lg p-1.5 text-accent transition-colors hover:bg-surface-hover"
+                  className="cursor-pointer rounded-full p-1.5 text-accent transition-colors hover:bg-surface-hover"
                 >
                   <Check className="h-3.5 w-3.5" />
                 </button>
               </div>
             ) : (
-              <div className="group flex min-w-0 flex-col">
+              <div className="group flex min-w-0 flex-1 flex-col justify-center">
                 <div className="flex min-w-0 items-center gap-1.5">
-                  <h1 className="truncate text-sm font-medium tracking-normal text-text-muted md:text-sm">
+                  <h1 className="truncate text-base font-semibold tracking-tight text-text md:text-sm md:font-medium md:tracking-normal md:text-text-muted">
                     {displayTitle}
                   </h1>
                   {canEdit && (
@@ -649,13 +666,13 @@ export function ChatArea({
                       type="button"
                       onClick={startEdit}
                       aria-label="Rename chat"
-                      className="shrink-0 cursor-pointer rounded-lg p-1 text-text-subtle opacity-70 transition-all hover:bg-surface-hover hover:text-text-muted md:opacity-0 md:group-hover:opacity-100"
+                      className="shrink-0 cursor-pointer rounded-full p-1 text-text-subtle opacity-70 transition-all hover:bg-surface-hover hover:text-text-muted md:opacity-0 md:group-hover:opacity-100"
                     >
                       <Pencil className="h-3 w-3" />
                     </button>
                   )}
                 </div>
-                <ChatHeaderSubtitle chatMode={chatMode} engagement={activeSkillEngagement} t={t} />
+                <ChatHeaderSubtitle engagement={activeSkillEngagement} />
               </div>
             )}
           </div>
@@ -679,7 +696,7 @@ export function ChatArea({
           // drops its left/right borders at that breakpoint). On desktop
           // the inner card sticks to the same `max-w-[50rem]` envelope as
           // the message column for a clean width match.
-          <div className="sticky top-0 z-20 mx-auto w-full max-w-[50rem] md:top-2 md:px-0">
+          <div className="sticky top-0 z-20 mx-auto w-full max-w-[50rem] px-3 pt-1 md:top-2 md:px-0">
             <ChatPlanCard
               todos={chat.chatPlan}
               totalCount={chat.chatPlanTotalCount}
@@ -696,7 +713,7 @@ export function ChatArea({
             createdAt={assistantCreatedAt}
           />
         ) : (
-          <div className="mx-auto w-full max-w-[50rem] px-3 pt-4 pb-24 md:px-0 md:pb-28">
+          <div className="mx-auto w-full max-w-[50rem] px-3 pt-16 pb-24 md:px-0 md:pt-20 md:pb-28">
             <div ref={sentinelRef} className="h-1" />
             {chat.olderMessagesLoading && (
               <div className="flex justify-center py-3">
@@ -1224,95 +1241,39 @@ function chatModeCaption(
 }
 
 /**
- * Subtitle row that sits directly under the chat title.
+ * Second line inside the name pill.
  *
- * Replaces the previous always-mode-caption row. Surfaces two pieces of
- * persistent chat-level metadata at most:
- *   1. Active skill / scenario (when the chat-level `currentEngagement`
- *      is populated, i.e. `chat.skillDecisionState` is `active`
- *      server-side). Format: `<skill> · <scenario>` (no prefix word —
- *      the row's position under the title + the skill/scenario typography
- *      already communicate context; the explicit "СКИЛЛ" label was visual
- *      noise per founder feedback 2026-06-22). Shown on both desktop and
- *      mobile because this is the live working context — the user wants
- *      to see it everywhere. The scenario half is dropped first under
- *      truncation so the skill stays readable.
- *   2. Otherwise, the existing chat-mode caption ("тщательнее, но
- *      дороже" / "глубокий анализ") when `chatMode !== "normal"`. Kept
- *      desktop-only because the mode chip on the right already carries
- *      that signal on mobile, and doubling it would inflate the 280px
- *      mobile header.
- *
- * Mobile height impact: the row only appears on mobile when a skill is
- * actively engaged, which is the user's explicit working state. Plain
- * chats keep their compact mobile header.
+ * Prefer the chat-level active skill engagement (`skill · scenario`).
+ * Mode itself lives in the third header control, so we no longer duplicate
+ * the mode caption here.
  */
 function ChatHeaderSubtitle({
-  chatMode,
-  engagement,
-  t
+  engagement
 }: {
-  chatMode: AssistantChatMode;
   engagement: { skillDisplayName: string; scenarioDisplayName: string | null } | null;
-  t: ReturnType<typeof useTranslations>;
 }) {
-  const hasSkill = engagement !== null;
-  const modeIsNonNormal = chatMode !== "normal";
+  if (engagement === null) return null;
 
-  if (!hasSkill && !modeIsNonNormal) return null;
-
-  const fullSkillText = hasSkill
-    ? engagement.scenarioDisplayName
-      ? `${engagement.skillDisplayName} · ${engagement.scenarioDisplayName}`
-      : engagement.skillDisplayName
-    : "";
+  const fullSkillText = engagement.scenarioDisplayName
+    ? `${engagement.skillDisplayName} · ${engagement.scenarioDisplayName}`
+    : engagement.skillDisplayName;
 
   return (
     <span
-      className={cn(
-        "mt-0.5 min-w-0 items-center gap-1 text-[10px] font-medium tracking-wide",
-        // Skill chip shows everywhere; mode caption stays desktop-only so the
-        // mobile header height doesn't grow for plain non-normal chats.
-        hasSkill ? "inline-flex text-text-subtle" : "hidden md:inline-flex text-accent-premium/80"
-      )}
-      title={hasSkill ? fullSkillText : undefined}
+      className="mt-0.5 inline-flex min-w-0 items-center gap-1 text-[10px] font-medium tracking-wide text-text-subtle"
+      title={fullSkillText}
     >
-      {modeIsNonNormal && (
-        <>
-          {chatMode === "project" ? (
-            <FolderKanban
-              className={cn(
-                "h-2.5 w-2.5 shrink-0",
-                hasSkill ? "text-text-subtle/80" : "text-accent-premium"
-              )}
-            />
-          ) : (
-            <Sparkles
-              className={cn(
-                "h-2.5 w-2.5 shrink-0",
-                hasSkill ? "text-text-subtle/80" : "animate-pulse text-accent-premium"
-              )}
-            />
-          )}
-        </>
-      )}
-      {hasSkill ? (
-        <span className="truncate max-w-[10rem] md:max-w-[22rem]">
-          <span className="font-semibold text-text-muted">{engagement.skillDisplayName}</span>
-          {engagement.scenarioDisplayName ? (
-            <>
-              <span aria-hidden className="px-1 text-text-subtle/50">
-                ·
-              </span>
-              <span className="text-text-subtle">{engagement.scenarioDisplayName}</span>
-            </>
-          ) : null}
-        </span>
-      ) : (
-        <span className="truncate">
-          {chatMode === "project" ? t("modeProjectCaption") : t("modeDeepCaption")}
-        </span>
-      )}
+      <span className="truncate max-w-[10rem] md:max-w-[22rem]">
+        <span className="font-semibold text-text-muted">{engagement.skillDisplayName}</span>
+        {engagement.scenarioDisplayName ? (
+          <>
+            <span aria-hidden className="px-1 text-text-subtle/50">
+              ·
+            </span>
+            <span className="text-text-subtle">{engagement.scenarioDisplayName}</span>
+          </>
+        ) : null}
+      </span>
     </span>
   );
 }
@@ -1386,7 +1347,6 @@ function ChatModeToggle({
 
   return (
     <div className="shrink-0">
-      {/* One compact chip opens the same 3-mode menu on mobile and desktop. */}
       <div className="relative">
         <button
           ref={triggerRef}
@@ -1398,8 +1358,11 @@ function ChatModeToggle({
           title={chatModeCaption(t, mode, paidLightModeActive)}
           onClick={() => setMenuOpen((open) => !open)}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface-raised/90 px-3 py-1.5 text-xs font-semibold text-text shadow-sm backdrop-blur-sm transition-colors md:px-3 md:py-1.5 md:text-[11px]",
+            // Height matches composer pill (h-11). Mobile = icon circle; desktop = text pill.
+            "inline-flex h-11 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-surface-raised/90 shadow-sm backdrop-blur-sm transition-colors",
+            "w-11 md:w-auto md:gap-1.5 md:px-3.5",
             mode !== "normal" && "border-accent-premium/25 text-accent-premium",
+            mode === "normal" && "text-text-muted",
             menuOpen && "border-border-strong bg-surface-raised",
             disabled && "cursor-not-allowed opacity-50"
           )}
@@ -1407,14 +1370,14 @@ function ChatModeToggle({
           <ChatModeIcon
             mode={mode}
             className={cn(
-              "h-4 w-4 md:h-3.5 md:w-3.5",
+              "h-5 w-5 md:h-4 md:w-4",
               mode === "normal" ? "text-text-muted" : "text-accent-premium"
             )}
           />
-          <span>{chatModeLabel(t, mode)}</span>
+          <span className="hidden text-xs font-semibold md:inline">{chatModeLabel(t, mode)}</span>
           <ChevronDown
             className={cn(
-              "h-3.5 w-3.5 text-text-subtle transition-transform md:h-3 md:w-3",
+              "hidden h-3.5 w-3.5 text-text-subtle transition-transform md:block",
               menuOpen && "rotate-180"
             )}
           />
@@ -1424,7 +1387,7 @@ function ChatModeToggle({
             ref={menuRef}
             role="menu"
             aria-label={t("modeMenuAria", { mode: chatModeLabel(t, mode) })}
-            className="absolute top-full right-0 z-30 mt-2 flex min-w-[11rem] max-w-[calc(100vw-1rem)] flex-col gap-1 rounded-xl border border-border bg-surface-raised p-1 shadow-xl backdrop-blur-sm md:min-w-[12rem]"
+            className="absolute top-full right-0 z-30 mt-2 flex min-w-[12rem] max-w-[calc(100vw-1rem)] flex-col gap-1 rounded-[1.25rem] border border-border/70 bg-surface-raised/95 p-1.5 shadow-xl backdrop-blur-md md:min-w-[13rem]"
           >
             {CHAT_MODES.map((option) => {
               const optionLimited = paidLightModeActive && option !== "normal";
@@ -1438,7 +1401,7 @@ function ChatModeToggle({
                   disabled={disabled || optionLimited}
                   onClick={() => selectMode(option)}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold transition-colors md:text-[11px]",
+                    "flex w-full items-center gap-2.5 rounded-2xl px-3 py-2.5 text-left text-xs font-semibold transition-colors",
                     optionLimited ? "cursor-not-allowed opacity-45" : "cursor-pointer",
                     mode === option
                       ? option === "normal"
@@ -1450,23 +1413,32 @@ function ChatModeToggle({
                     disabled && !optionLimited && "cursor-not-allowed opacity-50"
                   )}
                 >
-                  <ChatModeIcon
-                    mode={option}
+                  <span
                     className={cn(
-                      "h-4 w-4 shrink-0 md:h-3.5 md:w-3.5",
-                      optionLimited
-                        ? "text-text-subtle"
-                        : option === "normal"
-                          ? "text-text-muted"
-                          : "text-accent-premium"
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/60 bg-surface/80",
+                      mode === option &&
+                        option !== "normal" &&
+                        "border-accent-premium/30 bg-accent-premium/10"
                     )}
-                    muted={optionLimited}
-                  />
+                  >
+                    <ChatModeIcon
+                      mode={option}
+                      className={cn(
+                        "h-4 w-4",
+                        optionLimited
+                          ? "text-text-subtle"
+                          : option === "normal"
+                            ? "text-text-muted"
+                            : "text-accent-premium"
+                      )}
+                      muted={optionLimited}
+                    />
+                  </span>
                   <span className="min-w-0 flex-1">
                     <span className="block">{chatModeLabel(t, option)}</span>
                     <span
                       className={cn(
-                        "block text-[11px] font-normal md:text-[10px]",
+                        "block text-[11px] font-normal",
                         optionLimited ? "text-text-subtle/80" : "text-text-subtle"
                       )}
                     >
