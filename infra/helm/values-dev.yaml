@@ -12,7 +12,95 @@ global:
     tag: ddc3aadfca11cc6fabe7d3e8c9e60aca9124c525
 
 networkPolicy:
+  # Renders Kubernetes NetworkPolicy API objects only.
+  # ADR-146 Slice 0.1: enabling the Calico engine is NOT controlled here.
+  # See infra/bootstrap/adr146-sandbox-egress-foundation.json + RUNBOOK
+  # (gcloud --enable-network-policy recreates nodes). Structural verify is the
+  # release gate before ADR-146 app rollout.
   enabled: true
+  sandboxDns:
+    # Live GKE kube-dns + NodeLocal DNSCache listeners audited 2026-07-12.
+    # Do not replace these /32s with a kube-system selector or broad link-local.
+    allowedCidrs:
+      - 169.254.20.10/32
+      - 34.118.224.10/32
+    ports:
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+  sandboxEgress:
+    # Values-owned fail-closed inventory for Squid's public 80/443 egress.
+    # Includes special-use space and every audited live VPC, Pod, Service,
+    # PSA, Redis, Filestore, and peered range even where a broad private range
+    # already contains the environment-specific entry.
+    requiredDeniedCidrs: &sandboxRequiredDeniedCidrs
+      - 0.0.0.0/8
+      - 10.0.0.0/8
+      - 100.64.0.0/10
+      - 127.0.0.0/8
+      - 169.254.0.0/16
+      - 172.16.0.0/12
+      - 192.0.0.0/24
+      - 192.0.2.0/24
+      - 192.88.99.0/24
+      - 192.168.0.0/16
+      - 198.18.0.0/15
+      - 198.51.100.0/24
+      - 203.0.113.0/24
+      - 224.0.0.0/4
+      - 240.0.0.0/4
+      - 34.118.224.0/20
+      - 10.107.128.0/17
+      - 10.109.0.0/20
+      - 10.128.0.0/20
+      - 10.132.0.0/20
+      - 10.138.0.0/20
+      - 10.140.0.0/20
+      - 10.142.0.0/20
+      - 10.146.0.0/20
+      - 10.148.0.0/20
+      - 10.150.0.0/20
+      - 10.152.0.0/20
+      - 10.154.0.0/20
+      - 10.156.0.0/20
+      - 10.158.0.0/20
+      - 10.160.0.0/20
+      - 10.162.0.0/20
+      - 10.164.0.0/20
+      - 10.166.0.0/20
+      - 10.168.0.0/20
+      - 10.170.0.0/20
+      - 10.172.0.0/20
+      - 10.174.0.0/20
+      - 10.178.0.0/20
+      - 10.180.0.0/20
+      - 10.182.0.0/20
+      - 10.184.0.0/20
+      - 10.186.0.0/20
+      - 10.188.0.0/20
+      - 10.190.0.0/20
+      - 10.192.0.0/20
+      - 10.194.0.0/20
+      - 10.198.0.0/20
+      - 10.200.0.0/20
+      - 10.202.0.0/20
+      - 10.204.0.0/20
+      - 10.206.0.0/20
+      - 10.208.0.0/20
+      - 10.210.0.0/20
+      - 10.212.0.0/20
+      - 10.214.0.0/20
+      - 10.218.0.0/20
+      - 10.224.0.0/20
+      - 10.226.0.0/20
+      - 10.232.0.0/20
+      - 10.5.48.0/20
+      - 10.11.128.0/20
+      - 10.11.128.0/24
+      - 10.107.45.64/29
+      - 10.105.140.56/29
+    publicDeniedCidrs: *sandboxRequiredDeniedCidrs
   apiIngress:
     # Recommended starter block for GKE-backed prod-like rollout:
     # 1. Replace these commented examples with the real pod-visible/public ingress proxy CIDRs
@@ -447,6 +535,9 @@ sandbox:
     create: true
     name: sandbox-sa
     gcpServiceAccountEmail: sandbox-cp@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
+  execServiceAccount:
+    create: true
+    name: sandbox-exec-sa
   image:
     name: sandbox
     tag: f1f4407835113b7e934637f327d2f29006e08d51
@@ -473,6 +564,7 @@ sandbox:
     SANDBOX_EXEC_NAMESPACE: "persai-dev"
     SANDBOX_EXEC_RUNTIME_CLASS_NAME: "gvisor"
     SANDBOX_EXEC_NODE_SELECTOR_VALUE: "sandbox"
+    SANDBOX_EXEC_SERVICE_ACCOUNT_NAME: "sandbox-exec-sa"
     SANDBOX_EXEC_EGRESS_PROXY_URL: "http://sandbox-egress-proxy.persai-dev.svc.cluster.local:3128"
     # Bypass the proxy for loopback, link-local, and in-cluster addresses.
     SANDBOX_EXEC_NO_PROXY: "localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc.cluster.local,.cluster.local"
@@ -585,160 +677,3 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

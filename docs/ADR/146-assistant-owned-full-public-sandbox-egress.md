@@ -3,9 +3,12 @@
 ## Status
 
 Accepted — founder-directed production orchestration program opened 2026-07-12.
-Slice 0 read-only code/live-cluster audit completed 2026-07-12. Implementation
-is **NO-GO** until the live cluster has an enforcing network-policy dataplane
-and the public/private egress perimeter is proven.
+Slice 0 read-only code/live-cluster audit completed 2026-07-12 with implementation
+**NO-GO**. Slice 0.1 repository automation for the founder-selected current-cluster
+Calico + private sandbox egress contour is **implemented locally only** (not
+applied live, not deployed, not marked complete). Live mutation, final structural
+verify, and `probe-restricted` acceptance remain pending. S1 app/API/UI work stays
+blocked until S0.1 is live-accepted.
 
 ## Date
 
@@ -564,19 +567,36 @@ foundation. S1/S2 are blocked.
 
 Subagent: Cursor Grok 4.5.
 
+Status: **repo-local implementation only (2026-07-12).** No cloud mutation, no
+live completion, no deploy/push. Final release remains blocked until live
+structural verify + active probes pass and the Argo/WIF release-gate contour is
+resolved.
+
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:
 
-- an enforcing Calico or Dataplane V2 network-policy engine is live and proven;
+- an enforcing Calico or Dataplane V2 network-policy engine is live and proven
+  by active probes (Calico readiness labels alone are not enforcement proof);
+- private sandbox pool is created with `--sandbox=type=gvisor` and live
+  `sandboxConfig.type=gvisor` (labels/taints alone are insufficient);
+- after the private pool is Ready, the legacy public sandbox pool is cordoned
+  (fail-closed, no delete, running jobs undisturbed) before the phase claims
+  success; maintenance-gated retirement remains separate;
 - sandbox execution has an explicit dedicated no-IAM/no-WI ServiceAccount and
-  no broad node identity exposure path;
+  no broad node identity exposure path; final verification requires at least one
+  Running exec pod on that KSA (zero pods cannot claim live wiring);
 - sandbox public egress uses an approved private-node/NAT or equivalent L3
   contour with flow observability;
 - the denied inventory includes special-use ranges plus live
   `34.118.224.0/20` Services, `10.132.0.0/20` nodes,
   `10.107.128.0/17` Pods, and current PSA/Redis/Filestore peers;
-- restricted direct bypass, Pod/Service/node/control-plane/metadata access, and
-  inbound access all fail in a founder-approved test pod;
+- active denial covers Calico-owned kube-dns Pod IP and same-namespace sandbox
+  control-plane Pod IP (TCP/UDP where meaningful), with trusted positive
+  controls first; `ECONNREFUSED` is never treated as denial;
+- restricted direct bypass, Squid non-allowlisted HTTPS denial, Pod/Service/
+  node/control-plane/metadata access all fail in a founder-approved test pod;
+- inbound denial, HTTP redirect, and DNS-rebind remain **explicitly unclaimed**
+  by automated `probe-restricted` and stay RUNBOOK-only;
 - the ordinary restricted Squid allowlist path still works.
 
 S0.1 must be deployed and live-accepted before S1. A locally rendered policy is

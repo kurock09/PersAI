@@ -6,13 +6,112 @@ ADR-072 is closed as the historical native migration ADR. Current continuation w
 
 ## ADR-146 assistant-owned full-public sandbox egress (accepted target)
 
-Slice 0 read-only audit is complete and implementation is NO-GO: live
-`personal-ai-gke` has no enforcing NetworkPolicy engine. Slice 0.1 must first
-deploy and live-prove the founder-selected current-cluster Calico plus
-private/dedicated sandbox egress, Cloud NAT/flow-log, and L3 firewall
-foundation. Each later slice runs the full AGENTS gate plus affected
-API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
-and live negative acceptance.
+Slice 0 read-only audit is complete and implementation is NO-GO until the live
+foundation passes: live `personal-ai-gke` has no enforcing NetworkPolicy engine
+until Slice 0.1 is applied. Slice 0.1 repository automation is the
+founder-selected current-cluster Calico plus private/dedicated sandbox egress,
+Cloud NAT/flow-log, and L3 firewall foundation. It is implemented locally under
+`infra/bootstrap/adr146-sandbox-egress-foundation.*` as separable `plan` / live
+`preflight` / `prepare` / `apply-*` / maintenance retirement / structural
+`verify` / active `probe-restricted` phases, but is **not live-complete** and
+must be founder-applied and live-verified before S1 app/API work is deployed.
+S1 may start locally only after parent approval of this slice. Each later slice
+runs the full AGENTS gate plus affected API/runtime/sandbox/web tests; infra
+slices additionally run Helm lint/template and live negative acceptance.
+
+### ADR-146 Slice 0.1 local foundation checks
+
+When a change touches the ADR-146 GKE foundation inventory, bootstrap planner,
+or RUNBOOK sequencing, run:
+
+```powershell
+corepack pnpm run test:adr146-foundation
+node infra/bootstrap/adr146-sandbox-egress-foundation.mjs static-check
+node infra/bootstrap/adr146-sandbox-egress-foundation.mjs plan
+# Windows-native (no bash wrapper required):
+#   node infra/bootstrap/adr146-sandbox-egress-foundation.mjs <phase>
+helm lint infra/helm -f infra/helm/values.yaml -f infra/helm/values-dev.yaml
+helm template persai-dev infra/helm -f infra/helm/values.yaml -f infra/helm/values-dev.yaml > $null
+corepack pnpm exec prettier --check docs/TEST-PLAN.md docs/ARCHITECTURE.md docs/SESSION-HANDOFF.md docs/CHANGELOG.md docs/ADR/146-assistant-owned-full-public-sandbox-egress.md infra/bootstrap/README.md infra/bootstrap/adr146-sandbox-egress-foundation.mjs infra/bootstrap/adr146-sandbox-egress-foundation.test.mjs infra/bootstrap/lib/foundation.mjs infra/bootstrap/lib/cidr.mjs infra/dev/gke/RUNBOOK.md
+```
+
+Required local invariants:
+
+1. Inventory CIDRs include live Service `34.118.224.0/20`, nodes `10.132.0.0/20`,
+   Pods `10.107.128.0/17`, sandbox secondary `10.109.0.0/20`, and PSA/Redis/Filestore
+   peers with no critical overlap.
+2. Plans require Calico enablement with explicit node recreation; Helm
+   `networkPolicy.enabled` is not treated as the engine. Structural verify must
+   not call Calico readiness labels “enforcement proof”; active probes remain
+   required.
+3. Private sandbox pool create uses `--sandbox=type=gvisor` and live verification
+   requires `sandboxConfig.type=gvisor` plus `workload=sandbox` + gVisor taint,
+   least-privilege node SA (no Editor), and `--enable-private-nodes`. Labels/
+   taints alone are insufficient.
+4. After private pool Ready, `apply-sandbox-pool` fail-closed cordons the legacy
+   public pool (exact nodepool selector; all old nodes unschedulable) without
+   deleting it or killing running jobs. Maintenance-gated retirement stays
+   separate.
+5. VPC firewall denies all protocols only to explicit reviewed _other_ VPC
+   subnets, PSA/Redis/Filestore, and safe special-use CIDRs. Tests reject the
+   own node-primary `10.132.0.0/20`, broad `10/8`, Pod, Service, or metadata
+   denies unless higher-priority required-path ALLOWs exist. Conflicting higher-
+   priority EGRESS ALLOW rules targeting the sandbox tag/destinations fail
+   closed. Calico owns node/Pod/Service/metadata/same-node enforcement.
+6. Rendered Helm has identity-less/no-RBAC/no-WI `sandbox-exec-sa`, every exec
+   pod names it with token automount false, empty ingress, exact NodeLocal +
+   kube-dns Service `/32` UDP/TCP 53 (ipBlock-only peers), exact Squid proxy
+   port, and the complete values-owned proxy deny inventory. Exec/proxy/NAT-probe
+   top-level and peer selectors have exact matchLabels and reject
+   namespaceSelector/podSelector/matchExpressions widening. Helm fails if required
+   denies are absent.
+7. Final structural verify cannot claim exec KSA wiring with zero qualifying
+   Running exec pods; default-SA pods fail. Object-level KSA readiness alone is
+   pre-rollout structure, not live wiring proof.
+8. Every mutating execute phase starts with fresh live preflight; existing
+   resource drift fails closed rather than existence-skipping.
+9. Structural verify and founder-approved dynamic probes are separate; local
+   tests never count as live proof. Automated `probe-restricted` does **not**
+   claim inbound denial, HTTP redirect, or DNS-rebind.
+10. Rollback forbids disabling NetworkPolicy; no feature flag or dual runtime.
+11. NAT is `MANUAL_ONLY`/static/`ALL`-logged and selects the cluster subnet
+    primary plus dedicated sandbox Pod secondary. Default GKE public Pod traffic
+    remains node-SNATed; no cluster-wide nonMasquerade/disable-SNAT change is
+    allowed. Structural verification rejects any eligible regional/VPC
+    no-external-IP consumer that is not a tagged private sandbox node.
+12. The current final-push gate is fail-closed and unresolved: tests must not
+    claim CI live attestation while Argo follows Helm `HEAD` and the GAR WIF
+    identity lacks GKE/Compute/Kubernetes read authority.
+13. Active denial acceptance first proves the same live-resolved Service,
+    managed-listener, Calico-owned kube-dns Pod IP, trusted control-plane Pod IP,
+    and node targets are reachable from a trusted existing control-plane Pod.
+    Metadata denial additionally requires a ready `gke-metadata-server`
+    DaemonSet. A controlled private-sandbox probe must observe one reserved NAT
+    IP from the fixed no-query plain-IP endpoint. Restricted probe also proves
+    Squid denial for fixed non-allowlisted `example.com` HTTPS. `ECONNREFUSED`
+    is never treated as denial; absent targets refuse to false-pass.
+
+Live-only (founder-approved `--execute`, not part of ordinary local gate):
+
+```bash
+./infra/bootstrap/adr146-sandbox-egress-foundation.sh apply --execute
+./infra/bootstrap/adr146-sandbox-egress-foundation.sh retire-public-pool \
+  --execute \
+  --maintenance-confirm NO_ACTIVE_SANDBOX_JOBS_CONFIRMED
+./infra/bootstrap/adr146-sandbox-egress-foundation.sh verify
+./infra/bootstrap/adr146-sandbox-egress-foundation.sh probe-restricted \
+  --execute \
+  --probe-pod ses-<hash> \
+  --nat-probe-pod adr146-nat-probe
+```
+
+Windows operators may invoke the same phases directly:
+
+```powershell
+node infra/bootstrap/adr146-sandbox-egress-foundation.mjs plan
+node infra/bootstrap/adr146-sandbox-egress-foundation.mjs static-check
+node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify
+```
 
 Automated acceptance must prove:
 

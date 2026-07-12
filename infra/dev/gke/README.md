@@ -7,8 +7,11 @@ ADR-072 is closed as the historical native migration ADR. The active continuatio
 ## Active scope
 
 - namespace and Argo CD bootstrap
-- Helm deploy for `api`, `web`, `runtime`, and `provider-gateway`
+- Helm deploy for `api`, `web`, `runtime`, `provider-gateway`, and `sandbox`
 - dedicated autoscaled GKE node pool for `api` stream orchestration in dev
+- ADR-146 Slice 0.1 foundation automation for Calico NetworkPolicy + private
+  sandbox egress (`infra/bootstrap/adr146-sandbox-egress-foundation.*`) — repo-local
+  until founder-approved live apply/verify
 - Google Artifact Registry image pull/publish wiring
 - Workload Identity and Cloud SQL proxy wiring for `api` and `runtime`
 - manual reset/bootstrap procedures described in `infra/dev/gke/RUNBOOK.md`
@@ -87,3 +90,6 @@ That workflow publishes only the affected active PersAI images and updates the m
 - `infra/helm/values.yaml`
 - `infra/helm/values-dev.yaml`
 - `infra/dev/gke/RUNBOOK.md`
+- `infra/bootstrap/adr146-sandbox-egress-foundation.json`
+- `infra/bootstrap/adr146-sandbox-egress-foundation.mjs`
+- `infra/bootstrap/adr146-sandbox-egress-foundation.sh`

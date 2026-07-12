@@ -1,0 +1,320 @@
+{
+  "schemaVersion": 1,
+  "adr": "146",
+  "slice": "0.1",
+  "description": "Current-cluster Calico + private sandbox egress foundation for personal-ai-gke (ADR-146 Slice 0.1). Dataplane V2 migration is outside this ADR.",
+  "cluster": {
+    "projectId": "project-44786b14-b7d7-4554-a8a",
+    "expectedAccount": "info@general-fly.com",
+    "expectedKubeContext": "gke_project-44786b14-b7d7-4554-a8a_europe-west1-b_personal-ai-gke",
+    "name": "personal-ai-gke",
+    "location": "europe-west1-b",
+    "locationType": "zone",
+    "region": "europe-west1",
+    "datapathProvider": "LEGACY_DATAPATH",
+    "networkPolicyProvider": "CALICO",
+    "forbiddenDatapathProviders": ["ADVANCED_DATAPATH"],
+    "maintenancePolicy": {
+      "hasWindow": false,
+      "hasExclusions": false,
+      "implication": "No maintenance window is configured: enabling NetworkPolicy can begin recreating every node pool immediately."
+    }
+  },
+  "network": {
+    "vpcName": "default",
+    "subnetName": "default",
+    "subnetPrimaryCidr": "10.132.0.0/20",
+    "existingSecondaryRanges": {
+      "gke-personal-ai-gke-pods-3d820e68": "10.107.128.0/17"
+    },
+    "dns": {
+      "provider": "KUBE_DNS",
+      "nodeLocalEnabled": true,
+      "nodeLocalAddress": "169.254.20.10/32",
+      "kubeDnsServiceAddress": "34.118.224.10/32",
+      "kubeDnsUpstreamServiceAddress": "34.118.233.32/32",
+      "ports": [
+        { "protocol": "UDP", "port": 53 },
+        { "protocol": "TCP", "port": 53 }
+      ]
+    },
+    "privateGoogleAccessRequired": true,
+    "flowLogs": {
+      "aggregationInterval": "INTERVAL_5_SEC",
+      "flowSampling": 0.5,
+      "metadata": "INCLUDE_ALL_METADATA"
+    }
+  },
+  "cidrs": {
+    "nodePrimary": "10.132.0.0/20",
+    "podDefault": "10.107.128.0/17",
+    "service": "34.118.224.0/20",
+    "sandboxPodSecondary": "10.109.0.0/20",
+    "peers": {
+      "psaA": "10.5.48.0/20",
+      "psaB": "10.11.128.0/20",
+      "redis": "10.107.45.64/29",
+      "filestore": "10.105.140.56/29"
+    },
+    "observedPeerRoutes": ["10.11.128.0/24", "10.105.140.56/29", "10.107.45.64/29"],
+    "vpcSubnetDenies": [
+      "10.128.0.0/20",
+      "10.138.0.0/20",
+      "10.140.0.0/20",
+      "10.142.0.0/20",
+      "10.146.0.0/20",
+      "10.148.0.0/20",
+      "10.150.0.0/20",
+      "10.152.0.0/20",
+      "10.154.0.0/20",
+      "10.156.0.0/20",
+      "10.158.0.0/20",
+      "10.160.0.0/20",
+      "10.162.0.0/20",
+      "10.164.0.0/20",
+      "10.166.0.0/20",
+      "10.168.0.0/20",
+      "10.170.0.0/20",
+      "10.172.0.0/20",
+      "10.174.0.0/20",
+      "10.178.0.0/20",
+      "10.180.0.0/20",
+      "10.182.0.0/20",
+      "10.184.0.0/20",
+      "10.186.0.0/20",
+      "10.188.0.0/20",
+      "10.190.0.0/20",
+      "10.192.0.0/20",
+      "10.194.0.0/20",
+      "10.198.0.0/20",
+      "10.200.0.0/20",
+      "10.202.0.0/20",
+      "10.204.0.0/20",
+      "10.206.0.0/20",
+      "10.208.0.0/20",
+      "10.210.0.0/20",
+      "10.212.0.0/20",
+      "10.214.0.0/20",
+      "10.218.0.0/20",
+      "10.224.0.0/20",
+      "10.226.0.0/20",
+      "10.232.0.0/20"
+    ],
+    "nonClusterSpecialUseDenies": [
+      "0.0.0.0/8",
+      "100.64.0.0/10",
+      "127.0.0.0/8",
+      "172.16.0.0/12",
+      "192.0.0.0/24",
+      "192.0.2.0/24",
+      "192.168.0.0/16",
+      "198.18.0.0/15",
+      "198.51.100.0/24",
+      "203.0.113.0/24",
+      "224.0.0.0/4",
+      "240.0.0.0/4"
+    ],
+    "calicoOwnedDenies": {
+      "nodeCidrs": ["10.132.0.0/20"],
+      "podCidrs": ["10.107.128.0/17", "10.109.0.0/20"],
+      "serviceCidrs": ["34.118.224.0/20"],
+      "metadataCidrs": ["169.254.0.0/16"],
+      "reason": "These destinations can be required or transformed inside the node datapath. VPC firewall denial could break cross-node kube-dns/Squid or cannot reliably observe the final destination; mandatory Calico policies own them."
+    },
+    "restrictedProbe": {
+      "trustedPod": {
+        "namespace": "persai-dev",
+        "labelSelector": "app.kubernetes.io/name=sandbox",
+        "containerName": "sandbox",
+        "servicePort": 3013
+      },
+      "serviceListeners": {
+        "kubernetesApi": { "namespace": "default", "name": "kubernetes", "port": 443 },
+        "metricsServer": { "namespace": "kube-system", "name": "metrics-server", "port": 443 }
+      },
+      "managedListeners": {
+        "redis": { "name": "openclaw-runtime-redis", "region": "europe-west1", "port": 6379 },
+        "filestore": {
+          "name": "personal-ai-openclaw-fs",
+          "location": "europe-west1-b",
+          "port": 2049
+        },
+        "cloudSql": { "name": "persai-dev-postgres", "region": "europe-west1", "port": 5432 }
+      },
+      "metadata": {
+        "daemonSetNamespace": "kube-system",
+        "daemonSetName": "gke-metadata-server",
+        "host": "169.254.169.254",
+        "port": 80
+      },
+      "nodeKubeletPort": 10250,
+      "publicEgressIdentityEndpoint": {
+        "url": "https://api.ipify.org",
+        "responseFormat": "plain_ipv4_no_query"
+      },
+      "squidDeniedPublicHttpsHostname": "example.com",
+      "natProbePod": {
+        "namespace": "persai-dev",
+        "requiredLabel": "sandbox.gke.io/adr146-nat-probe",
+        "requiredLabelValue": "true",
+        "requiredComponentLabel": "app.kubernetes.io/component",
+        "requiredComponentLabelValue": "sandbox-exec",
+        "serviceAccountName": "sandbox-exec-sa",
+        "runtimeClassName": "gvisor"
+      },
+      "restrictedExecPod": {
+        "requiredComponentLabel": "app.kubernetes.io/component",
+        "requiredComponentLabelValue": "sandbox-exec",
+        "serviceAccountName": "sandbox-exec-sa",
+        "runtimeClassName": "gvisor"
+      },
+      "unclaimedActiveProbes": [
+        "inbound denial from an external source Pod/listener",
+        "HTTP redirect to private/metadata destinations",
+        "DNS rebinding to private/metadata destinations"
+      ]
+    }
+  },
+  "nodeServiceAccount": {
+    "id": "persai-sandbox-node",
+    "displayName": "PersAI sandbox node pool (least privilege)",
+    "requiredRoles": ["roles/container.defaultNodeServiceAccount", "roles/artifactregistry.reader"],
+    "forbiddenRoles": [
+      "roles/editor",
+      "roles/owner",
+      "roles/iam.securityAdmin",
+      "roles/resourcemanager.projectIamAdmin",
+      "roles/container.admin"
+    ]
+  },
+  "nat": {
+    "routerName": "persai-sandbox-egress-router",
+    "natName": "persai-sandbox-egress-nat",
+    "staticAddressCount": 2,
+    "staticAddressNamePrefix": "persai-sandbox-nat",
+    "enableLogging": true,
+    "logFilter": "ALL",
+    "minPortsPerVm": 64,
+    "scope": {
+      "type": "CUSTOM_PRIMARY_AND_SANDBOX_SECONDARY",
+      "subnetName": "default",
+      "secondaryRangeNames": ["persai-sandbox-pods"],
+      "gkeSnatTruth": "Default GKE masquerading changes public Pod traffic to the node primary IP. NAT therefore selects the cluster subnet PRIMARY_IP_RANGE plus the dedicated sandbox Pod secondary. Cluster-wide 0.0.0.0/0 nonMasquerade and disable-default-snat are forbidden.",
+      "attributionClaim": "The static NAT identity is currently sandbox-exclusive only while structural live verification proves every eligible no-external-IP VM/node in the regional VPC inventory belongs to sandbox-pool-private."
+    }
+  },
+  "firewall": {
+    "networkTag": "persai-sandbox-node",
+    "denyEgressRuleName": "persai-sandbox-deny-private-egress",
+    "priority": 900,
+    "direction": "EGRESS",
+    "action": "DENY",
+    "protocols": ["all"],
+    "requiredPathAllows": [],
+    "honestLimitations": [
+      "VPC firewall cannot reliably see node-local metadata (169.254.169.254); Calico/NetworkPolicy remains mandatory for metadata denial.",
+      "VPC firewall cannot reliably see Service ClusterIP traffic after kube-proxy/iptables DNAT on the node; Calico/NetworkPolicy remains mandatory for Service denial.",
+      "Same-node Pod traffic that never leaves the host datapath is outside VPC firewall visibility; Calico/NetworkPolicy remains mandatory."
+    ]
+  },
+  "sandboxNodePool": {
+    "name": "sandbox-pool",
+    "replacementName": "sandbox-pool-private",
+    "retirePublicPoolName": "sandbox-pool",
+    "machineType": "e2-standard-4",
+    "diskSizeGb": 100,
+    "minNodes": 1,
+    "maxNodes": 2,
+    "enablePrivateNodes": true,
+    "enableGvnic": false,
+    "sandboxType": "gvisor",
+    "labels": {
+      "sandbox.gke.io/runtime": "gvisor",
+      "workload": "sandbox"
+    },
+    "taints": [
+      {
+        "key": "sandbox.gke.io/runtime",
+        "value": "gvisor",
+        "effect": "NO_SCHEDULE"
+      }
+    ],
+    "networkTags": ["persai-sandbox-node"],
+    "podSecondaryRangeName": "persai-sandbox-pods",
+    "imageType": "COS_CONTAINERD",
+    "spot": false
+  },
+  "publicSandboxNodePool": {
+    "name": "sandbox-pool",
+    "machineType": "e2-standard-4",
+    "diskSizeGb": 100,
+    "imageType": "COS_CONTAINERD",
+    "serviceAccount": "default",
+    "enablePrivateNodes": false,
+    "minNodes": 1,
+    "maxNodes": 2,
+    "labels": {
+      "sandbox.gke.io/runtime": "gvisor",
+      "workload": "sandbox"
+    },
+    "taints": [
+      {
+        "key": "sandbox.gke.io/runtime",
+        "value": "gvisor",
+        "effect": "NO_SCHEDULE"
+      }
+    ],
+    "podRange": "gke-personal-ai-gke-pods-3d820e68",
+    "podCidr": "10.107.128.0/17"
+  },
+  "calico": {
+    "enableAddonCommand": "NetworkPolicy=ENABLED",
+    "requiresNodeRecreation": true,
+    "readyNodeLabel": "projectcalico.org/ds-ready=true",
+    "notes": [
+      "Enabling GKE NetworkPolicy (Calico) on LEGACY_DATAPATH recreates all node pools.",
+      "If a maintenance window/exclusion is active, nodes may not recreate until the window; operators must wait or manually upgrade.",
+      "Helm networkPolicy.enabled only renders API objects; it does not enable the Calico engine."
+    ]
+  },
+  "rollback": {
+    "neverDisableNetworkPolicy": true,
+    "preserveRestrictedSecurity": true,
+    "allowedActions": [
+      "Recreate the private sandbox node pool with the same least-privilege SA, private nodes, labels, taints, and network tags.",
+      "Repair Cloud NAT / static addresses / firewall deny rules without removing them.",
+      "Scale the private sandbox pool while keeping Calico enabled.",
+      "Product rollback remains set-all-assistants-to-restricted after S1+; never re-enable the removed plan networkAccessEnabled boolean."
+    ],
+    "forbiddenActions": [
+      "gcloud container clusters update --no-enable-network-policy",
+      "Disabling the NetworkPolicy addon",
+      "Moving sandbox workloads back onto public-IP / Editor-identity nodes",
+      "Deleting the private-egress deny firewall without a replacement deny"
+    ]
+  },
+  "releaseGate": {
+    "verifyMustPassBeforeAppRollout": true,
+    "noFeatureFlag": true,
+    "repositoryEnforced": false,
+    "deferredSlice": "0.1b",
+    "blockers": [
+      "Argo CD auto-syncs infra/helm from HEAD before Dev Image Publish pins the new sandbox image.",
+      "The configured gha-gar-publisher WIF identity has no project-level GKE/Compute/Kubernetes read authority for live attestation.",
+      "The old sandbox image does not assign sandbox-exec-sa, so pre-exposure structural proof is circular without a held GitOps revision."
+    ],
+    "phases": [
+      "plan",
+      "preflight",
+      "prepare",
+      "apply-nat",
+      "apply-firewall",
+      "apply-calico",
+      "apply-sandbox-pool",
+      "retire-public-pool",
+      "verify",
+      "probe-restricted"
+    ],
+    "structuralVerifyDoesNotRunDynamicProbes": true
+  }
+}

@@ -95,7 +95,7 @@ ADR-140 closes the persistent Browserless session era. The active browser archit
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 
-**ADR-146 accepted target (implementation not started):** sandbox egress becomes
+**ADR-146 accepted target (implementation in progress):** sandbox egress becomes
 an immediate assistant-owned operational choice. `restricted` remains the
 default proxy/domain-allowlist contour. Explicit `full_public` consent gives the
 whole gVisor execution pod (`shell` / `exec` / `document.*`) direct public
@@ -113,6 +113,55 @@ present but not enforced, so the deployed restricted contour is presently
 proxy-env + Squid convention rather than a proven kernel deny-all boundary.
 Application implementation is NO-GO until an enforcing dataplane plus
 private/node/Service/metadata negative acceptance is live.
+
+**ADR-146 Slice 0.1 foundation (repo-local; not yet applied live):** the
+founder-selected current-cluster contour is codified under
+`infra/bootstrap/adr146-sandbox-egress-foundation.*`. This is repository
+automation only — no live apply/verify/probe completion and no deploy/push:
+
+- enable GKE NetworkPolicy/Calico on `LEGACY_DATAPATH` (node recreation required;
+  Helm `networkPolicy.enabled` only renders API objects and does not enable the
+  engine; Calico readiness labels are rollout signals, not enforcement proof);
+- dedicated private sandbox node pool (`sandbox-pool-private`) with
+  `--sandbox=type=gvisor` / live `sandboxConfig.type=gvisor`, least-privilege
+  node SA, existing `workload=sandbox` + `sandbox.gke.io/runtime=gvisor`
+  scheduling, custom pod secondary `10.109.0.0/20`, and no node external IP;
+  labels/taints alone are not GKE Sandbox proof;
+- after private pool Ready, fail-closed cordon of the legacy public sandbox pool
+  closes the dual-pool scheduling window without deleting the old pool or
+  killing running jobs; maintenance-gated retirement remains separate;
+- Cloud Router + static-IP Cloud NAT with NAT logging, selecting the cluster
+  subnet primary plus `persai-sandbox-pods`: default GKE public Pod traffic is
+  node-SNATed, so primary-range coverage is mandatory. Static attribution is
+  currently sandbox-exclusive only while live verification proves every
+  eligible regional/VPC no-external-IP consumer is a private sandbox node;
+  subnet VPC flow logs remain enabled;
+- all-protocol VPC egress deny for an explicit reviewed auto-mode VPC subnet +
+  PSA/Redis/Filestore/special-use inventory; cluster node-primary
+  `10.132.0.0/20`, broad `10.0.0.0/8`, Pod ranges, Service
+  `34.118.224.0/20`, and metadata are deliberately excluded so whole-node
+  kubelet/control-plane/Calico and node-local/post-DNAT paths are not broken;
+  conflicting higher-priority EGRESS ALLOW rules targeting the sandbox tag are
+  inventoried and rejected;
+- mandatory Calico ownership of node-primary, Pod, Service, metadata, and
+  same-node denies (active probes include live kube-dns Pod IP UDP/TCP 53 and
+  same-namespace sandbox control-plane Pod IP); exact NodeLocal
+  `169.254.20.10/32` and kube-dns Service `34.118.224.10/32` UDP/TCP 53 allows;
+  a complete values-owned Squid public-egress exclusion inventory; explicit
+  empty exec-pod ingress; and a dedicated identity-less/no-RBAC/no-WI
+  `sandbox-exec-sa` assigned to every ephemeral/warm execution pod (final
+  verification requires ≥1 Running exec pod — zero pods cannot claim wiring);
+- fresh fail-closed live preflight before every mutating phase, exact-match-only
+  idempotency, explicit maintenance-confirmed old-pool retirement, structural
+  `verify`, and separate founder-approved `probe-restricted` (inbound denial,
+  HTTP redirect, and DNS-rebind remain unclaimed by automation);
+- S1 may proceed locally only after parent approval of S0.1. Production rollout
+  is blocked: Argo currently auto-syncs Helm `HEAD` before image pinning, and
+  the GAR-only GitHub WIF identity has no GKE/Compute/Kubernetes read authority,
+  so the repository cannot yet bind live acceptance to the exact commit and
+  inventory hash or atomically advance policy plus image. No feature flag or
+  fabricated attestation is introduced. Dataplane V2 migration remains outside
+  ADR-146.
 
 ### Native Tool Runtime instruction model
 

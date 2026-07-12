@@ -20,6 +20,7 @@ function createConfig(): SandboxConfig {
     SANDBOX_EXEC_IMAGE: "busybox:1.36",
     SANDBOX_EXEC_RUNTIME_CLASS_NAME: "gvisor",
     SANDBOX_EXEC_NODE_SELECTOR_VALUE: "sandbox",
+    SANDBOX_EXEC_SERVICE_ACCOUNT_NAME: "sandbox-exec-sa",
     SANDBOX_EXEC_EGRESS_PROXY_URL: "",
     SANDBOX_EXEC_NO_PROXY: "",
     SANDBOX_EXEC_SESSION_IDLE_TTL_MS: 900_000,

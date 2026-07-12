@@ -73,28 +73,45 @@ spec:
 ---
 {{- if and .Values.networkPolicy.enabled .Values.sandbox.enabled }}
 {{- $proxyPort := .Values.sandbox.egressProxy.port | int }}
+{{- $dnsCidrs := .Values.networkPolicy.sandboxDns.allowedCidrs | default (list) }}
+{{- $dnsPorts := .Values.networkPolicy.sandboxDns.ports | default (list) }}
+{{- if lt (len $dnsCidrs) 2 }}
+{{- fail "networkPolicy.sandboxDns.allowedCidrs must contain the audited kube-dns and NodeLocal DNS /32s" }}
+{{- end }}
+{{- if ne (len $dnsPorts) 2 }}
+{{- fail "networkPolicy.sandboxDns.ports must be exactly UDP/53 and TCP/53" }}
+{{- end }}
+{{- $dnsPortOne := index $dnsPorts 0 }}
+{{- $dnsPortTwo := index $dnsPorts 1 }}
+{{- if or (ne $dnsPortOne.protocol "UDP") (ne ($dnsPortOne.port | int) 53) (ne $dnsPortTwo.protocol "TCP") (ne ($dnsPortTwo.port | int) 53) }}
+{{- fail "networkPolicy.sandboxDns.ports must be exactly UDP/53 followed by TCP/53" }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: sandbox-exec-deny-egress
+  name: sandbox-exec-isolation
   namespace: {{ .Values.global.namespace }}
 spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/component: sandbox-exec
   policyTypes:
+    - Ingress
     - Egress
+  # Untrusted execution pods are outbound-only in every future egress mode.
+  ingress: []
   egress:
-    # DNS: allow kube-dns so package managers can resolve hostnames.
+    # DNS: exact audited kube-dns Service and NodeLocal DNSCache listener /32s.
     - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
+{{- range $dnsCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+{{- end }}
       ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
+{{- range $dnsPorts }}
+        - protocol: {{ .protocol }}
+          port: {{ .port }}
+{{- end }}
 {{- if .Values.sandbox.egressProxy.enabled }}
     # Egress proxy: allow only to the trusted Squid pod on the proxy port.
     - to:
@@ -107,8 +124,69 @@ spec:
 {{- end }}
 {{- end }}
 ---
+{{- if and .Values.networkPolicy.enabled .Values.sandbox.enabled }}
+{{- $dnsCidrs := .Values.networkPolicy.sandboxDns.allowedCidrs | default (list) }}
+{{- $dnsPorts := .Values.networkPolicy.sandboxDns.ports | default (list) }}
+{{- $requiredDenied := .Values.networkPolicy.sandboxEgress.requiredDeniedCidrs | default (list) }}
+{{- $publicDenied := .Values.networkPolicy.sandboxEgress.publicDeniedCidrs | default (list) }}
+{{- if eq (len $requiredDenied) 0 }}
+{{- fail "networkPolicy.sandboxEgress.requiredDeniedCidrs must not be empty" }}
+{{- end }}
+{{- range $required := $requiredDenied }}
+{{- if not (has $required $publicDenied) }}
+{{- fail (printf "networkPolicy.sandboxEgress.publicDeniedCidrs is missing required CIDR %s" $required) }}
+{{- end }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-nat-identity-probe-isolation
+  namespace: {{ .Values.global.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      sandbox.gke.io/adr146-nat-probe: "true"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    - to:
+{{- range $dnsCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+{{- end }}
+      ports:
+{{- range $dnsPorts }}
+        - protocol: {{ .protocol }}
+          port: {{ .port }}
+{{- end }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+{{- range $publicDenied }}
+              - {{ . | quote }}
+{{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+{{- end }}
+---
 {{- if and .Values.networkPolicy.enabled .Values.sandbox.enabled .Values.sandbox.egressProxy.enabled }}
 {{- $proxyPort := .Values.sandbox.egressProxy.port | int }}
+{{- $dnsCidrs := .Values.networkPolicy.sandboxDns.allowedCidrs | default (list) }}
+{{- $dnsPorts := .Values.networkPolicy.sandboxDns.ports | default (list) }}
+{{- $requiredDenied := .Values.networkPolicy.sandboxEgress.requiredDeniedCidrs | default (list) }}
+{{- $publicDenied := .Values.networkPolicy.sandboxEgress.publicDeniedCidrs | default (list) }}
+{{- if eq (len $requiredDenied) 0 }}
+{{- fail "networkPolicy.sandboxEgress.requiredDeniedCidrs must not be empty" }}
+{{- end }}
+{{- range $required := $requiredDenied }}
+{{- if not (has $required $publicDenied) }}
+{{- fail (printf "networkPolicy.sandboxEgress.publicDeniedCidrs is missing required CIDR %s" $required) }}
+{{- end }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -131,25 +209,26 @@ spec:
         - protocol: TCP
           port: {{ $proxyPort }}
   egress:
-    # DNS: allow kube-dns for hostname resolution.
+    # DNS: exact audited kube-dns Service and NodeLocal DNSCache listener /32s.
     - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
+{{- range $dnsCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+{{- end }}
       ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
+{{- range $dnsPorts }}
+        - protocol: {{ .protocol }}
+          port: {{ .port }}
+{{- end }}
     # Internet: the proxy is the L7 enforcement boundary; its own egress is allowed
     # on HTTP(S) ports to the allowlisted domains (enforced by Squid, not here).
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
+{{- range $publicDenied }}
+              - {{ . | quote }}
+{{- end }}
       ports:
         - protocol: TCP
           port: 80

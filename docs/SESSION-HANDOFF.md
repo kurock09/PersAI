@@ -1,5 +1,30 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — ADR-146 Slice 0.1 repo-local foundation (audit repair)
+
+Status: **repo-local only; not live-complete; deploy/push blocked.**
+
+Baseline SHA: PersAI `f7bc640f` (dirty WIP tree; no commit in this subagent turn).
+
+**Scope landed locally:** founder-selected current-cluster Calico + private
+sandbox egress foundation under `infra/bootstrap/adr146-sandbox-egress-foundation.*`,
+Helm NetworkPolicy/KSA rendering, sandbox exec SA config wiring, and continuity
+docs. Audit repair closed: GKE `--sandbox=type=gvisor` + live sandboxConfig
+proof; fail-closed legacy public-pool cordon after private Ready (no delete);
+honest KSA live-wiring (zero pods cannot pass); exact NetworkPolicy peer
+matchers; restricted/NAT probe contour validators; Calico-owned kube-dns +
+control-plane Pod denial targets; conflicting EGRESS ALLOW inventory; Squid
+non-allowlist denial; inbound/redirect/DNS-rebind explicitly unclaimed.
+
+**Not done:** no gcloud/kubectl mutation, no live apply/verify/probe, no
+image publish, no GitOps pin, no S1 app/API/UI work. Final release remains
+blocked by Slice 0.1b Argo HEAD + GAR-only WIF attestation gap.
+
+**Next:** founder-approved live `preflight` → `apply` → maintenance retirement
+→ structural `verify` → `probe-restricted`; only then consider S1.
+
+---
+
 ## 2026-07-12 — ADR-146 Slice 0 live/code audit
 
 Status: **complete; current-cluster Calico contour selected; S0.1 pending.**

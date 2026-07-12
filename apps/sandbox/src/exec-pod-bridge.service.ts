@@ -1027,6 +1027,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     const image = this.config.SANDBOX_EXEC_IMAGE;
     const runtimeClassName = this.config.SANDBOX_EXEC_RUNTIME_CLASS_NAME;
     const nodeSelectorValue = this.config.SANDBOX_EXEC_NODE_SELECTOR_VALUE;
+    const serviceAccountName = this.config.SANDBOX_EXEC_SERVICE_ACCOUNT_NAME;
     const memMb = Math.ceil(policy.maxMemoryBytesPerJob / (1024 * 1024));
     const memLimit = `${Math.max(memMb, 64)}Mi`;
     const memRequest = `${Math.min(Math.max(memMb, 64), 256)}Mi`;
@@ -1048,6 +1049,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           },
           spec: {
             runtimeClassName,
+            serviceAccountName,
             automountServiceAccountToken: false,
             restartPolicy: "Never",
             nodeSelector: {

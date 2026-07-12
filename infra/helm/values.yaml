@@ -8,6 +8,18 @@ global:
 
 networkPolicy:
   enabled: false
+  sandboxDns:
+    allowedCidrs: []
+    ports:
+      - protocol: UDP
+        port: 53
+      - protocol: TCP
+        port: 53
+  sandboxEgress:
+    # Complete environment-specific inventory is mandatory whenever sandbox
+    # NetworkPolicies render. Every required entry must also be denied.
+    requiredDeniedCidrs: []
+    publicDeniedCidrs: []
   apiIngress:
     # Public API ingress CIDRs (for GCLB or other trusted ingress hops). When empty
     # and ingress is enabled, the API NetworkPolicy will not be rendered.
@@ -391,6 +403,9 @@ sandbox:
     create: true
     name: sandbox-sa
     gcpServiceAccountEmail: ""
+  execServiceAccount:
+    create: true
+    name: sandbox-exec-sa
   image:
     name: sandbox
     tag: ""
@@ -414,6 +429,7 @@ sandbox:
     SANDBOX_MAX_POLL_WAIT_MS: "1500"
     SANDBOX_QUEUED_JOB_STALE_AFTER_MS: "45000"
     SANDBOX_RUNNING_JOB_GRACE_MS: "15000"
+    SANDBOX_EXEC_SERVICE_ACCOUNT_NAME: "sandbox-exec-sa"
   secretEnv:
     PERSAI_INTERNAL_API_TOKEN:
       secretName: persai-runtime-secrets

@@ -63,6 +63,7 @@ function createConfig(): SandboxConfig {
     SANDBOX_EXEC_IMAGE: "busybox:1.36",
     SANDBOX_EXEC_RUNTIME_CLASS_NAME: "gvisor",
     SANDBOX_EXEC_NODE_SELECTOR_VALUE: "sandbox",
+    SANDBOX_EXEC_SERVICE_ACCOUNT_NAME: "sandbox-exec-sa",
     SANDBOX_EXEC_EGRESS_PROXY_URL: "",
     SANDBOX_EXEC_NO_PROXY: "",
     SANDBOX_EXEC_SESSION_IDLE_TTL_MS: 900_000,
@@ -775,6 +776,7 @@ test("ExecPodBridgeService: createExecPod creates pod with correct spec", async 
   assert.equal(pod.namespace, "persai-dev");
   assert.equal(pod.body.spec?.runtimeClassName, "gvisor");
   assert.equal(pod.body.spec?.nodeSelector?.["workload"], "sandbox");
+  assert.equal(pod.body.spec?.serviceAccountName, "sandbox-exec-sa");
   assert.equal(pod.body.spec?.automountServiceAccountToken, false);
   assert.equal(pod.body.spec?.restartPolicy, "Never");
   const container = pod.body.spec?.containers?.[0];

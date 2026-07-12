@@ -30,6 +30,9 @@ const baseSandboxConfigSchema = z.object({
   SANDBOX_EXEC_IMAGE: z.string().min(1).default("busybox:1.36"),
   SANDBOX_EXEC_RUNTIME_CLASS_NAME: z.string().min(1).default("gvisor"),
   SANDBOX_EXEC_NODE_SELECTOR_VALUE: z.string().min(1).default("sandbox"),
+  // Dedicated identity-less KSA for untrusted execution pods. It intentionally
+  // has no RBAC or Workload Identity annotation; token automount remains false.
+  SANDBOX_EXEC_SERVICE_ACCOUNT_NAME: z.string().min(1).default("sandbox-exec-sa"),
   // Non-secret proxy URL injected into exec pod env. Empty string = no proxy.
   SANDBOX_EXEC_EGRESS_PROXY_URL: z.string().default(""),
   // Comma-separated list of hosts/CIDRs to bypass the proxy (NO_PROXY convention).
