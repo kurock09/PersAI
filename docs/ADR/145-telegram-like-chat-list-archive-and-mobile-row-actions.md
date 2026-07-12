@@ -19,10 +19,12 @@ do not compete.
 
 ## Decision
 
-1. The responsive boundary is the actual CSS viewport:
-   - below 600px, chat rows use touch-first interactions
-   - from 600px, the existing compact desktop menu remains
-   - no user-agent or native device classification is introduced
+1. Chat-list interaction capability is pointer/hover based, not viewport width:
+   - `(hover: hover) and (pointer: fine)` keeps the compact desktop portal menu
+   - all other surfaces (phone, tablet, touch-first) use touch-first row actions
+   - no user-agent or device-model classification is introduced
+   - shell layout may still switch by viewport width; only chat-row actions follow
+     pointer capability
 2. Mobile active rows support an axis-locked left swipe. Crossing the threshold
    archives the chat through the existing archive API; vertical movement
    remains list scrolling.
@@ -84,5 +86,7 @@ do not compete.
 3. Swipe an archived row right and confirm it returns to the active list.
 4. Open row actions, verify only one row is open, delete confirmation is
    two-step, and timeout/outside tap closes the actions.
-5. At 600px and desktop widths, verify Archive is persistently available and
+5. On a tablet/touch surface with width `>=600px`, verify ⋯ stays visible and
+   opens inline Delete|Rename / swipe archive — not the hover-only desktop menu.
+6. On a mouse/trackpad desktop, verify Archive is persistently available and
    row actions still use the compact popup menu.

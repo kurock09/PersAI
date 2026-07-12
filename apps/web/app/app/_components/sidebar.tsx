@@ -88,17 +88,18 @@ const STATUS_CONFIG: Record<AssistantStatus, { label: string; dot: string }> = {
   none: { label: "Not created", dot: "bg-text-subtle" }
 };
 
-const MOBILE_CHAT_LIST_QUERY = "(max-width: 599px)";
+/** Mouse/trackpad surfaces keep the compact portal menu; everything else is touch-first. */
+const FINE_POINTER_CHAT_LIST_QUERY = "(hover: hover) and (pointer: fine)";
 const MOBILE_ROW_ACTIONS_IDLE_MS = 10_000;
 const MOBILE_SWIPE_ARCHIVE_WIDTH_PX = 96;
 const MOBILE_SWIPE_ARCHIVE_TRIGGER_PX = 68;
 const MOBILE_INLINE_ACTIONS_FALLBACK_WIDTH_PX = 176;
 
-function isMobileChatListViewport(): boolean {
+function usesTouchChatListActions(): boolean {
   return (
     typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&
-    window.matchMedia(MOBILE_CHAT_LIST_QUERY).matches
+    !window.matchMedia(FINE_POINTER_CHAT_LIST_QUERY).matches
   );
 }
 
@@ -387,7 +388,7 @@ export function Sidebar({
               router.push("/app/chat" as Route);
             });
           }}
-          className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-raised px-3 text-base font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-hover md:h-9 md:text-sm"
+          className="flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-border bg-surface-raised px-3 text-base font-medium text-text transition-colors hover:border-border-strong hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:h-9 [@media(hover:hover)_and_(pointer:fine)]:text-sm"
         >
           <MessageSquarePlus className="h-4 w-4 text-text-muted" />
           {t("newChat")}
@@ -1124,15 +1125,15 @@ function ChatListItem({
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia(MOBILE_CHAT_LIST_QUERY);
-    const handleViewportChange = () => {
-      if (!media.matches) {
+    const media = window.matchMedia(FINE_POINTER_CHAT_LIST_QUERY);
+    const handlePointerCapabilityChange = () => {
+      if (media.matches) {
         closeMobileActions();
         setSwipeX(0);
       }
     };
-    media.addEventListener("change", handleViewportChange);
-    return () => media.removeEventListener("change", handleViewportChange);
+    media.addEventListener("change", handlePointerCapabilityChange);
+    return () => media.removeEventListener("change", handlePointerCapabilityChange);
   }, [closeMobileActions]);
 
   useEffect(() => {
@@ -1210,7 +1211,7 @@ function ChatListItem({
   }, [closeMobileActions, getToken, item.chat.id, onChanged]);
 
   const toggleRowActions = useCallback(() => {
-    if (isMobileChatListViewport()) {
+    if (usesTouchChatListActions()) {
       setSwipeX(0);
       setMobileActionsOpen((open) => {
         const next = !open;
@@ -1226,7 +1227,7 @@ function ChatListItem({
 
   const handleTouchStart = useCallback(
     (event: TouchEvent<HTMLDivElement>) => {
-      if (archiving || restoring || mobileActionsOpen || !isMobileChatListViewport()) {
+      if (archiving || restoring || mobileActionsOpen || !usesTouchChatListActions()) {
         swipeStartRef.current = null;
         return;
       }
@@ -1323,7 +1324,7 @@ function ChatListItem({
       {!isArchived && !mobileActionsOpen ? (
         <div
           aria-hidden="true"
-          className="absolute inset-y-0 right-0 flex w-24 items-center justify-center gap-1.5 rounded-r-lg bg-accent text-xs font-semibold text-white md:hidden"
+          className="absolute inset-y-0 right-0 flex w-24 items-center justify-center gap-1.5 rounded-r-lg bg-accent text-xs font-semibold text-white [@media(hover:hover)_and_(pointer:fine)]:hidden"
         >
           <Archive className="h-4 w-4" />
           {archiving ? <Loader2 className="h-4 w-4 animate-spin" /> : t("archive")}
@@ -1332,7 +1333,7 @@ function ChatListItem({
       {isArchived && !mobileActionsOpen ? (
         <div
           aria-hidden="true"
-          className="absolute inset-y-0 left-0 flex w-24 items-center justify-center gap-1.5 rounded-l-lg bg-success text-xs font-semibold text-white md:hidden"
+          className="absolute inset-y-0 left-0 flex w-24 items-center justify-center gap-1.5 rounded-l-lg bg-success text-xs font-semibold text-white [@media(hover:hover)_and_(pointer:fine)]:hidden"
         >
           <ArchiveRestore className="h-4 w-4" />
           {restoring ? <Loader2 className="h-4 w-4 animate-spin" /> : t("restore")}
@@ -1343,7 +1344,7 @@ function ChatListItem({
         <div
           ref={mobileActionsRef}
           data-testid={`mobile-chat-actions-${item.chat.id}`}
-          className="absolute inset-y-0 right-0 flex items-stretch pr-1 md:hidden"
+          className="absolute inset-y-0 right-0 flex items-stretch pr-1 [@media(hover:hover)_and_(pointer:fine)]:hidden"
           onPointerDown={touchMobileActions}
         >
           <div className="flex h-full items-stretch">
@@ -1393,7 +1394,7 @@ function ChatListItem({
         onTouchCancel={cancelSwipe}
         style={{ transform: `translateX(${rowOffset}px)` }}
         className={cn(
-          "group relative z-10 flex h-11 w-full items-center gap-1.5 rounded-lg bg-surface px-2.5 text-left [touch-action:pan-y] md:h-auto md:min-h-0 md:gap-1 md:py-2",
+          "group relative z-10 flex h-11 w-full items-center gap-1.5 rounded-lg bg-surface px-2.5 text-left [touch-action:pan-y] [@media(hover:hover)_and_(pointer:fine)]:h-auto [@media(hover:hover)_and_(pointer:fine)]:min-h-0 [@media(hover:hover)_and_(pointer:fine)]:gap-1 [@media(hover:hover)_and_(pointer:fine)]:py-2",
           !swiping && "transition-[transform,background-color] duration-200 ease-out",
           isActive
             ? "bg-chat-active-tint text-text"
@@ -1417,7 +1418,7 @@ function ChatListItem({
         >
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
-              <span className="min-w-0 truncate text-base font-medium md:text-xs">
+              <span className="min-w-0 truncate text-sm font-medium">
                 {item.chat.title ?? item.chat.surfaceThreadKey}
               </span>
               {showLiveIndicator && (
@@ -1473,7 +1474,7 @@ function ChatListItem({
               toggleRowActions();
             }
           }}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full opacity-80 transition-opacity hover:bg-surface-raised md:h-6 md:w-6 md:rounded-none md:opacity-0 md:hover:bg-transparent md:group-hover:opacity-100"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full opacity-80 transition-opacity hover:bg-surface-raised [@media(hover:hover)_and_(pointer:fine)]:h-6 [@media(hover:hover)_and_(pointer:fine)]:w-6 [@media(hover:hover)_and_(pointer:fine)]:rounded-none [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-transparent [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100"
         >
           <MoreHorizontal className="h-4 w-4 text-text-subtle md:h-3.5 md:w-3.5" />
         </button>

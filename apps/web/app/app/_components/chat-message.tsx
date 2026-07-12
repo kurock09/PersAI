@@ -335,6 +335,8 @@ interface ChatMessageBubbleProps {
   chatId?: string | null;
   assistantAvatarUrl?: string | undefined;
   assistantAvatarEmoji?: string | undefined;
+  /** When false, the absolute left-gutter avatar is omitted (narrow panes). */
+  showAssistantAvatar?: boolean | undefined;
   preResponseStatus?:
     | { kind: "thinking" | "activity"; event?: ActivityEvent | undefined }
     | undefined;
@@ -2058,6 +2060,7 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
   chatId,
   assistantAvatarUrl,
   assistantAvatarEmoji,
+  showAssistantAvatar = false,
   onDoNotRemember,
   forgotten,
   onAssistantAction,
@@ -2157,14 +2160,14 @@ export const ChatMessageBubble = memo(function ChatMessageBubble({
         isUser ? "items-center justify-end pb-4 md:pb-5" : "justify-start"
       )}
     >
-      {!isUser && (
+      {!isUser && showAssistantAvatar ? (
         <AssistantAvatar
           avatarUrl={assistantAvatarUrl}
           avatarEmoji={assistantAvatarEmoji}
           size="sm"
-          className="absolute top-3 -left-11 hidden md:block"
+          className="absolute top-3 -left-11"
         />
-      )}
+      ) : null}
 
       <div
         className={cn(

@@ -25,6 +25,11 @@ import { ChatMessageBubble } from "./chat-message";
 import { ChatInput, type ChatInputHandle } from "./chat-input";
 import { AssistantAvatar } from "./assistant-avatar";
 import {
+  CHAT_CHROME_PADDING_DESKTOP_PX,
+  CHAT_CHROME_PADDING_MOBILE_PX,
+  shouldShowChatAssistantAvatars
+} from "./chat-layout";
+import {
   type AssistantChatMode,
   dismissAssistantBrowserProfileView,
   openAssistantBrowserProfileView,
@@ -147,9 +152,11 @@ export function ChatArea({
   const t = useTranslations("chat");
   const { openSidebar, openSettings } = useShellActions();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
+  const [showAssistantAvatars, setShowAssistantAvatars] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const [chatMode, setChatMode] = useState<AssistantChatMode>(
@@ -246,6 +253,31 @@ export function ChatArea({
     const nearBottom = distanceFromBottom <= 96;
     shouldStickToBottomRef.current = nearBottom;
     setShowScrollToBottom(distanceFromBottom > 280);
+  }, []);
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (stage === null || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const measure = () => {
+      const desktopChrome =
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(min-width: 600px)").matches;
+      setShowAssistantAvatars(
+        shouldShowChatAssistantAvatars({
+          stageWidthPx: stage.clientWidth,
+          chromePaddingPx: desktopChrome
+            ? CHAT_CHROME_PADDING_DESKTOP_PX
+            : CHAT_CHROME_PADDING_MOBILE_PX
+        })
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(stage);
+    return () => observer.disconnect();
   }, []);
 
   // Keep streaming replies pinned only while the user remains near the bottom.
@@ -600,31 +632,14 @@ export function ChatArea({
     chat.pendingBrowserLogin?.completionMode === "assist"
       ? "browserLoginAssistContinueHint"
       : "browserLoginContinueHint";
+  const hasChatPlan = !isEmpty && chat.chatPlan.length > 0;
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       {/* Stage: messages full-bleed; header/footer overlay so text dissolves under chrome (TG). */}
-      <div className="relative min-h-0 flex-1">
+      <div ref={stageRef} className="relative min-h-0 flex-1">
         {/* Full-bleed message scroll — chrome overlays this pane. */}
-        <div
-          ref={scrollRef}
-          className="absolute inset-0 overflow-x-hidden overflow-y-auto md:[scrollbar-gutter:stable_both-edges]"
-        >
-          {!isEmpty && chat.chatPlan.length > 0 ? (
-            // Match the exact horizontal envelope of the header controls.
-            // The top offset leaves an 8px visual gap below the 48px pills,
-            // including mobile safe-area inset.
-            <div className="sticky top-[calc(max(0.5rem,env(safe-area-inset-top))+3.5rem)] z-10 w-full px-3 md:top-[4.25rem] md:px-4">
-              <div className="mx-auto w-full max-w-[50rem]">
-                <ChatPlanCard
-                  todos={chat.chatPlan}
-                  totalCount={chat.chatPlanTotalCount}
-                  windowed={chat.chatPlanWindowed}
-                  onClear={chat.clearChatPlan}
-                />
-              </div>
-            </div>
-          ) : null}
+        <div ref={scrollRef} className="absolute inset-0 overflow-x-hidden overflow-y-auto">
           {isEmpty ? (
             <EmptyState
               name={assistantName}
@@ -633,7 +648,13 @@ export function ChatArea({
               createdAt={assistantCreatedAt}
             />
           ) : (
-            <div className="mx-auto w-full max-w-[50rem] px-3 pt-[5.5rem] pb-[7.5rem] md:px-4 md:pt-24 md:pb-32">
+            <div
+              className={cn(
+                "mx-auto w-full max-w-[50rem] px-3 pb-[7.5rem] md:px-4 md:pb-32",
+                hasChatPlan ? "pt-[8.75rem] md:pt-[8.5rem]" : "pt-[5.5rem] md:pt-24"
+              )}
+            >
+              {" "}
               <div ref={sentinelRef} className="h-1" />
               {chat.olderMessagesLoading && (
                 <div className="flex justify-center py-3">
@@ -667,6 +688,7 @@ export function ChatArea({
                     showShadowRoutingLabel={showShadowRoutingBadge}
                     assistantAvatarUrl={assistantAvatarUrl}
                     assistantAvatarEmoji={assistantAvatarEmoji}
+                    showAssistantAvatar={showAssistantAvatars}
                     onAssistantAction={handleAssistantAction}
                     onDocumentJobAccepted={onDocumentJobAccepted}
                     onDoNotRemember={
@@ -700,7 +722,10 @@ export function ChatArea({
         {/* Overlay header: dissolve veil only; opaque pills; messages scroll underneath. */}
         <header
           data-testid="chat-header-chrome"
-          className="pointer-events-none absolute inset-x-0 top-0 z-40 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-10 md:px-4 md:pt-3 md:pb-12"
+          className={cn(
+            "pointer-events-none absolute inset-x-0 top-0 z-40 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] md:px-4 md:pt-3",
+            hasChatPlan ? "pb-14 md:pb-16" : "pb-10 md:pb-12"
+          )}
         >
           <div
             aria-hidden="true"
@@ -710,98 +735,108 @@ export function ChatArea({
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-t from-transparent via-bg/20 to-bg/55"
           />
-          {/* Same envelope as composer + messages so desktop name/mode sit as one column, not pane edges. */}
-          <div className="pointer-events-auto relative mx-auto flex w-full max-w-[50rem] items-center gap-2">
-            <button
-              type="button"
-              onClick={openSidebar}
-              className="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised text-text-muted transition-colors active:bg-surface-hover hover:bg-surface-hover hover:text-text md:hidden"
-              aria-label="Open sidebar"
-            >
-              <Menu className="h-5 w-5" strokeWidth={1.75} />
-            </button>
-            <div
-              className={cn(
-                // Opaque pill only — dissolve is the overlay veil behind, not a translucent shell.
-                "flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/45 bg-surface-raised py-0 pr-3.5 pl-1.5 transition-colors",
-                editing && "border-accent/45"
-              )}
-            >
-              {editing ? (
-                <>
-                  <span
-                    aria-hidden="true"
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bg text-accent"
-                  >
-                    <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} />
-                  </span>
-                  <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                    <input
-                      ref={inputRef}
-                      type="text"
-                      value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void commitEdit();
-                        if (e.key === "Escape") setEditing(false);
-                      }}
-                      onBlur={() => void commitEdit()}
-                      maxLength={80}
-                      className="min-w-0 flex-1 bg-transparent text-base font-semibold leading-none tracking-tight text-text outline-none md:text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void commitEdit()}
-                      className="cursor-pointer rounded-full p-1.5 text-accent transition-colors hover:bg-surface-hover"
-                    >
-                      <Check className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {canEdit ? (
-                    <button
-                      type="button"
-                      onClick={startEdit}
-                      aria-label="Rename chat"
-                      className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-bg text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                    >
-                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} />
-                    </button>
-                  ) : (
+          {/* Same envelope as composer + messages: name/mode and plan share one column. */}
+          <div className="pointer-events-auto relative mx-auto flex w-full max-w-[50rem] flex-col gap-2">
+            <div className="flex w-full items-center gap-2">
+              <button
+                type="button"
+                onClick={openSidebar}
+                className="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised text-text-muted transition-colors active:bg-surface-hover hover:bg-surface-hover hover:text-text md:hidden"
+                aria-label="Open sidebar"
+              >
+                <Menu className="h-5 w-5" strokeWidth={1.75} />
+              </button>
+              <div
+                className={cn(
+                  // Opaque pill only — dissolve is the overlay veil behind, not a translucent shell.
+                  "flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/45 bg-surface-raised py-0 pr-3.5 pl-1.5 transition-colors",
+                  editing && "border-accent/45"
+                )}
+              >
+                {editing ? (
+                  <>
                     <span
                       aria-hidden="true"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bg text-text-subtle"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bg text-accent"
                     >
                       <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} />
                     </span>
-                  )}
-                  <div
-                    className={cn(
-                      "flex min-w-0 flex-1 flex-col justify-center",
-                      activeSkillEngagement ? "gap-0" : null
+                    <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                      <input
+                        ref={inputRef}
+                        type="text"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void commitEdit();
+                          if (e.key === "Escape") setEditing(false);
+                        }}
+                        onBlur={() => void commitEdit()}
+                        maxLength={80}
+                        className="min-w-0 flex-1 bg-transparent text-sm font-semibold leading-none tracking-tight text-text outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void commitEdit()}
+                        className="cursor-pointer rounded-full p-1.5 text-accent transition-colors hover:bg-surface-hover"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        onClick={startEdit}
+                        aria-label="Rename chat"
+                        className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-bg text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                      >
+                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} />
+                      </button>
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bg text-text-subtle"
+                      >
+                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} />
+                      </span>
                     )}
-                  >
-                    <h1
+                    <div
                       className={cn(
-                        "truncate text-base font-semibold tracking-tight text-text md:text-sm md:font-medium md:tracking-normal md:text-text-muted",
-                        activeSkillEngagement ? "leading-[1.1]" : "leading-none"
+                        "flex min-w-0 flex-1 flex-col justify-center",
+                        activeSkillEngagement ? "gap-0" : null
                       )}
                     >
-                      {displayTitle}
-                    </h1>
-                    <ChatHeaderSubtitle engagement={activeSkillEngagement} />
-                  </div>
-                </>
-              )}
+                      <h1
+                        className={cn(
+                          "truncate text-sm font-semibold tracking-tight text-text",
+                          activeSkillEngagement ? "leading-[1.1]" : "leading-none"
+                        )}
+                      >
+                        {displayTitle}
+                      </h1>
+                      <ChatHeaderSubtitle engagement={activeSkillEngagement} />
+                    </div>
+                  </>
+                )}
+              </div>
+              <ChatModeToggle
+                mode={chatMode}
+                paidLightModeActive={paidLightModeActive}
+                disabled={!assistantReady || chat.isStreaming}
+                onChange={(mode) => void handleChatModeChange(mode)}
+              />
             </div>
-            <ChatModeToggle
-              mode={chatMode}
-              paidLightModeActive={paidLightModeActive}
-              disabled={!assistantReady || chat.isStreaming}
-              onChange={(mode) => void handleChatModeChange(mode)}
-            />
+            {hasChatPlan ? (
+              <ChatPlanCard
+                todos={chat.chatPlan}
+                totalCount={chat.chatPlanTotalCount}
+                windowed={chat.chatPlanWindowed}
+                onClear={chat.clearChatPlan}
+              />
+            ) : null}
           </div>
         </header>
 

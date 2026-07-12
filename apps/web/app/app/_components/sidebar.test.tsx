@@ -190,11 +190,11 @@ function makeChat(
   } as unknown as AssistantWebChatListItemState;
 }
 
-function useMobileViewport(): void {
+function stubChatListPointerCapability(finePointer: boolean): void {
   vi.stubGlobal(
     "matchMedia",
     vi.fn((query: string) => ({
-      matches: query === "(max-width: 599px)",
+      matches: query === "(hover: hover) and (pointer: fine)" ? finePointer : false,
       media: query,
       onchange: null,
       addEventListener: vi.fn(),
@@ -204,6 +204,14 @@ function useMobileViewport(): void {
       dispatchEvent: vi.fn()
     }))
   );
+}
+
+function useTouchChatList(): void {
+  stubChatListPointerCapability(false);
+}
+
+function useFinePointerChatList(): void {
+  stubChatListPointerCapability(true);
 }
 
 function touch(clientX: number, clientY: number): Touch {
@@ -224,6 +232,11 @@ function touch(clientX: number, clientY: number): Touch {
 }
 
 describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
+  beforeEach(() => {
+    // Default to mouse/trackpad so portal-menu tests stay desktop unless opted into touch.
+    useFinePointerChatList();
+  });
+
   it("renders the chat list skeleton during cold-start (isLoading=true)", () => {
     render(<Sidebar data={makeAppData({ isLoading: true })} />);
     expect(screen.queryByTestId("chat-list-skeleton")).not.toBeNull();
@@ -271,7 +284,10 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     );
 
     expect(screen.getByText("Alpha")).toHaveClass("text-base", "md:text-sm");
-    expect(screen.getByRole("button", { name: "newChat" })).toHaveClass("text-base", "md:text-sm");
+    expect(screen.getByRole("button", { name: "newChat" })).toHaveClass(
+      "text-base",
+      "[@media(hover:hover)_and_(pointer:fine)]:text-sm"
+    );
   });
 
   it("uses composer-height quiet icon-only pills for theme and language controls", async () => {
@@ -295,16 +311,26 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(screen.getByTestId("chat-row-surface-thread-a")).toHaveClass(
       "h-11",
       "gap-1.5",
-      "md:h-auto",
-      "md:min-h-0",
-      "md:py-2"
+      "[@media(hover:hover)_and_(pointer:fine)]:h-auto",
+      "[@media(hover:hover)_and_(pointer:fine)]:min-h-0",
+      "[@media(hover:hover)_and_(pointer:fine)]:py-2"
     );
     expect(screen.getByRole("button", { name: "chatActions" })).toHaveClass("h-10", "w-10");
     expect(screen.getByRole("button", { name: "newChat" })).toHaveClass("h-11");
+    expect(screen.getByText("Chat thread-a")).toHaveClass("text-sm", "font-medium");
+  });
+
+  it("keeps touch chat-list actions on coarse/no-hover pointers even when the viewport is wide", () => {
+    useTouchChatList();
+    render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "chatActions" }));
+    expect(screen.getByTestId("mobile-chat-actions-thread-a")).toBeInTheDocument();
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("opens premium inline mobile actions without filled delete and requires a second delete tap", async () => {
-    useMobileViewport();
+    useTouchChatList();
     render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
 
     fireEvent.click(screen.getByRole("button", { name: "chatActions" }));
@@ -330,14 +356,18 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
   });
 
   it("keeps the desktop three-dot control without a hover circle", () => {
+    useFinePointerChatList();
     render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
     const kebab = screen.getByRole("button", { name: "chatActions" });
-    expect(kebab).toHaveClass("md:rounded-none", "md:hover:bg-transparent");
+    expect(kebab).toHaveClass(
+      "[@media(hover:hover)_and_(pointer:fine)]:rounded-none",
+      "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-transparent"
+    );
   });
 
   it("closes inline mobile actions after 10 seconds idle", () => {
     vi.useFakeTimers();
-    useMobileViewport();
+    useTouchChatList();
     render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
 
     fireEvent.click(screen.getByRole("button", { name: "chatActions" }));
@@ -347,7 +377,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
   });
 
   it("keeps only one inline action row open and closes it on outside tap", () => {
-    useMobileViewport();
+    useTouchChatList();
     render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a"), makeChat("thread-b")] })} />);
     const actionButtons = screen.getAllByRole("button", { name: "chatActions" });
 
@@ -364,7 +394,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
   });
 
   it("archives an active mobile chat after a committed left swipe", async () => {
-    useMobileViewport();
+    useTouchChatList();
     render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
     const surface = screen.getByTestId("chat-row-surface-thread-a");
 
@@ -380,7 +410,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
   });
 
   it("restores an archived mobile chat after a committed right swipe", async () => {
-    useMobileViewport();
+    useTouchChatList();
     render(
       <Sidebar
         data={makeAppData({
@@ -419,7 +449,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
   });
 
   it("reveals mobile Archive on the first long pull and refreshes on the next", async () => {
-    useMobileViewport();
+    useTouchChatList();
     const onPullToRefresh = vi.fn().mockResolvedValue(undefined);
     const { container } = render(
       <Sidebar

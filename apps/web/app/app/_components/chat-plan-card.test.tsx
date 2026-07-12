@@ -196,8 +196,8 @@ describe("ChatPlanCard", () => {
 
     const circle = within(container).getByTestId("chat-plan-mobile-circle");
     expect(circle).toHaveTextContent("1/7");
-    expect(circle).toHaveClass("h-11", "w-11");
-    expect(container.firstChild).toHaveClass("ml-auto", "h-11", "w-11", "rounded-full");
+    expect(circle).toHaveClass("h-12", "w-12");
+    expect(container.firstChild).toHaveClass("ml-auto", "h-12", "w-12", "rounded-full");
     expect(container.querySelector("button[aria-expanded]")?.parentElement).toHaveClass(
       "hidden",
       "md:flex"

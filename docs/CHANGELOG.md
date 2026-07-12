@@ -5,6 +5,9 @@
 
 ## 2026-07-12
 
+- **UX (chat-list 14px + unified name-pill title; local).** Mobile chat-row titles use `text-sm` without changing row height; header name-pill title is one style on mobile and desktop (`text-sm font-semibold text-text`). Focused sidebar/chat-area tests PASS.
+- **UX (chat text/pill align + gutter avatars; local).** Dropped message-scroll `scrollbar-gutter` so text lines up with the composer pill; assistant avatars render only when the pill-edge→wall gutter exceeds two avatar widths. Plan card now shares the header name/mode column (mobile circle `h-12` matches mode). Focused layout/area/plan tests PASS.
+- **UX (touch-capability chat-list actions; local).** Chat swipe/⋯/inline Delete|Rename now key off `(hover: hover) and (pointer: fine)` instead of `<600px`, so tablets keep the mobile list UX while mouse desktops keep the portal menu. Sidebar 39/39 PASS.
 - **UX (narrow desktop chat padding + matched chat-row height; local).** Message column keeps `md:px-4` so text aligns with the composer pill on narrow desktop panes; New chat and mobile chat rows share `h-11`. Focused sidebar/chat-area tests PASS.
 - **UX (inline chat actions match row; local).** Mobile Delete|Rename no longer uses a separate white `h-9` chip — full row height, text + divider only over the revealed strip.
 - **UX (plan circle right + chat chrome polish; local).** Mobile plan collapses to a true right-side circle and expands left; pill→list/composer radius snaps without stadium lag. Theme/language captions removed. Mobile Delete|Rename is a divider chip with bold reddish delete (no fills); desktop ⋯ loses hover circle and gains spacing from the timestamp. Scroll-to-bottom is an `h-11` circle above the mic; single-line composer hides phantom scrollbars on narrow desktop windows. Focused web UX suites 132/132; web lint/format/typecheck PASS.

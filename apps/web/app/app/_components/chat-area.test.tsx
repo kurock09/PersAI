@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatArea } from "./chat-area";
 import type { ChatMessage, UseChatReturn } from "./use-chat";
@@ -721,6 +721,35 @@ describe("ChatArea", () => {
     expect(messageColumn).toBeTruthy();
     expect(messageColumn?.className).toMatch(/\bpx-3\b/);
     expect(messageColumn?.className).not.toMatch(/md:px-0/);
+    // Scroll gutter must not push message text right of the composer pill.
+    const scrollPane = container.querySelector(".overflow-y-auto");
+    expect(scrollPane?.className ?? "").not.toMatch(/scrollbar-gutter/);
+  });
+
+  it("hosts the plan card in the header chrome envelope with name/mode pills", () => {
+    const { container } = render(
+      <ChatArea
+        chat={{
+          ...createChat("Hello", { isStreaming: false }),
+          chatPlan: [
+            {
+              id: "1",
+              content: "Task",
+              status: "pending",
+              parentId: null
+            }
+          ],
+          chatPlanTotalCount: 1,
+          chatPlanWindowed: false,
+          clearChatPlan: vi.fn(async () => undefined)
+        }}
+        title="Plan aligned"
+      />
+    );
+
+    const header = screen.getByTestId("chat-header-chrome");
+    expect(within(header).getByTestId("chat-plan-card")).toBeInTheDocument();
+    expect(container.querySelector(".sticky")).toBeNull();
   });
 
   it("renders the chat title as a TG name-pill headline", () => {
@@ -729,8 +758,9 @@ describe("ChatArea", () => {
     );
 
     const title = screen.getByRole("heading", { name: "Very long chat title" });
-    expect(title).toHaveClass("truncate", "text-base", "font-semibold");
-    expect(title.className).toMatch(/md:text-sm/);
+    expect(title).toHaveClass("truncate", "text-sm", "font-semibold", "text-text");
+    expect(title.className).not.toMatch(/md:text-text-muted/);
+    expect(title.className).not.toMatch(/text-base/);
   });
 
   it("shows a quiet scroll-to-bottom button when reading older messages", () => {

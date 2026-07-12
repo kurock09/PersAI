@@ -1,5 +1,45 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Chat list/header typography + align stack
+
+Status: **implemented locally; commit/push in progress.**
+
+Baseline SHA: PersAI `098d53b0` (+ this UX stack).
+
+**Typography:** Mobile chat-row titles `text-sm` (row height unchanged).
+Header name-pill title unified: `text-sm font-semibold text-text`.
+
+**Align / avatars / plan:** No message-scroll `scrollbar-gutter`; avatars only
+when pill→wall gutter `> 2 × 28px`; plan shares header name/mode column
+(mobile circle `h-12`).
+
+**Touch chat-list:** swipe/⋯/inline actions key off
+`(hover: hover) and (pointer: fine)`, not viewport width.
+
+**Verification:** AGENTS lint + format:check + api/web typecheck; focused
+sidebar/chat-area/layout/plan suites green.
+
+**Next:** tablet + Fold logged-in visual acceptance.
+
+---
+
+## 2026-07-12 — Touch-capability chat-list actions
+
+Status: **implemented locally; visual acceptance pending.**
+
+Baseline SHA: PersAI `098d53b0`.
+
+**Decision:** Chat-row swipe / visible ⋯ / inline Delete|Rename follow
+`(hover: hover) and (pointer: fine)` — not viewport width. Phones and tablets
+keep touch-first actions even when the pane is `>=600px`; mouse/trackpad keeps
+the compact portal menu.
+
+**Verification:** sidebar focused 39/39 PASS.
+
+**Next:** tablet + Fold logged-in acceptance of visible ⋯ and swipe archive.
+
+---
+
 ## 2026-07-12 — Narrow desktop chat padding + row height match
 
 Status: **implemented locally; commit/push in progress.**
