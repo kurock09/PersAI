@@ -4,7 +4,7 @@
 
 Status: **pushed.**
 
-Baseline SHA: PersAI `cbd6e3e9`.
+Baseline SHA: PersAI `f35498e6`.
 
 **Preview:** `/files/preview` on-the-fly resize is now 512px WebP q85
 (was 256/q78). No migration of stored `.thumb.webp`. Lightbox/full download
