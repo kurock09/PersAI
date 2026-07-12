@@ -2,9 +2,9 @@
 
 ## 2026-07-12 — Chat list/header typography + align stack
 
-Status: **implemented locally; commit/push in progress.**
+Status: **pushed.**
 
-Baseline SHA: PersAI `098d53b0` (+ this UX stack).
+Baseline SHA: PersAI `dbb46a36`.
 
 **Typography:** Mobile chat-row titles `text-sm` (row height unchanged).
 Header name-pill title unified: `text-sm font-semibold text-text`.
@@ -17,7 +17,7 @@ when pill→wall gutter `> 2 × 28px`; plan shares header name/mode column
 `(hover: hover) and (pointer: fine)`, not viewport width.
 
 **Verification:** AGENTS lint + format:check + api/web typecheck; focused
-sidebar/chat-area/layout/plan suites green.
+sidebar/chat-area/layout/plan 99/99 PASS.
 
 **Next:** tablet + Fold logged-in visual acceptance.
 
