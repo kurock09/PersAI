@@ -611,18 +611,18 @@ export function ChatArea({
           className="absolute inset-0 overflow-x-hidden overflow-y-auto md:[scrollbar-gutter:stable_both-edges]"
         >
           {!isEmpty && chat.chatPlan.length > 0 ? (
-            // ADR-125 follow-up — wrapper has no horizontal padding on mobile
-            // so the banner sits flush to the screen edges (the card itself
-            // drops its left/right borders at that breakpoint). On desktop
-            // the inner card sticks to the same `max-w-[50rem]` envelope as
-            // the message column for a clean width match.
-            <div className="sticky top-[4.75rem] z-10 mx-auto w-full max-w-[50rem] px-3 pt-1 md:top-20 md:px-0">
-              <ChatPlanCard
-                todos={chat.chatPlan}
-                totalCount={chat.chatPlanTotalCount}
-                windowed={chat.chatPlanWindowed}
-                onClear={chat.clearChatPlan}
-              />
+            // Match the exact horizontal envelope of the header controls.
+            // The top offset leaves an 8px visual gap below the 48px pills,
+            // including mobile safe-area inset.
+            <div className="sticky top-[calc(max(0.5rem,env(safe-area-inset-top))+3.5rem)] z-10 w-full px-3 md:top-[4.25rem] md:px-4">
+              <div className="mx-auto w-full max-w-[50rem]">
+                <ChatPlanCard
+                  todos={chat.chatPlan}
+                  totalCount={chat.chatPlanTotalCount}
+                  windowed={chat.chatPlanWindowed}
+                  onClear={chat.clearChatPlan}
+                />
+              </div>
             </div>
           ) : null}
           {isEmpty ? (

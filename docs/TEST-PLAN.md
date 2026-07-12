@@ -4,6 +4,28 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## Chat plan pill + thread-state isolation (focused checks)
+
+When changing plan chrome or thread-switch state, run:
+
+```bash
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/chat-plan-card.test.tsx app/app/_components/chat-area.test.tsx
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/use-chat.test.tsx -t "chat plan integration"
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Manual phone:
+
+1. Confirm the plan circle and expanded pill share the header's left edge and sit about 8px below it.
+2. Confirm the circle shows `completed/total`; first tap opens the compact pill and second tap opens the list.
+3. Confirm 10s idle or tapping outside returns compact/list state to the circle with a width transition.
+
+Manual desktop:
+
+1. Confirm the compact plan pill shares both header edges and the same 8px vertical gap.
+2. Confirm opening the list and waiting 10s or clicking outside returns to the compact pill (never the mobile circle).
+3. From a chat with active skill + plan, click New chat; neither old value may appear while the fresh draft initializes. A delayed old-plan response must also remain invisible.
+
 ## ADR-143 tiered tool observation projection (focused checks)
 
 When a change touches model-facing tool history projection, prior-tool-exchange replay, or in-turn `toolHistory` wiring, run:

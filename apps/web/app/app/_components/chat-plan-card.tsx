@@ -16,6 +16,16 @@ export interface ChatPlanCardProps {
 
 const ACTIVE_TODO_LIMIT = 7;
 const PLAN_BODY_MAX_HEIGHT_CLASS = "max-h-[min(40vh,280px)]";
+const PLAN_IDLE_COLLAPSE_MS = 10_000;
+const MOBILE_PLAN_QUERY = "(max-width: 767px)";
+
+function isMobilePlanViewport(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(MOBILE_PLAN_QUERY).matches
+  );
+}
 
 interface GroupedTodo {
   item: RuntimeTodoItem;
@@ -275,6 +285,9 @@ function ChatPlanCardBody({
   const [showAllActive, setShowAllActive] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [mobileCircle, setMobileCircle] = useState(true);
+  const [interactionVersion, setInteractionVersion] = useState(0);
+  const cardRef = useRef<HTMLDivElement>(null);
   const planBodyRef = useRef<HTMLDivElement>(null);
 
   const sortedTodos = useMemo(() => sortTodosForDisplay(todos), [todos]);
@@ -290,6 +303,48 @@ function ChatPlanCardBody({
       setShowAllActive(false);
     }
   }, [expanded]);
+
+  useEffect(() => {
+    const collapseForViewport = () => {
+      setExpanded(false);
+      setConfirmingClear(false);
+      if (isMobilePlanViewport()) {
+        setMobileCircle(true);
+      }
+    };
+    const handleOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !cardRef.current?.contains(event.target)) {
+        collapseForViewport();
+      }
+    };
+    document.addEventListener("pointerdown", handleOutsidePointer);
+    return () => document.removeEventListener("pointerdown", handleOutsidePointer);
+  }, []);
+
+  useEffect(() => {
+    const shouldCollapseAfterIdle = expanded || (!mobileCircle && isMobilePlanViewport());
+    if (!shouldCollapseAfterIdle) return;
+    const timer = window.setTimeout(() => {
+      setExpanded(false);
+      setConfirmingClear(false);
+      if (isMobilePlanViewport()) {
+        setMobileCircle(true);
+      }
+    }, PLAN_IDLE_COLLAPSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [expanded, interactionVersion, mobileCircle]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(MOBILE_PLAN_QUERY);
+    const handleViewportChange = () => {
+      setExpanded(false);
+      setConfirmingClear(false);
+      setMobileCircle(media.matches);
+    };
+    media.addEventListener("change", handleViewportChange);
+    return () => media.removeEventListener("change", handleViewportChange);
+  }, []);
 
   useEffect(() => {
     if (!expanded || !showAllActive || firstActiveRowId === null) {
@@ -332,19 +387,50 @@ function ChatPlanCardBody({
     setConfirmingClear(true);
   };
 
+  const handleHeaderClick = () => {
+    if (isMobilePlanViewport() && mobileCircle) {
+      setMobileCircle(false);
+      return;
+    }
+    setExpanded((prev) => !prev);
+  };
+
   return (
     <div
+      ref={cardRef}
+      data-testid="chat-plan-card"
+      onPointerDownCapture={() => setInteractionVersion((version) => version + 1)}
       className={cn(
-        "overflow-hidden border border-border/40 bg-surface-raised",
+        "overflow-hidden border border-border/40 bg-surface-raised transition-[width,border-radius] duration-300 ease-out",
+        mobileCircle ? "w-12 md:w-full" : "w-full",
         expanded ? "rounded-[1.375rem]" : "rounded-full",
         className
       )}
     >
-      <div className={cn("flex items-center gap-2 px-3", expanded ? "py-2.5" : "py-2")}>
+      {mobileCircle ? (
+        <button
+          type="button"
+          data-testid="chat-plan-mobile-circle"
+          className="flex h-11 w-[2.875rem] items-center justify-center whitespace-nowrap text-[11px] font-semibold tabular-nums text-text md:hidden"
+          onClick={handleHeaderClick}
+          aria-label={t("planCounts", { done: doneCount, total: totalCount })}
+        >
+          <span>{doneCount}</span>
+          <span className="px-px text-text-subtle/60">/</span>
+          <span>{totalCount}</span>
+        </button>
+      ) : null}
+      <div
+        className={cn(
+          "items-center gap-2 px-3",
+          mobileCircle ? "hidden md:flex" : "flex",
+          expanded ? "py-2.5" : "py-2"
+        )}
+      >
         <button
           type="button"
           className="group flex min-w-0 flex-1 items-center gap-2 text-left"
-          onClick={() => setExpanded((prev) => !prev)}
+          onClick={handleHeaderClick}
           aria-expanded={expanded}
           aria-controls={bodyId}
         >

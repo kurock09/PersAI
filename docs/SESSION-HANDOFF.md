@@ -1,5 +1,23 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Responsive plan pill + clean new-chat state
+
+Status: **implemented locally; phone/desktop visual acceptance pending.**
+
+Baseline SHA: PersAI `1d943037`.
+
+**Scope:** Plan chrome only. The sticky plan now shares the header's exact outer padding and `max-w-[50rem]` envelope, with an 8px gap below the 48px header pills. Mobile state flow is progress circle (`done/total`) → compact pill → expanded list; 10s inactivity or an outside tap returns all the way to the circle. Desktop remains compact pill → expanded list; 10s inactivity or outside click returns to compact. Width/radius transitions animate the mobile circle/pill change.
+
+**New chat correctness:** Thread changes synchronously clear plan counts/window state and active skill/scenario before new history resolves. Plan refreshes are thread/chat guarded, so a late response from the previous chat cannot leak back into a fresh draft.
+
+**Verification:** plan/layout 56/56 PASS; focused `useChat` plan integration 5/5 PASS; web typecheck PASS.
+
+**Residual:** hard-refresh a real plan on phone and desktop to visually accept alignment, animation, and the 10-second collapse. No deploy performed.
+
+**Next:** visual acceptance on both breakpoints, then deploy in the next web rollout.
+
+---
+
 ## 2026-07-12 — Honest TG overlay chrome (messages under header/footer)
 
 Status: **implemented locally; visual check pending.**

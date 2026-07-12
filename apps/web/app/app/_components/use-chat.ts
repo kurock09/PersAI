@@ -1538,6 +1538,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     setCompaction(null);
     setRecentAutoCompaction(null);
     setCompactionRunning(restoredSnapshot?.compactionRunning ?? false);
+    // Plan and skill engagement are chat-owned. Never let the previous
+    // thread's chrome survive while the next thread (or a fresh draft)
+    // resolves its own history.
+    setChatPlan([]);
+    setChatPlanTotalCount(0);
+    setChatPlanWindowed(false);
+    setCurrentEngagement(null);
     setHasOlderMessages(cachedHistorySnapshot?.hasOlderMessages ?? false);
     replaceActiveMediaJobs(cachedHistorySnapshot?.activeMediaJobs ?? []);
     replaceActiveDocumentJobs(cachedHistorySnapshot?.activeDocumentJobs ?? []);
@@ -1612,28 +1619,41 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     },
     [getToken]
   );
-  const refreshChatPlan = useCallback(async () => {
-    const targetChatId = activeChatIdRef.current ?? chatId;
-    if (!targetChatId) return;
-    const token = await getToken({ skipCache: true });
-    if (!token) return;
-    try {
-      const result = await getAssistantWebChatPlan(token, targetChatId);
-      setChatPlan(result.todos);
-      setChatPlanTotalCount(result.totalCount);
-      setChatPlanWindowed(result.windowed);
-    } catch {
-      /* non-critical */
-    }
-  }, [chatId, getToken]);
+  const refreshChatPlan = useCallback(
+    async (requestedChatId?: string | null, requestedThreadKey?: string): Promise<void> => {
+      const targetChatId = requestedChatId ?? activeChatIdRef.current ?? chatId;
+      const targetThreadKey = requestedThreadKey ?? currentThreadKeyRef.current;
+      if (!targetChatId) return;
+      const token = await getToken({ skipCache: true });
+      if (!token) return;
+      try {
+        const result = await getAssistantWebChatPlan(token, targetChatId);
+        // A late response from the previous chat must not repopulate the
+        // newly-opened draft/thread after its synchronous reset.
+        if (
+          currentThreadKeyRef.current !== targetThreadKey ||
+          activeChatIdRef.current !== targetChatId
+        ) {
+          return;
+        }
+        setChatPlan(result.todos);
+        setChatPlanTotalCount(result.totalCount);
+        setChatPlanWindowed(result.windowed);
+      } catch {
+        /* non-critical */
+      }
+    },
+    [chatId, getToken]
+  );
   const clearChatPlan = useCallback(async () => {
     const targetChatId = activeChatIdRef.current ?? chatId;
+    const targetThreadKey = currentThreadKeyRef.current;
     if (!targetChatId) return;
     const token = await getToken({ skipCache: true });
     if (!token) return;
     try {
       await clearAssistantWebChatPlan(token, targetChatId);
-      await refreshChatPlan();
+      await refreshChatPlan(targetChatId, targetThreadKey);
     } catch {
       /* non-critical */
     }

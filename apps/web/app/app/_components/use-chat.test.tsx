@@ -7168,6 +7168,125 @@ describe("useChat", () => {
   });
 
   describe("chat plan integration", () => {
+    it("clears the previous chat plan and skill engagement on a thread switch", async () => {
+      const planTodo = {
+        id: "todo-reset-1",
+        parentId: null,
+        content: "Old chat task",
+        status: "pending" as const
+      };
+      assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+        messages: [],
+        nextCursor: null,
+        activeTurn: null,
+        activeMediaJobs: [],
+        activeDocumentJobs: [],
+        currentEngagement: {
+          skillDisplayName: "Old skill",
+          scenarioDisplayName: "Old scenario"
+        }
+      });
+      assistantApiMocks.getAssistantWebChatPlan.mockResolvedValueOnce({
+        requestId: "r-reset",
+        chatId: "chat-old",
+        todos: [planTodo],
+        windowed: false,
+        totalCount: 1
+      });
+
+      const { result, rerender } = renderHook(({ threadKey }) => useChat(threadKey), {
+        initialProps: { threadKey: "thread-old" },
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.loadHistory("chat-old");
+      });
+      await waitFor(() => {
+        expect(result.current.chatPlan).toEqual([planTodo]);
+        expect(result.current.currentEngagement).toEqual({
+          skillDisplayName: "Old skill",
+          scenarioDisplayName: "Old scenario"
+        });
+      });
+
+      rerender({ threadKey: "thread-new" });
+
+      expect(result.current.chatPlan).toEqual([]);
+      expect(result.current.chatPlanTotalCount).toBe(0);
+      expect(result.current.chatPlanWindowed).toBe(false);
+      expect(result.current.currentEngagement).toBeNull();
+    });
+
+    it("ignores a late plan response from the chat that was left", async () => {
+      let resolvePlan:
+        | ((value: {
+            requestId: string;
+            chatId: string;
+            todos: Array<{
+              id: string;
+              parentId: null;
+              content: string;
+              status: "pending";
+            }>;
+            windowed: boolean;
+            totalCount: number;
+          }) => void)
+        | undefined;
+      const latePlan = new Promise<{
+        requestId: string;
+        chatId: string;
+        todos: Array<{
+          id: string;
+          parentId: null;
+          content: string;
+          status: "pending";
+        }>;
+        windowed: boolean;
+        totalCount: number;
+      }>((resolve) => {
+        resolvePlan = resolve;
+      });
+      assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+        messages: [],
+        nextCursor: null,
+        activeTurn: null,
+        activeMediaJobs: [],
+        activeDocumentJobs: []
+      });
+      assistantApiMocks.getAssistantWebChatPlan.mockReturnValueOnce(latePlan);
+
+      const { result, rerender } = renderHook(({ threadKey }) => useChat(threadKey), {
+        initialProps: { threadKey: "thread-old" },
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.loadHistory("chat-old");
+      });
+      rerender({ threadKey: "thread-new" });
+      await act(async () => {
+        resolvePlan?.({
+          requestId: "late",
+          chatId: "chat-old",
+          todos: [
+            {
+              id: "late-todo",
+              parentId: null,
+              content: "Must not leak",
+              status: "pending"
+            }
+          ],
+          windowed: false,
+          totalCount: 1
+        });
+        await latePlan;
+      });
+
+      expect(result.current.chatPlan).toEqual([]);
+      expect(result.current.chatPlanTotalCount).toBe(0);
+    });
+
     it("fetches the plan when loadHistory resolves", async () => {
       const planTodo = {
         id: "todo-lh-1",
