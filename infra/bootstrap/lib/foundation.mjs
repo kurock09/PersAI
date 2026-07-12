@@ -49,6 +49,16 @@ export const ADR146_CONTROLLED_PROBE_POD_NAMES = Object.freeze([
 ]);
 
 /**
+ * Inert controller bookkeeping annotation keys allowed on live Argo-managed
+ * `sandbox-exec-sa`. Any other annotation (WIF/GCP identity, arbitrary, or
+ * security-relevant) fails closed.
+ */
+export const EXEC_KSA_INERT_ANNOTATION_KEYS = Object.freeze([
+  "argocd.argoproj.io/tracking-id",
+  "kubectl.kubernetes.io/last-applied-configuration"
+]);
+
+/**
  * SubnetworkLogConfig.metadata API describe enums → gcloud CLI
  * `--logging-metadata` ChoiceEnumMapper values (not the API names).
  * Verified against `gcloud compute networks subnets update --help` /
@@ -1289,13 +1299,12 @@ export function evaluateLiveFoundation(inventory, live) {
       }))
     )
   );
-  const execSaAnnotations = live.execServiceAccount?.metadata?.annotations ?? {};
   check(
     checks,
     "exec-ksa-object-ready",
     live.execServiceAccount?.metadata?.name === "sandbox-exec-sa" &&
       live.execServiceAccount?.automountServiceAccountToken === false &&
-      Object.keys(execSaAnnotations).length === 0,
+      execKsaAnnotationsAreIdentityLess(live.execServiceAccount?.metadata?.annotations),
     JSON.stringify(live.execServiceAccount ?? null)
   );
   check(
@@ -1396,6 +1405,24 @@ export function evaluateLiveFoundation(inventory, live) {
   return result(checks);
 }
 
+/**
+ * Live kubectl JSON may omit `spec.ingress` when the submitted policy used
+ * `ingress: []`. Absent/null is semantically empty deny-all ingress; any
+ * present non-empty list is a widen and must fail closed.
+ */
+export function networkPolicyIngressIsEmpty(ingress) {
+  return ingress == null || (Array.isArray(ingress) && ingress.length === 0);
+}
+
+/**
+ * Identity-less exec KSA: zero annotations, or only known inert controller
+ * bookkeeping keys. Rejects WIF/GCP identity and arbitrary annotations.
+ */
+export function execKsaAnnotationsAreIdentityLess(annotations) {
+  const keys = Object.keys(annotations ?? {});
+  return keys.every((key) => EXEC_KSA_INERT_ANNOTATION_KEYS.includes(key));
+}
+
 function execNetworkPolicyMatches(inventory, policy) {
   if (!policy) return false;
   const spec = policy.spec ?? {};
@@ -1416,14 +1443,13 @@ function execNetworkPolicyMatches(inventory, policy) {
       }) &&
       portsMatch(rule.ports, [{ protocol: "TCP", port: 3128 }])
   );
-  return (
+  return Boolean(
     policy.metadata?.name === "sandbox-exec-isolation" &&
     exactPodSelector(spec.podSelector, {
       "app.kubernetes.io/component": "sandbox-exec"
     }) &&
     sameSet(spec.policyTypes ?? [], ["Ingress", "Egress"]) &&
-    Array.isArray(spec.ingress) &&
-    spec.ingress.length === 0 &&
+    networkPolicyIngressIsEmpty(spec.ingress) &&
     (spec.egress ?? []).length === 2 &&
     dnsRule &&
     proxyRule
@@ -1490,17 +1516,16 @@ function natProbeNetworkPolicyMatches(inventory, policy) {
       exactIpBlockPeer(rule.to[0], "0.0.0.0/0", buildRestrictedProxyDeniedCidrs(inventory)) &&
       portsMatch(rule.ports, [{ protocol: "TCP", port: 443 }])
   );
-  return (
+  return Boolean(
     policy.metadata?.name === "sandbox-nat-identity-probe-isolation" &&
     exactPodSelector(spec.podSelector, {
       "sandbox.gke.io/adr146-nat-probe": "true"
     }) &&
     sameSet(spec.policyTypes ?? [], ["Ingress", "Egress"]) &&
-    Array.isArray(spec.ingress) &&
-    spec.ingress.length === 0 &&
+    networkPolicyIngressIsEmpty(spec.ingress) &&
     egress.length === 2 &&
-    Boolean(dnsRule) &&
-    Boolean(publicRule)
+    dnsRule &&
+    publicRule
   );
 }
 

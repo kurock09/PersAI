@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 live-verifier Kubernetes normalization repair
+
+Status: **live-verifier Kubernetes normalization repair committed locally in the
+current unpushed HEAD on live baseline `04b1d0d1`; no cloud mutation; Environment
+still unapproved; controlled probes not applied; S1 blocked.**
+
+**Live truth at baseline `04b1d0d1`:** Argo Synced/Healthy; `sandbox-egress-proxy`
+Ready (Squid logformat + checksum repair landed/pushed). Structural
+`node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify` reached
+verifier normalization blockers only — not foundation acceptance.
+
+**Verifier repair (local):**
+
+1. `exec-ksa-object-ready` allows only known inert controller bookkeeping
+   annotations (`argocd.argoproj.io/tracking-id`,
+   `kubectl.kubernetes.io/last-applied-configuration`); still fail-closed on
+   WIF/GCP identity, arbitrary, or security-relevant annotations.
+2. `exec-networkpolicy-structural` / `nat-probe-networkpolicy-structural` treat
+   omitted/null `spec.ingress` as semantically empty (Kubernetes omits submitted
+   `ingress: []`); still reject any non-empty ingress.
+3. `execNetworkPolicyMatches` returns a strict `Boolean` (not object truthiness).
+4. `exec-ksa-live-wiring` unchanged: zero real Running exec pods remains a
+   correct fail until a controlled restricted probe (or real exec) is applied.
+
+**Still incomplete:** controlled probes not applied; no enforcement proof;
+Environment not approved; non-sandbox pins may still wait; S0.1 not
+live-accepted; S1 blocked. Do **not** claim foundation complete.
+
+**Next:** push (if needed for verifier-only) → re-run structural `verify` →
+apply controlled probes → active probes / cleanup → Environment approval(s).
+
+---
+
 ## 2026-07-13 — ADR-146 sandbox-egress-proxy Squid logformat + subPath rollout repair
 
 Status: **Squid logformat + checksum repair committed locally in the current

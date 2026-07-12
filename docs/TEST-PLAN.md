@@ -68,7 +68,15 @@ Required local invariants:
    port, and the complete values-owned proxy deny inventory. Exec/proxy/NAT-probe
    top-level and peer selectors have exact matchLabels and reject
    namespaceSelector/podSelector/matchExpressions widening. Helm fails if required
-   denies are absent. `sandbox-egress-proxy` ConfigMap `logformat persai_egress`
+   denies are absent. Live structural verify for that KSA allows only the
+   explicit inert controller bookkeeping annotation allowlist
+   (`argocd.argoproj.io/tracking-id`,
+   `kubectl.kubernetes.io/last-applied-configuration`) and fail-closes on
+   WIF/GCP identity, arbitrary, or security-relevant annotations. Live
+   NetworkPolicy structural verify treats omitted/null `spec.ingress` as
+   semantically empty deny-all (Kubernetes omits submitted `ingress: []`) and
+   still rejects any non-empty ingress; matcher helpers return strict booleans.
+   `sandbox-egress-proxy` ConfigMap `logformat persai_egress`
    must render exact static `tool=shell`, retain `%ru` destination audit, and must
    not include unsupported `%ssl::*` tokens (pinned `ubuntu/squid:6.6-24.04_edge`
    → Squid 6.14 GnuTLS / no OpenSSL SSL-Bump). Deployment pod template must carry
@@ -82,7 +90,9 @@ Required local invariants:
    network pull).
 7. Final structural verify cannot claim exec KSA wiring with zero qualifying
    Running exec pods; default-SA pods fail. Object-level KSA readiness alone is
-   pre-rollout structure, not live wiring proof.
+   pre-rollout structure, not live wiring proof. Zero real Running exec pods
+   before controlled restricted probe apply is an expected live-wiring fail and
+   must not be weakened.
 8. Every mutating execute phase starts with fresh live preflight; existing
    resource drift fails closed rather than existence-skipping.
 9. Structural verify and founder-approved dynamic probes are separate; local

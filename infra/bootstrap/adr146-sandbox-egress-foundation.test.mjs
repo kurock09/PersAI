@@ -16,6 +16,7 @@ import {
   ADR146_CONTROLLED_PROBE_POD_NAMES,
   ADR146_PROBE_ACTIVE_DEADLINE_SECONDS,
   ADR146_PROBE_RESOURCES,
+  EXEC_KSA_INERT_ANNOTATION_KEYS,
   GKE_MANAGED_SANDBOX_RUNTIME_KEY,
   GKE_SANDBOX_TYPE_GVISOR,
   buildControlledProbeCleanupPlan,
@@ -28,9 +29,11 @@ import {
   evaluatePreflight,
   evaluatePublicPoolCordon,
   evaluateRetirementGate,
+  execKsaAnnotationsAreIdentityLess,
   exactIpBlockOnlyPeers,
   exactPeerPodSelector,
   exactPodSelector,
+  networkPolicyIngressIsEmpty,
   FLOW_LOG_METADATA_API_TO_CLI,
   flowLogAggregationCliArg,
   flowLogMetadataCliArg,
@@ -1384,6 +1387,127 @@ test("live verify rejects zero exec pods and default-SA pods for KSA wiring", ()
   ];
   evaluated = evaluateLiveFoundation(inventory, live);
   assert.ok(evaluated.checks.some((entry) => entry.id === "exec-ksa-live-wiring" && !entry.ok));
+});
+
+test("exec-ksa-object-ready allows only inert controller bookkeeping annotations", () => {
+  assert.deepEqual(
+    [...EXEC_KSA_INERT_ANNOTATION_KEYS],
+    ["argocd.argoproj.io/tracking-id", "kubectl.kubernetes.io/last-applied-configuration"]
+  );
+  assert.equal(execKsaAnnotationsAreIdentityLess(undefined), true);
+  assert.equal(execKsaAnnotationsAreIdentityLess(null), true);
+  assert.equal(execKsaAnnotationsAreIdentityLess({}), true);
+  assert.equal(
+    execKsaAnnotationsAreIdentityLess({
+      "argocd.argoproj.io/tracking-id": "persai-dev:apps/ServiceAccount:persai-dev/sandbox-exec-sa",
+      "kubectl.kubernetes.io/last-applied-configuration": "{}"
+    }),
+    true
+  );
+  assert.equal(
+    execKsaAnnotationsAreIdentityLess({
+      "iam.gke.io/gcp-service-account": "sandbox@example.iam.gserviceaccount.com"
+    }),
+    false
+  );
+  assert.equal(
+    execKsaAnnotationsAreIdentityLess({
+      "argocd.argoproj.io/tracking-id": "ok",
+      "cloud.google.com/gke-workload-identity": "true"
+    }),
+    false
+  );
+  assert.equal(execKsaAnnotationsAreIdentityLess({ "example.com/arbitrary": "x" }), false);
+
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  live.execPods = [];
+  live.execServiceAccount = {
+    metadata: {
+      name: "sandbox-exec-sa",
+      annotations: {
+        "argocd.argoproj.io/tracking-id":
+          "persai-dev:apps/ServiceAccount:persai-dev/sandbox-exec-sa",
+        "kubectl.kubernetes.io/last-applied-configuration": "{}"
+      }
+    },
+    automountServiceAccountToken: false
+  };
+  let evaluated = evaluateLiveFoundation(inventory, live);
+  assert.equal(evaluated.checks.find((entry) => entry.id === "exec-ksa-object-ready").ok, true);
+  // Zero real exec pods remain expected until controlled restricted probe apply.
+  assert.equal(evaluated.checks.find((entry) => entry.id === "exec-ksa-live-wiring").ok, false);
+
+  live.execServiceAccount.metadata.annotations = {
+    "iam.gke.io/gcp-service-account": "evil@example.iam.gserviceaccount.com"
+  };
+  evaluated = evaluateLiveFoundation(inventory, live);
+  assert.equal(evaluated.checks.find((entry) => entry.id === "exec-ksa-object-ready").ok, false);
+});
+
+test("NetworkPolicy structural verify treats omitted ingress as empty and rejects widened ingress", () => {
+  assert.equal(networkPolicyIngressIsEmpty(undefined), true);
+  assert.equal(networkPolicyIngressIsEmpty(null), true);
+  assert.equal(networkPolicyIngressIsEmpty([]), true);
+  assert.equal(networkPolicyIngressIsEmpty([{ from: [] }]), false);
+  assert.equal(networkPolicyIngressIsEmpty({}), false);
+
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  live.execPods = [];
+
+  // Live Kubernetes omits submitted ingress: [] — accept absent as empty deny-all.
+  delete live.execNetworkPolicy.spec.ingress;
+  delete live.natProbeNetworkPolicy.spec.ingress;
+  let evaluated = evaluateLiveFoundation(inventory, live);
+  assert.equal(
+    evaluated.checks.find((entry) => entry.id === "exec-networkpolicy-structural").ok,
+    true
+  );
+  assert.equal(
+    evaluated.checks.find((entry) => entry.id === "nat-probe-networkpolicy-structural").ok,
+    true
+  );
+  assert.equal(
+    typeof evaluated.checks.find((entry) => entry.id === "exec-networkpolicy-structural").ok,
+    "boolean"
+  );
+
+  // Explicit empty array still passes.
+  live.execNetworkPolicy.spec.ingress = [];
+  live.natProbeNetworkPolicy.spec.ingress = [];
+  evaluated = evaluateLiveFoundation(inventory, live);
+  assert.equal(
+    evaluated.checks.find((entry) => entry.id === "exec-networkpolicy-structural").ok,
+    true
+  );
+  assert.equal(
+    evaluated.checks.find((entry) => entry.id === "nat-probe-networkpolicy-structural").ok,
+    true
+  );
+
+  // Any non-empty ingress is a widen and fails closed.
+  live.execNetworkPolicy.spec.ingress = [
+    {
+      from: [
+        {
+          podSelector: {
+            matchLabels: { "app.kubernetes.io/component": "sandbox-exec" }
+          }
+        }
+      ]
+    }
+  ];
+  live.natProbeNetworkPolicy.spec.ingress = [{ from: [{ podSelector: {} }] }];
+  evaluated = evaluateLiveFoundation(inventory, live);
+  assert.equal(
+    evaluated.checks.find((entry) => entry.id === "exec-networkpolicy-structural").ok,
+    false
+  );
+  assert.equal(
+    evaluated.checks.find((entry) => entry.id === "nat-probe-networkpolicy-structural").ok,
+    false
+  );
 });
 
 test("exec-ksa-live-wiring excludes controlled probes and requires a real exec pod", () => {

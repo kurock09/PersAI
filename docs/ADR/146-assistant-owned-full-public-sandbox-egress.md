@@ -14,23 +14,20 @@ probe-manifest generation and commit/inventory evidence binding.
 Live foundation progress (2026-07-13; **not** acceptance): prepare, exact NAT/
 firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready with
 exact contour, idempotent legacy cordon, and maintenance-gated public-pool
-retirement have completed. Coordinated push **`3cd2ea4f` is live**: Dev Image
-Publish built all services and pinned **sandbox only**; deferred remaining pins
-wait on GitHub Environment `persai-dev-adr146-foundation` (**not approved**;
-non-sandbox pins remain last-good). Argo applied KSA/NetworkPolicy but stayed
-**Progressing** because `sandbox-egress-proxy` entered `CrashLoopBackOff` on an
-unsupported Squid `logformat` token `%ssl::>sni` (pinned
-`ubuntu/squid:6.6-24.04_edge` → Squid 6.14 GnuTLS / no OpenSSL SSL-Bump). A
-repo-local repair removes that token, keeps `%ru` + static `tool=shell`, extracts
-exact Squid config via Helm helper `persai.sandboxEgressProxy.squidConf`, and
-annotates the Deployment pod template with `checksum/squid-conf` so ConfigMap
-content changes recreate the Pod despite `subPath` (ConfigMap-only sync is
-**not** sufficient). Helm/`squid -k parse` regression coverage included; repair
-is **not yet pushed**. Active probes and enforcement proof are still absent.
-S0.1 is **not** live-complete and this ADR is **not** closed. S1 app/API/UI work
-stays blocked until S0.1 is live-accepted. Next: push the Squid repair →
-confirm checksum-driven proxy Pod recreate to Ready → probes/verify/cleanup →
-Environment approval(s).
+retirement have completed. Coordinated push **`3cd2ea4f`** and Squid logformat +
+checksum repair **`04b1d0d1` are live**: Argo Synced/Healthy;
+`sandbox-egress-proxy` Ready; sandbox pin immediate; deferred remaining pins
+still wait on GitHub Environment `persai-dev-adr146-foundation` (**not
+approved**; non-sandbox pins last-good). Structural `verify` on `04b1d0d1`
+reached verifier↔API-server normalization blockers (Argo inert KSA annotations;
+omitted empty NetworkPolicy `ingress`; non-strict matcher boolean) — not missing
+Helm objects. Live-verifier normalization repair is **committed locally in the
+current unpushed HEAD on live baseline `04b1d0d1`**. Controlled probes are
+**not** applied; active probes and enforcement proof remain absent. S0.1 is
+**not** live-complete and this ADR is **not** closed. S1 app/API/UI work stays
+blocked until S0.1 is live-accepted. Next: push verifier repair → re-run
+structural `verify` → controlled probes → active probes/cleanup → Environment
+approval(s).
 
 ## Date
 
@@ -52,9 +49,10 @@ Live foundation checkpoint baseline (local, unpushed): `1300970f9452694418513336
 (`1300970f`). Resume/retire/verify + Environment-existence docs are committed on
 the clean local pre-push branch through
 `ebbc5fe41f2fe51d5db0711ac6f341fc5ef4664c` (`ebbc5fe4`). Coordinated push live
-at `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f` (`3cd2ea4f`). Squid logformat
-CrashLoop repair is committed locally in the current unpushed HEAD (still not
-pushed/deployed).
+at `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f` (`3cd2ea4f`). Squid logformat +
+checksum repair live at `04b1d0d190d19ebda5787694cbd257270647a61e`
+(`04b1d0d1`; proxy Ready). Live-verifier Kubernetes normalization repair is
+committed locally in the current unpushed HEAD on live baseline `04b1d0d1`.
 
 ## Orchestration model
 
@@ -685,11 +683,17 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
   and pinned **sandbox only**; deferred remaining pins wait on Environment
   (not approved; non-sandbox pins last-good). Argo applied KSA/NetworkPolicy
   but `sandbox-egress-proxy` CrashLoopBackOff on unsupported
-  `logformat … %ssl::>sni` (Squid 6.14 GnuTLS / no SSL-Bump). Repo-local repair
-  removes `%ssl::>sni`, keeps `%ru` + static `tool=shell`, extracts exact Squid
-  config via Helm helper `persai.sandboxEgressProxy.squidConf`, adds pod-template
-  `checksum/squid-conf` for subPath-safe recreate, and adds Helm/`squid -k parse`
-  regression — **not pushed yet**;
+  `logformat … %ssl::>sni` (Squid 6.14 GnuTLS / no SSL-Bump). Squid logformat +
+  checksum repair **`04b1d0d1` is live**: Argo Synced/Healthy;
+  `sandbox-egress-proxy` Ready (ConfigMap + `checksum/squid-conf` recreate);
+- structural `verify` on live `04b1d0d1` then failed only on verifier↔API-server
+  shape mismatches (not missing objects): Argo-managed exec KSA inert
+  annotations, omitted empty NetworkPolicy `ingress`, and non-strict matcher
+  boolean. Live-verifier normalization repair (inert-annotation allowlist;
+  absent/null ingress ≡ empty; strict `Boolean` matcher returns;
+  `exec-ksa-live-wiring` zero-pod fail unchanged) is **committed locally in the
+  current unpushed HEAD on live baseline `04b1d0d1`**; controlled probes are
+  **not** applied;
 - GitHub Environment `persai-dev-adr146-foundation` **exists live**
   (required reviewer `kurock09` / user id `126346824`,
   `prevent_self_review=false`, custom deployment branch policy exactly `main`,
@@ -698,8 +702,8 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
   completion and enforcement are **not** claimed.
 
 Exact push-last sequence (founder-coordinated; live GCP/Calico/private-pool/
-retirement + Environment creation + coordinated push above are done; proxy
-checksum-driven Pod recreate + probes + approvals remain):
+retirement + Environment creation + coordinated push + proxy Ready above are
+done; verifier normalization push + probes + approvals remain):
 
 1. create protected GitHub Environment `persai-dev-adr146-foundation` —
    **done**: Environment exists live with required reviewer `kurock09`
@@ -708,14 +712,15 @@ checksum-driven Pod recreate + probes + approvals remain):
    approved/deployed. Create `persai-dev-migrations` when that gate is needed;
 2. run the final full local gate from a clean tree;
 3. one coordinated founder push of the ADR-146 commit range — **done at
-   `3cd2ea4f`**; follow with the Squid logformat CrashLoop + checksum rollout
-   repair push;
+   `3cd2ea4f`**; Squid logformat CrashLoop + checksum rollout repair —
+   **done/live at `04b1d0d1`** (proxy Ready);
 4. observe Argo apply repaired `sandbox-egress-proxy` ConfigMap **and**
    checksum-driven Pod recreate to Ready while non-sandbox image tags remain
    last-good (sandbox already pinned). Do **not** treat ConfigMap-only sync as
-   sufficient under `subPath`;
-5. create real/controlled probes, re-run structural `verify` (clean-tree
-   evidence bound to commit SHA + inventory SHA-256), run active probes, then
+   sufficient under `subPath` — **done at `04b1d0d1`**;
+5. push live-verifier Kubernetes normalization repair, re-run structural
+   `verify` (clean-tree evidence bound to commit SHA + inventory SHA-256),
+   create real/controlled probes, run active probes, then
    `cleanup-controlled-probes --execute` (required on success and failure);
 6. approve GitHub Environment `persai-dev-adr146-foundation`;
 7. when migrations are also present, approve `persai-dev-migrations` after step 6;
@@ -725,11 +730,9 @@ Failure/rollback: remain on last-good non-sandbox pins if verification fails;
 sandbox tag may roll back independently; never disable Calico; never restore the
 removed plan `networkAccessEnabled` boolean.
 
-Next: commit any pending migration-pin repair → final full local gate → one
-coordinated push → observe Argo KSA/NP apply with last-good non-sandbox tags and
-sandbox-only pin → real/controlled probes → structural verify → active probes →
-cleanup → Environment approval(s). Do **not** claim foundation complete. Push
-remains blocked until that coordinated step. S1 remains blocked.
+Next: push of the live-verifier normalization repair → re-run structural
+`verify` → controlled probes → active probes → cleanup → Environment
+approval(s). Do **not** claim foundation complete. S1 remains blocked.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:
