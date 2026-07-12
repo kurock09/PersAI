@@ -5,10 +5,13 @@
 Accepted — founder-directed production orchestration program opened 2026-07-12.
 Slice 0 read-only code/live-cluster audit completed 2026-07-12 with implementation
 **NO-GO**. Slice 0.1 repository automation for the founder-selected current-cluster
-Calico + private sandbox egress contour is **implemented locally only** (not
-applied live, not deployed, not marked complete). Live mutation, final structural
-verify, and `probe-restricted` acceptance remain pending. S1 app/API/UI work stays
-blocked until S0.1 is live-accepted.
+Calico + private sandbox egress contour **landed on clean `main` at
+`edef3c0b`** (audits + local gates passed). It is **repo-local only**: no cloud
+mutation, live apply, structural verify, or active probes yet; S0.1 is **not**
+live-complete and this ADR is **not** closed. S1 app/API/UI work stays blocked
+until S0.1 is live-accepted. Next bounded work is Slice 0.1b release-gate
+resolution plus the founder-approved live foundation sequence; push/deploy
+remains deferred until the program's final coordinated deployment.
 
 ## Date
 
@@ -19,6 +22,9 @@ blocked until S0.1 is live-accepted.
 Program-open baseline: `a0c3e997f40baeb05d62bbd80ac89abfafc4fed7`.
 
 Slice 0 audit baseline: `e137d7d46d07475d2e74d66704ef483dc6b103c0`.
+
+Slice 0.1 repo-local land: `edef3c0bc2d839ac8ddac1c5b60fd39440d5e947`
+(`edef3c0b` after rebase onto `origin/main`).
 
 ## Orchestration model
 
@@ -567,10 +573,13 @@ foundation. S1/S2 are blocked.
 
 Subagent: Cursor Grok 4.5.
 
-Status: **repo-local implementation only (2026-07-12).** No cloud mutation, no
-live completion, no deploy/push. Final release remains blocked until live
-structural verify + active probes pass and the Argo/WIF release-gate contour is
-resolved.
+Status: **repo-local land on clean `main` at `edef3c0b` (2026-07-12).** Audits
+and local gates passed. No cloud mutation, live apply, structural verify, or
+active probes yet — S0.1 is **not** live-complete. App S1 remains blocked.
+Next: Slice 0.1b release-gate resolution, then founder-approved live
+`preflight` → `apply` → maintenance retirement → structural `verify` →
+`probe-restricted`. Push/deploy stays deferred until the program's final
+coordinated deployment.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:

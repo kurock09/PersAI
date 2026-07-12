@@ -1,13 +1,15 @@
 # SESSION-HANDOFF
 
-## 2026-07-12 — ADR-146 Slice 0.1 repo-local foundation (audit repair)
+## 2026-07-12 — ADR-146 Slice 0.1 continuity reconciliation
 
-Status: **repo-local only; not live-complete; deploy/push blocked.**
+Status: **repo-local Slice 0.1 landed on clean `main`; not live-complete;
+S1 blocked; push/deploy deferred.**
 
-Baseline SHA: PersAI `f7bc640f` (dirty WIP tree; no commit in this subagent turn).
+Landed SHA: PersAI `edef3c0b` (`edef3c0bc2d839ac8ddac1c5b60fd39440d5e947`
+after rebase onto `origin/main`). Audits and local gates passed.
 
-**Scope landed locally:** founder-selected current-cluster Calico + private
-sandbox egress foundation under `infra/bootstrap/adr146-sandbox-egress-foundation.*`,
+**Scope on `main`:** founder-selected current-cluster Calico + private sandbox
+egress foundation under `infra/bootstrap/adr146-sandbox-egress-foundation.*`,
 Helm NetworkPolicy/KSA rendering, sandbox exec SA config wiring, and continuity
 docs. Audit repair closed: GKE `--sandbox=type=gvisor` + live sandboxConfig
 proof; fail-closed legacy public-pool cordon after private Ready (no delete);
@@ -16,12 +18,14 @@ matchers; restricted/NAT probe contour validators; Calico-owned kube-dns +
 control-plane Pod denial targets; conflicting EGRESS ALLOW inventory; Squid
 non-allowlist denial; inbound/redirect/DNS-rebind explicitly unclaimed.
 
-**Not done:** no gcloud/kubectl mutation, no live apply/verify/probe, no
-image publish, no GitOps pin, no S1 app/API/UI work. Final release remains
-blocked by Slice 0.1b Argo HEAD + GAR-only WIF attestation gap.
+**Not done:** no cloud mutation, no live apply/structural verify/active probes,
+no image publish, no GitOps pin, no S1 app/API/UI work. ADR-146 itself remains
+open — do not treat Slice 0.1 land as program completion.
 
-**Next:** founder-approved live `preflight` → `apply` → maintenance retirement
-→ structural `verify` → `probe-restricted`; only then consider S1.
+**Next:** Slice 0.1b release-gate resolution (Argo HEAD + GAR-only WIF
+attestation gap), then founder-approved live `preflight` → `apply` →
+maintenance retirement → structural `verify` → `probe-restricted`. Push/deploy
+remains deferred until the program's final coordinated deployment.
 
 ---
 
