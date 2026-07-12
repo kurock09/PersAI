@@ -813,14 +813,28 @@ export function evaluatePreflight(inventory, live, phase) {
     JSON.stringify(sandboxRange ?? null)
   );
 
+  const reviewedVpcSubnetRoutes = [inventory.cidrs.nodePrimary, ...inventory.cidrs.vpcSubnetDenies];
+  const postPrepareVpcSubnetRoutes = [
+    ...reviewedVpcSubnetRoutes,
+    inventory.cidrs.sandboxPodSecondary
+  ];
+  const hasExactSandboxSecondary =
+    sandboxRange?.ipCidrRange === inventory.cidrs.sandboxPodSecondary;
+  // Exact two-state inventory only: pre-prepare reviewed routes, or post-prepare
+  // reviewed routes plus the dedicated sandbox secondary route. Presence of the
+  // exact named secondary selects the post state; mismatches fail closed.
+  const expectedVpcSubnetRoutes = hasExactSandboxSecondary
+    ? postPrepareVpcSubnetRoutes
+    : reviewedVpcSubnetRoutes;
   check(
     checks,
     "vpc-subnet-route-inventory",
-    sameSet(live.vpcSubnetRoutes ?? [], [
-      inventory.cidrs.nodePrimary,
-      ...inventory.cidrs.vpcSubnetDenies
-    ]),
-    JSON.stringify(live.vpcSubnetRoutes ?? [])
+    sameSet(live.vpcSubnetRoutes ?? [], expectedVpcSubnetRoutes),
+    JSON.stringify({
+      actual: live.vpcSubnetRoutes ?? [],
+      expected: expectedVpcSubnetRoutes,
+      sandboxSecondaryExact: hasExactSandboxSecondary
+    })
   );
   check(
     checks,

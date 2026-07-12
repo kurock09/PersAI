@@ -130,7 +130,11 @@ function baseLive(inventory) {
         }
       ]
     },
-    vpcSubnetRoutes: [inventory.cidrs.nodePrimary, ...inventory.cidrs.vpcSubnetDenies],
+    vpcSubnetRoutes: [
+      inventory.cidrs.nodePrimary,
+      ...inventory.cidrs.vpcSubnetDenies,
+      inventory.cidrs.sandboxPodSecondary
+    ],
     peerRoutes: [...inventory.cidrs.observedPeerRoutes],
     psaRanges: [inventory.cidrs.peers.psaA, inventory.cidrs.peers.psaB],
     publicPool: null,
@@ -664,6 +668,81 @@ test("preflight fails on identity, CIDR, secondary, peer, or maintenance drift",
       id
     );
   }
+});
+
+test("vpc subnet route inventory accepts exact pre/post-prepare states and fails closed on drift", () => {
+  const inventory = loadInventory();
+  const reviewedRoutes = [inventory.cidrs.nodePrimary, ...inventory.cidrs.vpcSubnetDenies];
+  const postPrepareRoutes = [...reviewedRoutes, inventory.cidrs.sandboxPodSecondary];
+  const existingSecondariesOnly = Object.entries(inventory.network.existingSecondaryRanges).map(
+    ([rangeName, ipCidrRange]) => ({ rangeName, ipCidrRange })
+  );
+
+  const preLive = baseLive(inventory);
+  preLive.subnet.secondaryIpRanges = existingSecondariesOnly;
+  preLive.vpcSubnetRoutes = [...reviewedRoutes];
+  const preEvaluated = evaluatePreflight(inventory, preLive, "prepare");
+  assert.ok(
+    preEvaluated.checks.some((entry) => entry.id === "vpc-subnet-route-inventory" && entry.ok),
+    "pre-prepare reviewed routes must pass"
+  );
+
+  const postLive = baseLive(inventory);
+  postLive.vpcSubnetRoutes = [...postPrepareRoutes];
+  const postEvaluated = evaluatePreflight(inventory, postLive, "apply-nat");
+  assert.ok(
+    postEvaluated.checks.some((entry) => entry.id === "vpc-subnet-route-inventory" && entry.ok),
+    "post-prepare reviewed routes plus sandbox secondary route must pass"
+  );
+  assert.equal(
+    postEvaluated.ok,
+    true,
+    postEvaluated.checks
+      .filter((entry) => !entry.ok)
+      .map((entry) => `${entry.id}: ${entry.detail}`)
+      .join("; ")
+  );
+  assert.ok(
+    postEvaluated.checks.some((entry) => entry.id === "prepare-phase-complete" && entry.ok),
+    "apply-nat and later phases already require post-prepare exact state via prepare-phase-complete"
+  );
+
+  const extraLive = baseLive(inventory);
+  extraLive.vpcSubnetRoutes = [...postPrepareRoutes, "10.200.0.0/20"];
+  const extraEvaluated = evaluatePreflight(inventory, extraLive, "apply-nat");
+  assert.ok(
+    extraEvaluated.checks.some((entry) => entry.id === "vpc-subnet-route-inventory" && !entry.ok),
+    "arbitrary extra routes must fail closed"
+  );
+
+  const routeWithoutSecondary = baseLive(inventory);
+  routeWithoutSecondary.subnet.secondaryIpRanges = existingSecondariesOnly;
+  routeWithoutSecondary.vpcSubnetRoutes = [...postPrepareRoutes];
+  const routeWithoutSecondaryEvaluated = evaluatePreflight(
+    inventory,
+    routeWithoutSecondary,
+    "prepare"
+  );
+  assert.ok(
+    routeWithoutSecondaryEvaluated.checks.some(
+      (entry) => entry.id === "vpc-subnet-route-inventory" && !entry.ok
+    ),
+    "sandbox route without exact named secondary must fail closed"
+  );
+
+  const secondaryWithoutRoute = baseLive(inventory);
+  secondaryWithoutRoute.vpcSubnetRoutes = [...reviewedRoutes];
+  const secondaryWithoutRouteEvaluated = evaluatePreflight(
+    inventory,
+    secondaryWithoutRoute,
+    "apply-nat"
+  );
+  assert.ok(
+    secondaryWithoutRouteEvaluated.checks.some(
+      (entry) => entry.id === "vpc-subnet-route-inventory" && !entry.ok
+    ),
+    "exact named secondary without exact sandbox route must fail closed"
+  );
 });
 
 test("preflight allows exact current disabled-NP state before Calico apply", () => {
