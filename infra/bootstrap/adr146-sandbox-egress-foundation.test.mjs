@@ -16,6 +16,7 @@ import {
   ADR146_CONTROLLED_PROBE_POD_NAMES,
   ADR146_PROBE_ACTIVE_DEADLINE_SECONDS,
   ADR146_PROBE_RESOURCES,
+  GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY,
   buildControlledProbeCleanupPlan,
   buildEvidenceBinding,
   buildNatProbePodManifest,
@@ -40,6 +41,7 @@ import {
   loadInventory,
   natEgressIdentityMatches,
   nodeServiceAccountIdentity,
+  operatorOwnedNodeLabels,
   probeManifestToValidatorPod,
   renderPlanText,
   renderProbeManifestYaml,
@@ -570,6 +572,48 @@ test("private pool create requires GKE Sandbox gVisor, not labels alone", () => 
   const live = baseLive(inventory);
   assert.equal(evaluateLiveFoundation(inventory, live).ok, true);
   delete live.privatePool.config.sandboxConfig;
+  const evaluated = evaluateLiveFoundation(inventory, live);
+  assert.equal(evaluated.ok, false);
+  assert.ok(
+    evaluated.checks.some((entry) => entry.id === "private-pool-present-exact" && !entry.ok)
+  );
+});
+
+test("private pool create omits GKE-managed sandbox label but keeps sandbox flag, workload label, and taint", () => {
+  const inventory = loadInventory();
+  assert.equal(
+    inventory.sandboxNodePool.labels[GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY],
+    "gvisor",
+    "inventory still expects resulting GKE-managed label for live match"
+  );
+  assert.deepEqual(operatorOwnedNodeLabels(inventory.sandboxNodePool.labels), {
+    workload: "sandbox"
+  });
+  const pool = buildPhasePlans(inventory)["apply-sandbox-pool"].find(
+    (command) => command.id === "create-private-sandbox-pool"
+  ).argv;
+  assert.ok(pool.includes("--sandbox=type=gvisor"));
+  assert.ok(pool.includes("--node-labels=workload=sandbox"));
+  assert.ok(
+    !pool.some(
+      (argument) =>
+        typeof argument === "string" &&
+        argument.startsWith("--node-labels=") &&
+        argument.includes(`${GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY}=`)
+    ),
+    "create must not manually set GKE-managed sandbox.gke.io/runtime label"
+  );
+  assert.ok(
+    pool.includes(`--node-taints=${GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY}=gvisor:NoSchedule`),
+    "retain required scheduling taint; gcloud rejects managed labels, not documented for same-key taints"
+  );
+});
+
+test("private pool matcher rejects missing GKE-managed sandbox runtime label", () => {
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  assert.equal(evaluateLiveFoundation(inventory, live).ok, true);
+  delete live.privatePool.config.labels[GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY];
   const evaluated = evaluateLiveFoundation(inventory, live);
   assert.equal(evaluated.ok, false);
   assert.ok(

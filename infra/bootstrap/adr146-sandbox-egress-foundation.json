@@ -239,6 +239,12 @@
         "effect": "NO_SCHEDULE"
       }
     ],
+    "notes": [
+      "Create uses --sandbox=type=gvisor and operator-owned --node-labels=workload=sandbox only.",
+      "Do not pass sandbox.gke.io/runtime in --node-labels; GKE manages that label and rejects manual specification (HTTP 400).",
+      "Inventory labels still expect the resulting GKE-managed runtime label for live exact match.",
+      "Same-key scheduling taint remains on create via --node-taints; GKE Sandbox docs apply it with sandbox, and gcloud does not document label-style rejection for that taint key."
+    ],
     "networkTags": ["persai-sandbox-node"],
     "podSecondaryRangeName": "persai-sandbox-pods",
     "imageType": "COS_CONTAINERD",

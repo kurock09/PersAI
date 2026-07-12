@@ -28,6 +28,12 @@ export const APPLY_PHASE_ORDER = [
 ];
 
 export const ADR146_CONTROLLED_PROBE_LABEL = "sandbox.gke.io/adr146-controlled-probe";
+/**
+ * GKE Sandbox owns this node label when `--sandbox=type=gvisor` is set.
+ * Manually specifying it in `--node-labels` is rejected (HTTP 400).
+ * Inventory `labels` still expect the resulting managed label after create.
+ */
+export const GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY = "sandbox.gke.io/runtime";
 export const ADR146_PROBE_ACTIVE_DEADLINE_SECONDS = 600;
 /** Exact small resource envelope required on controlled probe Pods. */
 export const ADR146_PROBE_RESOURCES = Object.freeze({
@@ -346,10 +352,33 @@ function cidrContainsOrOverlaps(left, right) {
 function hasExpectedTaint(taints) {
   return taints.some(
     (taint) =>
-      taint.key === "sandbox.gke.io/runtime" &&
+      taint.key === GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY &&
       taint.value === "gvisor" &&
       ["NO_SCHEDULE", "NoSchedule"].includes(taint.effect)
   );
+}
+
+/**
+ * Operator-owned labels for `gcloud ... node-pools create --node-labels`.
+ * Excludes GKE-managed sandbox runtime label; GKE applies it from `--sandbox=type=gvisor`.
+ * The same-key scheduling taint remains creatable via `--node-taints` (GKE docs apply it
+ * with Sandbox; gcloud help does not reject that key for taints the way labels are rejected).
+ */
+export function operatorOwnedNodeLabels(labels) {
+  return Object.fromEntries(
+    Object.entries(labels ?? {}).filter(([key]) => key !== GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY)
+  );
+}
+
+function formatNodeLabelsFlag(labels) {
+  const owned = operatorOwnedNodeLabels(labels);
+  const entries = Object.entries(owned);
+  if (entries.length === 0) {
+    throw new Error(
+      "private pool create requires at least one operator-owned node label (workload=sandbox)"
+    );
+  }
+  return `--node-labels=${entries.map(([key, value]) => `${key}=${value}`).join(",")}`;
 }
 
 export function buildPhasePlans(inventory, resolved = {}) {
@@ -529,9 +558,7 @@ export function buildPhasePlans(inventory, resolved = {}) {
         "--enable-private-nodes",
         `--service-account=${nodeSaEmail}`,
         `--pod-ipv4-range=${pool.podSecondaryRangeName}`,
-        `--node-labels=${Object.entries(pool.labels)
-          .map(([key, value]) => `${key}=${value}`)
-          .join(",")}`,
+        formatNodeLabelsFlag(pool.labels),
         `--node-taints=${pool.taints
           .map((taint) => `${taint.key}=${taint.value}:NoSchedule`)
           .join(",")}`,
@@ -1692,6 +1719,8 @@ function privatePoolMatches(inventory, pool) {
     pool.networkConfig?.podRange === expected.podSecondaryRangeName &&
     pool.networkConfig?.podIpv4CidrBlock === inventory.cidrs.sandboxPodSecondary &&
     includesObject(pool.config?.labels, expected.labels) &&
+    pool.config?.labels?.[GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY] === "gvisor" &&
+    pool.config?.labels?.workload === "sandbox" &&
     hasExpectedTaint(pool.config?.taints ?? []) &&
     sandboxType === String(expected.sandboxType).toLowerCase() &&
     sameSet(pool.config?.tags ?? [], expected.networkTags) &&
@@ -2061,7 +2090,7 @@ export function renderPlanText(inventory, evidence = null) {
     "VPC deny excludes own node-primary, Pod, Service, and metadata CIDRs; mandatory Calico owns those paths.",
     "Default GKE public SNAT uses node primary IPs; Cloud NAT selects subnet primary plus sandbox Pod secondary.",
     "Static NAT attribution is currently exclusive only while all eligible no-external-IP consumers verify as private sandbox nodes.",
-    "Private pool create uses --sandbox=type=gvisor; labels/taints alone are not GKE Sandbox proof.",
+    "Private pool create uses --sandbox=type=gvisor and operator-owned workload=sandbox only; do not manually set GKE-managed sandbox.gke.io/runtime in --node-labels (GKE rejects it). Resulting managed label + sandboxConfig remain live matcher requirements; scheduling taint is retained via --node-taints.",
     "After private pool Ready, apply-sandbox-pool cordons the legacy public pool to close the dual-pool scheduling window without deleting it or killing running jobs.",
     "Structural verify never claims dynamic restricted probes or Calico label readiness as enforcement proof; probe-restricted is separate.",
     "Inbound denial, HTTP redirect, and DNS-rebind remain unclaimed by probe-restricted.",
