@@ -70,13 +70,17 @@ const composerIconButtonClass = (opts: { disabled?: boolean; active?: boolean })
   cn(
     "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors select-none",
     opts.disabled
-      ? "cursor-default text-text-subtle/40"
+      ? "cursor-default text-text-muted/35"
       : cn(
-          "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted",
-          opts.active && "bg-surface-hover text-text-muted",
-          "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted"
+          "cursor-pointer text-text-muted active:bg-surface-hover active:text-text",
+          opts.active && "bg-surface-hover text-text",
+          "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text"
         )
   );
+
+/** Thin stroke + higher contrast; same optical box for attach + mic. */
+const COMPOSER_ICON_STROKE = 1.65;
+const composerControlIconClass = "h-5 w-5";
 
 const composerActionSlotClass =
   "absolute inset-0 flex items-center justify-center rounded-full transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] select-none active:scale-[0.96]";
@@ -1392,7 +1396,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               })}
               title={t("attachFile")}
             >
-              <Paperclip className="h-[22px] w-[22px]" strokeWidth={2.15} />
+              <Paperclip className={composerControlIconClass} strokeWidth={COMPOSER_ICON_STROKE} />
             </button>
 
             {/*
@@ -1515,7 +1519,12 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
               )}
             />
 
-            <div className="relative z-30 h-9 w-9 shrink-0 self-end overflow-visible">
+            <div
+              className={cn(
+                "relative z-30 h-9 w-9 shrink-0 overflow-visible",
+                isComposerMultiline && "self-end"
+              )}
+            >
               <AnimatePresence>
                 {isTouchDevice && isRecording && (
                   <motion.div
@@ -1579,13 +1588,15 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                     : { onClick: () => void startRecording() })}
                   className={cn(
                     composerActionSlotClass,
-                    "relative z-10 rounded-full touch-none",
+                    // Keep absolute inset-0 from the slot class — do not add `relative`
+                    // here or tailwind-merge drops centering and the mic drifts.
+                    "z-10 touch-none",
                     composerActionSwapClass(showMic),
                     disabled || isStreaming || sendBlockedByFailedSlot
-                      ? "cursor-default text-text-subtle/40"
+                      ? "cursor-default text-text-muted/35"
                       : cn(
-                          "cursor-pointer text-text-subtle active:bg-surface-hover active:text-text-muted",
-                          "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text-muted",
+                          "cursor-pointer text-text-muted active:bg-surface-hover active:text-text",
+                          "[@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover [@media(hover:hover)_and_(pointer:fine)]:hover:text-text",
                           isTouchDevice &&
                             isRecording &&
                             !cancelArmed &&
@@ -1601,7 +1612,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                   aria-hidden={!showMic}
                   tabIndex={showMic ? 0 : -1}
                 >
-                  <Mic className="h-[22px] w-[22px]" strokeWidth={2.15} />
+                  <Mic className={composerControlIconClass} strokeWidth={COMPOSER_ICON_STROKE} />
                 </button>
               ) : null}
               <button

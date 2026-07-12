@@ -34,7 +34,7 @@ Baseline SHA: PersAI `cbde74f5` (post mobile-typography; tree also carries brows
 
 **Cause:** After mobile 16px typography, composer single-line `scrollHeight` exceeded the old 40px pill threshold (`leading-6` + `py-2.5`), so the shell flipped to `rounded-[22px]`, grew tall, and left mic/clip icons visually small.
 
-**Repair:** Compact TG-like pill — `min-h-11` + uniform `p-1` inset (~4px around the action circle), `rounded-full` while single-line, tighter `leading-[22px]`/`py-1.5`, 36px attach/action targets, expressive 22px Paperclip/Mic (same on desktop), send circle fills the inset. Chat-mode chip scaled up on mobile (`text-xs`, larger icon/padding) so it matches the composer.
+**Repair:** Compact TG-like pill — `min-h-11` + uniform `p-1` inset (~4px around the action circle), `rounded-full` while single-line, tighter `leading-[22px]`/`py-1.5`, 36px attach/action targets. Desktop follow-up: thinner Lucide stroke (`1.65`), higher-contrast `text-text-muted`, shared `h-5` attach/mic icons, drop always-on `self-end` so single-line icons/text center, and keep the mic slot `absolute` (not `relative`) so tailwind-merge does not drop centering. Chat-mode chip scaled up on mobile.
 
 **Verification:** focused `chat-input` + `chat-area` 57/57 PASS; web lint + typecheck PASS. Full gate with browser fail-fast: recursive lint PASS, format:check PASS, api/web/runtime/runtime-contract/extension typecheck PASS, extension 24/24, worker-tools + browser-bridge relay PASS.
 

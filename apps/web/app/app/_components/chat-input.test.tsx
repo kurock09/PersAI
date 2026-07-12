@@ -1044,7 +1044,11 @@ describe("ChatInput", () => {
       />
     );
 
-    expect(screen.getByTitle("voiceMessage")).toHaveAttribute("aria-hidden", "false");
+    const mic = screen.getByTitle("voiceMessage");
+    expect(mic).toHaveAttribute("aria-hidden", "false");
+    // Slot centering depends on absolute inset-0; `relative` must not win via merge.
+    expect(mic).toHaveClass("absolute");
+    expect(mic).not.toHaveClass("relative");
     expect(screen.getByTitle("send")).toHaveAttribute("aria-hidden", "true");
 
     fillComposer(screen.getByPlaceholderText("placeholder"), "hi");
