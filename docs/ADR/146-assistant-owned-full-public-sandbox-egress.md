@@ -3,7 +3,9 @@
 ## Status
 
 Accepted — founder-directed production orchestration program opened 2026-07-12.
-Implementation has not started.
+Slice 0 read-only code/live-cluster audit completed 2026-07-12. Implementation
+is **NO-GO** until the live cluster has an enforcing network-policy dataplane
+and the public/private egress perimeter is proven.
 
 ## Date
 
@@ -11,7 +13,9 @@ Implementation has not started.
 
 ## Baseline SHA
 
-`a0c3e997f40baeb05d62bbd80ac89abfafc4fed7`
+Program-open baseline: `a0c3e997f40baeb05d62bbd80ac89abfafc4fed7`.
+
+Slice 0 audit baseline: `e137d7d46d07475d2e74d66704ef483dc6b103c0`.
 
 ## Orchestration model
 
@@ -75,33 +79,85 @@ publish/apply.
 
 ## Current-state finding
 
-The deployed sandbox has one effective mode:
+Slice 0 proved that the deployed cluster does **not** currently enforce the
+NetworkPolicy resources rendered by Helm:
 
-- every pod is labelled `app.kubernetes.io/component=sandbox-exec`;
-- `sandbox-exec-deny-egress` permits kube DNS and the Squid Service only;
-- every pod receives `HTTP_PROXY` / `HTTPS_PROXY` from
-  `ExecPodBridgeService.buildProxyEnv`;
-- Squid permits only `sandbox.egressProxy.allowedDomains`;
-- the execution unit has no service-account token and no PersAI/provider/storage
-  credentials.
+- `personal-ai-gke` is Standard GKE on `LEGACY_DATAPATH`;
+- the Calico NetworkPolicy addon is disabled;
+- the Cilium plugin is disabled;
+- `sandbox-exec-deny-egress` and the other NetworkPolicy objects exist in
+  `persai-dev`, but they are API objects without an enforcing dataplane;
+- every exec pod receives `HTTP_PROXY` / `HTTPS_PROXY` from
+  `ExecPodBridgeService.buildProxyEnv`, and Squid enforces its domain allowlist
+  only for clients that honor those variables;
+- direct bypass is therefore not currently proven blocked at L3/L4;
+- exec pods disable service-account token automount but use the namespace
+  default ServiceAccount; the sandbox node ServiceAccount has broad project
+  roles, including Editor;
+- sandbox nodes have external IPs, there is no Cloud NAT, no subnet flow logs,
+  and no VPC egress deny policy.
+
+The existing `restricted` product behavior is thus proxy convention + Squid,
+not the kernel-enforced deny-all boundary previously documented by ADR-123.
+ADR-146 must repair this baseline before adding `full_public`.
 
 `RuntimeSandboxPolicy.networkAccessEnabled` is not this enforcement boundary.
 It is a plan JSON/OpenAPI/admin field, defaults false, is copied into sandbox job
 snapshots, and does not select a different pod NetworkPolicy or proxy path. It
 therefore cannot remain as a second ambiguous network truth.
 
-The read-only audit also found four production gaps that ADR-146 must close
+The read-only audit also found production gaps that ADR-146 must close
 rather than copy into the new mode:
 
+- the live cluster has no NetworkPolicy enforcement engine;
 - exec pods have an egress policy but no explicit empty-ingress policy;
 - exec pods disable token automount but do not name a dedicated no-IAM/no-Workload
   Identity ServiceAccount;
 - the proxy's public egress exclusions cover RFC1918 only, not the complete
   link-local/metadata/non-global set;
+- the live Service CIDR is non-RFC1918 `34.118.224.0/20` and is absent from the
+  current exclusions;
+- the node primary range is `10.132.0.0/20`, Pod range is
+  `10.107.128.0/17`, and PSA/Redis/Filestore peers must remain denied;
+- direct public egress currently uses node one-to-one external NAT without the
+  Cloud NAT/flow-log contour required by D4/D9;
 - base Helm values permit `networkPolicy.enabled: false`, which is invalid for
   any production sandbox deployment.
 
+### Slice 0 verdict
+
+- **Code ledger:** GO for the future S1 data/API cutover in isolation;
+  `networkAccessEnabled` is confirmed vestigial, sandbox already has Prisma
+  access to Assistant, and exact warm/create/reuse/delete seams are known.
+- **Program gate:** NO-GO for S1/S2 implementation as a deployable program. D10
+  forbids landing partial product contracts before the enforcement foundation.
+- **Additional required repair:** current command timeout/return paths do not
+  kill the full descendant process tree, so background children can survive in
+  a warm pod. S3 must close this before either mode is production-safe.
+
+No implementation subagent may start until the founder chooses and approves the
+network-enforcement prerequisite below.
+
 ## Decision
+
+### D0 — Harden the current Standard cluster before product implementation
+
+Founder decision 2026-07-12: harden the current Standard cluster as the bounded
+ADR-146 foundation. Enable GKE NetworkPolicy (Calico) on the current
+`LEGACY_DATAPATH`, prove the exact live `ipBlock` behavior, isolate sandbox
+egress with explicit environment CIDRs plus VPC/L3 firewall defense, move
+sandbox execution to a private/dedicated egress contour, and add Cloud NAT/flow
+logging.
+
+A new Dataplane V2 cluster cutover is not part of ADR-146. It would be a
+separate platform migration ADR if later prioritized.
+
+Dataplane V2 cannot be assumed from Helm and must not be simulated by comments
+or tests. Calico must not be treated as equivalent until its live negative
+matrix passes. A second allow-all Squid is not an allowed workaround.
+
+This current-cluster contour is Slice 0.1 and lands before S1; no app/API/UI
+implementation lands first.
 
 ### D1 — One canonical assistant-level mode
 
@@ -486,6 +542,8 @@ Every implementation slice runs:
 
 Subagent: Cursor Grok 4.5, read-only.
 
+Status: **complete 2026-07-12 — NO-GO issued.**
+
 Produce:
 
 - exact writer/readers for plan `networkAccessEnabled`;
@@ -497,6 +555,32 @@ Produce:
 
 No code lands in S0. If cluster facts cannot prove the D4 boundary, stop before
 implementation.
+
+Result: code seams are fully inventoried, but the live cluster has no enforcing
+NetworkPolicy engine and lacks the required private egress/identity/observability
+foundation. S1/S2 are blocked.
+
+### Slice 0.1 — Enforcing cluster egress foundation
+
+Subagent: Cursor Grok 4.5.
+
+This is the first implementation slice on the founder-selected current-cluster
+Calico contour. Its acceptance is fixed:
+
+- an enforcing Calico or Dataplane V2 network-policy engine is live and proven;
+- sandbox execution has an explicit dedicated no-IAM/no-WI ServiceAccount and
+  no broad node identity exposure path;
+- sandbox public egress uses an approved private-node/NAT or equivalent L3
+  contour with flow observability;
+- the denied inventory includes special-use ranges plus live
+  `34.118.224.0/20` Services, `10.132.0.0/20` nodes,
+  `10.107.128.0/17` Pods, and current PSA/Redis/Filestore peers;
+- restricted direct bypass, Pod/Service/node/control-plane/metadata access, and
+  inbound access all fail in a founder-approved test pod;
+- the ordinary restricted Squid allowlist path still works.
+
+S0.1 must be deployed and live-accepted before S1. A locally rendered policy is
+not sufficient evidence.
 
 ### Slice 1 — Canonical data/API contract and legacy-field deletion
 

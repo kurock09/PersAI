@@ -1,5 +1,43 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — ADR-146 Slice 0 live/code audit
+
+Status: **complete; current-cluster Calico contour selected; S0.1 pending.**
+
+Baseline SHA: PersAI `e137d7d4`.
+
+**Code ledger:** Cursor Grok 4.5 confirmed `networkAccessEnabled` is vestigial
+plan/contract/job-snapshot truth with no enforcement. Sandbox already reads
+Assistant through Prisma; last-responsible mode resolution belongs in
+`ExecPodBridgeService` before every warm/create/reuse. Missing implementation
+seams are synchronous assistant-pod eviction, queued/running busy coordination,
+mode mismatch recreation, and complete descendant-process cleanup.
+
+**Live cluster truth:** `personal-ai-gke` is Standard GKE
+`LEGACY_DATAPATH`; Calico NetworkPolicy and Cilium are disabled. Deployed
+NetworkPolicy objects are not enforced. Sandbox nodes have external IPs; no
+Cloud NAT, subnet flow logs, or VPC egress deny. The live Service CIDR is
+non-RFC1918 `34.118.224.0/20`. Exec pods use namespace `default` ServiceAccount
+(token automount off), while the sandbox node ServiceAccount has broad project
+roles including Editor.
+
+**Founder decision:** Harden the current Standard cluster with enforced Calico
+plus a proven private/dedicated sandbox egress contour, Cloud NAT/flow logs, and
+L3 firewall defense. A Dataplane V2 cluster migration is outside ADR-146 and
+would require its own future platform ADR. Slice 0.1 must deploy/live-pass the
+full private/node/Pod/Service/control-plane/metadata negative matrix before
+app/API/UI implementation starts.
+
+**Repo changes in this slice:** Parent-orchestrator updated ADR/handoff/current
+architecture truth only; no implementation code, schema, migration, Helm, GKE,
+or deploy mutation.
+
+**Next:** From a clean committed baseline, the parent dispatches Grok 4.5
+Slice 0.1 to produce and implement the bounded current-cluster Calico/private
+sandbox egress foundation. No S1 application work starts first.
+
+---
+
 ## 2026-07-12 — Chat preview sharpness + browser screenshot as image
 
 Status: **pushed.**

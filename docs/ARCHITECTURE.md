@@ -107,6 +107,13 @@ browser, web tools, or provider workers. The current plan
 `networkAccessEnabled` boolean is not an enforcement boundary and is removed by
 the ADR-146 cutover rather than reinterpreted.
 
+**ADR-146 Slice 0 live finding:** `personal-ai-gke` currently runs
+`LEGACY_DATAPATH` with Calico and Cilium disabled. Helm NetworkPolicy objects are
+present but not enforced, so the deployed restricted contour is presently
+proxy-env + Squid convention rather than a proven kernel deny-all boundary.
+Application implementation is NO-GO until an enforcing dataplane plus
+private/node/Service/metadata negative acceptance is live.
+
 ### Native Tool Runtime instruction model
 
 ADR-117 closes the tool-instruction surface into three owned seams:

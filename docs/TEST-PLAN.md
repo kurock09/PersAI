@@ -6,9 +6,13 @@ ADR-072 is closed as the historical native migration ADR. Current continuation w
 
 ## ADR-146 assistant-owned full-public sandbox egress (accepted target)
 
-Implementation has not started. Each future slice runs the full AGENTS gate plus
-affected API/runtime/sandbox/web tests. Infra slices additionally run Helm lint
-and template assertions.
+Slice 0 read-only audit is complete and implementation is NO-GO: live
+`personal-ai-gke` has no enforcing NetworkPolicy engine. Slice 0.1 must first
+deploy and live-prove the founder-selected current-cluster Calico plus
+private/dedicated sandbox egress, Cloud NAT/flow-log, and L3 firewall
+foundation. Each later slice runs the full AGENTS gate plus affected
+API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
+and live negative acceptance.
 
 Automated acceptance must prove:
 
