@@ -29,11 +29,11 @@ export const APPLY_PHASE_ORDER = [
 
 export const ADR146_CONTROLLED_PROBE_LABEL = "sandbox.gke.io/adr146-controlled-probe";
 /**
- * GKE Sandbox owns this node label when `--sandbox=type=gvisor` is set.
- * Manually specifying it in `--node-labels` is rejected (HTTP 400).
- * Inventory `labels` still expect the resulting managed label after create.
+ * GKE Sandbox owns this node label and taint when `--sandbox=type=gvisor` is set.
+ * Manually specifying either create flag is rejected (HTTP 400).
+ * Inventory still expects both resulting managed values after create.
  */
-export const GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY = "sandbox.gke.io/runtime";
+export const GKE_MANAGED_SANDBOX_RUNTIME_KEY = "sandbox.gke.io/runtime";
 export const ADR146_PROBE_ACTIVE_DEADLINE_SECONDS = 600;
 /** Exact small resource envelope required on controlled probe Pods. */
 export const ADR146_PROBE_RESOURCES = Object.freeze({
@@ -352,33 +352,38 @@ function cidrContainsOrOverlaps(left, right) {
 function hasExpectedTaint(taints) {
   return taints.some(
     (taint) =>
-      taint.key === GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY &&
+      taint.key === GKE_MANAGED_SANDBOX_RUNTIME_KEY &&
       taint.value === "gvisor" &&
       ["NO_SCHEDULE", "NoSchedule"].includes(taint.effect)
   );
 }
 
 /**
- * Operator-owned labels for `gcloud ... node-pools create --node-labels`.
- * Excludes GKE-managed sandbox runtime label; GKE applies it from `--sandbox=type=gvisor`.
- * The same-key scheduling taint remains creatable via `--node-taints` (GKE docs apply it
- * with Sandbox; gcloud help does not reject that key for taints the way labels are rejected).
+ * Operator-owned values for `gcloud ... node-pools create`.
+ * GKE applies the managed sandbox runtime label and taint from `--sandbox=type=gvisor`.
  */
 export function operatorOwnedNodeLabels(labels) {
   return Object.fromEntries(
-    Object.entries(labels ?? {}).filter(([key]) => key !== GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY)
+    Object.entries(labels ?? {}).filter(([key]) => key !== GKE_MANAGED_SANDBOX_RUNTIME_KEY)
   );
 }
 
+export function operatorOwnedNodeTaints(taints) {
+  return (taints ?? []).filter((taint) => taint.key !== GKE_MANAGED_SANDBOX_RUNTIME_KEY);
+}
+
 function formatNodeLabelsFlag(labels) {
-  const owned = operatorOwnedNodeLabels(labels);
-  const entries = Object.entries(owned);
-  if (entries.length === 0) {
-    throw new Error(
-      "private pool create requires at least one operator-owned node label (workload=sandbox)"
-    );
-  }
+  const entries = Object.entries(operatorOwnedNodeLabels(labels));
+  if (entries.length === 0) return null;
   return `--node-labels=${entries.map(([key, value]) => `${key}=${value}`).join(",")}`;
+}
+
+function formatNodeTaintsFlag(taints) {
+  const owned = operatorOwnedNodeTaints(taints);
+  if (owned.length === 0) return null;
+  return `--node-taints=${owned
+    .map((taint) => `${taint.key}=${taint.value}:NoSchedule`)
+    .join(",")}`;
 }
 
 export function buildPhasePlans(inventory, resolved = {}) {
@@ -539,35 +544,37 @@ export function buildPhasePlans(inventory, resolved = {}) {
       ])
     ],
     "apply-sandbox-pool": [
-      command("create-private-sandbox-pool", "Create exact private sandbox node pool", [
-        "gcloud",
-        "container",
-        "node-pools",
-        "create",
-        pool.replacementName,
-        `--project=${project}`,
-        `--cluster=${cluster}`,
-        `--zone=${zone}`,
-        `--machine-type=${pool.machineType}`,
-        `--disk-size=${pool.diskSizeGb}`,
-        `--image-type=${pool.imageType}`,
-        `--num-nodes=${pool.minNodes}`,
-        "--enable-autoscaling",
-        `--min-nodes=${pool.minNodes}`,
-        `--max-nodes=${pool.maxNodes}`,
-        "--enable-private-nodes",
-        `--service-account=${nodeSaEmail}`,
-        `--pod-ipv4-range=${pool.podSecondaryRangeName}`,
-        formatNodeLabelsFlag(pool.labels),
-        `--node-taints=${pool.taints
-          .map((taint) => `${taint.key}=${taint.value}:NoSchedule`)
-          .join(",")}`,
-        `--tags=${pool.networkTags.join(",")}`,
-        `--sandbox=type=${pool.sandboxType}`,
-        "--shielded-secure-boot",
-        "--shielded-integrity-monitoring",
-        "--metadata=disable-legacy-endpoints=true"
-      ]),
+      command(
+        "create-private-sandbox-pool",
+        "Create exact private sandbox node pool",
+        [
+          "gcloud",
+          "container",
+          "node-pools",
+          "create",
+          pool.replacementName,
+          `--project=${project}`,
+          `--cluster=${cluster}`,
+          `--zone=${zone}`,
+          `--machine-type=${pool.machineType}`,
+          `--disk-size=${pool.diskSizeGb}`,
+          `--image-type=${pool.imageType}`,
+          `--num-nodes=${pool.minNodes}`,
+          "--enable-autoscaling",
+          `--min-nodes=${pool.minNodes}`,
+          `--max-nodes=${pool.maxNodes}`,
+          "--enable-private-nodes",
+          `--service-account=${nodeSaEmail}`,
+          `--pod-ipv4-range=${pool.podSecondaryRangeName}`,
+          formatNodeLabelsFlag(pool.labels),
+          formatNodeTaintsFlag(pool.taints),
+          `--tags=${pool.networkTags.join(",")}`,
+          `--sandbox=type=${pool.sandboxType}`,
+          "--shielded-secure-boot",
+          "--shielded-integrity-monitoring",
+          "--metadata=disable-legacy-endpoints=true"
+        ].filter(Boolean)
+      ),
       command(
         "cordon-public-pool",
         "Fail-closed: stop NEW scheduling on legacy public sandbox nodes after private pool is Ready (does not delete the pool or kill running pods)",
@@ -1719,7 +1726,7 @@ function privatePoolMatches(inventory, pool) {
     pool.networkConfig?.podRange === expected.podSecondaryRangeName &&
     pool.networkConfig?.podIpv4CidrBlock === inventory.cidrs.sandboxPodSecondary &&
     includesObject(pool.config?.labels, expected.labels) &&
-    pool.config?.labels?.[GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY] === "gvisor" &&
+    pool.config?.labels?.[GKE_MANAGED_SANDBOX_RUNTIME_KEY] === "gvisor" &&
     pool.config?.labels?.workload === "sandbox" &&
     hasExpectedTaint(pool.config?.taints ?? []) &&
     sandboxType === String(expected.sandboxType).toLowerCase() &&
@@ -2090,7 +2097,7 @@ export function renderPlanText(inventory, evidence = null) {
     "VPC deny excludes own node-primary, Pod, Service, and metadata CIDRs; mandatory Calico owns those paths.",
     "Default GKE public SNAT uses node primary IPs; Cloud NAT selects subnet primary plus sandbox Pod secondary.",
     "Static NAT attribution is currently exclusive only while all eligible no-external-IP consumers verify as private sandbox nodes.",
-    "Private pool create uses --sandbox=type=gvisor and operator-owned workload=sandbox only; do not manually set GKE-managed sandbox.gke.io/runtime in --node-labels (GKE rejects it). Resulting managed label + sandboxConfig remain live matcher requirements; scheduling taint is retained via --node-taints.",
+    "Private pool create uses --sandbox=type=gvisor and operator-owned workload=sandbox only; do not manually set GKE-managed sandbox.gke.io/runtime in --node-labels or --node-taints (GKE rejects both). Resulting managed label + taint + sandboxConfig remain live matcher requirements.",
     "After private pool Ready, apply-sandbox-pool cordons the legacy public pool to close the dual-pool scheduling window without deleting it or killing running jobs.",
     "Structural verify never claims dynamic restricted probes or Calico label readiness as enforcement proof; probe-restricted is separate.",
     "Inbound denial, HTTP redirect, and DNS-rebind remain unclaimed by probe-restricted.",

@@ -16,7 +16,7 @@ import {
   ADR146_CONTROLLED_PROBE_POD_NAMES,
   ADR146_PROBE_ACTIVE_DEADLINE_SECONDS,
   ADR146_PROBE_RESOURCES,
-  GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY,
+  GKE_MANAGED_SANDBOX_RUNTIME_KEY,
   buildControlledProbeCleanupPlan,
   buildEvidenceBinding,
   buildNatProbePodManifest,
@@ -42,6 +42,7 @@ import {
   natEgressIdentityMatches,
   nodeServiceAccountIdentity,
   operatorOwnedNodeLabels,
+  operatorOwnedNodeTaints,
   probeManifestToValidatorPod,
   renderPlanText,
   renderProbeManifestYaml,
@@ -579,16 +580,23 @@ test("private pool create requires GKE Sandbox gVisor, not labels alone", () => 
   );
 });
 
-test("private pool create omits GKE-managed sandbox label but keeps sandbox flag, workload label, and taint", () => {
+test("private pool create omits GKE-managed sandbox label and taint but keeps sandbox flag and workload label", () => {
   const inventory = loadInventory();
   assert.equal(
-    inventory.sandboxNodePool.labels[GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY],
+    inventory.sandboxNodePool.labels[GKE_MANAGED_SANDBOX_RUNTIME_KEY],
     "gvisor",
     "inventory still expects resulting GKE-managed label for live match"
   );
   assert.deepEqual(operatorOwnedNodeLabels(inventory.sandboxNodePool.labels), {
     workload: "sandbox"
   });
+  assert.deepEqual(operatorOwnedNodeTaints(inventory.sandboxNodePool.taints), []);
+  const operatorTaint = { key: "persai.dev/dedicated", value: "sandbox", effect: "NO_SCHEDULE" };
+  assert.deepEqual(
+    operatorOwnedNodeTaints([...inventory.sandboxNodePool.taints, operatorTaint]),
+    [operatorTaint],
+    "filter removes only the managed sandbox taint"
+  );
   const pool = buildPhasePlans(inventory)["apply-sandbox-pool"].find(
     (command) => command.id === "create-private-sandbox-pool"
   ).argv;
@@ -599,13 +607,13 @@ test("private pool create omits GKE-managed sandbox label but keeps sandbox flag
       (argument) =>
         typeof argument === "string" &&
         argument.startsWith("--node-labels=") &&
-        argument.includes(`${GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY}=`)
+        argument.includes(`${GKE_MANAGED_SANDBOX_RUNTIME_KEY}=`)
     ),
     "create must not manually set GKE-managed sandbox.gke.io/runtime label"
   );
   assert.ok(
-    pool.includes(`--node-taints=${GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY}=gvisor:NoSchedule`),
-    "retain required scheduling taint; gcloud rejects managed labels, not documented for same-key taints"
+    !pool.some((argument) => typeof argument === "string" && argument.startsWith("--node-taints=")),
+    "create must omit --node-taints when no operator-owned taints remain"
   );
 });
 
@@ -613,7 +621,19 @@ test("private pool matcher rejects missing GKE-managed sandbox runtime label", (
   const inventory = loadInventory();
   const live = baseLive(inventory);
   assert.equal(evaluateLiveFoundation(inventory, live).ok, true);
-  delete live.privatePool.config.labels[GKE_MANAGED_SANDBOX_RUNTIME_LABEL_KEY];
+  delete live.privatePool.config.labels[GKE_MANAGED_SANDBOX_RUNTIME_KEY];
+  const evaluated = evaluateLiveFoundation(inventory, live);
+  assert.equal(evaluated.ok, false);
+  assert.ok(
+    evaluated.checks.some((entry) => entry.id === "private-pool-present-exact" && !entry.ok)
+  );
+});
+
+test("private pool matcher rejects missing resulting GKE-managed sandbox taint", () => {
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  assert.equal(evaluateLiveFoundation(inventory, live).ok, true);
+  live.privatePool.config.taints = [];
   const evaluated = evaluateLiveFoundation(inventory, live);
   assert.equal(evaluated.ok, false);
   assert.ok(
