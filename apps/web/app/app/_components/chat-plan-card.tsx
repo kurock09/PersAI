@@ -401,8 +401,9 @@ function ChatPlanCardBody({
       data-testid="chat-plan-card"
       onPointerDownCapture={() => setInteractionVersion((version) => version + 1)}
       className={cn(
-        "overflow-hidden border border-border/40 bg-surface-raised transition-[width,border-radius] duration-300 ease-out",
-        mobileCircle ? "w-12 md:w-full" : "w-full",
+        "overflow-hidden border border-border/40 bg-surface-raised transition-[width] duration-300 ease-out",
+        mobileCircle ? "ml-auto h-11 w-11 md:ml-0 md:h-auto md:w-full" : "w-full",
+        // Instant radius snap — width may animate, but stadium corners must not lag.
         expanded ? "rounded-[1.375rem]" : "rounded-full",
         className
       )}
@@ -411,7 +412,7 @@ function ChatPlanCardBody({
         <button
           type="button"
           data-testid="chat-plan-mobile-circle"
-          className="flex h-11 w-[2.875rem] items-center justify-center whitespace-nowrap text-[11px] font-semibold tabular-nums text-text md:hidden"
+          className="flex h-11 w-11 items-center justify-center whitespace-nowrap text-[11px] font-semibold tabular-nums text-text md:hidden"
           onClick={handleHeaderClick}
           aria-label={t("planCounts", { done: doneCount, total: totalCount })}
         >

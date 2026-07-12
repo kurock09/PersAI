@@ -467,7 +467,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = "auto";
-    const nextHeight = Math.min(el.scrollHeight, 200);
+    // ceil avoids sub-pixel scrollHeight on desktop fonts that can leave a
+    // 1px overflow scrollbar even for a single empty line.
+    const nextHeight = Math.min(Math.ceil(el.scrollHeight), 200);
     el.style.height = `${nextHeight}px`;
     setIsComposerMultiline(nextHeight > COMPOSER_SINGLE_LINE_HEIGHT_PX);
   }, []);
@@ -1346,7 +1348,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             ref={composerShellRef}
             data-testid="chat-composer-shell"
             className={cn(
-              "relative flex min-h-11 gap-0.5 border border-border/45 bg-surface-raised p-1 transition-[border-color,border-radius] focus-within:border-border-strong",
+              "relative flex min-h-11 gap-0.5 border border-border/45 bg-surface-raised p-1 transition-[border-color] focus-within:border-border-strong",
               isComposerMultiline ? "items-end rounded-[22px]" : "items-center rounded-full",
               dragActive && "border-accent bg-accent/5",
               sendBlockedByFailedSlot && "opacity-90",
@@ -1521,6 +1523,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                 "flex-1 resize-none bg-transparent text-base leading-[22px] text-text placeholder:text-text-subtle md:text-sm md:leading-5",
                 "outline-none",
                 "max-h-[200px] py-1.5 pl-0.5 pr-1",
+                // Desktop narrow windows often report scrollHeight 1–2px over the
+                // single-line shell; hide the gutter until the composer is truly multiline.
+                isComposerMultiline ? "overflow-y-auto" : "overflow-y-hidden",
                 isTouchDevice && isRecording && "opacity-0"
               )}
             />

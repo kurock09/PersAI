@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type TouchEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type TouchEvent } from "react";
 import { createPortal } from "react-dom";
 import { useUser, useClerk } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
@@ -92,7 +92,7 @@ const MOBILE_CHAT_LIST_QUERY = "(max-width: 599px)";
 const MOBILE_ROW_ACTIONS_IDLE_MS = 10_000;
 const MOBILE_SWIPE_ARCHIVE_WIDTH_PX = 96;
 const MOBILE_SWIPE_ARCHIVE_TRIGGER_PX = 68;
-const MOBILE_INLINE_ACTIONS_WIDTH_PX = 176;
+const MOBILE_INLINE_ACTIONS_FALLBACK_WIDTH_PX = 176;
 
 function isMobileChatListViewport(): boolean {
   return (
@@ -857,57 +857,48 @@ function AccountFooter({
                     data-testid="account-theme-language-controls"
                     className="grid grid-cols-2 gap-3"
                   >
-                    <div className="flex min-w-0 flex-col items-stretch gap-1.5">
-                      <div
-                        data-testid="account-theme-switcher"
-                        className="flex h-11 w-full items-center rounded-full border border-border/45 bg-surface/55 p-1 md:h-9"
-                      >
-                        {themeOptions.map((opt) => (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            onClick={() => setTheme(opt.id)}
-                            title={opt.label}
-                            aria-label={opt.label}
-                            className={cn(
-                              "flex h-full min-w-0 flex-1 items-center justify-center rounded-full transition-colors",
-                              theme === opt.id
-                                ? "bg-surface-raised text-text"
-                                : "text-text-subtle hover:text-text"
-                            )}
-                          >
-                            {opt.icon}
-                          </button>
-                        ))}
-                      </div>
-                      <span className="pl-1 text-[10px] tracking-[0.02em] text-text-subtle">
-                        {t("theme")}
-                      </span>
+                    <div
+                      data-testid="account-theme-switcher"
+                      className="flex h-11 w-full items-center rounded-full border border-border/45 bg-surface/55 p-1 md:h-9"
+                    >
+                      {themeOptions.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setTheme(opt.id)}
+                          title={opt.label}
+                          aria-label={opt.label}
+                          className={cn(
+                            "flex h-full min-w-0 flex-1 items-center justify-center rounded-full transition-colors",
+                            theme === opt.id
+                              ? "bg-surface-raised text-text"
+                              : "text-text-subtle hover:text-text"
+                          )}
+                        >
+                          {opt.icon}
+                        </button>
+                      ))}
                     </div>
-                    <div className="flex min-w-0 flex-col items-stretch gap-1.5">
-                      <div
-                        data-testid="account-language-switcher"
-                        className="flex h-11 w-full items-center rounded-full border border-border/45 bg-surface/55 p-1 md:h-9"
-                      >
-                        {LOCALES.map((loc) => (
-                          <button
-                            key={loc.code}
-                            type="button"
-                            onClick={() => switchLocale(loc.code)}
-                            className={cn(
-                              "flex h-full min-w-0 flex-1 items-center justify-center rounded-full text-sm font-medium transition-colors md:text-[11px]",
-                              currentLocale === loc.code
-                                ? "bg-surface-raised text-text"
-                                : "text-text-subtle hover:text-text"
-                            )}
-                          >
-                            {loc.label}
-                          </button>
-                        ))}
-                      </div>
-                      <span className="pl-1 text-[10px] tracking-[0.02em] text-text-subtle">
-                        {t("language")}
-                      </span>
+                    <div
+                      data-testid="account-language-switcher"
+                      className="flex h-11 w-full items-center rounded-full border border-border/45 bg-surface/55 p-1 md:h-9"
+                    >
+                      {LOCALES.map((loc) => (
+                        <button
+                          key={loc.code}
+                          type="button"
+                          onClick={() => switchLocale(loc.code)}
+                          aria-label={loc.code.toUpperCase()}
+                          className={cn(
+                            "flex h-full min-w-0 flex-1 items-center justify-center rounded-full text-sm font-medium transition-colors md:text-[11px]",
+                            currentLocale === loc.code
+                              ? "bg-surface-raised text-text"
+                              : "text-text-subtle hover:text-text"
+                          )}
+                        >
+                          {loc.label}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
@@ -1029,9 +1020,13 @@ function ChatListItem({
   const [restoring, setRestoring] = useState(false);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [mobileActionVersion, setMobileActionVersion] = useState(0);
+  const [inlineActionsWidth, setInlineActionsWidth] = useState(
+    MOBILE_INLINE_ACTIONS_FALLBACK_WIDTH_PX
+  );
   const [swipeX, setSwipeX] = useState(0);
   const [swiping, setSwiping] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
+  const mobileActionsRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const kebabRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1118,6 +1113,14 @@ function ChatListItem({
       window.clearTimeout(timer);
     };
   }, [closeMobileActions, mobileActionVersion, mobileActionsOpen]);
+
+  useLayoutEffect(() => {
+    if (!mobileActionsOpen) return;
+    const width = mobileActionsRef.current?.offsetWidth;
+    if (typeof width === "number" && width > 0) {
+      setInlineActionsWidth(width);
+    }
+  }, [confirmDelete, mobileActionsOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
@@ -1313,7 +1316,7 @@ function ChatListItem({
   }
 
   const timestamp = formatChatRowTimestamp(item.chat.lastMessageAt ?? item.chat.createdAt, locale);
-  const rowOffset = mobileActionsOpen ? -MOBILE_INLINE_ACTIONS_WIDTH_PX : swipeX;
+  const rowOffset = mobileActionsOpen ? -inlineActionsWidth : swipeX;
 
   return (
     <div ref={rowRef} data-testid={`chat-row-${item.chat.id}`} className="relative overflow-hidden">
@@ -1338,43 +1341,47 @@ function ChatListItem({
 
       {mobileActionsOpen ? (
         <div
+          ref={mobileActionsRef}
           data-testid={`mobile-chat-actions-${item.chat.id}`}
-          className="absolute inset-y-0 right-0 flex w-44 md:hidden"
+          className="absolute inset-y-0 right-0 flex items-center pr-1 md:hidden"
           onPointerDown={touchMobileActions}
         >
-          <button
-            type="button"
-            onClick={() => {
-              touchMobileActions();
-              if (confirmDelete) {
-                void handleDelete();
-              } else {
-                setConfirmDelete(true);
-              }
-            }}
-            disabled={deleting}
-            className="flex min-w-0 flex-1 items-center justify-center bg-destructive/15 px-2 text-center text-xs font-medium text-destructive"
-          >
-            {deleting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : confirmDelete ? (
-              t("confirmDelete")
-            ) : (
-              t("delete")
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setRenameValue(item.chat.title ?? "");
-              setRenaming(true);
-              closeMobileActions();
-            }}
-            disabled={deleting}
-            className="flex min-w-0 flex-1 items-center justify-center bg-surface-raised px-2 text-center text-xs font-medium text-text"
-          >
-            {t("rename")}
-          </button>
+          <div className="flex h-9 items-center rounded-lg border border-border/50 bg-surface-raised">
+            <button
+              type="button"
+              onClick={() => {
+                touchMobileActions();
+                if (confirmDelete) {
+                  void handleDelete();
+                } else {
+                  setConfirmDelete(true);
+                }
+              }}
+              disabled={deleting}
+              className="px-3.5 text-xs font-semibold text-destructive transition-colors hover:text-destructive disabled:opacity-50"
+            >
+              {deleting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : confirmDelete ? (
+                t("confirmDelete")
+              ) : (
+                t("delete")
+              )}
+            </button>
+            <span aria-hidden="true" className="h-3.5 w-px shrink-0 bg-border/70" />
+            <button
+              type="button"
+              onClick={() => {
+                setRenameValue(item.chat.title ?? "");
+                setRenaming(true);
+                closeMobileActions();
+              }}
+              disabled={deleting}
+              className="px-3.5 text-xs font-medium text-text transition-colors hover:text-text disabled:opacity-50"
+            >
+              {t("rename")}
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -1386,7 +1393,7 @@ function ChatListItem({
         onTouchCancel={cancelSwipe}
         style={{ transform: `translateX(${rowOffset}px)` }}
         className={cn(
-          "group relative z-10 flex min-h-11 w-full items-center rounded-lg bg-surface px-2.5 py-2.5 text-left [touch-action:pan-y] md:min-h-0 md:py-2",
+          "group relative z-10 flex min-h-11 w-full items-center gap-1.5 rounded-lg bg-surface px-2.5 py-2.5 text-left [touch-action:pan-y] md:min-h-0 md:gap-1 md:py-2",
           !swiping && "transition-[transform,background-color] duration-200 ease-out",
           isActive
             ? "bg-chat-active-tint text-text"
@@ -1442,7 +1449,7 @@ function ChatListItem({
           {timestamp && (
             <time
               aria-hidden="true"
-              className="shrink-0 text-[11px] tabular-nums text-text-subtle"
+              className="shrink-0 pl-1 text-[11px] tabular-nums text-text-subtle"
               dateTime={item.chat.lastMessageAt ?? item.chat.createdAt}
             >
               {timestamp}
@@ -1466,7 +1473,7 @@ function ChatListItem({
               toggleRowActions();
             }
           }}
-          className="-mr-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full opacity-80 transition-opacity hover:bg-surface-raised md:mr-0 md:h-6 md:w-6 md:opacity-0 md:group-hover:opacity-100"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full opacity-80 transition-opacity hover:bg-surface-raised md:h-6 md:w-6 md:rounded-none md:opacity-0 md:hover:bg-transparent md:group-hover:opacity-100"
         >
           <MoreHorizontal className="h-4 w-4 text-text-subtle md:h-3.5 md:w-3.5" />
         </button>

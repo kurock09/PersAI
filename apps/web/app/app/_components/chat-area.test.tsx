@@ -739,7 +739,8 @@ describe("ChatArea", () => {
 
     fireEvent.scroll(scrollContainer);
     const scrollButton = screen.getByLabelText("scrollToBottom");
-    expect(scrollButton).toHaveClass("right-3", "md:left-1/2", "md:-translate-x-1/2");
+    expect(scrollButton).toHaveClass("right-3", "h-11", "w-11", "rounded-full");
+    expect(scrollButton.className).not.toMatch(/md:left-1\/2/);
     fireEvent.click(scrollButton);
 
     expect(scrollTo).toHaveBeenCalledWith({ top: 1200, behavior: "smooth" });

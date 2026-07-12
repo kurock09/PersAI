@@ -1,5 +1,33 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Plan circle right + chrome polish
+
+Status: **implemented locally; pushed pending after this commit.**
+
+Baseline SHA: PersAI `ce5d473d`.
+
+**Plan:** Mobile collapsed state is a true `h-11 w-11` circle on the right
+(`ml-auto`), width animates leftward into the compact pill / list. Border-radius
+snaps instantly on expand/collapse (no stadium lag); composer multiline uses the
+same no-radius-transition rule.
+
+**Account footer:** Theme/language pills are icon/code-only (captions removed).
+
+**Chat list:** Mobile Delete|Rename is a soft chip with divider, content padding,
+bold reddish delete text, no block fills. Desktop ⋯ drops the hover circle.
+Timestamp and ⋯ share a clear gap (`gap-1.5`).
+
+**Composer / scroll control:** Scroll-to-bottom is a composer-height `h-11 w-11`
+circle above the mic. Single-line textarea hides overflow so narrow desktop
+windows do not show a phantom scrollbar.
+
+**Verification:** focused plan/sidebar/area/input/blocks 132/132 PASS; web lint,
+format:check, web typecheck PASS.
+
+**Next:** phone + desktop visual check after deploy.
+
+---
+
 ## 2026-07-12 — Chat message 14px + plan clear confirm geometry
 
 Status: **implemented locally; visual acceptance pending.**

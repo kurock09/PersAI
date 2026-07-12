@@ -1240,14 +1240,13 @@ export function ChatArea({
             type="button"
             onClick={() => scrollToBottom("smooth")}
             className={cn(
-              "absolute right-3 bottom-[5.25rem] z-30 inline-flex cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-surface-raised/90 px-3 py-2 text-xs font-medium text-text-muted shadow-lg shadow-black/5 backdrop-blur-md transition-all",
-              "hover:-translate-y-0.5 hover:border-accent/30 hover:bg-surface-hover hover:text-text active:translate-y-0 md:right-auto md:bottom-24 md:left-1/2 md:-translate-x-1/2"
+              "absolute right-3 bottom-[5.25rem] z-30 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised text-text-muted shadow-sm transition-all md:bottom-24",
+              "hover:-translate-y-0.5 hover:border-accent/30 hover:bg-surface-hover hover:text-text active:translate-y-0"
             )}
             aria-label={t("scrollToBottom")}
             title={t("scrollToBottom")}
           >
-            <ArrowDown className="h-4 w-4" />
-            <span className="hidden sm:inline">{t("scrollToBottom")}</span>
+            <ArrowDown className="h-5 w-5" strokeWidth={1.75} />
           </button>
         )}
       </div>

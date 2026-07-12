@@ -274,7 +274,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(screen.getByRole("button", { name: "newChat" })).toHaveClass("text-base", "md:text-sm");
   });
 
-  it("uses composer-height quiet pills for theme and language controls", async () => {
+  it("uses composer-height quiet icon-only pills for theme and language controls", async () => {
     render(<Sidebar data={makeAppData({})} />);
 
     fireEvent.click(screen.getByText("freePlan · 0%").closest("button")!);
@@ -285,6 +285,8 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(languageSwitcher).toHaveClass("h-11", "rounded-full", "md:h-9");
     expect(themeSwitcher.className).not.toMatch(/accent/);
     expect(languageSwitcher.className).not.toMatch(/accent/);
+    expect(screen.queryByText("theme")).toBeNull();
+    expect(screen.queryByText("language")).toBeNull();
   });
 
   it("increases mobile chat-row density and the three-dot tap target", () => {
@@ -292,6 +294,7 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
 
     expect(screen.getByTestId("chat-row-surface-thread-a")).toHaveClass(
       "min-h-11",
+      "gap-1.5",
       "py-2.5",
       "md:min-h-0",
       "md:py-2"
@@ -299,14 +302,19 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(screen.getByRole("button", { name: "chatActions" })).toHaveClass("h-10", "w-10");
   });
 
-  it("opens inline mobile actions and requires a second delete tap", async () => {
+  it("opens premium inline mobile actions without filled delete and requires a second delete tap", async () => {
     useMobileViewport();
     render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
 
     fireEvent.click(screen.getByRole("button", { name: "chatActions" }));
-    expect(screen.getByTestId("mobile-chat-actions-thread-a")).toBeInTheDocument();
+    const actions = screen.getByTestId("mobile-chat-actions-thread-a");
+    expect(actions).toBeInTheDocument();
+    const deleteBtn = screen.getByRole("button", { name: "delete" });
+    expect(deleteBtn).toHaveClass("font-semibold", "text-destructive");
+    expect(deleteBtn.className).not.toMatch(/bg-destructive/);
+    expect(actions.querySelector(".bg-surface-raised")).toHaveClass("rounded-lg");
 
-    fireEvent.click(screen.getByRole("button", { name: "delete" }));
+    fireEvent.click(deleteBtn);
     expect(screen.getByRole("button", { name: "confirmDelete" })).toBeInTheDocument();
     expect(chatApiMocks.delete).not.toHaveBeenCalled();
 
@@ -316,6 +324,12 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
         confirmText: "DELETE"
       });
     });
+  });
+
+  it("keeps the desktop three-dot control without a hover circle", () => {
+    render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
+    const kebab = screen.getByRole("button", { name: "chatActions" });
+    expect(kebab).toHaveClass("md:rounded-none", "md:hover:bg-transparent");
   });
 
   it("closes inline mobile actions after 10 seconds idle", () => {

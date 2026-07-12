@@ -32,11 +32,14 @@ do not compete.
 4. Restore is an explicit operation, not a toggle on the archive endpoint. The
    repository restores under a serializable transaction with the active-chat
    plan limit checked in the same transaction. A full limit returns HTTP 409.
-5. On mobile, the enlarged three-dot target slides the row left to expose
-   `Delete | Rename` inline. Delete still requires a second confirmation.
-   Inline actions close on a second three-dot tap, outside tap, or 10 seconds
-   without interaction. Opening another row naturally closes the previous row
-   through the outside-pointer boundary.
+5. On mobile, the enlarged three-dot target slides the row left to expose a
+   premium inline `Delete | Rename` strip: no block fills, soft rounded chip,
+   vertical divider, content-width padding. Delete uses bolder reddish text and
+   still requires a second confirmation. Inline actions close on a second
+   three-dot tap, outside tap, or 10 seconds without interaction. Opening
+   another row naturally closes the previous row through the outside-pointer
+   boundary. Desktop three-dot keeps opacity reveal without a hover circle
+   (list rows are not pills).
 6. Archived chats render as one collapsible group:
    - mobile hides the group until the first qualifying pull at scroll top;
      later pulls retain normal refresh behavior
@@ -46,10 +49,11 @@ do not compete.
    truth after success. Gesture animation does not become a second data owner.
 8. Mobile assistant name and New chat copy use 16px type. Mobile chat rows use a
    44px minimum height; desktop density remains unchanged.
-9. Account-footer theme and language switchers use composer-height quiet pills
-   on mobile (`h-11`, full half-width, `rounded-full`) and denser `md:h-9` on
-   desktop. Active state stays near-white `surface-raised` without accent
-   weight so hit targets improve without competing with the chat list.
+9. Account-footer theme and language switchers use composer-height quiet
+   icon/code-only pills on mobile (`h-11`, full half-width, `rounded-full`) and
+   denser `md:h-9` on desktop — no under-pill “Theme/Language” captions. Active
+   state stays near-white `surface-raised` without accent weight so hit targets
+   improve without competing with the chat list.
 
 ## Consequences
 
