@@ -29,6 +29,9 @@ import {
   exactIpBlockOnlyPeers,
   exactPeerPodSelector,
   exactPodSelector,
+  FLOW_LOG_METADATA_API_TO_CLI,
+  flowLogAggregationCliArg,
+  flowLogMetadataCliArg,
   inventoryConflictingEgressAllows,
   inventoryNatEligibleConsumers,
   isAdr146ControlledProbePod,
@@ -42,6 +45,7 @@ import {
   resolveCalicoOwnedProbeTargets,
   resolveRestrictedProbeTargets,
   runStaticDeployTruth,
+  selectPrepareCommandIds,
   selectRealExecPodsForKsaWiring,
   squidDenialHttpStatusIndicatesProxyDeny,
   validateControlledProbeHardening,
@@ -445,6 +449,95 @@ test("firewall command denies all protocols only to reviewed destinations", () =
   assert.ok(!ranges.includes(inventory.cidrs.nodePrimary));
   assert.ok(!ranges.includes(inventory.cidrs.service));
   assert.ok(!ranges.includes(inventory.cidrs.podDefault));
+});
+
+test("subnet flow-log command emits gcloud CLI enums, not API describe enums", () => {
+  const inventory = loadInventory();
+  assert.equal(inventory.network.flowLogs.metadata, "INCLUDE_ALL_METADATA");
+  assert.equal(inventory.network.flowLogs.aggregationInterval, "INTERVAL_5_SEC");
+  assert.equal(flowLogMetadataCliArg(inventory.network.flowLogs.metadata), "include-all");
+  assert.equal(
+    flowLogAggregationCliArg(inventory.network.flowLogs.aggregationInterval),
+    "interval-5-sec"
+  );
+  assert.notEqual(
+    flowLogMetadataCliArg(inventory.network.flowLogs.metadata),
+    inventory.network.flowLogs.metadata
+  );
+
+  const command = buildPhasePlans(inventory).prepare.find(
+    (entry) => entry.id === "enable-subnet-flow-logs"
+  );
+  assert.ok(command.argv.includes("--logging-metadata=include-all"));
+  assert.ok(command.argv.includes("--logging-aggregation-interval=interval-5-sec"));
+  assert.ok(!command.argv.includes("--logging-metadata=INCLUDE_ALL_METADATA"));
+  assert.ok(!command.argv.includes("--logging-metadata=INCLUDE_ALL"));
+  assert.ok(!command.argv.includes("--logging-aggregation-interval=INTERVAL_5_SEC"));
+});
+
+test("live flow-log matcher keeps API describe metadata INCLUDE_ALL_METADATA", () => {
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  assert.equal(live.subnet.logConfig.metadata, "INCLUDE_ALL_METADATA");
+  assert.equal(evaluateLiveFoundation(inventory, live).ok, true);
+
+  live.subnet.logConfig.metadata = "include-all";
+  const cliShaped = evaluateLiveFoundation(inventory, live);
+  assert.equal(cliShaped.ok, false);
+  assert.ok(cliShaped.checks.some((entry) => entry.id === "subnet-flow-logs-exact" && !entry.ok));
+
+  live.subnet.logConfig.metadata = "INCLUDE_ALL";
+  const shortForm = evaluateLiveFoundation(inventory, live);
+  assert.equal(shortForm.ok, false);
+  assert.ok(shortForm.checks.some((entry) => entry.id === "subnet-flow-logs-exact" && !entry.ok));
+});
+
+test("flow-log CLI mapping rejects unknown API enums", () => {
+  assert.throws(() => flowLogMetadataCliArg("INCLUDE_ALL"), /unsupported subnet flow-log metadata/);
+  assert.throws(
+    () => flowLogMetadataCliArg("INCLUDE_ALL_METADATA_TYPO"),
+    /unsupported subnet flow-log metadata/
+  );
+  assert.throws(
+    () => flowLogAggregationCliArg("INTERVAL_5_SECOND"),
+    /unsupported subnet flow-log aggregationInterval/
+  );
+  assert.equal(FLOW_LOG_METADATA_API_TO_CLI.INCLUDE_ALL_METADATA, "include-all");
+});
+
+test("partial prepare resume skips exact SA/roles/IPs and continues at subnet steps", () => {
+  const inventory = loadInventory();
+  const { email } = nodeServiceAccountIdentity(inventory);
+  const before = {
+    nodeSa: { email, disabled: false },
+    nodeSaPolicy: {
+      bindings: inventory.nodeServiceAccount.requiredRoles.map((role) => ({
+        role,
+        members: [`serviceAccount:${email}`]
+      }))
+    },
+    natAddresses: Array.from({ length: inventory.nat.staticAddressCount }, (_, index) => ({
+      name: `persai-sandbox-nat-${index + 1}`,
+      address: `34.1.1.${index + 1}`
+    })),
+    subnet: {
+      privateIpGoogleAccess: false,
+      enableFlowLogs: false,
+      logConfig: null,
+      secondaryIpRanges: Object.entries(inventory.network.existingSecondaryRanges).map(
+        ([rangeName, ipCidrRange]) => ({ rangeName, ipCidrRange })
+      )
+    }
+  };
+
+  assert.deepEqual(selectPrepareCommandIds(inventory, before), [
+    "enable-subnet-flow-logs",
+    "ensure-private-google-access",
+    "create-sandbox-pod-secondary"
+  ]);
+
+  const complete = baseLive(inventory);
+  assert.deepEqual(selectPrepareCommandIds(inventory, complete), []);
 });
 
 test("NAT covers the primary plus dedicated sandbox secondary for default GKE SNAT", () => {

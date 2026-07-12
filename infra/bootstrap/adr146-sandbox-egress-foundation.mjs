@@ -27,6 +27,7 @@ import {
   renderProbeManifestYaml,
   resolveRestrictedProbeTargets,
   runStaticDeployTruth,
+  selectPrepareCommandIds,
   shellJoin,
   squidDenialHttpStatusIndicatesProxyDeny,
   validateNatProbePod,
@@ -632,28 +633,11 @@ function executePhase(inventory, phase, before) {
   if (!commands) throw new Error(`no command plan for phase ${phase}`);
 
   if (phase === "prepare") {
-    const { email } = nodeServiceAccountIdentity(inventory);
-    if (before.nodeSa == null) runCommand(commands, "create-node-sa");
-    else console.log("[exact] node service account exists");
-    const roles = rolesFor(before.nodeSaPolicy, `serviceAccount:${email}`);
-    inventory.nodeServiceAccount.requiredRoles.forEach((role, index) => {
-      if (!roles.includes(role)) runCommand(commands, `bind-node-sa-role-${index + 1}`);
-      else console.log(`[exact] IAM role ${role}`);
-    });
-    before.natAddresses.forEach((address, index) => {
-      if (address == null) runCommand(commands, `reserve-nat-ip-${index + 1}`);
-      else console.log(`[exact] static NAT address ${natAddressName(inventory, index)}`);
-    });
-    if (!flowLogsMatch(inventory, before.subnet)) runCommand(commands, "enable-subnet-flow-logs");
-    else console.log("[exact] subnet flow logs");
-    if (before.subnet.privateIpGoogleAccess !== true)
-      runCommand(commands, "ensure-private-google-access");
-    else console.log("[exact] Private Google Access");
-    const sandboxRange = before.subnet.secondaryIpRanges?.find(
-      (range) => range.rangeName === inventory.sandboxNodePool.podSecondaryRangeName
-    );
-    if (sandboxRange == null) runCommand(commands, "create-sandbox-pod-secondary");
-    else console.log("[exact] sandbox Pod secondary range");
+    const toRun = new Set(selectPrepareCommandIds(inventory, before));
+    for (const item of commands) {
+      if (toRun.has(item.id)) runCommand(commands, item.id);
+      else console.log(`[exact] skip ${item.id}`);
+    }
     return;
   }
   if (phase === "apply-nat") {
@@ -746,21 +730,6 @@ function runCommand(commands, id) {
   const item = commands.find((candidate) => candidate.id === id);
   if (!item) throw new Error(`missing planned command ${id}`);
   run(item.argv);
-}
-
-function rolesFor(policy, member) {
-  return (policy?.bindings ?? [])
-    .filter((binding) => (binding.members ?? []).includes(member))
-    .map((binding) => binding.role);
-}
-
-function flowLogsMatch(inventory, subnet) {
-  return (
-    subnet?.enableFlowLogs === true &&
-    subnet.logConfig?.aggregationInterval === inventory.network.flowLogs.aggregationInterval &&
-    Number(subnet.logConfig?.flowSampling) === Number(inventory.network.flowLogs.flowSampling) &&
-    subnet.logConfig?.metadata === inventory.network.flowLogs.metadata
-  );
 }
 
 function waitForCalico(inventory, oldUids, expectedCount) {

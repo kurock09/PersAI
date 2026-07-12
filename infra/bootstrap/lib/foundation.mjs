@@ -40,6 +40,51 @@ export const ADR146_CONTROLLED_PROBE_POD_NAMES = Object.freeze([
   "adr146-nat-probe"
 ]);
 
+/**
+ * SubnetworkLogConfig.metadata API describe enums → gcloud CLI
+ * `--logging-metadata` ChoiceEnumMapper values (not the API names).
+ * Verified against `gcloud compute networks subnets update --help` /
+ * googlecloudsdk ChoiceEnumMapper custom_mappings.
+ */
+export const FLOW_LOG_METADATA_API_TO_CLI = Object.freeze({
+  INCLUDE_ALL_METADATA: "include-all",
+  EXCLUDE_ALL_METADATA: "exclude-all",
+  CUSTOM_METADATA: "custom"
+});
+
+/**
+ * SubnetworkLogConfig.aggregationInterval API describe enums → gcloud CLI
+ * `--logging-aggregation-interval` ChoiceEnumMapper values.
+ */
+export const FLOW_LOG_AGGREGATION_API_TO_CLI = Object.freeze({
+  INTERVAL_5_SEC: "interval-5-sec",
+  INTERVAL_30_SEC: "interval-30-sec",
+  INTERVAL_1_MIN: "interval-1-min",
+  INTERVAL_5_MIN: "interval-5-min",
+  INTERVAL_10_MIN: "interval-10-min",
+  INTERVAL_15_MIN: "interval-15-min"
+});
+
+export function flowLogMetadataCliArg(apiMetadata) {
+  const mapped = FLOW_LOG_METADATA_API_TO_CLI[apiMetadata];
+  if (!mapped) {
+    throw new Error(
+      `unsupported subnet flow-log metadata API enum for gcloud CLI mapping: ${String(apiMetadata)}`
+    );
+  }
+  return mapped;
+}
+
+export function flowLogAggregationCliArg(apiInterval) {
+  const mapped = FLOW_LOG_AGGREGATION_API_TO_CLI[apiInterval];
+  if (!mapped) {
+    throw new Error(
+      `unsupported subnet flow-log aggregationInterval API enum for gcloud CLI mapping: ${String(apiInterval)}`
+    );
+  }
+  return mapped;
+}
+
 export function loadInventory(inventoryPath = DEFAULT_INVENTORY_PATH) {
   const inventory = JSON.parse(readFileSync(inventoryPath, "utf8"));
   const errors = validateInventory(inventory);
@@ -219,7 +264,51 @@ export function validateInventory(inventory) {
   if (inventory.nat?.scope?.type !== "CUSTOM_PRIMARY_AND_SANDBOX_SECONDARY") {
     errors.push("Cloud NAT must select the cluster subnet primary plus sandbox Pod secondary");
   }
+  const flowLogs = inventory.network?.flowLogs;
+  if (!FLOW_LOG_METADATA_API_TO_CLI[flowLogs?.metadata]) {
+    errors.push(
+      "network.flowLogs.metadata must be a known API describe enum (e.g. INCLUDE_ALL_METADATA)"
+    );
+  }
+  if (!FLOW_LOG_AGGREGATION_API_TO_CLI[flowLogs?.aggregationInterval]) {
+    errors.push(
+      "network.flowLogs.aggregationInterval must be a known API describe enum (e.g. INTERVAL_5_SEC)"
+    );
+  }
+  if (
+    flowLogs?.flowSampling == null ||
+    Number.isNaN(Number(flowLogs.flowSampling)) ||
+    Number(flowLogs.flowSampling) < 0 ||
+    Number(flowLogs.flowSampling) > 1
+  ) {
+    errors.push("network.flowLogs.flowSampling must be a number in [0, 1]");
+  }
   return errors;
+}
+
+/**
+ * Exact-match prepare resume planner: skip resources already at inventory truth,
+ * continue at the first unfinished prepare step (flow logs / PGA / secondary).
+ */
+export function selectPrepareCommandIds(inventory, before) {
+  const ids = [];
+  const { email } = nodeServiceAccountIdentity(inventory);
+  if (before?.nodeSa == null) ids.push("create-node-sa");
+  const roles = extractRolesForMember(before?.nodeSaPolicy, `serviceAccount:${email}`);
+  inventory.nodeServiceAccount.requiredRoles.forEach((role, index) => {
+    if (!roles.includes(role)) ids.push(`bind-node-sa-role-${index + 1}`);
+  });
+  const addresses = before?.natAddresses ?? [];
+  for (let index = 0; index < inventory.nat.staticAddressCount; index += 1) {
+    if (addresses[index] == null) ids.push(`reserve-nat-ip-${index + 1}`);
+  }
+  if (!subnetFlowLogsMatch(inventory, before?.subnet)) ids.push("enable-subnet-flow-logs");
+  if (before?.subnet?.privateIpGoogleAccess !== true) ids.push("ensure-private-google-access");
+  const sandboxRange = before?.subnet?.secondaryIpRanges?.find(
+    (range) => range.rangeName === inventory.sandboxNodePool.podSecondaryRangeName
+  );
+  if (sandboxRange == null) ids.push("create-sandbox-pod-secondary");
+  return ids;
 }
 
 function cidrContainsOrOverlaps(left, right) {
@@ -294,9 +383,9 @@ export function buildPhasePlans(inventory, resolved = {}) {
         `--project=${project}`,
         `--region=${region}`,
         "--enable-flow-logs",
-        `--logging-aggregation-interval=${inventory.network.flowLogs.aggregationInterval}`,
+        `--logging-aggregation-interval=${flowLogAggregationCliArg(inventory.network.flowLogs.aggregationInterval)}`,
         `--logging-flow-sampling=${inventory.network.flowLogs.flowSampling}`,
-        `--logging-metadata=${inventory.network.flowLogs.metadata}`
+        `--logging-metadata=${flowLogMetadataCliArg(inventory.network.flowLogs.metadata)}`
       ]),
       command("ensure-private-google-access", "Enable Private Google Access", [
         "gcloud",
