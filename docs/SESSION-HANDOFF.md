@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Chat message 14px + plan clear confirm geometry
+
+Status: **implemented locally; visual acceptance pending.**
+
+Baseline SHA: PersAI `af14803c`.
+
+**Message zone:** Mobile chat message body text returns from 16px (`text-base`)
+to 14px (`text-sm`) in bubbles, assistant prose, tables, and section titles.
+Composer/input and other chrome stay at the prior mobile 16px sizing.
+
+**Plan pill:** Trash sits in a right `h-8 w-8` circle inside the compact pill.
+Clear confirmation morphs the same single `h-11` header row (composer-like
+cancel/confirm pills) instead of adding a second strip that fattened the
+`rounded-full` capsule.
+
+**Verification:** `chat-plan-card` + `chat-message-blocks` 37/37 PASS;
+provider-gateway suite PASS after keepalive flake fix; full recursive
+`pnpm test` PASS; lint (incl. format:check) + typecheck PASS.
+
+**Next:** phone visual check of message size and plan clear morph after
+deploy.
+
+---
+
 ## 2026-07-12 — ADR-145 Telegram-like chat-list archive + mobile row actions
 
 Status: **implemented locally; logged-in mobile/desktop visual acceptance pending.**

@@ -284,7 +284,7 @@ describe("ChatPlanCard", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("clear button on an active plan shows confirmation row; Cancel does not call onClear", async () => {
+  it("clear button on an active plan shows inline confirmation; Cancel does not call onClear", async () => {
     const onClear = vi.fn().mockResolvedValue(undefined);
     const todos = [makeTodo({ id: "1", content: "Task 1" })];
     const { container } = render(

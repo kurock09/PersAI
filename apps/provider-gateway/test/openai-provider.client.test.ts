@@ -978,7 +978,9 @@ export async function runOpenAIProviderClientTest(): Promise<void> {
 
   const delayedClient = new OpenAIProviderClient({
     ...createConfig(),
-    PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 20
+    // Keep finite, but leave headroom over the mock's 10ms+15ms delays so CI load
+    // does not abort between keepalive and completed.
+    PROVIDER_GATEWAY_STREAM_TIMEOUT_MS: 200
   });
   (delayedClient as unknown as { client: unknown }).client = (
     client as unknown as { client: unknown }
