@@ -34,6 +34,8 @@ export const ADR146_CONTROLLED_PROBE_LABEL = "sandbox.gke.io/adr146-controlled-p
  * Inventory still expects both resulting managed values after create.
  */
 export const GKE_MANAGED_SANDBOX_RUNTIME_KEY = "sandbox.gke.io/runtime";
+/** Canonical inventory / CLI sandbox type; live GKE API may return `GVISOR`. */
+export const GKE_SANDBOX_TYPE_GVISOR = "gvisor";
 export const ADR146_PROBE_ACTIVE_DEADLINE_SECONDS = 600;
 /** Exact small resource envelope required on controlled probe Pods. */
 export const ADR146_PROBE_RESOURCES = Object.freeze({
@@ -161,7 +163,7 @@ export function validateInventory(inventory) {
   if (inventory.sandboxNodePool?.enablePrivateNodes !== true) {
     errors.push("private sandbox node pool is required");
   }
-  if (inventory.sandboxNodePool?.sandboxType !== "gvisor") {
+  if (!isAcceptedGvisorSandboxType(inventory.sandboxNodePool?.sandboxType)) {
     errors.push("private pool must declare sandboxType gvisor (GKE Sandbox)");
   }
   if (inventory.sandboxNodePool?.labels?.workload !== "sandbox") {
@@ -339,6 +341,35 @@ export function selectPrepareCommandIds(inventory, before) {
   );
   if (sandboxRange == null) ids.push("create-sandbox-pod-secondary");
   return ids;
+}
+
+/**
+ * Exact-match apply-sandbox-pool resume planner: skip create when the private
+ * pool already matches inventory contour (including case-normalized gVisor).
+ * Caller must fail closed if a non-matching pool already exists (create 409).
+ * Legacy public-pool cordon remains an execute-time idempotent step.
+ */
+export function selectApplySandboxPoolCommandIds(inventory, before) {
+  const ids = [];
+  if (!privatePoolMatches(inventory, before?.privatePool)) {
+    ids.push("create-private-sandbox-pool");
+  }
+  return ids;
+}
+
+/**
+ * GKE Sandbox type acceptance: only gVisor (`gvisor` / `GVISOR` casing).
+ * Empty, missing, and any other type fail closed.
+ */
+export function isAcceptedGvisorSandboxType(value) {
+  return String(value ?? "").toLowerCase() === GKE_SANDBOX_TYPE_GVISOR;
+}
+
+/** Live `sandboxConfig.type` (or legacy sandboxType alias) from a node-pool describe. */
+export function readLiveSandboxConfigType(pool) {
+  if (!pool) return undefined;
+  const type = pool.config?.sandboxConfig?.type ?? pool.config?.sandboxConfig?.sandboxType;
+  return type == null || type === "" ? undefined : type;
 }
 
 function cidrContainsOrOverlaps(left, right) {
@@ -1706,13 +1737,11 @@ function publicPoolMatches(inventory, pool) {
   );
 }
 
-function privatePoolMatches(inventory, pool) {
+export function privatePoolMatches(inventory, pool) {
   if (!pool) return false;
   const expected = inventory.sandboxNodePool;
   const { email } = nodeServiceAccountIdentity(inventory);
-  const sandboxType = String(
-    pool.config?.sandboxConfig?.type ?? pool.config?.sandboxConfig?.sandboxType ?? ""
-  ).toLowerCase();
+  const liveSandboxType = readLiveSandboxConfigType(pool);
   return (
     pool.name === expected.replacementName &&
     pool.config?.machineType === expected.machineType &&
@@ -1726,10 +1755,11 @@ function privatePoolMatches(inventory, pool) {
     pool.networkConfig?.podRange === expected.podSecondaryRangeName &&
     pool.networkConfig?.podIpv4CidrBlock === inventory.cidrs.sandboxPodSecondary &&
     includesObject(pool.config?.labels, expected.labels) &&
-    pool.config?.labels?.[GKE_MANAGED_SANDBOX_RUNTIME_KEY] === "gvisor" &&
+    pool.config?.labels?.[GKE_MANAGED_SANDBOX_RUNTIME_KEY] === GKE_SANDBOX_TYPE_GVISOR &&
     pool.config?.labels?.workload === "sandbox" &&
     hasExpectedTaint(pool.config?.taints ?? []) &&
-    sandboxType === String(expected.sandboxType).toLowerCase() &&
+    isAcceptedGvisorSandboxType(expected.sandboxType) &&
+    isAcceptedGvisorSandboxType(liveSandboxType) &&
     sameSet(pool.config?.tags ?? [], expected.networkTags) &&
     pool.config?.shieldedInstanceConfig?.enableSecureBoot === true &&
     pool.config?.shieldedInstanceConfig?.enableIntegrityMonitoring === true &&

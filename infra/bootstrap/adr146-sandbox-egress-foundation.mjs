@@ -28,6 +28,9 @@ import {
   renderProbeManifestYaml,
   resolveRestrictedProbeTargets,
   runStaticDeployTruth,
+  privatePoolMatches,
+  readLiveSandboxConfigType,
+  selectApplySandboxPoolCommandIds,
   selectPrepareCommandIds,
   shellJoin,
   squidDenialHttpStatusIndicatesProxyDeny,
@@ -679,8 +682,18 @@ function executePhase(inventory, phase, before) {
     return;
   }
   if (phase === "apply-sandbox-pool") {
-    if (before.privatePool == null) runCommand(commands, "create-private-sandbox-pool");
-    else console.log("[exact] private sandbox pool");
+    const toRun = new Set(selectApplySandboxPoolCommandIds(inventory, before));
+    if (toRun.has("create-private-sandbox-pool")) {
+      if (before.privatePool != null) {
+        const observed = readLiveSandboxConfigType(before.privatePool);
+        throw new Error(
+          `existing private pool ${before.privatePool.name} does not match inventory contour; refuse create/replace (observed sandboxConfig.type=${observed ?? "missing"})`
+        );
+      }
+      runCommand(commands, "create-private-sandbox-pool");
+    } else {
+      console.log("[exact] private sandbox pool");
+    }
     run([
       "kubectl",
       "wait",
@@ -695,13 +708,10 @@ function executePhase(inventory, phase, before) {
     if (nodes.length === 0 || nodes.some((node) => !node.ready || node.externalIp)) {
       throw new Error("private pool selector returned no nodes or a node is not Ready/private");
     }
-    if (
-      !afterPrivate.privatePool ||
-      afterPrivate.privatePool.config?.sandboxConfig?.type !== "gvisor"
-    ) {
-      const sandboxType = afterPrivate.privatePool?.config?.sandboxConfig?.type;
+    if (!privatePoolMatches(inventory, afterPrivate.privatePool)) {
+      const sandboxType = readLiveSandboxConfigType(afterPrivate.privatePool);
       throw new Error(
-        `private pool must expose GKE sandboxConfig.type=gvisor (observed=${sandboxType ?? "missing"}); labels/taints alone are insufficient`
+        `private pool must match inventory contour including GKE sandboxConfig.type=gvisor (GVISOR casing accepted; observed=${sandboxType ?? "missing"}); managed label/taint, private nodes, KSA, and Pod range required`
       );
     }
     const publicPresent =

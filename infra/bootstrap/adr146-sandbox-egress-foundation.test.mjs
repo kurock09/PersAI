@@ -17,6 +17,7 @@ import {
   ADR146_PROBE_ACTIVE_DEADLINE_SECONDS,
   ADR146_PROBE_RESOURCES,
   GKE_MANAGED_SANDBOX_RUNTIME_KEY,
+  GKE_SANDBOX_TYPE_GVISOR,
   buildControlledProbeCleanupPlan,
   buildEvidenceBinding,
   buildNatProbePodManifest,
@@ -35,6 +36,7 @@ import {
   flowLogMetadataCliArg,
   inventoryConflictingEgressAllows,
   inventoryNatEligibleConsumers,
+  isAcceptedGvisorSandboxType,
   isAdr146ControlledProbePod,
   isNetworkPolicyAddonEnabled,
   listControlledProbeCleanupTargets,
@@ -43,12 +45,15 @@ import {
   nodeServiceAccountIdentity,
   operatorOwnedNodeLabels,
   operatorOwnedNodeTaints,
+  privatePoolMatches,
   probeManifestToValidatorPod,
+  readLiveSandboxConfigType,
   renderPlanText,
   renderProbeManifestYaml,
   resolveCalicoOwnedProbeTargets,
   resolveRestrictedProbeTargets,
   runStaticDeployTruth,
+  selectApplySandboxPoolCommandIds,
   selectPrepareCommandIds,
   selectRealExecPodsForKsaWiring,
   squidDenialHttpStatusIndicatesProxyDeny,
@@ -578,6 +583,54 @@ test("private pool create requires GKE Sandbox gVisor, not labels alone", () => 
   assert.ok(
     evaluated.checks.some((entry) => entry.id === "private-pool-present-exact" && !entry.ok)
   );
+});
+
+test("private pool matcher accepts live GKE sandboxConfig.type=GVISOR casing", () => {
+  const inventory = loadInventory();
+  assert.equal(isAcceptedGvisorSandboxType("gvisor"), true);
+  assert.equal(isAcceptedGvisorSandboxType("GVISOR"), true);
+  assert.equal(isAcceptedGvisorSandboxType("Gvisor"), true);
+  assert.equal(isAcceptedGvisorSandboxType(""), false);
+  assert.equal(isAcceptedGvisorSandboxType(undefined), false);
+  assert.equal(isAcceptedGvisorSandboxType("runc"), false);
+  assert.equal(isAcceptedGvisorSandboxType("GVISOR "), false);
+  const live = baseLive(inventory);
+  live.privatePool.config.sandboxConfig = { type: "GVISOR" };
+  assert.equal(readLiveSandboxConfigType(live.privatePool), "GVISOR");
+  assert.equal(privatePoolMatches(inventory, live.privatePool), true);
+  assert.equal(evaluateLiveFoundation(inventory, live).ok, true);
+});
+
+test("private pool matcher rejects missing or non-gVisor sandboxConfig.type", () => {
+  const inventory = loadInventory();
+  const missing = baseLive(inventory);
+  delete missing.privatePool.config.sandboxConfig;
+  assert.equal(privatePoolMatches(inventory, missing.privatePool), false);
+  assert.equal(evaluateLiveFoundation(inventory, missing).ok, false);
+
+  const wrong = baseLive(inventory);
+  wrong.privatePool.config.sandboxConfig = { type: "runc" };
+  assert.equal(isAcceptedGvisorSandboxType(readLiveSandboxConfigType(wrong.privatePool)), false);
+  assert.equal(privatePoolMatches(inventory, wrong.privatePool), false);
+  assert.equal(evaluateLiveFoundation(inventory, wrong).ok, false);
+});
+
+test("apply-sandbox-pool resume planner skips create for exact private pool including GVISOR", () => {
+  const inventory = loadInventory();
+  assert.deepEqual(selectApplySandboxPoolCommandIds(inventory, { privatePool: null }), [
+    "create-private-sandbox-pool"
+  ]);
+  const exactLower = baseLive(inventory);
+  assert.deepEqual(selectApplySandboxPoolCommandIds(inventory, exactLower), []);
+  const exactUpper = baseLive(inventory);
+  exactUpper.privatePool.config.sandboxConfig = { type: "GVISOR" };
+  assert.deepEqual(selectApplySandboxPoolCommandIds(inventory, exactUpper), []);
+  const drifted = baseLive(inventory);
+  drifted.privatePool.config.sandboxConfig = { type: "runc" };
+  assert.deepEqual(selectApplySandboxPoolCommandIds(inventory, drifted), [
+    "create-private-sandbox-pool"
+  ]);
+  assert.equal(inventory.sandboxNodePool.sandboxType, GKE_SANDBOX_TYPE_GVISOR);
 });
 
 test("private pool create omits GKE-managed sandbox label and taint but keeps sandbox flag and workload label", () => {
