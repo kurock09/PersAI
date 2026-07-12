@@ -1,5 +1,43 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 sandbox-egress-proxy Squid logformat + subPath rollout repair
+
+Status: **Squid logformat + checksum repair committed locally in the current
+unpushed HEAD on parent/baseline `6846c46b`; no separate working-tree follow-up;
+not pushed; no Environment approval; no cloud mutation; S1 blocked.**
+
+**Live failure (post coordinated push `3cd2ea4f`):** Dev Image Publish built all
+services and pinned **sandbox only**; deferred remaining pins wait on GitHub
+Environment. Argo applied KSA/NetworkPolicy, but `sandbox-egress-proxy` entered
+`CrashLoopBackOff`. Live logs:
+
+- `ERROR: Unsupported %code: '%ssl::>sni tool=shell'`
+- `FATAL: Bungled /etc/squid/squid.conf line 27: logformat persai_egress … %ssl::>sni tool=shell`
+
+Pinned image `ubuntu/squid:6.6-24.04_edge` resolves/runs **Squid 6.14** with
+GnuTLS and **without** OpenSSL SSL-Bump, so `%ssl::*` tokens are unsupported.
+No SSL bump and no CA lifecycle are in scope.
+
+**Repair (local):** remove unsupported `%ssl::>sni` from `logformat persai_egress`;
+keep required audit fields and static literal `tool=shell`; destination audit
+remains via `%ru`. Extract exact Squid config through Helm helper
+`persai.sandboxEgressProxy.squidConf` and annotate the Deployment pod template
+with `checksum/squid-conf` (sha256 of that helper body) so ConfigMap content
+changes recreate the Pod despite `subPath` (ConfigMap-only sync does **not**
+heal a CrashLooping proxy). Contract:
+`infra/helm/scripts/sandbox-egress-proxy-squid-conf.*` (logformat + checksum
+change on config-driving values; optional local `squid -k parse`).
+
+**Still incomplete:** Environment approval not given; non-sandbox pins remain
+last-good; no probes; no enforcement proof; S0.1 not live-accepted; S1 blocked.
+Do **not** claim foundation complete.
+
+**Next:** full local gate → push so Argo applies repaired ConfigMap **and**
+checksum-driven Pod recreate → confirm `sandbox-egress-proxy` Ready → then
+probes / verify / cleanup / Environment approval(s).
+
+---
+
 ## 2026-07-13 — ADR-146 migration-pin if grouping repair (pre-push)
 
 Status: **repo-local production repair on clean local `main` (pre-repair HEAD

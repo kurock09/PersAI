@@ -10,36 +10,7 @@ metadata:
     app.kubernetes.io/component: sandbox-egress-proxy
 data:
   squid.conf: |
-    # PersAI sandbox egress proxy — ADR-126 S2: expanded allowlist + tool attribution.
-    # Exec pods route all HTTP(S) traffic here; Squid enforces the domain allowlist at L7
-    # by SNI (CONNECT host) for HTTPS and Host header for plain HTTP. Only the domains
-    # listed below are reachable. Everything else is denied. No SSL bumping — git push
-    # is intentionally allowed in v1 (matches Claude Code's posture; ADR-126 v2 D3
-    # follow-up 2026-06-23: founder confirmed push should be open).
-
-    http_port {{ $proxyPort }}
-
-    acl CONNECT method CONNECT
-
-    # Domain allowlist — add entries only with justification.
-    acl allowed_domains dstdomain{{- range .Values.sandbox.egressProxy.allowedDomains }} {{ . }}{{- end }}
-
-    # Permit CONNECT (HTTPS) and plain HTTP only to allowed domains.
-    http_access allow CONNECT allowed_domains
-    http_access allow allowed_domains
-    http_access deny all
-
-    # No on-disk cache; the proxy is a policy boundary, not a caching layer.
-    cache deny all
-
-    # Structured egress log: tool=shell is static v1 attribution (exec-pod outbound is
-    # exclusively shell-initiated through HTTP_PROXY env; richer per-tool attribution
-    # for control-plane operations — image_generate, document, files.* — lives in
-    # control-plane logs, not in this proxy log). Per ADR-126 v2 D12.
-    logformat persai_egress %ts.%03tu %>a %Ss/%03>Hs %<st %rm %ru %ssl::>sni tool=shell
-    access_log stdio:/dev/stdout persai_egress
-    cache_log stdio:/dev/stderr
-    pid_filename none
+{{- include "persai.sandboxEgressProxy.squidConf" . | nindent 4 }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -60,6 +31,11 @@ spec:
       labels:
         app.kubernetes.io/name: sandbox-egress-proxy
         app.kubernetes.io/component: sandbox-egress-proxy
+      annotations:
+        # Hash the exact squid.conf helper body (not a manual revision counter) so
+        # ConfigMap content changes roll the Pod. Required because subPath mounts
+        # do not propagate ConfigMap updates into a running/CrashLooping container.
+        checksum/squid-conf: {{ include "persai.sandboxEgressProxy.squidConf" . | sha256sum }}
     spec:
       # Run squid directly as the image's unprivileged 'proxy' user (uid/gid 13 in
       # ubuntu/squid) instead of starting as root and dropping. This makes /dev/stdout

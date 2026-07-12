@@ -26,13 +26,17 @@ or RUNBOOK sequencing, run:
 
 ```powershell
 corepack pnpm run test:adr146-foundation
+node --test infra/helm/scripts/sandbox-egress-proxy-squid-conf.test.mjs
+node infra/helm/scripts/sandbox-egress-proxy-squid-conf.mjs
+# Optional explicit parse gate (no normal-test network pull; use --pull only when requested):
+#   node infra/helm/scripts/sandbox-egress-proxy-squid-conf.mjs --require-parse
 node infra/bootstrap/adr146-sandbox-egress-foundation.mjs static-check
 node infra/bootstrap/adr146-sandbox-egress-foundation.mjs plan
 # Windows-native (no bash wrapper required):
 #   node infra/bootstrap/adr146-sandbox-egress-foundation.mjs <phase>
 helm lint infra/helm -f infra/helm/values.yaml -f infra/helm/values-dev.yaml
 helm template persai-dev infra/helm -f infra/helm/values.yaml -f infra/helm/values-dev.yaml > $null
-corepack pnpm exec prettier --check docs/TEST-PLAN.md docs/ARCHITECTURE.md docs/SESSION-HANDOFF.md docs/CHANGELOG.md docs/ADR/146-assistant-owned-full-public-sandbox-egress.md infra/bootstrap/README.md infra/bootstrap/adr146-sandbox-egress-foundation.mjs infra/bootstrap/adr146-sandbox-egress-foundation.test.mjs infra/bootstrap/lib/foundation.mjs infra/bootstrap/lib/cidr.mjs infra/dev/gke/RUNBOOK.md
+corepack pnpm exec prettier --check docs/TEST-PLAN.md docs/ARCHITECTURE.md docs/SESSION-HANDOFF.md docs/CHANGELOG.md docs/ADR/146-assistant-owned-full-public-sandbox-egress.md infra/bootstrap/README.md infra/bootstrap/adr146-sandbox-egress-foundation.mjs infra/bootstrap/adr146-sandbox-egress-foundation.test.mjs infra/bootstrap/lib/foundation.mjs infra/bootstrap/lib/cidr.mjs infra/dev/gke/RUNBOOK.md infra/helm/scripts/sandbox-egress-proxy-squid-conf.mjs infra/helm/scripts/sandbox-egress-proxy-squid-conf.test.mjs
 ```
 
 Required local invariants:
@@ -64,7 +68,18 @@ Required local invariants:
    port, and the complete values-owned proxy deny inventory. Exec/proxy/NAT-probe
    top-level and peer selectors have exact matchLabels and reject
    namespaceSelector/podSelector/matchExpressions widening. Helm fails if required
-   denies are absent.
+   denies are absent. `sandbox-egress-proxy` ConfigMap `logformat persai_egress`
+   must render exact static `tool=shell`, retain `%ru` destination audit, and must
+   not include unsupported `%ssl::*` tokens (pinned `ubuntu/squid:6.6-24.04_edge`
+   → Squid 6.14 GnuTLS / no OpenSSL SSL-Bump). Deployment pod template must carry
+   `checksum/squid-conf` as sha256 of the exact
+   `persai.sandboxEgressProxy.squidConf` helper body (not a manual revision
+   counter) so ConfigMap content changes recreate the Pod despite `subPath`;
+   ConfigMap-only sync is not a heal path. Local regression:
+   `node --test infra/helm/scripts/sandbox-egress-proxy-squid-conf.test.mjs`
+   (includes checksum change on config-driving values) plus optional
+   `squid -k parse` when the pinned image is already present (no normal-test
+   network pull).
 7. Final structural verify cannot claim exec KSA wiring with zero qualifying
    Running exec pods; default-SA pods fail. Object-level KSA readiness alone is
    pre-rollout structure, not live wiring proof.

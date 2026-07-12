@@ -14,20 +14,23 @@ probe-manifest generation and commit/inventory evidence binding.
 Live foundation progress (2026-07-13; **not** acceptance): prepare, exact NAT/
 firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready with
 exact contour, idempotent legacy cordon, and maintenance-gated public-pool
-retirement have completed; structural `verify` bound to local HEAD `1300970f`
-passed all GCP/Calico/private-pool/NAT/firewall/metadata/trusted-control checks
-and failed only on the expected unpushed Helm boundary. GitHub Environment
-`persai-dev-adr146-foundation` **exists live** (required reviewer `kurock09`
-user id `126346824`, `prevent_self_review=false`, custom deployment branch
-policy exactly `main`, residual `can_admins_bypass=true`) but is **not**
-approved or deployed. Environment existence docs are already on the clean local
-pre-push branch (through `ebbc5fe4`); a repo-local migration-pin `if` grouping
-repair may sit on top uncommitted. No push, no image publish, no active probes,
-and no enforcement proof yet. S0.1 is **not** live-complete and this ADR is
-**not** closed. S1 app/API/UI work stays blocked until S0.1 is live-accepted.
-Next: commit any pending repair, final full local gate, one coordinated push,
-Argo KSA/NP apply with last-good non-sandbox tags + sandbox-only pin, then
-probes/verify/cleanup/Environment approval(s).
+retirement have completed. Coordinated push **`3cd2ea4f` is live**: Dev Image
+Publish built all services and pinned **sandbox only**; deferred remaining pins
+wait on GitHub Environment `persai-dev-adr146-foundation` (**not approved**;
+non-sandbox pins remain last-good). Argo applied KSA/NetworkPolicy but stayed
+**Progressing** because `sandbox-egress-proxy` entered `CrashLoopBackOff` on an
+unsupported Squid `logformat` token `%ssl::>sni` (pinned
+`ubuntu/squid:6.6-24.04_edge` → Squid 6.14 GnuTLS / no OpenSSL SSL-Bump). A
+repo-local repair removes that token, keeps `%ru` + static `tool=shell`, extracts
+exact Squid config via Helm helper `persai.sandboxEgressProxy.squidConf`, and
+annotates the Deployment pod template with `checksum/squid-conf` so ConfigMap
+content changes recreate the Pod despite `subPath` (ConfigMap-only sync is
+**not** sufficient). Helm/`squid -k parse` regression coverage included; repair
+is **not yet pushed**. Active probes and enforcement proof are still absent.
+S0.1 is **not** live-complete and this ADR is **not** closed. S1 app/API/UI work
+stays blocked until S0.1 is live-accepted. Next: push the Squid repair →
+confirm checksum-driven proxy Pod recreate to Ready → probes/verify/cleanup →
+Environment approval(s).
 
 ## Date
 
@@ -48,7 +51,10 @@ Slice 0.1b release-gate baseline: clean `main` at `d847cb61ac0c393fd3f0e58de4c56
 Live foundation checkpoint baseline (local, unpushed): `1300970f9452694418513336a01f9eba68219c44`
 (`1300970f`). Resume/retire/verify + Environment-existence docs are committed on
 the clean local pre-push branch through
-`ebbc5fe41f2fe51d5db0711ac6f341fc5ef4664c` (`ebbc5fe4`).
+`ebbc5fe41f2fe51d5db0711ac6f341fc5ef4664c` (`ebbc5fe4`). Coordinated push live
+at `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f` (`3cd2ea4f`). Squid logformat
+CrashLoop repair is committed locally in the current unpushed HEAD (still not
+pushed/deployed).
 
 ## Orchestration model
 
@@ -675,8 +681,16 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
   present, old proxy NetworkPolicy shape, NAT probe NetworkPolicy absent. All
   GCP / Calico / private pool / NAT / firewall / metadata / trusted-control
   checks passed. No enforcement proof yet; no active probes run;
-- no push yet; Helm KSA/NetworkPolicy from the unpushed repository is not
-  applied; GitHub Environment `persai-dev-adr146-foundation` **exists live**
+- coordinated push **`3cd2ea4f` is live**: Dev Image Publish built all services
+  and pinned **sandbox only**; deferred remaining pins wait on Environment
+  (not approved; non-sandbox pins last-good). Argo applied KSA/NetworkPolicy
+  but `sandbox-egress-proxy` CrashLoopBackOff on unsupported
+  `logformat … %ssl::>sni` (Squid 6.14 GnuTLS / no SSL-Bump). Repo-local repair
+  removes `%ssl::>sni`, keeps `%ru` + static `tool=shell`, extracts exact Squid
+  config via Helm helper `persai.sandboxEgressProxy.squidConf`, adds pod-template
+  `checksum/squid-conf` for subPath-safe recreate, and adds Helm/`squid -k parse`
+  regression — **not pushed yet**;
+- GitHub Environment `persai-dev-adr146-foundation` **exists live**
   (required reviewer `kurock09` / user id `126346824`,
   `prevent_self_review=false`, custom deployment branch policy exactly `main`,
   residual `can_admins_bypass=true` — documented honestly, not mutated here)
@@ -684,20 +698,22 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
   completion and enforcement are **not** claimed.
 
 Exact push-last sequence (founder-coordinated; live GCP/Calico/private-pool/
-retirement + Environment creation above are done; Helm apply + probes +
-approvals remain):
+retirement + Environment creation + coordinated push above are done; proxy
+checksum-driven Pod recreate + probes + approvals remain):
 
 1. create protected GitHub Environment `persai-dev-adr146-foundation` —
    **done**: Environment exists live with required reviewer `kurock09`
    (user id `126346824`), `prevent_self_review=false`, and custom deployment
    branch policy exactly `main`; residual `can_admins_bypass=true`; not
    approved/deployed. Create `persai-dev-migrations` when that gate is needed;
-2. run the final full local gate from a clean tree (Environment docs already on
-   the clean local branch; commit any pending migration-pin repair first);
-3. one coordinated founder push of the ADR-146 commit range;
-4. observe Argo apply KSA/NetworkPolicy from `HEAD` while non-sandbox image
-   tags remain last-good, then Dev Image Publish pins **sandbox only** after
-   the sandbox image build succeeds;
+2. run the final full local gate from a clean tree;
+3. one coordinated founder push of the ADR-146 commit range — **done at
+   `3cd2ea4f`**; follow with the Squid logformat CrashLoop + checksum rollout
+   repair push;
+4. observe Argo apply repaired `sandbox-egress-proxy` ConfigMap **and**
+   checksum-driven Pod recreate to Ready while non-sandbox image tags remain
+   last-good (sandbox already pinned). Do **not** treat ConfigMap-only sync as
+   sufficient under `subPath`;
 5. create real/controlled probes, re-run structural `verify` (clean-tree
    evidence bound to commit SHA + inventory SHA-256), run active probes, then
    `cleanup-controlled-probes --execute` (required on success and failure);
