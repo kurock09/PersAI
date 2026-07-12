@@ -153,6 +153,12 @@
         "responseFormat": "plain_ipv4_no_query"
       },
       "squidDeniedPublicHttpsHostname": "example.com",
+      "requiredGvisorToleration": {
+        "key": "sandbox.gke.io/runtime",
+        "operator": "Equal",
+        "value": "gvisor",
+        "effect": "NoSchedule"
+      },
       "natProbePod": {
         "namespace": "persai-dev",
         "requiredLabel": "sandbox.gke.io/adr146-nat-probe",

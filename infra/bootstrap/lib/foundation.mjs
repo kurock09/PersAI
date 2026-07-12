@@ -36,6 +36,19 @@ export const ADR146_CONTROLLED_PROBE_LABEL = "sandbox.gke.io/adr146-controlled-p
 export const GKE_MANAGED_SANDBOX_RUNTIME_KEY = "sandbox.gke.io/runtime";
 /** Canonical inventory / CLI sandbox type; live GKE API may return `GVISOR`. */
 export const GKE_SANDBOX_TYPE_GVISOR = "gvisor";
+/**
+ * Kubernetes Toleration.operator enum value for exact key/value match.
+ * API-server is case-sensitive: lowercase `"equal"` is rejected
+ * (`Unsupported value: "equal": supported values: "Equal", "Exists"`).
+ * No compatibility alias or case-folding transition mode.
+ */
+export const KUBERNETES_TOLERATION_OPERATOR_EQUAL = "Equal";
+/** Case spellings Kubernetes rejects for Toleration.operator Equal. */
+export const KUBERNETES_REJECTED_TOLERATION_OPERATOR_CASINGS = Object.freeze([
+  "equal",
+  "EQUAL",
+  "eQuAl"
+]);
 export const ADR146_PROBE_ACTIVE_DEADLINE_SECONDS = 600;
 /** Exact small resource envelope required on controlled probe Pods. */
 export const ADR146_PROBE_RESOURCES = Object.freeze({
@@ -303,6 +316,7 @@ export function validateInventory(inventory) {
       "restrictedProbe.squidDeniedPublicHttpsHostname must be a fixed non-allowlisted public HTTPS hostname"
     );
   }
+  errors.push(...validateRequiredGvisorTolerationShape(probe?.requiredGvisorToleration));
   if (inventory.nat?.scope?.type !== "CUSTOM_PRIMARY_AND_SANDBOX_SECONDARY") {
     errors.push("Cloud NAT must select the cluster subnet primary plus sandbox Pod secondary");
   }
@@ -1792,6 +1806,85 @@ export function privatePoolMatches(inventory, pool) {
   );
 }
 
+/**
+ * Inventory / Kubernetes Pod Toleration contract for gVisor runtime taint.
+ * `operator` must be the exact API enum `Equal` — no case alias.
+ */
+export function validateRequiredGvisorTolerationShape(toleration) {
+  const errors = [];
+  if (!toleration || typeof toleration !== "object" || Array.isArray(toleration)) {
+    return ["restrictedProbe.requiredGvisorToleration must be an object"];
+  }
+  const expectedFields = new Set(["key", "operator", "value", "effect"]);
+  const unexpectedFields = Object.keys(toleration).filter((field) => !expectedFields.has(field));
+  if (unexpectedFields.length > 0) {
+    errors.push(
+      `requiredGvisorToleration must contain only key/operator/value/effect; unexpected fields: ${unexpectedFields.join(", ")}`
+    );
+  }
+  if (toleration.key !== GKE_MANAGED_SANDBOX_RUNTIME_KEY) {
+    errors.push(
+      `requiredGvisorToleration.key must be ${GKE_MANAGED_SANDBOX_RUNTIME_KEY}, got ${JSON.stringify(toleration.key)}`
+    );
+  }
+  if (toleration.operator !== KUBERNETES_TOLERATION_OPERATOR_EQUAL) {
+    errors.push(
+      `requiredGvisorToleration.operator must be exactly "${KUBERNETES_TOLERATION_OPERATOR_EQUAL}" (Kubernetes API enum; lowercase/other casing rejected by apiserver), got ${JSON.stringify(toleration.operator)}`
+    );
+  }
+  if (toleration.value !== GKE_SANDBOX_TYPE_GVISOR) {
+    errors.push(
+      `requiredGvisorToleration.value must be ${GKE_SANDBOX_TYPE_GVISOR}, got ${JSON.stringify(toleration.value)}`
+    );
+  }
+  if (toleration.effect !== "NoSchedule") {
+    errors.push(
+      `requiredGvisorToleration.effect must be NoSchedule, got ${JSON.stringify(toleration.effect)}`
+    );
+  }
+  return errors;
+}
+
+/**
+ * Live + generated controlled probe Pods must carry the exact inventory gVisor
+ * toleration. Rejects apiserver-rejected casings such as lowercase `"equal"`.
+ */
+export function validateControlledProbeGvisorToleration(pod, inventory) {
+  const expected = inventory?.cidrs?.restrictedProbe?.requiredGvisorToleration;
+  const shapeErrors = validateRequiredGvisorTolerationShape(expected);
+  if (shapeErrors.length > 0) {
+    return { ok: false, errors: shapeErrors };
+  }
+  const tolerations = pod?.spec?.tolerations ?? pod?.tolerations ?? [];
+  const errors = [];
+  if (!Array.isArray(tolerations) || tolerations.length !== 1) {
+    errors.push(
+      `expected exactly one gVisor runtime toleration, got ${Array.isArray(tolerations) ? tolerations.length : "missing"}`
+    );
+    return { ok: false, errors };
+  }
+  const actual = tolerations[0] ?? {};
+  if (actual.key !== expected.key) {
+    errors.push(`tolerations[0].key must be ${expected.key}, got ${JSON.stringify(actual.key)}`);
+  }
+  if (actual.operator !== expected.operator) {
+    errors.push(
+      `tolerations[0].operator must be exactly "${expected.operator}" (Kubernetes apiserver rejects lowercase "equal" and other casings), got ${JSON.stringify(actual.operator)}`
+    );
+  }
+  if (actual.value !== expected.value) {
+    errors.push(
+      `tolerations[0].value must be ${expected.value}, got ${JSON.stringify(actual.value)}`
+    );
+  }
+  if (actual.effect !== expected.effect) {
+    errors.push(
+      `tolerations[0].effect must be ${expected.effect}, got ${JSON.stringify(actual.effect)}`
+    );
+  }
+  return { ok: errors.length === 0, errors };
+}
+
 export function validateRestrictedProbePod(pod, live, inventory) {
   const expected = inventory.cidrs.restrictedProbe.restrictedExecPod;
   const privateNodeNames = new Set((live.privatePoolNodes ?? []).map((node) => node.name));
@@ -1818,6 +1911,7 @@ export function validateRestrictedProbePod(pod, live, inventory) {
   if (runtimeClassName !== expected.runtimeClassName) {
     errors.push(`runtimeClassName=${runtimeClassName ?? "missing"}`);
   }
+  errors.push(...validateControlledProbeGvisorToleration(pod, inventory).errors);
   errors.push(...validateControlledProbeHardening(pod).errors);
   return { ok: errors.length === 0, errors };
 }
@@ -1859,6 +1953,7 @@ export function validateNatProbePod(pod, live, inventory) {
     )
   );
   if (hasProxyEnv) errors.push("proxy env must be absent");
+  errors.push(...validateControlledProbeGvisorToleration(pod, inventory).errors);
   errors.push(...validateControlledProbeHardening(pod).errors);
   return { ok: errors.length === 0, errors };
 }
@@ -2304,6 +2399,7 @@ function buildProbeSecurityAndResources(commandSeconds = ADR146_PROBE_ACTIVE_DEA
  */
 export function buildRestrictedProbePodManifest(inventory, options = {}) {
   const expected = inventory.cidrs.restrictedProbe.restrictedExecPod;
+  const gvisorToleration = inventory.cidrs.restrictedProbe.requiredGvisorToleration;
   const namespace =
     options.namespace ?? inventory.cidrs.restrictedProbe.natProbePod.namespace ?? "persai-dev";
   const name = options.name ?? "adr146-restricted-probe";
@@ -2332,14 +2428,7 @@ export function buildRestrictedProbePodManifest(inventory, options = {}) {
       nodeSelector: {
         workload: "sandbox"
       },
-      tolerations: [
-        {
-          key: "sandbox.gke.io/runtime",
-          operator: "equal",
-          value: "gvisor",
-          effect: "NoSchedule"
-        }
-      ],
+      tolerations: [{ ...gvisorToleration }],
       securityContext: hardened.securityContext,
       containers: [
         {
@@ -2361,6 +2450,7 @@ export function buildRestrictedProbePodManifest(inventory, options = {}) {
  */
 export function buildNatProbePodManifest(inventory, options = {}) {
   const expected = inventory.cidrs.restrictedProbe.natProbePod;
+  const gvisorToleration = inventory.cidrs.restrictedProbe.requiredGvisorToleration;
   const name = options.name ?? "adr146-nat-probe";
   const image = options.image ?? "busybox:1.36";
   const hardened = buildProbeSecurityAndResources(
@@ -2388,14 +2478,7 @@ export function buildNatProbePodManifest(inventory, options = {}) {
       nodeSelector: {
         workload: "sandbox"
       },
-      tolerations: [
-        {
-          key: "sandbox.gke.io/runtime",
-          operator: "equal",
-          value: "gvisor",
-          effect: "NoSchedule"
-        }
-      ],
+      tolerations: [{ ...gvisorToleration }],
       securityContext: hardened.securityContext,
       containers: [
         {
@@ -2428,6 +2511,7 @@ export function probeManifestToValidatorPod(
     metadata: { labels: manifest.metadata.labels },
     status: { phase },
     securityContext: manifest.spec.securityContext,
+    tolerations: manifest.spec.tolerations,
     spec: {
       nodeName,
       serviceAccountName: manifest.spec.serviceAccountName,
@@ -2435,6 +2519,7 @@ export function probeManifestToValidatorPod(
       runtimeClassName: manifest.spec.runtimeClassName,
       activeDeadlineSeconds: manifest.spec.activeDeadlineSeconds,
       securityContext: manifest.spec.securityContext,
+      tolerations: manifest.spec.tolerations,
       containers: manifest.spec.containers
     },
     containers: manifest.spec.containers
@@ -2443,6 +2528,19 @@ export function probeManifestToValidatorPod(
 
 export function renderProbeManifestYaml(manifest) {
   // Minimal deterministic YAML without pulling a YAML dependency or embedding secrets.
+  const tolerations = manifest?.spec?.tolerations;
+  if (!Array.isArray(tolerations) || tolerations.length !== 1) {
+    throw new Error(
+      `cannot render controlled probe manifest: expected exactly one gVisor runtime toleration, got ${Array.isArray(tolerations) ? tolerations.length : "missing"}`
+    );
+  }
+  const tolerationErrors = validateRequiredGvisorTolerationShape(tolerations[0]);
+  if (tolerationErrors.length > 0) {
+    throw new Error(
+      `cannot render controlled probe manifest: invalid canonical gVisor toleration:\n- ${tolerationErrors.join("\n- ")}`
+    );
+  }
+  const toleration = tolerations[0];
   const labels = Object.entries(manifest.metadata.labels)
     .map(([key, value]) => `    ${key}: ${JSON.stringify(String(value))}`)
     .join("\n");
@@ -2480,10 +2578,10 @@ export function renderProbeManifestYaml(manifest) {
     "  nodeSelector:",
     '    workload: "sandbox"',
     "  tolerations:",
-    "    - key: sandbox.gke.io/runtime",
-    "      operator: equal",
-    '      value: "gvisor"',
-    "      effect: NoSchedule",
+    `    - key: ${toleration.key}`,
+    `      operator: ${toleration.operator}`,
+    `      value: ${JSON.stringify(String(toleration.value))}`,
+    `      effect: ${toleration.effect}`,
     "  securityContext:",
     `    runAsNonRoot: ${podSecurity.runAsNonRoot === true}`,
     `    runAsUser: ${podSecurity.runAsUser ?? 1000}`,

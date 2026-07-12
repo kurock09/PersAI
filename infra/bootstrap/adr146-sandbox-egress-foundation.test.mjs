@@ -19,6 +19,8 @@ import {
   EXEC_KSA_INERT_ANNOTATION_KEYS,
   GKE_MANAGED_SANDBOX_RUNTIME_KEY,
   GKE_SANDBOX_TYPE_GVISOR,
+  KUBERNETES_REJECTED_TOLERATION_OPERATOR_CASINGS,
+  KUBERNETES_TOLERATION_OPERATOR_EQUAL,
   buildControlledProbeCleanupPlan,
   buildEvidenceBinding,
   buildNatProbePodManifest,
@@ -60,9 +62,11 @@ import {
   selectPrepareCommandIds,
   selectRealExecPodsForKsaWiring,
   squidDenialHttpStatusIndicatesProxyDeny,
+  validateControlledProbeGvisorToleration,
   validateControlledProbeHardening,
   validateInventory,
   validateNatProbePod,
+  validateRequiredGvisorTolerationShape,
   validateRestrictedProbePod
 } from "./lib/foundation.mjs";
 
@@ -2021,5 +2025,147 @@ test("generated restricted and NAT probe manifests satisfy live validators", () 
   assert.equal(
     restrictedManifest.metadata.labels["sandbox.gke.io/adr146-controlled-probe"],
     "true"
+  );
+});
+
+test("controlled probe gVisor toleration uses canonical Equal and rejects apiserver-rejected casings", () => {
+  const inventory = loadInventory();
+  const live = {
+    privatePoolNodes: [{ name: "private-node", ready: true, externalIp: "" }]
+  };
+  const expected = inventory.cidrs.restrictedProbe.requiredGvisorToleration;
+  assert.deepEqual(validateRequiredGvisorTolerationShape(expected), []);
+  assert.equal(expected.operator, KUBERNETES_TOLERATION_OPERATOR_EQUAL);
+  assert.equal(expected.key, GKE_MANAGED_SANDBOX_RUNTIME_KEY);
+  assert.equal(expected.value, GKE_SANDBOX_TYPE_GVISOR);
+  assert.equal(expected.effect, "NoSchedule");
+
+  const restrictedManifest = buildRestrictedProbePodManifest(inventory);
+  const natManifest = buildNatProbePodManifest(inventory);
+  const exactShape = {
+    key: GKE_MANAGED_SANDBOX_RUNTIME_KEY,
+    operator: KUBERNETES_TOLERATION_OPERATOR_EQUAL,
+    value: GKE_SANDBOX_TYPE_GVISOR,
+    effect: "NoSchedule"
+  };
+  assert.deepEqual(restrictedManifest.spec.tolerations, [exactShape]);
+  assert.deepEqual(natManifest.spec.tolerations, [exactShape]);
+  assert.deepEqual(restrictedManifest.spec.tolerations[0], expected);
+  assert.deepEqual(natManifest.spec.tolerations[0], expected);
+
+  const yaml = `${renderProbeManifestYaml(restrictedManifest)}\n${renderProbeManifestYaml(natManifest)}`;
+  assert.match(yaml, /operator: Equal/);
+  assert.doesNotMatch(yaml, /operator: equal\b/);
+  assert.doesNotMatch(yaml, /operator: EQUAL\b/);
+  assert.match(yaml, /key: sandbox\.gke\.io\/runtime/);
+  assert.match(yaml, /value: "gvisor"/);
+  assert.match(yaml, /effect: NoSchedule/);
+
+  const good = probeManifestToValidatorPod(restrictedManifest);
+  assert.equal(validateControlledProbeGvisorToleration(good, inventory).ok, true);
+  assert.equal(validateRestrictedProbePod(good, live, inventory).ok, true);
+
+  // Reproduce live apiserver rejection: Unsupported value: "equal"
+  // (supported values: "Equal", "Exists") — validators must fail closed the same way.
+  for (const badOperator of KUBERNETES_REJECTED_TOLERATION_OPERATOR_CASINGS) {
+    const badInventory = structuredClone(inventory);
+    badInventory.cidrs.restrictedProbe.requiredGvisorToleration.operator = badOperator;
+    assert.ok(
+      validateRequiredGvisorTolerationShape(
+        badInventory.cidrs.restrictedProbe.requiredGvisorToleration
+      ).some((error) => error.includes(`exactly "${KUBERNETES_TOLERATION_OPERATOR_EQUAL}"`)),
+      `inventory must reject operator=${badOperator}`
+    );
+    assert.ok(
+      validateInventory(badInventory).some((error) =>
+        error.includes(`exactly "${KUBERNETES_TOLERATION_OPERATOR_EQUAL}"`)
+      ),
+      `validateInventory must reject operator=${badOperator}`
+    );
+
+    const badPod = structuredClone(good);
+    badPod.spec.tolerations[0].operator = badOperator;
+    badPod.tolerations = badPod.spec.tolerations;
+    const gate = validateControlledProbeGvisorToleration(badPod, inventory);
+    assert.equal(gate.ok, false, `live probe must reject operator=${badOperator}`);
+    assert.ok(
+      gate.errors.some((error) => error.includes("rejects lowercase") || error.includes("casings")),
+      gate.errors.join("; ")
+    );
+    assert.equal(validateRestrictedProbePod(badPod, live, inventory).ok, false);
+    const badNat = probeManifestToValidatorPod(natManifest);
+    badNat.spec.tolerations[0].operator = badOperator;
+    assert.equal(validateNatProbePod(badNat, live, inventory).ok, false);
+  }
+
+  const missingToleration = structuredClone(good);
+  delete missingToleration.spec.tolerations;
+  delete missingToleration.tolerations;
+  assert.equal(validateControlledProbeGvisorToleration(missingToleration, inventory).ok, false);
+  assert.equal(validateRestrictedProbePod(missingToleration, live, inventory).ok, false);
+
+  const wrongKey = structuredClone(good);
+  wrongKey.spec.tolerations[0].key = "dedicated";
+  assert.equal(validateControlledProbeGvisorToleration(wrongKey, inventory).ok, false);
+});
+
+test("probe manifest renderer fails closed on invalid gVisor tolerations", () => {
+  const inventory = loadInventory();
+  const manifest = buildRestrictedProbePodManifest(inventory);
+  const yaml = renderProbeManifestYaml(manifest);
+  assert.match(
+    yaml,
+    /tolerations:\n\s+- key: sandbox\.gke\.io\/runtime\n\s+operator: Equal\n\s+value: "gvisor"\n\s+effect: NoSchedule/
+  );
+
+  const missing = structuredClone(manifest);
+  delete missing.spec.tolerations;
+  assert.throws(
+    () => renderProbeManifestYaml(missing),
+    /expected exactly one gVisor runtime toleration, got missing/
+  );
+
+  const empty = structuredClone(manifest);
+  empty.spec.tolerations = [];
+  assert.throws(
+    () => renderProbeManifestYaml(empty),
+    /expected exactly one gVisor runtime toleration, got 0/
+  );
+
+  const nullEntry = structuredClone(manifest);
+  nullEntry.spec.tolerations = [null];
+  assert.throws(
+    () => renderProbeManifestYaml(nullEntry),
+    /invalid canonical gVisor toleration.*requiredGvisorToleration must be an object/s
+  );
+
+  for (const badOperator of KUBERNETES_REJECTED_TOLERATION_OPERATOR_CASINGS) {
+    const wrongCasing = structuredClone(manifest);
+    wrongCasing.spec.tolerations[0].operator = badOperator;
+    assert.throws(
+      () => renderProbeManifestYaml(wrongCasing),
+      new RegExp(
+        `invalid canonical gVisor toleration.*operator must be exactly "${KUBERNETES_TOLERATION_OPERATOR_EQUAL}"`,
+        "s"
+      )
+    );
+  }
+
+  const extra = structuredClone(manifest);
+  extra.spec.tolerations.push({
+    key: "dedicated",
+    operator: "Exists",
+    effect: "NoSchedule"
+  });
+  assert.throws(
+    () => renderProbeManifestYaml(extra),
+    /expected exactly one gVisor runtime toleration, got 2/
+  );
+
+  const extraField = structuredClone(manifest);
+  extraField.spec.tolerations[0].tolerationSeconds = 30;
+  assert.throws(
+    () => renderProbeManifestYaml(extraField),
+    /invalid canonical gVisor toleration.*unexpected fields: tolerationSeconds/s
   );
 });

@@ -18,15 +18,17 @@ retirement have completed. Coordinated push **`3cd2ea4f`** and Squid logformat +
 checksum repair **`04b1d0d1` are live**: Argo Synced/Healthy;
 `sandbox-egress-proxy` Ready; sandbox pin immediate; deferred remaining pins
 still wait on GitHub Environment `persai-dev-adr146-foundation` (**not
-approved**; non-sandbox pins last-good). Structural `verify` on `04b1d0d1`
-reached verifier↔API-server normalization blockers (Argo inert KSA annotations;
-omitted empty NetworkPolicy `ingress`; non-strict matcher boolean) — not missing
-Helm objects. Live-verifier normalization repair is **committed locally in the
-current unpushed HEAD on live baseline `04b1d0d1`**. Controlled probes are
-**not** applied; active probes and enforcement proof remain absent. S0.1 is
-**not** live-complete and this ADR is **not** closed. S1 app/API/UI work stays
-blocked until S0.1 is live-accepted. Next: push verifier repair → re-run
-structural `verify` → controlled probes → active probes/cleanup → Environment
+approved**; non-sandbox pins last-good). Structural `verify` **PASS** at local
+HEAD **`bf8eeef1`** (live-verifier normalization landed), including a real
+production exec Pod. Controlled `generate-probe-manifests` then succeeded
+locally, but Kubernetes **rejected both probe Pods before creation** because
+generated `spec.tolerations[0].operator` used lowercase `"equal"` (apiserver
+requires canonical `"Equal"`). Probe-manifest Equal-casing repair is
+**committed locally in the current unpushed HEAD** on baseline `bf8eeef1`
+— **no probes ran**, Environment still unapproved, S0.1 is **not**
+live-complete, and this ADR is **not** closed. S1 app/API/UI work stays
+blocked until S0.1 is live-accepted. Next: push Equal repair →
+regenerate/apply controlled probes → active probes/cleanup → Environment
 approval(s).
 
 ## Date
@@ -51,8 +53,12 @@ the clean local pre-push branch through
 `ebbc5fe41f2fe51d5db0711ac6f341fc5ef4664c` (`ebbc5fe4`). Coordinated push live
 at `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f` (`3cd2ea4f`). Squid logformat +
 checksum repair live at `04b1d0d190d19ebda5787694cbd257270647a61e`
-(`04b1d0d1`; proxy Ready). Live-verifier Kubernetes normalization repair is
-committed locally in the current unpushed HEAD on live baseline `04b1d0d1`.
+(`04b1d0d1`; proxy Ready). Live-verifier Kubernetes normalization repair landed
+at local HEAD `bf8eeef1bfc0db3ca5f7ebe58b34543da8aba247` (`bf8eeef1`; structural
+`verify` PASS including a real production exec Pod). Controlled-probe
+toleration `operator: Equal` casing repair is **committed locally in the
+current unpushed HEAD** on baseline `bf8eeef1` (not pushed); probes were
+rejected before Pod creation and have **not** run.
 
 ## Orchestration model
 
@@ -645,11 +651,14 @@ Lands:
   prior immediate/migration pin behavior; bot-only image-tag `values-dev.yaml`
   commits still skip main CI and cannot recurse Dev Image Publish;
 - hardened local controlled restricted + NAT probe Pod manifests (controlled-probe
-  label, bounded deadline, non-root/read-only/seccomp/resources); validators
-  enforce that hardening; `exec-ksa-live-wiring` excludes controlled probes and
-  requires ≥1 real Running exec pod; `cleanup-controlled-probes` (dry-run
-  default, `--execute` required) deletes only the two known probe Pods by exact
-  name/label on success and failure paths;
+  label, bounded deadline, non-root/read-only/seccomp/resources, exact inventory
+  gVisor Toleration `operator: Equal` — lowercase/`EQUAL`/other casings rejected);
+  renderer validates exactly one non-null exact toleration before emitting YAML
+  and throws instead of supplying a missing/empty/null/wrong/extra fallback;
+  validators enforce that hardening; `exec-ksa-live-wiring` excludes controlled
+  probes and requires ≥1 real Running exec pod; `cleanup-controlled-probes`
+  (dry-run default, `--execute` required) deletes only the two known probe Pods
+  by exact name/label on success and failure paths;
 - plan/verify/generate-probe-manifests/probe evidence fail-closed on dirty trees,
   unavailable git, or disk≠commit inventory mismatch (no `UNAVAILABLE`);
 - inventory `releaseGate.repositoryEnforced: true` with honest human residuals.
@@ -689,11 +698,13 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
 - structural `verify` on live `04b1d0d1` then failed only on verifier↔API-server
   shape mismatches (not missing objects): Argo-managed exec KSA inert
   annotations, omitted empty NetworkPolicy `ingress`, and non-strict matcher
-  boolean. Live-verifier normalization repair (inert-annotation allowlist;
-  absent/null ingress ≡ empty; strict `Boolean` matcher returns;
-  `exec-ksa-live-wiring` zero-pod fail unchanged) is **committed locally in the
-  current unpushed HEAD on live baseline `04b1d0d1`**; controlled probes are
-  **not** applied;
+  boolean. Live-verifier normalization repair landed at **`bf8eeef1`**
+  (structural `verify` PASS including a real production exec Pod). Controlled
+  `generate-probe-manifests` then succeeded, but Kubernetes rejected both probe
+  Pods before creation (`spec.tolerations[0].operator` lowercase `"equal"`;
+  apiserver requires canonical `"Equal"`). Equal-casing repair is
+  **committed locally in the current unpushed HEAD** on baseline
+  `bf8eeef1`; **no probes ran**;
 - GitHub Environment `persai-dev-adr146-foundation` **exists live**
   (required reviewer `kurock09` / user id `126346824`,
   `prevent_self_review=false`, custom deployment branch policy exactly `main`,
@@ -718,9 +729,12 @@ done; verifier normalization push + probes + approvals remain):
    checksum-driven Pod recreate to Ready while non-sandbox image tags remain
    last-good (sandbox already pinned). Do **not** treat ConfigMap-only sync as
    sufficient under `subPath` — **done at `04b1d0d1`**;
-5. push live-verifier Kubernetes normalization repair, re-run structural
-   `verify` (clean-tree evidence bound to commit SHA + inventory SHA-256),
-   create real/controlled probes, run active probes, then
+5. push live-verifier Kubernetes normalization repair (**done at `bf8eeef1`**;
+   structural `verify` PASS including a real production exec Pod), regenerate
+   controlled probe manifests with canonical Toleration `operator: Equal`
+   (Equal-casing repair committed locally in the current unpushed HEAD on
+   baseline `bf8eeef1` — prior apply rejected lowercase `"equal"` before Pod
+   creation; **no probes ran**), re-apply probes, run active probes, then
    `cleanup-controlled-probes --execute` (required on success and failure);
 6. approve GitHub Environment `persai-dev-adr146-foundation`;
 7. when migrations are also present, approve `persai-dev-migrations` after step 6;
@@ -730,8 +744,8 @@ Failure/rollback: remain on last-good non-sandbox pins if verification fails;
 sandbox tag may roll back independently; never disable Calico; never restore the
 removed plan `networkAccessEnabled` boolean.
 
-Next: push of the live-verifier normalization repair → re-run structural
-`verify` → controlled probes → active probes → cleanup → Environment
+Next: push controlled-probe Toleration `Equal` casing repair →
+regenerate/apply controlled probes → active probes → cleanup → Environment
 approval(s). Do **not** claim foundation complete. S1 remains blocked.
 
 This is the first implementation slice on the founder-selected current-cluster

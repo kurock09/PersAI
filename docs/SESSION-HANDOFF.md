@@ -1,10 +1,44 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 controlled-probe Toleration Equal casing repair
+
+Status: **Equal-casing repair committed locally in the current unpushed HEAD
+on baseline `bf8eeef1`; not pushed; no cloud mutation; Environment still
+unapproved; no probes ran; S1 blocked.**
+
+**Live truth at `bf8eeef1`:** structural
+`node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify` **PASS**,
+including a real production exec Pod. Argo Synced/Healthy;
+`sandbox-egress-proxy` Ready. GitHub Environment
+`persai-dev-adr146-foundation` exists but is **not** approved.
+
+**Probe apply failure (before Pod creation):** `generate-probe-manifests`
+succeeded, but Kubernetes rejected both controlled probe manifests:
+`spec.tolerations[0].operator: Unsupported value: "equal": supported values:
+"Equal", "Exists"`. Root cause was the **builder** hardcoding lowercase
+`"equal"` (not an inventory field at the time). Inventory now declares
+Kubernetes-honest `requiredGvisorToleration.operator: "Equal"` with no
+case alias; builder emits that exact shape; validators reject lowercase/
+other casings for generated and live controlled probes. The YAML renderer
+validates exactly one non-null toleration against that canonical shape before
+rendering and throws on missing/empty/null/wrong-casing/extra tolerations; it
+does not synthesize a fallback.
+
+**Still incomplete:** controlled probes not applied/ran; no enforcement proof;
+Environment not approved; non-sandbox pins may still wait; S0.1 not
+live-accepted; S1 blocked. Do **not** claim foundation complete.
+
+**Next:** push Equal-casing repair → regenerate/apply controlled probes →
+active probes / cleanup → Environment approval(s).
+
+---
+
 ## 2026-07-13 — ADR-146 live-verifier Kubernetes normalization repair
 
-Status: **live-verifier Kubernetes normalization repair committed locally in the
-current unpushed HEAD on live baseline `04b1d0d1`; no cloud mutation; Environment
-still unapproved; controlled probes not applied; S1 blocked.**
+Status: **live-verifier Kubernetes normalization repair committed locally at
+`bf8eeef1` on live baseline `04b1d0d1`; structural verify later PASS at
+`bf8eeef1`; Environment still unapproved; controlled probes not applied at
+that checkpoint; S1 blocked.**
 
 **Live truth at baseline `04b1d0d1`:** Argo Synced/Healthy; `sandbox-egress-proxy`
 Ready (Squid logformat + checksum repair landed/pushed). Structural
@@ -28,8 +62,8 @@ verifier normalization blockers only — not foundation acceptance.
 Environment not approved; non-sandbox pins may still wait; S0.1 not
 live-accepted; S1 blocked. Do **not** claim foundation complete.
 
-**Next:** push (if needed for verifier-only) → re-run structural `verify` →
-apply controlled probes → active probes / cleanup → Environment approval(s).
+**Next:** (superseded) structural verify PASS at `bf8eeef1`; next is Equal
+toleration casing repair for controlled probe manifests.
 
 ---
 

@@ -134,8 +134,14 @@ Required local invariants:
 14. Local `generate-probe-manifests` produces restricted/NAT probe Pod YAML that
     satisfies the contour validators (private selector, gVisor,
     `sandbox-exec-sa`, automount false, required labels, controlled-probe label,
-    bounded `activeDeadlineSeconds`, non-root/read-only/seccomp/resources, no
-    proxy env on NAT). `exec-ksa-live-wiring` excludes controlled probes and
+    canonical gVisor Toleration `operator: Equal` with exact
+    `sandbox.gke.io/runtime=gvisor:NoSchedule` — lowercase/`EQUAL`/other casings
+    rejected to match apiserver enum failure). Rendering requires exactly one
+    non-null exact toleration and throws for missing/empty/null/wrong-casing/
+    extra tolerations; it never supplies a fallback. The manifests also keep
+    bounded `activeDeadlineSeconds`, non-root/read-only/seccomp/resources, and
+    no proxy env on NAT.
+    `exec-ksa-live-wiring` excludes controlled probes and
     requires ≥1 real Running exec pod. Operators must run
     `cleanup-controlled-probes --execute` after probes on success and failure
     paths (exact names/labels only; never broad-delete production exec pods).
