@@ -84,6 +84,11 @@
   --warning: #a88445;
 }
 
+/* ADR-144: Android/iPad medium windows and unfolded Fold use the two-pane shell. */
+@theme {
+  --breakpoint-md: 37.5rem;
+}
+
 /* @theme inline keeps Tailwind classes referencing runtime CSS vars */
 @theme inline {
   --color-chrome: var(--chrome);

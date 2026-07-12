@@ -320,7 +320,10 @@ export function AppShell({
               </AnimatePresence>
 
               {/* Main panel — bento card on desktop, full-bleed on mobile */}
-              <div className="flex flex-1 flex-col overflow-hidden bg-bg md:rounded-2xl md:border md:border-border">
+              <div
+                data-testid="app-main-panel"
+                className="flex flex-1 flex-col overflow-hidden bg-bg md:rounded-[1.375rem] md:border md:border-border"
+              >
                 {!isChatPage && (
                   <header className="flex items-center gap-3 border-b border-border px-4 py-3 md:hidden">
                     <button

@@ -1,9 +1,9 @@
 {
   "platform": "android",
   "channel": "release",
-  "versionName": "1.0.38",
-  "versionCode": 40,
+  "versionName": "1.0.39",
+  "versionCode": 41,
   "downloadUrl": "/mobile/persai-android-release.apk",
   "fileName": "persai-android-release.apk",
-  "updatedAt": "2026-07-12T00:07:50.405Z"
+  "updatedAt": "2026-07-12T13:01:14.139Z"
 }

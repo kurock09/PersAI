@@ -14,6 +14,19 @@ OpenClaw is not part of the active architecture. Historical migration traces rem
 
 ADR-072 remains the historical migration ADR through the native-path closeout. ADR-078 is completed and archived as the consolidated follow-through program. ADR-080 is the target-state decision for admin-controlled Knowledge authoring and Skill curation. ADR-081 is the target-state decision for the unified user Files architecture. ADR-087 defines unified quota advisories and paid light mode. ADR-088 defines the unified notification platform, control plane, and delivery architecture. ADR-092 is the billing decision for split payment-method truth, SBP recurring migration, provider recurring description sync, and payment-success notification policy. ADR-093 covers agent execution discipline for PROD launch readiness and concurrency hardening. **ADR-102** (pre-PROD architectural cleanup) is **completed** (2026-05-30). ADR-098 adds the public trust-page model. Programs **ADR-100** (project chat), **ADR-105** (media jobs), **ADR-106–109** (video/vcoin/HeyGen), **ADR-112** (context/memory/tools), **ADR-114** (reserve image transport), and **ADR-115** (inbound safety) are **closed** — authoritative as target-state only, not as active slice backlogs. **Active orchestration programs at the top of `AGENTS.md`** (including ADR-139 for Browserless capability policy over persistent profiles) are the authoritative live surface for open programs; new waves outside those still require explicit user priority and usually a new ADR.
 
+### Adaptive web/mobile shell
+
+ADR-144 splits ownership cleanly:
+
+- native shells own orientation permission: compact Android phone/outer-fold
+  displays and iPhone stay portrait; Android large/inner-fold displays and
+  iPad permit rotation
+- `apps/web` owns layout only from actual CSS viewport width; `md` begins at
+  600px, where the persistent sidebar/list-detail shell activates
+- no device model, manufacturer, Fold name, or user-agent determines layout
+- medium desktop shell uses a 240px sidebar (280px from 1024px) and matching
+  22px sidebar/main rounding over the existing 8px chrome gutter
+
 ## Core boundaries
 
 ### Control plane

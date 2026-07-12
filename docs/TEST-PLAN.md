@@ -4,6 +4,46 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-144 adaptive orientation + medium shell
+
+Automated:
+
+```powershell
+# PersAI
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/app-shell.test.tsx app/app/_components/sidebar.test.tsx
+corepack pnpm --filter @persai/web run typecheck
+corepack pnpm --filter @persai/web run build
+
+# persai-mobile/android
+.\gradlew.bat :app:compileDebugJavaWithJavac :app:testDebugUnitTest
+npm run android:release
+```
+
+Manual Android:
+
+1. Ordinary phone: rotate the device; PersAI must stay portrait.
+2. Fold outer display: PersAI stays portrait and single-pane.
+3. Unfold without restarting: rotation becomes available; at width `>=600px`
+   the persistent 240px sidebar appears and chat state is preserved.
+4. Rotate unfolded to landscape and back; no stale split, clipped right pane,
+   or WebView/chat reset.
+5. Fold again: shell returns to single-pane and portrait policy.
+
+Manual iOS/iPadOS:
+
+1. iPhone simulator/device: portrait only.
+2. iPad: all four declared orientations work; landscape uses the desktop
+   shell and preserves active chat state.
+3. iPad multitasking narrower than 600px returns to the mobile shell without
+   requiring a native device-class branch.
+
+Web geometry:
+
+1. Check 599px/600px/767px/768px/1024px viewport widths.
+2. At 600–1023px sidebar is 240px; at 1024px it is 280px.
+3. Desktop sidebar and main surface have matching 22px rounding and 8px gutter;
+   compact mobile remains full-bleed/unrounded.
+
 ## Chat plan pill + thread-state isolation (focused checks)
 
 When changing plan chrome or thread-switch state, run:

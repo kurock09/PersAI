@@ -204,6 +204,15 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(screen.queryByTestId("chat-list-skeleton")).toBeNull();
   });
 
+  it("uses the medium-window width and Telegram-like desktop rounding", () => {
+    render(<Sidebar data={makeAppData({})} />);
+    expect(screen.getByRole("complementary")).toHaveClass(
+      "md:w-[240px]",
+      "lg:w-[280px]",
+      "md:rounded-[1.375rem]"
+    );
+  });
+
   it("does not flash a skeleton when reload() runs but reloadChats() does not", () => {
     const data = makeAppData({
       isReloading: true,

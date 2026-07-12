@@ -124,6 +124,7 @@ describe("AppShell", () => {
     expect(badge.className).toContain("bg-accent");
     expect(badge.className).toContain("text-white");
     expect(badge.className).not.toContain("bg-accent/12");
+    expect(screen.getByTestId("app-main-panel")).toHaveClass("md:rounded-[1.375rem]");
 
     await waitFor(() => {
       expect(meApiMocks.getMe).toHaveBeenCalledTimes(1);

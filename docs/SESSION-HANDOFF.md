@@ -1,5 +1,42 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — ADR-144 adaptive native orientation + medium shell
+
+Status: **implemented locally; Android 1.0.39 built/exported; device and iOS acceptance pending.**
+
+Baselines: PersAI `9d930896`; persai-mobile `674bf31`.
+
+**Native orientation:**
+
+- Android compact phone/outer-fold windows request portrait.
+- Android maximum windows `>=600dp` or a real Jetpack WindowManager
+  `FoldingFeature` retain user-controlled rotation; policy recomputes on
+  configuration and fold-layout changes.
+- iPhone plist/controller mask is portrait-only; iPad keeps all four
+  orientations through explicit bridge-controller + app-delegate overrides
+  (Capacitor does not honor the `~ipad` plist entry by itself).
+- No UA, model, or manufacturer heuristics.
+
+**Web shell:** Tailwind `md` is 600px actual viewport width. Medium shell uses
+240px sidebar, widening to 280px at `lg`; sidebar/main share 22px rounding and
+the existing 8px gutter.
+
+**Release:** persai-mobile Android `1.0.39` / versionCode `41`; release build,
+lint-vital, export, and APK badging PASS. Exported APK/manifest are in the
+PersAI web download surface.
+
+**Verification:** Android compile + unit tests PASS; web shell/sidebar 28/28
+PASS; web production build PASS; full repo lint, format, API typecheck, and web
+typecheck PASS. No ADB device was connected, so Fold folded/unfolded acceptance
+was not performed. iOS was source-checked on Windows; Xcode simulator/device
+acceptance remains required. Local browser geometry acceptance redirected to
+Clerk sign-in, so final logged-in 600px/desktop visual acceptance remains.
+
+**Next:** install 1.0.39 on the Galaxy Fold, validate folded portrait lock and
+unfolded rotation/two-pane transitions; then run iPhone/iPad Xcode acceptance.
+
+---
+
 ## 2026-07-12 — Responsive plan pill + clean new-chat state
 
 Status: **implemented locally; phone/desktop visual acceptance pending.**
@@ -63,6 +100,7 @@ Status: **implemented locally; visual check on phone/desktop pending.**
 Baseline SHA: PersAI `3f2c8e5d` (tree already carried composer dissolve chrome).
 
 **Scope:** Telegram-like chat chrome top:
+
 - Menu **circle** (mobile) · name **pill** (title 16px on mobile + skill/scenario line) · mode control (**circle icon-only on mobile**, **text pill on desktop**)
 - Header height matches composer (`h-11`); upward fade+blur dissolve (inverse of bottom chrome)
 - Desktop controls constrained to the same `max-w-[50rem]` envelope as the composer (not pane edges)
