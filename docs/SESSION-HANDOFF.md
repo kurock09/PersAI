@@ -4,7 +4,7 @@
 
 Status: **pushed.**
 
-Baseline SHA: PersAI `dbb46a36`.
+Baseline SHA: PersAI `559014be`.
 
 **Typography:** Mobile chat-row titles `text-sm` (row height unchanged).
 Header name-pill title unified: `text-sm font-semibold text-text`.
