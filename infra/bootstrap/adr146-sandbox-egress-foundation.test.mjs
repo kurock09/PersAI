@@ -35,6 +35,7 @@ import {
   inventoryConflictingEgressAllows,
   inventoryNatEligibleConsumers,
   isAdr146ControlledProbePod,
+  isNetworkPolicyAddonEnabled,
   listControlledProbeCleanupTargets,
   loadInventory,
   natEgressIdentityMatches,
@@ -240,7 +241,7 @@ function baseLive(inventory) {
         podIP: "10.109.0.10"
       }
     ],
-    calicoDaemonSets: [{ name: "calico-node", desired: 1, ready: 1 }],
+    calicoDaemonSets: [{ name: "calico-node", desired: 1, current: 1, ready: 1 }],
     dnsPodIps: ["10.107.128.20"],
     conflictingEgressAllows: [],
     execServiceAccount: {
@@ -785,6 +786,136 @@ test("Calico apply accepts the safe addon-enabled enforcement-disabled intermedi
   live.cluster.networkPolicy = {};
   live.cluster.addonsConfig.networkPolicyConfig.disabled = false;
   assert.equal(evaluatePreflight(inventory, live, "apply-calico").ok, true);
+});
+
+test("networkPolicyConfig empty object and disabled:false mean addon enabled; disabled:true and absent fail closed", () => {
+  assert.equal(
+    isNetworkPolicyAddonEnabled({ addonsConfig: { networkPolicyConfig: {} } }),
+    true,
+    "gcloud omitted-default live shape {} must count as enabled"
+  );
+  assert.equal(
+    isNetworkPolicyAddonEnabled({
+      addonsConfig: { networkPolicyConfig: { disabled: false } }
+    }),
+    true
+  );
+  assert.equal(
+    isNetworkPolicyAddonEnabled({
+      addonsConfig: { networkPolicyConfig: { disabled: true } }
+    }),
+    false
+  );
+  assert.equal(isNetworkPolicyAddonEnabled({ addonsConfig: {} }), false);
+  assert.equal(isNetworkPolicyAddonEnabled({}), false);
+  assert.equal(isNetworkPolicyAddonEnabled(null), false);
+  assert.equal(isNetworkPolicyAddonEnabled({ addonsConfig: { networkPolicyConfig: null } }), false);
+});
+
+test("post-Calico apply-sandbox-pool preflight requires NP, addon, and current Calico readiness", () => {
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  live.cluster.networkPolicy = { enabled: true, provider: "CALICO" };
+  live.cluster.addonsConfig = { networkPolicyConfig: {} };
+
+  const npCheck = (evaluated) =>
+    evaluated.checks.find((entry) => entry.id === "network-policy-state-valid-for-phase");
+
+  let evaluated = evaluatePreflight(inventory, live, "apply-sandbox-pool");
+  assert.equal(evaluated.ok, true, npCheck(evaluated)?.detail);
+  assert.equal(npCheck(evaluated)?.ok, true);
+  assert.match(npCheck(evaluated)?.detail ?? "", /NP=true provider=CALICO addon=true/);
+
+  assert.equal(
+    evaluateCalicoReadiness(inventory, live).ok,
+    true,
+    "fixture readiness is green alongside NP+addon"
+  );
+  for (const phase of ["apply-sandbox-pool", "retire-public-pool", "verify"]) {
+    assert.equal(
+      evaluatePreflight(inventory, live, phase).ok,
+      true,
+      `${phase} must accept exact current Calico readiness`
+    );
+  }
+
+  live.cluster.networkPolicy = { enabled: false, provider: "CALICO" };
+  evaluated = evaluatePreflight(inventory, live, "apply-sandbox-pool");
+  assert.equal(evaluated.ok, false);
+  assert.equal(npCheck(evaluated)?.ok, false);
+  assert.match(npCheck(evaluated)?.detail ?? "", /NP=false provider=CALICO addon=true/);
+
+  live.cluster.networkPolicy = { enabled: true, provider: "CALICO" };
+  live.cluster.addonsConfig = { networkPolicyConfig: { disabled: true } };
+  evaluated = evaluatePreflight(inventory, live, "apply-sandbox-pool");
+  assert.equal(evaluated.ok, false);
+  assert.equal(npCheck(evaluated)?.ok, false);
+  assert.match(npCheck(evaluated)?.detail ?? "", /NP=true provider=CALICO addon=false/);
+
+  live.cluster.addonsConfig = {};
+  evaluated = evaluatePreflight(inventory, live, "apply-sandbox-pool");
+  assert.equal(evaluated.ok, false);
+  assert.equal(npCheck(evaluated)?.ok, false);
+  assert.match(npCheck(evaluated)?.detail ?? "", /NP=true provider=CALICO addon=false/);
+
+  live.cluster.addonsConfig = { networkPolicyConfig: {} };
+  evaluated = evaluatePreflight(inventory, live, "apply-sandbox-pool");
+  assert.equal(evaluated.ok, true);
+  const readinessBroken = structuredClone(live);
+  readinessBroken.allNodes = [];
+  readinessBroken.calicoDaemonSets = [];
+  assert.equal(
+    evaluateCalicoReadiness(inventory, readinessBroken).ok,
+    false,
+    "Calico daemon/node readiness stays an independent gate"
+  );
+  for (const phase of ["apply-sandbox-pool", "retire-public-pool", "verify"]) {
+    assert.equal(
+      evaluatePreflight(inventory, readinessBroken, phase).ok,
+      false,
+      `${phase} must fail closed when current Calico readiness is red`
+    );
+  }
+
+  for (const phase of ["prepare", "apply-nat", "apply-firewall", "apply-calico"]) {
+    assert.equal(
+      evaluatePreflight(inventory, readinessBroken, phase).ok,
+      true,
+      `${phase} must remain runnable before current Calico readiness is established`
+    );
+  }
+
+  const daemonNotCurrent = structuredClone(live);
+  daemonNotCurrent.calicoDaemonSets[0].current = 0;
+  assert.equal(
+    evaluatePreflight(inventory, daemonNotCurrent, "apply-sandbox-pool").ok,
+    false,
+    "calico-node desired/current/ready must match exactly"
+  );
+
+  const nodeNotReady = structuredClone(live);
+  nodeNotReady.allNodes[0].ready = false;
+  assert.equal(
+    evaluatePreflight(inventory, nodeNotReady, "apply-sandbox-pool").ok,
+    false,
+    "every current node must be Ready"
+  );
+
+  const nodeWithoutExactCalicoLabel = structuredClone(live);
+  nodeWithoutExactCalicoLabel.allNodes[0].calicoReady = false;
+  assert.equal(
+    evaluatePreflight(inventory, nodeWithoutExactCalicoLabel, "apply-sandbox-pool").ok,
+    false,
+    "every current node must have projectcalico.org/ds-ready=true"
+  );
+
+  const wrongProvider = structuredClone(live);
+  wrongProvider.cluster.networkPolicy.provider = "PROVIDER_UNSPECIFIED";
+  assert.equal(
+    evaluatePreflight(inventory, wrongProvider, "apply-sandbox-pool").ok,
+    false,
+    "post-Calico provider must remain exactly CALICO"
+  );
 });
 
 test("repair preflight remains runnable after legacy public pool deletion", () => {

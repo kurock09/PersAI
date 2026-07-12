@@ -19,6 +19,7 @@ import {
   evaluateRetirementGate,
   inventoryNatEligibleConsumers,
   inventoryConflictingEgressAllows,
+  isNetworkPolicyAddonEnabled,
   loadInventory,
   natAddressName,
   natEgressIdentityMatches,
@@ -357,6 +358,7 @@ function collectLive(inventory) {
     .map((daemon) => ({
       name: daemon.metadata?.name,
       desired: Number(daemon.status?.desiredNumberScheduled ?? 0),
+      current: Number(daemon.status?.currentNumberScheduled ?? 0),
       ready: Number(daemon.status?.numberReady ?? 0)
     }));
   const dnsPods = kubectlJson([
@@ -653,9 +655,8 @@ function executePhase(inventory, phase, before) {
     return;
   }
   if (phase === "apply-calico") {
-    const alreadyEnabled =
-      before.cluster.networkPolicy?.enabled === true &&
-      before.cluster.addonsConfig?.networkPolicyConfig?.disabled === false;
+    const addonEnabled = isNetworkPolicyAddonEnabled(before.cluster);
+    const alreadyEnabled = before.cluster.networkPolicy?.enabled === true && addonEnabled;
     if (alreadyEnabled) {
       console.log("[exact] Calico NetworkPolicy already enabled");
       const ready = evaluateCalicoReadiness(inventory, before);
@@ -668,7 +669,7 @@ function executePhase(inventory, phase, before) {
     }
     const oldUids = before.allNodes.map((node) => node.uid);
     const expectedCount = before.allNodes.length;
-    if (before.cluster.addonsConfig?.networkPolicyConfig?.disabled !== false) {
+    if (!addonEnabled) {
       runCommand(commands, "enable-network-policy-addon");
     } else {
       console.log("[exact] Calico addon already enabled");

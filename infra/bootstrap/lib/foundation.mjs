@@ -85,6 +85,30 @@ export function flowLogAggregationCliArg(apiInterval) {
   return mapped;
 }
 
+/**
+ * Normalize GKE Network Policy addon enablement from cluster describe JSON.
+ *
+ * gcloud / GKE API omit default `disabled: false`, so live enabled shape is often
+ * `addonsConfig.networkPolicyConfig: {}`. Treat a present `networkPolicyConfig`
+ * object with `disabled !== true` as enabled. Explicit `disabled: true` is
+ * disabled. Absent `addonsConfig` / absent `networkPolicyConfig` fails closed
+ * (not enabled) rather than guessing omitted-default for a missing property.
+ */
+export function isNetworkPolicyAddonEnabled(cluster) {
+  const addonsConfig = cluster?.addonsConfig;
+  if (addonsConfig == null || typeof addonsConfig !== "object" || Array.isArray(addonsConfig)) {
+    return false;
+  }
+  if (!Object.hasOwn(addonsConfig, "networkPolicyConfig")) {
+    return false;
+  }
+  const config = addonsConfig.networkPolicyConfig;
+  if (config == null || typeof config !== "object" || Array.isArray(config)) {
+    return false;
+  }
+  return config.disabled !== true;
+}
+
 export function loadInventory(inventoryPath = DEFAULT_INVENTORY_PATH) {
   const inventory = JSON.parse(readFileSync(inventoryPath, "utf8"));
   const errors = validateInventory(inventory);
@@ -935,22 +959,26 @@ export function evaluatePreflight(inventory, live, phase) {
   );
 
   const npEnabled = live.cluster?.networkPolicy?.enabled === true;
-  const addonEnabled = live.cluster?.addonsConfig?.networkPolicyConfig?.disabled === false;
-  const safeNpState =
-    (!npEnabled && !addonEnabled) || (!npEnabled && addonEnabled) || (npEnabled && addonEnabled);
+  const npProviderExact =
+    live.cluster?.networkPolicy?.provider === inventory.cluster.networkPolicyProvider;
+  const addonEnabled = isNetworkPolicyAddonEnabled(live.cluster);
+  const safeNpState = !npEnabled || (npProviderExact && addonEnabled);
   const npStateAllowed =
     phase === "apply-calico" ||
     phase === "prepare" ||
     phase === "apply-nat" ||
     phase === "apply-firewall"
       ? safeNpState
-      : npEnabled && addonEnabled;
+      : npEnabled && npProviderExact && addonEnabled;
   check(
     checks,
     "network-policy-state-valid-for-phase",
     npStateAllowed,
-    `NP=${npEnabled} addon=${addonEnabled}`
+    `NP=${npEnabled} provider=${live.cluster?.networkPolicy?.provider ?? "missing"} addon=${addonEnabled}`
   );
+  if (["apply-sandbox-pool", "retire-public-pool", "verify"].includes(phase)) {
+    checks.push(...evaluateCurrentCalicoReadiness(inventory, live).checks);
+  }
 
   const publicPool = live.publicPool;
   const publicExpected = publicPool == null ? true : publicPoolMatches(inventory, publicPool);
@@ -1281,7 +1309,6 @@ export function evaluateLiveFoundation(inventory, live) {
     (live.trustedProbePods ?? []).some((pod) => pod.phase === "Running"),
     JSON.stringify(live.trustedProbePods ?? [])
   );
-  checks.push(...evaluateCalicoReadiness(inventory, live).checks);
   check(
     checks,
     "calico-readiness-is-not-enforcement-proof",
@@ -1456,7 +1483,7 @@ function portsMatch(actual = [], expected = []) {
   );
 }
 
-export function evaluateCalicoReadiness(inventory, live) {
+function evaluateCurrentCalicoReadiness(inventory, live) {
   const checks = [];
   const nodes = live.allNodes ?? [];
   const readyNodes = nodes.filter((node) => node.ready === true);
@@ -1474,15 +1501,24 @@ export function evaluateCalicoReadiness(inventory, live) {
     nodes.length > 0 && calicoNodes.length === nodes.length,
     `${calicoNodes.length}/${nodes.length} label=${inventory.calico.readyNodeLabel}`
   );
+  const calicoNodeDaemons = (live.calicoDaemonSets ?? []).filter(
+    (daemon) => daemon.name === "calico-node"
+  );
   check(
     checks,
     "calico-daemon-ready",
-    (live.calicoDaemonSets?.length ?? 0) > 0 &&
-      live.calicoDaemonSets.every(
-        (daemon) => daemon.desired > 0 && daemon.ready === daemon.desired
-      ),
+    calicoNodeDaemons.length === 1 &&
+      calicoNodeDaemons[0].desired > 0 &&
+      calicoNodeDaemons[0].current === calicoNodeDaemons[0].desired &&
+      calicoNodeDaemons[0].ready === calicoNodeDaemons[0].desired,
     JSON.stringify(live.calicoDaemonSets ?? [])
   );
+  return result(checks);
+}
+
+export function evaluateCalicoReadiness(inventory, live) {
+  const checks = [...evaluateCurrentCalicoReadiness(inventory, live).checks];
+  const nodes = live.allNodes ?? [];
   if ((live.preApplyNodeUids?.length ?? 0) > 0) {
     const currentUids = new Set(nodes.map((node) => node.uid));
     const stale = live.preApplyNodeUids.filter((uid) => currentUids.has(uid));
