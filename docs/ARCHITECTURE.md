@@ -95,6 +95,18 @@ ADR-140 closes the persistent Browserless session era. The active browser archit
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 
+**ADR-146 accepted target (implementation not started):** sandbox egress becomes
+an immediate assistant-owned operational choice. `restricted` remains the
+default proxy/domain-allowlist contour. Explicit `full_public` consent gives the
+whole gVisor execution pod (`shell` / `exec` / `document.*`) direct public
+TCP/UDP egress, while NetworkPolicy, explicit non-global/internal CIDR
+exclusions, an empty-ingress policy, and a dedicated no-IAM execution
+ServiceAccount continue to block Kubernetes, node, VPC, private, link-local, and
+metadata destinations. The setting does not affect storage-plane tools,
+browser, web tools, or provider workers. The current plan
+`networkAccessEnabled` boolean is not an enforcement boundary and is removed by
+the ADR-146 cutover rather than reinterpreted.
+
 ### Native Tool Runtime instruction model
 
 ADR-117 closes the tool-instruction surface into three owned seams:

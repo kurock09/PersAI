@@ -1,12 +1,12 @@
 ---
-description: PersAI session continuity — handoff, changelog, and bounded slice discipline (no open program ADR)
+description: PersAI session continuity — handoff, changelog, and bounded slice discipline
 alwaysApply: true
 ---
 
 # PersAI session continuity
 
 - Read in order before implementing: `AGENTS.md`, `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`, `docs/ARCHITECTURE.md`, `docs/API-BOUNDARY.md`, `docs/DATA-MODEL.md`, `docs/TEST-PLAN.md`, then any ADRs referenced by the **user's explicit task** only.
-- **No open orchestration program ADR.** ADR-078, ADR-102, ADR-105–ADR-115, and the other numbered program ADRs in `docs/ADR/` are **closed archive** unless the user explicitly opens a new ADR for new work. Do not reopen closed programs or re-derive scope from them.
+- **Active founder-opened program:** ADR-146 is the bounded assistant-owned full-public sandbox egress orchestration program. ADR-078, ADR-102, ADR-105–ADR-115, and the other closed numbered programs in `docs/ADR/` remain **closed archive**; do not reopen them or re-derive scope from them.
 - Treat `docs/SESSION-HANDOFF.md` as the source of truth for the latest completed checkpoint and the user's next stated priority.
 - Treat `docs/CHANGELOG.md` as the source of truth for what has actually landed.
 - If ADR, handoff, changelog, and code disagree, stop and reconcile docs before code changes.

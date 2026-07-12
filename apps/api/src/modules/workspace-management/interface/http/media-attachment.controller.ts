@@ -593,10 +593,11 @@ export class MediaAttachmentController {
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
       const sharpFn = require("sharp") as any;
+      // Inline chat tiles are ~151–240 CSS px; 512 covers 2× retina without muddy upscale.
       const result = await sharpFn(input.buffer)
         .rotate()
-        .resize(256, 256, { fit: "inside", withoutEnlargement: true })
-        .webp({ quality: 78 })
+        .resize(512, 512, { fit: "inside", withoutEnlargement: true })
+        .webp({ quality: 85 })
         .toBuffer();
       return { buffer: result as Buffer, contentType: "image/webp" };
     } catch {

@@ -4,6 +4,42 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-146 assistant-owned full-public sandbox egress (accepted target)
+
+Implementation has not started. Each future slice runs the full AGENTS gate plus
+affected API/runtime/sandbox/web tests. Infra slices additionally run Helm lint
+and template assertions.
+
+Automated acceptance must prove:
+
+1. Existing/new assistants default to `restricted`; non-owners cannot read or
+   mutate another assistant's mode.
+2. The removed plan/runtime `networkAccessEnabled` field is absent from active
+   contracts, parsers, admin UI, fixtures, and generated artifacts.
+3. Restricted pods have proxy env and can reach only DNS + allowlist Squid;
+   direct bypass still fails when proxy env is unset.
+4. Full-public pods have no proxy env and can reach unrelated public TCP/UDP
+   fixtures directly.
+5. Both modes have empty ingress. Full-public cannot reach loopback, RFC1918,
+   CGNAT, link-local, GKE/Compute metadata, node, Pod, Service, Kubernetes API,
+   control-plane, or peered-VPC destinations; redirect and DNS-rebinding
+   fixtures to those ranges also fail.
+6. Exec pods use the dedicated no-IAM/no-Workload-Identity ServiceAccount and
+   keep `automountServiceAccountToken: false`, gVisor, non-root, read-only root,
+   and existing resource limits.
+7. A warm pod with the wrong egress-mode label is deleted and recreated before
+   command execution; a queued/running job blocks a mode change.
+8. Model-started descendant processes cannot survive job completion.
+9. Two assistants in one workspace can use different modes; `files.*`,
+   `grep`/`glob`, browser/web tools, and provider workers are unchanged.
+10. Audit/log/metric payloads identify mode and assistant/job without recording
+    URL query strings, auth headers, credentials, or file contents.
+
+Live GKE acceptance after an explicitly approved deploy repeats the restricted
+allowlist test, full-public success test, complete private/internal/metadata
+negative matrix, warm-pod UID replacement on enable/disable, secret-free env,
+audit/flow logs, and rollback to all-`restricted`.
+
 ## ADR-145 chat-list archive + mobile row actions
 
 Automated:

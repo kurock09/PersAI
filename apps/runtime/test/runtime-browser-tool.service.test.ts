@@ -707,6 +707,7 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.equal(pdfResult.isError, false);
   assert.equal(pdfResult.artifacts.length, 1);
   assert.equal(pdfResult.artifacts[0]?.mimeType, "application/pdf");
+  assert.equal(pdfResult.artifacts[0]?.kind, "file");
   assert.equal(providerGateway.browserCalls[0]?.format, "pdf");
 
   const pngResult = await service.executeToolCall({
@@ -722,6 +723,7 @@ export async function runRuntimeBrowserToolServiceTest(): Promise<void> {
   assert.equal(pngResult.isError, false);
   assert.equal(pngResult.artifacts.length, 1);
   assert.equal(pngResult.artifacts[0]?.mimeType, "image/png");
+  assert.equal(pngResult.artifacts[0]?.kind, "image");
   assert.equal(providerGateway.browserCalls[1]?.format, "png");
   assert.equal(providerGateway.browserCalls[1]?.fullPage, true);
 

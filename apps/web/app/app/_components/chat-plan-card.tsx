@@ -401,8 +401,9 @@ function ChatPlanCardBody({
       data-testid="chat-plan-card"
       onPointerDownCapture={() => setInteractionVersion((version) => version + 1)}
       className={cn(
-        "overflow-hidden border border-border/40 bg-surface-raised transition-[width] duration-300 ease-out",
-        mobileCircle ? "ml-auto h-12 w-12 md:ml-0 md:h-auto md:w-full" : "w-full",
+        // Keep ml-auto on mobile for circle and open pill so width grows left from the right edge.
+        "ml-auto overflow-hidden border border-border/40 bg-surface-raised transition-[width] duration-300 ease-out md:ml-0 md:h-auto md:w-full",
+        mobileCircle ? "h-12 w-12" : "w-full",
         // Instant radius snap — width may animate, but stadium corners must not lag.
         expanded ? "rounded-[1.375rem]" : "rounded-full",
         className

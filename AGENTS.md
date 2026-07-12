@@ -37,6 +37,8 @@ Additional UX ADR **closed locally 2026-07-12:** `docs/ADR/144-adaptive-native-o
 
 Additional UX ADR **closed locally 2026-07-12:** `docs/ADR/145-telegram-like-chat-list-archive-and-mobile-row-actions.md` (mobile axis-locked archive/restore swipes, pull-to-reveal Archive before refresh, inline Delete/Rename with idle/outside close, persistent desktop Archive group, explicit cap-safe unarchive API; automated local gate green, logged-in visual acceptance pending; do not reopen for new scope).
 
+Additional active orchestration program: `docs/ADR/146-assistant-owned-full-public-sandbox-egress.md` (opened 2026-07-12 — assistant-owner `restricted | full_public` sandbox egress choice; restricted allowlist proxy remains default, explicit opt-in gives the whole gVisor execution pod direct public internet while cluster/VPC/private/metadata remain blocked; dead plan `networkAccessEnabled` is removed with no alias or transition mode. Parent agent is orchestrator/auditor; Cursor Grok 4.5 subagents implement one bounded slice at a time; parent alone owns the final gate, deploy, live acceptance, and closure).
+
 Additional orchestration program **superseded by ADR-140 (do not implement new scope):** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` and `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`.
 
 ## Repo rules

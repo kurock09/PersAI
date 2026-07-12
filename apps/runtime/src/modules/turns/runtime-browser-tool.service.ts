@@ -793,6 +793,7 @@ export class RuntimeBrowserToolService {
     if (binaryBase64 !== null) {
       const mimeType = providerResult.artifactMimeType ?? "application/octet-stream";
       const isPdf = mimeType === "application/pdf";
+      const isImage = mimeType.startsWith("image/");
       const artifact = await writeRuntimeOutboundArtifact({
         mediaObjectStorage: this.mediaObjectStorage,
         assistantId: params.bundle.metadata.assistantId,
@@ -811,7 +812,8 @@ export class RuntimeBrowserToolService {
               providerResult.title,
               providerResult.finalUrl
             ),
-        kind: "file",
+        // Screenshots must land as image so chat shows inline previews (not document pills).
+        kind: isImage ? "image" : "file",
         sourceToolCode: "browser",
         billingFacts: providerResult.billingFacts ?? null,
         manifest: {

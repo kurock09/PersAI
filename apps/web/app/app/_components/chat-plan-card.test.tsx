@@ -207,6 +207,8 @@ describe("ChatPlanCard", () => {
     const compactToggle = container.querySelector("button[aria-expanded]") as HTMLElement;
     expect(within(container).queryByTestId("chat-plan-mobile-circle")).toBeNull();
     expect(compactToggle).toHaveAttribute("aria-expanded", "false");
+    // Right-anchored while width transitions circle → full pill.
+    expect(container.firstChild).toHaveClass("ml-auto", "w-full");
 
     fireEvent.click(compactToggle);
     expect(compactToggle).toHaveAttribute("aria-expanded", "true");

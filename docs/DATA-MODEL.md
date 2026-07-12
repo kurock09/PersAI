@@ -99,6 +99,23 @@ Current active Step 20 persistence includes:
 
 `SandboxFileRef` is not active current-model truth anymore.
 
+**ADR-146 accepted target (implementation not started):**
+
+- add required `Assistant.sandboxEgressMode` /
+  `assistants.sandbox_egress_mode` with enum values `restricted | full_public`
+  and default/backfill `restricted`;
+- this is immediate owner-controlled Assistant state, not draft, published
+  version, governance JSON, plan, chat, or session state;
+- sandbox job/pod telemetry snapshots the effective mode for audit, while the
+  sandbox control plane resolves the current Assistant row before executing and
+  never trusts a model/runtime-supplied mode as authority;
+- remove `networkAccessEnabled` from persisted plan `sandboxPolicy` JSON,
+  OpenAPI, runtime policy, admin UI, and active parsers. Historical true values
+  do not map to `full_public`, because they never represented owner consent or
+  an enforced direct route;
+- plans continue to own sandbox/tool availability and resource quotas, but
+  ADR-146 adds no second plan-level network ceiling.
+
 ADR-081 plus ADR-133 extend the target-state authority of path-based Files: every user-visible or assistant-reusable file must be represented by a canonical workspace path plus `workspace_file_metadata` immediately when persisted. The default active path shape is `/workspace/assistants/<assistantId>/sessions/<sessionId>/...`, with assistant/workspace widen facts derived from the visible path rather than a second scope vocabulary. That includes user uploads, assistant-generated artifacts, delivered assistant attachments, and sandbox-created files.
 
 Chat rendering/download rows project back to canonical workspace paths. `attachmentId` remains message-rendering state, while `path`/`storagePath` is the durable file identity exposed by active APIs.

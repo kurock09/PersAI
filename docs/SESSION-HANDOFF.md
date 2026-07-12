@@ -1,5 +1,74 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Chat preview sharpness + browser screenshot as image
+
+Status: **pushed.**
+
+Baseline SHA: PersAI `cbd6e3e9`.
+
+**Preview:** `/files/preview` on-the-fly resize is now 512px WebP q85
+(was 256/q78). No migration of stored `.thumb.webp`. Lightbox/full download
+unchanged.
+
+**Browser screenshots:** `image/*` artifacts use `kind: "image"` so chat
+renders inline previews; PDF stays `kind: "file"`. Historical document pills
+unchanged. Multi-dot hostnames like `lavka.yandex.ru.png` were never the
+extension bug — classification was.
+
+**Also in this commit:** mobile plan pill keeps `ml-auto` while width grows
+left from the right-side circle.
+
+**Verification:** recursive lint, format:check, api/web/runtime typecheck,
+runtime browser tool test, plan-card 27/27 PASS.
+
+**Next:** deploy API + runtime; Lavka screenshot live check.
+
+---
+
+## 2026-07-12 — ADR-146 assistant-owned full-public sandbox egress
+
+Status: **ADR accepted; implementation not started.**
+
+Baseline SHA: PersAI `a0c3e997`.
+
+**Founder locks:** Assistant-level immediate enum
+`restricted | full_public`; every existing/new assistant defaults restricted.
+Restricted keeps the current Squid domain allowlist. Full-public is direct,
+unproxied public TCP/UDP for the whole shared gVisor execution pod
+(`shell`/`exec`/`document.*`), never cluster/VPC/private/link-local/metadata and
+never inbound. It does not affect storage-plane files/grep/glob, browser/web
+tools, provider workers, or control-plane pods.
+
+**Clean cutover:** Remove the vestigial plan/runtime/admin
+`networkAccessEnabled` boolean without aliasing historical true values to
+consent. No plan egress ceiling, feature flag, dual read/write, compatibility
+mode, or second allow-all Squid. Plans continue to control sandbox/tool
+availability and resource limits only.
+
+**Security baseline:** Mode-labelled NetworkPolicies; explicit empty ingress;
+full-public `ipBlock` with complete non-global + environment CIDR exclusions;
+tight DNS selector; dedicated no-IAM/no-Workload-Identity exec ServiceAccount;
+token automount off; gVisor/secret-free/resource limits unchanged. Warm pod mode
+mismatch recreates before execution; queued/running jobs block a setting
+change; job descendants cannot survive completion.
+
+**Audit:** Three independent Cursor Grok 4.5 read-only audits covered
+infrastructure/security, product/API/data ownership, and orchestration slices.
+The parent resolved their proxy/plan alternatives against the founder's direct
+unproxied + assistant-level requirement.
+
+**Verification:** Full AGENTS gate PASS — recursive workspace lint,
+repository `format:check`, API typecheck, and web typecheck. `git diff --check`
+PASS. No code, schema, generated contract, migration, Helm, or deploy change
+landed in this ADR-opening slice.
+
+**Next:** Parent dispatches ADR-146 Slice 0 to Cursor Grok 4.5 for a read-only
+live cluster/code ledger. Do not start implementation until actual GKE
+dataplane, IP family, node/Pod/Service/control-plane/VPC CIDRs, Cloud NAT,
+metadata, DNS labels, and NetworkPolicy enforcement are proven.
+
+---
+
 ## 2026-07-12 — Chat list/header typography + align stack
 
 Status: **pushed.**
