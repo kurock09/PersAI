@@ -64,10 +64,11 @@
   --chrome: #ebe7de;
   --bg: #f6f3ec;
   --surface: #e8e2d7;
-  --surface-raised: #fbfaf6;
-  --surface-hover: #f1eee7;
-  --border: rgba(44, 39, 31, 0.1);
-  --border-strong: rgba(44, 39, 31, 0.18);
+  /* Near-white lift for chat pills / composer / popovers — readable on cream bg. */
+  --surface-raised: #ffffff;
+  --surface-hover: #f3f1eb;
+  --border: rgba(44, 39, 31, 0.08);
+  --border-strong: rgba(44, 39, 31, 0.14);
   --ring: rgba(110, 130, 116, 0.22);
   --text: #24221f;
   --text-muted: #6d6960;

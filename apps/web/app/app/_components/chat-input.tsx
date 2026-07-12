@@ -1137,19 +1137,10 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     <div
       data-testid="chat-composer-chrome"
       className={cn(
-        // Pull the dissolve veil over the message list so trailing text softens into the composer (TG).
-        "relative z-20 -mt-8 px-3 pt-8 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:-mt-10 md:px-4 md:pt-10 md:pb-3"
+        // Dissolve veil lives on chat-area footer overlay; composer is just the opaque pill row.
+        "relative px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-4 md:pb-3"
       )}
     >
-      {/* Blur fades in from the top; color wash solidifies toward the pill. No hard border-t. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] [mask-image:linear-gradient(to_bottom,transparent_0%,#000_46%,#000_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,#000_46%,#000_100%)]"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-bg/55 to-bg"
-      />
       <div className="relative mx-auto w-full max-w-[50rem]">
         {pendingFiles.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
@@ -1355,7 +1346,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             ref={composerShellRef}
             data-testid="chat-composer-shell"
             className={cn(
-              "relative flex min-h-11 gap-0.5 border border-border/80 bg-surface-raised p-1 shadow-sm transition-[border-color,box-shadow,border-radius] focus-within:border-border-strong focus-within:shadow-md",
+              "relative flex min-h-11 gap-0.5 border border-border/45 bg-surface-raised p-1 transition-[border-color,border-radius] focus-within:border-border-strong",
               isComposerMultiline ? "items-end rounded-[22px]" : "items-center rounded-full",
               dragActive && "border-accent bg-accent/5",
               sendBlockedByFailedSlot && "opacity-90",

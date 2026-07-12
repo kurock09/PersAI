@@ -249,7 +249,7 @@ export function Sidebar({
     [isOnline, recheck]
   );
   return (
-    <aside className="relative flex h-dvh w-[280px] shrink-0 flex-col overflow-hidden border-r border-border bg-surface md:h-auto md:rounded-2xl md:border md:border-border">
+    <aside className="relative flex h-dvh w-full shrink-0 flex-col overflow-hidden border-r border-border bg-surface md:h-auto md:w-[280px] md:rounded-2xl md:border md:border-border">
       {/* Mobile close button */}
       {onClose && (
         <div className="flex justify-end px-2 pt-2 md:hidden">
@@ -1045,7 +1045,7 @@ function ChatListItem({
       >
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            <span className="min-w-0 truncate text-xs font-medium">
+            <span className="min-w-0 truncate text-base font-medium md:text-xs">
               {item.chat.title ?? item.chat.surfaceThreadKey}
             </span>
             {showLiveIndicator && (

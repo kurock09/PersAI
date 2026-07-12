@@ -1,5 +1,43 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Honest TG overlay chrome (messages under header/footer)
+
+Status: **implemented locally; visual check pending.**
+
+**Cause:** Header and composer were flex siblings above/below the scroll pane with `-mb`/`-mt` dissolve tricks and opaque washes (`to-bg`). Text could not truly scroll under transparent chrome like Telegram.
+
+**Repair:** Chat stage is full-bleed absolute scroll; header + footer are absolute overlays (`pointer-events-none` veils, `pointer-events-auto` on controls). Veils use masked blur + light wash (`via-bg/20 to-bg/55`) only — opaque pills/composer only. Composer no longer owns dissolve/`-mt`. Message/empty padding `pt`/`pb` under overlays; plan sticky under header. Pills restored to solid `h-12` + pencil circle.
+
+**Verification:** chat-area / chat-input / chat-plan-card 79/79 PASS; web typecheck PASS.
+
+**Next:** hard-refresh phone + desktop; scroll a long thread and confirm text dissolves under header/footer pills (not blocked by opaque bars).
+
+---
+
+## 2026-07-12 — Chat chrome contrast + mode menu above plan
+
+Status: **superseded locally by honest overlay slice above** (surface/contrast + `h-12` pencil pill retained).
+
+**Cause:** Mode dropdown shared stacking with sticky plan (`z-20`); light `--surface-raised` was too close to cream `--bg`; pills used translucent fill + shadows that muddied the look.
+
+**Repair:** Header chrome `z-40`, plan sticky `z-10`; light `--surface-raised` → `#ffffff`; header/mode/composer/plan use solid raised fill + hairline `border/45`, no heavy shadows/blur on those shells. Name pill: left `bg-bg` circle with thin pencil rename control; fixed `h-12`; skill line uses tight `leading-[1.1]` so pill height does not grow.
+
+**Next:** hard-refresh light theme; confirm menu over plan and near-white pills vs cream bg.
+
+---
+
+## 2026-07-12 — Mobile sidebar full-bleed drawer
+
+Status: **implemented locally.**
+
+**Cause:** Overlay drawer used fixed `w-[280px]`, so on ordinary phones a strip of chat stayed visible.
+
+**Repair:** Mobile overlay is `w-full`; desktop rail stays `md:w-[280px]`. Chat list titles on mobile bumped to `text-base` (~16px), desktop keeps `md:text-xs`.
+
+**Next:** visual check on a narrow phone; tablet/orientation policy still undecided (see chat — practices only, no breakpoint change yet).
+
+---
+
 ## 2026-07-12 — Chat header TG floating pills + upward dissolve
 
 Status: **implemented locally; visual check on phone/desktop pending.**

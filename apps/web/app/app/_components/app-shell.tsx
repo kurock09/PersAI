@@ -280,7 +280,7 @@ export function AppShell({
                       onClick={() => setSidebarOpen(false)}
                     />
                     <motion.div
-                      className="fixed inset-y-0 left-0 z-50 md:hidden"
+                      className="fixed inset-y-0 left-0 z-50 w-full md:hidden"
                       initial={{ x: "-100%" }}
                       animate={{ x: 0 }}
                       exit={{ x: "-100%" }}

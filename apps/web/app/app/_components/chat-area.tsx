@@ -602,601 +602,656 @@ export function ChatArea({
       : "browserLoginContinueHint";
 
   return (
-    <div className="relative flex h-full flex-col">
-      {/* Floating TG-style header: menu circle · name pill · mode circle/pill + upward dissolve. */}
-      <header
-        data-testid="chat-header-chrome"
-        className="relative z-20 -mb-8 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-8 md:-mb-10 md:px-4 md:pt-3 md:pb-10"
-      >
+    <div className="relative flex h-full min-h-0 flex-col">
+      {/* Stage: messages full-bleed; header/footer overlay so text dissolves under chrome (TG). */}
+      <div className="relative min-h-0 flex-1">
+        {/* Full-bleed message scroll — chrome overlays this pane. */}
         <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 -z-10 backdrop-blur-[10px] [-webkit-backdrop-filter:blur(10px)] [mask-image:linear-gradient(to_top,transparent_0%,#000_46%,#000_100%)] [-webkit-mask-image:linear-gradient(to_top,transparent_0%,#000_46%,#000_100%)]"
-        />
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-t from-transparent via-bg/55 to-bg"
-        />
-        {/* Same envelope as composer + messages so desktop name/mode sit as one column, not pane edges. */}
-        <div className="relative mx-auto flex w-full max-w-[50rem] items-center gap-2">
-          <button
-            type="button"
-            onClick={openSidebar}
-            className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-surface-raised/90 text-text-muted shadow-sm backdrop-blur-sm transition-colors active:bg-surface-hover hover:bg-surface-hover hover:text-text md:hidden"
-            aria-label="Open sidebar"
-          >
-            <Menu className="h-5 w-5" strokeWidth={1.75} />
-          </button>
+          ref={scrollRef}
+          className="absolute inset-0 overflow-x-hidden overflow-y-auto md:[scrollbar-gutter:stable_both-edges]"
+        >
+          {!isEmpty && chat.chatPlan.length > 0 ? (
+            // ADR-125 follow-up — wrapper has no horizontal padding on mobile
+            // so the banner sits flush to the screen edges (the card itself
+            // drops its left/right borders at that breakpoint). On desktop
+            // the inner card sticks to the same `max-w-[50rem]` envelope as
+            // the message column for a clean width match.
+            <div className="sticky top-[4.75rem] z-10 mx-auto w-full max-w-[50rem] px-3 pt-1 md:top-20 md:px-0">
+              <ChatPlanCard
+                todos={chat.chatPlan}
+                totalCount={chat.chatPlanTotalCount}
+                windowed={chat.chatPlanWindowed}
+                onClear={chat.clearChatPlan}
+              />
+            </div>
+          ) : null}
+          {isEmpty ? (
+            <EmptyState
+              name={assistantName}
+              avatarUrl={assistantAvatarUrl}
+              avatarEmoji={assistantAvatarEmoji}
+              createdAt={assistantCreatedAt}
+            />
+          ) : (
+            <div className="mx-auto w-full max-w-[50rem] px-3 pt-[5.5rem] pb-[7.5rem] md:px-0 md:pt-24 md:pb-32">
+              <div ref={sentinelRef} className="h-1" />
+              {chat.olderMessagesLoading && (
+                <div className="flex justify-center py-3">
+                  <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+                </div>
+              )}
+              {chat.entries.map((entry, index) => {
+                const previousEntry = chat.entries[index - 1];
+                const nextEntry = chat.entries[index + 1];
+                const previousUserIsSending =
+                  previousEntry?.kind === "message" &&
+                  previousEntry.message.role === "user" &&
+                  (previousEntry.message.status === "sending" ||
+                    previousEntry.message.status === "reconciling");
+                const preResponseStatus =
+                  entry.kind === "message" &&
+                  entry.message.role === "assistant" &&
+                  entry.message.status === "streaming" &&
+                  !previousUserIsSending
+                    ? nextEntry?.kind === "activity"
+                      ? { kind: "activity" as const, event: nextEntry.event }
+                      : { kind: "thinking" as const }
+                    : undefined;
+
+                return entry.kind === "message" ? (
+                  <ChatMessageBubble
+                    key={entry.message.id}
+                    chatId={chat.chatId}
+                    message={entry.message}
+                    preResponseStatus={preResponseStatus}
+                    showShadowRoutingLabel={showShadowRoutingBadge}
+                    assistantAvatarUrl={assistantAvatarUrl}
+                    assistantAvatarEmoji={assistantAvatarEmoji}
+                    onAssistantAction={handleAssistantAction}
+                    onDocumentJobAccepted={onDocumentJobAccepted}
+                    onDoNotRemember={
+                      entry.message.role === "assistant" &&
+                      entry.message.status === "committed" &&
+                      !forgottenIds.has(entry.message.id)
+                        ? handleDoNotRememberClick
+                        : undefined
+                    }
+                    forgotten={forgottenIds.has(entry.message.id)}
+                    onRetryPendingSend={
+                      entry.message.role === "user" &&
+                      entry.message.status.startsWith("send_failed")
+                        ? handleRetryPendingSend
+                        : undefined
+                    }
+                    onCancelPendingSend={
+                      entry.message.role === "user" &&
+                      entry.message.status.startsWith("send_failed")
+                        ? handleCancelPendingSend
+                        : undefined
+                    }
+                  />
+                ) : null;
+              })}
+              <div ref={bottomRef} />
+            </div>
+          )}
+        </div>
+
+        {/* Overlay header: dissolve veil only; opaque pills; messages scroll underneath. */}
+        <header
+          data-testid="chat-header-chrome"
+          className="pointer-events-none absolute inset-x-0 top-0 z-40 px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-10 md:px-4 md:pt-3 md:pb-12"
+        >
           <div
-            className={cn(
-              "flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/70 bg-surface-raised/90 px-3.5 py-1.5 shadow-sm backdrop-blur-sm",
-              editing && "border-accent/50"
-            )}
-          >
-            {editing ? (
-              <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void commitEdit();
-                    if (e.key === "Escape") setEditing(false);
-                  }}
-                  onBlur={() => void commitEdit()}
-                  maxLength={80}
-                  className="min-w-0 flex-1 bg-transparent text-base font-semibold tracking-tight text-text outline-none md:text-sm"
-                />
-                <button
-                  type="button"
-                  onClick={() => void commitEdit()}
-                  className="cursor-pointer rounded-full p-1.5 text-accent transition-colors hover:bg-surface-hover"
-                >
-                  <Check className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ) : (
-              <div className="group flex min-w-0 flex-1 flex-col justify-center">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <h1 className="truncate text-base font-semibold tracking-tight text-text md:text-sm md:font-medium md:tracking-normal md:text-text-muted">
-                    {displayTitle}
-                  </h1>
-                  {canEdit && (
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 -z-10 backdrop-blur-xl [-webkit-backdrop-filter:blur(24px)] [mask-image:linear-gradient(to_top,transparent_0%,#000_55%,#000_100%)] [-webkit-mask-image:linear-gradient(to_top,transparent_0%,#000_55%,#000_100%)]"
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-t from-transparent via-bg/20 to-bg/55"
+          />
+          {/* Same envelope as composer + messages so desktop name/mode sit as one column, not pane edges. */}
+          <div className="pointer-events-auto relative mx-auto flex w-full max-w-[50rem] items-center gap-2">
+            <button
+              type="button"
+              onClick={openSidebar}
+              className="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised text-text-muted transition-colors active:bg-surface-hover hover:bg-surface-hover hover:text-text md:hidden"
+              aria-label="Open sidebar"
+            >
+              <Menu className="h-5 w-5" strokeWidth={1.75} />
+            </button>
+            <div
+              className={cn(
+                // Opaque pill only — dissolve is the overlay veil behind, not a translucent shell.
+                "flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/45 bg-surface-raised py-0 pr-3.5 pl-1.5 transition-colors",
+                editing && "border-accent/45"
+              )}
+            >
+              {editing ? (
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bg text-accent"
+                  >
+                    <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} />
+                  </span>
+                  <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void commitEdit();
+                        if (e.key === "Escape") setEditing(false);
+                      }}
+                      onBlur={() => void commitEdit()}
+                      maxLength={80}
+                      className="min-w-0 flex-1 bg-transparent text-base font-semibold leading-none tracking-tight text-text outline-none md:text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void commitEdit()}
+                      className="cursor-pointer rounded-full p-1.5 text-accent transition-colors hover:bg-surface-hover"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {canEdit ? (
                     <button
                       type="button"
                       onClick={startEdit}
                       aria-label="Rename chat"
-                      className="shrink-0 cursor-pointer rounded-full p-1 text-text-subtle opacity-70 transition-all hover:bg-surface-hover hover:text-text-muted md:opacity-0 md:group-hover:opacity-100"
+                      className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-bg text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
                     >
-                      <Pencil className="h-3 w-3" />
+                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} />
                     </button>
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bg text-text-subtle"
+                    >
+                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} />
+                    </span>
                   )}
-                </div>
-                <ChatHeaderSubtitle engagement={activeSkillEngagement} />
-              </div>
-            )}
-          </div>
-          <ChatModeToggle
-            mode={chatMode}
-            paidLightModeActive={paidLightModeActive}
-            disabled={!assistantReady || chat.isStreaming}
-            onChange={(mode) => void handleChatModeChange(mode)}
-          />
-        </div>
-      </header>
-
-      {/* Messages */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-x-hidden overflow-y-auto md:[scrollbar-gutter:stable_both-edges]"
-      >
-        {!isEmpty && chat.chatPlan.length > 0 ? (
-          // ADR-125 follow-up — wrapper has no horizontal padding on mobile
-          // so the banner sits flush to the screen edges (the card itself
-          // drops its left/right borders at that breakpoint). On desktop
-          // the inner card sticks to the same `max-w-[50rem]` envelope as
-          // the message column for a clean width match.
-          <div className="sticky top-0 z-20 mx-auto w-full max-w-[50rem] px-3 pt-1 md:top-2 md:px-0">
-            <ChatPlanCard
-              todos={chat.chatPlan}
-              totalCount={chat.chatPlanTotalCount}
-              windowed={chat.chatPlanWindowed}
-              onClear={chat.clearChatPlan}
+                  <div
+                    className={cn(
+                      "flex min-w-0 flex-1 flex-col justify-center",
+                      activeSkillEngagement ? "gap-0" : null
+                    )}
+                  >
+                    <h1
+                      className={cn(
+                        "truncate text-base font-semibold tracking-tight text-text md:text-sm md:font-medium md:tracking-normal md:text-text-muted",
+                        activeSkillEngagement ? "leading-[1.1]" : "leading-none"
+                      )}
+                    >
+                      {displayTitle}
+                    </h1>
+                    <ChatHeaderSubtitle engagement={activeSkillEngagement} />
+                  </div>
+                </>
+              )}
+            </div>
+            <ChatModeToggle
+              mode={chatMode}
+              paidLightModeActive={paidLightModeActive}
+              disabled={!assistantReady || chat.isStreaming}
+              onChange={(mode) => void handleChatModeChange(mode)}
             />
           </div>
-        ) : null}
-        {isEmpty ? (
-          <EmptyState
-            name={assistantName}
-            avatarUrl={assistantAvatarUrl}
-            avatarEmoji={assistantAvatarEmoji}
-            createdAt={assistantCreatedAt}
+        </header>
+
+        <div
+          data-testid="chat-footer-chrome"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-40"
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 -z-10 backdrop-blur-xl [-webkit-backdrop-filter:blur(24px)] [mask-image:linear-gradient(to_bottom,transparent_0%,#000_55%,#000_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,#000_55%,#000_100%)]"
           />
-        ) : (
-          <div className="mx-auto w-full max-w-[50rem] px-3 pt-16 pb-24 md:px-0 md:pt-20 md:pb-28">
-            <div ref={sentinelRef} className="h-1" />
-            {chat.olderMessagesLoading && (
-              <div className="flex justify-center py-3">
-                <Loader2 className="h-4 w-4 animate-spin text-text-subtle" />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-bg/20 to-bg/55"
+          />
+          <div className="pointer-events-auto relative pt-8 md:pt-10">
+            {/* Issue banner */}
+            {chat.issue && !showChatLimitBanner && !showSafetyRestrictedBanner && (
+              <div
+                className={`mx-4 mb-2 flex items-start gap-3 rounded-lg border px-4 py-3 ${issueContainerClass}`}
+              >
+                {issueIsWarning ? (
+                  <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${issueIconClass}`} />
+                ) : (
+                  <AlertCircle className={`mt-0.5 h-4 w-4 shrink-0 ${issueIconClass}`} />
+                )}
+                <div className="min-w-0 flex-1">
+                  {chat.issue.classId === "voice_transcription_empty" ? (
+                    <>
+                      <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
+                        {t("voiceTranscriptionEmptyTitle")}
+                      </p>
+                      <p className="mt-0.5 text-xs text-text-muted">
+                        {t("voiceTranscriptionEmptyGuidance")}
+                      </p>
+                    </>
+                  ) : chat.issue.classId === "compaction_unavailable" ? (
+                    <>
+                      <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
+                        {t("issueCompactionUnavailable")}
+                      </p>
+                      <p className="mt-0.5 text-xs text-text-muted">
+                        {t("issueCompactionUnavailableGuidance")}
+                      </p>
+                    </>
+                  ) : chat.issue.classId === "provider_failure" ? (
+                    <>
+                      <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
+                        {t("issueProviderFailure")}
+                      </p>
+                      <p className="mt-0.5 text-xs text-text-muted">
+                        {t("issueProviderFailureGuidance")}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
+                        {chat.issue.message}
+                      </p>
+                      <p className="mt-0.5 text-xs text-text-muted">{chat.issue.guidance}</p>
+                    </>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={chat.clearIssue}
+                  className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
               </div>
             )}
-            {chat.entries.map((entry, index) => {
-              const previousEntry = chat.entries[index - 1];
-              const nextEntry = chat.entries[index + 1];
-              const previousUserIsSending =
-                previousEntry?.kind === "message" &&
-                previousEntry.message.role === "user" &&
-                (previousEntry.message.status === "sending" ||
-                  previousEntry.message.status === "reconciling");
-              const preResponseStatus =
-                entry.kind === "message" &&
-                entry.message.role === "assistant" &&
-                entry.message.status === "streaming" &&
-                !previousUserIsSending
-                  ? nextEntry?.kind === "activity"
-                    ? { kind: "activity" as const, event: nextEntry.event }
-                    : { kind: "thinking" as const }
-                  : undefined;
 
-              return entry.kind === "message" ? (
-                <ChatMessageBubble
-                  key={entry.message.id}
-                  chatId={chat.chatId}
-                  message={entry.message}
-                  preResponseStatus={preResponseStatus}
-                  showShadowRoutingLabel={showShadowRoutingBadge}
-                  assistantAvatarUrl={assistantAvatarUrl}
-                  assistantAvatarEmoji={assistantAvatarEmoji}
-                  onAssistantAction={handleAssistantAction}
-                  onDocumentJobAccepted={onDocumentJobAccepted}
-                  onDoNotRemember={
-                    entry.message.role === "assistant" &&
-                    entry.message.status === "committed" &&
-                    !forgottenIds.has(entry.message.id)
-                      ? handleDoNotRememberClick
-                      : undefined
-                  }
-                  forgotten={forgottenIds.has(entry.message.id)}
-                  onRetryPendingSend={
-                    entry.message.role === "user" && entry.message.status.startsWith("send_failed")
-                      ? handleRetryPendingSend
-                      : undefined
-                  }
-                  onCancelPendingSend={
-                    entry.message.role === "user" && entry.message.status.startsWith("send_failed")
-                      ? handleCancelPendingSend
-                      : undefined
-                  }
-                />
-              ) : null;
-            })}
-            <div ref={bottomRef} />
+            {/* Input */}
+            {showCompactionBanner && (
+              <div className="px-3 md:px-4">
+                <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-border/70 bg-surface px-3 py-2">
+                  <div className="flex items-start gap-2.5">
+                    <div
+                      className={cn(
+                        "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border",
+                        compactionBannerMode === "auto_compacted"
+                          ? "border-success/30 bg-success/10 text-success"
+                          : "border-warning/30 bg-warning/10 text-warning"
+                      )}
+                    >
+                      {compactionBannerMode === "auto_compacted" ? (
+                        <Scissors className="h-4 w-4" />
+                      ) : (
+                        <AlertTriangle className="h-4 w-4" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-text">{compactionBannerTitle}</p>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
+                        {compactionBannerBody}
+                      </p>
+                      <p className="mt-1 text-[11px] text-text-muted">{compactionBannerDetail}</p>
+                    </div>
+                    {compactionBannerMode === "pressure" && (
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCompactionBannerSnoozedUntilCount(chat.messages.length + 20)
+                          }
+                          className="cursor-pointer rounded-lg px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                        >
+                          {t("compactionPostponeBatch")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void chat.compactNow()}
+                          disabled={chat.compactionRunning || chat.isStreaming}
+                          className="cursor-pointer rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {chat.compactionRunning ? t("compactionRunning") : t("compactionAction")}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            {showBillingReturnBanner ? (
+              <div className="px-3 md:px-4">
+                <div
+                  className={cn(
+                    "mx-auto mb-2 w-full max-w-[50rem] rounded-2xl border px-3 py-2.5 shadow-[0_10px_30px_rgba(15,23,42,0.06)] backdrop-blur-sm",
+                    billingBannerCardTone
+                  )}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <div
+                      className={cn(
+                        "relative mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border",
+                        billingBannerBadgeTone
+                      )}
+                    >
+                      {billingReturnKind === "success" ? (
+                        <>
+                          <span
+                            aria-hidden="true"
+                            className="absolute inset-0 rounded-full bg-success/15 animate-ping"
+                          />
+                          <span className="relative flex h-full w-full items-center justify-center rounded-full">
+                            <Check className="h-4 w-4" />
+                          </span>
+                        </>
+                      ) : billingReturnKind === "pending" ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-text">
+                        {billingReturnKind === "success"
+                          ? isMediaPackageReturn
+                            ? t("billingReturnPackageSuccessTitle")
+                            : t("billingReturnSuccessTitle", {
+                                plan: formatBillingPlanLabel(billingPlanCode)
+                              })
+                          : billingReturnKind === "failed"
+                            ? isMediaPackageReturn
+                              ? t("billingReturnPackageFailedTitle")
+                              : t("billingReturnFailedTitle")
+                            : isMediaPackageReturn
+                              ? t("billingReturnPackagePendingTitle")
+                              : t("billingReturnPendingTitle")}
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
+                        {billingReturnKind === "success"
+                          ? isMediaPackageReturn
+                            ? t("billingReturnPackageSuccessBody")
+                            : t("billingReturnSuccessBody")
+                          : billingReturnKind === "failed"
+                            ? isMediaPackageReturn
+                              ? t("billingReturnPackageFailedBody")
+                              : t("billingReturnFailedBody")
+                            : isMediaPackageReturn
+                              ? t("billingReturnPackagePendingBody")
+                              : t("billingReturnPendingBody")}
+                      </p>
+                      {billingReturnKind === "failed" ? (
+                        <Link
+                          href={(isMediaPackageReturn ? "/app/packages" : "/app/pricing") as Route}
+                          className="mt-2 inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                        >
+                          {isMediaPackageReturn
+                            ? t("billingReturnPackageRetry")
+                            : t("billingReturnRetry")}
+                        </Link>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDismissedBillingReturnKey(billingReturnKey)}
+                      className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {showChatLimitBanner ? (
+              <div className="px-3 md:px-4">
+                <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-warning/20 bg-surface px-3 py-2">
+                  <div className="flex items-start gap-2.5">
+                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-warning/25 bg-warning/10 text-warning">
+                      <AlertTriangle className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-text">
+                        {chat.issue?.classId === "chat_message_limit"
+                          ? t("chatMessageLimitTitle")
+                          : t("chatActiveLimitTitle")}
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
+                        {chat.issue?.classId === "chat_message_limit"
+                          ? t("chatMessageLimitBody")
+                          : t("chatActiveLimitBody")}
+                      </p>
+                      {chat.issue?.classId === "active_chat_cap" ? (
+                        <p className="mt-1 text-[11px] text-text-muted">
+                          {t("chatActiveLimitDetail")}
+                        </p>
+                      ) : null}
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {chat.issue?.classId === "chat_message_limit" ? (
+                          <Link
+                            href={"/app/chat" as Route}
+                            className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                          >
+                            {t("chatMessageLimitNewChat")}
+                          </Link>
+                        ) : null}
+                        <Link
+                          href={"/app/pricing" as Route}
+                          className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                        >
+                          {t("chatLimitOpenPricing")}
+                        </Link>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={chat.clearIssue}
+                      className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {showSafetyRestrictedBanner ? (
+              <div className="px-3 md:px-4">
+                <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
+                  <div className="flex items-start gap-2.5">
+                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-destructive/25 bg-destructive/10 text-destructive">
+                      <AlertCircle className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-destructive">
+                        {t("safetyRestrictedTitle")}
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
+                        {t(resolveSafetyRestrictedBodyKey(safetyRestrictedReasonCode))}
+                      </p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
+                        {t("safetyRestrictedDetail")}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openSettings("support")}
+                          className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                        >
+                          {t("safetyRestrictedOpenSupport")}
+                        </button>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={chat.clearIssue}
+                      className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {showSafetyInboundWarnBanner ? (
+              <div className="px-3 md:px-4">
+                <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 dark:border-amber-400/20 dark:bg-amber-500/10">
+                  <div className="flex items-start gap-2.5">
+                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-amber-300/80 bg-amber-100/80 text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/15 dark:text-amber-200">
+                      <AlertTriangle className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-amber-900 dark:text-amber-100">
+                        {t("safetyInboundWarnTitle")}
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
+                        {t(resolveSafetyInboundWarnBodyKey(safetyInboundWarnReasonCode))}
+                      </p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
+                        {t("safetyInboundWarnDetail")}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openSettings("support")}
+                          className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
+                        >
+                          {t("safetyInboundWarnOpenSupport")}
+                        </button>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDismissedSafetyWarnMessageId(latestSafetyInboundWarn?.messageId ?? null)
+                      }
+                      className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {pendingBrowserAssist !== null ? (
+              <div className="px-3 md:px-4" data-testid="browser-assist-banner">
+                <div className="mx-auto mb-2 flex w-full max-w-[50rem] flex-col gap-2 rounded-xl border border-accent/25 bg-accent/[0.08] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-text">
+                      {t("browserAssistBannerTitle")}
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-4 text-text-muted">
+                      {pendingBrowserAssist.userActionPrompt ??
+                        t("browserAssistBannerBody", { site: pendingBrowserAssist.displayName })}
+                    </p>
+                    {browserAssistError ? (
+                      <p className="mt-1 text-[11px] text-destructive">{browserAssistError}</p>
+                    ) : null}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenBrowserAssist()}
+                      disabled={browserAssistAction !== null}
+                      className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-bg px-3 text-xs font-medium text-text transition hover:bg-surface-hover disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {browserAssistAction === "open" ? (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      {t("browserAssistOpen")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleCompleteBrowserAssist()}
+                      disabled={browserAssistAction !== null}
+                      className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-lg bg-accent px-3 text-xs font-semibold text-white transition hover:bg-accent-hover disabled:cursor-wait disabled:opacity-60"
+                    >
+                      {browserAssistAction === "done" ? (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      {t("browserLoginAssistDone")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {showBrowserLoginChip ? (
+              <div className="px-3 md:px-4">
+                <div className="mx-auto mb-2 flex w-full max-w-[50rem] items-center justify-between gap-3 rounded-lg border border-accent/20 bg-accent/[0.06] px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-text">
+                      {chat.pendingBrowserLogin?.displayName}
+                    </p>
+                    <p className="truncate text-[11px] text-text-muted">
+                      {t(browserLoginChipHintKey)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void chat.abortBrowserLogin()}
+                      className="cursor-pointer rounded-lg border border-border/70 px-2.5 py-1 text-[11px] font-medium text-text-muted transition hover:bg-surface-hover hover:text-text"
+                    >
+                      {t("browserLoginCancel")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={chat.reopenBrowserLogin}
+                      className="cursor-pointer rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-white transition hover:bg-accent-hover"
+                    >
+                      {t("browserLoginContinue")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            <ChatInput
+              ref={chatInputRef}
+              onSend={(text, files, options) => {
+                onUserSend?.();
+                return void chat.send(text, files, {
+                  ...(options ?? {}),
+                  chatMode,
+                  deepModeEnabled: chatMode !== "normal"
+                });
+              }}
+              onTranscribeVoice={async (blob, filename) => {
+                const token = await getToken();
+                if (!token) throw new Error("Not authenticated.");
+                return transcribeVoice(token, blob, filename);
+              }}
+              onVoiceTranscriptionError={chat.reportIssue}
+              onStop={chat.stop}
+              isStreaming={chat.isStreaming}
+              disabled={!assistantReady}
+              pendingSendStatus={chat.pendingSendStatus}
+              activeMediaJobs={chat.activeMediaJobs}
+              activeDocumentJobs={chat.activeDocumentJobs}
+            />
           </div>
+        </div>
+
+        {showScrollToBottom && (
+          <button
+            type="button"
+            onClick={() => scrollToBottom("smooth")}
+            className={cn(
+              "absolute right-3 bottom-[5.25rem] z-30 inline-flex cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-surface-raised/90 px-3 py-2 text-xs font-medium text-text-muted shadow-lg shadow-black/5 backdrop-blur-md transition-all",
+              "hover:-translate-y-0.5 hover:border-accent/30 hover:bg-surface-hover hover:text-text active:translate-y-0 md:right-auto md:bottom-24 md:left-1/2 md:-translate-x-1/2"
+            )}
+            aria-label={t("scrollToBottom")}
+            title={t("scrollToBottom")}
+          >
+            <ArrowDown className="h-4 w-4" />
+            <span className="hidden sm:inline">{t("scrollToBottom")}</span>
+          </button>
         )}
       </div>
 
-      {showScrollToBottom && (
-        <button
-          type="button"
-          onClick={() => scrollToBottom("smooth")}
-          className={cn(
-            "absolute right-3 bottom-[5.25rem] z-20 inline-flex cursor-pointer items-center gap-2 rounded-full border border-border/70 bg-surface-raised/90 px-3 py-2 text-xs font-medium text-text-muted shadow-lg shadow-black/5 backdrop-blur-md transition-all",
-            "hover:-translate-y-0.5 hover:border-accent/30 hover:bg-surface-hover hover:text-text active:translate-y-0 md:right-auto md:bottom-24 md:left-1/2 md:-translate-x-1/2"
-          )}
-          aria-label={t("scrollToBottom")}
-          title={t("scrollToBottom")}
-        >
-          <ArrowDown className="h-4 w-4" />
-          <span className="hidden sm:inline">{t("scrollToBottom")}</span>
-        </button>
-      )}
-
-      {/* Issue banner */}
-      {chat.issue && !showChatLimitBanner && !showSafetyRestrictedBanner && (
-        <div
-          className={`mx-4 mb-2 flex items-start gap-3 rounded-lg border px-4 py-3 ${issueContainerClass}`}
-        >
-          {issueIsWarning ? (
-            <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${issueIconClass}`} />
-          ) : (
-            <AlertCircle className={`mt-0.5 h-4 w-4 shrink-0 ${issueIconClass}`} />
-          )}
-          <div className="min-w-0 flex-1">
-            {chat.issue.classId === "voice_transcription_empty" ? (
-              <>
-                <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
-                  {t("voiceTranscriptionEmptyTitle")}
-                </p>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  {t("voiceTranscriptionEmptyGuidance")}
-                </p>
-              </>
-            ) : chat.issue.classId === "compaction_unavailable" ? (
-              <>
-                <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
-                  {t("issueCompactionUnavailable")}
-                </p>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  {t("issueCompactionUnavailableGuidance")}
-                </p>
-              </>
-            ) : chat.issue.classId === "provider_failure" ? (
-              <>
-                <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
-                  {t("issueProviderFailure")}
-                </p>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  {t("issueProviderFailureGuidance")}
-                </p>
-              </>
-            ) : (
-              <>
-                <p className={`text-base font-medium md:text-sm ${issueTextClass}`}>
-                  {chat.issue.message}
-                </p>
-                <p className="mt-0.5 text-xs text-text-muted">{chat.issue.guidance}</p>
-              </>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={chat.clearIssue}
-            className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Input */}
-      {showCompactionBanner && (
-        <div className="px-3 md:px-4">
-          <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-border/70 bg-surface px-3 py-2">
-            <div className="flex items-start gap-2.5">
-              <div
-                className={cn(
-                  "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border",
-                  compactionBannerMode === "auto_compacted"
-                    ? "border-success/30 bg-success/10 text-success"
-                    : "border-warning/30 bg-warning/10 text-warning"
-                )}
-              >
-                {compactionBannerMode === "auto_compacted" ? (
-                  <Scissors className="h-4 w-4" />
-                ) : (
-                  <AlertTriangle className="h-4 w-4" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-text">{compactionBannerTitle}</p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
-                  {compactionBannerBody}
-                </p>
-                <p className="mt-1 text-[11px] text-text-muted">{compactionBannerDetail}</p>
-              </div>
-              {compactionBannerMode === "pressure" && (
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setCompactionBannerSnoozedUntilCount(chat.messages.length + 20)}
-                    className="cursor-pointer rounded-lg px-2 py-1 text-[11px] text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                  >
-                    {t("compactionPostponeBatch")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void chat.compactNow()}
-                    disabled={chat.compactionRunning || chat.isStreaming}
-                    className="cursor-pointer rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {chat.compactionRunning ? t("compactionRunning") : t("compactionAction")}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      {showBillingReturnBanner ? (
-        <div className="px-3 md:px-4">
-          <div
-            className={cn(
-              "mx-auto mb-2 w-full max-w-[50rem] rounded-2xl border px-3 py-2.5 shadow-[0_10px_30px_rgba(15,23,42,0.06)] backdrop-blur-sm",
-              billingBannerCardTone
-            )}
-          >
-            <div className="flex items-start gap-2.5">
-              <div
-                className={cn(
-                  "relative mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border",
-                  billingBannerBadgeTone
-                )}
-              >
-                {billingReturnKind === "success" ? (
-                  <>
-                    <span
-                      aria-hidden="true"
-                      className="absolute inset-0 rounded-full bg-success/15 animate-ping"
-                    />
-                    <span className="relative flex h-full w-full items-center justify-center rounded-full">
-                      <Check className="h-4 w-4" />
-                    </span>
-                  </>
-                ) : billingReturnKind === "pending" ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <AlertCircle className="h-4 w-4" />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-text">
-                  {billingReturnKind === "success"
-                    ? isMediaPackageReturn
-                      ? t("billingReturnPackageSuccessTitle")
-                      : t("billingReturnSuccessTitle", {
-                          plan: formatBillingPlanLabel(billingPlanCode)
-                        })
-                    : billingReturnKind === "failed"
-                      ? isMediaPackageReturn
-                        ? t("billingReturnPackageFailedTitle")
-                        : t("billingReturnFailedTitle")
-                      : isMediaPackageReturn
-                        ? t("billingReturnPackagePendingTitle")
-                        : t("billingReturnPendingTitle")}
-                </p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
-                  {billingReturnKind === "success"
-                    ? isMediaPackageReturn
-                      ? t("billingReturnPackageSuccessBody")
-                      : t("billingReturnSuccessBody")
-                    : billingReturnKind === "failed"
-                      ? isMediaPackageReturn
-                        ? t("billingReturnPackageFailedBody")
-                        : t("billingReturnFailedBody")
-                      : isMediaPackageReturn
-                        ? t("billingReturnPackagePendingBody")
-                        : t("billingReturnPendingBody")}
-                </p>
-                {billingReturnKind === "failed" ? (
-                  <Link
-                    href={(isMediaPackageReturn ? "/app/packages" : "/app/pricing") as Route}
-                    className="mt-2 inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
-                  >
-                    {isMediaPackageReturn
-                      ? t("billingReturnPackageRetry")
-                      : t("billingReturnRetry")}
-                  </Link>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                onClick={() => setDismissedBillingReturnKey(billingReturnKey)}
-                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {showChatLimitBanner ? (
-        <div className="px-3 md:px-4">
-          <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-warning/20 bg-surface px-3 py-2">
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-warning/25 bg-warning/10 text-warning">
-                <AlertTriangle className="h-4 w-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-text">
-                  {chat.issue?.classId === "chat_message_limit"
-                    ? t("chatMessageLimitTitle")
-                    : t("chatActiveLimitTitle")}
-                </p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
-                  {chat.issue?.classId === "chat_message_limit"
-                    ? t("chatMessageLimitBody")
-                    : t("chatActiveLimitBody")}
-                </p>
-                {chat.issue?.classId === "active_chat_cap" ? (
-                  <p className="mt-1 text-[11px] text-text-muted">{t("chatActiveLimitDetail")}</p>
-                ) : null}
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {chat.issue?.classId === "chat_message_limit" ? (
-                    <Link
-                      href={"/app/chat" as Route}
-                      className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
-                    >
-                      {t("chatMessageLimitNewChat")}
-                    </Link>
-                  ) : null}
-                  <Link
-                    href={"/app/pricing" as Route}
-                    className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
-                  >
-                    {t("chatLimitOpenPricing")}
-                  </Link>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={chat.clearIssue}
-                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {showSafetyRestrictedBanner ? (
-        <div className="px-3 md:px-4">
-          <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-destructive/25 bg-destructive/10 text-destructive">
-                <AlertCircle className="h-4 w-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-destructive">
-                  {t("safetyRestrictedTitle")}
-                </p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
-                  {t(resolveSafetyRestrictedBodyKey(safetyRestrictedReasonCode))}
-                </p>
-                <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
-                  {t("safetyRestrictedDetail")}
-                </p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openSettings("support")}
-                    className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
-                  >
-                    {t("safetyRestrictedOpenSupport")}
-                  </button>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={chat.clearIssue}
-                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {showSafetyInboundWarnBanner ? (
-        <div className="px-3 md:px-4">
-          <div className="mx-auto mb-2 w-full max-w-[50rem] rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 dark:border-amber-400/20 dark:bg-amber-500/10">
-            <div className="flex items-start gap-2.5">
-              <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-amber-300/80 bg-amber-100/80 text-amber-700 dark:border-amber-400/30 dark:bg-amber-500/15 dark:text-amber-200">
-                <AlertTriangle className="h-4 w-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-amber-900 dark:text-amber-100">
-                  {t("safetyInboundWarnTitle")}
-                </p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">
-                  {t(resolveSafetyInboundWarnBodyKey(safetyInboundWarnReasonCode))}
-                </p>
-                <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
-                  {t("safetyInboundWarnDetail")}
-                </p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openSettings("support")}
-                    className="inline-flex min-h-8 items-center justify-center rounded-lg border border-border/70 bg-bg/70 px-2.5 text-[11px] font-medium text-text transition-colors hover:bg-surface-hover"
-                  >
-                    {t("safetyInboundWarnOpenSupport")}
-                  </button>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() =>
-                  setDismissedSafetyWarnMessageId(latestSafetyInboundWarn?.messageId ?? null)
-                }
-                className="cursor-pointer rounded p-1 text-text-subtle transition-colors hover:text-text"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {pendingBrowserAssist !== null ? (
-        <div className="px-3 md:px-4" data-testid="browser-assist-banner">
-          <div className="mx-auto mb-2 flex w-full max-w-[50rem] flex-col gap-2 rounded-xl border border-accent/25 bg-accent/[0.08] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-text">{t("browserAssistBannerTitle")}</p>
-              <p className="mt-0.5 text-[11px] leading-4 text-text-muted">
-                {pendingBrowserAssist.userActionPrompt ??
-                  t("browserAssistBannerBody", { site: pendingBrowserAssist.displayName })}
-              </p>
-              {browserAssistError ? (
-                <p className="mt-1 text-[11px] text-destructive">{browserAssistError}</p>
-              ) : null}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void handleOpenBrowserAssist()}
-                disabled={browserAssistAction !== null}
-                className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-bg px-3 text-xs font-medium text-text transition hover:bg-surface-hover disabled:cursor-wait disabled:opacity-60"
-              >
-                {browserAssistAction === "open" ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : null}
-                {t("browserAssistOpen")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleCompleteBrowserAssist()}
-                disabled={browserAssistAction !== null}
-                className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-lg bg-accent px-3 text-xs font-semibold text-white transition hover:bg-accent-hover disabled:cursor-wait disabled:opacity-60"
-              >
-                {browserAssistAction === "done" ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : null}
-                {t("browserLoginAssistDone")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {showBrowserLoginChip ? (
-        <div className="px-3 md:px-4">
-          <div className="mx-auto mb-2 flex w-full max-w-[50rem] items-center justify-between gap-3 rounded-lg border border-accent/20 bg-accent/[0.06] px-3 py-2">
-            <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-text">
-                {chat.pendingBrowserLogin?.displayName}
-              </p>
-              <p className="truncate text-[11px] text-text-muted">{t(browserLoginChipHintKey)}</p>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void chat.abortBrowserLogin()}
-                className="cursor-pointer rounded-lg border border-border/70 px-2.5 py-1 text-[11px] font-medium text-text-muted transition hover:bg-surface-hover hover:text-text"
-              >
-                {t("browserLoginCancel")}
-              </button>
-              <button
-                type="button"
-                onClick={chat.reopenBrowserLogin}
-                className="cursor-pointer rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-white transition hover:bg-accent-hover"
-              >
-                {t("browserLoginContinue")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      <ChatInput
-        ref={chatInputRef}
-        onSend={(text, files, options) => {
-          onUserSend?.();
-          return void chat.send(text, files, {
-            ...(options ?? {}),
-            chatMode,
-            deepModeEnabled: chatMode !== "normal"
-          });
-        }}
-        onTranscribeVoice={async (blob, filename) => {
-          const token = await getToken();
-          if (!token) throw new Error("Not authenticated.");
-          return transcribeVoice(token, blob, filename);
-        }}
-        onVoiceTranscriptionError={chat.reportIssue}
-        onStop={chat.stop}
-        isStreaming={chat.isStreaming}
-        disabled={!assistantReady}
-        pendingSendStatus={chat.pendingSendStatus}
-        activeMediaJobs={chat.activeMediaJobs}
-        activeDocumentJobs={chat.activeDocumentJobs}
-      />
       <BrowserLoginModal
         open={chat.browserLoginModalOpen && chat.pendingBrowserLogin?.completionMode !== "assist"}
         assistantId={assistantId}
@@ -1260,7 +1315,7 @@ function ChatHeaderSubtitle({
 
   return (
     <span
-      className="mt-0.5 inline-flex min-w-0 items-center gap-1 text-[10px] font-medium tracking-wide text-text-subtle"
+      className="inline-flex min-w-0 items-center gap-1 text-[10px] font-medium leading-[1.1] tracking-wide text-text-subtle"
       title={fullSkillText}
     >
       <span className="truncate max-w-[10rem] md:max-w-[22rem]">
@@ -1358,12 +1413,12 @@ function ChatModeToggle({
           title={chatModeCaption(t, mode, paidLightModeActive)}
           onClick={() => setMenuOpen((open) => !open)}
           className={cn(
-            // Height matches composer pill (h-11). Mobile = icon circle; desktop = text pill.
-            "inline-flex h-11 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-surface-raised/90 shadow-sm backdrop-blur-sm transition-colors",
-            "w-11 md:w-auto md:gap-1.5 md:px-3.5",
+            // Height matches composer/header pills (h-12). Mobile = icon circle; desktop = text pill.
+            "inline-flex h-12 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised transition-colors",
+            "w-12 md:w-auto md:gap-1.5 md:px-3.5",
             mode !== "normal" && "border-accent-premium/25 text-accent-premium",
             mode === "normal" && "text-text-muted",
-            menuOpen && "border-border-strong bg-surface-raised",
+            menuOpen && "border-border-strong",
             disabled && "cursor-not-allowed opacity-50"
           )}
         >
@@ -1387,7 +1442,7 @@ function ChatModeToggle({
             ref={menuRef}
             role="menu"
             aria-label={t("modeMenuAria", { mode: chatModeLabel(t, mode) })}
-            className="absolute top-full right-0 z-30 mt-2 flex min-w-[12rem] max-w-[calc(100vw-1rem)] flex-col gap-1 rounded-[1.25rem] border border-border/70 bg-surface-raised/95 p-1.5 shadow-xl backdrop-blur-md md:min-w-[13rem]"
+            className="absolute top-full right-0 z-50 mt-2 flex min-w-[12rem] max-w-[calc(100vw-1rem)] flex-col gap-1 rounded-[1.25rem] border border-border/45 bg-surface-raised p-1.5 md:min-w-[13rem]"
           >
             {CHAT_MODES.map((option) => {
               const optionLimited = paidLightModeActive && option !== "normal";
@@ -1476,7 +1531,7 @@ function EmptyState({
   const greeting = greetings[Math.floor(Date.now() / 86_400_000) % greetings.length]!;
 
   return (
-    <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+    <div className="flex h-full flex-col items-center justify-center px-6 pt-[5.5rem] pb-[7.5rem] text-center md:pt-24 md:pb-32">
       <AssistantAvatar avatarUrl={avatarUrl} avatarEmoji={avatarEmoji} size="lg" className="mb-6" />
       <h2 className="text-xl font-semibold text-text">{assistantName}</h2>
       <p className="mt-2 text-base text-text-muted md:text-sm">{greeting}</p>

@@ -335,13 +335,10 @@ function ChatPlanCardBody({
   return (
     <div
       className={cn(
-        "overflow-hidden border border-border/40 backdrop-blur-xl backdrop-saturate-150",
+        "overflow-hidden border border-border/40 bg-surface-raised",
         expanded ? "rounded-[1.375rem]" : "rounded-full",
         className
       )}
-      style={{
-        backgroundColor: "color-mix(in srgb, var(--surface-raised) 78%, transparent)"
-      }}
     >
       <div className={cn("flex items-center gap-2 px-3", expanded ? "py-2.5" : "py-2")}>
         <button

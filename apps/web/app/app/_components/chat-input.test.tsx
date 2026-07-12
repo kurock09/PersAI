@@ -1046,7 +1046,8 @@ describe("ChatInput", () => {
 
     const chrome = screen.getByTestId("chat-composer-chrome");
     expect(chrome.className).not.toMatch(/\bborder-t\b/);
-    expect(chrome.className).toMatch(/-mt-/);
+    // Dissolve veil is owned by chat-area footer overlay, not a negative-margin pull.
+    expect(chrome.className).not.toMatch(/-mt-/);
 
     const mic = screen.getByTitle("voiceMessage");
     expect(mic).toHaveAttribute("aria-hidden", "false");
