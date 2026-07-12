@@ -1343,10 +1343,10 @@ function ChatListItem({
         <div
           ref={mobileActionsRef}
           data-testid={`mobile-chat-actions-${item.chat.id}`}
-          className="absolute inset-y-0 right-0 flex items-center pr-1 md:hidden"
+          className="absolute inset-y-0 right-0 flex items-stretch pr-1 md:hidden"
           onPointerDown={touchMobileActions}
         >
-          <div className="flex h-9 items-center rounded-lg border border-border/50 bg-surface-raised">
+          <div className="flex h-full items-stretch">
             <button
               type="button"
               onClick={() => {
@@ -1358,7 +1358,7 @@ function ChatListItem({
                 }
               }}
               disabled={deleting}
-              className="px-3.5 text-xs font-semibold text-destructive transition-colors hover:text-destructive disabled:opacity-50"
+              className="flex items-center px-3.5 text-xs font-semibold text-destructive transition-colors hover:text-destructive disabled:opacity-50"
             >
               {deleting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -1368,7 +1368,7 @@ function ChatListItem({
                 t("delete")
               )}
             </button>
-            <span aria-hidden="true" className="h-3.5 w-px shrink-0 bg-border/70" />
+            <span aria-hidden="true" className="my-auto h-3.5 w-px shrink-0 bg-border/70" />
             <button
               type="button"
               onClick={() => {
@@ -1377,7 +1377,7 @@ function ChatListItem({
                 closeMobileActions();
               }}
               disabled={deleting}
-              className="px-3.5 text-xs font-medium text-text transition-colors hover:text-text disabled:opacity-50"
+              className="flex items-center px-3.5 text-xs font-medium text-text transition-colors hover:text-text disabled:opacity-50"
             >
               {t("rename")}
             </button>

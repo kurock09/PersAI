@@ -312,7 +312,9 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     const deleteBtn = screen.getByRole("button", { name: "delete" });
     expect(deleteBtn).toHaveClass("font-semibold", "text-destructive");
     expect(deleteBtn.className).not.toMatch(/bg-destructive/);
-    expect(actions.querySelector(".bg-surface-raised")).toHaveClass("rounded-lg");
+    expect(actions.className).not.toMatch(/bg-surface-raised/);
+    expect(actions.querySelector(".bg-surface-raised")).toBeNull();
+    expect(actions.querySelector(".rounded-lg")).toBeNull();
 
     fireEvent.click(deleteBtn);
     expect(screen.getByRole("button", { name: "confirmDelete" })).toBeInTheDocument();
