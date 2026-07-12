@@ -37,6 +37,8 @@ export interface PullToRefreshProps {
   children: ReactNode;
   /** Disable the gesture (e.g. when a modal/overlay is in front). */
   disabled?: boolean;
+  /** Optional icon shown while pulling before the action is triggered. */
+  pullIndicator?: ReactNode;
   className?: string;
 }
 
@@ -44,6 +46,7 @@ export function PullToRefresh({
   onRefresh,
   children,
   disabled = false,
+  pullIndicator,
   className
 }: PullToRefreshProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -166,12 +169,18 @@ export function PullToRefresh({
         }}
       >
         <div className="mt-3 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-surface-raised shadow-sm">
-          <Loader2
-            className={cn("h-4 w-4 text-text-muted", state === "refreshing" && "animate-spin")}
-            style={
-              state === "refreshing" ? undefined : { transform: `rotate(${indicatorRotation}deg)` }
-            }
-          />
+          {state === "pulling" && pullIndicator ? (
+            pullIndicator
+          ) : (
+            <Loader2
+              className={cn("h-4 w-4 text-text-muted", state === "refreshing" && "animate-spin")}
+              style={
+                state === "refreshing"
+                  ? undefined
+                  : { transform: `rotate(${indicatorRotation}deg)` }
+              }
+            />
+          )}
         </div>
       </div>
       <div

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantWebChatListItemState } from "@persai/contracts";
 import { Sidebar, formatChatRowTimestamp } from "./sidebar";
@@ -27,6 +27,13 @@ const assistantApiMocks = vi.hoisted(() => ({
       nextCursor: null
     })
   )
+}));
+
+const chatApiMocks = vi.hoisted(() => ({
+  patch: vi.fn(async () => undefined),
+  archive: vi.fn(async () => undefined),
+  unarchive: vi.fn(async () => undefined),
+  delete: vi.fn(async () => undefined)
 }));
 
 const shellMocks = vi.hoisted(() => ({
@@ -95,9 +102,10 @@ vi.mock("./app-shell", () => ({
 }));
 
 vi.mock("../assistant-api-client", () => ({
-  patchAssistantWebChat: vi.fn(async () => undefined),
-  postAssistantWebChatArchive: vi.fn(async () => undefined),
-  deleteAssistantWebChat: vi.fn(async () => undefined),
+  patchAssistantWebChat: chatApiMocks.patch,
+  postAssistantWebChatArchive: chatApiMocks.archive,
+  postAssistantWebChatUnarchive: chatApiMocks.unarchive,
+  deleteAssistantWebChat: chatApiMocks.delete,
   listChatWorkspaceFiles: assistantApiMocks.listChatWorkspaceFiles
 }));
 
@@ -107,9 +115,14 @@ vi.mock("@/app/lib/clerk-navigation", () => ({
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   searchParamsMocks.thread = null;
   assistantApiMocks.listChatWorkspaceFiles.mockReset();
+  chatApiMocks.patch.mockClear();
+  chatApiMocks.archive.mockClear();
+  chatApiMocks.unarchive.mockClear();
+  chatApiMocks.delete.mockClear();
   shellMocks.openSettings.mockClear();
   navigationMocks.push.mockClear();
   navigationMocks.replace.mockClear();
@@ -160,7 +173,7 @@ function makeAppData(overrides: Partial<AppData>): AppData {
 
 function makeChat(
   id: string,
-  options?: { chatMode?: "normal" | "project" | "deep" }
+  options?: { chatMode?: "normal" | "project" | "deep"; archivedAt?: string | null }
 ): AssistantWebChatListItemState {
   return {
     chat: {
@@ -169,12 +182,45 @@ function makeChat(
       title: `Chat ${id}`,
       lastMessageAt: "2026-04-25T12:00:00.000Z",
       createdAt: "2026-04-25T11:00:00.000Z",
-      archivedAt: null,
+      archivedAt: options?.archivedAt ?? null,
       deepModeEnabled: false,
       chatMode: options?.chatMode ?? "normal"
     },
     lastMessagePreview: null
   } as unknown as AssistantWebChatListItemState;
+}
+
+function useMobileViewport(): void {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn((query: string) => ({
+      matches: query === "(max-width: 599px)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn()
+    }))
+  );
+}
+
+function touch(clientX: number, clientY: number): Touch {
+  return {
+    identifier: 0,
+    target: document.body,
+    clientX,
+    clientY,
+    pageX: clientX,
+    pageY: clientY,
+    screenX: clientX,
+    screenY: clientY,
+    radiusX: 0,
+    radiusY: 0,
+    rotationAngle: 0,
+    force: 1
+  } as Touch;
 }
 
 describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
@@ -211,6 +257,179 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
       "lg:w-[280px]",
       "md:rounded-[1.375rem]"
     );
+  });
+
+  it("uses 16px mobile type for the assistant name and New chat", () => {
+    render(
+      <Sidebar
+        data={makeAppData({
+          assistant: {
+            draft: { displayName: "Alpha", avatarUrl: null, avatarEmoji: null }
+          } as AppData["assistant"]
+        })}
+      />
+    );
+
+    expect(screen.getByText("Alpha")).toHaveClass("text-base", "md:text-sm");
+    expect(screen.getByRole("button", { name: "newChat" })).toHaveClass("text-base", "md:text-sm");
+  });
+
+  it("uses composer-height quiet pills for theme and language controls", async () => {
+    render(<Sidebar data={makeAppData({})} />);
+
+    fireEvent.click(screen.getByText("freePlan · 0%").closest("button")!);
+
+    const themeSwitcher = await screen.findByTestId("account-theme-switcher");
+    const languageSwitcher = screen.getByTestId("account-language-switcher");
+    expect(themeSwitcher).toHaveClass("h-11", "rounded-full", "md:h-9");
+    expect(languageSwitcher).toHaveClass("h-11", "rounded-full", "md:h-9");
+    expect(themeSwitcher.className).not.toMatch(/accent/);
+    expect(languageSwitcher.className).not.toMatch(/accent/);
+  });
+
+  it("increases mobile chat-row density and the three-dot tap target", () => {
+    render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
+
+    expect(screen.getByTestId("chat-row-surface-thread-a")).toHaveClass(
+      "min-h-11",
+      "py-2.5",
+      "md:min-h-0",
+      "md:py-2"
+    );
+    expect(screen.getByRole("button", { name: "chatActions" })).toHaveClass("h-10", "w-10");
+  });
+
+  it("opens inline mobile actions and requires a second delete tap", async () => {
+    useMobileViewport();
+    render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "chatActions" }));
+    expect(screen.getByTestId("mobile-chat-actions-thread-a")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "delete" }));
+    expect(screen.getByRole("button", { name: "confirmDelete" })).toBeInTheDocument();
+    expect(chatApiMocks.delete).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "confirmDelete" }));
+    await waitFor(() => {
+      expect(chatApiMocks.delete).toHaveBeenCalledWith("test-token", "thread-a", {
+        confirmText: "DELETE"
+      });
+    });
+  });
+
+  it("closes inline mobile actions after 10 seconds idle", () => {
+    vi.useFakeTimers();
+    useMobileViewport();
+    render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "chatActions" }));
+    expect(screen.getByTestId("mobile-chat-actions-thread-a")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(screen.queryByTestId("mobile-chat-actions-thread-a")).toBeNull();
+  });
+
+  it("keeps only one inline action row open and closes it on outside tap", () => {
+    useMobileViewport();
+    render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a"), makeChat("thread-b")] })} />);
+    const actionButtons = screen.getAllByRole("button", { name: "chatActions" });
+
+    fireEvent.click(actionButtons[0]!);
+    expect(screen.getByTestId("mobile-chat-actions-thread-a")).toBeInTheDocument();
+
+    fireEvent.pointerDown(actionButtons[1]!);
+    fireEvent.click(actionButtons[1]!);
+    expect(screen.queryByTestId("mobile-chat-actions-thread-a")).toBeNull();
+    expect(screen.getByTestId("mobile-chat-actions-thread-b")).toBeInTheDocument();
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByTestId("mobile-chat-actions-thread-b")).toBeNull();
+  });
+
+  it("archives an active mobile chat after a committed left swipe", async () => {
+    useMobileViewport();
+    render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
+    const surface = screen.getByTestId("chat-row-surface-thread-a");
+
+    fireEvent.touchStart(surface, { touches: [touch(200, 0)] });
+    fireEvent.touchMove(surface, { touches: [touch(90, 4)] });
+    await act(async () => {
+      fireEvent.touchEnd(surface, { changedTouches: [touch(90, 4)] });
+    });
+
+    await waitFor(() => {
+      expect(chatApiMocks.archive).toHaveBeenCalledWith("test-token", "thread-a");
+    });
+  });
+
+  it("restores an archived mobile chat after a committed right swipe", async () => {
+    useMobileViewport();
+    render(
+      <Sidebar
+        data={makeAppData({
+          chats: [makeChat("archived-a", { archivedAt: "2026-04-26T12:00:00.000Z" })]
+        })}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /archivedChats/ }));
+    const surface = screen.getByTestId("chat-row-surface-archived-a");
+
+    fireEvent.touchStart(surface, { touches: [touch(20, 0)] });
+    fireEvent.touchMove(surface, { touches: [touch(130, 4)] });
+    await act(async () => {
+      fireEvent.touchEnd(surface, { changedTouches: [touch(130, 4)] });
+    });
+
+    await waitFor(() => {
+      expect(chatApiMocks.unarchive).toHaveBeenCalledWith("test-token", "archived-a");
+    });
+  });
+
+  it("shows a collapsible desktop Archive group", () => {
+    render(
+      <Sidebar
+        data={makeAppData({
+          chats: [makeChat("archived-a", { archivedAt: "2026-04-26T12:00:00.000Z" })]
+        })}
+      />
+    );
+
+    const group = screen.getByTestId("archived-chat-group");
+    expect(group).toHaveClass("hidden", "md:block");
+    expect(screen.queryByText("Chat archived-a")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /archivedChats/ }));
+    expect(screen.getByText("Chat archived-a")).toBeInTheDocument();
+  });
+
+  it("reveals mobile Archive on the first long pull and refreshes on the next", async () => {
+    useMobileViewport();
+    const onPullToRefresh = vi.fn().mockResolvedValue(undefined);
+    const { container } = render(
+      <Sidebar
+        data={makeAppData({
+          chats: [makeChat("archived-a", { archivedAt: "2026-04-26T12:00:00.000Z" })]
+        })}
+        onClose={vi.fn()}
+        onPullToRefresh={onPullToRefresh}
+      />
+    );
+    const scroller = container.querySelector("[data-pull-state]") as HTMLElement;
+    const group = screen.getByTestId("archived-chat-group");
+
+    fireEvent.touchStart(scroller, { touches: [touch(0, 0)] });
+    fireEvent.touchMove(scroller, { touches: [touch(0, 200)] });
+    await act(async () => {
+      fireEvent.touchEnd(scroller, { changedTouches: [touch(0, 200)] });
+    });
+    await waitFor(() => expect(group).toHaveClass("block"));
+    expect(onPullToRefresh).not.toHaveBeenCalled();
+
+    fireEvent.touchStart(scroller, { touches: [touch(0, 0)] });
+    fireEvent.touchMove(scroller, { touches: [touch(0, 200)] });
+    await act(async () => {
+      fireEvent.touchEnd(scroller, { changedTouches: [touch(0, 200)] });
+    });
+    await waitFor(() => expect(onPullToRefresh).toHaveBeenCalledTimes(1));
   });
 
   it("does not flash a skeleton when reload() runs but reloadChats() does not", () => {

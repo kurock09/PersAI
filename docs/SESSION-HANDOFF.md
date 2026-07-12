@@ -1,5 +1,47 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — ADR-145 Telegram-like chat-list archive + mobile row actions
+
+Status: **implemented locally; logged-in mobile/desktop visual acceptance pending.**
+
+Baseline SHA: PersAI `092b20e5`.
+
+**Account footer touch follow-up:** Theme and language switchers now use
+composer-height (`h-11`) quiet full-width pills on mobile (`md:h-9` on
+desktop), without accent weight, so hit targets match the chat input while
+chat list remains the primary surface.
+
+**Mobile UX:** Assistant name and New chat are 16px; chat rows have a 44px
+minimum height and enlarged 40px three-dot targets. Active rows swipe left to
+archive; archived rows swipe right to restore. Horizontal direction locking
+preserves vertical list scrolling. Three dots slide the row left over inline
+`Delete | Rename`; delete remains two-step and actions close after 10s idle,
+re-tap, or outside tap.
+
+**Archive group:** Mobile keeps Archive hidden until the first qualifying pull
+at list top, then tap expands/collapses the rows; subsequent pulls refresh
+normally. Desktop shows the compact collapsible group whenever archived chats
+exist. Empty Archive is omitted.
+
+**API truth:** Added explicit
+`POST /api/v1/assistant/chats/web/:chatId/unarchive`. Restore runs under a
+serializable repository transaction with the active-chat cap checked
+atomically; a full plan limit returns 409. Canonical list reload remains the
+only state owner after archive/restore.
+
+**Verification:** sidebar + pull gesture 43/43 PASS; web typecheck PASS;
+ManageWebChatListService 20/20 PASS (including restore/cap cases); API typecheck
+PASS. Full repository lint, format, API typecheck, and web typecheck gate PASS.
+
+**Residual:** Clerk prevents local logged-in visual validation. Verify swipe
+feel, Archive reveal/expansion, inline action geometry, and desktop menu/group
+on the user's authenticated devices.
+
+**Next:** deploy in the next web/API rollout, run phone + desktop visual
+acceptance, then revisit contrast only as a separate visual slice.
+
+---
+
 ## 2026-07-12 — ADR-144 adaptive native orientation + medium shell
 
 Status: **implemented locally; Android 1.0.39 built/exported; device and iOS acceptance pending.**

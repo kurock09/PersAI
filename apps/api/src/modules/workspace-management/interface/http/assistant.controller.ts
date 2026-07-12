@@ -1075,6 +1075,23 @@ export class AssistantController {
     };
   }
 
+  @Post("assistant/chats/web/:chatId/unarchive")
+  async unarchiveWebChat(
+    @Req() req: RequestWithPlatformContext,
+    @Param("chatId") chatId: string
+  ): Promise<{
+    requestId: string | null;
+    chat: AssistantWebChatListItemState;
+  }> {
+    const userId = this.resolveRequestUserId(req);
+    const chat = await this.manageWebChatListService.unarchiveChat(userId, chatId);
+
+    return {
+      requestId: req.requestId ?? null,
+      chat
+    };
+  }
+
   @Get("assistant/chat/web/turns/:clientTurnId")
   async getWebChatTurnStatus(
     @Req() req: RequestWithPlatformContext,

@@ -4,6 +4,39 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-145 chat-list archive + mobile row actions
+
+Automated:
+
+```powershell
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/sidebar.test.tsx app/app/_components/pull-to-refresh.test.tsx
+corepack pnpm --filter @persai/api exec tsx --test test/manage-web-chat-list.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+Manual phone:
+
+1. Confirm assistant name and New chat are 16px; rows are about 10% taller and
+   the three-dot target is comfortably tappable.
+2. Swipe an active row left. Archive copy must follow the finger; releasing
+   below threshold snaps back, above threshold archives without opening chat.
+3. Pull down at list top. The first qualifying pull reveals Archive instead of
+   refreshing. Tap Archive to expand/collapse; a later pull refreshes.
+4. Swipe an archived row right to restore it. Vertical scroll must not trigger
+   either horizontal action.
+5. Tap three dots: `Delete | Rename` slides in within the row. Delete requires
+   a second confirmation. Re-tap, outside tap, and 10s idle close it; only one
+   row may remain open.
+
+Manual desktop / medium shell:
+
+1. Archive is visible at the top only when non-empty and expands/collapses.
+2. Row actions retain the compact portal menu; archived rows show Restore
+   instead of Archive.
+3. Restoring at the active-chat plan limit leaves the row archived and the API
+   returns 409.
+
 ## ADR-144 adaptive orientation + medium shell
 
 Automated:

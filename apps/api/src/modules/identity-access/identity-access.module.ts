@@ -157,6 +157,7 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/assistant/chats/web/:chatId/plan", method: RequestMethod.DELETE },
       { path: "api/v1/assistant/chats/web/:chatId", method: RequestMethod.PATCH },
       { path: "api/v1/assistant/chats/web/:chatId/archive", method: RequestMethod.POST },
+      { path: "api/v1/assistant/chats/web/:chatId/unarchive", method: RequestMethod.POST },
       { path: "api/v1/assistant/chats/web/:chatId", method: RequestMethod.DELETE },
       { path: "api/v1/assistant/memory/items", method: RequestMethod.GET },
       { path: "api/v1/assistant/memory/items/:itemId/forget", method: RequestMethod.POST },

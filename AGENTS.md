@@ -35,6 +35,8 @@ Additional orchestration program **closed locally 2026-07-11:** `docs/ADR/143-ti
 
 Additional UX ADR **closed locally 2026-07-12:** `docs/ADR/144-adaptive-native-orientation-and-medium-window-shell.md` (ordinary native phones portrait-only; iPad/Android large windows and unfolded foldables rotate; web shell switches by actual viewport at 600px; matching Telegram-like 22px desktop panel rounding; Android 1.0.39 built/exported, Fold device + iOS Xcode acceptance pending; do not reopen for new scope).
 
+Additional UX ADR **closed locally 2026-07-12:** `docs/ADR/145-telegram-like-chat-list-archive-and-mobile-row-actions.md` (mobile axis-locked archive/restore swipes, pull-to-reveal Archive before refresh, inline Delete/Rename with idle/outside close, persistent desktop Archive group, explicit cap-safe unarchive API; automated local gate green, logged-in visual acceptance pending; do not reopen for new scope).
+
 Additional orchestration program **superseded by ADR-140 (do not implement new scope):** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` and `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`.
 
 ## Repo rules

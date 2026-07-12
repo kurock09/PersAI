@@ -1920,6 +1920,50 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chats/web/{chatId}/unarchive:
+    post:
+      operationId: postAssistantWebChatUnarchive
+      summary: Restore an archived web chat record
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: chatId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Restored web chat list item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAssistantWebChatListItemResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant or archived web chat not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Active web chat limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/chats/web/{chatId}/compaction:
     get:
       operationId: getAssistantWebChatCompaction

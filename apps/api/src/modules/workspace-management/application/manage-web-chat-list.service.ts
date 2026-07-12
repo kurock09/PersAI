@@ -1,4 +1,10 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException
+} from "@nestjs/common";
 import { type RuntimeSharedCompactionConfig } from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_MESSAGE_ATTACHMENT_REPOSITORY,
@@ -327,6 +333,46 @@ export class ManageWebChatListService {
     const metadata = await this.assistantChatRepository.getChatListMetadata(chatId);
     return {
       chat: toChatState(archived),
+      messageCount: metadata.messageCount,
+      lastMessagePreview: metadata.lastMessagePreview,
+      activeTurn: null,
+      activeMediaJobs: [],
+      activeDocumentJobs: []
+    };
+  }
+
+  async unarchiveChat(userId: string, chatId: string): Promise<AssistantWebChatListItemState> {
+    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
+    const activeWebChatsLimit =
+      await this.trackWorkspaceQuotaUsageService.resolveActiveWebChatsLimit(assistant);
+    const restored = await this.assistantChatRepository.restoreArchivedWebChatUnderCap({
+      chatId,
+      assistantId: assistant.id,
+      activeWebChatsLimit
+    });
+    if (restored.outcome === "not_found") {
+      throw new NotFoundException("Archived web chat does not exist for this assistant.");
+    }
+    if (restored.outcome === "cap_reached") {
+      throw new ConflictException(
+        `Active web chats cap reached (${restored.limit}). Archive another chat before restoring this one.`
+      );
+    }
+
+    const activeWebChatsCurrent =
+      await this.assistantChatRepository.countActiveChatsByAssistantIdAndSurface(
+        assistant.id,
+        "web"
+      );
+    await this.trackWorkspaceQuotaUsageService.refreshActiveWebChatsUsage({
+      assistant,
+      activeWebChatsCurrent,
+      source: "web_chat_unarchive"
+    });
+
+    const metadata = await this.assistantChatRepository.getChatListMetadata(chatId);
+    return {
+      chat: toChatState(restored.chat),
       messageCount: metadata.messageCount,
       lastMessagePreview: metadata.lastMessagePreview,
       activeTurn: null,

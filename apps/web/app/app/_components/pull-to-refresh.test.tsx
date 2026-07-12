@@ -60,6 +60,24 @@ describe("PullToRefresh", () => {
     expect(onRefresh).not.toHaveBeenCalled();
   });
 
+  it("shows a custom pull indicator before the action triggers", () => {
+    const onRefresh = vi.fn();
+    render(
+      <PullToRefresh
+        onRefresh={onRefresh}
+        pullIndicator={<span data-testid="custom-pull-indicator">Archive</span>}
+      >
+        <div data-testid="content">Home</div>
+      </PullToRefresh>
+    );
+    const container = screen.getByTestId("content").parentElement!.parentElement!;
+
+    fireEvent.touchStart(container, { touches: [touch(0)] });
+    fireEvent.touchMove(container, { touches: [touch(60)] });
+
+    expect(screen.getByTestId("custom-pull-indicator")).toBeInTheDocument();
+  });
+
   it("ignores the gesture when scrollTop is greater than zero (scrolled content)", () => {
     const onRefresh = vi.fn();
     const { container } = render(

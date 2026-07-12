@@ -30,6 +30,11 @@ export type GetOrCreateWebChatUnderCapResult =
   | { outcome: "created"; chat: AssistantChat }
   | { outcome: "cap_reached"; activeCount: number; limit: number };
 
+export type RestoreArchivedWebChatUnderCapResult =
+  | { outcome: "restored"; chat: AssistantChat }
+  | { outcome: "not_found" }
+  | { outcome: "cap_reached"; activeCount: number; limit: number };
+
 export type CreateAssistantChatMessageInput = {
   chatId: string;
   assistantId: string;
@@ -74,6 +79,11 @@ export interface AssistantChatRepository {
   getChatListMetadata(chatId: string): Promise<AssistantChatListMetadata>;
   updateChat(chatId: string, input: UpdateAssistantChatInput): Promise<AssistantChat | null>;
   archiveChat(chatId: string): Promise<AssistantChat | null>;
+  restoreArchivedWebChatUnderCap(input: {
+    chatId: string;
+    assistantId: string;
+    activeWebChatsLimit: number | null;
+  }): Promise<RestoreArchivedWebChatUnderCapResult>;
   hardDeleteChat(
     chatId: string,
     assistantId: string,

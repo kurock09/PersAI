@@ -24,6 +24,7 @@ import type {
   CreateAssistantChatMessageInput,
   GetOrCreateWebChatUnderCapInput,
   GetOrCreateWebChatUnderCapResult,
+  RestoreArchivedWebChatUnderCapResult,
   UpdateAssistantChatInput
 } from "../../domain/assistant-chat.repository";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
@@ -328,6 +329,71 @@ export class PrismaAssistantChatRepository implements AssistantChatRepository {
     });
 
     return this.mapChatToDomain(chat);
+  }
+
+  async restoreArchivedWebChatUnderCap(input: {
+    chatId: string;
+    assistantId: string;
+    activeWebChatsLimit: number | null;
+  }): Promise<RestoreArchivedWebChatUnderCapResult> {
+    const maxRetries = 3;
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            const archived = await tx.assistantChat.findFirst({
+              where: {
+                id: input.chatId,
+                assistantId: input.assistantId,
+                surface: "web",
+                archivedAt: { not: null }
+              },
+              select: { id: true }
+            });
+            if (archived === null) {
+              return { outcome: "not_found" } as const;
+            }
+
+            const activeCount = await tx.assistantChat.count({
+              where: {
+                assistantId: input.assistantId,
+                surface: "web",
+                archivedAt: null
+              }
+            });
+            if (
+              input.activeWebChatsLimit !== null &&
+              input.activeWebChatsLimit > 0 &&
+              activeCount >= input.activeWebChatsLimit
+            ) {
+              return {
+                outcome: "cap_reached",
+                activeCount,
+                limit: input.activeWebChatsLimit
+              } as const;
+            }
+
+            const restored = await tx.assistantChat.update({
+              where: { id: input.chatId },
+              data: { archivedAt: null }
+            });
+            return {
+              outcome: "restored",
+              chat: this.mapChatToDomain(restored)
+            } as const;
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        );
+      } catch (error) {
+        const prismaCode =
+          error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
+        if (prismaCode === "P2034" && attempt < maxRetries) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error("Failed to restore archived web chat after serialization retries.");
   }
 
   async hardDeleteChat(

@@ -3003,6 +3003,68 @@ export const postAssistantWebChatArchive = async (
 };
 
 /**
+ * @summary Restore an archived web chat record
+ */
+export type postAssistantWebChatUnarchiveResponse200 = {
+  data: GetAssistantWebChatListItemResponse;
+  status: 200;
+};
+
+export type postAssistantWebChatUnarchiveResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantWebChatUnarchiveResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantWebChatUnarchiveResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAssistantWebChatUnarchiveResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantWebChatUnarchiveResponseSuccess =
+  postAssistantWebChatUnarchiveResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantWebChatUnarchiveResponseError = (
+  | postAssistantWebChatUnarchiveResponse401
+  | postAssistantWebChatUnarchiveResponse404
+  | postAssistantWebChatUnarchiveResponse409
+  | postAssistantWebChatUnarchiveResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantWebChatUnarchiveResponse =
+  | postAssistantWebChatUnarchiveResponseSuccess
+  | postAssistantWebChatUnarchiveResponseError;
+
+export const getPostAssistantWebChatUnarchiveUrl = (chatId: string) => {
+  return `/assistant/chats/web/${chatId}/unarchive`;
+};
+
+export const postAssistantWebChatUnarchive = async (
+  chatId: string,
+  options?: RequestInit
+): Promise<postAssistantWebChatUnarchiveResponse> => {
+  return customFetch<postAssistantWebChatUnarchiveResponse>(
+    getPostAssistantWebChatUnarchiveUrl(chatId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
+
+/**
  * @summary Get web chat compaction state
  */
 export type getAssistantWebChatCompactionResponse200 = {

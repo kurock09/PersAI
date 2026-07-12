@@ -599,7 +599,11 @@ export class TrackWorkspaceQuotaUsageService {
   async refreshActiveWebChatsUsage(params: {
     assistant: Assistant;
     activeWebChatsCurrent: number;
-    source: "web_chat_turn_prepare" | "web_chat_archive" | "web_chat_hard_delete";
+    source:
+      | "web_chat_turn_prepare"
+      | "web_chat_archive"
+      | "web_chat_unarchive"
+      | "web_chat_hard_delete";
   }): Promise<void> {
     const governance = await this.resolveGovernance(params.assistant.id);
     const limits = await this.resolveLimits(params.assistant, governance);

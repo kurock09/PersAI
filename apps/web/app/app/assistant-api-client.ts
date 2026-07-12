@@ -94,6 +94,7 @@ import {
   postAssistantReset as postAssistantResetContract,
   postAssistantRollback as postAssistantRollbackContract,
   postAssistantWebChatArchive as postAssistantWebChatArchiveContract,
+  postAssistantWebChatUnarchive as postAssistantWebChatUnarchiveContract,
   getAssistantWebChatCompaction as getAssistantWebChatCompactionContract,
   postAssistantCreate as postAssistantCreateContract,
   postAssistantSwitch as postAssistantSwitchContract,
@@ -1943,6 +1944,32 @@ export async function postAssistantWebChatArchive(
     ) {
       throw new Error(
         "Unexpected non-success response for POST /assistant/chats/web/:chatId/archive."
+      );
+    }
+
+    return response.data.chat;
+  } catch (error) {
+    throw new Error(toErrorMessage(error));
+  }
+}
+
+export async function postAssistantWebChatUnarchive(
+  token: string,
+  chatId: string
+): Promise<AssistantWebChatListItemState> {
+  try {
+    const response = await postAssistantWebChatUnarchiveContract(chatId, {
+      headers: getAuthHeaders(token)
+    });
+
+    if (
+      !isSuccessStatus(response.status) ||
+      typeof response.data !== "object" ||
+      response.data === null ||
+      !("chat" in response.data)
+    ) {
+      throw new Error(
+        "Unexpected non-success response for POST /assistant/chats/web/:chatId/unarchive."
       );
     }
 

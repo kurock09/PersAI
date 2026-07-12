@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { describe, test } from "node:test";
 import { AssistantRuntimeError } from "../src/modules/workspace-management/application/assistant-runtime.facade";
 import { ManageWebChatListService } from "../src/modules/workspace-management/application/manage-web-chat-list.service";
@@ -35,6 +35,7 @@ function createChat(overrides?: {
   id?: string;
   surfaceThreadKey?: string;
   assistantId?: string;
+  archivedAt?: Date | null;
 }) {
   return {
     id: "chat-1",
@@ -266,6 +267,12 @@ function createService(overrides?: {
   paidLightModeActive?: boolean;
   chats?: ReturnType<typeof createChat>[];
   onResetElevatedWebChatModes?: () => Promise<number>;
+  restoreOutcome?:
+    | { outcome: "restored"; chat: ReturnType<typeof createChat> }
+    | { outcome: "not_found" }
+    | { outcome: "cap_reached"; activeCount: number; limit: number };
+  activeWebChatsLimit?: number | null;
+  activeWebChatsCurrent?: number;
 }) {
   const callOrder: string[] = [];
   const releasedBytes: bigint[] = [];
@@ -296,7 +303,12 @@ function createService(overrides?: {
         callOrder.push("repo-delete");
         return true;
       },
-      countActiveChatsByAssistantIdAndSurface: async () => 0,
+      restoreArchivedWebChatUnderCap: async () =>
+        overrides?.restoreOutcome ?? {
+          outcome: "restored",
+          chat: createChat({ archivedAt: null })
+        },
+      countActiveChatsByAssistantIdAndSurface: async () => overrides?.activeWebChatsCurrent ?? 0,
       listMessagesByChatId: async () => overrides?.messages ?? createMessages(),
       findLatestAssistantMessageToolContext: async () => null
     } as never,
@@ -338,7 +350,8 @@ function createService(overrides?: {
         activeWebChatsCurrent: number;
       }) => {
         callOrder.push(`quota-${input.source}-${String(input.activeWebChatsCurrent)}`);
-      }
+      },
+      resolveActiveWebChatsLimit: async () => overrides?.activeWebChatsLimit ?? 50
     } as never,
     {
       buildChatPrefix(input: { assistantId: string; chatId: string }) {
@@ -420,6 +433,37 @@ function createService(overrides?: {
 }
 
 describe("ManageWebChatListService", () => {
+  test("restores an archived chat and refreshes active-chat quota truth", async () => {
+    const { service, callOrder } = createService({
+      restoreOutcome: {
+        outcome: "restored",
+        chat: createChat({ archivedAt: null })
+      },
+      activeWebChatsCurrent: 3
+    });
+
+    const result = await service.unarchiveChat("user-1", "chat-1");
+
+    assert.equal(result.chat.archivedAt, null);
+    assert.deepEqual(callOrder, ["quota-web_chat_unarchive-3"]);
+  });
+
+  test("rejects archived-chat restore when the active-chat cap is full", async () => {
+    const { service } = createService({
+      restoreOutcome: {
+        outcome: "cap_reached",
+        activeCount: 50,
+        limit: 50
+      }
+    });
+
+    await assert.rejects(
+      () => service.unarchiveChat("user-1", "chat-1"),
+      (error: unknown) =>
+        error instanceof ConflictException && error.message.includes("Active web chats cap reached")
+    );
+  });
+
   test("lists chats for the resolved active assistant only", async () => {
     const service = new ManageWebChatListService(
       {
