@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 apply-sandbox-pool GVISOR casing repair
+
+Status: **casing/resume repair landed locally on `e53b07d6`; not pushed; live
+foundation mutations have partially completed; S1 blocked.**
+
+**Live foundation truth:**
+
+- prepare completed: dedicated node SA/roles, reserved NAT IPs, subnet flow
+  logs, Private Google Access, and the dedicated sandbox Pod secondary range;
+- exact Cloud NAT and exact reviewed firewall are applied;
+- Calico is enabled; all five nodes were recreated, carry the expected label,
+  are Ready, and `calico-node` is 5/5;
+- two earlier private-pool create attempts failed HTTP 400 before resource
+  creation because they passed GKE-managed label/taint flags; preceding local
+  commits repaired those create flags;
+- `sandbox-pool-private` subsequently created successfully and its node is
+  Ready; GKE API returns `sandboxConfig.type=GVISOR`;
+- the case-sensitive post-create assertion then failed before its cordon;
+  parent ran the exact intended
+  `kubectl cordon -l cloud.google.com/gke-nodepool=sandbox-pool`; the legacy
+  public pool's exact node is cordoned, no pods were deleted, and the pool has
+  not been retired.
+
+**Scope:** Normalize gVisor sandbox type acceptance (`GVISOR`/`gvisor` only) in
+the immediate post-create contour assertion and live matcher; exact-match
+`selectApplySandboxPoolCommandIds` resume planner skips create when the private
+pool already matches (including uppercase live type), verifies Ready/contour,
+and still idempotently re-cordons the legacy public pool. Managed label+taint,
+private/no external IP, exact pool, KSA, and Pod range requirements preserved.
+
+**Still incomplete:** The casing/resume repair is landed locally but not pushed.
+Helm KSA/NetworkPolicy from the unpushed repo has not been applied; structural
+verification and active probes are incomplete; network-policy enforcement is
+therefore not yet proven. The GitHub Environment has not been created or
+approved. No push has occurred, the public pool remains unretired, and S1
+remains blocked.
+
+**Next:** resume `apply-sandbox-pool` idempotently (skip create, verify
+Ready/exact contour, re-cordon); run the retirement gate only if safe; then
+perform the final clean coordinated push/Argo Helm/probes/release approval
+sequence exactly per runbook. Push remains blocked until that coordinated step.
+
+---
+
 ## 2026-07-12 — ADR-146 Slice 0.1b release-gate
 
 Status: **repo-local Slice 0.1b on baseline `d847cb61` including High-finding

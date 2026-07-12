@@ -629,7 +629,28 @@ Lands:
   unavailable git, or disk≠commit inventory mismatch (no `UNAVAILABLE`);
 - inventory `releaseGate.repositoryEnforced: true` with honest human residuals.
 
-Exact push-last sequence (founder-coordinated; not executed in this slice):
+Live foundation checkpoint (2026-07-13; partial, not acceptance):
+
+- prepare is complete: node SA/roles, NAT IPs, subnet flow logs, Private Google
+  Access, and the dedicated sandbox secondary range;
+- exact Cloud NAT and reviewed firewall are applied;
+- Calico is enabled; all five nodes were recreated, labeled, and Ready, with
+  `calico-node` 5/5. This readiness does **not** prove policy enforcement;
+- two private-pool create attempts failed HTTP 400 before resource creation
+  because GKE-managed label/taint flags were supplied; preceding local commits
+  repaired those flags;
+- `sandbox-pool-private` then created successfully and its node is Ready; live
+  GKE reports `sandboxConfig.type=GVISOR`;
+- the legacy public pool's exact node was manually cordoned with the planned
+  selector after the case-sensitive assertion failed; no pods were deleted and
+  the public pool has not been retired;
+- the casing/resume repair landed locally on `e53b07d6` and is not pushed. Helm
+  KSA/NetworkPolicy from the unpushed repository is not applied; structural
+  verification, active probes, GitHub Environment creation/approval, and S1 are
+  incomplete. Foundation completion and enforcement are not claimed.
+
+Exact push-last sequence (founder-coordinated; partially executed only through
+the live foundation checkpoint above):
 
 1. pre-push founder-approved foundation apply (`preflight` → `apply` →
    maintenance retirement prerequisites as required);
@@ -650,9 +671,10 @@ Failure/rollback: remain on last-good non-sandbox pins if verification fails;
 sandbox tag may roll back independently; never disable Calico; never restore the
 removed plan `networkAccessEnabled` boolean.
 
-Next: founder-approved live `preflight` → `apply` → maintenance retirement →
-structural `verify` → `probe-restricted` → `cleanup-controlled-probes`.
-Push/deploy stays deferred until the program's final coordinated deployment.
+Next: resume `apply-sandbox-pool` idempotently (skip create, verify Ready/exact
+contour, re-cordon); run the retirement gate only if safe; then perform the
+final clean coordinated push/Argo Helm/probes/release approval sequence per
+runbook. Push remains blocked until that coordinated step.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:
@@ -660,7 +682,8 @@ Calico contour. Its acceptance is fixed:
 - an enforcing Calico or Dataplane V2 network-policy engine is live and proven
   by active probes (Calico readiness labels alone are not enforcement proof);
 - private sandbox pool is created with `--sandbox=type=gvisor` and live
-  `sandboxConfig.type=gvisor` (labels/taints alone are insufficient);
+  `sandboxConfig.type` of gVisor only (`gvisor` / `GVISOR` casing; labels/taints
+  alone are insufficient);
 - after the private pool is Ready, the legacy public sandbox pool is cordoned
   (fail-closed, no delete, running jobs undisturbed) before the phase claims
   success; maintenance-gated retirement remains separate;

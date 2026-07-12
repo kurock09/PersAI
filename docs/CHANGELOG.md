@@ -3,6 +3,10 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-13
+
+- **Fix (ADR-146 apply-sandbox-pool GVISOR casing; landed locally `e53b07d6`, not pushed).** Post-create contour assertion and live private-pool matcher now accept GKE API `sandboxConfig.type=GVISOR` as the same semantic as inventory `gvisor` (only gVisor; missing/other types fail closed). `selectApplySandboxPoolCommandIds` skips create when the exact private pool already exists, then Ready/contour verification and idempotent legacy cordon remain; managed label/taint, private node, exact KSA, and Pod range are still required. Live foundation progress before this repair: prepare, exact NAT/firewall, Calico with five recreated Ready nodes and `calico-node` 5/5, successful private-pool create/Ready, and manual exact legacy-pool cordon after the casing assertion failed. Two earlier create attempts failed HTTP 400 before resource creation on now-repaired managed label/taint flags. Public pool retirement, unpushed Helm KSA/NetworkPolicy apply, structural verification, active enforcement probes, GitHub Environment creation/approval, push, and S1 remain incomplete/blocked. Foundation tests 56/56.
+
 ## 2026-07-12
 
 - **Fix (ADR-146 Slice 0.1b High findings; repo-local only, not pushed).** `values-dev` foundation classifier now fail-closes whenever the path is changed and base/head content is missing, empty, git-unavailable, or otherwise unprovable (empty string is no longer a dual no-change/error sentinel). Pure-tag exemption compares full base/head file bodies after normalizing only the authoritative per-service `image.tag` fields from `pin-dev-image-tags-lib.mjs` (same map the pin CLI writes); `global.images.tag`, unknown/nested tags, indentation tricks, mixed edits, blanks/comments all gate. Bot pin no-loop preserved. No commit/push/deploy/S1.
