@@ -142,7 +142,11 @@ Required local invariants:
     bounded `activeDeadlineSeconds`, non-root/read-only/seccomp/resources, and
     no proxy env on NAT.
     `exec-ksa-live-wiring` excludes controlled probes and
-    requires ≥1 real Running exec pod. Operators must run
+    requires ≥1 real Running exec pod. `collectLive` exec-pod normalization
+    must preserve exact live `spec.tolerations` so admitted controlled probes
+    pass contour validation; tests map kubectl Pod items through
+    `mapExecPodFromKubectlItem` and prove missing/wrong/extra tolerations fail.
+    Operators must run
     `cleanup-controlled-probes --execute` after probes on success and failure
     paths (exact names/labels only; never broad-delete production exec pods).
     Verify reports any controlled probe Pods still present. Plan/verify/

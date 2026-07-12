@@ -1,5 +1,37 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 live collector tolerations preservation repair
+
+Status: **Collector tolerations repair committed locally in the current
+unpushed HEAD on baseline `87907361` (live sandbox bot pin); not pushed; no
+cloud mutation; Environment still unapproved; S1 blocked.**
+
+**Live truth at `87907361`:** structural
+`node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify` **PASS**,
+including a real production exec Pod. Controlled Pods with canonical
+`operator: Equal` were API-admitted and reached Ready.
+`probe-restricted` pre-structural foundation **PASS**, then failed before
+network probes: `restricted probe pod contour invalid: expected exactly one
+gVisor runtime toleration, got 0`. Root cause: `collectLive` exec-pod
+normalization omitted `spec.tolerations`; `validateRestrictedProbePod`
+received the mapped pod and correctly fail-closed. NAT raw kubectl path likely
+retained tolerations. Cleanup succeeded; no controlled Pods remain.
+
+**Repair (local):** extracted `mapExecPodFromKubectlItem` and preserve exact live
+`spec.tolerations` (plus top-level `tolerations` matching validator pod shape)
+in normalized exec Pods. Tests map admitted kubectl Pod items through the
+collector seam; exact `Equal` passes; missing/wrong/extra tolerations fail.
+No package/dependency changes.
+
+**Still incomplete:** controlled probes not re-run after collector fix; no
+network/enforcement proof; Environment not approved; non-sandbox pins may still
+wait; S0.1 not live-accepted; S1 blocked. Do **not** claim foundation complete.
+
+**Next:** parent push → regenerate/apply controlled probes → `probe-restricted`
+/ cleanup → Environment approval(s).
+
+---
+
 ## 2026-07-13 — ADR-146 controlled-probe Toleration Equal casing repair
 
 Status: **Equal-casing repair committed locally in the current unpushed HEAD

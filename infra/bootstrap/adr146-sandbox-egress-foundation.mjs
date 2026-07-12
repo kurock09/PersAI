@@ -21,6 +21,7 @@ import {
   inventoryConflictingEgressAllows,
   isNetworkPolicyAddonEnabled,
   loadInventory,
+  mapExecPodFromKubectlItem,
   natAddressName,
   natEgressIdentityMatches,
   nodeServiceAccountIdentity,
@@ -331,30 +332,7 @@ function collectLive(inventory) {
     "-o",
     "json"
   ]);
-  const execPods = (execPodsJson?.items ?? []).map((pod) => ({
-    name: pod.metadata?.name,
-    phase: pod.status?.phase,
-    nodeName: pod.spec?.nodeName,
-    serviceAccountName: pod.spec?.serviceAccountName,
-    automountServiceAccountToken: pod.spec?.automountServiceAccountToken,
-    runtimeClassName: pod.spec?.runtimeClassName,
-    activeDeadlineSeconds: pod.spec?.activeDeadlineSeconds ?? null,
-    labels: pod.metadata?.labels ?? {},
-    metadata: { labels: pod.metadata?.labels ?? {} },
-    status: { phase: pod.status?.phase },
-    spec: {
-      nodeName: pod.spec?.nodeName,
-      serviceAccountName: pod.spec?.serviceAccountName,
-      automountServiceAccountToken: pod.spec?.automountServiceAccountToken,
-      runtimeClassName: pod.spec?.runtimeClassName,
-      activeDeadlineSeconds: pod.spec?.activeDeadlineSeconds ?? null,
-      securityContext: pod.spec?.securityContext ?? {},
-      containers: pod.spec?.containers ?? []
-    },
-    securityContext: pod.spec?.securityContext ?? {},
-    containers: pod.spec?.containers ?? [],
-    podIP: pod.status?.podIP ?? null
-  }));
+  const execPods = (execPodsJson?.items ?? []).map(mapExecPodFromKubectlItem);
   const daemonSets = kubectlJson(["-n", "kube-system", "get", "daemonsets", "-o", "json"]);
   const calicoDaemonSets = (daemonSets?.items ?? [])
     .filter((daemon) => /calico/i.test(daemon.metadata?.name ?? ""))

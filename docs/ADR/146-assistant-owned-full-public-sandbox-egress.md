@@ -18,18 +18,19 @@ retirement have completed. Coordinated push **`3cd2ea4f`** and Squid logformat +
 checksum repair **`04b1d0d1` are live**: Argo Synced/Healthy;
 `sandbox-egress-proxy` Ready; sandbox pin immediate; deferred remaining pins
 still wait on GitHub Environment `persai-dev-adr146-foundation` (**not
-approved**; non-sandbox pins last-good). Structural `verify` **PASS** at local
-HEAD **`bf8eeef1`** (live-verifier normalization landed), including a real
-production exec Pod. Controlled `generate-probe-manifests` then succeeded
-locally, but Kubernetes **rejected both probe Pods before creation** because
-generated `spec.tolerations[0].operator` used lowercase `"equal"` (apiserver
-requires canonical `"Equal"`). Probe-manifest Equal-casing repair is
-**committed locally in the current unpushed HEAD** on baseline `bf8eeef1`
-— **no probes ran**, Environment still unapproved, S0.1 is **not**
-live-complete, and this ADR is **not** closed. S1 app/API/UI work stays
-blocked until S0.1 is live-accepted. Next: push Equal repair →
-regenerate/apply controlled probes → active probes/cleanup → Environment
-approval(s).
+approved**; non-sandbox pins last-good). Structural `verify` **PASS** at
+`87907361` (Equal-casing repair + live-verifier normalization), including a
+real production exec Pod. Controlled Pods with canonical `operator: Equal` were
+API-admitted/Ready. `probe-restricted` pre-structural foundation **PASS**,
+then failed before network probes because `collectLive` exec-pod normalization
+dropped `spec.tolerations` (`expected exactly one gVisor runtime toleration,
+got 0`). Collector tolerations preservation repair is **committed locally in
+the current unpushed HEAD** on baseline `87907361`. Probes not re-run after
+collector fix; cleanup succeeded; no controlled Pods remain. Environment still
+unapproved; S0.1 is **not** live-complete, and this ADR is **not** closed. S1
+app/API/UI work stays blocked until S0.1 is live-accepted. Next: push collector
+repair → regenerate/apply controlled probes → active probes/cleanup →
+Environment approval(s).
 
 ## Date
 
@@ -53,12 +54,16 @@ the clean local pre-push branch through
 `ebbc5fe41f2fe51d5db0711ac6f341fc5ef4664c` (`ebbc5fe4`). Coordinated push live
 at `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f` (`3cd2ea4f`). Squid logformat +
 checksum repair live at `04b1d0d190d19ebda5787694cbd257270647a61e`
-(`04b1d0d1`; proxy Ready). Live-verifier Kubernetes normalization repair landed
-at local HEAD `bf8eeef1bfc0db3ca5f7ebe58b34543da8aba247` (`bf8eeef1`; structural
-`verify` PASS including a real production exec Pod). Controlled-probe
-toleration `operator: Equal` casing repair is **committed locally in the
-current unpushed HEAD** on baseline `bf8eeef1` (not pushed); probes were
-rejected before Pod creation and have **not** run.
+(`04b1d0d1`; proxy Ready). Live-verifier Kubernetes normalization repair live
+at `bf8eeef1bfc0db3ca5f7ebe58b34543da8aba247` (`bf8eeef1`; structural `verify`
+PASS including a real production exec Pod). Controlled-probe toleration
+`operator: Equal` casing repair live at
+`42a4f42549d71f52e6d6a838b30fadea95790e54` (`42a4f425`; sandbox bot pin
+`87907361ceabc226c2a06c756c5b5b7a62e06da9` / `87907361` is current). Live
+collector tolerations preservation repair is **committed locally in the current
+unpushed HEAD** on baseline `87907361`: `probe-restricted` pre-structural PASS
+then failed before network probes because `collectLive` dropped
+`spec.tolerations`; probes not re-run after collector fix; cleanup succeeded.
 
 ## Orchestration model
 
@@ -698,13 +703,18 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
 - structural `verify` on live `04b1d0d1` then failed only on verifier↔API-server
   shape mismatches (not missing objects): Argo-managed exec KSA inert
   annotations, omitted empty NetworkPolicy `ingress`, and non-strict matcher
-  boolean. Live-verifier normalization repair landed at **`bf8eeef1`**
+  boolean. Live-verifier normalization repair **live at `bf8eeef1`**
   (structural `verify` PASS including a real production exec Pod). Controlled
-  `generate-probe-manifests` then succeeded, but Kubernetes rejected both probe
-  Pods before creation (`spec.tolerations[0].operator` lowercase `"equal"`;
-  apiserver requires canonical `"Equal"`). Equal-casing repair is
-  **committed locally in the current unpushed HEAD** on baseline
-  `bf8eeef1`; **no probes ran**;
+  `generate-probe-manifests` then succeeded, but Kubernetes initially rejected
+  both probe Pods before creation (`spec.tolerations[0].operator` lowercase
+  `"equal"`; apiserver requires canonical `"Equal"`). Equal-casing repair
+  **live at `42a4f425`** (sandbox bot pin **`87907361`** current). At
+  `87907361`, controlled Pods with canonical `operator: Equal` were
+  API-admitted/Ready; `probe-restricted` pre-structural **PASS**, then failed
+  before network probes because `collectLive` dropped `spec.tolerations`.
+  Collector tolerations preservation repair is **committed locally in the
+  current unpushed HEAD** on baseline `87907361`; probes not re-run after
+  collector fix; cleanup succeeded;
 - GitHub Environment `persai-dev-adr146-foundation` **exists live**
   (required reviewer `kurock09` / user id `126346824`,
   `prevent_self_review=false`, custom deployment branch policy exactly `main`,
@@ -714,7 +724,8 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
 
 Exact push-last sequence (founder-coordinated; live GCP/Calico/private-pool/
 retirement + Environment creation + coordinated push + proxy Ready above are
-done; verifier normalization push + probes + approvals remain):
+done; verifier normalization + Equal-casing push + collector push + probes +
+approvals remain):
 
 1. create protected GitHub Environment `persai-dev-adr146-foundation` —
    **done**: Environment exists live with required reviewer `kurock09`
@@ -730,12 +741,14 @@ done; verifier normalization push + probes + approvals remain):
    last-good (sandbox already pinned). Do **not** treat ConfigMap-only sync as
    sufficient under `subPath` — **done at `04b1d0d1`**;
 5. push live-verifier Kubernetes normalization repair (**done at `bf8eeef1`**;
-   structural `verify` PASS including a real production exec Pod), regenerate
-   controlled probe manifests with canonical Toleration `operator: Equal`
-   (Equal-casing repair committed locally in the current unpushed HEAD on
-   baseline `bf8eeef1` — prior apply rejected lowercase `"equal"` before Pod
-   creation; **no probes ran**), re-apply probes, run active probes, then
-   `cleanup-controlled-probes --execute` (required on success and failure);
+   structural `verify` PASS including a real production exec Pod), push
+   controlled-probe Toleration `Equal` casing repair (**done at `42a4f425` /
+   sandbox bot pin `87907361`**; prior apply rejected lowercase `"equal"` before
+   Pod creation), push collector tolerations preservation repair (committed
+   locally in the current unpushed HEAD on baseline `87907361`; probes not
+   re-run after collector fix; cleanup succeeded), regenerate/apply controlled
+   probes, run active probes, then `cleanup-controlled-probes --execute`
+   (required on success and failure);
 6. approve GitHub Environment `persai-dev-adr146-foundation`;
 7. when migrations are also present, approve `persai-dev-migrations` after step 6;
 8. remaining service image tags pin.
@@ -744,9 +757,9 @@ Failure/rollback: remain on last-good non-sandbox pins if verification fails;
 sandbox tag may roll back independently; never disable Calico; never restore the
 removed plan `networkAccessEnabled` boolean.
 
-Next: push controlled-probe Toleration `Equal` casing repair →
-regenerate/apply controlled probes → active probes → cleanup → Environment
-approval(s). Do **not** claim foundation complete. S1 remains blocked.
+Next: push collector tolerations preservation repair → regenerate/apply
+controlled probes → active probes → cleanup → Environment approval(s). Do
+**not** claim foundation complete. S1 remains blocked.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:

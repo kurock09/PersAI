@@ -46,6 +46,7 @@ import {
   isNetworkPolicyAddonEnabled,
   listControlledProbeCleanupTargets,
   loadInventory,
+  mapExecPodFromKubectlItem,
   natEgressIdentityMatches,
   nodeServiceAccountIdentity,
   operatorOwnedNodeLabels,
@@ -2167,5 +2168,80 @@ test("probe manifest renderer fails closed on invalid gVisor tolerations", () =>
   assert.throws(
     () => renderProbeManifestYaml(extraField),
     /invalid canonical gVisor toleration.*unexpected fields: tolerationSeconds/s
+  );
+});
+
+function probeManifestToKubectlItem(manifest, { nodeName = "private-node", phase = "Running" } = {}) {
+  return {
+    metadata: {
+      name: manifest.metadata.name,
+      labels: manifest.metadata.labels
+    },
+    spec: {
+      ...manifest.spec,
+      nodeName
+    },
+    status: {
+      phase,
+      podIP: "10.0.0.1"
+    }
+  };
+}
+
+test("collectLive exec pod mapper preserves admitted tolerations for probe contour validation", () => {
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  const manifest = buildRestrictedProbePodManifest(inventory);
+  const kubectlItem = probeManifestToKubectlItem(manifest);
+  const mapped = mapExecPodFromKubectlItem(kubectlItem);
+
+  assert.deepEqual(mapped.spec.tolerations, manifest.spec.tolerations);
+  assert.deepEqual(mapped.tolerations, manifest.spec.tolerations);
+  assert.equal(validateRestrictedProbePod(mapped, live, inventory).ok, true);
+
+  const withoutTolerations = structuredClone(kubectlItem);
+  delete withoutTolerations.spec.tolerations;
+  const mappedMissing = mapExecPodFromKubectlItem(withoutTolerations);
+  assert.equal(mappedMissing.spec.tolerations, undefined);
+  const missingGate = validateRestrictedProbePod(mappedMissing, live, inventory);
+  assert.equal(missingGate.ok, false);
+  assert.ok(
+    missingGate.errors.some((error) => error.includes("expected exactly one gVisor runtime toleration"))
+  );
+
+  for (const badOperator of KUBERNETES_REJECTED_TOLERATION_OPERATOR_CASINGS) {
+    const badItem = structuredClone(kubectlItem);
+    badItem.spec.tolerations[0].operator = badOperator;
+    const mappedBad = mapExecPodFromKubectlItem(badItem);
+    assert.equal(mappedBad.spec.tolerations[0].operator, badOperator);
+    const badGate = validateRestrictedProbePod(mappedBad, live, inventory);
+    assert.equal(badGate.ok, false, `must reject operator=${badOperator} after collector mapping`);
+    assert.ok(
+      badGate.errors.some((error) => error.includes("operator must be exactly")),
+      badGate.errors.join("; ")
+    );
+  }
+
+  const extraItem = structuredClone(kubectlItem);
+  extraItem.spec.tolerations.push({
+    key: "dedicated",
+    operator: "Exists",
+    effect: "NoSchedule"
+  });
+  const mappedExtra = mapExecPodFromKubectlItem(extraItem);
+  assert.equal(mappedExtra.spec.tolerations.length, 2);
+  const extraGate = validateRestrictedProbePod(mappedExtra, live, inventory);
+  assert.equal(extraGate.ok, false);
+  assert.ok(
+    extraGate.errors.some((error) => error.includes("expected exactly one gVisor runtime toleration, got 2"))
+  );
+
+  const wrongKeyItem = structuredClone(kubectlItem);
+  wrongKeyItem.spec.tolerations[0].key = "dedicated";
+  const mappedWrongKey = mapExecPodFromKubectlItem(wrongKeyItem);
+  const wrongKeyGate = validateRestrictedProbePod(mappedWrongKey, live, inventory);
+  assert.equal(wrongKeyGate.ok, false);
+  assert.ok(
+    wrongKeyGate.errors.some((error) => error.includes("tolerations[0].key must be"))
   );
 });

@@ -2494,6 +2494,41 @@ export function buildNatProbePodManifest(inventory, options = {}) {
   };
 }
 
+/**
+ * Normalize a kubectl Pod list item into the exec-pod shape used by live
+ * collectors and validators. Preserves exact live `spec.tolerations` so
+ * controlled-probe contour checks see admitted Pod truth.
+ */
+export function mapExecPodFromKubectlItem(pod) {
+  const tolerations = pod.spec?.tolerations;
+  return {
+    name: pod.metadata?.name,
+    phase: pod.status?.phase,
+    nodeName: pod.spec?.nodeName,
+    serviceAccountName: pod.spec?.serviceAccountName,
+    automountServiceAccountToken: pod.spec?.automountServiceAccountToken,
+    runtimeClassName: pod.spec?.runtimeClassName,
+    activeDeadlineSeconds: pod.spec?.activeDeadlineSeconds ?? null,
+    labels: pod.metadata?.labels ?? {},
+    metadata: { labels: pod.metadata?.labels ?? {} },
+    status: { phase: pod.status?.phase },
+    tolerations,
+    spec: {
+      nodeName: pod.spec?.nodeName,
+      serviceAccountName: pod.spec?.serviceAccountName,
+      automountServiceAccountToken: pod.spec?.automountServiceAccountToken,
+      runtimeClassName: pod.spec?.runtimeClassName,
+      activeDeadlineSeconds: pod.spec?.activeDeadlineSeconds ?? null,
+      securityContext: pod.spec?.securityContext ?? {},
+      tolerations,
+      containers: pod.spec?.containers ?? []
+    },
+    securityContext: pod.spec?.securityContext ?? {},
+    containers: pod.spec?.containers ?? [],
+    podIP: pod.status?.podIP ?? null
+  };
+}
+
 /** Flatten a generated Pod manifest into the shape used by live validators. */
 export function probeManifestToValidatorPod(
   manifest,
