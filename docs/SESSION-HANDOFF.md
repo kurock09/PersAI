@@ -1,10 +1,48 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 GitHub Environment `persai-dev-adr146-foundation` exists
+
+Status: **docs-only reconciliation on clean HEAD `780f2a7f`; Environment exists
+live; not approved/deployed; no push; S1 blocked. This docs update is
+uncommitted.**
+
+**Live Environment truth:**
+
+- GitHub Environment `persai-dev-adr146-foundation` **exists live**;
+- required reviewer: `kurock09` (user id `126346824`);
+- `prevent_self_review=false`;
+- custom deployment branch policy exactly `main`;
+- Environment is **not** approved and **not** deployed.
+
+**Preserved live foundation truth (unchanged):**
+
+- prepare, exact Cloud NAT, and exact reviewed firewall remain applied;
+- Calico enabled; live cluster has **5 total nodes**, all Ready /
+  Calico-ready; `calico-node` 5/5 (readiness ≠ enforcement);
+- `apply-sandbox-pool` resume completed exact; legacy public `sandbox-pool`
+  deleted after maintenance retirement;
+- structural `verify` (HEAD `1300970f` + inventory hash) failed **only** on the
+  expected unpushed Helm boundary; GCP/Calico/private-pool/NAT/firewall/
+  metadata/trusted-control checks passed. No enforcement proof; no probes run.
+
+**Still incomplete:** no push; Helm KSA/NetworkPolicy not applied from the
+unpushed repo; Environment not approved/deployed; active probes and enforcement
+proof absent; S0.1 not live-accepted; S1 blocked. Do **not** claim foundation
+complete.
+
+**Next:** commit these docs → final full local gate → one coordinated push →
+observe Argo apply KSA/NP with last-good non-sandbox tags + sandbox-only pin →
+create real/controlled probes → structural verify → active probes → cleanup →
+Environment approval(s).
+
+---
+
 ## 2026-07-13 — ADR-146 live foundation: resume, retire, structural verify
 
 Status: **live GCP/Calico/private-pool/retirement advanced; structural verify
 bound to local HEAD `1300970f`; Helm boundary still unpushed; no push; S1
-blocked. This docs reconciliation is uncommitted on top of `1300970f`.**
+blocked. Superseded for Environment next-step by the entry above (Environment
+now exists live; was not created at this checkpoint).**
 
 **Live foundation truth:**
 
@@ -24,15 +62,15 @@ blocked. This docs reconciliation is uncommitted on top of `1300970f`.**
   NP absent. All GCP / Calico / private pool / NAT / firewall / metadata /
   trusted-control checks passed. No enforcement proof; no probes run.
 
-**Still incomplete:** no push; Helm KSA/NetworkPolicy not applied from the
-unpushed repo; GitHub Environment not created/approved; active probes and
-enforcement proof absent; S0.1 not live-accepted; S1 blocked. Do **not** claim
-foundation complete.
+**Still incomplete (at this checkpoint):** no push; Helm KSA/NetworkPolicy not
+applied from the unpushed repo; GitHub Environment was not yet created/approved
+(later: Environment exists — see entry above); active probes and enforcement
+proof absent; S0.1 not live-accepted; S1 blocked. Do **not** claim foundation
+complete.
 
-**Next:** create protected GitHub Environment → final full local gate → one
-coordinated push → observe Argo apply KSA/NP with last-good non-sandbox tags +
-sandbox-only pin → create real/controlled probes → structural verify → active
-probes → cleanup → Environment approval(s).
+**Next (superseded for Environment creation):** see the newer
+2026-07-13 Environment-exists entry above — commit docs → final full local
+gate → coordinated push → Argo/probes/approvals.
 
 ---
 
@@ -70,9 +108,11 @@ private/no external IP, exact pool, KSA, and Pod range requirements preserved.
 **Still incomplete (at this checkpoint):** The casing/resume repair is landed
 locally but not pushed. Helm KSA/NetworkPolicy from the unpushed repo has not
 been applied; structural verification and active probes are incomplete; network-
-policy enforcement is therefore not yet proven. The GitHub Environment has not
-been created or approved. No push has occurred. (Later entry: resume/retire
-completed; public pool deleted; structural verify ran against Helm boundary.)
+policy enforcement is therefore not yet proven. The GitHub Environment had not
+been created or approved at this checkpoint (later: Environment exists — see
+top 2026-07-13 Environment-exists entry). No push has occurred. (Later entry:
+resume/retire completed; public pool deleted; structural verify ran against
+Helm boundary.)
 
 **Next (superseded):** resume `apply-sandbox-pool` / retirement — see the newer
 2026-07-13 resume/retire/verify entry above.
