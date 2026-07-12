@@ -1,5 +1,53 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — ADR-146 Slice 0.1b release-gate
+
+Status: **repo-local Slice 0.1b on baseline `d847cb61` including High-finding
+classifier repairs; not committed/pushed; no live mutation; S1 blocked.**
+
+**Scope:** Repository-enforced foundation release gate only.
+
+- Dev Image Publish split-pin: sandbox-only tag pin after successful sandbox
+  build; remaining pins use ordered Environment approvals — foundation-only →
+  `persai-dev-adr146-foundation`; migration-only → `persai-dev-migrations`;
+  foundation+migration → foundation Environment approval-only gate, then
+  migrations Environment pin (neither bypassed). Fail closed if sandbox
+  build/pin is missing. Non-foundation pushes retain current immediate/migration
+  behavior. Bot-only `values-dev.yaml` CI skip preserved; image-tag-only bot pins
+  may start Dev Image Publish detect-affected but reach no build/pin (no loop);
+  any non-tag or unprovable `values-dev` edit enters the release gate via path
+  trigger + fail-closed base/head classifier (only exact
+  `pin-dev-image-tags.mjs` per-service `image.tag` scalars are non-foundation;
+  missing/empty/unavailable base|head content fails closed). No CI cloud-apply.
+- `detect-affected` exact ADR-146 foundation markers (including
+  `infra/helm/values.yaml` + exact bootstrap lib files) + fail-closed
+  `values-dev` classifier; `foundation_rollout` / immediate /
+  deferred partition; root package.json fanout cannot pin api/web/runtime/
+  provider-gateway before foundation approval when markers are present.
+- Bootstrap: hardened controlled restricted/NAT probe validators (controlled-probe
+  label + deadline/command/security/exact small resources; capabilities.add
+  absent/empty and drop exactly ALL); `exec-ksa-live-wiring` excludes
+  controlled probes and requires ≥1 real Running exec pod; idempotent
+  `cleanup-controlled-probes` (dry-run default, `--execute` required); verify
+  reports stale controlled probes; plan/verify/probe evidence fail-closed on
+  dirty trees / unavailable git / disk≠commit inventory mismatch; inventory
+  `releaseGate.repositoryEnforced: true` with honest human residuals.
+
+**Push-last sequence (documented; not executed):** pre-push founder-approved
+foundation apply → one final clean-tree push → Argo Helm KSA/NP with old
+non-sandbox tags → sandbox-only image pin → controlled probes + structural/live
+verification → `cleanup-controlled-probes --execute` → Environment approval(s) →
+remaining pins.
+
+**Not done:** no cloud mutation, no live apply/verify/probes, no image publish,
+no GitOps pin, no S1 app/API/UI. ADR-146 remains open.
+
+**Next:** founder-approved live `preflight` → `apply` → maintenance retirement →
+structural `verify` → `probe-restricted` → `cleanup-controlled-probes`.
+Push/deploy remains deferred until the program's final coordinated deployment.
+
+---
+
 ## 2026-07-12 — ADR-146 Slice 0.1 continuity reconciliation
 
 Status: **repo-local Slice 0.1 landed on clean `main`; not live-complete;
@@ -22,8 +70,8 @@ non-allowlist denial; inbound/redirect/DNS-rebind explicitly unclaimed.
 no image publish, no GitOps pin, no S1 app/API/UI work. ADR-146 itself remains
 open — do not treat Slice 0.1 land as program completion.
 
-**Next:** Slice 0.1b release-gate resolution (Argo HEAD + GAR-only WIF
-attestation gap), then founder-approved live `preflight` → `apply` →
+**Next:** Slice 0.1b release-gate resolution (completed locally — see entry
+above), then founder-approved live `preflight` → `apply` →
 maintenance retirement → structural `verify` → `probe-restricted`. Push/deploy
 remains deferred until the program's final coordinated deployment.
 

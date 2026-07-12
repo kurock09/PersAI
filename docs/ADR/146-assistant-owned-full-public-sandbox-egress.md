@@ -6,11 +6,14 @@ Accepted — founder-directed production orchestration program opened 2026-07-12
 Slice 0 read-only code/live-cluster audit completed 2026-07-12 with implementation
 **NO-GO**. Slice 0.1 repository automation for the founder-selected current-cluster
 Calico + private sandbox egress contour **landed on clean `main` at
-`edef3c0b`** (audits + local gates passed). It is **repo-local only**: no cloud
-mutation, live apply, structural verify, or active probes yet; S0.1 is **not**
-live-complete and this ADR is **not** closed. S1 app/API/UI work stays blocked
-until S0.1 is live-accepted. Next bounded work is Slice 0.1b release-gate
-resolution plus the founder-approved live foundation sequence; push/deploy
+`edef3c0b`** (audits + local gates passed). Slice **0.1b release-gate** lands the
+repository-enforced split-pin Dev Image Publish path (`sandbox` immediate;
+remaining services behind GitHub Environment `persai-dev-adr146-foundation`) plus
+probe-manifest generation and commit/inventory evidence binding. It is still
+**repo-local only**: no cloud mutation, live apply, structural verify, active
+probes, push, or image publish yet; S0.1 is **not** live-complete and this ADR is
+**not** closed. S1 app/API/UI work stays blocked until S0.1 is live-accepted.
+Next bounded work is the founder-approved live foundation sequence; push/deploy
 remains deferred until the program's final coordinated deployment.
 
 ## Date
@@ -25,6 +28,9 @@ Slice 0 audit baseline: `e137d7d46d07475d2e74d66704ef483dc6b103c0`.
 
 Slice 0.1 repo-local land: `edef3c0bc2d839ac8ddac1c5b60fd39440d5e947`
 (`edef3c0b` after rebase onto `origin/main`).
+
+Slice 0.1b release-gate baseline: clean `main` at `d847cb61ac0c393fd3f0e58de4c56e507045bd69`
+(implementation lands locally on top of this SHA; not pushed).
 
 ## Orchestration model
 
@@ -576,10 +582,77 @@ Subagent: Cursor Grok 4.5.
 Status: **repo-local land on clean `main` at `edef3c0b` (2026-07-12).** Audits
 and local gates passed. No cloud mutation, live apply, structural verify, or
 active probes yet — S0.1 is **not** live-complete. App S1 remains blocked.
-Next: Slice 0.1b release-gate resolution, then founder-approved live
-`preflight` → `apply` → maintenance retirement → structural `verify` →
-`probe-restricted`. Push/deploy stays deferred until the program's final
-coordinated deployment.
+
+### Slice 0.1b — Repository release gate (split-pin)
+
+Subagent: Cursor Grok 4.5.
+
+Status: **repo-local implementation on baseline `d847cb61` (2026-07-12),
+including final audit repairs.** No live mutation and no push yet. S1 remains
+blocked until foundation live acceptance.
+
+Lands:
+
+- `detect-affected` exact ADR-146 foundation marker paths (including
+  `infra/helm/values.yaml` and exact `infra/bootstrap/lib/foundation.mjs` +
+  `cidr.mjs`) + fail-closed `values-dev.yaml` classifier (only exact
+  `pin-dev-image-tags.mjs` per-service `image.tag` scalars, proven by full
+  base/head compare against the shared pin service map, skip
+  `foundation_rollout`; missing/empty/unavailable base|head content fails
+  closed; `global.images.tag` is not exempt; any other values-dev semantic
+  edit — including deep list items, `networkPolicy.enabled`,
+  `egressProxy.enabled`, SA/config, blanks/comments, unknown/nested tags,
+  indentation tricks, or mixed tag+other — gates foundation); Dev Image
+  Publish push paths include `values-dev.yaml` so non-tag edits
+  enter the gate while image-tag-only bot pins may start detect-affected but
+  yield empty deploy (no build/pin loop); main CI still path-ignores
+  `values-dev.yaml`;
+  `foundation_rollout` / immediate (`sandbox`) / deferred service partition;
+  root `package.json` fanout cannot pin api/web/runtime/provider-gateway before
+  foundation approval when markers are present;
+- Dev Image Publish split pin:
+  A) sandbox-only tag pin after successful sandbox build;
+  B) foundation-only remaining pins after `persai-dev-adr146-foundation`;
+  C) migration-only remaining pins after `persai-dev-migrations`;
+  D) foundation+migration: ordered dual gate — foundation Environment
+  approval-only job, then migrations Environment pin job (neither bypassed);
+- fail-closed if sandbox build/pin is missing; non-foundation pushes retain the
+  prior immediate/migration pin behavior; bot-only image-tag `values-dev.yaml`
+  commits still skip main CI and cannot recurse Dev Image Publish;
+- hardened local controlled restricted + NAT probe Pod manifests (controlled-probe
+  label, bounded deadline, non-root/read-only/seccomp/resources); validators
+  enforce that hardening; `exec-ksa-live-wiring` excludes controlled probes and
+  requires ≥1 real Running exec pod; `cleanup-controlled-probes` (dry-run
+  default, `--execute` required) deletes only the two known probe Pods by exact
+  name/label on success and failure paths;
+- plan/verify/generate-probe-manifests/probe evidence fail-closed on dirty trees,
+  unavailable git, or disk≠commit inventory mismatch (no `UNAVAILABLE`);
+- inventory `releaseGate.repositoryEnforced: true` with honest human residuals.
+
+Exact push-last sequence (founder-coordinated; not executed in this slice):
+
+1. pre-push founder-approved foundation apply (`preflight` → `apply` →
+   maintenance retirement prerequisites as required);
+2. one final founder push of the coordinated ADR-146 commit range from a clean
+   tree;
+3. Argo syncs Helm KSA/NetworkPolicy from `HEAD` while non-sandbox image tags
+   remain last-good;
+4. Dev Image Publish pins **sandbox only** after the sandbox image build
+   succeeds;
+5. controlled probe manifests + structural `verify` + `probe-restricted`
+   (clean-tree evidence bound to commit SHA + inventory SHA-256), then
+   `cleanup-controlled-probes --execute` (required on success and failure);
+6. approve GitHub Environment `persai-dev-adr146-foundation`;
+7. when migrations are also present, approve `persai-dev-migrations` after step 6;
+8. remaining service image tags pin.
+
+Failure/rollback: remain on last-good non-sandbox pins if verification fails;
+sandbox tag may roll back independently; never disable Calico; never restore the
+removed plan `networkAccessEnabled` boolean.
+
+Next: founder-approved live `preflight` → `apply` → maintenance retirement →
+structural `verify` → `probe-restricted` → `cleanup-controlled-probes`.
+Push/deploy stays deferred until the program's final coordinated deployment.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:

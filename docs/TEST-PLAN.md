@@ -79,9 +79,25 @@ Required local invariants:
     remains node-SNATed; no cluster-wide nonMasquerade/disable-SNAT change is
     allowed. Structural verification rejects any eligible regional/VPC
     no-external-IP consumer that is not a tagged private sandbox node.
-12. The current final-push gate is fail-closed and unresolved: tests must not
-    claim CI live attestation while Argo follows Helm `HEAD` and the GAR WIF
-    identity lacks GKE/Compute/Kubernetes read authority.
+12. The repository release gate is enforced for ADR-146 foundation marker
+    pushes: sandbox pins immediately after a successful sandbox image build;
+    remaining service pins wait on ordered GitHub Environment approvals —
+    foundation-only → `persai-dev-adr146-foundation`; migration-only →
+    `persai-dev-migrations`; foundation+migration → foundation Environment
+    approval first, then migrations Environment pin (neither bypassed). Exact
+    markers include `infra/helm/values.yaml` and both bootstrap lib files;
+    `values-dev.yaml` is on the Dev Image Publish path trigger and uses a
+    fail-closed base/head classifier: only exact `pin-dev-image-tags.mjs`
+    per-service `image.tag` scalar substitutions (authoritative service map in
+    `pin-dev-image-tags-lib.mjs`) may skip foundation (empty deploy / no
+    build-pin loop). Missing/empty/unavailable base or head content, empty
+    unexpected diffs, `global.images.tag`, unknown/nested tags, indentation
+    tricks, blanks/comments, or mixed edits force foundation rollout + sandbox
+    gate. Main CI still path-ignores `values-dev.yaml`. Tests prove the workflow
+    contract and fail closed without a sandbox build/pin. CI does not auto-apply
+    foundation mutations or claim live GKE attestation; human Environment
+    approval and live parent evidence remain required. Non-foundation pushes keep
+    the ordinary immediate / migration pin behavior.
 13. Active denial acceptance first proves the same live-resolved Service,
     managed-listener, Calico-owned kube-dns Pod IP, trusted control-plane Pod IP,
     and node targets are reachable from a trusted existing control-plane Pod.
@@ -90,6 +106,18 @@ Required local invariants:
     IP from the fixed no-query plain-IP endpoint. Restricted probe also proves
     Squid denial for fixed non-allowlisted `example.com` HTTPS. `ECONNREFUSED`
     is never treated as denial; absent targets refuse to false-pass.
+14. Local `generate-probe-manifests` produces restricted/NAT probe Pod YAML that
+    satisfies the contour validators (private selector, gVisor,
+    `sandbox-exec-sa`, automount false, required labels, controlled-probe label,
+    bounded `activeDeadlineSeconds`, non-root/read-only/seccomp/resources, no
+    proxy env on NAT). `exec-ksa-live-wiring` excludes controlled probes and
+    requires ≥1 real Running exec pod. Operators must run
+    `cleanup-controlled-probes --execute` after probes on success and failure
+    paths (exact names/labels only; never broad-delete production exec pods).
+    Verify reports any controlled probe Pods still present. Plan/verify/
+    generate-probe/probe evidence fails closed on dirty trees, unavailable git,
+    or disk≠commit inventory mismatch (never `UNAVAILABLE`). Manifest generation
+    never applies to the cluster from CI.
 
 Live-only (founder-approved `--execute`, not part of ordinary local gate):
 
@@ -101,8 +129,10 @@ Live-only (founder-approved `--execute`, not part of ordinary local gate):
 ./infra/bootstrap/adr146-sandbox-egress-foundation.sh verify
 ./infra/bootstrap/adr146-sandbox-egress-foundation.sh probe-restricted \
   --execute \
-  --probe-pod ses-<hash> \
+  --probe-pod adr146-restricted-probe \
   --nat-probe-pod adr146-nat-probe
+./infra/bootstrap/adr146-sandbox-egress-foundation.sh cleanup-controlled-probes \
+  --execute
 ```
 
 Windows operators may invoke the same phases directly:

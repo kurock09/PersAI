@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -11,7 +12,15 @@ import {
 } from "./lib/cidr.mjs";
 import {
   APPLY_PHASE_ORDER,
+  ADR146_CONTROLLED_PROBE_LABEL,
+  ADR146_CONTROLLED_PROBE_POD_NAMES,
+  ADR146_PROBE_ACTIVE_DEADLINE_SECONDS,
+  ADR146_PROBE_RESOURCES,
+  buildControlledProbeCleanupPlan,
+  buildEvidenceBinding,
+  buildNatProbePodManifest,
   buildPhasePlans,
+  buildRestrictedProbePodManifest,
   evaluateCalicoReadiness,
   evaluateLiveFoundation,
   evaluatePreflight,
@@ -22,13 +31,20 @@ import {
   exactPodSelector,
   inventoryConflictingEgressAllows,
   inventoryNatEligibleConsumers,
+  isAdr146ControlledProbePod,
+  listControlledProbeCleanupTargets,
   loadInventory,
   natEgressIdentityMatches,
   nodeServiceAccountIdentity,
+  probeManifestToValidatorPod,
+  renderPlanText,
+  renderProbeManifestYaml,
   resolveCalicoOwnedProbeTargets,
   resolveRestrictedProbeTargets,
   runStaticDeployTruth,
+  selectRealExecPodsForKsaWiring,
   squidDenialHttpStatusIndicatesProxyDeny,
+  validateControlledProbeHardening,
   validateInventory,
   validateNatProbePod,
   validateRestrictedProbePod
@@ -950,6 +966,67 @@ test("live verify rejects zero exec pods and default-SA pods for KSA wiring", ()
   assert.ok(evaluated.checks.some((entry) => entry.id === "exec-ksa-live-wiring" && !entry.ok));
 });
 
+test("exec-ksa-live-wiring excludes controlled probes and requires a real exec pod", () => {
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  const probeA = probeManifestToValidatorPod(buildRestrictedProbePodManifest(inventory));
+  const probeB = probeManifestToValidatorPod(buildNatProbePodManifest(inventory));
+  // Zero real + two controlled probes must fail.
+  live.execPods = [probeA, probeB];
+  let evaluated = evaluateLiveFoundation(inventory, live);
+  assert.ok(evaluated.checks.some((entry) => entry.id === "exec-ksa-live-wiring" && !entry.ok));
+  assert.match(
+    evaluated.checks.find((entry) => entry.id === "exec-ksa-live-wiring").detail,
+    /controlled probe/
+  );
+  assert.equal(selectRealExecPodsForKsaWiring(live.execPods, live).length, 0);
+
+  // One valid real + probes passes.
+  const real = {
+    name: "ses-real",
+    phase: "Running",
+    nodeName: "private-node",
+    serviceAccountName: "sandbox-exec-sa",
+    automountServiceAccountToken: false,
+    runtimeClassName: "gvisor",
+    labels: { "app.kubernetes.io/component": "sandbox-exec" },
+    podIP: "10.109.0.99"
+  };
+  live.execPods = [probeA, probeB, real];
+  evaluated = evaluateLiveFoundation(inventory, live);
+  assert.ok(evaluated.checks.some((entry) => entry.id === "exec-ksa-live-wiring" && entry.ok));
+  assert.equal(selectRealExecPodsForKsaWiring(live.execPods, live).length, 1);
+
+  // Wrong real (default SA) + probes fails.
+  live.execPods = [
+    probeA,
+    probeB,
+    {
+      ...real,
+      name: "ses-wrong",
+      serviceAccountName: "default"
+    }
+  ];
+  evaluated = evaluateLiveFoundation(inventory, live);
+  assert.ok(evaluated.checks.some((entry) => entry.id === "exec-ksa-live-wiring" && !entry.ok));
+
+  // Wrong real (public node) + probes fails when private contour is known.
+  live.execPods = [
+    probeA,
+    {
+      ...real,
+      name: "ses-public-node",
+      nodeName: "public-node"
+    }
+  ];
+  evaluated = evaluateLiveFoundation(inventory, live);
+  assert.ok(evaluated.checks.some((entry) => entry.id === "exec-ksa-live-wiring" && !entry.ok));
+
+  const reported = evaluated.checks.find((entry) => entry.id === "controlled-probe-pods-reported");
+  assert.ok(reported?.ok);
+  assert.match(reported.detail, /adr146-restricted-probe/);
+});
+
 test("NetworkPolicy DNS and selector matchers reject widened shapes", () => {
   const inventory = loadInventory();
   const expectedDns = [
@@ -1029,7 +1106,7 @@ test("NetworkPolicy DNS and selector matchers reject widened shapes", () => {
 test("probe helpers bind restricted and NAT pods to the private gVisor contour", () => {
   const inventory = loadInventory();
   const live = baseLive(inventory);
-  const okPod = live.execPods[0];
+  const okPod = probeManifestToValidatorPod(buildRestrictedProbePodManifest(inventory));
   assert.equal(validateRestrictedProbePod(okPod, live, inventory).ok, true);
   assert.equal(
     validateRestrictedProbePod({ ...okPod, runtimeClassName: "runc" }, live, inventory).ok,
@@ -1039,25 +1116,151 @@ test("probe helpers bind restricted and NAT pods to the private gVisor contour",
     validateRestrictedProbePod({ ...okPod, serviceAccountName: "default" }, live, inventory).ok,
     false
   );
-  const natPod = {
-    status: { phase: "Running" },
-    metadata: {
+  const natPod = probeManifestToValidatorPod(buildNatProbePodManifest(inventory));
+  assert.equal(validateNatProbePod(natPod, live, inventory).ok, true);
+  const natWithProxy = structuredClone(natPod);
+  natWithProxy.spec.containers[0].env = [{ name: "HTTPS_PROXY", value: "http://proxy:3128" }];
+  natWithProxy.containers = natWithProxy.spec.containers;
+  assert.equal(validateNatProbePod(natWithProxy, live, inventory).ok, false);
+});
+
+test("controlled probe validators reject each material hardening class", () => {
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  const good = probeManifestToValidatorPod(buildRestrictedProbePodManifest(inventory));
+  assert.equal(validateRestrictedProbePod(good, live, inventory).ok, true);
+  assert.equal(validateControlledProbeHardening(good).ok, true);
+  assert.deepEqual(good.spec.containers[0].resources, {
+    requests: { ...ADR146_PROBE_RESOURCES.requests },
+    limits: { ...ADR146_PROBE_RESOURCES.limits }
+  });
+  assert.deepEqual(good.spec.containers[0].securityContext.capabilities, { drop: ["ALL"] });
+
+  const missingLabel = structuredClone(good);
+  delete missingLabel.labels[ADR146_CONTROLLED_PROBE_LABEL];
+  delete missingLabel.metadata.labels[ADR146_CONTROLLED_PROBE_LABEL];
+  assert.equal(validateRestrictedProbePod(missingLabel, live, inventory).ok, false);
+
+  const badDeadline = structuredClone(good);
+  badDeadline.spec.activeDeadlineSeconds = ADR146_PROBE_ACTIVE_DEADLINE_SECONDS + 1;
+  badDeadline.activeDeadlineSeconds = ADR146_PROBE_ACTIVE_DEADLINE_SECONDS + 1;
+  assert.equal(validateRestrictedProbePod(badDeadline, live, inventory).ok, false);
+
+  const badCommand = structuredClone(good);
+  badCommand.spec.containers[0].command = ["sleep", "infinity"];
+  badCommand.containers = badCommand.spec.containers;
+  assert.equal(validateRestrictedProbePod(badCommand, live, inventory).ok, false);
+
+  const badPodSecurity = structuredClone(good);
+  badPodSecurity.spec.securityContext.runAsNonRoot = false;
+  assert.equal(validateRestrictedProbePod(badPodSecurity, live, inventory).ok, false);
+
+  const badContainerSecurity = structuredClone(good);
+  badContainerSecurity.spec.containers[0].securityContext.allowPrivilegeEscalation = true;
+  badContainerSecurity.spec.containers[0].securityContext.readOnlyRootFilesystem = false;
+  badContainerSecurity.containers = badContainerSecurity.spec.containers;
+  assert.equal(validateRestrictedProbePod(badContainerSecurity, live, inventory).ok, false);
+
+  const badResourcesMissing = structuredClone(good);
+  delete badResourcesMissing.spec.containers[0].resources.limits;
+  badResourcesMissing.containers = badResourcesMissing.spec.containers;
+  assert.equal(validateRestrictedProbePod(badResourcesMissing, live, inventory).ok, false);
+
+  const oversizedCpu = structuredClone(good);
+  oversizedCpu.spec.containers[0].resources.limits.cpu = "2";
+  oversizedCpu.containers = oversizedCpu.spec.containers;
+  assert.equal(validateControlledProbeHardening(oversizedCpu).ok, false);
+
+  const oversizedMemory = structuredClone(good);
+  oversizedMemory.spec.containers[0].resources.requests.memory = "512Mi";
+  oversizedMemory.containers = oversizedMemory.spec.containers;
+  assert.equal(validateControlledProbeHardening(oversizedMemory).ok, false);
+
+  const alteredUnits = structuredClone(good);
+  alteredUnits.spec.containers[0].resources.requests.cpu = "0.05";
+  alteredUnits.spec.containers[0].resources.limits.memory = "128M";
+  alteredUnits.containers = alteredUnits.spec.containers;
+  assert.equal(validateControlledProbeHardening(alteredUnits).ok, false);
+
+  const missingRequestCpu = structuredClone(good);
+  delete missingRequestCpu.spec.containers[0].resources.requests.cpu;
+  missingRequestCpu.containers = missingRequestCpu.spec.containers;
+  assert.equal(validateControlledProbeHardening(missingRequestCpu).ok, false);
+
+  const capabilitiesAdd = structuredClone(good);
+  capabilitiesAdd.spec.containers[0].securityContext.capabilities = {
+    add: ["NET_ADMIN"],
+    drop: ["ALL"]
+  };
+  capabilitiesAdd.containers = capabilitiesAdd.spec.containers;
+  assert.equal(validateControlledProbeHardening(capabilitiesAdd).ok, false);
+
+  const dropMismatch = structuredClone(good);
+  dropMismatch.spec.containers[0].securityContext.capabilities = {
+    drop: ["ALL", "NET_RAW"]
+  };
+  dropMismatch.containers = dropMismatch.spec.containers;
+  assert.equal(validateControlledProbeHardening(dropMismatch).ok, false);
+
+  const dropMissingAll = structuredClone(good);
+  dropMissingAll.spec.containers[0].securityContext.capabilities = {
+    drop: ["NET_RAW"]
+  };
+  dropMissingAll.containers = dropMissingAll.spec.containers;
+  assert.equal(validateControlledProbeHardening(dropMissingAll).ok, false);
+
+  const natGood = probeManifestToValidatorPod(buildNatProbePodManifest(inventory));
+  assert.equal(validateNatProbePod(natGood, live, inventory).ok, true);
+  const natMissingProbeLabel = structuredClone(natGood);
+  delete natMissingProbeLabel.labels["sandbox.gke.io/adr146-nat-probe"];
+  delete natMissingProbeLabel.metadata.labels["sandbox.gke.io/adr146-nat-probe"];
+  assert.equal(validateNatProbePod(natMissingProbeLabel, live, inventory).ok, false);
+
+  const natMissingControlled = structuredClone(natGood);
+  delete natMissingControlled.labels[ADR146_CONTROLLED_PROBE_LABEL];
+  delete natMissingControlled.metadata.labels[ADR146_CONTROLLED_PROBE_LABEL];
+  assert.equal(validateNatProbePod(natMissingControlled, live, inventory).ok, false);
+});
+
+test("controlled probe cleanup plan is bounded to exact names/labels", () => {
+  const pods = [
+    {
+      name: "ses-production",
+      phase: "Running",
+      labels: { "app.kubernetes.io/component": "sandbox-exec" }
+    },
+    {
+      name: "adr146-restricted-probe",
+      phase: "Running",
       labels: {
-        "sandbox.gke.io/adr146-nat-probe": "true",
-        "app.kubernetes.io/component": "sandbox-exec"
+        "app.kubernetes.io/component": "sandbox-exec",
+        [ADR146_CONTROLLED_PROBE_LABEL]: "true"
       }
     },
-    spec: {
-      nodeName: "private-node",
-      serviceAccountName: "sandbox-exec-sa",
-      automountServiceAccountToken: false,
-      runtimeClassName: "gvisor",
-      containers: [{ name: "probe", env: [] }]
+    {
+      name: "adr146-nat-probe",
+      phase: "Succeeded",
+      labels: {
+        "app.kubernetes.io/component": "sandbox-exec",
+        [ADR146_CONTROLLED_PROBE_LABEL]: "true",
+        "sandbox.gke.io/adr146-nat-probe": "true"
+      }
     }
-  };
-  assert.equal(validateNatProbePod(natPod, live, inventory).ok, true);
-  natPod.spec.containers[0].env = [{ name: "HTTPS_PROXY", value: "http://proxy:3128" }];
-  assert.equal(validateNatProbePod(natPod, live, inventory).ok, false);
+  ];
+  const targets = listControlledProbeCleanupTargets(pods);
+  assert.deepEqual(targets.map((pod) => pod.name).sort(), [
+    "adr146-nat-probe",
+    "adr146-restricted-probe"
+  ]);
+  assert.equal(isAdr146ControlledProbePod(pods[0]), false);
+  assert.equal(isAdr146ControlledProbePod(pods[1]), true);
+  const plan = buildControlledProbeCleanupPlan(pods);
+  assert.deepEqual(plan.exactNames, [...ADR146_CONTROLLED_PROBE_POD_NAMES]);
+  assert.equal(plan.labelSelector, `${ADR146_CONTROLLED_PROBE_LABEL}=true`);
+  assert.equal(plan.targets.length, 2);
+  assert.ok(plan.argvByName.every((argv) => argv.includes("--ignore-not-found=true")));
+  assert.ok(!plan.labelDeleteArgv.join(" ").includes("app.kubernetes.io/component=sandbox-exec"));
+  assert.ok(plan.labelDeleteArgv.includes(`${ADR146_CONTROLLED_PROBE_LABEL}=true`));
 });
 
 test("Calico-owned probe targets require live kube-dns and trusted Pod IPs", () => {
@@ -1114,5 +1317,161 @@ test("conflicting higher-priority EGRESS ALLOW firewall rules are rejected", () 
     evaluated.checks.some(
       (entry) => entry.id === "no-conflicting-higher-priority-egress-allows" && !entry.ok
     )
+  );
+});
+
+test("release gate is repository-enforced with honest human residuals", () => {
+  const inventory = loadInventory();
+  assert.equal(inventory.releaseGate.repositoryEnforced, true);
+  assert.equal(inventory.releaseGate.mechanism, "dev-image-publish-split-pin");
+  assert.equal(inventory.releaseGate.githubEnvironment, "persai-dev-adr146-foundation");
+  assert.equal(inventory.releaseGate.deferredSlice, undefined);
+  assert.ok(Array.isArray(inventory.releaseGate.residuals));
+  assert.ok(inventory.releaseGate.residuals.length >= 2);
+  assert.ok(inventory.releaseGate.pushLastSequence?.length >= 6);
+  assert.ok(
+    inventory.releaseGate.failureRollback?.some((entry) => /Never disable Calico/i.test(entry))
+  );
+  const valuesDevText = readFileSync(path.join(repoRoot, "infra/helm/values-dev.yaml"), "utf8");
+  assert.equal(runStaticDeployTruth(inventory, { valuesDevText }).ok, true);
+});
+
+test("plan/verify evidence binds clean commit SHA and committed inventory SHA-256", () => {
+  const inventory = loadInventory();
+  const inventoryRel = "infra/bootstrap/adr146-sandbox-egress-foundation.json";
+  const inventoryBytes = readFileSync(path.join(repoRoot, inventoryRel));
+  const inventorySha = createHash("sha256").update(inventoryBytes).digest("hex");
+  const evidence = buildEvidenceBinding(path.join(repoRoot, inventoryRel), {
+    repoRoot,
+    execGit(args) {
+      if (args[0] === "status") return "";
+      if (args[0] === "rev-parse" && args[1] === "HEAD") {
+        return "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n";
+      }
+      if (args[0] === "show") return inventoryBytes;
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    },
+    readFile() {
+      return inventoryBytes;
+    }
+  });
+  assert.equal(evidence.gitCommitSha, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+  assert.equal(evidence.inventorySha256, inventorySha);
+  assert.equal(evidence.inventoryPath, inventoryRel);
+  const plan = renderPlanText(inventory, evidence);
+  assert.match(plan, new RegExp(`evidence.gitCommitSha=${evidence.gitCommitSha}`));
+  assert.match(plan, new RegExp(`evidence.inventorySha256=${evidence.inventorySha256}`));
+  assert.doesNotMatch(plan, /password|token|secret|private[_-]?key/i);
+  assert.doesNotMatch(plan, /UNAVAILABLE/);
+});
+
+test("evidence binding fails closed on dirty tracked files", () => {
+  assert.throws(
+    () =>
+      buildEvidenceBinding(undefined, {
+        execGit(args) {
+          if (args[0] === "status")
+            return " M infra/bootstrap/adr146-sandbox-egress-foundation.json\n";
+          throw new Error("unexpected");
+        }
+      }),
+    /dirty git working tree/
+  );
+});
+
+test("evidence binding fails closed on dirty untracked files", () => {
+  assert.throws(
+    () =>
+      buildEvidenceBinding(undefined, {
+        execGit(args) {
+          if (args[0] === "status") return "?? infra/bootstrap/scratch-probe.yaml\n";
+          throw new Error("unexpected");
+        }
+      }),
+    /dirty git working tree/
+  );
+});
+
+test("evidence binding fails closed when git is unavailable", () => {
+  assert.throws(
+    () =>
+      buildEvidenceBinding(undefined, {
+        execGit() {
+          throw new Error("git missing");
+        }
+      }),
+    /git status unavailable/
+  );
+});
+
+test("evidence binding fails closed on disk-vs-commit inventory mismatch", () => {
+  const inventoryRel = "infra/bootstrap/adr146-sandbox-egress-foundation.json";
+  const committed = Buffer.from('{"committed":true}\n');
+  const disk = Buffer.from('{"disk":true}\n');
+  assert.throws(
+    () =>
+      buildEvidenceBinding(path.join(repoRoot, inventoryRel), {
+        repoRoot,
+        execGit(args) {
+          if (args[0] === "status") return "";
+          if (args[0] === "rev-parse") return "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n";
+          if (args[0] === "show") return committed;
+          throw new Error(`unexpected git ${args.join(" ")}`);
+        },
+        readFile() {
+          return disk;
+        }
+      }),
+    /does not match committed blob/
+  );
+});
+
+test("generated restricted and NAT probe manifests satisfy live validators", () => {
+  const inventory = loadInventory();
+  const live = {
+    privatePoolNodes: [{ name: "private-node", ready: true, externalIp: "" }]
+  };
+  const restrictedManifest = buildRestrictedProbePodManifest(inventory);
+  const natManifest = buildNatProbePodManifest(inventory);
+  assert.equal(
+    validateRestrictedProbePod(probeManifestToValidatorPod(restrictedManifest), live, inventory).ok,
+    true
+  );
+  assert.equal(
+    validateNatProbePod(probeManifestToValidatorPod(natManifest), live, inventory).ok,
+    true
+  );
+  const natWithProxy = structuredClone(natManifest);
+  natWithProxy.spec.containers[0].env = [{ name: "HTTPS_PROXY", value: "http://proxy:3128" }];
+  assert.equal(
+    validateNatProbePod(probeManifestToValidatorPod(natWithProxy), live, inventory).ok,
+    false
+  );
+  const yaml = `${renderProbeManifestYaml(restrictedManifest)}\n${renderProbeManifestYaml(natManifest)}`;
+  assert.match(yaml, /serviceAccountName: sandbox-exec-sa/);
+  assert.match(yaml, /runtimeClassName: gvisor/);
+  assert.match(yaml, /automountServiceAccountToken: false/);
+  assert.match(yaml, /sandbox\.gke\.io\/adr146-nat-probe: "true"/);
+  assert.match(yaml, /sandbox\.gke\.io\/adr146-controlled-probe: "true"/);
+  assert.match(yaml, /workload: "sandbox"/);
+  assert.match(yaml, /activeDeadlineSeconds: 600/);
+  assert.match(yaml, /command: \["sleep","600"\]/);
+  assert.doesNotMatch(yaml, /sleep", "3600"|sleep","3600"/);
+  assert.match(yaml, /runAsNonRoot: true/);
+  assert.match(yaml, /readOnlyRootFilesystem: true/);
+  assert.match(yaml, /allowPrivilegeEscalation: false/);
+  assert.match(yaml, /drop: \["ALL"\]/);
+  assert.match(yaml, /seccompProfile:\n\s+type: RuntimeDefault/);
+  assert.match(yaml, /cpu: "50m"/);
+  assert.match(yaml, /memory: "64Mi"/);
+  assert.doesNotMatch(yaml, /HTTP_PROXY|HTTPS_PROXY|password:|secret:/i);
+  assert.equal(restrictedManifest.spec.securityContext.runAsNonRoot, true);
+  assert.equal(
+    restrictedManifest.spec.containers[0].securityContext.allowPrivilegeEscalation,
+    false
+  );
+  assert.equal(
+    restrictedManifest.metadata.labels["sandbox.gke.io/adr146-controlled-probe"],
+    "true"
   );
 });

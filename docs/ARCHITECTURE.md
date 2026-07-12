@@ -156,12 +156,19 @@ automation only — no live apply/verify/probe completion and no deploy/push:
   `verify`, and separate founder-approved `probe-restricted` (inbound denial,
   HTTP redirect, and DNS-rebind remain unclaimed by automation);
 - S1 may proceed locally only after parent approval of S0.1. Production rollout
-  is blocked: Argo currently auto-syncs Helm `HEAD` before image pinning, and
-  the GAR-only GitHub WIF identity has no GKE/Compute/Kubernetes read authority,
-  so the repository cannot yet bind live acceptance to the exact commit and
-  inventory hash or atomically advance policy plus image. No feature flag or
-  fabricated attestation is introduced. Dataplane V2 migration remains outside
-  ADR-146.
+  uses the Slice 0.1b repository release gate: one final founder push syncs Helm
+  KSA/NetworkPolicy while non-sandbox tags stay last-good; Dev Image Publish
+  pins sandbox immediately after a successful sandbox build; controlled probes +
+  structural/live verification run with clean-tree evidence bound to the exact
+  git commit SHA and committed inventory SHA-256 (dirty/mismatched trees fail
+  closed); `cleanup-controlled-probes --execute` is required on success and
+  failure; any non-tag `values-dev` edit enters the release gate while
+  image-tag-only bot pins cannot recurse; remaining service pins wait on ordered
+  GitHub Environment approvals (`persai-dev-adr146-foundation`, then
+  `persai-dev-migrations` when both apply). CI does not auto-apply foundation
+  mutations or fabricate GKE attestation. Human Environment approval and live
+  parent evidence remain required residuals. No feature flag. Dataplane V2
+  migration remains outside ADR-146.
 
 ### Native Tool Runtime instruction model
 

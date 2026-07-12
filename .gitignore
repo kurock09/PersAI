@@ -1,4 +1,4 @@
-node_modules/
+﻿node_modules/
 .pnpm-store/
 dist/
 coverage/
@@ -20,3 +20,4 @@ tmp/
 *-test-output.txt
 *-test-output.log
 .commit-msg-tmp.txt
+infra/bootstrap/adr146-probe-manifests/

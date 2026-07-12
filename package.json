@@ -16,7 +16,8 @@
     "test:step2": "corepack pnpm --filter @persai/api run test:step2 && corepack pnpm --filter @persai/web run test",
     "build": "corepack pnpm run prisma:generate && corepack pnpm -r --if-present run build",
     "test:ci-detect-affected": "node --test scripts/ci/detect-affected.test.mjs",
-    "test:adr146-foundation": "node --test infra/bootstrap/adr146-sandbox-egress-foundation.test.mjs"
+    "test:adr146-foundation": "node --test infra/bootstrap/adr146-sandbox-egress-foundation.test.mjs",
+    "test:adr146-release-gate": "node --test scripts/ci/adr146-foundation-release-gate.test.mjs"
   },
   "devDependencies": {
     "prettier": "^3.8.1"

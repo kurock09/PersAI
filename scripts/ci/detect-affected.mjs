@@ -5,6 +5,8 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { analyzePinableServiceImageTags } from "./pin-dev-image-tags-lib.mjs";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..", "..");
@@ -86,6 +88,160 @@ const deployableAppIds = allAppIds.filter((projectId) =>
 // Excluded from lint/typecheck/test targets; included in deploy matrix.
 const NON_WORKSPACE_DEPLOY_SERVICES = ["sandbox-exec"];
 
+/** Exact ADR-146 Slice 0.1/0.1b foundation marker paths (no glob fanout). */
+const ADR146_FOUNDATION_MARKER_PATHS = new Set([
+  "infra/bootstrap/adr146-sandbox-egress-foundation.json",
+  "infra/bootstrap/adr146-sandbox-egress-foundation.mjs",
+  "infra/bootstrap/adr146-sandbox-egress-foundation.sh",
+  "infra/bootstrap/adr146-sandbox-egress-foundation.test.mjs",
+  "infra/bootstrap/lib/foundation.mjs",
+  "infra/bootstrap/lib/cidr.mjs",
+  "infra/helm/templates/sandbox-serviceaccount.yaml",
+  "infra/helm/templates/networkpolicies.yaml",
+  "infra/helm/values.yaml"
+]);
+
+/**
+ * Bot pin target — never an exact marker.
+ * Fail-closed content rule: only pure `pin-dev-image-tags.mjs` per-service
+ * `image.tag` scalar substitutions are non-foundation; any other values-dev
+ * semantic edit (or unprovable classification) gates.
+ */
+const ADR146_VALUES_DEV_PATH = "infra/helm/values-dev.yaml";
+
+/** Services that may pin immediately on a foundation rollout (sandbox control plane). */
+const ADR146_FOUNDATION_IMMEDIATE_SERVICES = new Set(["sandbox"]);
+
+/**
+ * Distinct unavailable sentinel — never reuse empty string for both
+ * "valid no-op" and "error / missing evidence".
+ */
+const VALUES_DEV_CONTENT_UNAVAILABLE = Symbol("values-dev-content-unavailable");
+
+/**
+ * Fail-closed classifier for values-dev.yaml base vs head file contents.
+ *
+ * NON-foundation only when the full files are identical after normalizing the
+ * exact per-service `image.tag` scalars that `pin-dev-image-tags.mjs` writes
+ * (api/web/runtime/providerGateway/sandbox/sandboxExec), and at least one of
+ * those tags actually changed. `global.images.tag`, unknown/nested tags,
+ * indentation tricks, blanks, comments, mixed edits, missing/empty/unavailable
+ * base or head, or parse failure all return true (foundation_rollout).
+ */
+function valuesDevContentTriggersFoundation(baseText, headText) {
+  if (baseText === VALUES_DEV_CONTENT_UNAVAILABLE || headText === VALUES_DEV_CONTENT_UNAVAILABLE) {
+    return true;
+  }
+  if (typeof baseText !== "string" || typeof headText !== "string") {
+    return true;
+  }
+  // Empty unexpectedly — do not treat as "no semantic change".
+  if (baseText === "" || headText === "") {
+    return true;
+  }
+
+  const baseAnalysis = analyzePinableServiceImageTags(baseText);
+  const headAnalysis = analyzePinableServiceImageTags(headText);
+  if (!baseAnalysis.ok || !headAnalysis.ok) {
+    return true;
+  }
+
+  // Anything outside authoritative pinable service image.tag fields remains.
+  if (baseAnalysis.normalized !== headAnalysis.normalized) {
+    return true;
+  }
+
+  if (baseAnalysis.tags.size !== headAnalysis.tags.size) {
+    return true;
+  }
+
+  let anyPinableTagChanged = false;
+  for (const [section, baseTag] of baseAnalysis.tags) {
+    if (!headAnalysis.tags.has(section)) {
+      return true;
+    }
+    const headTag = headAnalysis.tags.get(section);
+    if (baseTag !== headTag) {
+      anyPinableTagChanged = true;
+    }
+  }
+
+  // Path listed as changed but no provable pin-script tag change → fail closed.
+  if (!anyPinableTagChanged) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * @deprecated Prefer valuesDevContentTriggersFoundation(base, head).
+ * Kept as a fail-closed shim: unified diffs alone cannot prove pure pin output.
+ */
+function valuesDevDiffTriggersFoundation(_diffText) {
+  return true;
+}
+
+function resolveValuesDevCompare(options = {}) {
+  if (options.valuesDevCompare && typeof options.valuesDevCompare === "object") {
+    return options.valuesDevCompare;
+  }
+
+  if (options.valuesDevUnavailable === true) {
+    return {
+      status: "unavailable",
+      reason: options.valuesDevUnavailableReason ?? "injected-unavailable"
+    };
+  }
+
+  if (
+    typeof options.valuesDevBaseText === "string" &&
+    typeof options.valuesDevHeadText === "string"
+  ) {
+    return {
+      status: "ok",
+      baseText: options.valuesDevBaseText,
+      headText: options.valuesDevHeadText
+    };
+  }
+
+  if (typeof options.getValuesDevFileAtRef === "function") {
+    try {
+      const baseText = options.getValuesDevFileAtRef("base");
+      const headText = options.getValuesDevFileAtRef("head");
+      if (
+        baseText === VALUES_DEV_CONTENT_UNAVAILABLE ||
+        headText === VALUES_DEV_CONTENT_UNAVAILABLE
+      ) {
+        return { status: "unavailable", reason: "ref-content-unavailable" };
+      }
+      if (typeof baseText !== "string" || typeof headText !== "string") {
+        return { status: "unavailable", reason: "invalid-ref-content" };
+      }
+      if (baseText === "" || headText === "") {
+        return { status: "unavailable", reason: "empty-ref-content" };
+      }
+      return { status: "ok", baseText, headText };
+    } catch {
+      return { status: "unavailable", reason: "git-failure" };
+    }
+  }
+
+  // Legacy diff-only input cannot prove pin-script purity → unavailable.
+  if (options.valuesDevDiffText != null) {
+    return { status: "unavailable", reason: "diff-only-unproven" };
+  }
+
+  return { status: "unavailable", reason: "missing-compare-input" };
+}
+
+function valuesDevCompareTriggersFoundation(compare) {
+  if (!compare || compare.status !== "ok") {
+    return true;
+  }
+  return valuesDevContentTriggersFoundation(compare.baseText, compare.headText);
+}
+
 // Guard: only execute as a CLI when run directly (not when imported by tests).
 const isMain =
   process.argv[1] != null &&
@@ -95,7 +251,10 @@ if (isMain) {
   const diffFiles = changedFilesOverride
     ? parseChangedFiles(changedFilesOverride)
     : getChangedFiles(baseRef, headRef, eventName);
-  const result = detectAffected(diffFiles);
+  const valuesDevCompare = diffFiles.includes(ADR146_VALUES_DEV_PATH)
+    ? loadValuesDevCompareFromGit(baseRef, headRef)
+    : { status: "not-changed" };
+  const result = detectAffected(diffFiles, { valuesDevCompare });
 
   if (outputPath) {
     writeGithubOutput(outputPath, result);
@@ -114,6 +273,7 @@ if (isMain) {
       testOnly: result.testOnly,
       runHelmValidation: result.runHelmValidation,
       migrationChanged: result.migrationChanged,
+      foundationRollout: result.foundationRollout,
       requiresIntegration: result.requiresIntegration,
       requiresFullCi: result.requiresFullCi
     },
@@ -121,13 +281,15 @@ if (isMain) {
     affectedProjects: result.affectedProjects,
     appTestTargets: result.appTestTargets,
     deployServices: result.deployServices,
+    foundationImmediateServices: result.foundationImmediateServices,
+    foundationDeferredServices: result.foundationDeferredServices,
     summary: result.summary
   };
 
   process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);
 }
 
-function detectAffected(changedFiles) {
+function detectAffected(changedFiles, options = {}) {
   const changedProjectIds = new Set();
   const ciTargetIds = new Set();
   const appTestTargetIds = new Set();
@@ -137,10 +299,18 @@ function detectAffected(changedFiles) {
 
   let runHelmValidation = false;
   let migrationChanged = false;
+  let foundationRollout = false;
   let ciConfigChanged = false;
   let hasCodeLikeChange = false;
   let hasDocLikeChange = false;
   let hasNonTestCodeChange = false;
+
+  const valuesDevChanged = changedFiles.some(
+    (file) => normalizePath(file) === ADR146_VALUES_DEV_PATH
+  );
+  const valuesDevCompare = valuesDevChanged
+    ? resolveValuesDevCompare(options)
+    : { status: "not-changed" };
 
   for (const file of changedFiles) {
     const normalized = normalizePath(file);
@@ -168,6 +338,20 @@ function detectAffected(changedFiles) {
     if (classification.migrationChanged) {
       migrationChanged = true;
       riskReasons.add("schema-or-migration");
+    }
+
+    if (classification.foundationMarker) {
+      foundationRollout = true;
+      riskReasons.add("adr146-foundation");
+    }
+
+    if (
+      normalized === ADR146_VALUES_DEV_PATH &&
+      valuesDevCompareTriggersFoundation(valuesDevCompare)
+    ) {
+      foundationRollout = true;
+      riskReasons.add("adr146-foundation");
+      runHelmValidation = true;
     }
 
     for (const risk of classification.risks) {
@@ -230,13 +414,27 @@ function detectAffected(changedFiles) {
     }
   }
 
+  // Foundation rollouts always rebuild/pin the sandbox control plane first so
+  // exec pods can use sandbox-exec-sa before remaining service pins advance.
+  if (foundationRollout) {
+    deployTargetIds.add("sandbox");
+    const reasons = deployReasons.get("sandbox") ?? new Set();
+    reasons.add("adr146-foundation");
+    deployReasons.set("sandbox", reasons);
+    if (workspaceProjectsById.has("sandbox")) {
+      ciTargetIds.add("sandbox");
+      appTestTargetIds.add("sandbox");
+    }
+  }
+
   const docsOnly = changedFiles.length > 0 && !hasCodeLikeChange && !runHelmValidation;
   const testOnly =
     changedFiles.length > 0 &&
     hasCodeLikeChange &&
     !hasNonTestCodeChange &&
     !runHelmValidation &&
-    !migrationChanged;
+    !migrationChanged &&
+    !foundationRollout;
 
   const requiresIntegration =
     migrationChanged ||
@@ -269,6 +467,11 @@ function detectAffected(changedFiles) {
     };
   });
 
+  const { foundationImmediateServices, foundationDeferredServices } = partitionFoundationServices(
+    deployServices,
+    foundationRollout
+  );
+
   const summary = buildSummary({
     changedFiles,
     affectedProjects,
@@ -278,6 +481,7 @@ function detectAffected(changedFiles) {
     testOnly,
     runHelmValidation,
     migrationChanged,
+    foundationRollout,
     requiresIntegration,
     requiresFullCi,
     riskReasons: Array.from(riskReasons).sort()
@@ -291,14 +495,34 @@ function detectAffected(changedFiles) {
     testOnly,
     runHelmValidation,
     migrationChanged,
+    foundationRollout,
     requiresIntegration,
     requiresFullCi,
     riskReasons: Array.from(riskReasons).sort(),
     affectedProjects,
     appTestTargets,
     deployServices,
+    foundationImmediateServices,
+    foundationDeferredServices,
     summary
   };
+}
+
+function partitionFoundationServices(deployServices, foundationRollout) {
+  if (!foundationRollout) {
+    return { foundationImmediateServices: [], foundationDeferredServices: [] };
+  }
+
+  const foundationImmediateServices = [];
+  const foundationDeferredServices = [];
+  for (const service of deployServices) {
+    if (ADR146_FOUNDATION_IMMEDIATE_SERVICES.has(service.service)) {
+      foundationImmediateServices.push(service);
+    } else {
+      foundationDeferredServices.push(service);
+    }
+  }
+  return { foundationImmediateServices, foundationDeferredServices };
 }
 
 function classifyFile(file) {
@@ -323,6 +547,23 @@ function classifyFile(file) {
     "pnpm-workspace.yaml",
     ".dockerignore"
   ]).has(file);
+  const isFoundationMarker = ADR146_FOUNDATION_MARKER_PATHS.has(file);
+
+  if (isFoundationMarker) {
+    return {
+      projects,
+      testTargets,
+      deployTargets,
+      risks,
+      isDocumentation: false,
+      isTestOnly: false,
+      runHelmValidation: file.startsWith("infra/helm/"),
+      ciConfigChanged: false,
+      migrationChanged: false,
+      foundationMarker: true,
+      deployReason: "adr146-foundation"
+    };
+  }
 
   if (isHelmOrGitOps) {
     return {
@@ -335,6 +576,7 @@ function classifyFile(file) {
       runHelmValidation: true,
       ciConfigChanged: false,
       migrationChanged: false,
+      foundationMarker: false,
       deployReason: ""
     };
   }
@@ -356,6 +598,7 @@ function classifyFile(file) {
       runHelmValidation: false,
       ciConfigChanged: true,
       migrationChanged: false,
+      foundationMarker: false,
       deployReason: deployTargets.size > 0 ? "deploy-pipeline-change" : ""
     };
   }
@@ -381,6 +624,7 @@ function classifyFile(file) {
       runHelmValidation: false,
       ciConfigChanged: false,
       migrationChanged: false,
+      foundationMarker: false,
       deployReason: "root-workspace"
     };
   }
@@ -427,6 +671,7 @@ function classifyFile(file) {
       runHelmValidation: false,
       ciConfigChanged: false,
       migrationChanged,
+      foundationMarker: false,
       deployReason: migrationChanged ? "schema-or-migration" : "direct-app-change"
     };
   }
@@ -477,6 +722,7 @@ function classifyFile(file) {
       runHelmValidation: false,
       ciConfigChanged: false,
       migrationChanged: false,
+      foundationMarker: false,
       deployReason: "shared-package-change"
     };
   }
@@ -495,6 +741,7 @@ function emptyClassification(isDocumentation, isTestOnly) {
     runHelmValidation: false,
     ciConfigChanged: false,
     migrationChanged: false,
+    foundationMarker: false,
     deployReason: ""
   };
 }
@@ -547,6 +794,7 @@ function buildSummary({
   testOnly,
   runHelmValidation,
   migrationChanged,
+  foundationRollout,
   requiresIntegration,
   requiresFullCi,
   riskReasons
@@ -568,6 +816,9 @@ function buildSummary({
   if (migrationChanged) {
     parts.push("migration-path=true");
   }
+  if (foundationRollout) {
+    parts.push("adr146-foundation=true");
+  }
   if (requiresIntegration) {
     parts.push("integration=true");
   }
@@ -586,6 +837,7 @@ function writeGithubOutput(outputPath, result) {
   writeOutputValue(lines, "test_only", String(result.testOnly));
   writeOutputValue(lines, "run_helm_validation", String(result.runHelmValidation));
   writeOutputValue(lines, "migration_changed", String(result.migrationChanged));
+  writeOutputValue(lines, "foundation_rollout", String(result.foundationRollout));
   writeOutputValue(lines, "requires_integration", String(result.requiresIntegration));
   writeOutputValue(lines, "requires_full_ci", String(result.requiresFullCi));
   writeOutputValue(lines, "summary", result.summary);
@@ -597,6 +849,26 @@ function writeGithubOutput(outputPath, result) {
     lines,
     "deploy_service_names_csv",
     result.deployServices.map((service) => service.service).join(",")
+  );
+  writeOutputValue(
+    lines,
+    "foundation_immediate_services_json",
+    JSON.stringify(result.foundationImmediateServices)
+  );
+  writeOutputValue(
+    lines,
+    "foundation_immediate_service_names_csv",
+    result.foundationImmediateServices.map((service) => service.service).join(",")
+  );
+  writeOutputValue(
+    lines,
+    "foundation_deferred_services_json",
+    JSON.stringify(result.foundationDeferredServices)
+  );
+  writeOutputValue(
+    lines,
+    "foundation_deferred_service_names_csv",
+    result.foundationDeferredServices.map((service) => service.service).join(",")
   );
   writeOutputValue(lines, "changed_files_json", JSON.stringify(result.changedFiles));
   writeFileSync(outputPath, lines.join(""), { flag: "a" });
@@ -611,11 +883,20 @@ function writeGithubSummary(summaryPath, result) {
     `- Integration required: \`${result.requiresIntegration}\``,
     `- Helm validation: \`${result.runHelmValidation}\``,
     `- Migration path: \`${result.migrationChanged}\``,
+    `- ADR-146 foundation rollout: \`${result.foundationRollout}\``,
     `- Affected checks: ${
       result.affectedProjects.map((project) => `\`${project.workspace}\``).join(", ") || "none"
     }`,
     `- Deploy services: ${
       result.deployServices.map((service) => `\`${service.service}\``).join(", ") || "none"
+    }`,
+    `- Foundation immediate pins: ${
+      result.foundationImmediateServices.map((service) => `\`${service.service}\``).join(", ") ||
+      "none"
+    }`,
+    `- Foundation deferred pins: ${
+      result.foundationDeferredServices.map((service) => `\`${service.service}\``).join(", ") ||
+      "none"
     }`,
     ""
   ];
@@ -640,6 +921,41 @@ function getChangedFiles(base, head, event) {
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+/**
+ * Load base/head file bodies for values-dev classification.
+ * Never returns empty string as a success signal for missing evidence.
+ */
+function loadValuesDevCompareFromGit(base, head) {
+  if (!base) {
+    return { status: "unavailable", reason: "missing-base" };
+  }
+  const resolvedHead = head || "HEAD";
+  try {
+    const baseText = getFileAtRef(base, ADR146_VALUES_DEV_PATH);
+    const headText = getFileAtRef(resolvedHead, ADR146_VALUES_DEV_PATH);
+    if (
+      baseText === VALUES_DEV_CONTENT_UNAVAILABLE ||
+      headText === VALUES_DEV_CONTENT_UNAVAILABLE
+    ) {
+      return { status: "unavailable", reason: "ref-content-unavailable" };
+    }
+    if (baseText === "" || headText === "") {
+      return { status: "unavailable", reason: "empty-ref-content" };
+    }
+    return { status: "ok", baseText, headText };
+  } catch {
+    return { status: "unavailable", reason: "git-failure" };
+  }
+}
+
+function getFileAtRef(ref, filePath) {
+  try {
+    return execGit(["show", `${ref}:${filePath}`]);
+  } catch {
+    return VALUES_DEV_CONTENT_UNAVAILABLE;
+  }
 }
 
 function detectMigrationChangeSincePinnedApiTag(head) {
@@ -868,4 +1184,14 @@ function isPackageTestFile(file) {
   );
 }
 
-export { detectAffected };
+export {
+  ADR146_FOUNDATION_IMMEDIATE_SERVICES,
+  ADR146_FOUNDATION_MARKER_PATHS,
+  ADR146_VALUES_DEV_PATH,
+  VALUES_DEV_CONTENT_UNAVAILABLE,
+  detectAffected,
+  partitionFoundationServices,
+  valuesDevCompareTriggersFoundation,
+  valuesDevContentTriggersFoundation,
+  valuesDevDiffTriggersFoundation
+};

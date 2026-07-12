@@ -142,8 +142,14 @@ node --test infra/bootstrap/adr146-sandbox-egress-foundation.test.mjs
 #    denial, HTTP redirect, and DNS-rebind (founder-approved RUNBOOK residuals).
 ./infra/bootstrap/adr146-sandbox-egress-foundation.sh probe-restricted \
   --execute \
-  --probe-pod ses-<hash> \
+  --probe-pod adr146-restricted-probe \
   --nat-probe-pod adr146-nat-probe
+
+# 8) REQUIRED on both success and failure paths — bounded cleanup of the two
+#    known controlled probe Pods only (exact names + controlled-probe label).
+#    Never broad-deletes production sandbox-exec pods. Dry-run by default.
+./infra/bootstrap/adr146-sandbox-egress-foundation.sh cleanup-controlled-probes
+./infra/bootstrap/adr146-sandbox-egress-foundation.sh cleanup-controlled-probes --execute
 ```
 
 Windows operators can run the same Node entrypoint without the bash wrapper:
@@ -152,24 +158,60 @@ Windows operators can run the same Node entrypoint without the bash wrapper:
 node infra/bootstrap/adr146-sandbox-egress-foundation.mjs plan
 node infra/bootstrap/adr146-sandbox-egress-foundation.mjs static-check
 node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify
+node infra/bootstrap/adr146-sandbox-egress-foundation.mjs cleanup-controlled-probes
+node infra/bootstrap/adr146-sandbox-egress-foundation.mjs cleanup-controlled-probes --execute
 ```
 
-### Slice 0.1b release-gate blocker (fail closed)
+### Slice 0.1b repository release gate (push-last)
 
-The repository cannot currently enforce the requested one-founder-push release
-sequence. Argo CD auto-syncs `infra/helm` from `HEAD`, so a founder push exposes
-Helm policy/KSA changes before `Dev Image Publish` pins the new sandbox image.
-The old sandbox image does not assign `sandbox-exec-sa`. The only GitHub WIF
-identity, `gha-gar-publisher`, has no project-level GKE/Compute viewer or
-Kubernetes authorization, so CI cannot run or attest structural/live probes.
-No GitHub Environment or external attestation store currently closes that gap.
+The repository now enforces a split-pin Dev Image Publish path for ADR-146
+foundation marker pushes (`infra/bootstrap/adr146-sandbox-egress-foundation.*`,
+`infra/bootstrap/lib/foundation.mjs`, `infra/bootstrap/lib/cidr.mjs`,
+`infra/helm/templates/sandbox-serviceaccount.yaml`,
+`infra/helm/templates/networkpolicies.yaml`, `infra/helm/values.yaml`).
+`values-dev.yaml` is on the Dev Image Publish path trigger so non-tag edits
+enter detect-affected / the release gate; it is never an exact marker.
+Fail-closed content rule: only pure `pin-dev-image-tags.mjs` four-space `tag:`
+scalar substitutions are non-foundation. Any other values-dev semantic edit
+(deep list items, `networkPolicy.enabled`, `egressProxy.enabled`, SA/config,
+blanks/comments, mixed tag+other) classifies as foundation and forces the
+sandbox build + gate. Image-tag-only bot pins may start the workflow but yield
+empty deploy services (no build/pin/write — no recursive loop). Main CI
+continues to path-ignore bot-only `values-dev.yaml` commits.
 
-Therefore **do not make the final founder push** until a parent-owned release
-mechanism can (1) hold Argo at a previously accepted revision, (2) authenticate
-CI read-only to GKE/GCP, (3) bind structural and active acceptance to the exact
-commit plus inventory hash, and (4) advance Helm revision and image pins
-atomically after proving no active jobs/exec pods. The bootstrap remains
-manual-only and does not claim to be that release gate.
+1. **Pre-push** founder-approved foundation apply (`preflight` → `apply` /
+   phased apply → maintenance retirement as required) from a **clean** tree.
+2. **One final founder push** of the coordinated ADR-146 commit range.
+3. Argo syncs Helm KSA/NetworkPolicy from `HEAD` while **non-sandbox** image
+   tags remain last-good.
+4. Dev Image Publish pins **sandbox only** after the sandbox image build
+   succeeds (fail closed if sandbox build/pin is missing).
+5. Operator generates/applies controlled probe manifests, then runs structural
+   `verify` and `probe-restricted`. Evidence must match the exact git commit SHA
+   and committed inventory JSON SHA-256; dirty trees and disk≠commit mismatches
+   fail closed. Structural verify reports any controlled probe Pods present.
+   **Always run `cleanup-controlled-probes --execute` after probes on both
+   success and failure paths** (plain Pods are not auto-cleaned and must not be
+   left indefinitely).
+6. Approve GitHub Environment `persai-dev-adr146-foundation`.
+7. Remaining service image tags pin:
+   - foundation-only → pins after step 6;
+   - migration-only → pins after `persai-dev-migrations`;
+   - foundation+migration → step 6 first, then `persai-dev-migrations` (ordered
+     dual gate; neither Environment may be bypassed). Sandbox is already pinned.
+
+Non-foundation pushes keep the ordinary immediate pin / migration-approval
+behavior. Bot-only image-tag pin commits to `infra/helm/values-dev.yaml` still
+skip main CI; they may start Dev Image Publish detect-affected but reach no
+build/pin when deploy services are empty. CI never auto-applies foundation
+mutations.
+
+Failure/rollback: remain on last-good non-sandbox pins if verification fails;
+sandbox tag may roll back independently; never disable Calico; never restore the
+removed plan `networkAccessEnabled` boolean.
+
+Slice 0.1b is repo-local until that live sequence runs. Do not treat the
+workflow land as live foundation acceptance. S1 stays blocked.
 
 ### Verify expectations
 
@@ -192,8 +234,10 @@ Structural `verify` must prove:
   destinations
 - no conflicting higher-priority EGRESS ALLOW firewall rules targeting the
   sandbox tag / deny destinations
-- ≥1 Running sandbox-exec pod on `sandbox-exec-sa` with automount false and
-  `runtimeClassName=gvisor` (zero pods cannot claim live KSA wiring)
+- ≥1 Running **non-probe** sandbox-exec pod on `sandbox-exec-sa` with automount
+  false and `runtimeClassName=gvisor` on the private contour when known (zero
+  real pods cannot claim live KSA wiring; controlled probes labeled
+  `sandbox.gke.io/adr146-controlled-probe=true` are excluded and reported)
 - private pool live shape includes `sandboxConfig.type=gvisor`
 
 Structural verify does **not** run or claim dynamic network probes. Calico

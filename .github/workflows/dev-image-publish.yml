@@ -17,6 +17,19 @@ on:
       - pnpm-workspace.yaml
       - .dockerignore
       - scripts/ci/**
+      # ADR-146 foundation markers: coordinated push must enter the split-pin gate.
+      - infra/bootstrap/adr146-sandbox-egress-foundation.json
+      - infra/bootstrap/adr146-sandbox-egress-foundation.mjs
+      - infra/bootstrap/adr146-sandbox-egress-foundation.sh
+      - infra/bootstrap/adr146-sandbox-egress-foundation.test.mjs
+      - infra/bootstrap/lib/foundation.mjs
+      - infra/bootstrap/lib/cidr.mjs
+      - infra/helm/templates/sandbox-serviceaccount.yaml
+      - infra/helm/templates/networkpolicies.yaml
+      - infra/helm/values.yaml
+      # Fail-closed: any non-tag values-dev edit enters the release gate;
+      # image-tag-only bot pins may start detect-affected but deploy empty (no loop).
+      - infra/helm/values-dev.yaml
   workflow_dispatch:
     inputs:
       base_sha:
@@ -29,8 +42,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       migration_changed: ${{ steps.detect.outputs.migration_changed }}
+      foundation_rollout: ${{ steps.detect.outputs.foundation_rollout }}
       deploy_services_json: ${{ steps.detect.outputs.deploy_services_json }}
       deploy_service_names_csv: ${{ steps.detect.outputs.deploy_service_names_csv }}
+      foundation_immediate_service_names_csv: ${{ steps.detect.outputs.foundation_immediate_service_names_csv }}
+      foundation_deferred_service_names_csv: ${{ steps.detect.outputs.foundation_deferred_service_names_csv }}
       summary: ${{ steps.detect.outputs.summary }}
     steps:
       - name: Checkout
@@ -172,14 +188,133 @@ jobs:
           path: marker/${{ matrix.service }}.txt
           retention-days: 1
 
-  pin-approved-migration-values-tag:
-    if: ${{ github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed == 'true' }}
+  pin-sandbox-foundation-immediate:
+    # ADR-146 Slice 0.1b: sandbox-only pin after successful sandbox build so
+    # Helm KSA/NP can be probed before remaining service pins advance.
+    # No GitHub Environment gate here — fail closed if sandbox is missing.
+    if: ${{ always() && needs.detect-affected.result == 'success' && github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.foundation_rollout == 'true' }}
     needs:
       - detect-affected
       - build-and-push
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Download build success markers
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: built-*
+          path: built-markers
+          merge-multiple: true
+
+      - name: Fail closed unless sandbox built; pin sandbox only
+        id: pin
+        shell: bash
+        env:
+          FOUNDATION_ROLLOUT: ${{ needs.detect-affected.outputs.foundation_rollout }}
+          MIGRATION_CHANGED: ${{ needs.detect-affected.outputs.migration_changed }}
+        run: |
+          set -euo pipefail
+          csv=""
+          if [ -d built-markers ]; then
+            for f in built-markers/*.txt; do
+              [ -f "$f" ] || continue
+              svc="$(tr -d '[:space:]' < "$f")"
+              [ -n "$svc" ] || continue
+              if [ -z "$csv" ]; then csv="$svc"; else csv="$csv,$svc"; fi
+            done
+          fi
+          echo "Successfully-built services: ${csv:-<none>}"
+          plan="$(BUILT_SERVICES="${csv}" node scripts/ci/adr146-foundation-release-gate.mjs resolve-pin-plan)"
+          immediate="$(node -e 'const p=JSON.parse(process.argv[1]); process.stdout.write(p.immediateServices.join(","))' "${plan}")"
+          test -n "${immediate}" || (echo "Foundation immediate pin list is empty" && exit 1)
+          echo "Pinning foundation-immediate services: ${immediate}"
+          node scripts/ci/pin-dev-image-tags.mjs \
+            --file infra/helm/values-dev.yaml \
+            --sha "${GITHUB_SHA}" \
+            --services "${immediate}"
+          echo "csv=${immediate}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push sandbox-only values-dev pin
+        if: ${{ steps.pin.outputs.csv != '' }}
+        run: |
+          set -eu
+          if git diff --quiet -- infra/helm/values-dev.yaml; then
+            echo "No values-dev tag change to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infra/helm/values-dev.yaml
+          git commit -m "chore(dev-gitops): pin sandbox foundation image to ${GITHUB_SHA}"
+
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}); rebasing onto origin/main and retrying..."
+            git pull --rebase origin main
+          done
+
+          echo "Failed to push sandbox foundation pin after retries." >&2
+          exit 1
+
+  approve-adr146-foundation-before-migration:
+    # Foundation+migration: GitHub jobs have one Environment each. This job is
+    # the ordered foundation Environment approval gate (no pin). Remaining pins
+    # happen only after migrations Environment approval below.
+    if: ${{ always() && needs.detect-affected.result == 'success' && needs.pin-sandbox-foundation-immediate.result == 'success' && github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.foundation_rollout == 'true' && needs.detect-affected.outputs.migration_changed == 'true' }}
+    needs:
+      - detect-affected
+      - build-and-push
+      - pin-sandbox-foundation-immediate
+    runs-on: ubuntu-latest
     environment:
-      name: persai-dev-migrations
+      name: persai-dev-adr146-foundation
+    permissions:
+      contents: read
+    env:
+      TARGET_SHA: ${{ github.sha }}
+      TARGET_SERVICES: ${{ needs.detect-affected.outputs.foundation_deferred_service_names_csv }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Confirm foundation Environment approval before migration pin
+        run: |
+          set -eu
+          test -n "${TARGET_SHA}" || (echo "Missing target SHA" && exit 1)
+          git rev-parse --verify "${TARGET_SHA}^{commit}" > /dev/null
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ## ADR-146 foundation Environment approved (pre-migration)
+
+          \`persai-dev-adr146-foundation\` approval recorded for \`${TARGET_SHA}\`.
+          Sandbox was already pinned by \`pin-sandbox-foundation-immediate\`.
+          Remaining services (\`${TARGET_SERVICES:-<none>}\`) still wait on
+          \`persai-dev-migrations\` — this job does not pin.
+          EOF
+
+  pin-foundation-deferred-values-tag:
+    # Foundation-only: remaining non-sandbox pins wait for foundation Environment
+    # approval after founder-owned live structural/active verification evidence.
+    if: ${{ always() && needs.detect-affected.result == 'success' && needs.pin-sandbox-foundation-immediate.result == 'success' && github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.foundation_rollout == 'true' && needs.detect-affected.outputs.migration_changed != 'true' && needs.detect-affected.outputs.foundation_deferred_service_names_csv != '' }}
+    needs:
+      - detect-affected
+      - build-and-push
+      - pin-sandbox-foundation-immediate
+    runs-on: ubuntu-latest
+    environment:
+      name: persai-dev-adr146-foundation
     permissions:
       contents: write
       id-token: write
@@ -190,16 +325,20 @@ jobs:
       GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
       GCP_WIF_SERVICE_ACCOUNT: ${{ vars.GCP_WIF_SERVICE_ACCOUNT }}
       TARGET_SHA: ${{ github.sha }}
-      TARGET_SERVICES: ${{ needs.detect-affected.outputs.deploy_service_names_csv }}
+      TARGET_SERVICES: ${{ needs.detect-affected.outputs.foundation_deferred_service_names_csv }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Validate rollout request
+      - name: Validate deferred rollout request
         run: |
           set -eu
           test -n "${TARGET_SHA}" || (echo "Missing target SHA" && exit 1)
-          test -n "${TARGET_SERVICES}" || (echo "Missing target services" && exit 1)
+          test -n "${TARGET_SERVICES}" || (echo "Missing deferred services" && exit 1)
+          if echo "${TARGET_SERVICES}" | grep -Eq '(^|,)sandbox(,|$)'; then
+            echo "sandbox must not be deferred" >&2
+            exit 1
+          fi
           git rev-parse --verify "${TARGET_SHA}^{commit}" > /dev/null
           node scripts/ci/pin-dev-image-tags.mjs \
             --file infra/helm/values-dev.yaml \
@@ -222,7 +361,171 @@ jobs:
           username: oauth2accesstoken
           password: ${{ steps.auth.outputs.access_token }}
 
+      - name: Verify approved deferred images exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra SERVICES <<< "${TARGET_SERVICES}"
+          for service in "${SERVICES[@]}"; do
+            service_trimmed="$(echo "${service}" | xargs)"
+            test -n "${service_trimmed}" || continue
+            image="${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/${service_trimmed}:${TARGET_SHA}"
+            echo "Verifying ${image}"
+            docker manifest inspect "${image}" > /dev/null
+          done
+
+      - name: Download build success markers
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: built-*
+          path: built-markers
+          merge-multiple: true
+
+      - name: Pin only successfully-built deferred services
+        shell: bash
+        run: |
+          set -euo pipefail
+          built=""
+          if [ -d built-markers ]; then
+            for f in built-markers/*.txt; do
+              [ -f "$f" ] || continue
+              svc="$(tr -d '[:space:]' < "$f")"
+              [ -n "$svc" ] || continue
+              if [ -z "$built" ]; then built="$svc"; else built="$built,$svc"; fi
+            done
+          fi
+          plan="$(FOUNDATION_ROLLOUT=true MIGRATION_CHANGED=false BUILT_SERVICES="${built}" node scripts/ci/adr146-foundation-release-gate.mjs resolve-pin-plan)"
+          deferred="$(node -e 'const p=JSON.parse(process.argv[1]); process.stdout.write(p.deferredServices.join(","))' "${plan}")"
+          if [ -z "${deferred}" ]; then
+            echo "No successfully-built deferred services to pin."
+            exit 0
+          fi
+          # Intersect detector deferred CSV with successfully built deferred set.
+          final=""
+          IFS=',' read -ra REQUESTED <<< "${TARGET_SERVICES}"
+          for service in "${REQUESTED[@]}"; do
+            service_trimmed="$(echo "${service}" | xargs)"
+            echo ",${deferred}," | grep -q ",${service_trimmed}," || continue
+            if [ -z "$final" ]; then final="$service_trimmed"; else final="$final,$service_trimmed"; fi
+          done
+          test -n "${final}" || (echo "No deferred services survived build intersection" && exit 0)
+          echo "Pinning deferred services after foundation approval: ${final}"
+          node scripts/ci/pin-dev-image-tags.mjs \
+            --file infra/helm/values-dev.yaml \
+            --sha "${TARGET_SHA}" \
+            --services "${final}"
+
+      - name: Commit and push deferred foundation pins
+        run: |
+          set -eu
+          if git diff --quiet -- infra/helm/values-dev.yaml; then
+            echo "No values-dev tag change to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infra/helm/values-dev.yaml
+          git commit -m "chore(dev-gitops): approve ADR-146 foundation deferred pins for ${TARGET_SHA}"
+
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}); rebasing onto origin/main and retrying..."
+            git pull --rebase origin main
+          done
+
+          echo "Failed to push deferred foundation pins after retries." >&2
+          exit 1
+
+      - name: Summarize foundation deferred pin follow-up
+        run: |
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ## ADR-146 foundation deferred pins approved
+
+          Pinned deferred services \`${TARGET_SERVICES}\` at \`${TARGET_SHA}\` after
+          \`persai-dev-adr146-foundation\` Environment approval. Sandbox was already
+          pinned by \`pin-sandbox-foundation-immediate\`.
+
+          Recommended follow-up:
+
+          \`\`\`bash
+          kubectl get applications.argoproj.io -n argocd
+          kubectl -n persai-dev get deploy,svc,networkpolicy
+          kubectl -n persai-dev get pods -o wide
+          \`\`\`
+          EOF
+
+  pin-approved-migration-values-tag:
+    # Migration-only: migrations Environment then pin all built services.
+    # Foundation+migration: requires prior foundation Environment approval job
+    # success (neither Environment may be bypassed). Sandbox already pinned.
+    # Skipped optional jobs must not deadlock migration-only runs.
+    if: ${{ always() && needs.detect-affected.result == 'success' && github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed == 'true' && (needs.detect-affected.outputs.foundation_rollout != 'true' && needs.pin-sandbox-foundation-immediate.result == 'skipped' || needs.detect-affected.outputs.foundation_rollout == 'true' && needs.pin-sandbox-foundation-immediate.result == 'success') && (needs.detect-affected.outputs.foundation_rollout != 'true' && needs.approve-adr146-foundation-before-migration.result == 'skipped' || needs.detect-affected.outputs.foundation_rollout == 'true' && needs.approve-adr146-foundation-before-migration.result == 'success') }}
+    needs:
+      - detect-affected
+      - build-and-push
+      - pin-sandbox-foundation-immediate
+      - approve-adr146-foundation-before-migration
+    runs-on: ubuntu-latest
+    environment:
+      name: persai-dev-migrations
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      GAR_REGION: ${{ vars.GAR_REGION }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      GCP_WIF_SERVICE_ACCOUNT: ${{ vars.GCP_WIF_SERVICE_ACCOUNT }}
+      TARGET_SHA: ${{ github.sha }}
+      FOUNDATION_ROLLOUT: ${{ needs.detect-affected.outputs.foundation_rollout }}
+      TARGET_SERVICES: ${{ needs.detect-affected.outputs.foundation_rollout == 'true' && needs.detect-affected.outputs.foundation_deferred_service_names_csv || needs.detect-affected.outputs.deploy_service_names_csv }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate rollout request
+        run: |
+          set -eu
+          test -n "${TARGET_SHA}" || (echo "Missing target SHA" && exit 1)
+          if [ -z "${TARGET_SERVICES}" ]; then
+            echo "No remaining services to pin after foundation sandbox-only pin."
+            exit 0
+          fi
+          if [ "${FOUNDATION_ROLLOUT}" = "true" ] && echo "${TARGET_SERVICES}" | grep -Eq '(^|,)sandbox(,|$)'; then
+            echo "sandbox must not be re-pinned on foundation+migration deferred path" >&2
+            exit 1
+          fi
+          git rev-parse --verify "${TARGET_SHA}^{commit}" > /dev/null
+          node scripts/ci/pin-dev-image-tags.mjs \
+            --file infra/helm/values-dev.yaml \
+            --sha "${TARGET_SHA}" \
+            --services "${TARGET_SERVICES}" \
+            --dry-run
+
+      - name: Authenticate to Google Cloud
+        if: ${{ env.TARGET_SERVICES != '' }}
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_WIF_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Login to Artifact Registry
+        if: ${{ env.TARGET_SERVICES != '' }}
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.GAR_REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
       - name: Verify approved images exist
+        if: ${{ env.TARGET_SERVICES != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -236,6 +539,7 @@ jobs:
           done
 
       - name: Pin approved migration rollout tags
+        if: ${{ env.TARGET_SERVICES != '' }}
         run: |
           set -eu
           node scripts/ci/pin-dev-image-tags.mjs \
@@ -244,6 +548,7 @@ jobs:
             --services "${TARGET_SERVICES}"
 
       - name: Commit and push approved rollout pin
+        if: ${{ env.TARGET_SERVICES != '' }}
         run: |
           set -eu
           if git diff --quiet -- infra/helm/values-dev.yaml; then
@@ -268,11 +573,14 @@ jobs:
           exit 1
 
       - name: Summarize rollout verification follow-up
+        if: ${{ env.TARGET_SERVICES != '' }}
         run: |
           cat <<EOF >> "$GITHUB_STEP_SUMMARY"
           ## Migration rollout pinned after approval
 
           Approved migration rollout for \`${TARGET_SERVICES}\` at \`${TARGET_SHA}\`.
+          Foundation rollout=\`${FOUNDATION_ROLLOUT}\` (when true: sandbox already pinned and
+          \`persai-dev-adr146-foundation\` Environment approval already recorded).
 
           Recommended follow-up:
 
@@ -288,8 +596,9 @@ jobs:
   pin-dev-values-tag:
     # ADR-104 D2: run even if some matrix legs failed (always()) so that the
     # services that DID build successfully still roll forward. Guarded to push,
-    # a non-empty deploy list, the non-migration path, and a successful detect.
-    if: ${{ always() && needs.detect-affected.result == 'success' && github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed != 'true' }}
+    # a non-empty deploy list, the non-migration / non-foundation path, and a
+    # successful detect.
+    if: ${{ always() && needs.detect-affected.result == 'success' && github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed != 'true' && needs.detect-affected.outputs.foundation_rollout != 'true' }}
     needs:
       - detect-affected
       - build-and-push

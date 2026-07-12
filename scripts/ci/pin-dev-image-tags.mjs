@@ -4,6 +4,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { PIN_DEV_IMAGE_SERVICE_TO_SECTION } from "./pin-dev-image-tags-lib.mjs";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..", "..");
@@ -28,14 +30,7 @@ if (services.length === 0) {
   process.exit(0);
 }
 
-const serviceToSection = {
-  api: "api",
-  runtime: "runtime",
-  web: "web",
-  "provider-gateway": "providerGateway",
-  sandbox: "sandbox",
-  "sandbox-exec": "sandboxExec"
-};
+const serviceToSection = PIN_DEV_IMAGE_SERVICE_TO_SECTION;
 
 const targetSections = new Set(
   services.map((service) => {

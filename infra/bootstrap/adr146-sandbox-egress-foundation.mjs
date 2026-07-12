@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   APPLY_PHASE_ORDER,
+  ADR146_CONTROLLED_PROBE_LABEL,
+  ADR146_CONTROLLED_PROBE_POD_NAMES,
+  buildControlledProbeCleanupPlan,
+  buildEvidenceBinding,
+  buildNatProbePodManifest,
   buildPhasePlans,
+  buildRestrictedProbePodManifest,
   evaluateCalicoReadiness,
   evaluateLiveFoundation,
   evaluatePreflight,
@@ -18,6 +24,7 @@ import {
   natEgressIdentityMatches,
   nodeServiceAccountIdentity,
   renderPlanText,
+  renderProbeManifestYaml,
   resolveRestrictedProbeTargets,
   runStaticDeployTruth,
   shellJoin,
@@ -30,6 +37,8 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const PHASES = new Set([
   "plan",
   "static-check",
+  "generate-probe-manifests",
+  "cleanup-controlled-probes",
   "preflight",
   "prepare",
   "apply-nat",
@@ -50,6 +59,7 @@ function parseArgs(argv) {
     maintenanceConfirm: undefined,
     probePod: undefined,
     natProbePod: undefined,
+    outDir: undefined,
     help: false
   };
   const positional = [];
@@ -60,6 +70,7 @@ function parseArgs(argv) {
     else if (arg === "--maintenance-confirm") parsed.maintenanceConfirm = argv[++index];
     else if (arg === "--probe-pod") parsed.probePod = argv[++index];
     else if (arg === "--nat-probe-pod") parsed.natProbePod = argv[++index];
+    else if (arg === "--out-dir") parsed.outDir = argv[++index];
     else if (arg === "--help" || arg === "-h") parsed.help = true;
     else if (arg.startsWith("-")) throw new Error(`unknown argument: ${arg}`);
     else positional.push(arg);
@@ -76,6 +87,15 @@ Phases: ${[...PHASES].join(", ")}
 
 Mutating phases are dry-run unless --execute is supplied. Every mutating execute
 phase runs a fresh read-only fail-closed preflight before any mutation.
+CI never auto-applies these phases.
+
+generate-probe-manifests writes local YAML only (optional --out-dir). It does
+not apply to the cluster.
+
+cleanup-controlled-probes deletes only the two known controlled probe Pods by
+exact name and/or label ${ADR146_CONTROLLED_PROBE_LABEL}=true
+(${ADR146_CONTROLLED_PROBE_POD_NAMES.join(", ")}). Dry-run by default;
+requires --execute. Never broad-deletes production sandbox-exec pods.
 
 Public pool retirement additionally requires:
   --maintenance-confirm NO_ACTIVE_SANDBOX_JOBS_CONFIRMED
@@ -313,7 +333,21 @@ function collectLive(inventory) {
     serviceAccountName: pod.spec?.serviceAccountName,
     automountServiceAccountToken: pod.spec?.automountServiceAccountToken,
     runtimeClassName: pod.spec?.runtimeClassName,
+    activeDeadlineSeconds: pod.spec?.activeDeadlineSeconds ?? null,
     labels: pod.metadata?.labels ?? {},
+    metadata: { labels: pod.metadata?.labels ?? {} },
+    status: { phase: pod.status?.phase },
+    spec: {
+      nodeName: pod.spec?.nodeName,
+      serviceAccountName: pod.spec?.serviceAccountName,
+      automountServiceAccountToken: pod.spec?.automountServiceAccountToken,
+      runtimeClassName: pod.spec?.runtimeClassName,
+      activeDeadlineSeconds: pod.spec?.activeDeadlineSeconds ?? null,
+      securityContext: pod.spec?.securityContext ?? {},
+      containers: pod.spec?.containers ?? []
+    },
+    securityContext: pod.spec?.securityContext ?? {},
+    containers: pod.spec?.containers ?? [],
     podIP: pod.status?.podIP ?? null
   }));
   const daemonSets = kubectlJson(["-n", "kube-system", "get", "daemonsets", "-o", "json"]);
@@ -1003,24 +1037,106 @@ function runRestrictedProbes(inventory, podName, natProbePodName) {
   );
 }
 
+function cleanupControlledProbes(inventory, execute) {
+  const namespace =
+    inventory.cidrs.restrictedProbe.natProbePod.namespace ??
+    inventory.cidrs.restrictedProbe.restrictedExecPod.namespace ??
+    "persai-dev";
+  const plan = buildControlledProbeCleanupPlan(
+    ADR146_CONTROLLED_PROBE_POD_NAMES.map((name) => ({
+      name,
+      phase: "Unknown",
+      labels: { [ADR146_CONTROLLED_PROBE_LABEL]: "true" }
+    })),
+    { namespace }
+  );
+  console.log(
+    `Bounded controlled-probe cleanup (exact names ${plan.exactNames.join(", ")} + label ${plan.labelSelector}). Never deletes unlabeled production sandbox-exec pods.`
+  );
+  for (const argv of plan.argvByName) {
+    console.log(`${execute ? "$" : "[dry-run]"} ${shellJoin(argv)}`);
+  }
+  console.log(`${execute ? "$" : "[dry-run]"} ${shellJoin(plan.labelDeleteArgv)}`);
+  if (!execute) {
+    console.log("Dry-run only. Re-run with --execute to delete controlled probe Pods.");
+    return;
+  }
+  if (!commandExists("kubectl")) {
+    throw new Error("cleanup-controlled-probes --execute requires kubectl");
+  }
+  for (const argv of plan.argvByName) {
+    run(argv, { allowFailure: true });
+  }
+  run(plan.labelDeleteArgv, { allowFailure: true });
+  const remainingJson = kubectlJson(
+    ["-n", namespace, "get", "pods", "-l", `${ADR146_CONTROLLED_PROBE_LABEL}=true`, "-o", "json"],
+    true
+  );
+  const remaining = (remainingJson?.items ?? []).map((pod) => pod.metadata?.name).filter(Boolean);
+  // Also check exact names in case label was stripped but Pod remains.
+  for (const name of ADR146_CONTROLLED_PROBE_POD_NAMES) {
+    const still = kubectlJson(["-n", namespace, "get", "pod", name, "-o", "json"], true);
+    if (still?.metadata?.name && !remaining.includes(still.metadata.name)) {
+      remaining.push(still.metadata.name);
+    }
+  }
+  if (remaining.length > 0) {
+    throw new Error(`controlled probe Pods still present after cleanup: ${remaining.join(", ")}`);
+  }
+  console.log("PASS cleanup-controlled-probes: no controlled probe Pods remain (idempotent).");
+}
+
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) return process.stdout.write(usage());
   if (!PHASES.has(args.phase)) throw new Error(`unsupported phase ${args.phase}\n${usage()}`);
-  const inventory = loadInventory(args.inventoryPath);
+  const inventoryPath =
+    args.inventoryPath ??
+    path.join(repoRoot, "infra/bootstrap/adr146-sandbox-egress-foundation.json");
+  const inventory = loadInventory(inventoryPath);
   const valuesDevText = readFileSync(path.join(repoRoot, "infra/helm/values-dev.yaml"), "utf8");
+  const evidence = buildEvidenceBinding(inventoryPath);
 
   if (args.phase === "plan") {
-    process.stdout.write(renderPlanText(inventory));
+    process.stdout.write(renderPlanText(inventory, evidence));
     const staticResult = runStaticDeployTruth(inventory, { valuesDevText });
     printChecks("Static deploy truth", staticResult);
     if (!staticResult.ok) process.exitCode = 1;
     return;
   }
   if (args.phase === "static-check") {
+    console.log(
+      `evidence.gitCommitSha=${evidence.gitCommitSha} inventorySha256=${evidence.inventorySha256}`
+    );
     const staticResult = runStaticDeployTruth(inventory, { valuesDevText });
     printChecks("Static deploy truth", staticResult);
     if (!staticResult.ok) process.exitCode = 1;
+    return;
+  }
+  if (args.phase === "generate-probe-manifests") {
+    const restricted = buildRestrictedProbePodManifest(inventory);
+    const nat = buildNatProbePodManifest(inventory);
+    const outDir = args.outDir ?? path.join(repoRoot, "infra/bootstrap/adr146-probe-manifests");
+    mkdirSync(outDir, { recursive: true });
+    const restrictedPath = path.join(outDir, "restricted-probe.pod.yaml");
+    const natPath = path.join(outDir, "nat-probe.pod.yaml");
+    const evidencePath = path.join(outDir, "evidence.json");
+    writeFileSync(restrictedPath, renderProbeManifestYaml(restricted));
+    writeFileSync(natPath, renderProbeManifestYaml(nat));
+    writeFileSync(`${evidencePath}`, `${JSON.stringify(evidence, null, 2)}\n`);
+    console.log(`wrote ${restrictedPath}`);
+    console.log(`wrote ${natPath}`);
+    console.log(`wrote ${evidencePath}`);
+    console.log(
+      "Local generation only — operators apply explicitly after sandbox-only pin; CI does not apply."
+    );
+    console.log(
+      "Plain probe Pods are not auto-deleted; run cleanup-controlled-probes after probe-restricted (success or failure)."
+    );
+    return;
+  }
+  if (args.phase === "cleanup-controlled-probes") {
+    cleanupControlledProbes(inventory, args.execute);
     return;
   }
   if (!commandExists("gcloud") || !commandExists("kubectl")) {
@@ -1033,15 +1149,29 @@ function main() {
     return;
   }
   if (args.phase === "verify") {
+    console.log(
+      `evidence.gitCommitSha=${evidence.gitCommitSha} inventorySha256=${evidence.inventorySha256}`
+    );
     const evaluated = evaluateLiveFoundation(inventory, collectLive(inventory));
     printChecks("Structural live foundation verify", evaluated);
     if (!evaluated.ok) {
       process.exitCode = 1;
       console.error("Structural verify failed. Dynamic probes were not run or claimed.");
+      console.error(
+        "If controlled probe Pods were applied, run cleanup-controlled-probes on both success and failure paths."
+      );
     } else {
       console.log(
         "Structural verify passed. Run probe-restricted separately with founder approval."
       );
+      const probeReport = evaluated.checks.find(
+        (entry) => entry.id === "controlled-probe-pods-reported"
+      );
+      if (probeReport?.detail && probeReport.detail !== "[]") {
+        console.log(
+          `Controlled probe Pods currently present (cleanup required after probes): ${probeReport.detail}`
+        );
+      }
     }
     return;
   }
@@ -1052,6 +1182,9 @@ function main() {
       );
       return;
     }
+    console.log(
+      `evidence.gitCommitSha=${evidence.gitCommitSha} inventorySha256=${evidence.inventorySha256}`
+    );
     runRestrictedProbes(inventory, args.probePod, args.natProbePod);
     return;
   }

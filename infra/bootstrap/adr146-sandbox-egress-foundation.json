@@ -296,12 +296,17 @@
   "releaseGate": {
     "verifyMustPassBeforeAppRollout": true,
     "noFeatureFlag": true,
-    "repositoryEnforced": false,
-    "deferredSlice": "0.1b",
-    "blockers": [
-      "Argo CD auto-syncs infra/helm from HEAD before Dev Image Publish pins the new sandbox image.",
-      "The configured gha-gar-publisher WIF identity has no project-level GKE/Compute/Kubernetes read authority for live attestation.",
-      "The old sandbox image does not assign sandbox-exec-sa, so pre-exposure structural proof is circular without a held GitOps revision."
+    "repositoryEnforced": true,
+    "mechanism": "dev-image-publish-split-pin",
+    "githubEnvironment": "persai-dev-adr146-foundation",
+    "githubEnvironmentsOrdered": ["persai-dev-adr146-foundation", "persai-dev-migrations"],
+    "sandboxImmediatePinService": "sandbox",
+    "residuals": [
+      "Human Environment approval on persai-dev-adr146-foundation is still required after the sandbox-only pin and founder-owned live structural/active verification.",
+      "When a migration is co-present, persai-dev-adr146-foundation approval must precede persai-dev-migrations; neither Environment may be bypassed.",
+      "plan/verify/generate-probe-manifests/probe-restricted refuse dirty trees and disk≠commit inventory mismatches; evidence never emits UNAVAILABLE.",
+      "Controlled probe Pods require explicit `cleanup-controlled-probes --execute` after use (success or failure); they are not auto-cleaned and must not be left indefinitely.",
+      "Live parent evidence (founder-approved preflight/apply/verify/probe-restricted bound to git commit SHA + inventory SHA-256) remains outside CI; CI does not auto-apply foundation mutations or fabricate GKE attestation."
     ],
     "phases": [
       "plan",
@@ -313,8 +318,26 @@
       "apply-sandbox-pool",
       "retire-public-pool",
       "verify",
-      "probe-restricted"
+      "probe-restricted",
+      "cleanup-controlled-probes",
+      "generate-probe-manifests"
     ],
-    "structuralVerifyDoesNotRunDynamicProbes": true
+    "structuralVerifyDoesNotRunDynamicProbes": true,
+    "pushLastSequence": [
+      "pre-push founder-approved foundation apply (preflight → apply → retire → structural verify prerequisites)",
+      "one final founder push of the coordinated ADR-146 commit range from a clean tree",
+      "Argo syncs Helm KSA/NetworkPolicy from HEAD while non-sandbox image tags remain last-good",
+      "Dev Image Publish pins sandbox only after sandbox image build succeeds",
+      "operator applies controlled probe manifests + runs structural verify and probe-restricted, then cleanup-controlled-probes (required on success and failure)",
+      "approve GitHub Environment persai-dev-adr146-foundation",
+      "when migrations are also present, approve persai-dev-migrations after the foundation Environment (ordered dual gate)",
+      "remaining service image tags pin"
+    ],
+    "failureRollback": [
+      "Remain on last-good non-sandbox image pins if verification fails",
+      "Sandbox tag may be rolled back independently",
+      "Never disable Calico / NetworkPolicy addon",
+      "Never restore the removed plan networkAccessEnabled boolean"
+    ]
   }
 }
