@@ -1,28 +1,40 @@
 # SESSION-HANDOFF
 
+## 2026-07-12 — Android 1.0.38 ship (fail-fast + queue wedge + iOS remote restore)
+
+Status: **Android 1.0.38 / versionCode 40 built, exported into PersAI public mobile download, and `adb install -r` Success on connected device. Bridge tests 20/20; APK badging confirms 1.0.38/40. iOS SceneDelegate startup fix from remote `cursor/fix-ios-spm-paths-8036` cherry-picked onto mobile main (was never on main; not overwritten earlier).**
+
+Baseline: persai-mobile includes `07332b7` (native timeout caps), `268de23` (pagehide + race), cherry-picked `3913767` (iOS 27 scene lifecycle), version bump `1.0.38`.
+
+**Contents:** Capacitor fail-fast defaults/caps + WebView interrupt; pagehide runner abort + client race (Android+iOS source); Roman's iOS 27 SceneDelegate / prompt deadlock unblock on main; release APK exported to `apps/web/public/mobile/persai-android-release.apk`.
+
+**Next recommended step:** install 1.0.38 on Android phone; Xcode rebuild for iOS SceneDelegate + native caps; live ya.ru act smoke.
+
+---
+
 ## 2026-07-12 — Capacitor act queue wedge (page navigation kills runner)
 
-Status: **implemented locally in PersAI web + persai-mobile; web deploy unblocks iPhone without Xcode rebuild.**
+Status: **implemented in PersAI web + persai-mobile; Android 1.0.38 carries native mirror. Web deploy unblocks iPhone without Xcode rebuild for the web client race; IPA still needed for native caps + SceneDelegate.**
 
 **Real cause (not network / not dead sites):** Live ya.ru snapshot ~7s OK proves the page loads. `act` with ops clicks a control that navigates; the in-page runner JS world dies before `postMessage`, so native `executeCommand` never returns. The serial Capacitor `commandQueue` then blocks every later command until the ~120s relay timeout. Russian sites that load fine still trigger this on ordinary clicks.
 
 **Repair:** (1) Page runner flushes a partial result on `pagehide`/`beforeunload` via iOS webkit handler / Android `onRunnerResult`. (2) Web Capacitor client races `executeCommand` at ≤40s so a wedged native plugin cannot hold the queue. (3) persai-mobile client + page-runner copies mirrored. Prior native 15s/30s caps still need iOS rebuild for belt-and-suspenders.
 
-**Next recommended step:** deploy PersAI web; hard-refresh/reopen iPhone app on remote web; re-run ya.ru act — queue must move within ≤~40s even before a new IPA.
+**Next recommended step:** deploy PersAI web; install Android 1.0.38; hard-refresh/reopen iPhone app on remote web; re-run ya.ru act — queue must move within ≤~40s even before a new IPA.
 
 ---
 
 ## 2026-07-12 — iPhone Capacitor fail-fast (no 120s hang)
 
-Status: **implemented in persai-mobile; iOS rebuild/install required. Android source updated for runner cap parity.**
+Status: **implemented in persai-mobile; Android 1.0.38 shipped. iOS rebuild/install still required for native caps + SceneDelegate.**
 
-Baseline: PersAI `f1f44078` (API 45s default already deployed); persai-mobile `f0ed986`.
+Baseline: PersAI `f1f44078` (API 45s default already deployed); persai-mobile `f0ed986` at repair time — now shipped through `1.0.38`.
 
-**Live evidence:** Turn `4f207bce…` on `bridgeKind=capacitor`: ya.ru snapshot OK (~7s), then `act operations=3` held poll **120.4s** (`4ee7b053…`); lenta.ru snapshot still long after. Root cause on iOS: `lastCommandTimeoutMs = max(120_000, …)` floor plus nav/runner budgets inheriting the full command timeout with no WebView interrupt — desktop fail-fast does not apply to Capacitor.
+**Live evidence:** Turn `4f207bce…` on `bridgeKind=capacitor`: ya.ru snapshot OK (~7s), then `act operations=3` held poll **120.4s** (`4ee7b053…`); lenta.ru snapshot still long after. Root cause on iOS: `lastCommandTimeoutMs = max(120_000, …)` floor plus nav/runner budgets inheriting the full command timeout with no WebView interrupt — desktop fail-fast does not apply to Capacitor. Separately, queue-wedge on navigate is the real hang on healthy sites; timeout cut alone is fail-faster, not root-cause repair.
 
 **Repair (persai-mobile):** Remove iOS 120s floor; default 45s; nav commit wait capped at 30s; page-runner ≤15s; on timeout `stopLoading` + `about:blank`. Android: default 45s, runner ≤15s, same interrupt on nav/runner timeout (nav commit was already ≤30s).
 
-**Next recommended step:** rebuild/install iOS app from Xcode (and Android APK when convenient); re-run ya.ru/lenta/spacex on iPhone — expect structured failure ≤~15–30s, not 120s.
+**Next recommended step:** install Android 1.0.38; rebuild/install iOS from Xcode; re-run ya.ru/lenta/spacex — expect structured failure or early pagehide abort, not 120s queue wedge.
 
 ---
 
