@@ -1,10 +1,35 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 migration-pin if grouping repair (pre-push)
+
+Status: **repo-local production repair on clean local `main` (pre-repair HEAD
+`ebbc5fe4`); not committed/pushed; not approved/deployed; S1 blocked.**
+
+**Scope:** Rewrite `pin-approved-migration-values-tag.if` with explicit
+`((migration-only) || (foundation+migration))` grouping so migration-only
+(foundation=false + optional foundation jobs skipped) can reach the migrations
+Environment pin. Strengthen release-gate workflow contract tests with semantic
+GHA-expression evaluation (not substring-only). Docs: Environment existence is
+already on the clean local branch (not “uncommitted/next commit docs”); record
+live `can_admins_bypass=true` as an honest residual (no Environment mutation).
+
+**Still incomplete:** no push; Helm KSA/NetworkPolicy not applied from the
+unpushed repo; Environment not approved/deployed; active probes and enforcement
+proof absent; S0.1 not live-accepted; S1 blocked. Do **not** claim foundation
+complete.
+
+**Next:** commit this repair → final full local gate → one coordinated push →
+observe Argo apply KSA/NP with last-good non-sandbox tags + sandbox-only pin →
+create real/controlled probes → structural verify → active probes → cleanup →
+Environment approval(s).
+
+---
+
 ## 2026-07-13 — ADR-146 GitHub Environment `persai-dev-adr146-foundation` exists
 
-Status: **docs-only reconciliation on clean HEAD `780f2a7f`; Environment exists
-live; not approved/deployed; no push; S1 blocked. This docs update is
-uncommitted.**
+Status: **Environment existence docs are committed on the clean local pre-push
+branch (recorded through HEAD `ebbc5fe4`); Environment exists live; not
+approved/deployed; no push; S1 blocked.**
 
 **Live Environment truth:**
 
@@ -12,6 +37,7 @@ uncommitted.**
 - required reviewer: `kurock09` (user id `126346824`);
 - `prevent_self_review=false`;
 - custom deployment branch policy exactly `main`;
+- residual: `can_admins_bypass=true` (documented honestly; not mutated here);
 - Environment is **not** approved and **not** deployed.
 
 **Preserved live foundation truth (unchanged):**
@@ -30,10 +56,8 @@ unpushed repo; Environment not approved/deployed; active probes and enforcement
 proof absent; S0.1 not live-accepted; S1 blocked. Do **not** claim foundation
 complete.
 
-**Next:** commit these docs → final full local gate → one coordinated push →
-observe Argo apply KSA/NP with last-good non-sandbox tags + sandbox-only pin →
-create real/controlled probes → structural verify → active probes → cleanup →
-Environment approval(s).
+**Next:** see the migration-pin if grouping repair entry above — commit repair →
+final full local gate → one coordinated push → Argo/probes/approvals.
 
 ---
 

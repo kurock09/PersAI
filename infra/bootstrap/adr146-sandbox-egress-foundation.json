@@ -310,6 +310,7 @@
     "residuals": [
       "Human Environment approval on persai-dev-adr146-foundation is still required after the sandbox-only pin and founder-owned live structural/active verification.",
       "When a migration is co-present, persai-dev-adr146-foundation approval must precede persai-dev-migrations; neither Environment may be bypassed.",
+      "Live GitHub Environment persai-dev-adr146-foundation currently has can_admins_bypass=true; treat as an honest residual (do not mutate via API unless supported and explicitly safe); required reviewer + main branch policy still hold deferred pins.",
       "plan/verify/generate-probe-manifests/probe-restricted refuse dirty trees and disk≠commit inventory mismatches; evidence never emits UNAVAILABLE.",
       "Controlled probe Pods require explicit `cleanup-controlled-probes --execute` after use (success or failure); they are not auto-cleaned and must not be left indefinitely.",
       "Live parent evidence (founder-approved preflight/apply/verify/probe-restricted bound to git commit SHA + inventory SHA-256) remains outside CI; CI does not auto-apply foundation mutations or fabricate GKE attestation."

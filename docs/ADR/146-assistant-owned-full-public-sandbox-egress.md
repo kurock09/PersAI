@@ -19,12 +19,15 @@ passed all GCP/Calico/private-pool/NAT/firewall/metadata/trusted-control checks
 and failed only on the expected unpushed Helm boundary. GitHub Environment
 `persai-dev-adr146-foundation` **exists live** (required reviewer `kurock09`
 user id `126346824`, `prevent_self_review=false`, custom deployment branch
-policy exactly `main`) but is **not** approved or deployed. No push, no image
-publish, no active probes, and no enforcement proof yet. S0.1 is **not**
-live-complete and this ADR is **not** closed. S1 app/API/UI work stays blocked
-until S0.1 is live-accepted. Next: commit these docs, final full local gate,
-one coordinated push, Argo KSA/NP apply with last-good non-sandbox tags +
-sandbox-only pin, then probes/verify/cleanup/Environment approval(s).
+policy exactly `main`, residual `can_admins_bypass=true`) but is **not**
+approved or deployed. Environment existence docs are already on the clean local
+pre-push branch (through `ebbc5fe4`); a repo-local migration-pin `if` grouping
+repair may sit on top uncommitted. No push, no image publish, no active probes,
+and no enforcement proof yet. S0.1 is **not** live-complete and this ADR is
+**not** closed. S1 app/API/UI work stays blocked until S0.1 is live-accepted.
+Next: commit any pending repair, final full local gate, one coordinated push,
+Argo KSA/NP apply with last-good non-sandbox tags + sandbox-only pin, then
+probes/verify/cleanup/Environment approval(s).
 
 ## Date
 
@@ -43,9 +46,9 @@ Slice 0.1b release-gate baseline: clean `main` at `d847cb61ac0c393fd3f0e58de4c56
 (implementation lands locally on top of this SHA; not pushed).
 
 Live foundation checkpoint baseline (local, unpushed): `1300970f9452694418513336a01f9eba68219c44`
-(`1300970f`). Resume/retire/verify docs later committed; current clean local
-HEAD for this Environment-existence docs reconciliation:
-`780f2a7fb1a6f026aca8590f6f36464157ac097a` (`780f2a7f`).
+(`1300970f`). Resume/retire/verify + Environment-existence docs are committed on
+the clean local pre-push branch through
+`ebbc5fe41f2fe51d5db0711ac6f341fc5ef4664c` (`ebbc5fe4`).
 
 ## Orchestration model
 
@@ -675,7 +678,8 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
 - no push yet; Helm KSA/NetworkPolicy from the unpushed repository is not
   applied; GitHub Environment `persai-dev-adr146-foundation` **exists live**
   (required reviewer `kurock09` / user id `126346824`,
-  `prevent_self_review=false`, custom deployment branch policy exactly `main`)
+  `prevent_self_review=false`, custom deployment branch policy exactly `main`,
+  residual `can_admins_bypass=true` — documented honestly, not mutated here)
   but is **not** approved or deployed; S1 remains incomplete. Foundation
   completion and enforcement are **not** claimed.
 
@@ -686,9 +690,10 @@ approvals remain):
 1. create protected GitHub Environment `persai-dev-adr146-foundation` —
    **done**: Environment exists live with required reviewer `kurock09`
    (user id `126346824`), `prevent_self_review=false`, and custom deployment
-   branch policy exactly `main`; not approved/deployed. Create
-   `persai-dev-migrations` when that gate is needed;
-2. commit these docs, then run the final full local gate from a clean tree;
+   branch policy exactly `main`; residual `can_admins_bypass=true`; not
+   approved/deployed. Create `persai-dev-migrations` when that gate is needed;
+2. run the final full local gate from a clean tree (Environment docs already on
+   the clean local branch; commit any pending migration-pin repair first);
 3. one coordinated founder push of the ADR-146 commit range;
 4. observe Argo apply KSA/NetworkPolicy from `HEAD` while non-sandbox image
    tags remain last-good, then Dev Image Publish pins **sandbox only** after
@@ -704,11 +709,11 @@ Failure/rollback: remain on last-good non-sandbox pins if verification fails;
 sandbox tag may roll back independently; never disable Calico; never restore the
 removed plan `networkAccessEnabled` boolean.
 
-Next: commit these docs → final full local gate → one coordinated push →
-observe Argo KSA/NP apply with last-good non-sandbox tags and sandbox-only pin
-→ real/controlled probes → structural verify → active probes → cleanup →
-Environment approval(s). Do **not** claim foundation complete. Push remains
-blocked until that coordinated step. S1 remains blocked.
+Next: commit any pending migration-pin repair → final full local gate → one
+coordinated push → observe Argo KSA/NP apply with last-good non-sandbox tags and
+sandbox-only pin → real/controlled probes → structural verify → active probes →
+cleanup → Environment approval(s). Do **not** claim foundation complete. Push
+remains blocked until that coordinated step. S1 remains blocked.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:

@@ -2,14 +2,22 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import yaml from "yaml";
 
 import {
   ADR146_FOUNDATION_GITHUB_ENVIRONMENT,
   ADR146_MIGRATIONS_GITHUB_ENVIRONMENT,
+  MIGRATION_PIN_EXPLICIT_DUAL_PATH_GROUPING,
   assertDevImagePublishFoundationContract,
+  assertMigrationPinJobConditionContract,
+  buildMigrationPinConditionContext,
+  evaluateGithubActionsBooleanExpression,
+  extractWorkflowJobIfExpression,
   readDevImagePublishWorkflow,
   resolveFoundationPinPlan
 } from "./adr146-foundation-release-gate.mjs";
+
+const parseYaml = yaml.parse.bind(yaml);
 
 describe("ADR-146 foundation release-gate pin plan", () => {
   it("keeps non-foundation builds on the ordinary immediate pin path", () => {
@@ -103,6 +111,28 @@ describe("ADR-146 Dev Image Publish workflow contract", () => {
     );
   });
 
+  it("parses Dev Image Publish YAML and keeps migration pin Environment wiring", () => {
+    const workflow = readDevImagePublishWorkflow();
+    const parsed = parseYaml(workflow);
+    assert.equal(typeof parsed, "object");
+    assert.equal(typeof parsed.jobs, "object");
+    assert.ok(parsed.jobs["pin-approved-migration-values-tag"]);
+    assert.equal(
+      parsed.jobs["pin-approved-migration-values-tag"].environment?.name,
+      ADR146_MIGRATIONS_GITHUB_ENVIRONMENT
+    );
+    assert.deepEqual(parsed.jobs["pin-approved-migration-values-tag"].needs, [
+      "detect-affected",
+      "build-and-push",
+      "pin-sandbox-foundation-immediate",
+      "approve-adr146-foundation-before-migration"
+    ]);
+    assert.equal(
+      parsed.jobs["approve-adr146-foundation-before-migration"].environment?.name,
+      ADR146_FOUNDATION_GITHUB_ENVIRONMENT
+    );
+  });
+
   it("proves ordered dual Environment gates for foundation+migration", () => {
     const workflow = readDevImagePublishWorkflow();
     assert.match(
@@ -122,10 +152,83 @@ describe("ADR-146 Dev Image Publish workflow contract", () => {
       /approve-adr146-foundation-before-migration:[\s\S]*foundation_rollout == 'true'[\s\S]*migration_changed == 'true'/
     );
     assert.match(workflow, /pin-foundation-deferred-values-tag:[\s\S]*migration_changed != 'true'/);
-    assert.match(
-      workflow,
-      /pin-approved-migration-values-tag:[\s\S]*foundation_rollout == 'true' && needs\.approve-adr146-foundation-before-migration\.result == 'success'/
+  });
+
+  it("semantically proves migration pin if for migration-only and foundation+migration", () => {
+    const workflow = readDevImagePublishWorkflow();
+    const expression = extractWorkflowJobIfExpression(workflow);
+    assert.match(expression, MIGRATION_PIN_EXPLICIT_DUAL_PATH_GROUPING);
+
+    const contract = assertMigrationPinJobConditionContract(workflow);
+    assert.equal(contract.ok, true, contract.errors.join("; "));
+
+    assert.equal(
+      evaluateGithubActionsBooleanExpression(
+        expression,
+        buildMigrationPinConditionContext({
+          foundationRollout: "false",
+          sandboxFoundationResult: "skipped",
+          foundationApprovalResult: "skipped"
+        })
+      ),
+      true,
+      "migration-only must allow migrations Environment pin"
     );
+    assert.equal(
+      evaluateGithubActionsBooleanExpression(
+        expression,
+        buildMigrationPinConditionContext({
+          foundationRollout: "true",
+          sandboxFoundationResult: "success",
+          foundationApprovalResult: "success"
+        })
+      ),
+      true,
+      "foundation+migration must allow migrations Environment pin after both successes"
+    );
+  });
+
+  it("rejects failed/cancelled/unexpected optional-job results on migration pin if", () => {
+    const expression = extractWorkflowJobIfExpression(readDevImagePublishWorkflow());
+    const cases = [
+      buildMigrationPinConditionContext({
+        foundationRollout: "false",
+        sandboxFoundationResult: "failure",
+        foundationApprovalResult: "skipped"
+      }),
+      buildMigrationPinConditionContext({
+        foundationRollout: "false",
+        sandboxFoundationResult: "skipped",
+        foundationApprovalResult: "cancelled"
+      }),
+      buildMigrationPinConditionContext({
+        foundationRollout: "true",
+        sandboxFoundationResult: "cancelled",
+        foundationApprovalResult: "success"
+      }),
+      buildMigrationPinConditionContext({
+        foundationRollout: "true",
+        sandboxFoundationResult: "success",
+        foundationApprovalResult: "failure"
+      }),
+      buildMigrationPinConditionContext({
+        foundationRollout: "true",
+        sandboxFoundationResult: "skipped",
+        foundationApprovalResult: "skipped"
+      }),
+      buildMigrationPinConditionContext({
+        foundationRollout: "false",
+        sandboxFoundationResult: "success",
+        foundationApprovalResult: "success"
+      })
+    ];
+    for (const context of cases) {
+      assert.equal(
+        evaluateGithubActionsBooleanExpression(expression, context),
+        false,
+        JSON.stringify(context.needs)
+      );
+    }
   });
 
   it("proves image-tag-only bot pins cannot build/pin (no recursive loop)", () => {

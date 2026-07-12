@@ -1748,6 +1748,10 @@ test("release gate is repository-enforced with honest human residuals", () => {
   assert.equal(inventory.releaseGate.deferredSlice, undefined);
   assert.ok(Array.isArray(inventory.releaseGate.residuals));
   assert.ok(inventory.releaseGate.residuals.length >= 2);
+  assert.ok(
+    inventory.releaseGate.residuals.some((entry) => /can_admins_bypass=true/i.test(entry)),
+    "live Environment can_admins_bypass=true must remain an honest residual"
+  );
   assert.ok(inventory.releaseGate.pushLastSequence?.length >= 6);
   assert.ok(
     inventory.releaseGate.failureRollback?.some((entry) => /Never disable Calico/i.test(entry))

@@ -462,8 +462,10 @@ jobs:
     # Migration-only: migrations Environment then pin all built services.
     # Foundation+migration: requires prior foundation Environment approval job
     # success (neither Environment may be bypassed). Sandbox already pinned.
-    # Skipped optional jobs must not deadlock migration-only runs.
-    if: ${{ always() && needs.detect-affected.result == 'success' && github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed == 'true' && (needs.detect-affected.outputs.foundation_rollout != 'true' && needs.pin-sandbox-foundation-immediate.result == 'skipped' || needs.detect-affected.outputs.foundation_rollout == 'true' && needs.pin-sandbox-foundation-immediate.result == 'success') && (needs.detect-affected.outputs.foundation_rollout != 'true' && needs.approve-adr146-foundation-before-migration.result == 'skipped' || needs.detect-affected.outputs.foundation_rollout == 'true' && needs.approve-adr146-foundation-before-migration.result == 'success') }}
+    # Explicit ((migration-only) || (foundation+migration)) grouping is required:
+    # GHA &&/|| without grouping can make migration-only (optional jobs skipped)
+    # evaluate false and deadlock the migrations Environment pin.
+    if: ${{ always() && needs.detect-affected.result == 'success' && github.event_name == 'push' && needs.detect-affected.outputs.deploy_services_json != '[]' && needs.detect-affected.outputs.migration_changed == 'true' && ((needs.detect-affected.outputs.foundation_rollout != 'true' && needs.pin-sandbox-foundation-immediate.result == 'skipped' && needs.approve-adr146-foundation-before-migration.result == 'skipped') || (needs.detect-affected.outputs.foundation_rollout == 'true' && needs.pin-sandbox-foundation-immediate.result == 'success' && needs.approve-adr146-foundation-before-migration.result == 'success')) }}
     needs:
       - detect-affected
       - build-and-push

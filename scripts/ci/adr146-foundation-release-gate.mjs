@@ -222,6 +222,11 @@ export function assertDevImagePublishFoundationContract(workflowText) {
     errors.push("foundation deferred pin must skip when migration_changed is true");
   }
 
+  const migrationPinCondition = assertMigrationPinJobConditionContract(workflowText);
+  if (!migrationPinCondition.ok) {
+    errors.push(...migrationPinCondition.errors);
+  }
+
   const sandboxJob = workflowText.match(
     /pin-sandbox-foundation-immediate:[\s\S]*?(?=\n  [a-z0-9-]+:|\n*$)/u
   )?.[0];
@@ -251,6 +256,247 @@ export function readDevImagePublishWorkflow() {
   return readFileSync(path.join(repoRoot, ".github/workflows/dev-image-publish.yml"), "utf8");
 }
 
+const MIGRATION_PIN_JOB_ID = "pin-approved-migration-values-tag";
+
+/**
+ * Extract one top-level job's `if:` expression (without `${{ }}` wrapper).
+ */
+export function extractWorkflowJobIfExpression(workflowText, jobId = MIGRATION_PIN_JOB_ID) {
+  const jobBlock = workflowText.match(
+    new RegExp(`(?:^|\\n)  ${escapeRegExp(jobId)}:[\\s\\S]*?(?=\\n  [a-z0-9-]+:|\\n*$)`, "u")
+  )?.[0];
+  if (!jobBlock) {
+    throw new Error(`workflow job not found: ${jobId}`);
+  }
+  const match = jobBlock.match(/^\s+if:\s*\$\{\{\s*([\s\S]*?)\s*\}\}\s*$/mu);
+  if (!match) {
+    throw new Error(`workflow job ${jobId} is missing a \${{ }} if expression`);
+  }
+  return match[1].replace(/\s+/gu, " ").trim();
+}
+
+/**
+ * Explicit dual-path grouping required for migration pin:
+ * ((foundation=false && sandbox skipped && approve skipped) ||
+ *  (foundation=true && sandbox success && approve success))
+ */
+export const MIGRATION_PIN_EXPLICIT_DUAL_PATH_GROUPING =
+  /\(\(\s*needs\.detect-affected\.outputs\.foundation_rollout\s*!=\s*'true'\s*&&\s*needs\.pin-sandbox-foundation-immediate\.result\s*==\s*'skipped'\s*&&\s*needs\.approve-adr146-foundation-before-migration\.result\s*==\s*'skipped'\s*\)\s*\|\|\s*\(\s*needs\.detect-affected\.outputs\.foundation_rollout\s*==\s*'true'\s*&&\s*needs\.pin-sandbox-foundation-immediate\.result\s*==\s*'success'\s*&&\s*needs\.approve-adr146-foundation-before-migration\.result\s*==\s*'success'\s*\)\)/u;
+
+/**
+ * Evaluate a GitHub Actions boolean expression against a fixture context.
+ * Supports always(), ==/!=, &&/||, (), needs.*.result, needs.*.outputs.*, github.event_name.
+ * Uses Function only after substituting context values into literals (no free identifiers).
+ */
+export function evaluateGithubActionsBooleanExpression(expression, context = {}) {
+  const source = String(expression ?? "")
+    .replace(/^\$\{\{\s*/u, "")
+    .replace(/\s*\}\}$/u, "")
+    .trim();
+  if (!source) {
+    throw new Error("empty GitHub Actions expression");
+  }
+
+  let rewritten = source;
+  rewritten = rewritten.replace(/\balways\(\)/gu, "true");
+  rewritten = rewritten.replace(
+    /\bneeds\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_]+)\b/gu,
+    (_m, jobId, outputName) =>
+      JSON.stringify(context?.needs?.[jobId]?.outputs?.[outputName] ?? "")
+  );
+  rewritten = rewritten.replace(
+    /\bneeds\.([A-Za-z0-9_-]+)\.result\b/gu,
+    (_m, jobId) => JSON.stringify(context?.needs?.[jobId]?.result ?? "")
+  );
+  rewritten = rewritten.replace(
+    /\bgithub\.event_name\b/gu,
+    JSON.stringify(context?.github?.event_name ?? "")
+  );
+
+  if (
+    /[A-Za-z_][A-Za-z0-9_.-]*/u.test(
+      rewritten
+        .replace(/\btrue\b|\bfalse\b/gu, "")
+        .replace(/'(?:\\'|[^'])*'|"(?:\\"|[^"])*"/gu, "")
+    )
+  ) {
+    throw new Error(
+      `unsupported or unsubstituted identifiers in GHA expression: ${rewritten}`
+    );
+  }
+
+  // eslint-disable-next-line no-new-func -- evaluate substituted GHA boolean literals only
+  const value = Function(`"use strict"; return (${rewritten});`)();
+  return Boolean(value);
+}
+
+export function buildMigrationPinConditionContext({
+  detectResult = "success",
+  eventName = "push",
+  deployServicesJson = '["api"]',
+  migrationChanged = "true",
+  foundationRollout = "false",
+  sandboxFoundationResult = "skipped",
+  foundationApprovalResult = "skipped"
+} = {}) {
+  return {
+    github: { event_name: eventName },
+    needs: {
+      "detect-affected": {
+        result: detectResult,
+        outputs: {
+          deploy_services_json: deployServicesJson,
+          migration_changed: migrationChanged,
+          foundation_rollout: foundationRollout
+        }
+      },
+      "pin-sandbox-foundation-immediate": {
+        result: sandboxFoundationResult
+      },
+      "approve-adr146-foundation-before-migration": {
+        result: foundationApprovalResult
+      }
+    }
+  };
+}
+
+export function assertMigrationPinJobConditionContract(workflowText) {
+  const errors = [];
+  let expression;
+  try {
+    expression = extractWorkflowJobIfExpression(workflowText, MIGRATION_PIN_JOB_ID);
+  } catch (error) {
+    return { ok: false, errors: [String(error?.message ?? error)], expression: null };
+  }
+
+  if (!MIGRATION_PIN_EXPLICIT_DUAL_PATH_GROUPING.test(expression)) {
+    errors.push(
+      "pin-approved-migration-values-tag if must use explicit ((migration-only) || (foundation+migration)) grouping over foundation_rollout + both optional job results"
+    );
+  }
+
+  const commonRequired = [
+    /always\(\)/u,
+    /needs\.detect-affected\.result\s*==\s*'success'/u,
+    /github\.event_name\s*==\s*'push'/u,
+    /needs\.detect-affected\.outputs\.deploy_services_json\s*!=\s*'\[\]'/u,
+    /needs\.detect-affected\.outputs\.migration_changed\s*==\s*'true'/u
+  ];
+  for (const pattern of commonRequired) {
+    if (!pattern.test(expression)) {
+      errors.push(`migration pin if missing required common guard: ${pattern}`);
+    }
+  }
+
+  const migrationOnly = evaluateGithubActionsBooleanExpression(
+    expression,
+    buildMigrationPinConditionContext({
+      foundationRollout: "false",
+      sandboxFoundationResult: "skipped",
+      foundationApprovalResult: "skipped"
+    })
+  );
+  if (migrationOnly !== true) {
+    errors.push("semantic: migration-only (foundation=false, optional jobs skipped) must be true");
+  }
+
+  const foundationPlusMigration = evaluateGithubActionsBooleanExpression(
+    expression,
+    buildMigrationPinConditionContext({
+      foundationRollout: "true",
+      sandboxFoundationResult: "success",
+      foundationApprovalResult: "success"
+    })
+  );
+  if (foundationPlusMigration !== true) {
+    errors.push(
+      "semantic: foundation+migration (foundation=true, optional jobs success) must be true"
+    );
+  }
+
+  const rejectCases = [
+    {
+      label: "migration-only with sandbox failure",
+      context: buildMigrationPinConditionContext({
+        foundationRollout: "false",
+        sandboxFoundationResult: "failure",
+        foundationApprovalResult: "skipped"
+      })
+    },
+    {
+      label: "migration-only with approve cancelled",
+      context: buildMigrationPinConditionContext({
+        foundationRollout: "false",
+        sandboxFoundationResult: "skipped",
+        foundationApprovalResult: "cancelled"
+      })
+    },
+    {
+      label: "foundation+migration with sandbox skipped",
+      context: buildMigrationPinConditionContext({
+        foundationRollout: "true",
+        sandboxFoundationResult: "skipped",
+        foundationApprovalResult: "success"
+      })
+    },
+    {
+      label: "foundation+migration with approve failure",
+      context: buildMigrationPinConditionContext({
+        foundationRollout: "true",
+        sandboxFoundationResult: "success",
+        foundationApprovalResult: "failure"
+      })
+    },
+    {
+      label: "foundation true but optional jobs skipped",
+      context: buildMigrationPinConditionContext({
+        foundationRollout: "true",
+        sandboxFoundationResult: "skipped",
+        foundationApprovalResult: "skipped"
+      })
+    },
+    {
+      label: "foundation false but optional jobs success",
+      context: buildMigrationPinConditionContext({
+        foundationRollout: "false",
+        sandboxFoundationResult: "success",
+        foundationApprovalResult: "success"
+      })
+    },
+    {
+      label: "migration_changed false",
+      context: buildMigrationPinConditionContext({
+        migrationChanged: "false",
+        foundationRollout: "false",
+        sandboxFoundationResult: "skipped",
+        foundationApprovalResult: "skipped"
+      })
+    },
+    {
+      label: "empty deploy list",
+      context: buildMigrationPinConditionContext({
+        deployServicesJson: "[]",
+        foundationRollout: "false",
+        sandboxFoundationResult: "skipped",
+        foundationApprovalResult: "skipped"
+      })
+    }
+  ];
+
+  for (const { label, context } of rejectCases) {
+    const value = evaluateGithubActionsBooleanExpression(expression, context);
+    if (value !== false) {
+      errors.push(`semantic: ${label} must be false (got ${value})`);
+    }
+  }
+
+  return { ok: errors.length === 0, errors, expression };
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
 const isMain =
   process.argv[1] != null &&
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
@@ -267,7 +513,8 @@ if (isMain) {
     process.exit(0);
   }
 
-  const result = assertDevImagePublishFoundationContract(readDevImagePublishWorkflow());
+  const workflow = readDevImagePublishWorkflow();
+  const result = assertDevImagePublishFoundationContract(workflow);
   if (!result.ok) {
     console.error(result.errors.join("\n"));
     process.exitCode = 1;
