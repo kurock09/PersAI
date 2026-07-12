@@ -15,7 +15,8 @@ same no-radius-transition rule.
 
 **Chat list:** Mobile Delete|Rename is a soft chip with divider, content padding,
 bold reddish delete text, no block fills. Desktop ⋯ drops the hover circle.
-Timestamp and ⋯ share a clear gap (`gap-1.5`).
+Timestamp and ⋯ share a clear gap (`gap-1.5`). Follow-up: actions use full row
+height with no separate white surface — text + divider only.
 
 **Composer / scroll control:** Scroll-to-bottom is a composer-height `h-11 w-11`
 circle above the mic. Single-line textarea hides overflow so narrow desktop
