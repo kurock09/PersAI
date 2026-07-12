@@ -1,11 +1,48 @@
 # SESSION-HANDOFF
 
-## 2026-07-13 — ADR-146 apply-sandbox-pool GVISOR casing repair
+## 2026-07-13 — ADR-146 live foundation: resume, retire, structural verify
 
-Status: **casing/resume repair landed locally on `e53b07d6`; not pushed; live
-foundation mutations have partially completed; S1 blocked.**
+Status: **live GCP/Calico/private-pool/retirement advanced; structural verify
+bound to local HEAD `1300970f`; Helm boundary still unpushed; no push; S1
+blocked. This docs reconciliation is uncommitted on top of `1300970f`.**
 
 **Live foundation truth:**
+
+- prepare, exact Cloud NAT, and exact reviewed firewall remain applied;
+- Calico enabled; live cluster has **5 total nodes**, all Ready /
+  Calico-ready; `calico-node` 5/5 (readiness ≠ enforcement);
+- `apply-sandbox-pool` **resume completed exact**: private
+  `sandbox-pool-private` Ready with exact contour; legacy public pool
+  idempotently re-cordoned;
+- maintenance retirement executed with explicit
+  `NO_ACTIVE_SANDBOX_JOBS_CONFIRMED`; both gates passed (zero exec pods on old
+  pool, private Ready, old nodes unschedulable); legacy public `sandbox-pool`
+  **deleted successfully**;
+- structural `verify` (HEAD `1300970f` + inventory hash) failed **only** on the
+  expected unpushed Helm boundary: exec KSA absent, zero real exec pods, new
+  exec NP absent, legacy exec NP still present, old proxy NP shape, NAT probe
+  NP absent. All GCP / Calico / private pool / NAT / firewall / metadata /
+  trusted-control checks passed. No enforcement proof; no probes run.
+
+**Still incomplete:** no push; Helm KSA/NetworkPolicy not applied from the
+unpushed repo; GitHub Environment not created/approved; active probes and
+enforcement proof absent; S0.1 not live-accepted; S1 blocked. Do **not** claim
+foundation complete.
+
+**Next:** create protected GitHub Environment → final full local gate → one
+coordinated push → observe Argo apply KSA/NP with last-good non-sandbox tags +
+sandbox-only pin → create real/controlled probes → structural verify → active
+probes → cleanup → Environment approval(s).
+
+---
+
+## 2026-07-13 — ADR-146 apply-sandbox-pool GVISOR casing repair
+
+Status: **casing/resume repair landed locally on `e53b07d6`; superseded for
+live next-step by the resume/retire/verify entry above. Not pushed; S1
+blocked.**
+
+**Live foundation truth (historical at this checkpoint):**
 
 - prepare completed: dedicated node SA/roles, reserved NAT IPs, subnet flow
   logs, Private Google Access, and the dedicated sandbox Pod secondary range;
@@ -30,17 +67,15 @@ pool already matches (including uppercase live type), verifies Ready/contour,
 and still idempotently re-cordons the legacy public pool. Managed label+taint,
 private/no external IP, exact pool, KSA, and Pod range requirements preserved.
 
-**Still incomplete:** The casing/resume repair is landed locally but not pushed.
-Helm KSA/NetworkPolicy from the unpushed repo has not been applied; structural
-verification and active probes are incomplete; network-policy enforcement is
-therefore not yet proven. The GitHub Environment has not been created or
-approved. No push has occurred, the public pool remains unretired, and S1
-remains blocked.
+**Still incomplete (at this checkpoint):** The casing/resume repair is landed
+locally but not pushed. Helm KSA/NetworkPolicy from the unpushed repo has not
+been applied; structural verification and active probes are incomplete; network-
+policy enforcement is therefore not yet proven. The GitHub Environment has not
+been created or approved. No push has occurred. (Later entry: resume/retire
+completed; public pool deleted; structural verify ran against Helm boundary.)
 
-**Next:** resume `apply-sandbox-pool` idempotently (skip create, verify
-Ready/exact contour, re-cordon); run the retirement gate only if safe; then
-perform the final clean coordinated push/Argo Helm/probes/release approval
-sequence exactly per runbook. Push remains blocked until that coordinated step.
+**Next (superseded):** resume `apply-sandbox-pool` / retirement — see the newer
+2026-07-13 resume/retire/verify entry above.
 
 ---
 

@@ -9,12 +9,19 @@ Calico + private sandbox egress contour **landed on clean `main` at
 `edef3c0b`** (audits + local gates passed). Slice **0.1b release-gate** lands the
 repository-enforced split-pin Dev Image Publish path (`sandbox` immediate;
 remaining services behind GitHub Environment `persai-dev-adr146-foundation`) plus
-probe-manifest generation and commit/inventory evidence binding. It is still
-**repo-local only**: no cloud mutation, live apply, structural verify, active
-probes, push, or image publish yet; S0.1 is **not** live-complete and this ADR is
-**not** closed. S1 app/API/UI work stays blocked until S0.1 is live-accepted.
-Next bounded work is the founder-approved live foundation sequence; push/deploy
-remains deferred until the program's final coordinated deployment.
+probe-manifest generation and commit/inventory evidence binding.
+
+Live foundation progress (2026-07-13; **not** acceptance): prepare, exact NAT/
+firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready with
+exact contour, idempotent legacy cordon, and maintenance-gated public-pool
+retirement have completed; structural `verify` bound to local HEAD `1300970f`
+passed all GCP/Calico/private-pool/NAT/firewall/metadata/trusted-control checks
+and failed only on the expected unpushed Helm boundary. No push, no image
+publish, no GitHub Environment, no active probes, and no enforcement proof yet.
+S0.1 is **not** live-complete and this ADR is **not** closed. S1 app/API/UI work
+stays blocked until S0.1 is live-accepted. Next: protected GitHub Environment,
+final full local gate, one coordinated push, Argo KSA/NP apply with last-good
+non-sandbox tags + sandbox-only pin, then probes/verify/cleanup/approvals.
 
 ## Date
 
@@ -31,6 +38,10 @@ Slice 0.1 repo-local land: `edef3c0bc2d839ac8ddac1c5b60fd39440d5e947`
 
 Slice 0.1b release-gate baseline: clean `main` at `d847cb61ac0c393fd3f0e58de4c56e507045bd69`
 (implementation lands locally on top of this SHA; not pushed).
+
+Live foundation checkpoint baseline (local, unpushed): `1300970f9452694418513336a01f9eba68219c44`
+(`1300970f`). Docs reconciliation after resume/retire/structural verify remains
+uncommitted on top of this SHA.
 
 ## Orchestration model
 
@@ -579,9 +590,12 @@ foundation. S1/S2 are blocked.
 
 Subagent: Cursor Grok 4.5.
 
-Status: **repo-local land on clean `main` at `edef3c0b` (2026-07-12).** Audits
-and local gates passed. No cloud mutation, live apply, structural verify, or
-active probes yet — S0.1 is **not** live-complete. App S1 remains blocked.
+Status: **repo-local land on clean `main` at `edef3c0b` (2026-07-12); live
+foundation mutations partially complete as of 2026-07-13.** Audits and local
+gates passed for the repo land. Live prepare/NAT/firewall/Calico/private pool/
+legacy retirement progressed (see Live foundation checkpoint below). Active
+probes and enforcement proof are still incomplete — S0.1 is **not**
+live-complete. App S1 remains blocked.
 
 ### Slice 0.1b — Repository release gate (split-pin)
 
@@ -634,34 +648,42 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
 - prepare is complete: node SA/roles, NAT IPs, subnet flow logs, Private Google
   Access, and the dedicated sandbox secondary range;
 - exact Cloud NAT and reviewed firewall are applied;
-- Calico is enabled; all five nodes were recreated, labeled, and Ready, with
-  `calico-node` 5/5. This readiness does **not** prove policy enforcement;
-- two private-pool create attempts failed HTTP 400 before resource creation
-  because GKE-managed label/taint flags were supplied; preceding local commits
-  repaired those flags;
-- `sandbox-pool-private` then created successfully and its node is Ready; live
-  GKE reports `sandboxConfig.type=GVISOR`;
-- the legacy public pool's exact node was manually cordoned with the planned
-  selector after the case-sensitive assertion failed; no pods were deleted and
-  the public pool has not been retired;
-- the casing/resume repair landed locally on `e53b07d6` and is not pushed. Helm
-  KSA/NetworkPolicy from the unpushed repository is not applied; structural
-  verification, active probes, GitHub Environment creation/approval, and S1 are
-  incomplete. Foundation completion and enforcement are not claimed.
+- Calico is enabled; live cluster now has **5 total nodes**, all Ready /
+  Calico-ready, with `calico-node` 5/5. This readiness does **not** prove
+  policy enforcement;
+- two earlier private-pool create attempts failed HTTP 400 before resource
+  creation because GKE-managed label/taint flags were supplied; preceding local
+  commits repaired those flags;
+- casing/resume repair landed locally on `e53b07d6`; subsequent
+  `apply-sandbox-pool` **resume completed exact**: private `sandbox-pool-private`
+  Ready with exact contour (live GKE `sandboxConfig.type=GVISOR`), and the
+  legacy public pool was idempotently re-cordoned;
+- maintenance retirement then executed with explicit
+  `NO_ACTIVE_SANDBOX_JOBS_CONFIRMED`; both gates passed (zero exec pods on the
+  old pool, private Ready, old nodes unschedulable); legacy public
+  `sandbox-pool` was **deleted successfully**;
+- structural `verify` bound to local HEAD `1300970f` + inventory hash ran and
+  **failed only on the expected unpushed Helm boundary**: exec KSA absent, zero
+  real exec pods, new exec NetworkPolicy absent, legacy exec NetworkPolicy still
+  present, old proxy NetworkPolicy shape, NAT probe NetworkPolicy absent. All
+  GCP / Calico / private pool / NAT / firewall / metadata / trusted-control
+  checks passed. No enforcement proof yet; no active probes run;
+- no push yet; Helm KSA/NetworkPolicy from the unpushed repository is not
+  applied; GitHub Environment creation/approval and S1 remain incomplete.
+  Foundation completion and enforcement are **not** claimed.
 
-Exact push-last sequence (founder-coordinated; partially executed only through
-the live foundation checkpoint above):
+Exact push-last sequence (founder-coordinated; live GCP/Calico/private-pool/
+retirement steps above are done; Helm apply + probes + approvals remain):
 
-1. pre-push founder-approved foundation apply (`preflight` → `apply` →
-   maintenance retirement prerequisites as required);
-2. one final founder push of the coordinated ADR-146 commit range from a clean
-   tree;
-3. Argo syncs Helm KSA/NetworkPolicy from `HEAD` while non-sandbox image tags
-   remain last-good;
-4. Dev Image Publish pins **sandbox only** after the sandbox image build
-   succeeds;
-5. controlled probe manifests + structural `verify` + `probe-restricted`
-   (clean-tree evidence bound to commit SHA + inventory SHA-256), then
+1. create the protected GitHub Environment `persai-dev-adr146-foundation`
+   (and migrations Environment when needed);
+2. run the final full local gate from a clean tree;
+3. one coordinated founder push of the ADR-146 commit range;
+4. observe Argo apply KSA/NetworkPolicy from `HEAD` while non-sandbox image
+   tags remain last-good, then Dev Image Publish pins **sandbox only** after
+   the sandbox image build succeeds;
+5. create real/controlled probes, re-run structural `verify` (clean-tree
+   evidence bound to commit SHA + inventory SHA-256), run active probes, then
    `cleanup-controlled-probes --execute` (required on success and failure);
 6. approve GitHub Environment `persai-dev-adr146-foundation`;
 7. when migrations are also present, approve `persai-dev-migrations` after step 6;
@@ -671,10 +693,11 @@ Failure/rollback: remain on last-good non-sandbox pins if verification fails;
 sandbox tag may roll back independently; never disable Calico; never restore the
 removed plan `networkAccessEnabled` boolean.
 
-Next: resume `apply-sandbox-pool` idempotently (skip create, verify Ready/exact
-contour, re-cordon); run the retirement gate only if safe; then perform the
-final clean coordinated push/Argo Helm/probes/release approval sequence per
-runbook. Push remains blocked until that coordinated step.
+Next: create the protected GitHub Environment, final full local gate, one
+coordinated push, observe Argo KSA/NP apply with last-good non-sandbox tags and
+sandbox-only pin, then real/controlled probes → structural verify → active
+probes → cleanup → Environment approval(s). Do **not** claim foundation
+complete. Push remains blocked until that coordinated step. S1 remains blocked.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:
