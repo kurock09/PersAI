@@ -1,11 +1,12 @@
 # SESSION-HANDOFF
 
-## 2026-07-13 — ADR-146 Slice 5 cross-layer audit, observability, runbook (local uncommitted)
+## 2026-07-13 — ADR-146 Slice 5 cross-layer audit, observability, runbook (committed `d23936d1`)
 
-Status: **Slice 5 landed locally on clean baseline `3f498ef9` (S1 `775e5781`, S2
-`5a2fd3bd`, S3 `8d0520f4`, S4 `3f498ef9`; main ahead remote; no
-push/deploy/cloud mutation).** ADR-146 stays **open**. S6 parent final gate is
-**next** (not started).
+Status: **Slice 5 committed locally at `d23936d1` on baseline `3f498ef9` (S1
+`775e5781`, S2 `5a2fd3bd`, S3 `8d0520f4`, S4 `3f498ef9`; current baseline SHA
+`d23936d1`; main ahead remote; no push/deploy/cloud mutation).** ADR-146 stays
+**open**. S6 parent-only final gate, deploy, and live acceptance is **next** (not
+started).
 
 **Scope landed:**
 
@@ -32,11 +33,11 @@ push/deploy/cloud mutation).** ADR-146 stays **open**. S6 parent final gate is
 - IPv4-only contract, flow-log retention honesty, Squid additive-union note, and
   unclaimed inbound/redirect/DNS-rebind/public-master residuals documented.
 
-**Out of scope:** fixture provisioning, commit/push/deploy, S6 live acceptance,
-ADR closure, product semantics changes beyond observability hooks/tests.
+**Out of scope:** fixture provisioning, push/deploy, S6 live acceptance, ADR
+closure, product semantics changes beyond observability hooks/tests.
 
-**Next:** parent review → commit when founder asks → S6 parent-only final gate,
-deploy on explicit instruction, live acceptance, ADR closure only after evidence.
+**Next:** S6 parent-only final gate, deploy on explicit instruction, live
+acceptance, ADR closure only after evidence.
 
 ---
 

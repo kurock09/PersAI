@@ -30,8 +30,8 @@ sandbox remaining `8a0043dd` (Argo Synced; post-rollout
 `ADR146_POST_ROLLOUT_OK`). ADR-146 stays open; **S1 is committed locally at
 `775e5781`**; **S2 is committed locally at `5a2fd3bd`**; **S3 is committed locally at
 `8d0520f4`**; **S4 Settings UX is committed locally at `3f498ef9`**; **S5 is
-landed locally uncommitted on that baseline**. **S6 parent-only final gate,
-deploy, and live acceptance is next and not started.**
+committed locally at `d23936d1` on that baseline (unpushed/undeployed)**. **S6
+parent-only final gate, deploy, and live acceptance is next and not started.**
 Each later slice runs the full AGENTS gate plus affected
 API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
 and live negative acceptance.

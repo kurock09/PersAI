@@ -97,8 +97,8 @@ Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime 
 
 **ADR-146 accepted target (implementation in progress; S1 committed locally at
 `775e5781`; S2 committed locally at `5a2fd3bd`; S3 committed locally at
-`8d0520f4`; S4 Settings UX committed locally at `3f498ef9`; S5 audit/docs/runbook
-landed locally uncommitted on that baseline):** sandbox egress is
+`8d0520f4`; S4 Settings UX committed locally at `3f498ef9`; S5 committed locally
+at `d23936d1` on that baseline, unpushed/undeployed):** sandbox egress is
 an immediate assistant-owned operational choice stored on
 `Assistant.sandboxEgressMode`. `restricted` remains the default
 proxy/domain-allowlist contour. Explicit `full_public` consent gives the
@@ -114,7 +114,7 @@ Settings → Assistant block (`Sandbox network` row): unchecked `restricted`,
 checked `full_public`, enable confirmation modal, canonical GET/PUT refetch, no
 optimistic UI.
 
-**ADR-146 Slice 5 (local uncommitted on `3f498ef9`):** D9 observability exports
+**ADR-146 Slice 5 (committed locally at `d23936d1` on `3f498ef9`; unpushed/undeployed):** D9 observability exports
 egress counters/histograms from sandbox `/metrics`; audit/log fields documented
 in `infra/dev/gke/ADR146-OBSERVABILITY.md`; fail-closed active-code and
 cross-layer contract scripts gate legacy-field absence and S1–S5 alignment. The old plan `networkAccessEnabled` boolean is removed by Slice 1

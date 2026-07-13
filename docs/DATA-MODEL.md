@@ -121,8 +121,9 @@ Current active Step 20 persistence includes:
 ADR-146 Slice 2 committed locally at `5a2fd3bd` changes Helm policy truth only
 and does not alter this data model. Slice 3 committed locally at `8d0520f4` owns
 runtime mode authority / recycle / descendant cleanup against this Assistant
-field. Slice 4 committed locally at `3f498ef9` is UX-only. Slice 5 (local
-uncommitted) documents audit/observability truth only:
+field. Slice 4 committed locally at `3f498ef9` is UX-only. Slice 5 committed
+locally at `d23936d1` (unpushed/undeployed) documents audit/observability truth
+only:
 
 - changed-mode owner PUT inserts `assistant_audit_events` with
   `eventCode=assistant.sandbox_egress_mode_updated` and

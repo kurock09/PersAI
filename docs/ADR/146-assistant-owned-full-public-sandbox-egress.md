@@ -11,8 +11,8 @@ last-responsible-moment DB mode authority, pod label/annotation enforcement,
 mismatch recycle, owner sync eviction with honest `recycled` + `503`, and
 mandatory post-persistence exec-pod retirement before workspace lease release.
 **Slice 4 is committed locally at `3f498ef9` on baseline `8d0520f4`**: Assistant
-Settings consent UX. **Slice 5 is landed locally (uncommitted) on baseline
-`3f498ef9`**: cross-layer audit, D9 observability, legacy active-code audit,
+Settings consent UX. **Slice 5 is committed locally at `d23936d1` on baseline
+`3f498ef9` (unpushed/undeployed)**: cross-layer audit, D9 observability, legacy active-code audit,
 cross-layer contract tests, deploy/rollback runbook. This ADR is **not** closed.
 Deploy/live validation of S1–S5 is deferred.
 
@@ -46,8 +46,8 @@ attempt failed after validate/GAR/pin on pin-assert EOF mismatch (extra CLI
 `https://persai.dev/api/ready` 200 `{status:ready}`, PersAI MCP chat smoke exact
 `ADR146_POST_ROLLOUT_OK`. **S1 committed locally at `775e5781`**. **S2 committed
 locally at `5a2fd3bd`**. **S3 is committed locally at `8d0520f4`**. **S4 is
-committed locally at `3f498ef9`**. **S5 is landed locally (uncommitted) on
-baseline `3f498ef9`**. Next under parent orchestration: **Slice 6**
+committed locally at `3f498ef9`**. **S5 is committed locally at `d23936d1` on
+baseline `3f498ef9` (unpushed/undeployed)**. Next under parent orchestration: **Slice 6**
 (parent-only final gate, deploy, live acceptance; not started). Do not claim S6
 complete or close this ADR.
 
@@ -66,6 +66,9 @@ Slice 0.1 repo-local land: `edef3c0bc2d839ac8ddac1c5b60fd39440d5e947`
 
 Slice 0.1b release-gate baseline: clean `main` at `d847cb61ac0c393fd3f0e58de4c56e507045bd69`
 (implementation lands locally on top of this SHA; not pushed).
+
+Slice 5 committed land: `d23936d19ec24e5ce3a8e0a78f409220c1dd44d8` on baseline
+`3f498ef9` (unpushed/undeployed).
 
 Live foundation checkpoint baseline (local, unpushed): `1300970f9452694418513336a01f9eba68219c44`
 (`1300970f`). Resume/retire/verify + Environment-existence docs are committed on
@@ -93,8 +96,8 @@ sandbox remains `8a0043dd`. Environment `persai-dev-adr146-foundation`
 **approved**; resume run `29237479924` success; S0.1/0.1b live-accepted; ADR
 open; **S1 committed locally at `775e5781`**; **S2 committed locally at
 `5a2fd3bd`**; **S3 committed locally at `8d0520f4`**; **S4 committed locally at
-`3f498ef9`**; **S5 landed locally (uncommitted) on baseline `3f498ef9`**; S6
-next (not started).
+`3f498ef9`**; **S5 committed locally at `d23936d1` on baseline `3f498ef9`
+(unpushed/undeployed)**; S6 next (not started).
 
 ## Slice 3 local land (2026-07-13)
 
@@ -1240,7 +1243,8 @@ generations and preserve active or correct-mode pods. Then roll back
 application/chart images if needed. The removed old plan boolean is not
 restored.
 
-**Local land (uncommitted on baseline `3f498ef9`):**
+**Local land (committed locally at `d23936d1` on baseline `3f498ef9`;
+unpushed/undeployed):**
 
 - `infra/dev/gke/ADR146-OBSERVABILITY.md` + RUNBOOK deploy/rollback sequence;
 - sandbox D9 metrics hooks (`mode_mismatch`, retirement/reaper, job duration);

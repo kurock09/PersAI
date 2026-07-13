@@ -374,7 +374,7 @@ or provider-worker networking.
 Settings consumes the existing owner `GET/PUT /api/v1/assistant/{assistantId}/sandbox-egress`
 contract via generated client wrappers only; no API shape change.
 
-**ADR-146 Slice 5 (local uncommitted on `3f498ef9`):** observability contract only.
+**ADR-146 Slice 5 (committed locally at `d23936d1` on `3f498ef9`; unpushed/undeployed):** observability contract only.
 Owner mode-change audit fields: `eventCode=assistant.sandbox_egress_mode_updated`,
 `details.previousMode`, `details.selectedMode`, `details.actorUserId`. Sandbox
 `/metrics` exports egress counters documented in

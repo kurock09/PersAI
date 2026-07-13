@@ -244,9 +244,9 @@ post-rollout `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, and MCP smoke
 `ADR146_POST_ROLLOUT_OK`). Restricted foundation gate PASS at proof pin
 `e5c249c3` remains the enforcement evidence. Inbound denial / HTTP redirect /
-DNS-rebind stay unclaimed. ADR-146 stays open; **S1–S4 are committed locally**
-(`775e5781`, `5a2fd3bd`, `8d0520f4`, `3f498ef9`); **S5 audit/docs/runbook is
-local uncommitted**; **S6 deploy/live acceptance is next** under parent gate.
+DNS-rebind stay unclaimed. ADR-146 stays open; **S1–S5 are committed locally**
+(`775e5781`, `5a2fd3bd`, `8d0520f4`, `3f498ef9`, `d23936d1`; unpushed/
+undeployed); **S6 deploy/live acceptance is next** under parent gate.
 
 ### ADR-146 S1–S5 product deploy sequence (D10 ordering)
 
