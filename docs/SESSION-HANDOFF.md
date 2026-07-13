@@ -1,47 +1,81 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 final live restricted foundation gate PASS (docs)
+
+Status: **Documentation-only reconciliation on clean `main` at deployed/pin
+HEAD `e5c249c3` (sandbox image `8a0043dd`); no commit/push in this slice; no
+cloud mutation; Environment still unapproved; ADR open; S1 blocked.**
+
+**Live truth:** restricted-probe proxy-env repair **pushed/live at `dc2fa914`**
+(bot pin path through `188722f9`); Squid CONNECT denial probe repair
+**pushed/live at `8a0043dd`** with current pin **`e5c249c3`**. Final live
+restricted foundation gate **PASS** with evidence inventory SHA-256
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`:
+
+- structural RESULT **PASS**
+- all trusted positive controls **PASS**
+- NAT identity reserved IP `34.76.34.111` **PASS**
+- DNS **PASS**
+- Squid allowlisted HTTPS **PASS**
+- Squid CONNECT denial for non-allowlisted `example.com` **PASS**
+- direct-public bypass denial **PASS**
+- Kubernetes API, metrics-server, Redis, Filestore, Cloud SQL **PASS**
+- kube-dns Pod UDP/TCP **PASS**
+- same-namespace sandbox control-plane Pod **PASS**
+- every node kubelet **PASS**
+- metadata `169.254.169.254` denial **PASS**
+- controlled-probe cleanup **PASS** (no pods remaining)
+
+**Explicitly unclaimed (RUNBOOK-only):** inbound denial, HTTP redirect,
+DNS-rebind.
+
+**Still incomplete:** GitHub Environment `persai-dev-adr146-foundation` not
+approved; non-sandbox pins may still wait last-good; ADR-146 not closed; S1
+must not start until the parent explicitly authorizes after Environment
+approval(s).
+
+**Next:** Environment approval(s) for remaining service pins — do not start S1
+prematurely.
+
+---
+
 ## 2026-07-13 — ADR-146 Squid CONNECT denial probe repair
 
-Status: **Local uncommitted repair on clean baseline `188722f9`; no commit/push;
-no cloud mutation; Environment still unapproved; S1 blocked.**
+Status: **Pushed/live at `8a0043dd` with deployed/pin HEAD `e5c249c3` (sandbox
+image `8a0043dd`); Environment still unapproved; S1 blocked.**
 
 **Root cause:** HTTPS Squid ACL denial answers on the CONNECT channel. Curl
 exposes that as `%{http_connect}=403`, while `%{http_code}` stays `000` and
 false-failed the restricted denial probe.
 
-**Repair (local, uncommitted):** denial probe asserts `%{http_connect}` exact
-`403` only; validator/renames/comments and focused/source-contract tests updated
+**Repair (pushed/live):** denial probe asserts `%{http_connect}` exact `403`
+only; validator/renames/comments and focused/source-contract tests updated
 consistently; `000` remains fail-closed. No allowlist, `NO_PROXY`, inventory
-target, Helm policy, or live-resource changes.
+target, Helm policy, or live-resource changes beyond the foundation probe path.
 
-**Still incomplete:** proxy-env repair still unpushed; probes not re-run;
-network proof incomplete; Environment not approved; S0.1 not live-accepted;
-S1 blocked.
+**Superseded for live status by:** final restricted foundation gate PASS entry
+above.
 
-**Next:** commit/push stack (proxy-env + this CONNECT denial repair) →
-regenerate/apply controlled probes → `probe-restricted` / cleanup →
-Environment approval(s).
+**Next:** Environment approval(s).
 
 ---
 
 ## 2026-07-13 — ADR-146 restricted probe proxy-env repair
 
-Status: **Restricted-probe proxy-env repair committed locally in the current
-unpushed HEAD on baseline `71eb9c0c`; prior executable-image repair pushed/live
-at `5045431e` with bot pin `71eb9c0c`; no cloud mutation; Environment still
-unapproved; S1 blocked.**
+Status: **Restricted-probe proxy-env repair pushed/live at `dc2fa914` (bot pin
+path through `188722f9`); prior executable-image repair pushed/live at
+`5045431e` with bot pin `71eb9c0c`; Environment still unapproved; S1 blocked.**
 
-**Live truth after executable-image repair (probes re-run):** executable probes
-admitted. Pre-structural foundation **PASS**, all trusted positive controls
-**PASS**, NAT identity reserved IP **PASS**, DNS **PASS**. Active
+**Live truth after executable-image repair (earlier probe run):** executable
+probes admitted. Pre-structural foundation **PASS**, all trusted positive
+controls **PASS**, NAT identity reserved IP **PASS**, DNS **PASS**. Active
 `Squid allowlisted HTTPS` **timed out**; Squid proxy logs had **no access** for
 the request. Generated restricted manifest still had `env: []`, so curl went
 direct and Calico correctly dropped it — not a Squid allowlist failure.
-Cleanup **PASS**; no controlled Pods remain. Network/enforcement proof remains
-**incomplete**.
+Cleanup **PASS**; no controlled Pods remain.
 
-**Repair (committed locally in current unpushed HEAD):** generator already
-reads committed `values-dev.yaml`. Fail-closed resolution of non-secret
+**Repair (pushed/live at `dc2fa914`):** generator already reads committed
+`values-dev.yaml`. Fail-closed resolution of non-secret
 `sandbox.env.SANDBOX_EXEC_EGRESS_PROXY_URL` + `SANDBOX_EXEC_NO_PROXY` builds the
 exact six env entries matching real exec
 (`HTTP_PROXY`/`HTTPS_PROXY`/`http_proxy`/`https_proxy` = proxy URL;
@@ -59,13 +93,11 @@ rejection, live equality, fail-closed cases, NAT zero env, and source contract
 (allowlisted curl inherits proxy; direct bypass unsets proxy vars). No secret
 values in evidence output. No package changes.
 
-**Still incomplete:** not pushed; probes not regenerated or re-run with proxy
-env; network proof incomplete; Environment not approved;
-non-sandbox pins may still wait; S0.1 not live-accepted; S1 blocked. Do **not**
-claim foundation complete. Follow-on local CONNECT denial probe repair is above.
+**Superseded for live status by:** final restricted foundation gate PASS entry
+above (allowlisted HTTPS + CONNECT denial + denials all PASS after this repair
+landed with CONNECT follow-on).
 
-**Next:** parent push of proxy-env + CONNECT denial repairs → regenerate/apply
-controlled probes → `probe-restricted` / cleanup → Environment approval(s).
+**Next:** Environment approval(s).
 
 ---
 
@@ -78,8 +110,8 @@ through `71eb9c0c`); Environment still unapproved; S1 blocked.**
 **PASS**; trusted positive controls **PASS**; NAT identity reserved IP
 **PASS**; DNS **PASS**. `Squid allowlisted HTTPS` timed out because generated
 restricted `env: []` sent curl direct (Calico drop; no Squid access log).
-Cleanup **PASS**. Follow-on proxy-env repair is the current local slice (see
-entry above).
+Cleanup **PASS**. Follow-on proxy-env + CONNECT repairs and final restricted
+gate are recorded in the entries above.
 
 **Repair (landed):** inventory owns exact digest-pinned NAT image
 `curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13`
@@ -90,11 +122,10 @@ Live validator requires equality with one non-controlled Running real exec
 image. Active NAT script keeps `curl --noproxy * -fsS --max-time 20` with
 certificate verification.
 
-**Still incomplete:** network proof incomplete until proxy-env repair is
-pushed and probes re-run; Environment not approved; S1 blocked.
+**Superseded for live status by:** final restricted foundation gate PASS entry
+above.
 
-**Next:** land proxy-env repair → regenerate/apply probes → Environment
-approval(s).
+**Next:** Environment approval(s).
 
 ---
 

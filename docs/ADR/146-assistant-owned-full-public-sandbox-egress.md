@@ -11,37 +11,31 @@ repository-enforced split-pin Dev Image Publish path (`sandbox` immediate;
 remaining services behind GitHub Environment `persai-dev-adr146-foundation`) plus
 probe-manifest generation and commit/inventory evidence binding.
 
-Live foundation progress (2026-07-13; **not** acceptance): prepare, exact NAT/
-firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready with
-exact contour, idempotent legacy cordon, and maintenance-gated public-pool
-retirement have completed. Coordinated push **`3cd2ea4f`** and Squid logformat +
-checksum repair **`04b1d0d1` are live**: Argo Synced/Healthy;
-`sandbox-egress-proxy` Ready; sandbox pin immediate; deferred remaining pins
-still wait on GitHub Environment `persai-dev-adr146-foundation` (**not
-approved**; non-sandbox pins last-good). Live admitted toleration normalization
-is **pushed/live at `838789c4` with bot pin `c5716b97`**. Controlled-probe
-executable/TLS image repair is **pushed/live at `5045431e` with bot pin
-`71eb9c0c`**. After that repair, controlled probes were re-run: pre-structural
-foundation **PASS**, trusted positive controls **PASS**, NAT identity reserved
-IP **PASS**, DNS **PASS**. Active `Squid allowlisted HTTPS` **timed out**
-because the generated restricted manifest still had `env: []`, so curl went
-direct and Calico correctly dropped it (Squid access logs had no entry — not a
-Squid allowlist failure). Cleanup **PASS**. Restricted-probe proxy-env repair
-is **committed locally in the current unpushed HEAD on baseline `71eb9c0c`**:
-generation fail-closed resolves
-`sandbox.env.SANDBOX_EXEC_EGRESS_PROXY_URL` + `SANDBOX_EXEC_NO_PROXY` into the
-exact ordered six-entry real-exec proxy env set
-(`HTTP_PROXY`/`HTTPS_PROXY`/`http_proxy`/`https_proxy` = proxy URL;
-`NO_PROXY`/`no_proxy` = no-proxy value); live validation requires exact
-controlled-pod equality with one consistent production `{image, env}` contour;
-NAT remains zero proxy env. Local uncommitted follow-on on baseline
-`188722f9`: restricted HTTPS Squid denial probe now asserts curl
-`%{http_connect}` exact `403` (not `%{http_code}`/`000`, which false-failed
-CONNECT ACL denial). Network/enforcement proof remains **incomplete**. Environment
-still unapproved; S0.1 is **not** live-complete, and this ADR is **not**
-closed. S1 app/API/UI work stays blocked until S0.1 is live-accepted.
-Next: parent push of the proxy-env + CONNECT denial repairs → regenerate/apply
-controlled probes → active probes/cleanup → Environment approval(s).
+Live foundation progress (2026-07-13): prepare, exact NAT/firewall, Calico
+(`calico-node` 5/5), private `sandbox-pool-private` Ready with exact contour,
+idempotent legacy cordon, and maintenance-gated public-pool retirement have
+completed. Coordinated push **`3cd2ea4f`** and Squid logformat + checksum repair
+**`04b1d0d1` are live**: Argo Synced/Healthy; `sandbox-egress-proxy` Ready;
+sandbox pin immediate. Restricted-probe proxy-env repair is **pushed/live at
+`dc2fa914`** (bot pin path through `188722f9`). Squid CONNECT denial probe
+repair is **pushed/live at `8a0043dd`** with current deployed/pin HEAD
+**`e5c249c3`** (sandbox image `8a0043dd`). **Final live restricted foundation
+gate PASS** at that pin with evidence inventory SHA-256
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`: structural
+RESULT **PASS**; all trusted positive controls **PASS**; NAT identity reserved
+IP `34.76.34.111` **PASS**; DNS **PASS**; Squid allowlisted HTTPS **PASS**;
+Squid CONNECT denial for non-allowlisted `example.com` **PASS**; direct-public
+bypass denial **PASS**; Kubernetes API, metrics-server, Redis, Filestore, Cloud
+SQL, kube-dns Pod UDP/TCP, same-namespace sandbox control-plane Pod, every node
+kubelet, and metadata `169.254.169.254` denial **PASS**. Controlled-probe
+cleanup **PASS** (no controlled Pods remaining). Inbound denial, HTTP redirect,
+and DNS-rebind remain **explicitly unclaimed** RUNBOOK checks. GitHub
+Environment `persai-dev-adr146-foundation` still **unapproved** (non-sandbox
+pins may still wait last-good). This ADR is **not** closed. S1 app/API/UI work
+stays blocked until the parent explicitly authorizes S1 after Environment
+approval(s). Next: approve GitHub Environment `persai-dev-adr146-foundation`
+(and `persai-dev-migrations` when that gate applies) so remaining service pins
+can proceed — do **not** start S1 prematurely.
 
 ## Date
 
@@ -70,19 +64,17 @@ at `bf8eeef1bfc0db3ca5f7ebe58b34543da8aba247` (`bf8eeef1`; structural `verify`
 PASS including a real production exec Pod). Controlled-probe toleration
 `operator: Equal` casing repair live at
 `42a4f42549d71f52e6d6a838b30fadea95790e54` (`42a4f425`; sandbox bot pin
-`87907361ceabc226c2a06c756c5b5b7a62e06da9` / `87907361` is current). Live
-collector tolerations preservation repair pushed/live at `97042c45` with bot pin
+`87907361ceabc226c2a06c756c5b5b7a62e06da9` / `87907361`). Live collector
+tolerations preservation repair pushed/live at `97042c45` with bot pin
 `fe3e1f59`. Live admitted toleration normalization repair **pushed/live at
-`838789c4` with bot pin `c5716b97`**. At that pin, an earlier controlled-probe
-run failed at `nat-egress-ip` on missing curl (`busybox:1.36`). Executable/TLS
-image repair is **pushed/live at `5045431e` with bot pin `71eb9c0c`**.
-Post-image-repair
-probe run: pre-structural + controls + NAT identity + DNS **PASS**; Squid
-allowlisted HTTPS **timed out** because generated restricted `env: []` went
-direct (Calico drop; no Squid access log). Cleanup **PASS**. Restricted-probe
-proxy-env repair is **committed locally in the current unpushed HEAD on baseline
-`71eb9c0c`**. Local uncommitted CONNECT denial probe repair on baseline
-`188722f9` asserts `%{http_connect}` exact `403` (not `%{http_code}`/`000`).
+`838789c4` with bot pin `c5716b97`**. Executable/TLS image repair
+**pushed/live at `5045431e` with bot pin `71eb9c0c`**. Restricted-probe
+proxy-env repair **pushed/live at `dc2fa914`** (bot pin path through
+`188722f9`). Squid CONNECT denial probe repair **pushed/live at `8a0043dd`**
+with current deployed/pin HEAD **`e5c249c3`** (sandbox image `8a0043dd`).
+Final live restricted foundation gate **PASS** at that pin; evidence inventory
+SHA-256 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`.
+Environment still unapproved; ADR open; S1 blocked.
 
 ## Orchestration model
 
@@ -632,19 +624,26 @@ foundation. S1/S2 are blocked.
 Subagent: Cursor Grok 4.5.
 
 Status: **repo-local land on clean `main` at `edef3c0b` (2026-07-12); live
-foundation mutations partially complete as of 2026-07-13.** Audits and local
-gates passed for the repo land. Live prepare/NAT/firewall/Calico/private pool/
-legacy retirement progressed (see Live foundation checkpoint below). Active
-probes and enforcement proof are still incomplete — S0.1 is **not**
-live-complete. App S1 remains blocked.
+restricted foundation gate PASS at deployed/pin HEAD `e5c249c3` (2026-07-13).**
+Audits and local gates passed for the repo land. Live prepare/NAT/firewall/
+Calico/private pool/legacy retirement, proxy-env + CONNECT denial repairs, and
+the final restricted `probe-restricted` enforcement matrix completed (see Live
+foundation checkpoint below). Evidence inventory SHA-256
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. GitHub
+Environment `persai-dev-adr146-foundation` remains **unapproved**; inbound
+denial / HTTP redirect / DNS-rebind remain explicitly unclaimed RUNBOOK checks.
+ADR-146 is **not** closed. App S1 remains blocked until the parent explicitly
+authorizes S1 after Environment approval(s).
 
 ### Slice 0.1b — Repository release gate (split-pin)
 
 Subagent: Cursor Grok 4.5.
 
-Status: **repo-local implementation on baseline `d847cb61` (2026-07-12),
-including final audit repairs.** No live mutation and no push yet. S1 remains
-blocked until foundation live acceptance.
+Status: **release-gate implementation pushed/live; final restricted foundation
+gate and controlled-probe cleanup PASS at deployed/pin HEAD `e5c249c3`
+(sandbox image `8a0043dd`).** GitHub Environment
+`persai-dev-adr146-foundation` approval remains pending; ADR-146 stays open and
+S1 remains blocked until that approval.
 
 Lands:
 
@@ -709,14 +708,15 @@ Lands:
   unavailable git, or disk≠commit inventory mismatch (no `UNAVAILABLE`);
 - inventory `releaseGate.repositoryEnforced: true` with honest human residuals.
 
-Live foundation checkpoint (2026-07-13; partial, not acceptance):
+Live foundation checkpoint (2026-07-13; restricted gate PASS; Environment still
+unapproved; ADR open; S1 blocked):
 
 - prepare is complete: node SA/roles, NAT IPs, subnet flow logs, Private Google
   Access, and the dedicated sandbox secondary range;
 - exact Cloud NAT and reviewed firewall are applied;
 - Calico is enabled; live cluster now has **5 total nodes**, all Ready /
-  Calico-ready, with `calico-node` 5/5. This readiness does **not** prove
-  policy enforcement;
+  Calico-ready, with `calico-node` 5/5. This readiness does **not** alone prove
+  policy enforcement (active probes below do);
 - two earlier private-pool create attempts failed HTTP 400 before resource
   creation because GKE-managed label/taint flags were supplied; preceding local
   commits repaired those flags;
@@ -733,7 +733,7 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
   real exec pods, new exec NetworkPolicy absent, legacy exec NetworkPolicy still
   present, old proxy NetworkPolicy shape, NAT probe NetworkPolicy absent. All
   GCP / Calico / private pool / NAT / firewall / metadata / trusted-control
-  checks passed. No enforcement proof yet; no active probes run;
+  checks passed. No enforcement proof yet at that checkpoint; no active probes;
 - coordinated push **`3cd2ea4f` is live**: Dev Image Publish built all services
   and pinned **sandbox only**; deferred remaining pins wait on Environment
   (not approved; non-sandbox pins last-good). Argo applied KSA/NetworkPolicy
@@ -764,20 +764,35 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
   reserved NAT identity, and DNS, then `Squid allowlisted HTTPS` timed out
   because generated restricted `env: []` went direct (Calico drop; no Squid
   access log). Cleanup **PASS**. Restricted-probe proxy-env repair is
-  **committed locally in the current unpushed HEAD on baseline `71eb9c0c`**:
-  generation emits the exact ordered six-entry proxy env set matching real
-  exec, and live validation requires exact production `{image, env}` equality;
+  **pushed/live at `dc2fa914`** (bot pin path through `188722f9`): generation
+  emits the exact ordered six-entry proxy env set matching real exec, and live
+  validation requires exact production `{image, env}` equality. Squid CONNECT
+  denial probe repair is **pushed/live at `8a0043dd`** (asserts curl
+  `%{http_connect}` exact `403`; `%{http_code}`/`000` must not pass) with
+  current deployed/pin HEAD **`e5c249c3`** (sandbox image `8a0043dd`);
+- **Final live restricted foundation gate PASS** at `e5c249c3` with evidence
+  inventory SHA-256
+  `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`:
+  structural RESULT **PASS**; all trusted positive controls **PASS**; NAT
+  identity reserved IP `34.76.34.111` **PASS**; DNS **PASS**; Squid allowlisted
+  HTTPS **PASS**; Squid CONNECT denial for non-allowlisted `example.com`
+  **PASS**; direct-public bypass denial **PASS**; Kubernetes API,
+  metrics-server, Redis, Filestore, Cloud SQL, kube-dns Pod UDP/TCP,
+  same-namespace sandbox control-plane Pod, every node kubelet, and metadata
+  `169.254.169.254` denial **PASS**. Controlled-probe cleanup **PASS** (no
+  controlled Pods remaining). Inbound denial, HTTP redirect, and DNS-rebind
+  remain **explicitly unclaimed** RUNBOOK checks;
 - GitHub Environment `persai-dev-adr146-foundation` **exists live**
   (required reviewer `kurock09` / user id `126346824`,
   `prevent_self_review=false`, custom deployment branch policy exactly `main`,
   residual `can_admins_bypass=true` — documented honestly, not mutated here)
-  but is **not** approved or deployed; S1 remains incomplete. Foundation
-  completion and enforcement are **not** claimed.
+  but is still **not** approved or deployed for remaining pins; S1 remains
+  blocked. Do **not** close this ADR or start S1 prematurely.
 
 Exact push-last sequence (founder-coordinated; live GCP/Calico/private-pool/
 retirement + Environment creation + coordinated push + proxy Ready + verifier/
-toleration/collector/image repairs above are done; proxy-env repair push,
-probes, and approvals remain):
+toleration/collector/image/proxy-env/CONNECT repairs + restricted gate above
+are done; Environment approval(s) remain):
 
 1. create protected GitHub Environment `persai-dev-adr146-foundation` —
    **done**: Environment exists live with required reviewer `kurock09`
@@ -806,12 +821,18 @@ probes, and approvals remain):
    at `5045431e` with bot pin `71eb9c0c`**; post-repair pre-structural +
    controls + NAT identity + DNS PASS; allowlisted HTTPS timed out because
    generated restricted env was empty/direct; no Squid access log; cleanup
-   PASS), commit restricted-probe proxy-env repair (**done locally in the
-   current unpushed HEAD on baseline `71eb9c0c`**; exact generated ordered six
-   env entries + live production `{image, env}` equality), push that repair,
-   regenerate/apply controlled probes, re-run active probes, then
-   `cleanup-controlled-probes --execute` (required on success and failure);
-6. approve GitHub Environment `persai-dev-adr146-foundation`;
+   PASS), push restricted-probe proxy-env repair (**done/live at `dc2fa914`**;
+   bot pin path through `188722f9`; exact generated ordered six env entries +
+   live production `{image, env}` equality), push Squid CONNECT denial probe
+   repair (**done/live at `8a0043dd`** with deployed/pin HEAD **`e5c249c3`** /
+   sandbox image `8a0043dd`; `%{http_connect}` exact `403`), regenerate/apply
+   controlled probes, re-run active probes — **final restricted foundation gate
+   PASS** (evidence inventory SHA-256
+   `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`), then
+   `cleanup-controlled-probes --execute` — **PASS** (no controlled Pods
+   remaining);
+6. approve GitHub Environment `persai-dev-adr146-foundation` — **still
+   pending**;
 7. when migrations are also present, approve `persai-dev-migrations` after step 6;
 8. remaining service image tags pin.
 
@@ -819,9 +840,9 @@ Failure/rollback: remain on last-good non-sandbox pins if verification fails;
 sandbox tag may roll back independently; never disable Calico; never restore the
 removed plan `networkAccessEnabled` boolean.
 
-Next: parent push of the restricted-probe proxy-env repair → regenerate/apply
-controlled probes → active probes → cleanup → Environment approval(s). Do
-**not** claim foundation complete. S1 remains blocked.
+Next: approve GitHub Environment `persai-dev-adr146-foundation` (and
+`persai-dev-migrations` when that gate applies) so remaining service pins can
+proceed. Do **not** close this ADR or start S1 prematurely. S1 remains blocked.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:
@@ -860,8 +881,12 @@ Calico contour. Its acceptance is fixed:
   by automated `probe-restricted` and stay RUNBOOK-only;
 - the ordinary restricted Squid allowlist path still works.
 
-S0.1 must be deployed and live-accepted before S1. A locally rendered policy is
-not sufficient evidence.
+S0.1 restricted live foundation gate is recorded PASS at `e5c249c3` (evidence
+inventory SHA-256
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). Remaining
+non-sandbox pins still wait on Environment approval. S1 stays blocked until the
+parent explicitly authorizes it after Environment approval(s). A locally
+rendered policy alone is not sufficient evidence.
 
 ### Slice 1 — Canonical data/API contract and legacy-field deletion
 
