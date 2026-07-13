@@ -14,6 +14,7 @@ import {
   APPLY_PHASE_ORDER,
   ADR146_CONTROLLED_PROBE_LABEL,
   ADR146_CONTROLLED_PROBE_POD_NAMES,
+  ADR146_NAT_PROBE_IMAGE,
   ADR146_PROBE_ACTIVE_DEADLINE_SECONDS,
   ADR146_PROBE_RESOURCES,
   EXEC_KSA_INERT_ANNOTATION_KEYS,
@@ -27,7 +28,7 @@ import {
   buildEvidenceBinding,
   buildNatProbePodManifest,
   buildPhasePlans,
-  buildRestrictedProbePodManifest,
+  buildRestrictedProbePodManifest as buildRestrictedProbePodManifestRaw,
   evaluateCalicoReadiness,
   evaluateLiveFoundation,
   evaluatePreflight,
@@ -59,7 +60,10 @@ import {
   renderPlanText,
   renderProbeManifestYaml,
   resolveCalicoOwnedProbeTargets,
+  resolveNatProbeImage,
+  resolveRealExecImageForRestrictedProbe,
   resolveRestrictedProbeTargets,
+  resolveSandboxExecImageFromValuesDev,
   runStaticDeployTruth,
   selectApplySandboxPoolCommandIds,
   selectPrepareCommandIds,
@@ -69,12 +73,46 @@ import {
   validateControlledProbeHardening,
   validateInventory,
   validateLiveAdmittedProbeTolerations,
+  validateNatProbeImageInventory,
   validateNatProbePod,
   validateRequiredGvisorTolerationShape,
   validateRestrictedProbePod
 } from "./lib/foundation.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const valuesDevText = readFileSync(path.join(repoRoot, "infra/helm/values-dev.yaml"), "utf8");
+const CURRENT_SANDBOX_EXEC_IMAGE = resolveSandboxExecImageFromValuesDev(valuesDevText);
+
+function buildRestrictedProbePodManifest(inventory, options = {}) {
+  return buildRestrictedProbePodManifestRaw(inventory, {
+    ...options,
+    image: options.image ?? CURRENT_SANDBOX_EXEC_IMAGE
+  });
+}
+
+function realExecPod(image = CURRENT_SANDBOX_EXEC_IMAGE, overrides = {}) {
+  return {
+    name: "ses-real-image-proof",
+    phase: "Running",
+    nodeName: "private-node",
+    serviceAccountName: "sandbox-exec-sa",
+    automountServiceAccountToken: false,
+    runtimeClassName: "gvisor",
+    labels: { "app.kubernetes.io/component": "sandbox-exec" },
+    containers: [{ name: "exec", image }],
+    spec: { containers: [{ name: "exec", image }] },
+    podIP: "10.109.0.99",
+    ...overrides
+  };
+}
+
+function liveWithRealExec(overrides = {}) {
+  return {
+    privatePoolNodes: [{ name: "private-node", ready: true, externalIp: "" }],
+    execPods: [realExecPod()],
+    ...overrides
+  };
+}
 
 function buildLiveAdmittedProbeTolerations(inventory) {
   return [
@@ -264,18 +302,7 @@ function baseLive(inventory) {
       }
     ],
     publicPoolNodes: [],
-    execPods: [
-      {
-        name: "ses-fixture",
-        phase: "Running",
-        nodeName: "private-node",
-        serviceAccountName: "sandbox-exec-sa",
-        automountServiceAccountToken: false,
-        runtimeClassName: "gvisor",
-        labels: { "app.kubernetes.io/component": "sandbox-exec" },
-        podIP: "10.109.0.10"
-      }
-    ],
+    execPods: [realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, { name: "ses-fixture" })],
     calicoDaemonSets: [{ name: "calico-node", desired: 1, current: 1, ready: 1 }],
     dnsPodIps: ["10.107.128.20"],
     conflictingEgressAllows: [],
@@ -1385,6 +1412,14 @@ test("restricted probes use audited listeners and treat refusal as reachable", (
   assert.match(source, /ECONNREFUSED is not denial/);
   assert.match(source, /kube-dns Pod/);
   assert.match(source, /Unclaimed by this phase: inbound denial/);
+  // NAT identity exec: curl with safe flags + certificate verification (no wget / insecure TLS).
+  assert.match(
+    source,
+    /"curl",\s*"--noproxy",\s*"\*",\s*"-fsS",\s*"--max-time",\s*"20",\s*probe\.publicEgressIdentityEndpoint\.url/
+  );
+  assert.doesNotMatch(source, /--insecure|--no-check-certificate/);
+  assert.doesNotMatch(source, /["']-k["']/);
+  assert.doesNotMatch(source, /\bwget\b/);
   assert.doesNotMatch(source, /dnsPodIps\[0\]|split\("\/"\)\[0\]/);
   assert.doesNotMatch(source, /34\.118\.224\.1|34\.118\.226\.126|10\.107\.45\.68|10\.105\.140\.58/);
   assert.doesNotMatch(source, /Authorization|auth header|query string|file contents/i);
@@ -2000,9 +2035,7 @@ test("evidence binding fails closed on disk-vs-commit inventory mismatch", () =>
 
 test("generated restricted and NAT probe manifests satisfy live validators", () => {
   const inventory = loadInventory();
-  const live = {
-    privatePoolNodes: [{ name: "private-node", ready: true, externalIp: "" }]
-  };
+  const live = liveWithRealExec();
   const restrictedManifest = buildRestrictedProbePodManifest(inventory);
   const natManifest = buildNatProbePodManifest(inventory);
   assert.equal(
@@ -2050,13 +2083,222 @@ test("generated restricted and NAT probe manifests satisfy live validators", () 
     restrictedManifest.metadata.labels["sandbox.gke.io/adr146-controlled-probe"],
     "true"
   );
+  assert.equal(restrictedManifest.spec.containers[0].image, CURRENT_SANDBOX_EXEC_IMAGE);
+  assert.equal(natManifest.spec.containers[0].image, ADR146_NAT_PROBE_IMAGE);
+  assert.equal(
+    natManifest.spec.containers[0].image,
+    inventory.cidrs.restrictedProbe.natProbePod.image
+  );
+  assert.ok(
+    renderProbeManifestYaml(natManifest).includes(
+      `image: ${JSON.stringify(ADR146_NAT_PROBE_IMAGE)}`
+    )
+  );
+  assert.ok(
+    renderProbeManifestYaml(restrictedManifest).includes(
+      `image: ${JSON.stringify(CURRENT_SANDBOX_EXEC_IMAGE)}`
+    )
+  );
+  assert.doesNotMatch(renderProbeManifestYaml(restrictedManifest), /busybox/);
+  assert.doesNotMatch(renderProbeManifestYaml(natManifest), /busybox/);
+});
+
+test("restricted probe resolves committed production sandbox-exec image without fallback", () => {
+  const inventory = loadInventory();
+  assert.equal(
+    CURRENT_SANDBOX_EXEC_IMAGE,
+    "europe-west1-docker.pkg.dev/project-44786b14-b7d7-4554-a8a/persai/sandbox-exec:fa440e027b6c36653efd39567c16172d04c02256"
+  );
+  assert.throws(
+    () => buildRestrictedProbePodManifestRaw(inventory),
+    /restricted probe image required/
+  );
+  const manifest = buildRestrictedProbePodManifestRaw(inventory, {
+    image: CURRENT_SANDBOX_EXEC_IMAGE
+  });
+  assert.equal(manifest.spec.containers[0].image, CURRENT_SANDBOX_EXEC_IMAGE);
+  assert.doesNotMatch(renderProbeManifestYaml(manifest), /busybox/);
+
+  for (const [name, broken] of [
+    [
+      "tag",
+      valuesDevText.replace("    tag: fa440e027b6c36653efd39567c16172d04c02256", "    tag: latest")
+    ],
+    [
+      "name",
+      valuesDevText.replace(
+        "sandboxExec:\n  image:\n    # Exec image name in GAR (matches the service name in detect-affected + pin script).\n    name: sandbox-exec",
+        "sandboxExec:\n  image:\n    # Exec image name in GAR (matches the service name in detect-affected + pin script).\n    name: INVALID/IMAGE"
+      )
+    ],
+    ["repository", valuesDevText.replace("    repository: persai", "    repository:")],
+    [
+      "duplicate registry",
+      valuesDevText.replace(
+        "    registryHost: europe-west1-docker.pkg.dev",
+        "    registryHost: europe-west1-docker.pkg.dev\n    registryHost: duplicate.example"
+      )
+    ]
+  ]) {
+    assert.notEqual(broken, valuesDevText, `${name} fixture must mutate values`);
+    assert.throws(() => resolveSandboxExecImageFromValuesDev(broken), /values-dev\.yaml/, name);
+  }
+
+  const source = readFileSync(
+    path.join(repoRoot, "infra/bootstrap/adr146-sandbox-egress-foundation.mjs"),
+    "utf8"
+  );
+  assert.match(source, /resolveSandboxExecImageFromValuesDev\(valuesDevText\)/);
+  assert.match(
+    source,
+    /buildRestrictedProbePodManifest\(inventory, \{ image: restrictedImage \}\)/
+  );
+});
+
+test("restricted live validator binds tool-capable probe to one real production exec image", () => {
+  const inventory = loadInventory();
+  const manifest = buildRestrictedProbePodManifest(inventory);
+  const probe = probeManifestToLiveAdmittedValidatorPod(manifest);
+
+  const goodLive = liveWithRealExec();
+  assert.deepEqual(resolveRealExecImageForRestrictedProbe(goodLive), {
+    ok: true,
+    image: CURRENT_SANDBOX_EXEC_IMAGE,
+    errors: []
+  });
+  assert.equal(validateRestrictedProbePod(probe, goodLive, inventory).ok, true);
+
+  for (const [name, live, expectedError] of [
+    ["zero", liveWithRealExec({ execPods: [] }), /zero valid Running non-controlled/],
+    [
+      "missing-image",
+      liveWithRealExec({
+        execPods: [
+          realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, {
+            containers: [{ name: "exec" }],
+            spec: { containers: [{ name: "exec" }] }
+          })
+        ]
+      }),
+      /exactly one named exec container image/
+    ],
+    [
+      "conflict",
+      liveWithRealExec({
+        execPods: [
+          realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, { name: "real-a" }),
+          realExecPod(`${CURRENT_SANDBOX_EXEC_IMAGE}-other`, { name: "real-b" })
+        ]
+      }),
+      /conflicting current real exec images/
+    ],
+    [
+      "controlled-spoof",
+      liveWithRealExec({
+        execPods: [
+          realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, {
+            labels: {
+              "app.kubernetes.io/component": "sandbox-exec",
+              [ADR146_CONTROLLED_PROBE_LABEL]: "false"
+            }
+          })
+        ]
+      }),
+      /carries controlled-probe label/
+    ]
+  ]) {
+    const resolved = resolveRealExecImageForRestrictedProbe(live);
+    assert.equal(resolved.ok, false, name);
+    assert.match(resolved.errors.join("; "), expectedError, name);
+    assert.equal(validateRestrictedProbePod(probe, live, inventory).ok, false, name);
+  }
+
+  const mismatchedProbe = structuredClone(probe);
+  mismatchedProbe.spec.containers[0].image = `${CURRENT_SANDBOX_EXEC_IMAGE}-stale`;
+  mismatchedProbe.containers = mismatchedProbe.spec.containers;
+  const mismatch = validateRestrictedProbePod(mismatchedProbe, goodLive, inventory);
+  assert.equal(mismatch.ok, false);
+  assert.match(mismatch.errors.join("; "), /must equal current real exec image/);
+
+  // Equality with the actual production image is the proof basis for getent,
+  // curl, and python3 support; this static test does not execute those binaries.
+  const source = readFileSync(
+    path.join(repoRoot, "infra/bootstrap/adr146-sandbox-egress-foundation.mjs"),
+    "utf8"
+  );
+  for (const binary of ['"getent"', '"curl"', '"python3"'])
+    assert.match(source, new RegExp(binary));
+});
+
+test("NAT probe image is inventory-owned digest-pinned curl; busybox drift fails closed", () => {
+  const inventory = loadInventory();
+  const live = liveWithRealExec();
+  assert.equal(inventory.cidrs.restrictedProbe.natProbePod.image, ADR146_NAT_PROBE_IMAGE);
+  assert.deepEqual(validateNatProbeImageInventory(ADR146_NAT_PROBE_IMAGE), []);
+  assert.equal(resolveNatProbeImage(inventory), ADR146_NAT_PROBE_IMAGE);
+
+  const inventoryErrors = validateInventory(inventory);
+  assert.equal(
+    inventoryErrors.filter((error) => /natProbePod\.image/.test(error)).length,
+    0,
+    inventoryErrors.join("; ")
+  );
+
+  for (const badImage of [
+    "busybox:1.36",
+    "curlimages/curl:8.21.0",
+    "curlimages/curl:8.21.0@sha256:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    "wget:latest",
+    "",
+    undefined
+  ]) {
+    const badInventory = structuredClone(inventory);
+    if (badImage === undefined) {
+      delete badInventory.cidrs.restrictedProbe.natProbePod.image;
+    } else {
+      badInventory.cidrs.restrictedProbe.natProbePod.image = badImage;
+    }
+    assert.ok(
+      validateNatProbeImageInventory(badInventory.cidrs.restrictedProbe.natProbePod.image).length >
+        0,
+      `validateNatProbeImageInventory must reject ${String(badImage)}`
+    );
+    assert.ok(
+      validateInventory(badInventory).some((error) => /natProbePod\.image/.test(error)),
+      `validateInventory must reject ${String(badImage)}`
+    );
+    assert.throws(
+      () => buildNatProbePodManifest(badInventory),
+      /NAT probe image inventory invalid/
+    );
+  }
+
+  assert.throws(
+    () => buildNatProbePodManifest(inventory, { image: "busybox:1.36" }),
+    /NAT probe image override rejected/
+  );
+
+  const goodNat = probeManifestToLiveAdmittedValidatorPod(buildNatProbePodManifest(inventory));
+  assert.equal(validateNatProbePod(goodNat, live, inventory).ok, true);
+
+  const busyboxNat = structuredClone(goodNat);
+  busyboxNat.spec.containers[0].image = "busybox:1.36";
+  busyboxNat.containers = busyboxNat.spec.containers;
+  const busyboxGate = validateNatProbePod(busyboxNat, live, inventory);
+  assert.equal(busyboxGate.ok, false);
+  assert.ok(
+    busyboxGate.errors.some((error) => /NAT probe image must be exactly/.test(error)),
+    busyboxGate.errors.join("; ")
+  );
+
+  const restricted = buildRestrictedProbePodManifest(inventory);
+  assert.equal(restricted.spec.containers[0].image, CURRENT_SANDBOX_EXEC_IMAGE);
+  assert.notEqual(restricted.spec.containers[0].image, ADR146_NAT_PROBE_IMAGE);
 });
 
 test("controlled probe gVisor toleration uses canonical Equal and rejects apiserver-rejected casings", () => {
   const inventory = loadInventory();
-  const live = {
-    privatePoolNodes: [{ name: "private-node", ready: true, externalIp: "" }]
-  };
+  const live = liveWithRealExec();
   const expected = inventory.cidrs.restrictedProbe.requiredGvisorToleration;
   assert.deepEqual(validateRequiredGvisorTolerationShape(expected), []);
   assert.equal(expected.operator, KUBERNETES_TOLERATION_OPERATOR_EQUAL);
@@ -2249,7 +2491,9 @@ test("live admitted probe tolerations require canonical gVisor plus exact Kubern
   assert.equal(nullEntryGate.ok, false);
   assert.ok(
     nullEntryGate.errors.some((error) =>
-      error.includes("is not canonical gVisor or a permitted Kubernetes default injected toleration")
+      error.includes(
+        "is not canonical gVisor or a permitted Kubernetes default injected toleration"
+      )
     )
   );
 
@@ -2261,9 +2505,7 @@ test("live admitted probe tolerations require canonical gVisor plus exact Kubern
   const duplicateGate = validateLiveAdmittedProbeTolerations(duplicateGvisor, inventory);
   assert.equal(duplicateGate.ok, false);
   assert.ok(
-    duplicateGate.errors.some((error) =>
-      error.includes("duplicate admitted Pod toleration")
-    )
+    duplicateGate.errors.some((error) => error.includes("duplicate admitted Pod toleration"))
   );
 
   const duplicateDefault = structuredClone(liveAdmitted);
@@ -2271,10 +2513,7 @@ test("live admitted probe tolerations require canonical gVisor plus exact Kubern
     ...KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_NOT_READY
   };
   duplicateDefault.tolerations = duplicateDefault.spec.tolerations;
-  const duplicateDefaultGate = validateLiveAdmittedProbeTolerations(
-    duplicateDefault,
-    inventory
-  );
+  const duplicateDefaultGate = validateLiveAdmittedProbeTolerations(duplicateDefault, inventory);
   assert.equal(duplicateDefaultGate.ok, false);
   assert.ok(
     duplicateDefaultGate.errors.some((error) =>
@@ -2293,9 +2532,7 @@ test("live admitted probe tolerations require canonical gVisor plus exact Kubern
   );
   assert.equal(wrongNotReadySecondsGate.ok, false);
   assert.ok(
-    wrongNotReadySecondsGate.errors.some((error) =>
-      error.includes("tolerationSeconds must be 300")
-    )
+    wrongNotReadySecondsGate.errors.some((error) => error.includes("tolerationSeconds must be 300"))
   );
 
   const wrongUnreachableSeconds = structuredClone(liveAdmitted);
@@ -2381,7 +2618,10 @@ test("probe manifest renderer fails closed on invalid gVisor tolerations", () =>
   );
 });
 
-function probeManifestToKubectlItem(manifest, { nodeName = "private-node", phase = "Running" } = {}) {
+function probeManifestToKubectlItem(
+  manifest,
+  { nodeName = "private-node", phase = "Running" } = {}
+) {
   const inventory = loadInventory();
   return {
     metadata: {
@@ -2435,7 +2675,9 @@ test("collectLive exec pod mapper preserves admitted tolerations for probe conto
       badGate.errors.some(
         (error) =>
           error.includes("operator must be") ||
-          error.includes("is not canonical gVisor or a permitted Kubernetes default injected toleration")
+          error.includes(
+            "is not canonical gVisor or a permitted Kubernetes default injected toleration"
+          )
       ),
       badGate.errors.join("; ")
     );
@@ -2464,7 +2706,9 @@ test("collectLive exec pod mapper preserves admitted tolerations for probe conto
   assert.equal(wrongKeyGate.ok, false);
   assert.ok(
     wrongKeyGate.errors.some((error) =>
-      error.includes("is not canonical gVisor or a permitted Kubernetes default injected toleration")
+      error.includes(
+        "is not canonical gVisor or a permitted Kubernetes default injected toleration"
+      )
     )
   );
 });

@@ -1,10 +1,57 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 controlled-probe executable image repair
+
+Status: **Controlled-probe executable/TLS repair committed locally in the current
+unpushed HEAD on baseline `c5716b97` (admitted-toleration bot pin); not pushed;
+no cloud mutation; Environment still unapproved; S1 blocked.**
+
+**Live truth at `c5716b97`:** structural `verify` **PASS** (including a real
+production exec Pod). Controlled probes applied: pre-structural foundation
+**PASS** and trusted positive controls **PASS**. Active `probe-restricted`
+then **FAIL**ed at `nat-egress-ip`: NAT probe Pod used `busybox:1.36` while the
+script execs `curl` (binary absent) — failure before NAT identity comparison.
+Manual diagnostic BusyBox `wget` observed reserved NAT IP `34.76.34.111` but
+warned TLS certificate validation is not implemented; that observation is
+**not** accepted proof (wget/insecure TLS rejected). Cleanup **PASS**; no
+controlled Pods remain. Probes were **not** regenerated or re-run after this
+image repair.
+
+**Repair (local):** inventory owns exact digest-pinned NAT image
+`curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13`
+(multiarch manifest list; release 2026-06-24). Restricted probe no longer uses
+BusyBox: generation fail-closed resolves the exact current production
+`sandbox-exec` image from committed `infra/helm/values-dev.yaml`
+(`global.images.{registryHost,projectId,repository}` +
+`sandboxExec.image.{name,tag}`), with no inventory tag or global-tag fallback.
+Its live validator requires equality with one non-controlled Running real exec
+image used for KSA proof and rejects zero/missing/conflicting/spoofed/mismatched
+image evidence. This equality is the proof basis for the restricted
+`getent`/`curl`/`python3` commands; static tests do not claim to execute the
+binaries (actual chat shell smoke already used that production image).
+Builder/renderer/validators require the exact NAT image and fail closed on
+drift/tag-only/busybox/wget. Active NAT script keeps
+`curl --noproxy * -fsS --max-time 20` with certificate verification (no
+`-k`/`--insecure`/`--no-check-certificate`). Hardened `runAsUser: 1000`
+remains; curl image default USER is overridden and stays compatible. Tests lock
+values resolution, restricted production-image equality, YAML render,
+inventory/validator fail-closed drift, and NAT source command/TLS contract. No
+package/dependency changes.
+
+**Still incomplete:** not pushed; probes not regenerated or re-run with
+production `sandbox-exec` restricted image + curl NAT image; no
+network/enforcement proof; Environment not approved; non-sandbox pins may still
+wait; S0.1 not live-accepted; S1 blocked. Do **not** claim foundation complete.
+
+**Next:** parent push → regenerate/apply controlled probes →
+`probe-restricted` / cleanup → Environment approval(s).
+
+---
+
 ## 2026-07-13 — ADR-146 live admitted toleration normalization repair
 
-Status: **Live admitted toleration normalization repair committed locally in the
-current unpushed HEAD on baseline `fe3e1f59` (collector tolerations preservation
-bot pin); not pushed; no cloud mutation; Environment still unapproved; S1 blocked.**
+Status: **Live admitted toleration normalization repair pushed/live at
+`838789c4` with bot pin `c5716b97`; Environment still unapproved; S1 blocked.**
 
 **Live truth at `fe3e1f59`:** structural
 `node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify` **PASS**,

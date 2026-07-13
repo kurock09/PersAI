@@ -140,7 +140,22 @@ Required local invariants:
     non-null exact toleration and throws for missing/empty/null/wrong-casing/
     extra tolerations; it never supplies a fallback. The manifests also keep
     bounded `activeDeadlineSeconds`, non-root/read-only/seccomp/resources, and
-    no proxy env on NAT.
+    no proxy env on NAT. NAT probe image is inventory-owned digest-pinned
+    `curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13`
+    (compatible with hardened `runAsUser: 1000`). Restricted generation resolves
+    the exact current production image from committed `values-dev.yaml` as
+    `${global.images.registryHost}/${global.images.projectId}/${global.images.repository}/${sandboxExec.image.name}:${sandboxExec.image.tag}`;
+    missing/duplicate/malformed fields and missing builder image fail closed,
+    with no inventory tag, global-tag, or BusyBox fallback. Live restricted
+    validation requires equality with exactly one image across valid
+    non-controlled Running real exec Pods used for KSA proof; zero real Pods,
+    missing image, conflicting images, controlled-label spoof, and mismatch all
+    fail. Equality is the proof basis for `getent`/`curl`/`python3`; static tests
+    do not claim those binaries were executed. NAT builder/validators fail
+    closed on image drift (tag-only/busybox/wget/override). Active
+    `nat-egress-ip` source contract execs
+    `curl --noproxy * -fsS --max-time 20` with certificate verification (no
+    `-k`/`--insecure`/`--no-check-certificate`/wget).
     `exec-ksa-live-wiring` excludes controlled probes and
     requires ≥1 real Running exec pod. `collectLive` exec-pod normalization
     must preserve exact live `spec.tolerations` so admitted controlled probes
