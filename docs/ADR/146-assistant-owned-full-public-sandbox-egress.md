@@ -4,12 +4,11 @@
 
 Accepted — founder-directed production orchestration program opened 2026-07-12.
 Slice 0 read-only code/live-cluster audit completed 2026-07-12 with implementation
-**NO-GO**. **Slices 0.1 + 0.1b are live-accepted** (2026-07-13): founder-selected
-current-cluster Calico + private sandbox egress contour, repository-enforced
-split-pin release gate, restricted foundation enforcement proof, GitHub
-Environment `persai-dev-adr146-foundation` approval, and deferred non-sandbox
-pins are complete. This ADR is **not** closed. Slice 1 is **explicitly
-authorized as the next slice** and is **not** implemented.
+**NO-GO**. **Slices 0.1 + 0.1b are live-accepted** (2026-07-13). **Slice 1 is
+landed locally (uncommitted)** on baseline `6fe4356a`: canonical
+`Assistant.sandboxEgressMode`, owner GET/PUT `/sandbox-egress`, legacy
+`networkAccessEnabled` deletion, migration + focused tests. This ADR is **not**
+closed. Slices 2–4 are **not** started. Deploy/live validation of S1 is deferred.
 
 Live foundation + deferred-pin acceptance (2026-07-13): prepare, exact
 NAT/firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready
@@ -39,9 +38,10 @@ attempt failed after validate/GAR/pin on pin-assert EOF mismatch (extra CLI
 `main`; the successful second run is current. Post-rollout public
 `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, PersAI MCP chat smoke exact
-`ADR146_POST_ROLLOUT_OK`. Next: implement **Slice 1** (canonical data/API
-contract and legacy-field deletion) under parent orchestration — do **not**
-claim S1 landed or close this ADR.
+`ADR146_POST_ROLLOUT_OK`. **Slice 1 landed locally (uncommitted) on baseline
+`6fe4356a`** — canonical Assistant egress mode + owner API + legacy field
+deletion; `recycled:false` until S3. Next under parent orchestration: **Slice 2**
+(Helm public-only policy). Do **not** claim S2–S4 landed or close this ADR.
 
 ## Date
 
@@ -83,7 +83,42 @@ foundation gate **PASS** at that proof pin; evidence inventory SHA-256
 remote/deployed bot pin **`64be77d6`**: deferred services exact `3cd2ea4f`;
 sandbox remains `8a0043dd`. Environment `persai-dev-adr146-foundation`
 **approved**; resume run `29237479924` success; S0.1/0.1b live-accepted; ADR
-open; **S1 authorized next** (not implemented).
+open; **S1 landed locally (uncommitted) on `6fe4356a`**; S2 next (not started).
+
+## Slice 1 local land (2026-07-13)
+
+Baseline: clean `main` at `6fe4356a4c1c71a17678d4dca47eaba239b89a74`.
+
+Landed locally (uncommitted; no commit/push/deploy):
+
+- Prisma enum `AssistantSandboxEgressMode` (`restricted | full_public`) and
+  required `Assistant.sandboxEgressMode` / `assistants.sandbox_egress_mode`
+  NOT NULL DEFAULT `restricted`;
+- migration `20260713120000_adr146_s1_assistant_sandbox_egress_mode` with
+  one-way default/backfill and plan JSON cleanup deleting
+  `billing_provider_hints.sandboxPolicy.networkAccessEnabled` with no alias;
+- owner-only `GET/PUT /api/v1/assistant/{assistantId}/sandbox-egress` with exact
+  body `{ "mode": "restricted" | "full_public" }`;
+- stable `400` for unknown/extra body; stable `409 sandbox_egress_change_busy`
+  while any `SandboxJob` for the assistant is `queued|running` (assistant-only
+  fail-closed query; denormalized `workspaceId` cannot narrow it);
+- changed-mode PUT uses one Prisma interactive transaction, locks the
+  tenant-constrained Assistant row (`id + owner + workspace`) `FOR UPDATE`,
+  re-reads canonical mode, checks busy jobs, updates mode, and inserts the
+  audit row atomically. The real `sandbox_jobs.assistant_id -> assistants.id`
+  FK makes enqueue participate: PostgreSQL FK validation takes a parent
+  `KEY SHARE` row lock, which conflicts with `FOR UPDATE`, so an earlier enqueue
+  commits and is visible to the busy check or a later enqueue waits and admits
+  after the completed mode mutation;
+- idempotent same-mode PUT returns state without duplicate audit; changed mode
+  writes `AssistantAuditEvent` with previous/selected mode and actor;
+- response honestly reports `recycled: false` until Slice 3 eviction;
+- complete removal of plan/runtime `networkAccessEnabled` from
+  `runtime-contract`, OpenAPI `AdminPlanSandboxPolicy`, parsers/materializers,
+  Admin Plans UI, ops display, fixtures/tests; no compatibility alias.
+
+Out of scope for this land: S2 Helm/NetworkPolicy, S3 ExecPodBridge recycle,
+S4 Settings UX, deploy/live validation, ADR closure.
 
 ## Orchestration model
 
@@ -194,7 +229,8 @@ rather than copy into the new mode:
 
 ### Slice 0 verdict
 
-- **Code ledger:** GO for the future S1 data/API cutover in isolation;
+- **Code ledger (Slice 0 finding):** GO for the then-future S1 data/API cutover
+  in isolation; S1 subsequently landed locally on `6fe4356a`;
   `networkAccessEnabled` is confirmed vestigial, sandbox already has Prisma
   access to Assistant, and exact warm/create/reuse/delete seams are known.
 - **Program gate:** NO-GO for S1/S2 implementation as a deployable program. D10
@@ -624,9 +660,11 @@ Produce:
 No code lands in S0. If cluster facts cannot prove the D4 boundary, stop before
 implementation.
 
-Result: code seams are fully inventoried, but the live cluster has no enforcing
-NetworkPolicy engine and lacks the required private egress/identity/observability
-foundation. S1/S2 are blocked.
+Historical Slice 0 result: code seams were fully inventoried, but the live
+cluster then had no enforcing NetworkPolicy engine and lacked the required
+private egress/identity/observability foundation. S1/S2 were blocked at that
+checkpoint; S0.1/0.1b later cleared the foundation gate and S1 is now landed
+locally.
 
 ### Slice 0.1 — Enforcing cluster egress foundation
 
@@ -642,8 +680,7 @@ proxy-env + CONNECT denial repairs, and the final restricted
 below). Evidence inventory SHA-256
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. Inbound
 denial / HTTP redirect / DNS-rebind remain explicitly unclaimed RUNBOOK
-checks. ADR-146 is **not** closed. **S1 is authorized as the next slice** and
-is not implemented.
+checks. ADR-146 is **not** closed. S1 subsequently landed locally on `6fe4356a`.
 
 ### Slice 0.1b — Repository release gate (split-pin)
 
@@ -658,8 +695,8 @@ Environment-gated pin successfully; current bot pin **`64be77d6`** with `api`/`w
 `provider-gateway` exact `3cd2ea4f` and sandbox remaining `8a0043dd`; Argo
 Synced; post-rollout `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, MCP smoke exact
-`ADR146_POST_ROLLOUT_OK`. ADR-146 stays open; **S1 authorized next** (not
-implemented).
+`ADR146_POST_ROLLOUT_OK`. ADR-146 stays open; **S1 subsequently landed locally
+on `6fe4356a`**.
 
 Lands:
 
@@ -739,8 +776,8 @@ Lands:
 - inventory `releaseGate.repositoryEnforced: true` with honest human residuals.
 
 Live foundation checkpoint (2026-07-13; restricted gate PASS at `e5c249c3`;
-Environment later approved; deferred pins live at `64be77d6`; ADR open; S1
-authorized next, not implemented):
+Environment later approved; deferred pins live at `64be77d6`; ADR open; S1 was
+not yet implemented at this dated checkpoint):
 
 - prepare is complete: node SA/roles, NAT IPs, subnet flow logs, Private Google
   Access, and the dedicated sandbox secondary range;
@@ -817,8 +854,8 @@ authorized next, not implemented):
   (required reviewer `kurock09` / user id `126346824`,
   `prevent_self_review=false`, custom deployment branch policy exactly `main`,
   residual `can_admins_bypass=true` — documented honestly, not mutated here)
-  and is **approved** for the deferred-pin resume path (see below). Do **not**
-  close this ADR; do **not** claim S1 implemented.
+  and is **approved** for the deferred-pin resume path (see below). This was the
+  pre-S1 checkpoint; S1 has since landed locally. Do **not** close this ADR.
 
 Exact push-last sequence (founder-coordinated; live GCP/Calico/private-pool/
 retirement + Environment creation + coordinated push + proxy Ready + verifier/
@@ -908,8 +945,8 @@ Synced; post-rollout `https://persai.dev/api/health` 200 `{status:ok}` and
 `https://persai.dev/api/ready` 200 `{status:ready}`; MCP smoke
 `ADR146_POST_ROLLOUT_OK`.
 
-Next: implement **Slice 1** under parent orchestration. Do **not** close this
-ADR or claim S1 implemented.
+Historical next step at this checkpoint was **Slice 1**. S1 has since landed
+locally on `6fe4356a`; do **not** close this ADR.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:
@@ -952,16 +989,16 @@ S0.1 restricted live foundation gate is recorded PASS at `e5c249c3` (evidence
 inventory SHA-256
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). S0.1b
 Environment approval + deferred pins are live-accepted at bot pin `64be77d6`.
-**S1 is explicitly authorized as the next slice** and is **not** implemented. A
-locally rendered policy alone is not sufficient evidence.
+**S1 subsequently landed locally on baseline `6fe4356a`.** A locally rendered
+policy alone is not sufficient evidence for S2 or live acceptance.
 
 ### Slice 1 — Canonical data/API contract and legacy-field deletion
 
 Subagent: Cursor Grok 4.5.
 
-Status: **authorized next slice; not started / not implemented.**
+Status: **landed locally (uncommitted) on baseline `6fe4356a`.**
 
-Land:
+Landed:
 
 - Prisma enum/assistant field + one-way restricted backfill;
 - plan JSON cleanup migration;
@@ -972,8 +1009,9 @@ Land:
 - owner authorization, validation, audit event, idempotency, and focused API
   tests.
 
-The route may remain unexposed in UI until enforcement lands locally, and the
-branch is not deployed between slices.
+Honest S1 residual: PUT/GET report `recycled: false` until Slice 3 implements
+synchronous warm-pod eviction. The route remains unexposed in Assistant
+Settings UI until Slice 4.
 
 ### Slice 2 — Helm public-only policy
 

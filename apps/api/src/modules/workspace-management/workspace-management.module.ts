@@ -50,6 +50,7 @@ import { InternalRuntimeDocumentRegisterVersionController } from "./interface/ht
 import { InternalRuntimeFilesController } from "./interface/http/internal-runtime-files-controller";
 import { InternalRuntimeBrowserProfilesController } from "./interface/http/internal-runtime-browser-profiles.controller";
 import { AssistantBrowserProfilesController } from "./interface/http/assistant-browser-profiles.controller";
+import { AssistantSandboxEgressController } from "./interface/http/assistant-sandbox-egress.controller";
 import { InternalWorkspaceFilesController } from "./interface/http/internal-workspace-files.controller";
 import { InternalRuntimeMediaJobsEnqueueController } from "./interface/http/internal-runtime-media-jobs-enqueue.controller";
 import { InternalRuntimeMediaJobsCheckpointController } from "./interface/http/internal-runtime-media-jobs-checkpoint.controller";
@@ -84,6 +85,7 @@ import { RevokeTelegramIntegrationSecretService } from "./application/revoke-tel
 import { ResendTelegramOwnerMessageService } from "./application/resend-telegram-owner-message.service";
 import { ResolvePlanVisibilityService } from "./application/resolve-plan-visibility.service";
 import { AppendAssistantAuditEventService } from "./application/append-assistant-audit-event.service";
+import { ManageAssistantSandboxEgressService } from "./application/manage-assistant-sandbox-egress.service";
 import { AdminAuthorizationService } from "./application/admin-authorization.service";
 import { ResolveAdminOpsCockpitService } from "./application/resolve-admin-ops-cockpit.service";
 import { AdminOpsUserDirectoryService } from "./application/admin-ops-user-directory.service";
@@ -424,6 +426,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AppBootstrapController,
     AssistantController,
     AssistantBrowserProfilesController,
+    AssistantSandboxEgressController,
     UserSupportController,
     AssistantBillingController,
     AssistantKnowledgeSourcesController,
@@ -500,6 +503,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
       useExisting: PrismaService
     },
     AppendAssistantAuditEventService,
+    ManageAssistantSandboxEgressService,
     AdminAuthorizationService,
     ManageSitePagesService,
     ResolveAdminOpsCockpitService,

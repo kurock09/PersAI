@@ -80,6 +80,7 @@ async function run(): Promise<void> {
             applyErrorCode: null,
             applyErrorMessage: null,
             configDirtyAt: null,
+            sandboxEgressMode: "restricted",
             createdAt: now,
             updatedAt: now
           }
@@ -450,6 +451,7 @@ async function run(): Promise<void> {
             applyErrorCode: null,
             applyErrorMessage: null,
             configDirtyAt: null,
+            sandboxEgressMode: "restricted",
             createdAt: now,
             updatedAt: now
           }
@@ -636,6 +638,7 @@ async function run(): Promise<void> {
             applyErrorCode: null,
             applyErrorMessage: null,
             configDirtyAt: null,
+            sandboxEgressMode: "restricted",
             createdAt: now,
             updatedAt: now
           }
@@ -848,6 +851,7 @@ async function run(): Promise<void> {
             applyErrorCode: null,
             applyErrorMessage: null,
             configDirtyAt: null,
+            sandboxEgressMode: "restricted",
             createdAt: now,
             updatedAt: now
           }

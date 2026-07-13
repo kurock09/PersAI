@@ -336,15 +336,15 @@ Current active internal sandbox endpoints are served by `apps/sandbox`:
 
 These are internal runtime-to-sandbox boundaries for isolated exec/document work, not public product APIs.
 
-**ADR-146 accepted target (not yet implemented):** add owner-authenticated
+**ADR-146 Slice 1 landed locally (uncommitted on `6fe4356a`):** owner-authenticated
 `GET/PUT /api/v1/assistant/{assistantId}/sandbox-egress` with the exact mode
 enum `restricted | full_public`. The value is immediate Assistant operational
 truth, not an assistant draft/publish field. A successful mode change records
-an assistant audit event and synchronously evicts the assistant's idle warm
-execution pod; queued/running sandbox work returns a stable conflict rather
-than being killed. The sandbox control plane resolves canonical Assistant mode
-again before every warm/create/reuse and recreates a mismatched pod before
-execution. The old Admin Plan/runtime `networkAccessEnabled` field is removed
+an assistant audit event. Slice 1 honestly reports `recycled: false`; synchronous
+warm-pod eviction lands in Slice 3. Queued/running sandbox work returns stable
+`409 sandbox_egress_change_busy` rather than being killed. The sandbox control
+plane will resolve canonical Assistant mode again before every warm/create/reuse
+in Slice 3. The old Admin Plan/runtime `networkAccessEnabled` field is removed
 without an alias. No route in this boundary changes browser, web tools, storage
 plane, or provider-worker networking.
 

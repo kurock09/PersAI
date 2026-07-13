@@ -212,7 +212,6 @@ export interface RuntimeSandboxPolicy {
   maxConcurrentProcesses: number;
   maxStdoutBytes: number;
   maxStderrBytes: number;
-  networkAccessEnabled: boolean;
   artifactMimeAllowlist: string[];
   webMaxOutboundBytes: number;
   telegramMaxOutboundBytes: number;
@@ -233,7 +232,6 @@ export const DEFAULT_RUNTIME_SANDBOX_POLICY: RuntimeSandboxPolicy = {
   maxConcurrentProcesses: 4,
   maxStdoutBytes: 128 * 1024,
   maxStderrBytes: 128 * 1024,
-  networkAccessEnabled: false,
   // "*/*" is the allow-all sentinel for sandbox delivery (files.send). The real
   // safety ceiling is the persist-time media validation in the API
   // (media-security-policy.ts: ALLOWED_MEDIA_MIMES + DANGEROUS_FILE_EXTENSIONS),

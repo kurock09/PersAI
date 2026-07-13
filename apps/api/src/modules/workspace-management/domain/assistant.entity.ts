@@ -8,6 +8,9 @@ export type AssistantApplyStatus =
   | "failed"
   | "degraded";
 
+/** ADR-146 — assistant-owned sandbox egress posture. */
+export type AssistantSandboxEgressMode = "restricted" | "full_public";
+
 export type Assistant = {
   id: string;
   userId: string;
@@ -40,6 +43,8 @@ export type Assistant = {
   applyErrorCode: string | null;
   applyErrorMessage: string | null;
   configDirtyAt: Date | null;
+  /** ADR-146 — owner-controlled sandbox egress; default `restricted`. */
+  sandboxEgressMode: AssistantSandboxEgressMode;
   createdAt: Date;
   updatedAt: Date;
 };

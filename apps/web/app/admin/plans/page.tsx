@@ -187,7 +187,6 @@ export type PlanDraft = {
   sandboxMaxConcurrentProcesses: string;
   sandboxMaxStdoutKb: string;
   sandboxMaxStderrKb: string;
-  sandboxNetworkAccessEnabled: boolean;
   sandboxArtifactMimeAllowlist: string;
   sandboxWebOutboundMb: string;
   sandboxTelegramOutboundMb: string;
@@ -975,7 +974,6 @@ function emptyDraft(): PlanDraft {
     sandboxMaxConcurrentProcesses: "4",
     sandboxMaxStdoutKb: "128",
     sandboxMaxStderrKb: "128",
-    sandboxNetworkAccessEnabled: false,
     sandboxArtifactMimeAllowlist:
       "text/plain, text/markdown, application/json, application/pdf, application/zip, image/png, image/jpeg, audio/mpeg, audio/ogg, video/mp4",
     sandboxWebOutboundMb: "25",
@@ -1111,7 +1109,6 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
     sandboxMaxConcurrentProcesses: String(plan.sandboxPolicy.maxConcurrentProcesses),
     sandboxMaxStdoutKb: String(Math.round(plan.sandboxPolicy.maxStdoutBytes / 1024)),
     sandboxMaxStderrKb: String(Math.round(plan.sandboxPolicy.maxStderrBytes / 1024)),
-    sandboxNetworkAccessEnabled: plan.sandboxPolicy.networkAccessEnabled,
     sandboxArtifactMimeAllowlist: plan.sandboxPolicy.artifactMimeAllowlist.join(", "),
     sandboxWebOutboundMb: String(Math.round(plan.sandboxPolicy.webMaxOutboundBytes / 1048576)),
     sandboxTelegramOutboundMb: String(
@@ -1478,7 +1475,6 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
           label: "Stderr cap (KB)",
           min: 1
         })! * 1024,
-      networkAccessEnabled: draft.sandboxNetworkAccessEnabled,
       artifactMimeAllowlist: parseMimeAllowlistDraft(draft.sandboxArtifactMimeAllowlist),
       webMaxOutboundBytes:
         parseStrictIntegerDraft(draft.sandboxWebOutboundMb, {
@@ -3494,24 +3490,12 @@ export function PlanForm({
               <Check
                 label="Enable sandbox tools"
                 checked={draft.sandboxEnabled}
-                onChange={(value) =>
-                  onPatch(
-                    value
-                      ? { sandboxEnabled: true }
-                      : { sandboxEnabled: false, sandboxNetworkAccessEnabled: false }
-                  )
-                }
-              />
-              <Check
-                label="Allow sandbox network"
-                checked={draft.sandboxNetworkAccessEnabled}
-                onChange={(value) => onPatch({ sandboxNetworkAccessEnabled: value })}
-                disabled={!draft.sandboxEnabled}
+                onChange={(value) => onPatch({ sandboxEnabled: value })}
               />
             </div>
             <HelpText className="mt-2">
-              Keep network off unless the plan truly needs outbound sandbox access. Disabling
-              sandbox also turns network off.
+              Sandbox availability and resource quotas stay plan-owned. Public network egress is an
+              assistant-owner setting, not a plan switch.
             </HelpText>
 
             <div className="mt-2 grid gap-2 lg:grid-cols-3">

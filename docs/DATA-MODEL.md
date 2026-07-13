@@ -99,17 +99,17 @@ Current active Step 20 persistence includes:
 
 `SandboxFileRef` is not active current-model truth anymore.
 
-**ADR-146 accepted target (implementation not started):**
+**ADR-146 Slice 1 landed locally (uncommitted on `6fe4356a`):**
 
-- add required `Assistant.sandboxEgressMode` /
+- required `Assistant.sandboxEgressMode` /
   `assistants.sandbox_egress_mode` with enum values `restricted | full_public`
   and default/backfill `restricted`;
 - this is immediate owner-controlled Assistant state, not draft, published
   version, governance JSON, plan, chat, or session state;
-- sandbox job/pod telemetry snapshots the effective mode for audit, while the
-  sandbox control plane resolves the current Assistant row before executing and
-  never trusts a model/runtime-supplied mode as authority;
-- remove `networkAccessEnabled` from persisted plan `sandboxPolicy` JSON,
+- sandbox job/pod telemetry will snapshot the effective mode for audit in later
+  slices; the sandbox control plane will resolve the current Assistant row
+  before executing and never trust a model/runtime-supplied mode as authority;
+- `networkAccessEnabled` removed from persisted plan `sandboxPolicy` JSON,
   OpenAPI, runtime policy, admin UI, and active parsers. Historical true values
   do not map to `full_public`, because they never represented owner consent or
   an enforced direct route;

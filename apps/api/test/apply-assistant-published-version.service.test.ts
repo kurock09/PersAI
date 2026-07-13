@@ -31,6 +31,7 @@ const assistant: Assistant = {
   applyErrorCode: null,
   applyErrorMessage: null,
   configDirtyAt: null,
+  sandboxEgressMode: "restricted",
   createdAt: new Date("2026-04-11T10:00:00.000Z"),
   updatedAt: new Date("2026-04-11T10:00:00.000Z")
 };

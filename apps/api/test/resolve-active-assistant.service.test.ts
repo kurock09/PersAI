@@ -35,6 +35,7 @@ function createAssistant(row: AssistantRow) {
     applyErrorCode: null,
     applyErrorMessage: null,
     configDirtyAt: null,
+    sandboxEgressMode: "restricted",
     createdAt: now,
     updatedAt: now
   };

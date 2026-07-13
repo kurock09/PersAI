@@ -39,6 +39,7 @@ function createHarness(options?: {
     applyErrorCode: null,
     applyErrorMessage: null,
     configDirtyAt: null,
+    sandboxEgressMode: "restricted",
     createdAt,
     updatedAt: createdAt
   };

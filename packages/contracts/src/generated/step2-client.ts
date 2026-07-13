@@ -30,6 +30,8 @@ import type {
   AssistantDraftUpdateRequest,
   AssistantMemoryDoNotRememberRequest,
   AssistantRollbackRequest,
+  AssistantSandboxEgressRequest,
+  AssistantSandboxEgressResponse,
   AssistantSwitchRequest,
   AssistantTelegramConfigUpdateRequest,
   AssistantTelegramConnectRequest,
@@ -360,6 +362,143 @@ export const getAssistantList = async (
     ...options,
     method: "GET"
   });
+};
+
+/**
+ * @summary Read the owner-controlled assistant sandbox egress mode
+ */
+export type getAssistantSandboxEgressResponse200 = {
+  data: AssistantSandboxEgressResponse;
+  status: 200;
+};
+
+export type getAssistantSandboxEgressResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantSandboxEgressResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAssistantSandboxEgressResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantSandboxEgressResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantSandboxEgressResponseSuccess = getAssistantSandboxEgressResponse200 & {
+  headers: Headers;
+};
+export type getAssistantSandboxEgressResponseError = (
+  | getAssistantSandboxEgressResponse401
+  | getAssistantSandboxEgressResponse403
+  | getAssistantSandboxEgressResponse404
+  | getAssistantSandboxEgressResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantSandboxEgressResponse =
+  | getAssistantSandboxEgressResponseSuccess
+  | getAssistantSandboxEgressResponseError;
+
+export const getGetAssistantSandboxEgressUrl = (assistantId: string) => {
+  return `/assistant/${assistantId}/sandbox-egress`;
+};
+
+export const getAssistantSandboxEgress = async (
+  assistantId: string,
+  options?: RequestInit
+): Promise<getAssistantSandboxEgressResponse> => {
+  return customFetch<getAssistantSandboxEgressResponse>(
+    getGetAssistantSandboxEgressUrl(assistantId),
+    {
+      ...options,
+      method: "GET"
+    }
+  );
+};
+
+/**
+ * @summary Update the owner-controlled assistant sandbox egress mode
+ */
+export type putAssistantSandboxEgressResponse200 = {
+  data: AssistantSandboxEgressResponse;
+  status: 200;
+};
+
+export type putAssistantSandboxEgressResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAssistantSandboxEgressResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type putAssistantSandboxEgressResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type putAssistantSandboxEgressResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type putAssistantSandboxEgressResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type putAssistantSandboxEgressResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type putAssistantSandboxEgressResponseSuccess = putAssistantSandboxEgressResponse200 & {
+  headers: Headers;
+};
+export type putAssistantSandboxEgressResponseError = (
+  | putAssistantSandboxEgressResponse400
+  | putAssistantSandboxEgressResponse401
+  | putAssistantSandboxEgressResponse403
+  | putAssistantSandboxEgressResponse404
+  | putAssistantSandboxEgressResponse409
+  | putAssistantSandboxEgressResponse500
+) & {
+  headers: Headers;
+};
+
+export type putAssistantSandboxEgressResponse =
+  | putAssistantSandboxEgressResponseSuccess
+  | putAssistantSandboxEgressResponseError;
+
+export const getPutAssistantSandboxEgressUrl = (assistantId: string) => {
+  return `/assistant/${assistantId}/sandbox-egress`;
+};
+
+export const putAssistantSandboxEgress = async (
+  assistantId: string,
+  assistantSandboxEgressRequest: AssistantSandboxEgressRequest,
+  options?: RequestInit
+): Promise<putAssistantSandboxEgressResponse> => {
+  return customFetch<putAssistantSandboxEgressResponse>(
+    getPutAssistantSandboxEgressUrl(assistantId),
+    {
+      ...options,
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(assistantSandboxEgressRequest)
+    }
+  );
 };
 
 /**

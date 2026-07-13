@@ -233,6 +233,15 @@ export class IdentityAccessModule implements NestModule {
         path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/dismiss-live",
         method: RequestMethod.POST
       },
+      // ADR-146 Slice 1 — owner sandbox egress mode GET/PUT.
+      {
+        path: "api/v1/assistant/:assistantId/sandbox-egress",
+        method: RequestMethod.GET
+      },
+      {
+        path: "api/v1/assistant/:assistantId/sandbox-egress",
+        method: RequestMethod.PUT
+      },
       {
         path: "api/v1/assistant/browser-bridge/devices",
         method: RequestMethod.POST

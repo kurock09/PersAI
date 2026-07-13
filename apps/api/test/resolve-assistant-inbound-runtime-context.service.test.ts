@@ -22,6 +22,7 @@ function createAssistant(id: string) {
     applyErrorCode: null,
     applyErrorMessage: null,
     configDirtyAt: null,
+    sandboxEgressMode: "restricted",
     createdAt: new Date("2026-05-26T12:00:00.000Z"),
     updatedAt: new Date("2026-05-26T12:00:00.000Z")
   };

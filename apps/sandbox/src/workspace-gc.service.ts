@@ -406,7 +406,6 @@ export class WorkspaceGcService implements OnModuleInit, OnModuleDestroy {
       maxConcurrentProcesses: 1,
       maxStdoutBytes: 8 * 1024,
       maxStderrBytes: 8 * 1024,
-      networkAccessEnabled: false,
       artifactMimeAllowlist: ["*/*"],
       webMaxOutboundBytes: 0,
       telegramMaxOutboundBytes: 0,

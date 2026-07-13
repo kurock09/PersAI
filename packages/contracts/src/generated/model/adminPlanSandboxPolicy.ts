@@ -18,7 +18,6 @@ export interface AdminPlanSandboxPolicy {
   maxConcurrentProcesses: number;
   maxStdoutBytes: number;
   maxStderrBytes: number;
-  networkAccessEnabled: boolean;
   artifactMimeAllowlist: string[];
   webMaxOutboundBytes: number;
   telegramMaxOutboundBytes: number;

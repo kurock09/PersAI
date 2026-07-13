@@ -33,6 +33,13 @@ enum AssistantApplyStatus {
   degraded
 }
 
+/// ADR-146 — assistant-owned sandbox egress posture for the whole execution pod.
+/// `restricted` = allowlist proxy (default); `full_public` = direct public internet.
+enum AssistantSandboxEgressMode {
+  restricted
+  full_public
+}
+
 enum AssistantMaterializationSourceAction {
   publish
   rollback
@@ -860,6 +867,9 @@ model Assistant {
   applyErrorCode                       String?                               @map("apply_error_code")
   applyErrorMessage                    String?                               @map("apply_error_message")
   configDirtyAt                        DateTime?                             @map("config_dirty_at") @db.Timestamptz(6)
+  /// ADR-146 — owner-controlled sandbox egress mode. Defaults/backfills to
+  /// `restricted`. Not draft/governance/plan/chat/session state.
+  sandboxEgressMode                    AssistantSandboxEgressMode            @default(restricted) @map("sandbox_egress_mode")
   createdAt                            DateTime                              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt                            DateTime                              @updatedAt @map("updated_at") @db.Timestamptz(6)
   user                                 AppUser                               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)

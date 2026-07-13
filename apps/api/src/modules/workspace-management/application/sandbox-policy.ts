@@ -176,10 +176,6 @@ export function resolveStoredPlanSandboxPolicy(value: unknown): RuntimeSandboxPo
       row.maxStderrBytes,
       DEFAULT_RUNTIME_SANDBOX_POLICY.maxStderrBytes
     ),
-    networkAccessEnabled: toLooseBoolean(
-      row.networkAccessEnabled,
-      DEFAULT_RUNTIME_SANDBOX_POLICY.networkAccessEnabled
-    ),
     artifactMimeAllowlist: toLooseMimeAllowlist(
       row.artifactMimeAllowlist,
       DEFAULT_RUNTIME_SANDBOX_POLICY.artifactMimeAllowlist
@@ -210,6 +206,12 @@ export function parsePlanSandboxPolicy(
   const row = asObject(value);
   if (row === null) {
     throw new BadRequestException(`${fieldName} must be an object.`);
+  }
+  // ADR-146 D8 — dead plan field; no alias to Assistant.sandboxEgressMode.
+  if (Object.prototype.hasOwnProperty.call(row, "networkAccessEnabled")) {
+    throw new BadRequestException(
+      `${fieldName}.networkAccessEnabled is not supported; sandbox egress is owned by Assistant.sandboxEgressMode.`
+    );
   }
   const policy: RuntimeSandboxPolicy = {
     enabled: parseBoolean(row.enabled, `${fieldName}.enabled`),
@@ -248,10 +250,6 @@ export function parsePlanSandboxPolicy(
     ),
     maxStdoutBytes: parseNonNegativeInteger(row.maxStdoutBytes, `${fieldName}.maxStdoutBytes`),
     maxStderrBytes: parseNonNegativeInteger(row.maxStderrBytes, `${fieldName}.maxStderrBytes`),
-    networkAccessEnabled: parseBoolean(
-      row.networkAccessEnabled,
-      `${fieldName}.networkAccessEnabled`
-    ),
     artifactMimeAllowlist: parseMimeAllowlist(
       row.artifactMimeAllowlist,
       `${fieldName}.artifactMimeAllowlist`
@@ -292,7 +290,6 @@ export function toPlanSandboxPolicyDocument(policy: RuntimeSandboxPolicy): Recor
     maxConcurrentProcesses: policy.maxConcurrentProcesses,
     maxStdoutBytes: policy.maxStdoutBytes,
     maxStderrBytes: policy.maxStderrBytes,
-    networkAccessEnabled: policy.networkAccessEnabled,
     artifactMimeAllowlist: policy.artifactMimeAllowlist,
     webMaxOutboundBytes: policy.webMaxOutboundBytes,
     telegramMaxOutboundBytes: policy.telegramMaxOutboundBytes,

@@ -110,7 +110,6 @@ export class RuntimeSandboxToolService {
           maxConcurrentProcesses: 0,
           maxStdoutBytes: 0,
           maxStderrBytes: 0,
-          networkAccessEnabled: false,
           artifactMimeAllowlist: [],
           webMaxOutboundBytes: 0,
           telegramMaxOutboundBytes: 0,

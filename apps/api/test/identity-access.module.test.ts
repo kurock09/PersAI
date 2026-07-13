@@ -382,6 +382,15 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     {
       path: "api/v1/assistant/:assistantId/browser-profiles/:profileId/dismiss-live",
       method: RequestMethod.POST
+    },
+    // ADR-146 Slice 1 — owner sandbox egress mode.
+    {
+      path: "api/v1/assistant/:assistantId/sandbox-egress",
+      method: RequestMethod.GET
+    },
+    {
+      path: "api/v1/assistant/:assistantId/sandbox-egress",
+      method: RequestMethod.PUT
     }
   ]) {
     assert.equal(

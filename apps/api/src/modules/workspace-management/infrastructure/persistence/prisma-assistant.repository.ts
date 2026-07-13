@@ -203,6 +203,7 @@ export class PrismaAssistantRepository implements AssistantRepository {
       applyErrorCode: assistant.applyErrorCode,
       applyErrorMessage: assistant.applyErrorMessage,
       configDirtyAt: assistant.configDirtyAt,
+      sandboxEgressMode: assistant.sandboxEgressMode,
       createdAt: assistant.createdAt,
       updatedAt: assistant.updatedAt
     };

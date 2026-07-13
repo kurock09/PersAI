@@ -1,11 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 Slice 1 local land (uncommitted)
+
+Status: **Slice 1 landed locally on clean baseline `6fe4356a`; uncommitted; no
+push/deploy/cloud mutation.** ADR-146 stays **open**. S2–S4 are **not** started.
+
+**Scope landed:**
+
+- Prisma `AssistantSandboxEgressMode` + required `Assistant.sandboxEgressMode`
+  (`sandbox_egress_mode`) NOT NULL DEFAULT `restricted`;
+- migration `20260713120000_adr146_s1_assistant_sandbox_egress_mode` with
+  default/backfill and plan JSON cleanup deleting
+  `billing_provider_hints.sandboxPolicy.networkAccessEnabled` (no alias);
+- owner-only `GET/PUT /api/v1/assistant/{assistantId}/sandbox-egress` exact body
+  `{mode:"restricted"|"full_public"}`;
+- ownership = `Assistant.userId` (workspace membership alone is insufficient);
+- changed-mode PUT is one interactive transaction: tenant-constrained Assistant
+  `FOR UPDATE`, canonical mode re-read, assistant-only queued/running busy
+  check, mode update, and audit insert. The SandboxJob Assistant FK makes
+  enqueue acquire a conflicting parent `KEY SHARE` lock, closing the admission
+  race without changing sandbox enqueue code;
+- busy = any `SandboxJob` for the assistant in `queued|running` → stable
+  `409 sandbox_egress_change_busy`; denormalized workspace mismatch cannot fail
+  open;
+- idempotent same-mode PUT skips audit; changed mode audits previous/selected
+  mode + actor; concurrent PUTs serialize and audit failure rolls back mode;
+- responses honestly report `recycled: false` until S3 eviction;
+- dead `networkAccessEnabled` removed from runtime-contract, OpenAPI Admin Plans,
+  parsers, Admin Plans UI, ops display, fixtures/tests.
+
+**Out of scope:** S2 Helm/NP/proxy gating; S3 ExecPodBridge recycle; S4 Settings
+UX; deploy/live validation; ADR closure. ExecPodBridge / `buildProxyEnv`
+untouched.
+
+**Next:** parent review → commit when founder asks → Slice 2 (Helm public-only
+policy). Do not close ADR-146.
+
+---
+
 ## 2026-07-13 — ADR-146 S0.1/0.1b live acceptance + Environment approval (docs)
 
 Status: **Documentation-only reconciliation on clean `main` at remote/deployed
 bot pin `64be77d6`; no commit/push in this slice; no cloud mutation.** Slices
-0.1 + 0.1b are **live-accepted**. ADR-146 stays **open**. **S1 is explicitly
-authorized as the next slice** and is **not** implemented.
+0.1 + 0.1b are **live-accepted**. ADR-146 stays **open**. **Superseded for next
+slice:** S1 is now landed locally (see entry above).
 
 **Current live pin truth:** bot commit **`64be77d6`**; `api`/`web`/`runtime`/
 `provider-gateway` exact **`3cd2ea4f`** (2/2 Ready each); sandbox remains
@@ -39,9 +77,7 @@ remaining).
 **Explicitly unclaimed (RUNBOOK-only):** inbound denial, HTTP redirect,
 DNS-rebind.
 
-**Next:** implement ADR-146 **Slice 1** (canonical data/API contract and
-legacy-field deletion) under parent orchestration — do not claim S1 landed and
-do not close ADR-146.
+**Next:** see Slice 1 local-land entry above.
 
 ---
 

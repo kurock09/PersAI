@@ -2712,8 +2712,8 @@ export default function AdminOpsPage() {
                         value={`${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxStdoutBytes)} / ${formatBytesCompact(cockpit.sandbox.effectivePolicy.maxStderrBytes)}`}
                       />
                       <DetailRow
-                        label="Network / mime allowlist"
-                        value={`${cockpit.sandbox.effectivePolicy.networkAccessEnabled ? "On" : "Off"} / ${cockpit.sandbox.effectivePolicy.artifactMimeAllowlist.length}`}
+                        label="Mime allowlist entries"
+                        value={cockpit.sandbox.effectivePolicy.artifactMimeAllowlist.length}
                       />
                     </div>
                   </div>

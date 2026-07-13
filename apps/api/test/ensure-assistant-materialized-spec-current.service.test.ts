@@ -33,6 +33,7 @@ function createAssistant(overrides?: Partial<Assistant>): Assistant {
     applyLastErrorMessage: null,
     applyAppliedVersionId: "version-1",
     configDirtyAt: null,
+    sandboxEgressMode: "restricted",
     createdAt: new Date("2026-04-18T10:00:00.000Z"),
     updatedAt: new Date("2026-04-18T10:00:00.000Z"),
     ...overrides

@@ -34,6 +34,7 @@ function buildAssistant(overrides: Partial<Assistant> = {}): Assistant {
     applyErrorCode: null,
     applyErrorMessage: null,
     configDirtyAt: null,
+    sandboxEgressMode: "restricted",
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides

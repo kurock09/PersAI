@@ -51,6 +51,7 @@ async function run(): Promise<void> {
     applyErrorCode: null,
     applyErrorMessage: null,
     configDirtyAt: null,
+    sandboxEgressMode: "restricted",
     createdAt: new Date("2026-04-06T00:00:00.000Z"),
     updatedAt: new Date("2026-04-06T00:00:00.000Z")
   };

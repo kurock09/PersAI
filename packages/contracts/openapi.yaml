@@ -97,6 +97,111 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/{assistantId}/sandbox-egress:
+    get:
+      operationId: getAssistantSandboxEgress
+      summary: Read the owner-controlled assistant sandbox egress mode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: assistantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Canonical sandbox egress mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantSandboxEgressResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Caller is not the assistant owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found in the caller's workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: putAssistantSandboxEgress
+      summary: Update the owner-controlled assistant sandbox egress mode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: assistantId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantSandboxEgressRequest"
+      responses:
+        "200":
+          description: Updated canonical sandbox egress mode
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantSandboxEgressResponse"
+        "400":
+          description: Invalid mode or body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Caller is not the assistant owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Assistant not found in the caller's workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Queued or running sandbox job blocks the mode change
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/switch:
     post:
       operationId: postAssistantSwitch
@@ -13271,7 +13376,6 @@ components:
         - maxConcurrentProcesses
         - maxStdoutBytes
         - maxStderrBytes
-        - networkAccessEnabled
         - artifactMimeAllowlist
         - webMaxOutboundBytes
         - telegramMaxOutboundBytes
@@ -13302,8 +13406,6 @@ components:
           type: integer
         maxStderrBytes:
           type: integer
-        networkAccessEnabled:
-          type: boolean
         artifactMimeAllowlist:
           type: array
           items:
@@ -13317,6 +13419,41 @@ components:
           nullable: true
         maxArtifactSendCountPerTurn:
           type: integer
+    AssistantSandboxEgressMode:
+      type: string
+      enum:
+        - restricted
+        - full_public
+      description: ADR-146 assistant-owned sandbox egress posture
+    AssistantSandboxEgressRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - mode
+      properties:
+        mode:
+          $ref: "#/components/schemas/AssistantSandboxEgressMode"
+    AssistantSandboxEgressResponse:
+      type: object
+      required:
+        - requestId
+        - assistantId
+        - mode
+        - recycled
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        assistantId:
+          type: string
+          format: uuid
+        mode:
+          $ref: "#/components/schemas/AssistantSandboxEgressMode"
+        recycled:
+          type: boolean
+          description: >
+            Whether warm execution pods were recycled. Slice 1 always reports
+            false; synchronous eviction lands in Slice 3.
     AdminPlanState:
       type: object
       required:

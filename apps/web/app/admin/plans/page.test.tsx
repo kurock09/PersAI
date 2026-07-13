@@ -123,7 +123,6 @@ function createPlanState(): AdminPlanState {
       maxConcurrentProcesses: 4,
       maxStdoutBytes: 128 * 1024,
       maxStderrBytes: 128 * 1024,
-      networkAccessEnabled: false,
       artifactMimeAllowlist: ["text/plain", "application/json"],
       webMaxOutboundBytes: 25 * 1024 * 1024,
       telegramMaxOutboundBytes: 50 * 1024 * 1024,

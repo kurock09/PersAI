@@ -95,17 +95,17 @@ ADR-140 closes the persistent Browserless session era. The active browser archit
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 
-**ADR-146 accepted target (implementation in progress):** sandbox egress becomes
-an immediate assistant-owned operational choice. `restricted` remains the
-default proxy/domain-allowlist contour. Explicit `full_public` consent gives the
-whole gVisor execution pod (`shell` / `exec` / `document.*`) direct public
-TCP/UDP egress, while NetworkPolicy, explicit non-global/internal CIDR
-exclusions, an empty-ingress policy, and a dedicated no-IAM execution
-ServiceAccount continue to block Kubernetes, node, VPC, private, link-local, and
-metadata destinations. The setting does not affect storage-plane tools,
-browser, web tools, or provider workers. The current plan
-`networkAccessEnabled` boolean is not an enforcement boundary and is removed by
-the ADR-146 cutover rather than reinterpreted.
+**ADR-146 accepted target (implementation in progress; Slice 1 landed locally
+uncommitted on `6fe4356a`):** sandbox egress becomes an immediate assistant-owned
+operational choice stored on `Assistant.sandboxEgressMode`. `restricted` remains
+the default proxy/domain-allowlist contour. Explicit `full_public` consent will
+give the whole gVisor execution pod (`shell` / `exec` / `document.*`) direct
+public TCP/UDP egress once Slice 2/3 enforcement lands, while NetworkPolicy,
+explicit non-global/internal CIDR exclusions, an empty-ingress policy, and a
+dedicated no-IAM execution ServiceAccount continue to block Kubernetes, node,
+VPC, private, link-local, and metadata destinations. The setting does not affect
+storage-plane tools, browser, web tools, or provider workers. The old plan
+`networkAccessEnabled` boolean is removed by Slice 1 rather than reinterpreted.
 
 **ADR-146 Slice 0 live finding:** `personal-ai-gke` currently runs
 `LEGACY_DATAPATH` with Calico and Cilium disabled. Helm NetworkPolicy objects are
