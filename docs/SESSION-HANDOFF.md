@@ -2,7 +2,7 @@
 
 ## 2026-07-13 — Sidebar bounds + unframed chat chrome
 
-Status: **gates green; commit/push next.**
+Status: **pushed at `87f3185a`.**
 
 **Sidebar width:** min 240; tablet max **300** / desktop max **500**; defaults
 md **250** / lg+ **320**. Stored width clamps down when the viewport shrinks.
@@ -17,7 +17,7 @@ Active chat tint matches `--surface-hover` on both themes.
 affected shell/sidebar/width 43/43 PASS; full web suite 957/959 with 2 unrelated
 assistant-settings timeouts that PASS on isolated rerun.
 
-**Next:** after push, hard-refresh light+dark desktop shell.
+**Next:** hard-refresh light+dark desktop shell; watch web deploy pin.
 
 ---
 ## 2026-07-13 — ADR-146 S6 live acceptance complete; ADR closed (docs-only)
