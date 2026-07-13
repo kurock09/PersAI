@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn } from "node:child_process";
 import { readdir } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
@@ -11,7 +12,7 @@ import {
   OnModuleInit,
   Optional
 } from "@nestjs/common";
-import { KubeConfig, CoreV1Api, Exec, V1Status } from "@kubernetes/client-node";
+import { KubeConfig, CoreV1Api, Exec, V1Status, type V1Pod } from "@kubernetes/client-node";
 import type { SandboxConfig } from "@persai/config";
 import {
   type RuntimeSandboxPolicy,
@@ -32,6 +33,13 @@ import {
   toWorkspaceGcsSubPath,
   type WorkspaceHydrateScopeLabel
 } from "./workspace-mount-hydrate";
+import {
+  buildSandboxEgressModeMetadata,
+  buildSandboxEgressProxyEnv,
+  isAssistantSandboxEgressMode,
+  readPodSandboxEgressMode,
+  type AssistantSandboxEgressMode
+} from "./sandbox-egress-mode";
 
 // Annotations carrying the assistant+workspace identity on the reusable exec pod.
 // The exec pod is keyed by (assistantId, workspaceId), NOT by chat session, so all
@@ -45,6 +53,8 @@ const ASSISTANT_ID_ANNOTATION = "persai.io/assistant-id";
 const WORKSPACE_ID_ANNOTATION = "persai.io/workspace-id";
 // Handle stamped on the pod so other replicas can derive the canonical assistant subtree.
 const ASSISTANT_HANDLE_ANNOTATION = "persai.io/assistant-handle";
+const SANDBOX_JOB_ID_ANNOTATION = "persai.io/sandbox-job-id";
+const SANDBOX_LEASE_TOKEN_ANNOTATION = "persai.io/sandbox-lease-token";
 // Marker file the workspace-mount bootstrap writes to record completion so we
 // don't re-run mkdir/chmod on every job dispatched at a warm pod.
 const WORKSPACE_MOUNT_BOOTSTRAP_MARKER = "/tmp/.persai_workspace_bootstrap_ok";
@@ -87,6 +97,35 @@ const WORKSPACE_PUSH_CHUNK_BYTES = 64 * 1024;
 // enough to overlap GCS fetch + pod-exec write latency without bursting the API
 // server with one exec websocket per object.
 export const WORKSPACE_MOUNT_HYDRATE_CONCURRENCY = 12;
+const POD_ABSENT_POLL_MS = 250;
+
+export type ExecPodJobBinding = {
+  namespace: string;
+  podName: string;
+  podUid: string;
+  podResourceVersion: string;
+  leaseToken: string;
+  leaseHolderId: string;
+  jobId: string;
+  assistantId: string;
+  workspaceId: string;
+  assistantHandle: string;
+  mode: AssistantSandboxEgressMode;
+};
+
+type PendingExecPodJobBinding = Omit<
+  ExecPodJobBinding,
+  "podUid" | "podResourceVersion" | "mode"
+> & {
+  podUid: string | null;
+  podResourceVersion: string | null;
+  mode: AssistantSandboxEgressMode | null;
+};
+
+type PodExecutionIdentity = Pick<
+  ExecPodJobBinding,
+  "namespace" | "podName" | "podUid" | "assistantId" | "workspaceId" | "assistantHandle" | "mode"
+>;
 
 export type PodExecResult = {
   exitCode: number | null;
@@ -94,6 +133,7 @@ export type PodExecResult = {
   stderr: string;
   durationMs: number;
   execPodName: string;
+  execPodBinding?: ExecPodJobBinding;
 };
 
 export type PodFileReadResult = {
@@ -211,6 +251,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly kc: KubeConfig;
   private readonly k8sApi: CoreV1Api;
   private readonly execApi: Exec;
+  private readonly jobBindingContext = new AsyncLocalStorage<PendingExecPodJobBinding>();
+  private readonly executionIdentityContext = new AsyncLocalStorage<PodExecutionIdentity>();
 
   private reaperTimer: NodeJS.Timeout | null = null;
 
@@ -257,6 +299,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
   async runInPod(options: {
     jobId: string;
+    leaseToken: string;
+    leaseHolderId: string;
     runtimeSessionId: string | null;
     assistantId: string;
     assistantHandle: string;
@@ -272,18 +316,42 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }): Promise<PodExecResult> {
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const startedAt = Date.now();
-
-    if (options.runtimeSessionId !== null) {
-      const { runtimeSessionId, ...sessionOptions } = options;
-      return this.runInSessionPod({
-        ...sessionOptions,
-        runtimeSessionId,
-        namespace,
-        startedAt
-      });
-    }
-
-    return this.runInEphemeralPod({ ...options, namespace, startedAt });
+    const podName =
+      options.runtimeSessionId === null
+        ? this.buildPodName(options.jobId)
+        : this.buildSessionPodName(options.assistantId, options.workspaceId);
+    const pendingBinding: PendingExecPodJobBinding = {
+      namespace,
+      podName,
+      podUid: null,
+      podResourceVersion: null,
+      leaseToken: options.leaseToken,
+      leaseHolderId: options.leaseHolderId,
+      jobId: options.jobId,
+      assistantId: options.assistantId,
+      workspaceId: options.workspaceId,
+      assistantHandle: options.assistantHandle,
+      mode: null
+    };
+    return this.jobBindingContext.run(pendingBinding, async () => {
+      try {
+        if (options.runtimeSessionId !== null) {
+          const { runtimeSessionId, ...sessionOptions } = options;
+          return await this.runInSessionPod({
+            ...sessionOptions,
+            runtimeSessionId,
+            namespace,
+            startedAt
+          });
+        }
+        return await this.runInEphemeralPod({ ...options, namespace, startedAt });
+      } catch (error) {
+        if (pendingBinding.podUid !== null && pendingBinding.mode !== null) {
+          this.attachJobBindingToError(error, this.toImmutableBinding(pendingBinding));
+        }
+        throw error;
+      }
+    });
   }
 
   /**
@@ -310,18 +378,51 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     shellCommand: string;
     stdin?: Buffer | null;
     visibleWorkspacePaths?: readonly string[];
+    jobBinding?: ExecPodJobBinding;
+    bindingContextApplied?: boolean;
+    identityContextApplied?: boolean;
   }): Promise<PodExecResult> {
+    if (input.jobBinding !== undefined && input.bindingContextApplied !== true) {
+      const binding = input.jobBinding;
+      if (
+        binding.assistantId !== input.assistantId ||
+        binding.workspaceId !== input.workspaceId ||
+        binding.assistantHandle !== input.assistantHandle
+      ) {
+        throw createBridgeError(
+          "sandbox_pod_binding_mismatch",
+          "Control-plane exec binding does not match requested assistant/workspace/handle.",
+          true
+        );
+      }
+      return this.jobBindingContext.run({ ...binding }, async () =>
+        this.execShellInSessionPod({
+          ...input,
+          bindingContextApplied: true
+        })
+      );
+    }
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const podName = this.buildSessionPodName(input.assistantId, input.workspaceId);
     const startedAt = Date.now();
-    await this.ensureSessionPodRunning(
+    const egressMode = await this.resolveCanonicalEgressMode(input.assistantId);
+    const ensuredIdentity = await this.ensureSessionPodRunning(
       podName,
       namespace,
       input.policy,
       input.assistantId,
       input.workspaceId,
-      input.assistantHandle
+      input.assistantHandle,
+      egressMode,
+      input.jobBinding?.jobId ?? null,
+      input.jobBinding?.leaseToken ?? null,
+      input.jobBinding?.leaseHolderId ?? null
     );
+    if (input.jobBinding === undefined && input.identityContextApplied !== true) {
+      return this.executionIdentityContext.run(ensuredIdentity, async () =>
+        this.execShellInSessionPod({ ...input, identityContextApplied: true })
+      );
+    }
     await this.ensureWorkspaceMountBootstrapped(
       podName,
       namespace,
@@ -341,6 +442,15 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         visiblePaths: input.visibleWorkspacePaths
       });
     }
+    await this.ensureCanonicalSessionPodImmediatelyBeforeExec({
+      podName,
+      namespace,
+      policy: input.policy,
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      assistantHandle: input.assistantHandle,
+      jobId: null
+    });
     const result = await this.execCommand(podName, namespace, {
       command: "/bin/bash",
       args: ["-lc", input.shellCommand],
@@ -364,18 +474,29 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     policy: RuntimeSandboxPolicy;
     absolutePath: string;
     maxBytes: number;
+    identityContextApplied?: boolean;
   }): Promise<PodFileReadResult> {
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const podName = this.buildSessionPodName(input.assistantId, input.workspaceId);
     const startedAt = Date.now();
-    await this.ensureSessionPodRunning(
+    const egressMode = await this.resolveCanonicalEgressMode(input.assistantId);
+    const ensuredIdentity = await this.ensureSessionPodRunning(
       podName,
       namespace,
       input.policy,
       input.assistantId,
       input.workspaceId,
-      input.assistantHandle
+      input.assistantHandle,
+      egressMode,
+      null,
+      null,
+      null
     );
+    if (input.identityContextApplied !== true) {
+      return this.executionIdentityContext.run(ensuredIdentity, async () =>
+        this.readWorkspaceFileFromSessionPod({ ...input, identityContextApplied: true })
+      );
+    }
     await this.ensureWorkspaceMountBootstrapped(
       podName,
       namespace,
@@ -391,6 +512,15 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       input.workspaceId,
       input.absolutePath
     );
+    await this.ensureCanonicalSessionPodImmediatelyBeforeExec({
+      podName,
+      namespace,
+      policy: input.policy,
+      assistantId: input.assistantId,
+      workspaceId: input.workspaceId,
+      assistantHandle: input.assistantHandle,
+      jobId: null
+    });
     const bytes = await this.readFileBytesFromPod(podName, namespace, {
       absolutePath: input.absolutePath,
       maxBytes: input.maxBytes,
@@ -434,15 +564,50 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     policy: RuntimeSandboxPolicy;
     shellCommand: string;
     stdin?: Buffer | null;
+    identityContextApplied?: boolean;
   }): Promise<PodExecResult | null> {
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const podName = this.buildSessionPodName(input.assistantId, input.workspaceId);
     const startedAt = Date.now();
+    let egressMode: AssistantSandboxEgressMode;
+    try {
+      egressMode = await this.resolveCanonicalEgressMode(input.assistantId);
+    } catch {
+      return null;
+    }
+    let observedIdentity: PodExecutionIdentity;
     try {
       const pod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
       if (pod.status?.phase !== "Running") {
         return null;
       }
+      const podMode = readPodSandboxEgressMode({
+        labels: pod.metadata?.labels ?? null,
+        annotations: pod.metadata?.annotations ?? null
+      });
+      if (podMode !== egressMode) {
+        this.logger.warn(
+          `try_exec_shell_mode_mismatch_deferred pod=${podName} assistant=${input.assistantId} expected=${egressMode} actual=${podMode ?? "absent_or_malformed"}`
+        );
+        return null;
+      }
+      const annotations = pod.metadata?.annotations ?? {};
+      if (
+        annotations[ASSISTANT_ID_ANNOTATION] !== input.assistantId ||
+        annotations[WORKSPACE_ID_ANNOTATION] !== input.workspaceId ||
+        annotations[ASSISTANT_HANDLE_ANNOTATION] !== input.assistantHandle
+      ) {
+        return null;
+      }
+      observedIdentity = {
+        namespace,
+        podName,
+        podUid: this.requirePodUid(pod, podName),
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        assistantHandle: input.assistantHandle,
+        mode: egressMode
+      };
     } catch (error) {
       const isNotFound =
         error !== null &&
@@ -458,6 +623,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         `Failed to read session exec pod for hot-only exec: ${error instanceof Error ? error.message : String(error)}`
       );
     }
+    if (input.identityContextApplied !== true) {
+      return this.executionIdentityContext.run(observedIdentity, async () =>
+        this.tryExecShellInExistingSessionPod({ ...input, identityContextApplied: true })
+      );
+    }
     await this.ensureWorkspaceMountBootstrapped(
       podName,
       namespace,
@@ -467,6 +637,33 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       input.assistantHandle,
       input.siblingHandles
     );
+    // Hot-only writes never create a missing pod, but they still re-resolve DB
+    // truth and re-inspect the exact pod immediately before exec.
+    const currentMode = await this.resolveCanonicalEgressMode(input.assistantId);
+    const currentPod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
+    const currentAnnotations = currentPod.metadata?.annotations ?? {};
+    if (
+      currentAnnotations[ASSISTANT_ID_ANNOTATION] !== input.assistantId ||
+      currentAnnotations[WORKSPACE_ID_ANNOTATION] !== input.workspaceId ||
+      currentAnnotations[ASSISTANT_HANDLE_ANNOTATION] !== input.assistantHandle
+    ) {
+      return null;
+    }
+    const currentPodMode = readPodSandboxEgressMode({
+      labels: currentPod.metadata?.labels ?? null,
+      annotations: currentAnnotations
+    });
+    if (currentPodMode !== currentMode) {
+      const currentPodUid = this.requirePodUid(currentPod, podName);
+      await this.deletePodUidStrict(podName, namespace, currentPodUid);
+      await this.waitUntilPodUidGone(
+        podName,
+        namespace,
+        currentPodUid,
+        this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+      );
+      return null;
+    }
     const result = await this.execCommand(podName, namespace, {
       command: "/bin/bash",
       args: ["-lc", input.shellCommand],
@@ -492,6 +689,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
    */
   private async runInSessionPod(options: {
     jobId: string;
+    leaseToken: string;
+    leaseHolderId: string;
     runtimeSessionId: string;
     assistantId: string;
     assistantHandle: string;
@@ -509,10 +708,12 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }): Promise<PodExecResult> {
     const { assistantId, workspaceId, namespace, assistantHandle, siblingHandles } = options;
     const podName = this.buildSessionPodName(assistantId, workspaceId);
+    const egressMode = await this.resolveCanonicalEgressMode(assistantId);
 
     this.logger.log(
-      `exec_pod_session job=${options.jobId} pod=${podName} assistant=${assistantId} workspace=${workspaceId} handle=${assistantHandle}`
+      `exec_pod_session job=${options.jobId} pod=${podName} assistant=${assistantId} workspace=${workspaceId} handle=${assistantHandle} mode=${egressMode}`
     );
+    this.observability?.recordSandboxEgressJob({ mode: egressMode });
 
     await this.ensureSessionPodRunning(
       podName,
@@ -520,8 +721,34 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       options.policy,
       assistantId,
       workspaceId,
-      assistantHandle
+      assistantHandle,
+      egressMode,
+      options.jobId,
+      options.leaseToken,
+      options.leaseHolderId
     );
+    await this.assertPodMatchesEgressMode({
+      podName,
+      namespace,
+      expectedMode: egressMode,
+      assistantId,
+      jobId: options.jobId,
+      recycleIfMismatched: true,
+      policy: options.policy,
+      workspaceId,
+      assistantHandle
+    });
+    const binding = await this.bindPodToCurrentJob({
+      podName,
+      namespace,
+      assistantId,
+      workspaceId,
+      assistantHandle,
+      expectedMode: egressMode,
+      jobId: options.jobId,
+      leaseToken: options.leaseToken,
+      leaseHolderId: options.leaseHolderId
+    });
     await this.ensureWorkspaceMountBootstrapped(
       podName,
       namespace,
@@ -561,7 +788,22 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         );
       }
     }
-    const result = await this.execCommand(podName, namespace, {
+    // Re-resolve DB truth, then inspect/reconcile cluster truth immediately
+    // before the model-authored command. The earlier mode is deliberately not
+    // reused: an owner change may have committed while hydrate/staging ran.
+    const executionMode = await this.ensureCanonicalSessionPodImmediatelyBeforeExec({
+      podName,
+      namespace,
+      policy: options.policy,
+      assistantId,
+      workspaceId,
+      assistantHandle,
+      jobId: options.jobId
+    });
+    const result = await this.execJobCommand(podName, namespace, {
+      jobId: options.jobId,
+      assistantId,
+      egressMode: executionMode,
       command: options.command,
       args: options.args,
       podCwd,
@@ -572,7 +814,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     return {
       ...result,
       durationMs: Date.now() - options.startedAt,
-      execPodName: podName
+      execPodName: podName,
+      execPodBinding: binding
     };
   }
 
@@ -582,6 +825,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
    */
   private async runInEphemeralPod(options: {
     jobId: string;
+    leaseToken: string;
+    leaseHolderId: string;
     assistantId: string;
     assistantHandle: string;
     siblingHandles: readonly string[];
@@ -597,60 +842,94 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }): Promise<PodExecResult> {
     const podName = this.buildPodName(options.jobId);
     const { namespace } = options;
+    const egressMode = await this.resolveCanonicalEgressMode(options.assistantId);
 
-    this.logger.log(`exec_pod_create job=${options.jobId} pod=${podName} session=none`);
+    this.logger.log(
+      `exec_pod_create job=${options.jobId} pod=${podName} session=none mode=${egressMode}`
+    );
+    this.observability?.recordSandboxEgressJob({ mode: egressMode });
 
-    await this.createExecPod(podName, namespace, options.policy);
-    try {
-      await this.waitForPodRunning(
-        podName,
-        namespace,
-        this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
-      );
-      await this.ensureWorkspaceMountBootstrapped(
-        podName,
-        namespace,
-        options.workspaceId,
-        options.assistantId,
-        null,
-        options.assistantHandle,
-        options.siblingHandles,
-        "none"
-      );
-      await this.pushWorkspace(podName, namespace, options.workspaceRoot);
-      if (options.stagingFiles !== undefined) {
-        for (const file of options.stagingFiles) {
-          await this.writePodFileBytes(
-            podName,
-            namespace,
-            file.absolutePath,
-            file.contents,
-            options.policy
-          );
-        }
+    await this.ensureSessionPodRunning(
+      podName,
+      namespace,
+      options.policy,
+      options.assistantId,
+      options.workspaceId,
+      options.assistantHandle,
+      egressMode,
+      options.jobId,
+      options.leaseToken,
+      options.leaseHolderId
+    );
+    const binding = await this.bindPodToCurrentJob({
+      podName,
+      namespace,
+      assistantId: options.assistantId,
+      workspaceId: options.workspaceId,
+      assistantHandle: options.assistantHandle,
+      expectedMode: egressMode,
+      jobId: options.jobId,
+      leaseToken: options.leaseToken,
+      leaseHolderId: options.leaseHolderId
+    });
+    await this.ensureWorkspaceMountBootstrapped(
+      podName,
+      namespace,
+      options.workspaceId,
+      options.assistantId,
+      null,
+      options.assistantHandle,
+      options.siblingHandles,
+      "none"
+    );
+    await this.pushWorkspace(podName, namespace, options.workspaceRoot);
+    if (options.stagingFiles !== undefined) {
+      for (const file of options.stagingFiles) {
+        await this.writePodFileBytes(
+          podName,
+          namespace,
+          file.absolutePath,
+          file.contents,
+          options.policy
+        );
       }
-      const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
-      const result = await this.execCommand(podName, namespace, {
-        command: options.command,
-        args: options.args,
-        podCwd,
-        policy: options.policy
-      });
-      await this.pullWorkspace(podName, namespace, options.workspaceRoot);
-      return {
-        ...result,
-        durationMs: Date.now() - options.startedAt,
-        execPodName: podName
-      };
-    } finally {
-      await this.deletePod(podName, namespace);
     }
+    const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
+    const executionMode = await this.resolveCanonicalEgressMode(options.assistantId);
+    await this.assertPodMatchesEgressMode({
+      podName,
+      namespace,
+      expectedMode: executionMode,
+      assistantId: options.assistantId,
+      jobId: options.jobId,
+      recycleIfMismatched: false,
+      policy: options.policy,
+      workspaceId: options.workspaceId,
+      assistantHandle: options.assistantHandle
+    });
+    const result = await this.execJobCommand(podName, namespace, {
+      jobId: options.jobId,
+      assistantId: options.assistantId,
+      egressMode: executionMode,
+      command: options.command,
+      args: options.args,
+      podCwd,
+      policy: options.policy
+    });
+    await this.pullWorkspace(podName, namespace, options.workspaceRoot);
+    return {
+      ...result,
+      durationMs: Date.now() - options.startedAt,
+      execPodName: podName,
+      execPodBinding: binding
+    };
   }
 
   /**
-   * Ensure the session pod exists and is Running. Creates it if absent or in a terminal state.
+   * Ensure the session pod exists and is Running with the canonical egress mode.
    * A 409 Conflict from createExecPod (concurrent caller already created the pod) is treated
-   * as "already created" and falls through to waitForPodRunning without re-throwing.
+   * as "already created" only after the existing pod's mode is validated; wrong-mode
+   * pods are deleted, waited out, and recreated.
    */
   private async ensureSessionPodRunning(
     podName: string,
@@ -658,31 +937,143 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     policy: RuntimeSandboxPolicy,
     assistantId: string,
     workspaceId: string,
-    assistantHandle: string
-  ): Promise<void> {
+    assistantHandle: string,
+    egressMode: AssistantSandboxEgressMode,
+    jobId: string | null,
+    leaseToken: string | null,
+    leaseHolderId: string | null
+  ): Promise<PodExecutionIdentity> {
+    if (jobId !== null || leaseToken !== null || leaseHolderId !== null) {
+      if (jobId === null || leaseToken === null || leaseHolderId === null) {
+        throw createBridgeError(
+          "workspace_lease_lost",
+          "Incomplete workspace lease identity was supplied for model-job pod admission.",
+          true
+        );
+      }
+      await this.assertActiveWorkspaceLease({
+        assistantId,
+        workspaceId,
+        jobId,
+        leaseToken,
+        leaseHolderId
+      });
+    }
     let needsCreate = false;
     try {
       const pod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
-      const phase = pod.status?.phase;
-      if (phase === "Running") {
-        return;
-      }
-      if (phase === "Failed" || phase === "Succeeded" || phase === "Unknown") {
-        // Terminal: delete and recreate.
-        this.logger.warn(
-          `exec_pod_session_terminal pod=${podName} phase=${phase ?? "unknown"} — recreating`
+      const podUid = this.requirePodUid(pod, podName);
+      const annotations = pod.metadata?.annotations ?? {};
+      if (
+        annotations[ASSISTANT_ID_ANNOTATION] !== assistantId ||
+        annotations[WORKSPACE_ID_ANNOTATION] !== workspaceId ||
+        annotations[ASSISTANT_HANDLE_ANNOTATION] !== assistantHandle
+      ) {
+        throw createBridgeError(
+          "sandbox_pod_identity_mismatch",
+          `Refusing to reuse or retire pod ${podName} uid=${podUid}: assistant/workspace/handle identity differs.`,
+          true
         );
-        await this.deletePod(podName, namespace);
+      }
+      const annotatedJobId = annotations[SANDBOX_JOB_ID_ANNOTATION] ?? null;
+      const annotatedLeaseToken = annotations[SANDBOX_LEASE_TOKEN_ANNOTATION] ?? null;
+      const contaminated = annotatedJobId !== null || annotatedLeaseToken !== null;
+      const currentGeneration =
+        annotatedJobId === jobId &&
+        annotatedLeaseToken === leaseToken &&
+        jobId !== null &&
+        leaseToken !== null;
+      if (contaminated && !currentGeneration) {
+        if (jobId === null || leaseToken === null) {
+          throw createBridgeError(
+            "sandbox_pod_generation_contaminated",
+            `Session pod ${podName} is bound to a model-job lease generation; lease-free control work cannot recycle or reuse it.`,
+            true
+          );
+        }
+        await this.failStaleAnnotatedJob({
+          annotatedJobId,
+          podName,
+          podUid,
+          assistantId,
+          workspaceId
+        });
+        await this.deletePodUidStrict(podName, namespace, podUid);
+        await this.waitUntilPodUidGone(
+          podName,
+          namespace,
+          podUid,
+          this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+        );
         needsCreate = true;
       }
-      // Pending or unknown phase: fall through to waitForPodRunning.
+      if (needsCreate) {
+        // Stale generation was retired; skip all checks against the deleted object.
+      } else {
+        const phase = pod.status?.phase;
+        const podMode = readPodSandboxEgressMode({
+          labels: pod.metadata?.labels ?? null,
+          annotations
+        });
+        if (phase === "Running") {
+          if (podMode === egressMode) {
+            return {
+              namespace,
+              podName,
+              podUid,
+              assistantId,
+              workspaceId,
+              assistantHandle,
+              mode: egressMode
+            };
+          }
+          this.logger.warn(
+            `exec_pod_mode_mismatch_recycle pod=${podName} assistant=${assistantId} job=${jobId ?? "none"} expected=${egressMode} actual=${podMode ?? "absent_or_malformed"}`
+          );
+          this.observability?.recordSandboxEgressPodRecycle({
+            reason: podMode === null ? "malformed" : "mismatch"
+          });
+          await this.deletePodUidStrict(podName, namespace, podUid);
+          await this.waitUntilPodUidGone(
+            podName,
+            namespace,
+            podUid,
+            this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+          );
+          needsCreate = true;
+        } else if (phase === "Failed" || phase === "Succeeded" || phase === "Unknown") {
+          this.logger.warn(
+            `exec_pod_session_terminal pod=${podName} phase=${phase ?? "unknown"} — recreating`
+          );
+          await this.deletePodUidStrict(podName, namespace, podUid);
+          await this.waitUntilPodUidGone(
+            podName,
+            namespace,
+            podUid,
+            this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+          );
+          needsCreate = true;
+        } else if (podMode !== egressMode) {
+          // Pending/other with wrong or missing mode — do not wait on a wrong contour.
+          this.logger.warn(
+            `exec_pod_mode_mismatch_pending_recycle pod=${podName} assistant=${assistantId} expected=${egressMode} actual=${podMode ?? "absent_or_malformed"}`
+          );
+          this.observability?.recordSandboxEgressPodRecycle({
+            reason: podMode === null ? "malformed" : "mismatch"
+          });
+          await this.deletePodUidStrict(podName, namespace, podUid);
+          await this.waitUntilPodUidGone(
+            podName,
+            namespace,
+            podUid,
+            this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+          );
+          needsCreate = true;
+        }
+        // Pending with matching mode: fall through to waitForPodRunning.
+      }
     } catch (error) {
-      const isNotFound =
-        error !== null &&
-        typeof error === "object" &&
-        ((error as { code?: unknown }).code === 404 ||
-          (error as { statusCode?: unknown }).statusCode === 404 ||
-          (error as { response?: { statusCode?: unknown } }).response?.statusCode === 404);
+      const isNotFound = this.isKubernetesNotFound(error);
       if (!isNotFound) {
         throw createBridgeError(
           "process_spawn_failed",
@@ -693,12 +1084,23 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     }
 
     if (needsCreate) {
-      this.logger.log(`exec_pod_session_create pod=${podName} handle=${assistantHandle}`);
-      await this.createExecPodIdempotent(podName, namespace, policy, {
-        [ASSISTANT_ID_ANNOTATION]: assistantId,
-        [WORKSPACE_ID_ANNOTATION]: workspaceId,
-        [ASSISTANT_HANDLE_ANNOTATION]: assistantHandle
-      });
+      this.logger.log(
+        `exec_pod_session_create pod=${podName} handle=${assistantHandle} mode=${egressMode}`
+      );
+      this.observability?.recordSandboxEgressPodCreate({ mode: egressMode });
+      await this.createExecPodIdempotent(
+        podName,
+        namespace,
+        policy,
+        egressMode,
+        {
+          [ASSISTANT_ID_ANNOTATION]: assistantId,
+          [WORKSPACE_ID_ANNOTATION]: workspaceId,
+          [ASSISTANT_HANDLE_ANNOTATION]: assistantHandle
+        },
+        assistantId,
+        jobId
+      );
     }
 
     await this.waitForPodRunning(
@@ -706,13 +1108,40 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       namespace,
       this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
     );
+    const readyPod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
+    const readyAnnotations = readyPod.metadata?.annotations ?? {};
+    if (
+      readyAnnotations[ASSISTANT_ID_ANNOTATION] !== assistantId ||
+      readyAnnotations[WORKSPACE_ID_ANNOTATION] !== workspaceId ||
+      readyAnnotations[ASSISTANT_HANDLE_ANNOTATION] !== assistantHandle ||
+      readPodSandboxEgressMode({
+        labels: readyPod.metadata?.labels ?? null,
+        annotations: readyAnnotations
+      }) !== egressMode
+    ) {
+      throw createBridgeError(
+        "sandbox_pod_identity_mismatch",
+        `Exec pod ${podName} identity/mode changed while becoming Running.`,
+        true
+      );
+    }
+    return {
+      namespace,
+      podName,
+      podUid: this.requirePodUid(readyPod, podName),
+      assistantId,
+      workspaceId,
+      assistantHandle,
+      mode: egressMode
+    };
   }
 
   /**
    * Pre-create the session pod for this (assistantId, workspaceId) pair so pod provisioning
    * overlaps the workspace lease wait (warm-pool entry, ADR-126 D10 / Slice 1).
    * Safe to call concurrently with runInSessionPod — a 409 from a racing create is treated
-   * as idempotent success. Warm failure is non-fatal; callers log at warn and continue.
+   * as idempotent success only when the existing pod matches canonical mode. Warm failure
+   * is non-fatal; callers log at warn and continue.
    */
   async warmSessionPod(input: {
     assistantId: string;
@@ -723,35 +1152,81 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     const { assistantId, assistantHandle, workspaceId, policy } = input;
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const podName = this.buildSessionPodName(assistantId, workspaceId);
+    const egressMode = await this.resolveCanonicalEgressMode(assistantId);
 
     let alreadyRunning = false;
     try {
       const pod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
-      if (pod.status?.phase === "Running") {
-        alreadyRunning = true;
+      const annotations = pod.metadata?.annotations ?? {};
+      if (
+        annotations[SANDBOX_JOB_ID_ANNOTATION] !== undefined ||
+        annotations[SANDBOX_LEASE_TOKEN_ANNOTATION] !== undefined
+      ) {
         this.logger.log(
-          `warm_session_pod pod=${podName} assistant=${assistantId} workspace=${workspaceId} already_running=true`
+          `warm_session_pod_contaminated_deferred pod=${podName} assistant=${assistantId} workspace=${workspaceId}`
         );
-        return { podName, alreadyRunning: true };
+        return { podName, alreadyRunning: pod.status?.phase === "Running" };
+      }
+      if (
+        annotations[ASSISTANT_ID_ANNOTATION] !== assistantId ||
+        annotations[WORKSPACE_ID_ANNOTATION] !== workspaceId ||
+        annotations[ASSISTANT_HANDLE_ANNOTATION] !== assistantHandle
+      ) {
+        throw createBridgeError(
+          "sandbox_pod_identity_mismatch",
+          `Refusing to warm or retire pod ${podName}: assistant/workspace/handle identity differs.`,
+          true
+        );
+      }
+      if (pod.status?.phase === "Running") {
+        const podMode = readPodSandboxEgressMode({
+          labels: pod.metadata?.labels ?? null,
+          annotations
+        });
+        if (podMode === egressMode) {
+          alreadyRunning = true;
+          this.logger.log(
+            `warm_session_pod pod=${podName} assistant=${assistantId} workspace=${workspaceId} mode=${egressMode} already_running=true`
+          );
+          return { podName, alreadyRunning: true };
+        }
+        this.logger.warn(
+          `warm_session_pod_mode_mismatch_recycle pod=${podName} assistant=${assistantId} expected=${egressMode} actual=${podMode ?? "absent_or_malformed"}`
+        );
+        this.observability?.recordSandboxEgressPodRecycle({
+          reason: podMode === null ? "malformed" : "mismatch"
+        });
+        const podUid = this.requirePodUid(pod, podName);
+        await this.deletePodUidStrict(podName, namespace, podUid);
+        await this.waitUntilPodUidGone(
+          podName,
+          namespace,
+          podUid,
+          this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+        );
       }
     } catch (error) {
-      const isNotFound =
-        error !== null &&
-        typeof error === "object" &&
-        ((error as { code?: unknown }).code === 404 ||
-          (error as { statusCode?: unknown }).statusCode === 404 ||
-          (error as { response?: { statusCode?: unknown } }).response?.statusCode === 404);
+      const isNotFound = this.isKubernetesNotFound(error);
       if (!isNotFound) {
         throw error;
       }
       // Pod not found — fall through to create.
     }
 
-    await this.createExecPodIdempotent(podName, namespace, policy, {
-      [ASSISTANT_ID_ANNOTATION]: assistantId,
-      [WORKSPACE_ID_ANNOTATION]: workspaceId,
-      [ASSISTANT_HANDLE_ANNOTATION]: assistantHandle
-    });
+    this.observability?.recordSandboxEgressPodCreate({ mode: egressMode });
+    await this.createExecPodIdempotent(
+      podName,
+      namespace,
+      policy,
+      egressMode,
+      {
+        [ASSISTANT_ID_ANNOTATION]: assistantId,
+        [WORKSPACE_ID_ANNOTATION]: workspaceId,
+        [ASSISTANT_HANDLE_ANNOTATION]: assistantHandle
+      },
+      assistantId,
+      null
+    );
 
     await this.waitForPodRunning(
       podName,
@@ -760,7 +1235,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     );
 
     this.logger.log(
-      `warm_session_pod pod=${podName} assistant=${assistantId} workspace=${workspaceId} already_running=${String(alreadyRunning)}`
+      `warm_session_pod pod=${podName} assistant=${assistantId} workspace=${workspaceId} mode=${egressMode} already_running=${String(alreadyRunning)}`
     );
     return { podName, alreadyRunning };
   }
@@ -783,16 +1258,28 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
    * hydration and the GC service to fan out work to every warm pod in a
    * workspace without going through the database.
    */
-  async listWarmSessionPodsForWorkspace(
-    workspaceId: string
-  ): Promise<Array<{ podName: string; assistantId: string; handle: string }>> {
+  async listWarmSessionPodsForWorkspace(workspaceId: string): Promise<
+    Array<{
+      podName: string;
+      podUid: string;
+      assistantId: string;
+      handle: string;
+      mode: AssistantSandboxEgressMode;
+    }>
+  > {
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     try {
       const podList = await this.k8sApi.listNamespacedPod({
         namespace,
         labelSelector: "app.kubernetes.io/component=sandbox-exec"
       });
-      const out: Array<{ podName: string; assistantId: string; handle: string }> = [];
+      const out: Array<{
+        podName: string;
+        podUid: string;
+        assistantId: string;
+        handle: string;
+        mode: AssistantSandboxEgressMode;
+      }> = [];
       for (const pod of podList.items) {
         const annotations = pod.metadata?.annotations ?? {};
         if (annotations[WORKSPACE_ID_ANNOTATION] !== workspaceId) {
@@ -804,10 +1291,21 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         const assistantId = annotations[ASSISTANT_ID_ANNOTATION];
         const handle = annotations[ASSISTANT_HANDLE_ANNOTATION];
         const podName = pod.metadata?.name;
-        if (assistantId === undefined || handle === undefined || podName === undefined) {
+        const podUid = pod.metadata?.uid;
+        const mode = readPodSandboxEgressMode({
+          labels: pod.metadata?.labels ?? null,
+          annotations
+        });
+        if (
+          assistantId === undefined ||
+          handle === undefined ||
+          podName === undefined ||
+          podUid === undefined ||
+          mode === null
+        ) {
           continue;
         }
-        out.push({ podName, assistantId, handle });
+        out.push({ podName, podUid, assistantId, handle, mode });
       }
       return out;
     } catch (error) {
@@ -838,13 +1336,25 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     const failures: Array<{ podName: string; reason: string }> = [];
     for (const pod of warmPods) {
       try {
-        const result = await this.execCommand(pod.podName, namespace, {
-          command: "/bin/bash",
-          args: ["-lc", shellCommand],
-          podCwd: "/",
-          policy,
-          stdin: null
-        });
+        const result = await this.executionIdentityContext.run(
+          {
+            namespace,
+            podName: pod.podName,
+            podUid: pod.podUid,
+            assistantId: pod.assistantId,
+            workspaceId: input.workspaceId,
+            assistantHandle: pod.handle,
+            mode: pod.mode
+          },
+          async () =>
+            this.execCommand(pod.podName, namespace, {
+              command: "/bin/bash",
+              args: ["-lc", shellCommand],
+              podCwd: "/",
+              policy,
+              stdin: null
+            })
+        );
         if (result.exitCode === 0) {
           removedFromPods += 1;
           continue;
@@ -888,6 +1398,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     let podItems: Array<{
       metadata?: {
         name?: string;
+        uid?: string;
+        resourceVersion?: string;
         creationTimestamp?: Date | string;
         annotations?: Record<string, string>;
       };
@@ -905,7 +1417,9 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
     for (const pod of podItems) {
       const podName = pod.metadata?.name;
-      if (podName === undefined) {
+      const podUid = pod.metadata?.uid;
+      const podResourceVersion = pod.metadata?.resourceVersion;
+      if (podName === undefined || podUid === undefined || podResourceVersion === undefined) {
         continue;
       }
       const creationMs =
@@ -916,18 +1430,70 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
       const assistantId = pod.metadata?.annotations?.[ASSISTANT_ID_ANNOTATION];
       const workspaceId = pod.metadata?.annotations?.[WORKSPACE_ID_ANNOTATION];
+      const annotatedJobId = pod.metadata?.annotations?.[SANDBOX_JOB_ID_ANNOTATION];
+      const annotatedLeaseToken = pod.metadata?.annotations?.[SANDBOX_LEASE_TOKEN_ANNOTATION];
+      let staleContamination = false;
       if (assistantId !== undefined && workspaceId !== undefined) {
         try {
-          const latest = await this.prisma.sandboxJob.findFirst({
-            where: { assistantId, workspaceId },
-            orderBy: { createdAt: "desc" },
-            select: { createdAt: true, completedAt: true }
-          });
-          if (latest !== null) {
-            lastActivityMs = Math.max(
-              lastActivityMs,
-              (latest.completedAt ?? latest.createdAt).getTime()
-            );
+          if (annotatedJobId !== undefined || annotatedLeaseToken !== undefined) {
+            if (annotatedJobId === undefined || annotatedLeaseToken === undefined) {
+              staleContamination = true;
+            } else {
+              const activeJob = await this.prisma.sandboxJob.findFirst({
+                where: {
+                  id: annotatedJobId,
+                  assistantId,
+                  workspaceId,
+                  status: { in: ["queued", "running"] }
+                },
+                select: { id: true }
+              });
+              const activeLease = await this.prisma.assistantWorkspaceLease.findFirst({
+                where: {
+                  assistantId,
+                  workspaceId,
+                  sandboxJobId: annotatedJobId,
+                  leaseToken: annotatedLeaseToken,
+                  expiresAt: { gt: new Date(now) }
+                },
+                select: { id: true }
+              });
+              if (activeJob !== null && activeLease !== null) {
+                continue;
+              }
+              staleContamination = true;
+            }
+          } else {
+            const activeJob = await this.prisma.sandboxJob.findFirst({
+              where: {
+                assistantId,
+                workspaceId,
+                status: { in: ["queued", "running"] }
+              },
+              select: { id: true }
+            });
+            const activeLease = await this.prisma.assistantWorkspaceLease.findFirst({
+              where: {
+                assistantId,
+                workspaceId,
+                expiresAt: { gt: new Date(now) }
+              },
+              select: { id: true }
+            });
+            if (activeJob !== null || activeLease !== null) {
+              continue;
+            }
+            const latest = await this.prisma.sandboxJob.findFirst({
+              where: { assistantId, workspaceId },
+              orderBy: { createdAt: "desc" },
+              select: { createdAt: true, completedAt: true }
+            });
+            if (latest !== null) {
+              lastActivityMs = Math.max(
+                lastActivityMs,
+                (latest.completedAt ?? latest.createdAt).getTime()
+              );
+            }
           }
         } catch (error) {
           // Cannot determine activity — do not risk evicting a live workspace pod.
@@ -939,11 +1505,34 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       }
 
       const idleMs = now - lastActivityMs;
-      if (idleMs > idleTtlMs) {
+      if (staleContamination && assistantId !== undefined && workspaceId !== undefined) {
+        await this.failStaleAnnotatedJob({
+          annotatedJobId: annotatedJobId ?? null,
+          podName,
+          podUid,
+          assistantId,
+          workspaceId
+        });
+      }
+      if (staleContamination || idleMs > idleTtlMs) {
         this.logger.log(
           `exec_pod_reaper_evict pod=${podName} assistant=${assistantId ?? "none"} workspace=${workspaceId ?? "none"} idle_ms=${String(idleMs)}`
         );
-        await this.deletePod(podName, namespace);
+        try {
+          await this.deletePodUidStrict(podName, namespace, podUid, podResourceVersion);
+        } catch (error) {
+          if (this.isKubernetesConflict(error)) {
+            this.logger.log(`exec_pod_reaper_snapshot_changed pod=${podName}`);
+            continue;
+          }
+          throw error;
+        }
+        await this.waitUntilPodUidGone(
+          podName,
+          namespace,
+          podUid,
+          this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+        );
       }
     }
   }
@@ -990,38 +1579,99 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Create the exec pod, tolerating a 409 Conflict (another caller beat us to it).
-   * A 409 is treated as idempotent: we log it and fall through so the caller can
-   * proceed to waitForPodRunning. This prevents warm-pool races from surfacing as
-   * process_spawn_failed when warmSessionPod and runInSessionPod race on the same pod.
+   * A 409 is treated as idempotent only when the existing pod's egress mode matches
+   * the canonical mode. Wrong-mode pods from concurrent creators are deleted and
+   * recreated so cross-replica callers converge on DB + cluster truth.
    */
   private async createExecPodIdempotent(
     podName: string,
     namespace: string,
     policy: RuntimeSandboxPolicy,
-    annotations?: Record<string, string>
+    egressMode: AssistantSandboxEgressMode,
+    annotations: Record<string, string>,
+    assistantId: string,
+    jobId: string | null
   ): Promise<void> {
-    try {
-      await this.createExecPod(podName, namespace, policy, annotations);
-    } catch (error) {
-      const is409 =
-        error !== null &&
-        typeof error === "object" &&
-        ((error as { code?: unknown }).code === 409 ||
-          (error as { statusCode?: unknown }).statusCode === 409 ||
-          (error as { response?: { statusCode?: unknown } }).response?.statusCode === 409);
-      if (!is409) {
-        throw error;
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const canonicalMode = await this.resolveCanonicalEgressMode(assistantId);
+      if (canonicalMode !== egressMode) {
+        throw createBridgeError(
+          "sandbox_egress_mode_mismatch",
+          `Assistant mode changed while creating pod ${podName}; refusing stale create.`,
+          true
+        );
       }
-      this.logger.log(
-        `exec_pod_create_conflict_409 pod=${podName} — another caller created it concurrently, continuing`
-      );
+      try {
+        await this.createExecPod(podName, namespace, policy, egressMode, annotations);
+        return;
+      } catch (error) {
+        if (!this.isKubernetesConflict(error)) {
+          throw error;
+        }
+        this.logger.log(
+          `exec_pod_create_conflict_409 pod=${podName} assistant=${assistantId} job=${jobId ?? "none"} attempt=${String(attempt)}`
+        );
+        let pod;
+        try {
+          pod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
+        } catch (readError) {
+          throw createBridgeError(
+            "process_spawn_failed",
+            `Failed to read exec pod after create conflict: ${describeUnknownError(readError)}`
+          );
+        }
+        const podAnnotations = pod.metadata?.annotations ?? {};
+        const podMode = readPodSandboxEgressMode({
+          labels: pod.metadata?.labels ?? null,
+          annotations: podAnnotations
+        });
+        const identityMatches =
+          podAnnotations[ASSISTANT_ID_ANNOTATION] === annotations[ASSISTANT_ID_ANNOTATION] &&
+          podAnnotations[WORKSPACE_ID_ANNOTATION] === annotations[WORKSPACE_ID_ANNOTATION] &&
+          podAnnotations[ASSISTANT_HANDLE_ANNOTATION] === annotations[ASSISTANT_HANDLE_ANNOTATION];
+        if (podMode === egressMode && identityMatches) {
+          return;
+        }
+        if (!identityMatches) {
+          throw createBridgeError(
+            "sandbox_pod_identity_mismatch",
+            `Refusing to retire create-conflict pod ${podName}: assistant/workspace/handle identity differs.`,
+            true
+          );
+        }
+        this.logger.warn(
+          `exec_pod_create_conflict_wrong_mode pod=${podName} assistant=${assistantId} expected=${egressMode} actual=${podMode ?? "absent_or_malformed"} attempt=${String(attempt)}`
+        );
+        this.observability?.recordSandboxEgressPodRecycle({
+          reason: podMode === null ? "malformed" : "mismatch"
+        });
+        const podUid = this.requirePodUid(pod, podName);
+        await this.deletePodUidStrict(podName, namespace, podUid);
+        await this.waitUntilPodUidGone(
+          podName,
+          namespace,
+          podUid,
+          this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+        );
+        if (attempt < maxAttempts) {
+          this.observability?.recordSandboxEgressPodCreate({ mode: egressMode });
+          continue;
+        }
+      }
     }
+    throw createBridgeError(
+      "process_spawn_failed",
+      `Exec pod create did not converge after ${String(maxAttempts)} attempts for pod ${podName}.`,
+      true
+    );
   }
 
   private async createExecPod(
     podName: string,
     namespace: string,
     policy: RuntimeSandboxPolicy,
+    egressMode: AssistantSandboxEgressMode,
     annotations?: Record<string, string>
   ): Promise<void> {
     const image = this.config.SANDBOX_EXEC_IMAGE;
@@ -1032,6 +1682,29 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     const memLimit = `${Math.max(memMb, 64)}Mi`;
     const memRequest = `${Math.min(Math.max(memMb, 64), 256)}Mi`;
     const emptyDirSizeLimit = `${this.config.SANDBOX_SHARED_EMPTYDIR_SIZE_MIB}Mi`;
+    const modeMeta = buildSandboxEgressModeMetadata(egressMode);
+    const callerMode = annotations?.["persai.io/sandbox-egress"];
+    if (callerMode !== undefined && callerMode !== modeMeta.labelValue) {
+      throw createBridgeError(
+        "process_spawn_failed",
+        `Conflicting sandbox egress annotation supplied for pod ${podName}.`,
+        true
+      );
+    }
+    if (
+      annotations?.[SANDBOX_JOB_ID_ANNOTATION] !== undefined ||
+      annotations?.[SANDBOX_LEASE_TOKEN_ANNOTATION] !== undefined
+    ) {
+      throw createBridgeError(
+        "process_spawn_failed",
+        `Caller cannot pre-bind model-job lease annotations for pod ${podName}.`,
+        true
+      );
+    }
+    const mergedAnnotations = {
+      ...(annotations ?? {}),
+      ...modeMeta.annotations
+    };
     try {
       await this.k8sApi.createNamespacedPod({
         namespace,
@@ -1043,9 +1716,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             namespace,
             labels: {
               "app.kubernetes.io/name": "exec-pod",
-              "app.kubernetes.io/component": "sandbox-exec"
+              "app.kubernetes.io/component": "sandbox-exec",
+              ...modeMeta.labels
             },
-            ...(annotations === undefined ? {} : { annotations })
+            annotations: mergedAnnotations
           },
           spec: {
             runtimeClassName,
@@ -1088,7 +1762,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
                 name: "exec",
                 image,
                 command: ["/bin/sh", "-c", "sleep infinity"],
-                env: this.buildProxyEnv(),
+                env: this.buildProxyEnv(egressMode),
                 securityContext: {
                   allowPrivilegeEscalation: false,
                   readOnlyRootFilesystem: true,
@@ -1126,13 +1800,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       });
     } catch (error) {
       // Re-throw 409 Conflict as-is so createExecPodIdempotent can detect and handle it.
-      const is409 =
-        error !== null &&
-        typeof error === "object" &&
-        ((error as { code?: unknown }).code === 409 ||
-          (error as { statusCode?: unknown }).statusCode === 409 ||
-          (error as { response?: { statusCode?: unknown } }).response?.statusCode === 409);
-      if (is409) {
+      if (this.isKubernetesConflict(error)) {
         throw error;
       }
       throw createBridgeError(
@@ -1746,6 +2414,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     namespace: string,
     tarball: Buffer
   ): Promise<void> {
+    await this.assertCanonicalPodModeImmediatelyBeforeExec(podName, namespace);
     await new Promise<void>((resolve, reject) => {
       const settled = { value: false };
       const drain = new Writable({
@@ -1830,12 +2499,13 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
    * was 0. Never rejects: any failure (non-zero exit, connection error, no sentinel)
    * resolves `false`, so callers treat it as "not confirmed" and decide what to do.
    */
-  private runStdinlessProbe(
+  private async runStdinlessProbe(
     podName: string,
     namespace: string,
     shellCommand: string,
     sentinel: string
   ): Promise<boolean> {
+    await this.assertCanonicalPodModeImmediatelyBeforeExec(podName, namespace);
     return new Promise<boolean>((resolve) => {
       const settled = { value: false };
       const stdoutBuf: Buffer[] = [];
@@ -1938,6 +2608,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       stdin?: Buffer | null;
     }
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+    await this.assertCanonicalPodModeImmediatelyBeforeExec(podName, namespace);
     const execArgs = [
       "/bin/sh",
       "-c",
@@ -1961,6 +2632,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         ? null
         : this.readBufferInChunks(stdinPayload, WORKSPACE_PUSH_CHUNK_BYTES);
 
+    let activeWebSocket: { close?: () => void } | null = null;
     const resultPromise = new Promise<{ exitCode: number | null; stdout: string; stderr: string }>(
       (resolve, reject) => {
         const statusReceived = { value: false };
@@ -1990,6 +2662,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             }
           )
           .then((ws) => {
+            activeWebSocket = ws;
             ws.on("close", () => {
               if (statusReceived.value) {
                 return;
@@ -2036,23 +2709,33 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       }
     );
 
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(
-        () =>
-          reject(
-            createBridgeError(
-              "process_timeout",
-              `Sandbox process exceeded ${String(options.policy.maxProcessRuntimeMs)}ms.`,
-              // Workload exceeded its own runtime budget — retrying the same command
-              // would time out again. Non-retryable.
-              true
-            )
-          ),
-        options.policy.maxProcessRuntimeMs
-      )
-    );
+    let timeoutHandle: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        try {
+          activeWebSocket?.close?.();
+        } catch {
+          // Pod retirement is authoritative; websocket close is best-effort.
+        }
+        reject(
+          createBridgeError(
+            "process_timeout",
+            `Sandbox process exceeded ${String(options.policy.maxProcessRuntimeMs)}ms.`,
+            // Workload exceeded its own runtime budget — retrying the same command
+            // would time out again. Non-retryable.
+            true
+          )
+        );
+      }, options.policy.maxProcessRuntimeMs);
+    });
 
-    return Promise.race([resultPromise, timeoutPromise]);
+    try {
+      return await Promise.race([resultPromise, timeoutPromise]);
+    } finally {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 
   private async readFileBytesFromPod(
@@ -2064,6 +2747,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       policy: RuntimeSandboxPolicy;
     }
   ): Promise<Buffer> {
+    await this.assertCanonicalPodModeImmediatelyBeforeExec(podName, namespace);
     if (!options.absolutePath.startsWith("/workspace/")) {
       throw createBridgeError(
         "path_not_attachable",
@@ -2202,8 +2886,9 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           )
         );
     });
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(
+    let timeoutHandle: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(
         () =>
           reject(
             createBridgeError(
@@ -2213,9 +2898,15 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
             )
           ),
         options.policy.maxProcessRuntimeMs
-      )
-    );
-    return await Promise.race([resultPromise, timeoutPromise]);
+      );
+    });
+    try {
+      return await Promise.race([resultPromise, timeoutPromise]);
+    } finally {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 
   private async pullWorkspace(
@@ -2228,6 +2919,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async collectTarFromPod(podName: string, namespace: string): Promise<Buffer> {
+    await this.assertCanonicalPodModeImmediatelyBeforeExec(podName, namespace);
     return await new Promise<Buffer>((resolve, reject) => {
       const chunks: Buffer[] = [];
       const stdoutCollector = new Writable({
@@ -2334,8 +3026,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
   async deletePod(podName: string, namespace: string): Promise<void> {
     try {
-      await this.k8sApi.deleteNamespacedPod({ name: podName, namespace });
-      this.logger.log(`exec_pod_deleted pod=${podName}`);
+      await this.retireCurrentPodByNameStrict(podName, namespace);
     } catch (error) {
       this.logger.warn(
         `exec_pod_delete_failed pod=${podName} error=${error instanceof Error ? error.message : String(error)}`
@@ -2343,22 +3034,898 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private buildProxyEnv(): Array<{ name: string; value: string }> {
-    const proxyUrl = this.config.SANDBOX_EXEC_EGRESS_PROXY_URL;
-    if (proxyUrl.length === 0) {
-      return [];
+  /**
+   * ADR-146 Slice 3 — owner reconcile/eviction. `scope: "all"` deletes every warm
+   * session pod for the assistant. `scope: "stale_only"` deletes only pods whose
+   * egress label/annotation is missing, malformed, or mismatched vs expectedMode.
+   * Success requires every targeted pod to be absent from cluster truth.
+   */
+  async reconcileAssistantEgressPods(input: {
+    assistantId: string;
+    expectedMode: AssistantSandboxEgressMode;
+    scope: "all" | "stale_only";
+  }): Promise<{ recycled: boolean; deletedPodCount: number }> {
+    const canonicalMode = await this.resolveCanonicalEgressMode(input.assistantId);
+    if (canonicalMode !== input.expectedMode) {
+      throw createBridgeError(
+        "sandbox_egress_reconcile_mode_mismatch",
+        `Reconcile request mode does not match canonical Assistant mode for assistant=${input.assistantId}.`,
+        true
+      );
     }
-    const noProxy = this.config.SANDBOX_EXEC_NO_PROXY;
-    const vars: Array<{ name: string; value: string }> = [
-      { name: "HTTP_PROXY", value: proxyUrl },
-      { name: "HTTPS_PROXY", value: proxyUrl },
-      { name: "http_proxy", value: proxyUrl },
-      { name: "https_proxy", value: proxyUrl }
-    ];
-    if (noProxy.length > 0) {
-      vars.push({ name: "NO_PROXY", value: noProxy });
-      vars.push({ name: "no_proxy", value: noProxy });
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+    const pods = await this.listWarmSessionPodsForAssistant(input.assistantId);
+    const targets: Array<{
+      podName: string;
+      podUid: string;
+      podResourceVersion: string;
+      workspaceId: string;
+    }> = [];
+    for (const pod of pods) {
+      if (pod.mode !== canonicalMode) {
+        targets.push(pod);
+      }
     }
-    return vars;
+    // Bound total wall time to one pod delete/wait budget even if an assistant
+    // has several workspace pods. The API timeout carries an additional margin.
+    const results = await Promise.all(
+      targets.map(async ({ podName, podUid, podResourceVersion, workspaceId }) => {
+        let current: V1Pod;
+        try {
+          current = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
+        } catch (error) {
+          if (this.isKubernetesNotFound(error)) {
+            return false;
+          }
+          throw error;
+        }
+        if (
+          this.requirePodUid(current, podName) !== podUid ||
+          this.requirePodResourceVersion(current, podName) !== podResourceVersion
+        ) {
+          return false;
+        }
+        const currentMode = readPodSandboxEgressMode({
+          labels: current.metadata?.labels ?? null,
+          annotations: current.metadata?.annotations ?? null
+        });
+        if (currentMode === canonicalMode) {
+          return false;
+        }
+        if (
+          await this.isPodProtectedByActiveLeaseAndJob({
+            pod: current,
+            assistantId: input.assistantId,
+            workspaceId
+          })
+        ) {
+          return false;
+        }
+        this.logger.log(
+          `sandbox_egress_owner_evict pod=${podName} assistant=${input.assistantId} mode=${canonicalMode} scope=${input.scope}`
+        );
+        try {
+          await this.deletePodUidStrict(podName, namespace, podUid, podResourceVersion);
+        } catch (error) {
+          if (this.isKubernetesConflict(error) || this.isKubernetesNotFound(error)) {
+            return false;
+          }
+          throw error;
+        }
+        await this.waitUntilPodUidGone(
+          podName,
+          namespace,
+          podUid,
+          this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+        );
+        this.observability?.recordSandboxEgressPodRecycle({ reason: "owner_evict" });
+        return true;
+      })
+    );
+    const deletedPodCount = results.filter(Boolean).length;
+    return {
+      recycled: deletedPodCount > 0,
+      deletedPodCount
+    };
+  }
+
+  async listWarmSessionPodsForAssistant(assistantId: string): Promise<
+    Array<{
+      podName: string;
+      podUid: string;
+      podResourceVersion: string;
+      workspaceId: string;
+      mode: AssistantSandboxEgressMode | null;
+    }>
+  > {
+    const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
+    try {
+      const podList = await this.k8sApi.listNamespacedPod({
+        namespace,
+        labelSelector: "app.kubernetes.io/component=sandbox-exec"
+      });
+      const out: Array<{
+        podName: string;
+        podUid: string;
+        podResourceVersion: string;
+        workspaceId: string;
+        mode: AssistantSandboxEgressMode | null;
+      }> = [];
+      for (const pod of podList.items) {
+        const annotations = pod.metadata?.annotations ?? {};
+        if (annotations[ASSISTANT_ID_ANNOTATION] !== assistantId) {
+          continue;
+        }
+        const phase = pod.status?.phase;
+        if (phase !== "Running" && phase !== "Pending") {
+          continue;
+        }
+        const podName = pod.metadata?.name;
+        const podUid = pod.metadata?.uid;
+        const podResourceVersion = pod.metadata?.resourceVersion;
+        const workspaceId = annotations[WORKSPACE_ID_ANNOTATION];
+        if (
+          podName === undefined ||
+          podUid === undefined ||
+          podResourceVersion === undefined ||
+          workspaceId === undefined
+        ) {
+          continue;
+        }
+        out.push({
+          podName,
+          podUid,
+          podResourceVersion,
+          workspaceId,
+          mode: readPodSandboxEgressMode({
+            labels: pod.metadata?.labels ?? null,
+            annotations
+          })
+        });
+      }
+      return out;
+    } catch (error) {
+      throw createBridgeError(
+        "sandbox_egress_reconcile_failed",
+        `Failed to list assistant exec pods: ${describeUnknownError(error)}`
+      );
+    }
+  }
+
+  private async isPodProtectedByActiveLeaseAndJob(input: {
+    pod: V1Pod;
+    assistantId: string;
+    workspaceId: string;
+  }): Promise<boolean> {
+    const annotations = input.pod.metadata?.annotations ?? {};
+    const jobId = annotations[SANDBOX_JOB_ID_ANNOTATION];
+    const leaseToken = annotations[SANDBOX_LEASE_TOKEN_ANNOTATION];
+    if (jobId === undefined || leaseToken === undefined) {
+      return false;
+    }
+    const job = await this.prisma.sandboxJob.findFirst({
+      where: {
+        id: jobId,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        status: { in: ["queued", "running"] }
+      },
+      select: { id: true }
+    });
+    const lease = await this.prisma.assistantWorkspaceLease.findFirst({
+      where: {
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        sandboxJobId: jobId,
+        leaseToken,
+        expiresAt: { gt: new Date() }
+      },
+      select: { id: true }
+    });
+    return job !== null && lease !== null;
+  }
+
+  private async resolveCanonicalEgressMode(
+    assistantId: string
+  ): Promise<AssistantSandboxEgressMode> {
+    let row: { sandboxEgressMode: string } | null;
+    try {
+      row = await this.prisma.assistant.findUnique({
+        where: { id: assistantId },
+        select: { sandboxEgressMode: true }
+      });
+    } catch (error) {
+      throw createBridgeError(
+        "sandbox_egress_mode_unresolved",
+        `Failed to resolve assistant sandbox egress mode from database: ${describeUnknownError(error)}`,
+        true
+      );
+    }
+    if (row === null || !isAssistantSandboxEgressMode(row.sandboxEgressMode)) {
+      throw createBridgeError(
+        "sandbox_egress_mode_unresolved",
+        `Assistant sandbox egress mode is missing or invalid for assistant=${assistantId}`,
+        true
+      );
+    }
+    return row.sandboxEgressMode;
+  }
+
+  private requirePodUid(pod: V1Pod, podName: string): string {
+    const uid = pod.metadata?.uid;
+    if (typeof uid !== "string" || uid.length === 0) {
+      throw createBridgeError(
+        "sandbox_pod_uid_missing",
+        `Exec pod ${podName} has no immutable metadata.uid.`,
+        true
+      );
+    }
+    return uid;
+  }
+
+  private requirePodResourceVersion(pod: V1Pod, podName: string): string {
+    const resourceVersion = pod.metadata?.resourceVersion;
+    if (typeof resourceVersion !== "string" || resourceVersion.length === 0) {
+      throw createBridgeError(
+        "sandbox_pod_resource_version_missing",
+        `Exec pod ${podName} has no metadata.resourceVersion.`,
+        true
+      );
+    }
+    return resourceVersion;
+  }
+
+  private async assertActiveWorkspaceLease(input: {
+    assistantId: string;
+    workspaceId: string;
+    jobId: string;
+    leaseToken: string;
+    leaseHolderId: string;
+  }): Promise<void> {
+    let lease: { id: string } | null;
+    try {
+      lease = await this.prisma.assistantWorkspaceLease.findFirst({
+        where: {
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          sandboxJobId: input.jobId,
+          leaseToken: input.leaseToken,
+          holderId: input.leaseHolderId,
+          expiresAt: { gt: new Date() }
+        },
+        select: { id: true }
+      });
+    } catch (error) {
+      throw createBridgeError(
+        "workspace_lease_unresolved",
+        `Failed to resolve authoritative workspace lease: ${describeUnknownError(error)}`,
+        true
+      );
+    }
+    if (lease === null) {
+      throw createBridgeError(
+        "workspace_lease_lost",
+        `Workspace lease is missing, expired, or no longer owned for job=${input.jobId}.`,
+        true
+      );
+    }
+  }
+
+  private toImmutableBinding(binding: PendingExecPodJobBinding): ExecPodJobBinding {
+    if (binding.podUid === null || binding.podResourceVersion === null || binding.mode === null) {
+      throw createBridgeError(
+        "sandbox_pod_binding_missing",
+        `Exec pod ${binding.podName} was not bound to a UID and mode.`,
+        true
+      );
+    }
+    return {
+      ...binding,
+      podUid: binding.podUid,
+      podResourceVersion: binding.podResourceVersion,
+      mode: binding.mode
+    };
+  }
+
+  private attachJobBindingToError(error: unknown, binding: ExecPodJobBinding): void {
+    if (error !== null && typeof error === "object") {
+      Object.assign(error, { execPodBinding: binding });
+    }
+  }
+
+  private async bindPodToCurrentJob(input: {
+    podName: string;
+    namespace: string;
+    assistantId: string;
+    workspaceId: string;
+    assistantHandle: string;
+    expectedMode: AssistantSandboxEgressMode;
+    jobId: string;
+    leaseToken: string;
+    leaseHolderId: string;
+  }): Promise<ExecPodJobBinding> {
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await this.assertActiveWorkspaceLease(input);
+      const pod = await this.k8sApi.readNamespacedPod({
+        name: input.podName,
+        namespace: input.namespace
+      });
+      const podUid = this.requirePodUid(pod, input.podName);
+      const annotations = pod.metadata?.annotations ?? {};
+      const podMode = readPodSandboxEgressMode({
+        labels: pod.metadata?.labels ?? null,
+        annotations
+      });
+      if (
+        annotations[ASSISTANT_ID_ANNOTATION] !== input.assistantId ||
+        annotations[WORKSPACE_ID_ANNOTATION] !== input.workspaceId ||
+        annotations[ASSISTANT_HANDLE_ANNOTATION] !== input.assistantHandle ||
+        podMode !== input.expectedMode
+      ) {
+        throw createBridgeError(
+          "sandbox_pod_binding_mismatch",
+          `Exec pod ${input.podName} identity/mode changed before lease binding.`,
+          true
+        );
+      }
+      const annotatedJobId = annotations[SANDBOX_JOB_ID_ANNOTATION];
+      const annotatedLeaseToken = annotations[SANDBOX_LEASE_TOKEN_ANNOTATION];
+      if (
+        (annotatedJobId !== undefined && annotatedJobId !== input.jobId) ||
+        (annotatedLeaseToken !== undefined && annotatedLeaseToken !== input.leaseToken)
+      ) {
+        throw createBridgeError(
+          "sandbox_pod_generation_contaminated",
+          `Exec pod ${input.podName} is bound to a foreign lease generation.`,
+          true
+        );
+      }
+      if (annotatedJobId !== input.jobId || annotatedLeaseToken !== input.leaseToken) {
+        try {
+          await this.k8sApi.replaceNamespacedPod({
+            name: input.podName,
+            namespace: input.namespace,
+            body: {
+              ...pod,
+              metadata: {
+                ...pod.metadata,
+                annotations: {
+                  ...annotations,
+                  [ASSISTANT_ID_ANNOTATION]: input.assistantId,
+                  [WORKSPACE_ID_ANNOTATION]: input.workspaceId,
+                  [ASSISTANT_HANDLE_ANNOTATION]: input.assistantHandle,
+                  ...buildSandboxEgressModeMetadata(input.expectedMode).annotations,
+                  [SANDBOX_JOB_ID_ANNOTATION]: input.jobId,
+                  [SANDBOX_LEASE_TOKEN_ANNOTATION]: input.leaseToken
+                }
+              }
+            }
+          });
+        } catch (error) {
+          if (this.isKubernetesConflict(error) && attempt < 3) {
+            continue;
+          }
+          throw createBridgeError(
+            "sandbox_pod_binding_failed",
+            `Failed to stamp model-job lease generation on pod ${input.podName}: ${describeUnknownError(error)}`,
+            true
+          );
+        }
+      }
+      const rebound = await this.k8sApi.readNamespacedPod({
+        name: input.podName,
+        namespace: input.namespace
+      });
+      const reboundUid = this.requirePodUid(rebound, input.podName);
+      const reboundResourceVersion = this.requirePodResourceVersion(rebound, input.podName);
+      const reboundAnnotations = rebound.metadata?.annotations ?? {};
+      if (
+        reboundUid !== podUid ||
+        reboundAnnotations[ASSISTANT_ID_ANNOTATION] !== input.assistantId ||
+        reboundAnnotations[WORKSPACE_ID_ANNOTATION] !== input.workspaceId ||
+        reboundAnnotations[ASSISTANT_HANDLE_ANNOTATION] !== input.assistantHandle ||
+        reboundAnnotations[SANDBOX_JOB_ID_ANNOTATION] !== input.jobId ||
+        reboundAnnotations[SANDBOX_LEASE_TOKEN_ANNOTATION] !== input.leaseToken ||
+        readPodSandboxEgressMode({
+          labels: rebound.metadata?.labels ?? null,
+          annotations: reboundAnnotations
+        }) !== input.expectedMode
+      ) {
+        throw createBridgeError(
+          "sandbox_pod_binding_mismatch",
+          `Exec pod ${input.podName} changed generation while binding.`,
+          true
+        );
+      }
+      await this.assertActiveWorkspaceLease(input);
+      const binding: ExecPodJobBinding = {
+        namespace: input.namespace,
+        podName: input.podName,
+        podUid,
+        podResourceVersion: reboundResourceVersion,
+        leaseToken: input.leaseToken,
+        leaseHolderId: input.leaseHolderId,
+        jobId: input.jobId,
+        assistantId: input.assistantId,
+        workspaceId: input.workspaceId,
+        assistantHandle: input.assistantHandle,
+        mode: input.expectedMode
+      };
+      const context = this.jobBindingContext.getStore();
+      if (context !== undefined) {
+        context.podUid = binding.podUid;
+        context.podResourceVersion = binding.podResourceVersion;
+        context.mode = binding.mode;
+      }
+      return binding;
+    }
+    throw createBridgeError(
+      "sandbox_pod_binding_failed",
+      `Exec pod ${input.podName} binding did not converge.`,
+      true
+    );
+  }
+
+  private async failStaleAnnotatedJob(input: {
+    annotatedJobId: string | null;
+    podName: string;
+    podUid: string;
+    assistantId: string;
+    workspaceId: string;
+  }): Promise<void> {
+    if (input.annotatedJobId === null) {
+      return;
+    }
+    try {
+      await this.prisma.sandboxJob.updateMany({
+        where: {
+          id: input.annotatedJobId,
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          status: { in: ["queued", "running"] },
+          completedAt: null
+        },
+        data: {
+          status: "failed",
+          completedAt: new Date(),
+          violationCode: "sandbox_stale_pod_generation_recovered",
+          violationMessage:
+            "A later workspace lease retired this stale pod generation. Outputs not already persisted may be lost."
+        }
+      });
+    } catch (error) {
+      throw createBridgeError(
+        "sandbox_stale_generation_recovery_failed",
+        `Failed to mark stale annotated job before recycling pod ${input.podName} uid=${input.podUid}: ${describeUnknownError(error)}`,
+        true
+      );
+    }
+  }
+
+  private async ensureCanonicalSessionPodImmediatelyBeforeExec(input: {
+    podName: string;
+    namespace: string;
+    policy: RuntimeSandboxPolicy;
+    assistantId: string;
+    workspaceId: string;
+    assistantHandle: string;
+    jobId: string | null;
+  }): Promise<AssistantSandboxEgressMode> {
+    // Recreating here would yield an empty, unhydrated pod and then execute
+    // against it. The immediate guard therefore retires stale cluster state
+    // and fails this operation closed; the next top-level call performs the
+    // full create/bootstrap/hydrate sequence under the canonical mode.
+    return this.assertCanonicalPodModeImmediatelyBeforeExec(input.podName, input.namespace);
+  }
+
+  /**
+   * Every pod exec, including bootstrap/hydrate/files/GC helpers, re-reads DB
+   * truth and inspects the pod immediately before opening the exec websocket.
+   * A race that changes mode after an outer ensure deletes the stale pod and
+   * fails this operation closed; the owning higher-level path may recreate.
+   */
+  private async assertCanonicalPodModeImmediatelyBeforeExec(
+    podName: string,
+    namespace: string
+  ): Promise<AssistantSandboxEgressMode> {
+    const jobExpected = this.jobBindingContext.getStore();
+    const leaseFreeExpected = this.executionIdentityContext.getStore();
+    const expected: PodExecutionIdentity | PendingExecPodJobBinding | undefined =
+      jobExpected ?? leaseFreeExpected;
+    if (expected === undefined || expected.podUid === null || expected.mode === null) {
+      throw createBridgeError(
+        "sandbox_pod_identity_unbound",
+        `No caller-captured pod identity is available for exec pod ${podName}.`,
+        true
+      );
+    }
+    if (jobExpected !== undefined) {
+      await this.assertActiveWorkspaceLease({
+        assistantId: jobExpected.assistantId,
+        workspaceId: jobExpected.workspaceId,
+        jobId: jobExpected.jobId,
+        leaseToken: jobExpected.leaseToken,
+        leaseHolderId: jobExpected.leaseHolderId
+      });
+    }
+    let pod;
+    try {
+      pod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
+    } catch (error) {
+      throw createBridgeError(
+        "process_spawn_failed",
+        `Failed to inspect exec pod immediately before exec: ${describeUnknownError(error)}`
+      );
+    }
+    const annotations = pod.metadata?.annotations ?? {};
+    const podUid = this.requirePodUid(pod, podName);
+    const currentMode = await this.resolveCanonicalEgressMode(expected.assistantId);
+    const podMode = readPodSandboxEgressMode({
+      labels: pod.metadata?.labels ?? null,
+      annotations
+    });
+    if (
+      expected.namespace !== namespace ||
+      expected.podName !== podName ||
+      expected.podUid !== podUid ||
+      annotations[ASSISTANT_ID_ANNOTATION] !== expected.assistantId ||
+      annotations[WORKSPACE_ID_ANNOTATION] !== expected.workspaceId ||
+      annotations[ASSISTANT_HANDLE_ANNOTATION] !== expected.assistantHandle ||
+      expected.mode !== currentMode ||
+      podMode !== currentMode
+    ) {
+      throw createBridgeError(
+        "sandbox_pod_generation_mismatch",
+        `Exec pod ${podName} UID/assistant/workspace/handle/mode changed immediately before exec.`,
+        true
+      );
+    }
+    if (jobExpected === undefined) {
+      if (
+        annotations[SANDBOX_JOB_ID_ANNOTATION] !== undefined ||
+        annotations[SANDBOX_LEASE_TOKEN_ANNOTATION] !== undefined
+      ) {
+        throw createBridgeError(
+          "sandbox_pod_generation_contaminated",
+          `Lease-free control exec cannot use model-job-bound pod ${podName}.`,
+          true
+        );
+      }
+    } else if (
+      annotations[SANDBOX_JOB_ID_ANNOTATION] !== jobExpected.jobId ||
+      annotations[SANDBOX_LEASE_TOKEN_ANNOTATION] !== jobExpected.leaseToken
+    ) {
+      throw createBridgeError(
+        "sandbox_pod_generation_mismatch",
+        `Exec pod ${podName} UID/lease/job identity changed immediately before exec.`,
+        true
+      );
+    }
+    if (jobExpected !== undefined) {
+      await this.assertActiveWorkspaceLease({
+        assistantId: jobExpected.assistantId,
+        workspaceId: jobExpected.workspaceId,
+        jobId: jobExpected.jobId,
+        leaseToken: jobExpected.leaseToken,
+        leaseHolderId: jobExpected.leaseHolderId
+      });
+    }
+    return currentMode;
+  }
+
+  private async assertPodMatchesEgressMode(input: {
+    podName: string;
+    namespace: string;
+    expectedMode: AssistantSandboxEgressMode;
+    assistantId: string;
+    jobId: string | null;
+    recycleIfMismatched: boolean;
+    policy: RuntimeSandboxPolicy;
+    workspaceId: string;
+    assistantHandle: string;
+  }): Promise<void> {
+    let pod;
+    try {
+      pod = await this.k8sApi.readNamespacedPod({
+        name: input.podName,
+        namespace: input.namespace
+      });
+    } catch (error) {
+      throw createBridgeError(
+        "process_spawn_failed",
+        `Failed to inspect exec pod mode: ${describeUnknownError(error)}`
+      );
+    }
+    const podMode = readPodSandboxEgressMode({
+      labels: pod.metadata?.labels ?? null,
+      annotations: pod.metadata?.annotations ?? null
+    });
+    const podAnnotations = pod.metadata?.annotations ?? {};
+    if (
+      podAnnotations[ASSISTANT_ID_ANNOTATION] !== input.assistantId ||
+      podAnnotations[WORKSPACE_ID_ANNOTATION] !== input.workspaceId ||
+      podAnnotations[ASSISTANT_HANDLE_ANNOTATION] !== input.assistantHandle
+    ) {
+      throw createBridgeError(
+        "sandbox_pod_identity_mismatch",
+        `Refusing to reuse or retire pod ${input.podName}: assistant/workspace/handle identity differs.`,
+        true
+      );
+    }
+    if (podMode === input.expectedMode) {
+      return;
+    }
+    this.logger.warn(
+      `exec_pod_pre_exec_mode_mismatch pod=${input.podName} assistant=${input.assistantId} job=${input.jobId ?? "none"} expected=${input.expectedMode} actual=${podMode ?? "absent_or_malformed"}`
+    );
+    this.observability?.recordSandboxEgressPodRecycle({
+      reason: podMode === null ? "malformed" : "mismatch"
+    });
+    if (!input.recycleIfMismatched) {
+      throw createBridgeError(
+        "sandbox_egress_mode_mismatch",
+        `Exec pod egress mode mismatch: expected ${input.expectedMode}, got ${podMode ?? "absent_or_malformed"}`,
+        true
+      );
+    }
+    const podUid = this.requirePodUid(pod, input.podName);
+    await this.deletePodUidStrict(input.podName, input.namespace, podUid);
+    await this.waitUntilPodUidGone(
+      input.podName,
+      input.namespace,
+      podUid,
+      this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+    );
+    this.observability?.recordSandboxEgressPodCreate({ mode: input.expectedMode });
+    await this.createExecPodIdempotent(
+      input.podName,
+      input.namespace,
+      input.policy,
+      input.expectedMode,
+      {
+        [ASSISTANT_ID_ANNOTATION]: input.assistantId,
+        [WORKSPACE_ID_ANNOTATION]: input.workspaceId,
+        [ASSISTANT_HANDLE_ANNOTATION]: input.assistantHandle
+      },
+      input.assistantId,
+      input.jobId
+    );
+    await this.waitForPodRunning(
+      input.podName,
+      input.namespace,
+      this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+    );
+    const rechecked = await this.k8sApi.readNamespacedPod({
+      name: input.podName,
+      namespace: input.namespace
+    });
+    const recheckedMode = readPodSandboxEgressMode({
+      labels: rechecked.metadata?.labels ?? null,
+      annotations: rechecked.metadata?.annotations ?? null
+    });
+    if (recheckedMode !== input.expectedMode) {
+      throw createBridgeError(
+        "sandbox_egress_mode_mismatch",
+        `Exec pod still mismatched after recycle: expected ${input.expectedMode}, got ${recheckedMode ?? "absent_or_malformed"}`,
+        true
+      );
+    }
+  }
+
+  private async deletePodUidStrict(
+    podName: string,
+    namespace: string,
+    podUid: string,
+    podResourceVersion?: string
+  ): Promise<void> {
+    try {
+      await this.k8sApi.deleteNamespacedPod({
+        name: podName,
+        namespace,
+        body: {
+          preconditions: {
+            uid: podUid,
+            ...(podResourceVersion === undefined ? {} : { resourceVersion: podResourceVersion })
+          }
+        }
+      });
+      this.logger.log(`exec_pod_deleted pod=${podName} uid=${podUid}`);
+    } catch (error) {
+      if (this.isKubernetesNotFound(error)) {
+        return;
+      }
+      if (this.isKubernetesConflict(error)) {
+        throw error;
+      }
+      throw createBridgeError(
+        "process_spawn_failed",
+        `Failed to UID-delete exec pod ${podName} uid=${podUid}: ${describeUnknownError(error)}`
+      );
+    }
+  }
+
+  private async waitUntilPodUidGone(
+    podName: string,
+    namespace: string,
+    podUid: string,
+    timeoutMs: number
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      try {
+        const current = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
+        if (this.requirePodUid(current, podName) !== podUid) {
+          return;
+        }
+      } catch (error) {
+        if (this.isKubernetesNotFound(error)) {
+          return;
+        }
+        throw createBridgeError(
+          "process_spawn_failed",
+          `Failed while waiting for exec pod deletion: ${describeUnknownError(error)}`
+        );
+      }
+      if (Date.now() >= deadline) {
+        throw createBridgeError(
+          "process_timeout",
+          `Timed out waiting for exec pod ${podName} uid=${podUid} generation to disappear after ${String(timeoutMs)}ms.`
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, POD_ABSENT_POLL_MS));
+    }
+  }
+
+  private async retireCurrentPodByNameStrict(
+    podName: string,
+    namespace: string
+  ): Promise<{ podUid: string; retired: boolean }> {
+    let pod: V1Pod;
+    try {
+      pod = await this.k8sApi.readNamespacedPod({ name: podName, namespace });
+    } catch (error) {
+      if (this.isKubernetesNotFound(error)) {
+        return { podUid: "", retired: false };
+      }
+      throw error;
+    }
+    const podUid = this.requirePodUid(pod, podName);
+    await this.deletePodUidStrict(podName, namespace, podUid);
+    await this.waitUntilPodUidGone(
+      podName,
+      namespace,
+      podUid,
+      this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+    );
+    return { podUid, retired: true };
+  }
+
+  private isKubernetesNotFound(error: unknown): boolean {
+    return (
+      error !== null &&
+      typeof error === "object" &&
+      ((error as { code?: unknown }).code === 404 ||
+        (error as { statusCode?: unknown }).statusCode === 404 ||
+        (error as { response?: { statusCode?: unknown } }).response?.statusCode === 404)
+    );
+  }
+
+  private isKubernetesConflict(error: unknown): boolean {
+    return (
+      error !== null &&
+      typeof error === "object" &&
+      ((error as { code?: unknown }).code === 409 ||
+        (error as { statusCode?: unknown }).statusCode === 409 ||
+        (error as { response?: { statusCode?: unknown } }).response?.statusCode === 409)
+    );
+  }
+
+  private buildProxyEnv(mode: AssistantSandboxEgressMode): Array<{ name: string; value: string }> {
+    return buildSandboxEgressProxyEnv(mode, {
+      proxyUrl: this.config.SANDBOX_EXEC_EGRESS_PROXY_URL,
+      noProxy: this.config.SANDBOX_EXEC_NO_PROXY
+    });
+  }
+
+  /**
+   * Model-authored command execution. Descendant cleanup is intentionally not
+   * attempted from inside the writable pod: SandboxService retires the entire
+   * exact pod after output/workspace/job persistence and before lease release.
+   * Pod namespace destruction is the only cleanup proof.
+   */
+  private async execJobCommand(
+    podName: string,
+    namespace: string,
+    options: {
+      jobId: string;
+      assistantId: string;
+      egressMode: AssistantSandboxEgressMode;
+      command: string;
+      args: string[];
+      podCwd: string;
+      policy: RuntimeSandboxPolicy;
+    }
+  ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
+    this.logger.log(
+      `exec_job_start job=${options.jobId} assistant=${options.assistantId} pod=${podName} mode=${options.egressMode}`
+    );
+    // Resolve again here, independently of outer staging/hydrate checks.
+    const currentMode = await this.resolveCanonicalEgressMode(options.assistantId);
+    if (currentMode !== options.egressMode) {
+      throw createBridgeError(
+        "sandbox_egress_mode_mismatch",
+        `Assistant sandbox egress mode changed immediately before job=${options.jobId}.`,
+        true
+      );
+    }
+    return this.execCommand(podName, namespace, {
+      command: options.command,
+      args: options.args,
+      podCwd: options.podCwd,
+      policy: options.policy
+    });
+  }
+
+  async retireModelJobPod(input: {
+    binding: ExecPodJobBinding;
+  }): Promise<{ podName: string; podUid: string; retired: boolean }> {
+    const { binding } = input;
+    let pod: V1Pod;
+    try {
+      pod = await this.k8sApi.readNamespacedPod({
+        name: binding.podName,
+        namespace: binding.namespace
+      });
+    } catch (error) {
+      if (this.isKubernetesNotFound(error)) {
+        return { podName: binding.podName, podUid: binding.podUid, retired: false };
+      }
+      throw createBridgeError(
+        "sandbox_job_pod_retirement_failed",
+        `Failed to inspect bound job pod before retirement: ${describeUnknownError(error)}`,
+        true
+      );
+    }
+
+    const currentUid = this.requirePodUid(pod, binding.podName);
+    if (currentUid !== binding.podUid) {
+      return { podName: binding.podName, podUid: binding.podUid, retired: false };
+    }
+    const annotations = pod.metadata?.annotations ?? {};
+    if (
+      annotations[ASSISTANT_ID_ANNOTATION] !== binding.assistantId ||
+      annotations[WORKSPACE_ID_ANNOTATION] !== binding.workspaceId ||
+      annotations[ASSISTANT_HANDLE_ANNOTATION] !== binding.assistantHandle ||
+      annotations[SANDBOX_JOB_ID_ANNOTATION] !== binding.jobId ||
+      annotations[SANDBOX_LEASE_TOKEN_ANNOTATION] !== binding.leaseToken ||
+      readPodSandboxEgressMode({
+        labels: pod.metadata?.labels ?? null,
+        annotations
+      }) !== binding.mode
+    ) {
+      throw createBridgeError(
+        "sandbox_job_pod_retirement_failed",
+        `Refusing to retire pod ${binding.podName} uid=${binding.podUid}: bound identity tuple changed.`,
+        true
+      );
+    }
+
+    const currentResourceVersion = this.requirePodResourceVersion(pod, binding.podName);
+    await this.deletePodUidStrict(
+      binding.podName,
+      binding.namespace,
+      binding.podUid,
+      currentResourceVersion
+    );
+    await this.waitUntilPodUidGone(
+      binding.podName,
+      binding.namespace,
+      binding.podUid,
+      this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
+    );
+    this.logger.log(
+      `exec_job_pod_retired job=${binding.jobId} assistant=${binding.assistantId} pod=${binding.podName} uid=${binding.podUid}`
+    );
+    return { podName: binding.podName, podUid: binding.podUid, retired: true };
   }
 }

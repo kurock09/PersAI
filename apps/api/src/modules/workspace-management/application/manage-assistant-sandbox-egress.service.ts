@@ -4,9 +4,11 @@ import { ApiErrorHttpException } from "../../platform-core/interface/http/api-er
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import {
   createAssistantInboundConflict,
+  createAssistantInboundInfraError,
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
+import { SandboxControlPlaneClientService } from "./sandbox-control-plane.client.service";
 
 export type AssistantSandboxEgressMode = "restricted" | "full_public";
 
@@ -14,11 +16,10 @@ export type AssistantSandboxEgressState = {
   assistantId: string;
   mode: AssistantSandboxEgressMode;
   /**
-   * ADR-146 D6 promises synchronous warm-pod eviction. Slice 1 persists mode
-   * and audit only; eviction/recycle lands in Slice 3. Always report honest
-   * `false` until that seam exists — never fake recycle success.
+   * ADR-146 D6 — true only when this PUT actually deleted at least one warm
+   * execution pod and waited until it was absent. GET always reports false.
    */
-  recycled: false;
+  recycled: boolean;
 };
 
 export type UpdateAssistantSandboxEgressRequest = {
@@ -43,7 +44,8 @@ function isSandboxEgressMode(value: unknown): value is AssistantSandboxEgressMod
 export class ManageAssistantSandboxEgressService {
   constructor(
     private readonly prisma: WorkspaceManagementPrismaService,
-    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
+    private readonly sandboxControlPlaneClient: SandboxControlPlaneClientService
   ) {}
 
   parseUpdateInput(payload: unknown): UpdateAssistantSandboxEgressRequest {
@@ -90,7 +92,9 @@ export class ManageAssistantSandboxEgressService {
     this.assertAuthenticatedUserId(userId);
     const resolved = await this.resolveActiveAssistantService.execute({ userId, assistantId });
 
-    return this.prisma.$transaction(async (tx) => {
+    // DB + audit commit first. Eviction is intentionally outside the transaction:
+    // Kubernetes is not transactional with Postgres, and we never claim a fake rollback.
+    const committed = await this.prisma.$transaction(async (tx) => {
       // This parent-row lock is shared with SandboxJob admission through the
       // real `sandbox_jobs.assistant_id -> assistants.id` FK. PostgreSQL checks
       // that FK with a KEY SHARE row lock, which conflicts with FOR UPDATE and
@@ -116,16 +120,8 @@ export class ManageAssistantSandboxEgressService {
         throw this.createOwnerForbiddenError();
       }
 
-      if (assistant.sandboxEgressMode === request.mode) {
-        return {
-          assistantId: assistant.id,
-          mode: assistant.sandboxEgressMode,
-          recycled: false
-        };
-      }
-
-      // Deliberately assistant-only: workspace_id is denormalized on
-      // sandbox_jobs and must never let an inconsistent row fail open.
+      // Busy check always runs before mutation or eviction — never silently kill
+      // a live queued/running operation, including same-mode reconcile.
       const busyJob = await tx.sandboxJob.findFirst({
         where: {
           assistantId: assistant.id,
@@ -145,37 +141,66 @@ export class ManageAssistantSandboxEgressService {
         );
       }
 
-      const previousMode = assistant.sandboxEgressMode;
-      await tx.assistant.update({
-        where: { id: assistant.id },
-        data: {
-          sandboxEgressMode: request.mode as PrismaSandboxEgressMode
-        }
-      });
-
-      await tx.assistantAuditEvent.create({
-        data: {
-          workspaceId: assistant.workspaceId,
-          assistantId: assistant.id,
-          actorUserId: userId,
-          eventCategory: "assistant_sandbox",
-          eventCode: "assistant.sandbox_egress_mode_updated",
-          summary: "Assistant sandbox egress mode updated.",
-          outcome: "succeeded",
-          details: {
-            previousMode,
-            selectedMode: request.mode,
-            actorUserId: userId
+      const modeChanged = assistant.sandboxEgressMode !== request.mode;
+      if (modeChanged) {
+        const previousMode = assistant.sandboxEgressMode;
+        await tx.assistant.update({
+          where: { id: assistant.id },
+          data: {
+            sandboxEgressMode: request.mode as PrismaSandboxEgressMode
           }
-        }
-      });
+        });
+
+        await tx.assistantAuditEvent.create({
+          data: {
+            workspaceId: assistant.workspaceId,
+            assistantId: assistant.id,
+            actorUserId: userId,
+            eventCategory: "assistant_sandbox",
+            eventCode: "assistant.sandbox_egress_mode_updated",
+            summary: "Assistant sandbox egress mode updated.",
+            outcome: "succeeded",
+            details: {
+              previousMode,
+              selectedMode: request.mode,
+              actorUserId: userId
+            }
+          }
+        });
+      }
 
       return {
         assistantId: assistant.id,
         mode: request.mode,
-        recycled: false
+        modeChanged
       };
     });
+
+    try {
+      const reconcile = await this.sandboxControlPlaneClient.reconcileAssistantSandboxEgress({
+        assistantId: committed.assistantId,
+        mode: committed.mode,
+        scope: committed.modeChanged ? "all" : "stale_only"
+      });
+      return {
+        assistantId: committed.assistantId,
+        mode: committed.mode,
+        recycled: reconcile.recycled
+      };
+    } catch {
+      // Mode (and audit, when changed) already committed. Future execution stays
+      // fail-closed against DB/pod mismatch; caller must retry reconcile.
+      throw createAssistantInboundInfraError(
+        "sandbox_egress_recycle_failed",
+        "Sandbox egress mode was saved but warm execution pods could not be reconciled. Retry the request.",
+        HttpStatus.SERVICE_UNAVAILABLE,
+        {
+          assistantId: committed.assistantId,
+          mode: committed.mode,
+          modeChanged: committed.modeChanged
+        }
+      );
+    }
   }
 
   private async resolveOwnedAssistant(

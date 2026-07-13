@@ -17,7 +17,11 @@ import {
 } from "@persai/runtime-contract";
 import { Prisma } from "@prisma/client";
 import { SANDBOX_CONFIG } from "./sandbox-config";
-import { ExecPodBridgeService, type SessionPodStagingFile } from "./exec-pod-bridge.service";
+import {
+  ExecPodBridgeService,
+  type ExecPodJobBinding,
+  type SessionPodStagingFile
+} from "./exec-pod-bridge.service";
 import { SandboxObservabilityService } from "./sandbox-observability.service";
 import { SandboxPrismaService } from "./sandbox-prisma.service";
 import { SandboxObjectStorageService } from "./sandbox-object-storage.service";
@@ -57,6 +61,7 @@ type SandboxToolExecutionResult = {
   content: string | null;
   durationMs?: number;
   execPodName?: string;
+  execPodBinding?: ExecPodJobBinding | undefined;
   producedFiles?: RuntimeSandboxProducedFile[];
 };
 
@@ -75,6 +80,7 @@ type WorkspaceLeaseGuard = {
   renewalError: Error | null;
   heartbeatTimer: NodeJS.Timeout | null;
   renewing: boolean;
+  podBinding: ExecPodJobBinding | null;
 };
 
 type SandboxPolicyError = Error & {
@@ -361,6 +367,21 @@ export class SandboxService {
       removedFromPods: result.removedFromPods,
       failures: result.failures
     };
+  }
+
+  /**
+   * ADR-146 Slice 3 — synchronous owner warm-pod reconcile after mode commit.
+   */
+  async reconcileAssistantSandboxEgress(input: {
+    assistantId: string;
+    mode: "restricted" | "full_public";
+    scope: "all" | "stale_only";
+  }): Promise<{ recycled: boolean; deletedPodCount: number }> {
+    return this.execPodBridgeService.reconcileAssistantEgressPods({
+      assistantId: input.assistantId,
+      expectedMode: input.mode,
+      scope: input.scope
+    });
   }
 
   private async findJobRecord(jobId: string) {
@@ -659,6 +680,8 @@ export class SandboxService {
     let leaseGuard: WorkspaceLeaseGuard | null = null;
     let workspaceRoot: string | null = null;
     let currentRoot: string | null = null;
+    let execPodBinding: ExecPodJobBinding | null = null;
+    let terminalWriteSucceeded = false;
     try {
       const leaseHandle = await this.waitForWorkspaceLease({
         assistantId: request.assistantId,
@@ -667,13 +690,21 @@ export class SandboxService {
         waitTimeoutMs: this.resolveWorkspaceLeaseWaitTimeoutMs(request.policy)
       });
       leaseGuard = this.startWorkspaceLeaseHeartbeat(leaseHandle);
-      await this.prisma.sandboxJob.update({
-        where: { id: jobId },
+      const started = await this.updateSandboxJobUnderActiveLease({
+        guard: leaseGuard,
+        jobId,
+        expectedStatus: "queued",
         data: {
           status: "running",
           startedAt: new Date()
         }
       });
+      if (!started) {
+        throw this.createWorkspaceLeaseError(
+          "workspace_lease_lost",
+          "Workspace lease was lost before the sandbox job could enter running state."
+        );
+      }
       this.assertWorkspaceLeaseActive(leaseGuard);
       const assistantHandle = await this.resolveAssistantHandle(
         request.assistantId,
@@ -713,6 +744,7 @@ export class SandboxService {
         defaultVisibleRoot,
         siblingHandles
       });
+      execPodBinding = result.execPodBinding ?? null;
       this.assertWorkspaceLeaseActive(leaseGuard);
 
       const stats = await this.computeWorkspaceStats(workspaceRoot);
@@ -726,8 +758,10 @@ export class SandboxService {
           currentRoot
         );
       }
-      await this.prisma.sandboxJob.update({
-        where: { id: jobId },
+      terminalWriteSucceeded = await this.updateSandboxJobUnderActiveLease({
+        guard: leaseGuard,
+        jobId,
+        expectedStatus: "running",
         data: {
           status: "completed",
           completedAt: new Date(),
@@ -752,27 +786,43 @@ export class SandboxService {
         }
       });
     } catch (error) {
+      execPodBinding ??= leaseGuard?.podBinding ?? null;
+      if (error !== null && typeof error === "object" && "execPodBinding" in error) {
+        execPodBinding =
+          (error as { execPodBinding?: ExecPodJobBinding }).execPodBinding ?? execPodBinding;
+      }
       const { code, message, blocked, resourceUsage } = this.normalizeSandboxError(error);
       const safeMessage = this.stripNulCharacters(message);
-      await this.prisma.sandboxJob.update({
-        where: { id: jobId },
-        data: {
-          status: blocked ? "blocked" : "failed",
-          completedAt: new Date(),
-          violationCode: code,
-          violationMessage: safeMessage,
-          resultPayload: {
-            reason: code,
-            warning: safeMessage,
-            exitCode: null,
-            stdout: null,
-            stderr: null,
-            content: null
-          },
-          ...(resourceUsage === null ? {} : { resourceUsage: this.toJsonValue(resourceUsage) })
-        }
-      });
-      if (workspaceRoot !== null && currentRoot !== null) {
+      const failureData: Prisma.SandboxJobUpdateManyMutationInput = {
+        status: blocked ? "blocked" : "failed",
+        completedAt: new Date(),
+        violationCode: code,
+        violationMessage: safeMessage,
+        resultPayload: {
+          reason: code,
+          warning: safeMessage,
+          exitCode: null,
+          stdout: null,
+          stderr: null,
+          content: null
+        },
+        ...(resourceUsage === null ? {} : { resourceUsage: this.toJsonValue(resourceUsage) })
+      };
+      terminalWriteSucceeded =
+        leaseGuard === null
+          ? (
+              await this.prisma.sandboxJob.updateMany({
+                where: { id: jobId, status: "queued", completedAt: null },
+                data: failureData
+              })
+            ).count === 1
+          : await this.updateSandboxJobUnderActiveLease({
+              guard: leaseGuard,
+              jobId,
+              expectedStatus: "running",
+              data: failureData
+            });
+      if (terminalWriteSucceeded && workspaceRoot !== null && currentRoot !== null) {
         await this.resetWorkspaceSessionOnFailure(
           request.assistantId,
           workspaceRoot,
@@ -781,7 +831,27 @@ export class SandboxService {
         );
       }
     } finally {
-      await this.stopWorkspaceLeaseHeartbeat(leaseGuard);
+      let retirementSucceeded = execPodBinding === null;
+      if (leaseGuard !== null && execPodBinding !== null) {
+        try {
+          const retirement = await this.execPodBridgeService.retireModelJobPod({
+            binding: execPodBinding
+          });
+          retirementSucceeded = true;
+          this.logger.log(
+            `sandbox_job_pod_retirement_complete job=${jobId} assistant=${request.assistantId} pod=${retirement.podName} uid=${retirement.podUid} retired=${String(retirement.retired)}`
+          );
+        } catch (retirementError) {
+          const message =
+            retirementError instanceof Error ? retirementError.message : String(retirementError);
+          this.logger.error(
+            `sandbox_job_pod_retirement_failed job=${jobId} assistant=${request.assistantId} workspace=${request.workspaceId} pod=${execPodBinding.podName} uid=${execPodBinding.podUid} error=${message}`
+          );
+        }
+      }
+      await this.stopWorkspaceLeaseHeartbeat(leaseGuard, {
+        release: terminalWriteSucceeded && retirementSucceeded
+      });
     }
   }
 
@@ -894,6 +964,8 @@ export class SandboxService {
         : [];
     const result = await this.execPodBridgeService.runInPod({
       jobId,
+      leaseToken: leaseGuard.handle.leaseToken,
+      leaseHolderId: leaseGuard.handle.holderId,
       runtimeSessionId,
       assistantId,
       assistantHandle,
@@ -906,6 +978,7 @@ export class SandboxService {
       policy,
       visibleWorkspacePaths: [this.toVisibleWorkspaceAbsolutePath(workspaceRoot, absoluteCwd)]
     });
+    leaseGuard.podBinding = result.execPodBinding ?? null;
     if (result.exitCode !== 0) {
       return {
         reason: "process_failed",
@@ -915,7 +988,8 @@ export class SandboxService {
         stderr: result.stderr,
         content: null,
         durationMs: result.durationMs,
-        execPodName: result.execPodName
+        execPodName: result.execPodName,
+        execPodBinding: result.execPodBinding
       };
     }
     const afterVisibleFiles = await this.collectVisibleProducedFileSnapshots(
@@ -937,6 +1011,7 @@ export class SandboxService {
       content: null,
       durationMs: result.durationMs,
       execPodName: result.execPodName,
+      execPodBinding: result.execPodBinding,
       producedFiles
     };
   }
@@ -1045,9 +1120,12 @@ export class SandboxService {
       { absolutePath: podInputPath, contents: Buffer.from(htmlContent, "utf8") }
     ];
 
+    let renderBinding: ExecPodJobBinding | null = null;
     try {
       const result = await this.execPodBridgeService.runInPod({
         jobId,
+        leaseToken: leaseGuard.handle.leaseToken,
+        leaseHolderId: leaseGuard.handle.holderId,
         runtimeSessionId,
         assistantId,
         assistantHandle,
@@ -1061,6 +1139,8 @@ export class SandboxService {
         stagingFiles,
         visibleWorkspacePaths: [podOutputPath]
       });
+      renderBinding = result.execPodBinding ?? null;
+      leaseGuard.podBinding = renderBinding;
       if (result.exitCode !== 0) {
         return {
           reason: "process_failed",
@@ -1070,7 +1150,8 @@ export class SandboxService {
           stderr: result.stderr,
           content: null,
           durationMs: result.durationMs,
-          execPodName: result.execPodName
+          execPodName: result.execPodName,
+          execPodBinding: result.execPodBinding
         };
       }
       const producedFiles = [
@@ -1093,16 +1174,18 @@ export class SandboxService {
         content: null,
         durationMs: result.durationMs,
         execPodName: result.execPodName,
+        execPodBinding: result.execPodBinding,
         producedFiles
       };
     } finally {
-      if (runtimeSessionId !== null) {
+      if (runtimeSessionId !== null && renderBinding !== null) {
         await this.removeSessionPodPaths({
           assistantId,
           assistantHandle,
           siblingHandles,
           workspaceId,
           runtimeSessionId,
+          jobBinding: renderBinding,
           policy,
           paths: [podInputPath]
         });
@@ -1175,6 +1258,7 @@ export class SandboxService {
     );
     const stagingFiles: SessionPodStagingFile[] = [];
 
+    let documentBinding: ExecPodJobBinding | null = null;
     try {
       const sourceMounts = this.readDocumentCodeSourceMounts(args.sourceMounts);
       for (const mount of sourceMounts) {
@@ -1208,6 +1292,8 @@ export class SandboxService {
       const podOutputPath = this.toVisibleWorkspaceAbsolutePath(workspaceRoot, outputAbsolutePath);
       const result = await this.execPodBridgeService.runInPod({
         jobId,
+        leaseToken: leaseGuard.handle.leaseToken,
+        leaseHolderId: leaseGuard.handle.holderId,
         runtimeSessionId,
         assistantId,
         assistantHandle,
@@ -1221,6 +1307,8 @@ export class SandboxService {
         stagingFiles,
         visibleWorkspacePaths: [podOutputPath]
       });
+      documentBinding = result.execPodBinding ?? null;
+      leaseGuard.podBinding = documentBinding;
       if (result.exitCode !== 0) {
         return {
           reason: "process_failed",
@@ -1230,7 +1318,8 @@ export class SandboxService {
           stderr: result.stderr,
           content: null,
           durationMs: result.durationMs,
-          execPodName: result.execPodName
+          execPodName: result.execPodName,
+          execPodBinding: result.execPodBinding
         };
       }
       const producedFiles = [
@@ -1253,16 +1342,18 @@ export class SandboxService {
         content: null,
         durationMs: result.durationMs,
         execPodName: result.execPodName,
+        execPodBinding: result.execPodBinding,
         producedFiles
       };
     } finally {
-      if (runtimeSessionId !== null) {
+      if (runtimeSessionId !== null && documentBinding !== null) {
         await this.removeSessionPodPaths({
           assistantId,
           assistantHandle,
           siblingHandles,
           workspaceId,
           runtimeSessionId,
+          jobBinding: documentBinding,
           policy,
           paths: [podProgramPath, podSourcesDirPath]
         });
@@ -1279,6 +1370,7 @@ export class SandboxService {
     siblingHandles: readonly string[];
     workspaceId: string;
     runtimeSessionId: string;
+    jobBinding: ExecPodJobBinding;
     policy: RuntimeSandboxPolicy;
     paths: readonly string[];
   }): Promise<void> {
@@ -1294,6 +1386,7 @@ export class SandboxService {
       siblingHandles: input.siblingHandles,
       workspaceId: input.workspaceId,
       runtimeSessionId: input.runtimeSessionId,
+      jobBinding: input.jobBinding,
       policy: input.policy,
       shellCommand
     });
@@ -1528,7 +1621,8 @@ export class SandboxService {
       active: true,
       renewalError: null,
       heartbeatTimer: null,
-      renewing: false
+      renewing: false,
+      podBinding: null
     };
     guard.heartbeatTimer = setInterval(() => {
       if (!guard.active || guard.renewing) {
@@ -1564,7 +1658,10 @@ export class SandboxService {
     return guard;
   }
 
-  private async stopWorkspaceLeaseHeartbeat(guard: WorkspaceLeaseGuard | null): Promise<void> {
+  private async stopWorkspaceLeaseHeartbeat(
+    guard: WorkspaceLeaseGuard | null,
+    options: { release: boolean } = { release: true }
+  ): Promise<void> {
     const heartbeatTimer = guard?.heartbeatTimer ?? null;
     if (heartbeatTimer !== null) {
       clearInterval(heartbeatTimer);
@@ -1573,7 +1670,9 @@ export class SandboxService {
       return;
     }
     guard.active = false;
-    await this.releaseWorkspaceLease(guard.handle);
+    if (options.release) {
+      await this.releaseWorkspaceLease(guard.handle);
+    }
   }
 
   private assertWorkspaceLeaseActive(guard: WorkspaceLeaseGuard): void {
@@ -1632,6 +1731,44 @@ export class SandboxService {
         expiresAt: new Date()
       }
     });
+  }
+
+  private async updateSandboxJobUnderActiveLease(input: {
+    guard: WorkspaceLeaseGuard;
+    jobId: string;
+    expectedStatus: "queued" | "running";
+    data: Prisma.SandboxJobUpdateManyMutationInput;
+  }): Promise<boolean> {
+    const handle = input.guard.handle;
+    const updated = await this.prisma.sandboxJob.updateMany({
+      where: {
+        id: input.jobId,
+        assistantId: handle.assistantId,
+        workspaceId: handle.workspaceId,
+        status: input.expectedStatus,
+        completedAt: null,
+        workspaceLeases: {
+          some: {
+            assistantId: handle.assistantId,
+            workspaceId: handle.workspaceId,
+            sandboxJobId: input.jobId,
+            leaseToken: handle.leaseToken,
+            holderId: handle.holderId,
+            expiresAt: { gt: new Date() }
+          }
+        }
+      },
+      data: input.data
+    });
+    if (updated.count !== 1) {
+      input.guard.active = false;
+      input.guard.renewalError = this.createWorkspaceLeaseError(
+        "workspace_lease_lost",
+        "Sandbox job state was not updated because its exact active workspace lease is no longer authoritative."
+      );
+      return false;
+    }
+    return true;
   }
 
   private buildWorkspaceLeaseHandle(input: {

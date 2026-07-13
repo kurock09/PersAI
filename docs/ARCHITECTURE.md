@@ -96,28 +96,41 @@ ADR-140 closes the persistent Browserless session era. The active browser archit
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 
 **ADR-146 accepted target (implementation in progress; S1 committed locally at
-`775e5781`; S2 landed locally uncommitted on that baseline):** sandbox egress is
+`775e5781`; S2 committed locally at `5a2fd3bd`; S3 landed locally uncommitted on
+that baseline):** sandbox egress is
 an immediate assistant-owned operational choice stored on
 `Assistant.sandboxEgressMode`. `restricted` remains the default
-proxy/domain-allowlist contour. Explicit `full_public` consent will give the
+proxy/domain-allowlist contour. Explicit `full_public` consent gives the
 whole gVisor execution pod (`shell` / `exec` / `document.*`) direct public
-TCP/UDP egress once Slice 3 stamps pod labels against the Slice 2 Helm policy,
+TCP/UDP egress: Slice 3 stamps pod labels/annotations against the Slice 2 Helm
+policy and resolves mode from Prisma at last responsible moment,
 while NetworkPolicy, explicit non-global/internal CIDR exclusions, an
 empty-ingress policy, and a dedicated no-IAM execution ServiceAccount continue
 to block Kubernetes, node, VPC, private, link-local, and metadata destinations.
 The setting does not affect storage-plane tools, browser, web tools, or provider
 workers. The old plan `networkAccessEnabled` boolean is removed by Slice 1
-rather than reinterpreted.
+rather than reinterpreted. Owner PUT synchronously reconciles only idle
+missing/malformed/mismatched-mode pods (honest `recycled`; active exact-lease
+operations and post-commit correct-mode admissions survive; post-commit failure
+is stable `503`). Model jobs bind `(namespace,name,uid,leaseToken,jobId)` only
+after acquiring the workspace lease; bind and every model exec also require the
+exact live DB token/holder/job/expiry. Lease-free exec carries caller-captured
+UID/assistant/workspace/handle/mode, and terminal writes atomically require the
+exact active lease. Admission and post-persistence retirement use UID
+preconditions; owner reconcile and the reaper use UID+resourceVersion snapshots,
+so a same-name or newly patched replacement is never deleted. Failed
+retirement withholds lease release; durable annotations, not a DB name
+quarantine or process marker, carry crash contamination.
 
-**ADR-146 Slice 2 Helm policy (local uncommitted):** additive
+**ADR-146 Slice 2 Helm policy (committed locally at `5a2fd3bd`):** additive
 `sandbox-exec-full-public-egress` selects only
 `app.kubernetes.io/component=sandbox-exec` +
 `persai.io/sandbox-egress=full-public`. Restricted isolation keeps selecting
 unlabeled/`component=sandbox-exec` pods so the live restricted contour is
-preserved until S3. Shared deny inventory binds Squid, NAT probe, and
+preserved until S3-stamped pods replace them after deploy. Shared deny inventory binds Squid, NAT probe, and
 full-public public egress. Chart fails closed if sandbox runs with
 `networkPolicy.enabled=false`. Proxy env remains a Helm/pod-spec contract with
-`defaultMode=restricted`; ExecPodBridge mode selection is Slice 3.
+`defaultMode=restricted`; ExecPodBridge mode selection landed in Slice 3.
 The rendered public rule is explicitly IPv4-only (`ipFamily: IPv4`,
 `0.0.0.0/0`). IPv6 and dual-stack environments fail chart validation until a
 future ADR/slice supplies an audited IPv6 internal/metadata deny inventory.

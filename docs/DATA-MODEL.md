@@ -107,9 +107,10 @@ Current active Step 20 persistence includes:
   and default/backfill `restricted`;
 - this is immediate owner-controlled Assistant state, not draft, published
   version, governance JSON, plan, chat, or session state;
-- sandbox job/pod telemetry will snapshot the effective mode for audit in later
-  slices; the sandbox control plane will resolve the current Assistant row
-  before executing and never trust a model/runtime-supplied mode as authority;
+- sandbox job/pod telemetry snapshots effective mode in bounded logs/metrics
+  (no URL/query/auth/file contents); the sandbox control plane resolves the
+  current Assistant row from Prisma immediately before warm/create/reuse/execute
+  and never trusts a model/runtime-supplied mode as authority;
 - `networkAccessEnabled` removed from persisted plan `sandboxPolicy` JSON,
   OpenAPI, runtime policy, admin UI, and active parsers. Historical true values
   do not map to `full_public`, because they never represented owner consent or
@@ -117,9 +118,10 @@ Current active Step 20 persistence includes:
 - plans continue to own sandbox/tool availability and resource quotas, but
   ADR-146 adds no second plan-level network ceiling.
 
-ADR-146 Slice 2 is local and uncommitted on `775e5781`; it changes Helm policy
-truth only and does not alter this data model. Slice 3 runtime authority is not
-started.
+ADR-146 Slice 2 committed locally at `5a2fd3bd` changes Helm policy truth only
+and does not alter this data model. Slice 3 (local uncommitted on that baseline)
+owns runtime mode authority / recycle / descendant cleanup against this
+Assistant field; Slice 4 Settings UX is not started.
 
 ADR-081 plus ADR-133 extend the target-state authority of path-based Files: every user-visible or assistant-reusable file must be represented by a canonical workspace path plus `workspace_file_metadata` immediately when persisted. The default active path shape is `/workspace/assistants/<assistantId>/sessions/<sessionId>/...`, with assistant/workspace widen facts derived from the visible path rather than a second scope vocabulary. That includes user uploads, assistant-generated artifacts, delivered assistant attachments, and sandbox-created files.
 

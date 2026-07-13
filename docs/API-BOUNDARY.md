@@ -341,17 +341,34 @@ owner-authenticated
 `GET/PUT /api/v1/assistant/{assistantId}/sandbox-egress` with the exact mode
 enum `restricted | full_public`. The value is immediate Assistant operational
 truth, not an assistant draft/publish field. A successful mode change records
-an assistant audit event. Slice 1 honestly reports `recycled: false`; synchronous
-warm-pod eviction lands in Slice 3. Queued/running sandbox work returns stable
-`409 sandbox_egress_change_busy` rather than being killed. The sandbox control
-plane will resolve canonical Assistant mode again before every warm/create/reuse
-in Slice 3. The old Admin Plan/runtime `networkAccessEnabled` field is removed
-without an alias. No route in this boundary changes browser, web tools, storage
-plane, or provider-worker networking.
+an assistant audit event. Queued/running sandbox work returns stable
+`409 sandbox_egress_change_busy` rather than being killed. The old Admin
+Plan/runtime `networkAccessEnabled` field is removed without an alias.
 
-ADR-146 Slice 2 is local and uncommitted on `775e5781`; it adds Helm policy
-contracts only and does not change this API boundary. Slice 3 runtime authority
-and recycle behavior are not started.
+**ADR-146 Slice 2 committed locally at `5a2fd3bd`:** Helm policy contracts only;
+no API boundary change.
+
+**ADR-146 Slice 3 landed locally (uncommitted) on `5a2fd3bd`:** owner PUT now
+requests synchronous warm-pod reconcile after DB/audit commit. Response
+`recycled` is honest (`true` only when an idle stale-mode pod snapshot was
+UID+resourceVersion delete-requested and its old UID was confirmed gone; a
+same-name replacement may remain).
+Post-commit eviction/reconcile failure returns stable
+`503 sandbox_egress_recycle_failed` (mode already committed; no fake rollback).
+Same-mode PUT reconciles stale/mislabelled pods (`stale_only`); changed-mode
+requests `all`, whose safe semantics are still only idle
+missing/malformed/mismatched-mode generations. Exact active lease/job pods and
+new correct-mode admissions are skipped; snapshot `409` is not counted. Internal sandbox
+control-plane endpoint
+`POST /api/v1/control/assistants/{assistantId}/sandbox-egress/reconcile`
+(Bearer `PERSAI_INTERNAL_API_TOKEN`, body `{ mode, scope }`) is not a public
+product API. The sandbox control plane resolves canonical Assistant mode from
+Prisma before every warm/create/reuse/execute and fails closed on DB/pod
+mismatch. Model-job pod ownership is internal `(namespace,name,uid,leaseToken,jobId)`
+state stamped only after workspace lease acquisition; bind/exec also requires
+the exact active DB token/holder/job/expiry, and no public request can supply
+it. No route in this boundary changes browser, web tools, storage plane,
+or provider-worker networking.
 
 ### Files
 

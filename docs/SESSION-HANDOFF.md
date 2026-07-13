@@ -1,11 +1,72 @@
 # SESSION-HANDOFF
 
-## 2026-07-13 — ADR-146 Slice 2 Helm public-only policy (local uncommitted)
+## 2026-07-13 — ADR-146 Slice 3 sandbox mode authority (local uncommitted)
 
-Status: **Slice 2 landed locally on clean baseline `775e5781` (S1 committed
-locally at that SHA; main ahead remote; no push/deploy/cloud mutation).**
-ADR-146 stays **open**. S3–S4 are **not** started. ExecPodBridge / create /
-reuse / recycle remain untouched.
+Status: **Slice 3 landed locally on clean baseline `5a2fd3bd` (S1 committed at
+`775e5781`, S2 committed at `5a2fd3bd`; main ahead remote; no push/deploy/cloud
+mutation).** ADR-146 stays **open**. S4 is **not** started.
+
+**Scope landed:**
+
+- last-responsible-moment Prisma `Assistant.sandboxEgressMode` resolve in
+  ExecPodBridge before warm/create/reuse/execute; no runtime/model/job authority;
+  DB miss/failure fails closed;
+- exact pod label+annotation `persai.io/sandbox-egress=restricted|full-public`
+  with `full_public`→`full-public` mapping only at K8s boundary; restricted-only
+  six-entry proxy env; full_public omits all proxy vars;
+- mismatch/absent/malformed recycle uses captured UID preconditions and waits
+  for `404` or a different UID; immediate pre-exec races fail closed; bounded
+  cross-replica 409 handling converges on DB+pod truth;
+- internal
+  `POST /api/v1/control/assistants/:assistantId/sandbox-egress/reconcile`
+  (Bearer internal token) + API client; owner PUT commits DB/audit then evicts
+  idle missing/malformed/mismatched-mode generations (`all` request on change,
+  `stale_only` on same-mode), while active exact-lease jobs and post-commit
+  correct-mode admissions survive; UID+resourceVersion conflicts are safe
+  non-recycled skips; busy `409` before
+  mutation/eviction; post-commit reconcile failure → stable
+  `503 sandbox_egress_recycle_failed`; honest `recycled`;
+- post-lease model-job binding stamps job+lease annotations and captures
+  immutable UID/resourceVersion; bind and every model exec require the exact
+  live DB lease token+holder+job with future expiry, while every hydrate/exec
+  validates caller-captured assistant/workspace/handle/mode plus
+  `(namespace,name,uid,leaseToken,jobId)`;
+- mandatory exact-UID retirement after workspace/output/artifact and terminal
+  job-state persistence and before lease release. Same-name replacements
+  survive. Running/terminal writes condition on expected nonterminal status and
+  the exact active lease, preventing a stale worker from clobbering recovery.
+  Retirement or terminal-write failure withholds release; no DB
+  pod-name quarantine and no process marker exists. Stale durable annotations
+  force later-admission recycle and an identity-bound nonterminal prior-job
+  failure; unpersisted crash output can be lost;
+- reaper protects arbitrarily long work only when annotated job+token match one
+  non-expired DB lease; stale missing/expired/mismatched leases conditionally
+  fail the old job and retire it. Reaper/owner reconcile snapshot-delete with
+  UID+resourceVersion; lease-free files/hydrate/GC execute only against
+  caller-captured full pod identity;
+- API recycle timeout explicitly 300s in config + Helm; OpenAPI `503` +
+  recycled semantics; generated TS unchanged because response models did not
+  change; focused api/sandbox tests; docs updated.
+
+**Out of scope:** user cancellation endpoint/writer (none exists), S4 Settings
+UI, Helm redesign beyond S2, deploy/live (S6), ADR closure.
+
+**Residuals:** deploy + live restricted/full-public acceptance still pending.
+Unlabeled live pods remain restricted-isolation until S3-stamped pods roll out.
+Crash recovery cannot safely pull unknown partial pod output without corruption,
+so only results persisted before the crash are retained.
+
+**Next:** parent review → commit when founder asks → Slice 4 (Assistant Settings
+consent UX). Do not close ADR-146.
+
+---
+
+## 2026-07-13 — ADR-146 Slice 2 Helm public-only policy (committed locally at `5a2fd3bd`)
+
+Status: **Slice 2 committed locally at `5a2fd3bd` on baseline `775e5781` (S1
+committed locally; main ahead remote; no push/deploy/cloud mutation).** ADR-146
+stays **open**. Superseded for next-slice pointer by Slice 3 entry above.
+ExecPodBridge mode authority landed in S3.
 
 **Scope landed:**
 
@@ -28,19 +89,15 @@ reuse / recycle remain untouched.
   `verify --require-s2-policy` requires present+exact postdeploy;
 - focused rendered-policy tests for both modes.
 
-**Out of scope:** S3 runtime mode authority; S4 checkbox; deploy/live
-full-public acceptance; ADR closure.
+**Out of scope:** S4 checkbox; deploy/live full-public acceptance; ADR closure.
 
 **Residuals:** default historical `verify` stays green against the current
 pre-S2 remote chart when `sandbox-exec-full-public-egress` is absent. After
 deploy, S5/S6 must run
 `node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy`;
-missing or malformed policy then fails. Unlabeled live exec pods remain under
-restricted isolation only. `static-check` evidence binding fail-closes on this
-dirty tree (expected).
+missing or malformed policy then fails.
 
-**Next:** parent review → commit when founder asks → Slice 3 (sandbox mode
-authority, recycle, descendant cleanup). Do not close ADR-146.
+**Next:** see Slice 3 local-land entry above.
 
 ---
 

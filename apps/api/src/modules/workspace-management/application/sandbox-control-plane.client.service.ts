@@ -170,6 +170,67 @@ export class SandboxControlPlaneClientService {
     }
   }
 
+  /**
+   * ADR-146 Slice 3 — fail-closed owner warm-pod reconcile after DB mode commit.
+   * Unlike upload hydration, reconciliation failure must surface to the caller as
+   * a stable 503; there is no deferred dual-mode runtime.
+   */
+  async reconcileAssistantSandboxEgress(input: {
+    assistantId: string;
+    mode: "restricted" | "full_public";
+    scope: "all" | "stale_only";
+  }): Promise<{ recycled: boolean; deletedPodCount: number }> {
+    const baseUrl = this.config.PERSAI_SANDBOX_BASE_URL?.trim();
+    const token = this.config.PERSAI_INTERNAL_API_TOKEN?.trim();
+    if (!baseUrl || !token) {
+      throw new Error("sandbox_egress_recycle_unavailable");
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      this.config.PERSAI_SANDBOX_EGRESS_RECYCLE_TIMEOUT_MS
+    );
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/v1/control/assistants/${encodeURIComponent(input.assistantId)}/sandbox-egress/reconcile`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ mode: input.mode, scope: input.scope }),
+          signal: controller.signal
+        }
+      );
+      if (!response.ok) {
+        const body = await this.safeReadBodyText(response);
+        this.logger.warn(
+          `sandbox_egress_reconcile_http_error assistant=${input.assistantId} mode=${input.mode} scope=${input.scope} status=${String(response.status)} body=${body.slice(0, 256)}`
+        );
+        throw new Error(`sandbox_egress_recycle_http_${String(response.status)}`);
+      }
+      const body = (await this.safeParseJson(response)) as Record<string, unknown> | null;
+      const recycled = body?.recycled === true;
+      const deletedPodCount =
+        typeof body?.deletedPodCount === "number" && Number.isFinite(body.deletedPodCount)
+          ? body.deletedPodCount
+          : 0;
+      this.logger.log(
+        `sandbox_egress_reconcile_ok assistant=${input.assistantId} mode=${input.mode} scope=${input.scope} recycled=${String(recycled)} deleted=${String(deletedPodCount)}`
+      );
+      return { recycled, deletedPodCount };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `sandbox_egress_reconcile_failed assistant=${input.assistantId} mode=${input.mode} scope=${input.scope} error=${message}`
+      );
+      throw error instanceof Error ? error : new Error(message);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   private async safeReadBodyText(response: Response): Promise<string> {
     try {
       return await response.text();

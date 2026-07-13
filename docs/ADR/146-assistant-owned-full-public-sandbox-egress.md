@@ -5,13 +5,14 @@
 Accepted — founder-directed production orchestration program opened 2026-07-12.
 Slice 0 read-only code/live-cluster audit completed 2026-07-12 with implementation
 **NO-GO**. **Slices 0.1 + 0.1b are live-accepted** (2026-07-13). **Slice 1 is
-committed locally at `775e5781`** (canonical `Assistant.sandboxEgressMode`, owner
-GET/PUT `/sandbox-egress`, legacy `networkAccessEnabled` deletion). **Slice 2 is
-landed locally (uncommitted) on baseline `775e5781`**: Helm public-only policy
-contract, additive full-public NetworkPolicy, shared deny inventory, exec
-identity-less SA hardening, restricted-default egress-mode ConfigMap contract,
-and rendered-policy assertions. This ADR is **not** closed. Slices 3–4 are
-**not** started. Deploy/live validation of S1/S2 is deferred.
+committed locally at `775e5781`**. **Slice 2 is committed locally at
+`5a2fd3bd`**. **Slice 3 is landed locally (uncommitted) on baseline `5a2fd3bd`**:
+last-responsible-moment DB mode authority, pod label/annotation enforcement,
+mismatch recycle, owner sync eviction with honest `recycled` + `503`, and
+mandatory post-persistence exec-pod retirement before workspace lease release.
+This ADR is **not** closed.
+Slice 4 (Settings UX) is **not** started. Deploy/live validation of S1–S3 is
+deferred.
 
 Live foundation + deferred-pin acceptance (2026-07-13): prepare, exact
 NAT/firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready
@@ -41,10 +42,10 @@ attempt failed after validate/GAR/pin on pin-assert EOF mismatch (extra CLI
 `main`; the successful second run is current. Post-rollout public
 `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, PersAI MCP chat smoke exact
-`ADR146_POST_ROLLOUT_OK`. **S1 committed locally at `775e5781`**. **S2 landed
-locally (uncommitted) on that baseline**. Next under parent orchestration:
-**Slice 3** (sandbox mode authority / recycle / descendant cleanup). Do **not**
-claim S3–S4 landed or close this ADR.
+`ADR146_POST_ROLLOUT_OK`. **S1 committed locally at `775e5781`**. **S2 committed
+locally at `5a2fd3bd`**. **S3 is landed locally (uncommitted) on that baseline**.
+Next under parent orchestration: **Slice 4** (Settings UX; not started). Do not
+claim S4 landed or close this ADR.
 
 ## Date
 
@@ -86,15 +87,85 @@ foundation gate **PASS** at that proof pin; evidence inventory SHA-256
 remote/deployed bot pin **`64be77d6`**: deferred services exact `3cd2ea4f`;
 sandbox remains `8a0043dd`. Environment `persai-dev-adr146-foundation`
 **approved**; resume run `29237479924` success; S0.1/0.1b live-accepted; ADR
-open; **S1 committed locally at `775e5781`**; **S2 landed locally
-(uncommitted) on that baseline**; S3 next (not started).
+open; **S1 committed locally at `775e5781`**; **S2 committed locally at
+`5a2fd3bd`**; **S3 landed locally (uncommitted) on that baseline**; S4 next
+(not started).
+
+## Slice 3 local land (2026-07-13)
+
+Baseline: clean `main` at `5a2fd3bde507ab67bbbfa8de857997103529869b` (S1 at
+`775e5781`, S2 at `5a2fd3bd`; ahead of remote; no push).
+
+Landed locally (uncommitted; no commit/push/deploy/cloud mutation):
+
+- sandbox control plane resolves `Assistant.sandboxEgressMode` from Prisma
+  immediately before every warm/create/reuse/execute decision; DB failure or
+  missing/invalid mode fails closed with no runtime/model/job field authority;
+- every new exec pod stamps exact label **and** annotation
+  `persai.io/sandbox-egress=restricted|full-public` (`full_public` →
+  `full-public` only at the K8s boundary); proxy env (exact six-entry contour)
+  injects only for `restricted`;
+- missing/malformed/mismatched mode on warm lookup, reuse, or create-conflict
+  UID-deletes the observed pod generation, waits until that UID is gone, and
+  recreates exact mode; an immediate pre-exec race fails closed and the
+  job-finalizer retires only its previously bound UID;
+- cross-replica create `409` re-validates cluster pod mode against DB and
+  recycles wrong-mode pods rather than trusting process memory;
+- internal
+  `POST /api/v1/control/assistants/:assistantId/sandbox-egress/reconcile`
+  (Bearer `PERSAI_INTERNAL_API_TOKEN`) with body
+  `{ mode, scope: "all"|"stale_only" }` and response
+  `{ recycled, deletedPodCount }`;
+- owner PUT commits DB+audit first, then requests reconcile (`all` on mode
+  change, `stale_only` on same-mode), but both scopes delete only idle
+  missing/malformed/mismatched-mode generations; busy `queued|running` returns `409`
+  before mutation/eviction; reconcile failure after commit returns stable
+  `503 sandbox_egress_recycle_failed` with honest no-fake-rollback semantics;
+  `recycled` is true only when pods were deleted and confirmed absent;
+- only after workspace lease acquisition, model-job admission stamps
+  `persai.io/sandbox-job-id` + `persai.io/sandbox-lease-token`, reads back
+  immutable `metadata.uid`/`resourceVersion`, and binds the exact tuple
+  `(namespace,name,uid,leaseToken,jobId)` plus assistant/workspace/handle/mode;
+  every hydrate/exec gate revalidates caller-captured identity, current DB mode,
+  and the exact live DB lease token/holder/job/expiry immediately before opening
+  the exec WebSocket;
+- after workspace/output/artifact and terminal job-state persistence, every
+  bound model-authored job re-reads its validated pod's fresh `resourceVersion`,
+  retires with both UID+resourceVersion preconditions, and waits for `404` or a
+  different UID before releasing the workspace lease.
+  Same-name replacements survive. Running/terminal writes are conditional on
+  nonterminal job state plus the exact active DB lease, so a lost worker cannot
+  overwrite stale-recovery truth. Delete/wait or terminal persistence failure
+  withholds lease release; there is no DB pod-name quarantine;
+- stale lease annotations are durable cluster contamination. The next acquired
+  lease marks an annotated queued/running prior job failed when identity matches,
+  then UID-retires before any work. It does not overwrite an existing terminal
+  result. Best-effort workspace pull is intentionally not attempted during crash
+  recovery because it cannot be made non-corrupting against unknown partial
+  output; unpersisted crashed-job output may therefore be lost;
+- the reaper protects arbitrarily long jobs only when the annotated job and
+  exact token are backed by the same non-expired DB lease. Missing/expired/
+  mismatched lease marks the stale nonterminal job conditionally failed and
+  retires that UID. Reaper and owner reconcile use snapshot
+  `uid+resourceVersion` delete preconditions; owner reconcile rechecks active
+  lease/job state and never evicts a newly admitted correct-mode operation;
+- observability counters/logs for create/recycle/jobs by mode without
+  URL/query/auth/file contents;
+- OpenAPI PUT adds `503`; `recycled` description updated. Generated TypeScript
+  is unchanged because neither change alters a generated response model;
+  focused api/sandbox suites cover the Slice 3 matrix.
+
+Out of scope: a user cancellation writer/endpoint (none exists in the current
+system), S4 Settings UX, Helm policy redesign, deploy/live acceptance, and ADR
+closure. Timeout closes the exec WebSocket best-effort; UID pod retirement is
+authoritative.
 
 ## Slice 2 local land (2026-07-13)
 
 Baseline: clean `main` at `775e5781c0bed5d43266a2494e373d8960b78e14` (S1
 committed locally; ahead of remote; no push).
 
-Landed locally (uncommitted; no commit/push/deploy/cloud mutation):
+Committed locally at `5a2fd3bde507ab67bbbfa8de857997103529869b` (no push):
 
 - additive `sandbox-exec-full-public-egress` NetworkPolicy selecting only
   `app.kubernetes.io/component=sandbox-exec` +
@@ -126,9 +197,10 @@ Landed locally (uncommitted; no commit/push/deploy/cloud mutation):
 - Helm defaults/dev values +
   `infra/helm/scripts/sandbox-egress-network-policy.test.mjs` for both modes.
 
-Out of scope for this land: S3 ExecPodBridge mode resolve / recycle /
-descendant cleanup; S4 Settings UX; deploy/live full-public acceptance; ADR
-closure. No second Squid, no Dataplane V2, no compatibility alias.
+Out of scope for this land: S4 Settings UX; deploy/live full-public acceptance;
+ADR closure. No second Squid, no Dataplane V2, no compatibility alias.
+(S3 mode authority / recycle / descendant cleanup landed separately on
+baseline `5a2fd3bd`.)
 
 ## Slice 1 local land (2026-07-13)
 
@@ -461,21 +533,39 @@ The sandbox control plane resolves the current `Assistant.sandboxEgressMode`
 from canonical database truth immediately before warm/create/reuse. It does not
 trust a stale runtime bundle or model-supplied job field.
 
-Before executing any command:
+After acquiring the workspace lease and before hydrate or model execution, the
+control plane stamps `persai.io/sandbox-job-id` and
+`persai.io/sandbox-lease-token`, reads back immutable `metadata.uid`, and binds
+the exact generation tuple `(namespace,name,uid,leaseToken,jobId)`. Every
+immediate pre-exec check re-resolves current DB mode and validates that tuple
+plus assistant/workspace/handle/mode. Bind and every model pre-exec gate also
+query `AssistantWorkspaceLease` and require exact assistant/workspace, token,
+holder, job, and `expiresAt > now`; pod annotations alone are never lease
+authority. Lease-free file/hydrate/GC paths carry the caller-captured
+`(namespace,name,uid,assistantId,workspaceId,handle,mode)` into the final guard,
+never identity learned from a replacement pod. Caller metadata cannot override
+these canonical fields.
 
-1. resolve the current assistant mode;
-2. inspect the existing pod's mode;
-3. if it differs or is absent, delete the pod and wait for termination;
-4. create a new pod with the correct NetworkPolicy label and proxy environment;
-5. only then execute the job.
+A stale/foreign token is never reused. Under a current acquired lease, admission
+marks an identity-matching nonterminal prior job failed without replacing an
+already persisted terminal result, UID-deletes the contaminated generation with
+`DeleteOptions.preconditions.uid`, waits for `404` or a different UID, and only
+then creates/binds a clean generation. Lease-free warm work neither deletes nor
+executes through a contaminated pod.
 
 Failure to resolve, label, delete, or recreate is fail-closed: the job does not
 run. There is no “temporarily use restricted/full” fallback and no unlabeled
 exec pod.
 
-Job completion must terminate the command's complete descendant process tree.
-No model-started background process may survive lease release. This is required
-so an idle pod is inert while a setting change is being reconciled.
+After durable workspace/output/artifact persistence and terminal DB write, the
+bound UID is retired before lease release. A same-name replacement UID survives.
+Running and terminal job writes atomically require the expected nonterminal
+status and the exact active DB lease relation; count zero means stale/lost
+ownership and cannot clobber recovery payload/audit truth. Retirement or
+terminal persistence failure withholds release. There is no
+DB name-based quarantine and no process-marker/process-group proof; durable pod
+annotations carry crash contamination until a later admission safely recycles
+that UID. Pod namespace destruction proves no model-started descendant survives.
 
 ### D6 — Setting changes are immediate operational changes
 
@@ -496,8 +586,13 @@ Mutation behavior:
 - reject with `409 sandbox_egress_change_busy` while that assistant has a queued
   or running sandbox job; never kill a live user operation silently;
 - persist the new mode and an `AssistantAuditEvent` with old/new mode and actor;
-- synchronously request eviction of all warm execution pods for the assistant;
-- report success only after those pods are absent;
+- synchronously reconcile all warm **idle stale** generations for the assistant:
+  delete only missing/malformed/mismatched-mode pods, skip an exact active
+  lease/job generation, and never delete a newly admitted correct-mode pod;
+- capture `uid+resourceVersion`, re-read active lease/job immediately before
+  delete, and send both delete preconditions. A `409` snapshot conflict is a
+  safe skip/re-evaluation and is never counted as recycled;
+- report success only after every actually deleted stale UID is absent;
 - if reconciliation fails, return a stable `503` and keep future execution
   fail-closed on the database/pod mode mismatch. A retry/reconciler may complete
   eviction, but there is no user-visible dual-mode runtime.
@@ -1039,7 +1134,8 @@ inventory SHA-256
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). S0.1b
 Environment approval + deferred pins are live-accepted at bot pin `64be77d6`.
 **S1 is committed locally at `775e5781`** (implemented from baseline
-`6fe4356a`; not pushed/deployed). **S2 is local and uncommitted on `775e5781`.**
+`6fe4356a`; not pushed/deployed). **S2 is committed locally at `5a2fd3bd`.**
+**S3 is landed locally (uncommitted) on `5a2fd3bd`.**
 A locally rendered policy alone is not live acceptance.
 
 ### Slice 1 — Canonical data/API contract and legacy-field deletion
@@ -1098,7 +1194,8 @@ Land:
 - mismatch delete-and-recreate;
 - owner-mode reconcile/eviction internal endpoint;
 - queued/running busy protection;
-- complete descendant-process cleanup after each job;
+- mandatory exact-pod retirement after persistence and before lease release,
+  making pod namespace destruction the descendant-cleanup proof;
 - fail-closed errors and observability;
 - focused sandbox tests, including cross-replica/cluster-truth behavior.
 

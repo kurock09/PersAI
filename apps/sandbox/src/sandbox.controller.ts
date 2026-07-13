@@ -161,6 +161,40 @@ export class SandboxController {
     };
   }
 
+  /**
+   * ADR-146 Slice 3 — owner-mode synchronous warm-pod reconcile/eviction.
+   * Called by api after the Assistant mode + audit transaction commits.
+   */
+  @Post("/api/v1/control/assistants/:assistantId/sandbox-egress/reconcile")
+  async reconcileAssistantSandboxEgress(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("assistantId") assistantId: string,
+    @Body() body: unknown
+  ) {
+    this.assertAuthorized(authorization);
+    if (body === null || typeof body !== "object" || Array.isArray(body)) {
+      throw new ServiceUnavailableException("Request body must be an object.");
+    }
+    const row = body as Record<string, unknown>;
+    const mode = row.mode;
+    if (mode !== "restricted" && mode !== "full_public") {
+      throw new ServiceUnavailableException('Field "mode" must be "restricted" or "full_public".');
+    }
+    const scope = row.scope;
+    if (scope !== "all" && scope !== "stale_only") {
+      throw new ServiceUnavailableException('Field "scope" must be "all" or "stale_only".');
+    }
+    const result = await this.sandboxService.reconcileAssistantSandboxEgress({
+      assistantId: this.requireNonEmptyString(assistantId, "assistantId"),
+      mode,
+      scope
+    });
+    return {
+      recycled: result.recycled,
+      deletedPodCount: result.deletedPodCount
+    };
+  }
+
   @Get("/api/v1/jobs/:jobId")
   async getJob(
     @Headers("authorization") authorization: string | undefined,

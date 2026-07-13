@@ -38,6 +38,33 @@ import {
 // non-tar / zero-length input that BSD tar silently tolerates).
 const VALID_EMPTY_TAR = "\0".repeat(10240);
 
+function labeledRunningPod(input?: {
+  assistantId?: string;
+  workspaceId?: string;
+  handle?: string;
+  mode?: "restricted" | "full-public";
+}): V1Pod {
+  const mode = input?.mode ?? "restricted";
+  return {
+    status: { phase: "Running" },
+    metadata: {
+      uid: `uid-${input?.assistantId ?? "pod"}-${input?.workspaceId ?? "workspace"}`,
+      resourceVersion: "1",
+      labels: {
+        "app.kubernetes.io/name": "exec-pod",
+        "app.kubernetes.io/component": "sandbox-exec",
+        "persai.io/sandbox-egress": mode
+      },
+      annotations: {
+        "persai.io/sandbox-egress": mode,
+        ...(input?.assistantId ? { "persai.io/assistant-id": input.assistantId } : {}),
+        ...(input?.workspaceId ? { "persai.io/workspace-id": input.workspaceId } : {}),
+        ...(input?.handle ? { "persai.io/assistant-handle": input.handle } : {})
+      }
+    }
+  };
+}
+
 function isWorkspacePull(command: string[]): boolean {
   return command.includes("-cf") && command.includes("/workspace");
 }
@@ -68,7 +95,7 @@ function createConfig(): SandboxConfig {
     SANDBOX_EXEC_NO_PROXY: "",
     SANDBOX_EXEC_SESSION_IDLE_TTL_MS: 900_000,
     SANDBOX_EXEC_REAPER_INTERVAL_MS: 120_000,
-    SANDBOX_EXEC_POD_PROVISION_BUDGET_MS: 240_000,
+    SANDBOX_EXEC_POD_PROVISION_BUDGET_MS: 2_000,
     SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 1,
     SANDBOX_SHARED_EMPTYDIR_SIZE_MIB: 512,
     SANDBOX_GC_INTERVAL_MS: 300_000,
@@ -80,12 +107,30 @@ function createConfig(): SandboxConfig {
 // assistant+workspace from sandboxJob.findFirst, keyed by `${assistantId}:${workspaceId}`.
 // Other code paths under test never touch the DB.
 function createMockPrisma(
-  latestByWorkspace: Record<string, { createdAt: Date; completedAt: Date | null } | null> = {}
+  latestByWorkspace: Record<string, { createdAt: Date; completedAt: Date | null } | null> = {},
+  modeByAssistant: Record<string, string> = { "assistant-1": "restricted" }
 ) {
   return {
     sandboxJob: {
-      findFirst: async ({ where }: { where: { assistantId: string; workspaceId: string } }) =>
-        latestByWorkspace[`${where.assistantId}:${where.workspaceId}`] ?? null
+      findFirst: async ({
+        where
+      }: {
+        where: { assistantId: string; workspaceId: string; status?: unknown };
+      }) =>
+        where.status === undefined
+          ? (latestByWorkspace[`${where.assistantId}:${where.workspaceId}`] ?? null)
+          : null,
+      updateMany: async () => ({ count: 1 })
+    },
+    assistantWorkspaceLease: {
+      findFirst: async (input: { where?: Record<string, unknown> }) =>
+        input.where?.holderId === undefined ? null : { id: "active-lease" }
+    },
+    assistant: {
+      findUnique: async ({ where }: { where: { id: string } }) => {
+        const mode = modeByAssistant[where.id] ?? "restricted";
+        return { sandboxEgressMode: mode };
+      }
     }
   };
 }
@@ -107,23 +152,87 @@ type MockK8sContext = {
 function buildMockBridge(ctx: MockK8sContext): ExecPodBridgeService {
   let phaseIndex = 0;
   let execCallIndex = 0;
+  const livePods = new Map<string, V1Pod>();
 
-  const mockCoreV1Api: Partial<CoreV1Api> = {
+  const mockCoreV1Api: Partial<CoreV1Api> & {
+    __seedLivePod(name: string, body: V1Pod): void;
+  } = {
     async createNamespacedPod(params: { namespace: string; body: V1Pod }) {
       ctx.createdPods.push({ namespace: params.namespace, body: params.body });
+      const name = params.body.metadata?.name;
+      if (name !== undefined) {
+        const body = structuredClone(params.body);
+        body.metadata = { ...body.metadata, uid: body.metadata?.uid ?? `uid-${name}` };
+        body.metadata.resourceVersion = body.metadata.resourceVersion ?? "1";
+        livePods.set(name, body);
+      }
       return params.body as never;
     },
-    async readNamespacedPod() {
+    async readNamespacedPod(params?: { name?: string }) {
+      const name = params?.name;
+      const stored = name === undefined ? undefined : livePods.get(name);
+      if (stored === undefined) {
+        // Cluster truth: absent pods are 404. Phase-only stubs are seeded into
+        // livePods by waitForPodRunning unit tests below.
+        const error = new Error("not found") as Error & { code: number };
+        error.code = 404;
+        throw error;
+      }
       const phaseOrError = ctx.podPhaseSequence[phaseIndex];
-      phaseIndex += 1;
+      if (phaseOrError !== undefined) {
+        phaseIndex += 1;
+      }
       if (phaseOrError instanceof Error) {
         throw phaseOrError;
       }
-      return { status: { phase: phaseOrError } } as never;
+      return {
+        ...stored,
+        status: { phase: phaseOrError ?? "Running" }
+      } as never;
     },
     async deleteNamespacedPod(params: { name: string; namespace: string }) {
+      const stored = livePods.get(params.name);
+      const expectedUid = (params as unknown as { body?: { preconditions?: { uid?: string } } })
+        .body?.preconditions?.uid;
+      if (
+        stored !== undefined &&
+        expectedUid !== undefined &&
+        stored.metadata?.uid !== expectedUid
+      ) {
+        const error = new Error("uid precondition conflict") as Error & { code: number };
+        error.code = 409;
+        throw error;
+      }
       ctx.deletedPods.push(params.name);
+      livePods.delete(params.name);
       return {} as never;
+    },
+    async replaceNamespacedPod(params: { name: string; namespace: string; body: V1Pod }) {
+      const current = livePods.get(params.name);
+      if (current === undefined) {
+        const error = new Error("not found") as Error & { code: number };
+        error.code = 404;
+        throw error;
+      }
+      const replacement = structuredClone(params.body);
+      replacement.metadata = {
+        ...replacement.metadata,
+        uid: current.metadata?.uid ?? `uid-${params.name}`,
+        resourceVersion: String(Number(current.metadata?.resourceVersion ?? "1") + 1)
+      };
+      livePods.set(params.name, replacement);
+      return replacement as never;
+    },
+    // Test helper: seed a warm unlabeled/labeled pod without going through create.
+    __seedLivePod(name: string, body: V1Pod) {
+      livePods.set(name, {
+        ...body,
+        metadata: {
+          ...body.metadata,
+          uid: body.metadata?.uid ?? `uid-${name}`,
+          resourceVersion: body.metadata?.resourceVersion ?? "1"
+        }
+      });
     }
   };
 
@@ -761,14 +870,20 @@ test("ExecPodBridgeService: createExecPod creates pod with correct spec", async 
     createExecPod(
       podName: string,
       namespace: string,
-      policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY
+      policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY,
+      egressMode: "restricted" | "full_public"
     ): Promise<void>;
   };
 
-  await access.createExecPod("exec-testpod", "persai-dev", {
-    ...DEFAULT_RUNTIME_SANDBOX_POLICY,
-    enabled: true
-  });
+  await access.createExecPod(
+    "exec-testpod",
+    "persai-dev",
+    {
+      ...DEFAULT_RUNTIME_SANDBOX_POLICY,
+      enabled: true
+    },
+    "restricted"
+  );
 
   assert.equal(ctx.createdPods.length, 1);
   const pod = ctx.createdPods[0];
@@ -779,6 +894,8 @@ test("ExecPodBridgeService: createExecPod creates pod with correct spec", async 
   assert.equal(pod.body.spec?.serviceAccountName, "sandbox-exec-sa");
   assert.equal(pod.body.spec?.automountServiceAccountToken, false);
   assert.equal(pod.body.spec?.restartPolicy, "Never");
+  assert.equal(pod.body.metadata?.labels?.["persai.io/sandbox-egress"], "restricted");
+  assert.equal(pod.body.metadata?.annotations?.["persai.io/sandbox-egress"], "restricted");
   const container = pod.body.spec?.containers?.[0];
   assert.ok(container !== undefined);
   assert.equal(container.image, "busybox:1.36");
@@ -810,6 +927,13 @@ test("ExecPodBridgeService: waitForPodRunning succeeds when pod reaches Running"
   };
 
   const bridge = buildMockBridge(ctx);
+  (
+    bridge as unknown as {
+      k8sApi: { __seedLivePod(name: string, body: V1Pod): void };
+    }
+  ).k8sApi.__seedLivePod("exec-test", {
+    metadata: { name: "exec-test" }
+  });
   const access = bridge as unknown as {
     waitForPodRunning(podName: string, namespace: string, timeoutMs: number): Promise<void>;
   };
@@ -828,6 +952,13 @@ test("ExecPodBridgeService: waitForPodRunning throws on terminal phase", async (
   };
 
   const bridge = buildMockBridge(ctx);
+  (
+    bridge as unknown as {
+      k8sApi: { __seedLivePod(name: string, body: V1Pod): void };
+    }
+  ).k8sApi.__seedLivePod("exec-test", {
+    metadata: { name: "exec-test" }
+  });
   const access = bridge as unknown as {
     waitForPodRunning(podName: string, namespace: string, timeoutMs: number): Promise<void>;
   };
@@ -914,14 +1045,20 @@ test("ExecPodBridgeService: createExecPod injects proxy env vars when proxy URL 
     createExecPod(
       podName: string,
       namespace: string,
-      policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY
+      policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY,
+      egressMode: "restricted" | "full_public"
     ): Promise<void>;
   };
 
-  await access.createExecPod("exec-testproxy", "persai-dev", {
-    ...DEFAULT_RUNTIME_SANDBOX_POLICY,
-    enabled: true
-  });
+  await access.createExecPod(
+    "exec-testproxy",
+    "persai-dev",
+    {
+      ...DEFAULT_RUNTIME_SANDBOX_POLICY,
+      enabled: true
+    },
+    "restricted"
+  );
 
   assert.equal(ctx.createdPods.length, 1);
   const pod = ctx.createdPods[0];
@@ -1006,7 +1143,7 @@ test("ExecPodBridgeService: workspace push stdin is chunked instead of one huge 
   );
 });
 
-test("ExecPodBridgeService: sessionless runInPod creates and deletes ephemeral pod", async () => {
+test("ExecPodBridgeService: sessionless runInPod leaves retirement to job lifecycle", async () => {
   const ctx: MockK8sContext = {
     createdPods: [],
     podPhaseSequence: ["Running"],
@@ -1026,6 +1163,8 @@ test("ExecPodBridgeService: sessionless runInPod creates and deletes ephemeral p
     await fs.writeFile(join(workspaceRoot, "test.txt"), "hello", "utf8");
     await bridge.runInPod({
       jobId: "job-001",
+      leaseToken: "lease-job-001",
+      leaseHolderId: "holder-test",
       runtimeSessionId: null,
       assistantId: "assistant-eph",
       assistantHandle: "test-handle",
@@ -1046,8 +1185,7 @@ test("ExecPodBridgeService: sessionless runInPod creates and deletes ephemeral p
     ctx.createdPods[0]?.body.metadata?.name?.startsWith("exec-"),
     "pod name must start exec-"
   );
-  assert.equal(ctx.deletedPods.length, 1, "ephemeral pod must be deleted after job");
-  assert.equal(ctx.deletedPods[0], ctx.createdPods[0]?.body.metadata?.name);
+  assert.equal(ctx.deletedPods.length, 0, "pod must remain until outputs and job state persist");
 });
 
 test("ExecPodBridgeService: ephemeral workspace push preserves hierarchical tree and extracts by entry name with --no-same-owner", async () => {
@@ -1078,6 +1216,8 @@ test("ExecPodBridgeService: ephemeral workspace push preserves hierarchical tree
     await fs.writeFile(join(sessionRoot, "sub", "nested.txt"), "data", "utf8");
     await bridge.runInPod({
       jobId: "job-push-001",
+      leaseToken: "lease-job-push-001",
+      leaseHolderId: "holder-test",
       runtimeSessionId: null,
       assistantId: "assistant-push",
       assistantHandle: "test-handle",
@@ -1141,6 +1281,8 @@ test("ExecPodBridgeService: session runInPod does not push workspace tree before
     await fs.writeFile(join(sessionRoot, "stale.txt"), "OLD", "utf8");
     await bridge.runInPod({
       jobId: "job-session-nopush",
+      leaseToken: "lease-job-session-nopush",
+      leaseHolderId: "holder-test",
       runtimeSessionId: "session-1",
       assistantId: "assistant-1",
       assistantHandle: "test-handle",
@@ -1194,6 +1336,8 @@ test("ExecPodBridgeService: session runInPod guarantees the pod cwd exists befor
     await fs.mkdir(nestedCwd, { recursive: true });
     await bridge.runInPod({
       jobId: "job-session-cwd",
+      leaseToken: "lease-job-session-cwd",
+      leaseHolderId: "holder-test",
       runtimeSessionId: "session-1",
       assistantId: "assistant-1",
       assistantHandle: "test-handle",
@@ -1236,6 +1380,12 @@ test("ExecPodBridgeService: later canonical session write is visible to the next
   const storedObjects = new Map<string, Buffer>();
   const podFiles = new Map<string, Buffer>();
   let hydratedSessionId: string | null = null;
+  let podAnnotations: Record<string, string> = {
+    "persai.io/sandbox-egress": "restricted",
+    "persai.io/assistant-id": assistantId,
+    "persai.io/workspace-id": workspaceId,
+    "persai.io/assistant-handle": "test-handle"
+  };
 
   const bridge = new ExecPodBridgeService(createConfig(), createMockPrisma() as never);
   Object.defineProperty(bridge, "objectStorage", {
@@ -1276,7 +1426,28 @@ test("ExecPodBridgeService: later canonical session write is visible to the next
     configurable: true,
     value: {
       async readNamespacedPod() {
-        return { status: { phase: "Running" } } as never;
+        return {
+          status: { phase: "Running" },
+          metadata: {
+            uid: "uid-canonical-session",
+            resourceVersion: "1",
+            labels: {
+              "app.kubernetes.io/component": "sandbox-exec",
+              "persai.io/sandbox-egress": "restricted"
+            },
+            annotations: podAnnotations
+          }
+        } as never;
+      },
+      async createNamespacedPod() {
+        return {} as never;
+      },
+      async deleteNamespacedPod() {
+        return {} as never;
+      },
+      async replaceNamespacedPod(input: { body: V1Pod }) {
+        podAnnotations = { ...(input.body.metadata?.annotations ?? {}) };
+        return input.body as never;
       }
     }
   });
@@ -1288,59 +1459,80 @@ test("ExecPodBridgeService: later canonical session write is visible to the next
     configurable: true,
     value: async () => true
   });
+  const execCommandMock = async (
+    _podName: string,
+    _namespace: string,
+    request: {
+      command: string;
+      args: string[];
+      podCwd: string;
+      stdin?: Buffer | null;
+    }
+  ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> => {
+    const shell = request.args[1] ?? "";
+    if (
+      request.command === "/bin/sh" &&
+      shell.includes("/tmp/.persai_workspace_hydrate_session") &&
+      shell.includes("cat ") &&
+      !shell.includes("cat >")
+    ) {
+      return { exitCode: 0, stdout: hydratedSessionId ?? "", stderr: "" };
+    }
+    if (
+      shell.includes("/tmp/.persai_workspace_hydrate_session") &&
+      request.stdin !== undefined &&
+      request.stdin !== null
+    ) {
+      hydratedSessionId = request.stdin.toString("utf8");
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+    const writeMatch = shell.match(/cat > '([^']+)'$/);
+    if (writeMatch !== null) {
+      podFiles.set(writeMatch[1]!, Buffer.from(request.stdin ?? Buffer.alloc(0)));
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }
+    if (
+      request.command === "/bin/bash" &&
+      request.args[0] === "-lc" &&
+      request.args[1] === "cat report.txt"
+    ) {
+      const filePath = `${request.podCwd}/report.txt`;
+      const bytes = podFiles.get(filePath);
+      if (bytes === undefined) {
+        return { exitCode: 1, stdout: "", stderr: "missing report.txt" };
+      }
+      return { exitCode: 0, stdout: bytes.toString("utf8"), stderr: "" };
+    }
+    return { exitCode: 0, stdout: "", stderr: "" };
+  };
   Object.defineProperty(bridge, "execCommand", {
     configurable: true,
+    value: execCommandMock
+  });
+  Object.defineProperty(bridge, "execJobCommand", {
+    configurable: true,
     value: async (
-      _podName: string,
-      _namespace: string,
-      request: {
+      podName: string,
+      namespace: string,
+      options: {
         command: string;
         args: string[];
         podCwd: string;
-        stdin?: Buffer | null;
+        policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY;
       }
-    ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> => {
-      const shell = request.args[1] ?? "";
-      if (
-        request.command === "/bin/sh" &&
-        shell.includes("/tmp/.persai_workspace_hydrate_session") &&
-        shell.includes("cat ") &&
-        !shell.includes("cat >")
-      ) {
-        return { exitCode: 0, stdout: hydratedSessionId ?? "", stderr: "" };
-      }
-      if (
-        shell.includes("/tmp/.persai_workspace_hydrate_session") &&
-        request.stdin !== undefined &&
-        request.stdin !== null
-      ) {
-        hydratedSessionId = request.stdin.toString("utf8");
-        return { exitCode: 0, stdout: "", stderr: "" };
-      }
-      const writeMatch = shell.match(/cat > '([^']+)'$/);
-      if (writeMatch !== null) {
-        podFiles.set(writeMatch[1]!, Buffer.from(request.stdin ?? Buffer.alloc(0)));
-        return { exitCode: 0, stdout: "", stderr: "" };
-      }
-      if (
-        request.command === "/bin/bash" &&
-        request.args[0] === "-lc" &&
-        request.args[1] === "cat report.txt"
-      ) {
-        const filePath = `${request.podCwd}/report.txt`;
-        const bytes = podFiles.get(filePath);
-        if (bytes === undefined) {
-          return { exitCode: 1, stdout: "", stderr: "missing report.txt" };
-        }
-        return { exitCode: 0, stdout: bytes.toString("utf8"), stderr: "" };
-      }
-      return { exitCode: 0, stdout: "", stderr: "" };
-    }
+    ) =>
+      execCommandMock(podName, namespace, {
+        command: options.command,
+        args: options.args,
+        podCwd: options.podCwd
+      })
   });
 
   try {
     await bridge.runInPod({
       jobId: "job-empty-session",
+      leaseToken: "lease-job-empty-session",
+      leaseHolderId: "holder-test",
       runtimeSessionId,
       assistantId,
       assistantHandle: "test-handle",
@@ -1364,7 +1556,9 @@ test("ExecPodBridgeService: later canonical session write is visible to the next
     storedObjects.set(objectKey, Buffer.from("hello from storage plane", "utf8"));
 
     const result = await bridge.runInPod({
-      jobId: "job-read-report",
+      jobId: "job-empty-session",
+      leaseToken: "lease-job-empty-session",
+      leaseHolderId: "holder-test",
       runtimeSessionId,
       assistantId,
       assistantHandle: "test-handle",
@@ -1402,6 +1596,8 @@ test("ExecPodBridgeService: session runInPod writes staging files directly into 
     await fs.mkdir(sessionRoot, { recursive: true });
     await bridge.runInPod({
       jobId: "job-session-staging",
+      leaseToken: "lease-job-session-staging",
+      leaseHolderId: "holder-test",
       runtimeSessionId: "session-1",
       assistantId: "assistant-1",
       assistantHandle: "test-handle",
@@ -1464,6 +1660,8 @@ test("ExecPodBridgeService: workspace push success comes from the stdin-less ver
     await assert.rejects(
       bridge.runInPod({
         jobId: "job-verify-001",
+        leaseToken: "lease-job-verify-001",
+        leaseHolderId: "holder-test",
         runtimeSessionId: null,
         assistantId: "assistant-verify",
         assistantHandle: "test-handle",
@@ -1491,32 +1689,47 @@ test("ExecPodBridgeService: workspace push success comes from the stdin-less ver
   );
 });
 
-test("ExecPodBridgeService: session runInPod reuses pod on second call (no recreate, no delete)", async () => {
-  // First call: pod does not exist (readNamespacedPod returns 404) → create it.
-  // Second call: pod is Running → reuse; must NOT create a second pod or delete.
-  let readCallCount = 0;
-
+test("ExecPodBridgeService: next lease recycles stale annotated UID before execution", async () => {
   const createdPods: string[] = [];
   const deletedPods: string[] = [];
+  let generation = 0;
+  let livePod: V1Pod | null = null;
 
   const mockCoreV1Api = {
     async createNamespacedPod(params: { namespace: string; body: V1Pod }) {
       createdPods.push(params.body.metadata?.name ?? "");
-      return params.body as never;
+      generation += 1;
+      livePod = {
+        ...structuredClone(params.body),
+        metadata: {
+          ...params.body.metadata,
+          uid: `uid-generation-${generation}`,
+          resourceVersion: "1"
+        }
+      };
+      return livePod as never;
     },
     async readNamespacedPod() {
-      readCallCount += 1;
-      if (readCallCount === 1) {
-        // First call: simulate pod not found → should trigger create path.
+      if (livePod === null) {
         const err = Object.assign(new Error("pod not found"), { statusCode: 404 });
         throw err;
       }
-      // Subsequent calls: pod is Running.
-      return { status: { phase: "Running" } } as never;
+      return { ...structuredClone(livePod), status: { phase: "Running" } } as never;
     },
     async deleteNamespacedPod(params: { name: string }) {
       deletedPods.push(params.name);
+      livePod = null;
       return {} as never;
+    },
+    async replaceNamespacedPod(params: { body: V1Pod }) {
+      livePod = {
+        ...structuredClone(params.body),
+        metadata: {
+          ...params.body.metadata,
+          resourceVersion: String(Number(params.body.metadata?.resourceVersion ?? "1") + 1)
+        }
+      };
+      return livePod as never;
     }
   };
 
@@ -1559,6 +1772,8 @@ test("ExecPodBridgeService: session runInPod reuses pod on second call (no recre
     // First job: pod doesn't exist, must create.
     await bridge.runInPod({
       jobId: "job-s1",
+      leaseToken: "lease-job-s1",
+      leaseHolderId: "holder-test",
       runtimeSessionId: sessionId,
       assistantId,
       assistantHandle: "test-handle",
@@ -1571,12 +1786,11 @@ test("ExecPodBridgeService: session runInPod reuses pod on second call (no recre
       policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
     });
 
-    assert.equal(createdPods.length, 1, "first session job must create exactly one pod");
-    assert.equal(deletedPods.length, 0, "session pod must NOT be deleted after first job");
-
-    // Second job: pod is Running → must reuse, no create, no delete.
+    // Second job has a new lease token, so the first generation is contamination.
     await bridge.runInPod({
       jobId: "job-s2",
+      leaseToken: "lease-job-s2",
+      leaseHolderId: "holder-test",
       runtimeSessionId: sessionId,
       assistantId,
       assistantHandle: "test-handle",
@@ -1588,13 +1802,12 @@ test("ExecPodBridgeService: session runInPod reuses pod on second call (no recre
       args: ["-c", "echo second"],
       policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true }
     });
+
+    assert.equal(createdPods.length, 2, "new lease must create a clean generation");
+    assert.equal(deletedPods.length, 1, "stale annotated UID must be retired once");
   } finally {
     await removePathWithRetries(workspaceRoot);
   }
-
-  assert.equal(createdPods.length, 1, "second session job must NOT create a new pod");
-  assert.equal(deletedPods.length, 0, "session pod must NOT be deleted after second job");
-  assert.ok(createdPods[0]?.startsWith("ses-"), "session pod name must start with ses-");
 });
 
 test("ExecPodBridgeService: reaper evicts idle pods by cluster truth + DB activity", async () => {
@@ -1613,6 +1826,8 @@ test("ExecPodBridgeService: reaper evicts idle pods by cluster truth + DB activi
           {
             metadata: {
               name: "ses-stale",
+              uid: "uid-ses-stale",
+              resourceVersion: "1",
               creationTimestamp: oldTs,
               annotations: {
                 "persai.io/assistant-id": "a-stale",
@@ -1623,6 +1838,8 @@ test("ExecPodBridgeService: reaper evicts idle pods by cluster truth + DB activi
           {
             metadata: {
               name: "ses-active",
+              uid: "uid-ses-active",
+              resourceVersion: "1",
               creationTimestamp: oldTs,
               annotations: {
                 "persai.io/assistant-id": "a-active",
@@ -1631,13 +1848,26 @@ test("ExecPodBridgeService: reaper evicts idle pods by cluster truth + DB activi
             }
           },
           // Ephemeral orphan: no workspace annotations, old creation → evicted by age.
-          { metadata: { name: "exec-orphan", creationTimestamp: oldTs } }
+          {
+            metadata: {
+              name: "exec-orphan",
+              uid: "uid-exec-orphan",
+              resourceVersion: "1",
+              creationTimestamp: oldTs
+            }
+          }
         ]
       } as never;
     },
     async deleteNamespacedPod(params: { name: string }) {
       deletedPods.push(params.name);
       return {} as never;
+    },
+    async readNamespacedPod(params: { name: string }) {
+      if (deletedPods.includes(params.name)) {
+        throw Object.assign(new Error("not found"), { code: 404 });
+      }
+      return { metadata: { uid: `uid-${params.name}` } } as never;
     }
   };
 
@@ -1670,6 +1900,8 @@ test("ExecPodBridgeService: reaper keeps pods when activity is fresh", async () 
           {
             metadata: {
               name: "ses-recent",
+              uid: "uid-ses-recent",
+              resourceVersion: "1",
               creationTimestamp: new Date(now - 5_000),
               annotations: {
                 "persai.io/assistant-id": "a-recent",
@@ -1709,6 +1941,8 @@ test("ExecPodBridgeService: reaper does not evict when activity lookup fails", a
           {
             metadata: {
               name: "ses-unknown",
+              uid: "uid-ses-unknown",
+              resourceVersion: "1",
               creationTimestamp: new Date(now - idleTtlMs - 600_000),
               annotations: {
                 "persai.io/assistant-id": "a-unknown",
@@ -1755,8 +1989,12 @@ test("ExecPodBridgeService: warmSessionPod creates session pod when absent and r
         const err = Object.assign(new Error("pod not found"), { statusCode: 404 });
         throw err;
       }
-      // After create: pod is Running.
-      return { status: { phase: "Running" } } as never;
+      // After create: pod is Running with egress metadata.
+      return labeledRunningPod({
+        assistantId: "assistant-warm-1",
+        workspaceId: "workspace-warm-1",
+        handle: "test-handle"
+      }) as never;
     },
     async deleteNamespacedPod(params: { name: string }) {
       return params as never;
@@ -1788,7 +2026,11 @@ test("ExecPodBridgeService: warmSessionPod skips create when pod is already Runn
       return params.body as never;
     },
     async readNamespacedPod() {
-      return { status: { phase: "Running" } } as never;
+      return labeledRunningPod({
+        assistantId: "assistant-warm-2",
+        workspaceId: "workspace-warm-2",
+        handle: "test-handle"
+      }) as never;
     },
     async deleteNamespacedPod(params: { name: string }) {
       return params as never;
@@ -1835,8 +2077,13 @@ test("ExecPodBridgeService: warmSessionPod tolerates 409 Conflict from concurren
         const err = Object.assign(new Error("pod not found"), { statusCode: 404 });
         throw err;
       }
-      // After the 409-tolerant create falls through: pod is Running (the concurrent caller created it).
-      return { status: { phase: "Running" } } as never;
+      // After the 409-tolerant create falls through: concurrent caller left a
+      // correctly labelled Running pod.
+      return labeledRunningPod({
+        assistantId: "assistant-warm-3",
+        workspaceId: "workspace-warm-3",
+        handle: "test-handle"
+      }) as never;
     },
     async deleteNamespacedPod(params: { name: string }) {
       return params as never;
@@ -1881,14 +2128,20 @@ test("ExecPodBridgeService: createExecPod injects no env vars when proxy URL is 
     createExecPod(
       podName: string,
       namespace: string,
-      policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY
+      policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY,
+      egressMode: "restricted" | "full_public"
     ): Promise<void>;
   };
 
-  await access.createExecPod("exec-noproxy", "persai-dev", {
-    ...DEFAULT_RUNTIME_SANDBOX_POLICY,
-    enabled: true
-  });
+  await access.createExecPod(
+    "exec-noproxy",
+    "persai-dev",
+    {
+      ...DEFAULT_RUNTIME_SANDBOX_POLICY,
+      enabled: true
+    },
+    "restricted"
+  );
 
   assert.equal(ctx.createdPods.length, 1);
   const pod = ctx.createdPods[0];
@@ -1910,10 +2163,13 @@ test("ExecPodBridgeService: removeWorkspaceFileFromWarmPods rm's each warm pod",
             {
               metadata: {
                 name: "ses-pod-1",
+                uid: "uid-ses-pod-1",
+                labels: { "persai.io/sandbox-egress": "restricted" },
                 annotations: {
                   "persai.io/workspace-id": "ws-rm",
                   "persai.io/assistant-id": "assistant-1",
-                  "persai.io/assistant-handle": "bot-one"
+                  "persai.io/assistant-handle": "bot-one",
+                  "persai.io/sandbox-egress": "restricted"
                 }
               },
               status: { phase: "Running" }
@@ -1993,6 +2249,8 @@ test("ExecPodBridgeService: cold-start runInPod bootstraps only the writable wor
     await fs.writeFile(join(workspaceRoot, "file.txt"), "data", "utf8");
     await bridge.runInPod({
       jobId: "job-cold-001",
+      leaseToken: "lease-job-cold-001",
+      leaseHolderId: "holder-test",
       runtimeSessionId: null,
       assistantId: "assistant-cold",
       assistantHandle: "cold-handle",

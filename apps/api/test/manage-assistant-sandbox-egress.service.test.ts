@@ -170,12 +170,41 @@ class FakeResolveActiveAssistantService {
   }
 }
 
-function makeService(prisma: FakePrismaService): ManageAssistantSandboxEgressService {
+class FakeSandboxControlPlaneClient {
+  calls: Array<{
+    assistantId: string;
+    mode: "restricted" | "full_public";
+    scope: "all" | "stale_only";
+  }> = [];
+  recycled = false;
+  fail = false;
+
+  async reconcileAssistantSandboxEgress(input: {
+    assistantId: string;
+    mode: "restricted" | "full_public";
+    scope: "all" | "stale_only";
+  }): Promise<{ recycled: boolean; deletedPodCount: number }> {
+    this.calls.push(input);
+    if (this.fail) {
+      throw new Error("sandbox_egress_recycle_unavailable");
+    }
+    return {
+      recycled: this.recycled,
+      deletedPodCount: this.recycled ? 1 : 0
+    };
+  }
+}
+
+function makeService(
+  prisma: FakePrismaService,
+  sandboxClient: FakeSandboxControlPlaneClient = new FakeSandboxControlPlaneClient()
+): ManageAssistantSandboxEgressService {
   return new ManageAssistantSandboxEgressService(
     prisma as unknown as ConstructorParameters<typeof ManageAssistantSandboxEgressService>[0],
     new FakeResolveActiveAssistantService(prisma.assistants) as unknown as ConstructorParameters<
       typeof ManageAssistantSandboxEgressService
-    >[1]
+    >[1],
+    sandboxClient as unknown as ConstructorParameters<typeof ManageAssistantSandboxEgressService>[2]
   );
 }
 
@@ -205,13 +234,15 @@ async function runExistingDefaultRestricted(): Promise<void> {
 async function runChangedModeAtomicAudit(): Promise<void> {
   const prisma = new FakePrismaService();
   seedOwnedAssistant(prisma);
+  const sandbox = new FakeSandboxControlPlaneClient();
+  sandbox.recycled = true;
 
-  const result = await makeService(prisma).put("owner-1", "assistant-1", {
+  const result = await makeService(prisma, sandbox).put("owner-1", "assistant-1", {
     mode: "full_public"
   });
 
   assert.equal(result.mode, "full_public");
-  assert.equal(result.recycled, false);
+  assert.equal(result.recycled, true);
   assert.equal(prisma.assistants.get("assistant-1")?.sandboxEgressMode, "full_public");
   assert.equal(prisma.auditRows.length, 1);
   assert.deepEqual(prisma.auditRows[0]?.details, {
@@ -226,6 +257,9 @@ async function runChangedModeAtomicAudit(): Promise<void> {
     "assistant:update",
     "audit:create",
     "transaction:commit"
+  ]);
+  assert.deepEqual(sandbox.calls, [
+    { assistantId: "assistant-1", mode: "full_public", scope: "all" }
   ]);
 }
 
@@ -301,18 +335,69 @@ async function runSameModeNoAuditInsideTransaction(): Promise<void> {
   const prisma = new FakePrismaService();
   const assistant = seedOwnedAssistant(prisma);
   assistant.sandboxEgressMode = "full_public";
+  const sandbox = new FakeSandboxControlPlaneClient();
+  sandbox.recycled = true;
 
-  const result = await makeService(prisma).put("owner-1", "assistant-1", {
+  const result = await makeService(prisma, sandbox).put("owner-1", "assistant-1", {
     mode: "full_public"
   });
 
   assert.equal(result.mode, "full_public");
+  assert.equal(result.recycled, true);
   assert.equal(prisma.auditRows.length, 0);
   assert.deepEqual(prisma.operations, [
     "transaction:begin",
     "assistant:lock-for-update",
+    "sandbox-job:busy-check",
     "transaction:commit"
   ]);
+  assert.deepEqual(sandbox.calls, [
+    { assistantId: "assistant-1", mode: "full_public", scope: "stale_only" }
+  ]);
+}
+
+async function runBusyBlocksSameModeReconcile(): Promise<void> {
+  const prisma = new FakePrismaService();
+  const assistant = seedOwnedAssistant(prisma);
+  assistant.sandboxEgressMode = "full_public";
+  prisma.jobs.push({
+    id: "job-1",
+    assistantId: "assistant-1",
+    workspaceId: "workspace-1",
+    status: "queued"
+  });
+  const sandbox = new FakeSandboxControlPlaneClient();
+
+  await assert.rejects(
+    () => makeService(prisma, sandbox).put("owner-1", "assistant-1", { mode: "full_public" }),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiErrorHttpException);
+      assert.equal(error.getStatus(), 409);
+      assert.equal(error.errorObject.code, "sandbox_egress_change_busy");
+      return true;
+    }
+  );
+  assert.equal(sandbox.calls.length, 0);
+}
+
+async function runRecycleFailureReturns503AfterCommit(): Promise<void> {
+  const prisma = new FakePrismaService();
+  seedOwnedAssistant(prisma);
+  const sandbox = new FakeSandboxControlPlaneClient();
+  sandbox.fail = true;
+
+  await assert.rejects(
+    () => makeService(prisma, sandbox).put("owner-1", "assistant-1", { mode: "full_public" }),
+    (error: unknown) => {
+      assert.ok(error instanceof ApiErrorHttpException);
+      assert.equal(error.getStatus(), 503);
+      assert.equal(error.errorObject.code, "sandbox_egress_recycle_failed");
+      return true;
+    }
+  );
+  assert.equal(prisma.assistants.get("assistant-1")?.sandboxEgressMode, "full_public");
+  assert.equal(prisma.auditRows.length, 1);
+  assert.equal(sandbox.calls.length, 1);
 }
 
 async function runConcurrentPutsSerializeAndDeduplicateAudit(): Promise<void> {
@@ -397,7 +482,9 @@ async function main(): Promise<void> {
       "busy check is assistant-wide despite workspace mismatch",
       runBusyAssistantWideDespiteWorkspaceMismatch
     ],
-    ["same-mode PUT exits after lock without audit", runSameModeNoAuditInsideTransaction],
+    ["same-mode PUT reconciles stale pods without audit", runSameModeNoAuditInsideTransaction],
+    ["same-mode busy returns 409 before reconcile", runBusyBlocksSameModeReconcile],
+    ["recycle failure after commit returns stable 503", runRecycleFailureReturns503AfterCommit],
     ["concurrent PUTs serialize and emit one audit", runConcurrentPutsSerializeAndDeduplicateAudit],
     ["audit failure rolls back mode update", runAuditFailureRollsBackMode],
     ["sandbox enqueue shares the Assistant FK lock", runSandboxEnqueueSharesAssistantLockContract],

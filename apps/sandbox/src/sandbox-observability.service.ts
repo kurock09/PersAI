@@ -36,6 +36,9 @@ type CounterSnapshot = {
   workspaceRejectedTotal: number;
   longPollRequests: number;
   staleFailures: Record<StaleJobStatus, number>;
+  egressPodCreates: Record<"restricted" | "full_public", number>;
+  egressPodRecycles: Record<"mismatch" | "malformed" | "owner_evict", number>;
+  egressJobs: Record<"restricted" | "full_public", number>;
 };
 
 export type WorkspaceFileLatencySnapshot = Record<WorkspaceFileOp, HistogramSnapshot>;
@@ -59,6 +62,19 @@ export class SandboxObservabilityService {
   private readonly staleFailures = new Map<StaleJobStatus, number>(
     STALE_JOB_STATUSES.map((status) => [status, 0])
   );
+  private readonly egressPodCreates = new Map<"restricted" | "full_public", number>([
+    ["restricted", 0],
+    ["full_public", 0]
+  ]);
+  private readonly egressPodRecycles = new Map<"mismatch" | "malformed" | "owner_evict", number>([
+    ["mismatch", 0],
+    ["malformed", 0],
+    ["owner_evict", 0]
+  ]);
+  private readonly egressJobs = new Map<"restricted" | "full_public", number>([
+    ["restricted", 0],
+    ["full_public", 0]
+  ]);
 
   // ADR-126 Slice 3 — per-op pod-exec latency histograms.
   private readonly workspaceFileLatency = new Map<
@@ -149,6 +165,18 @@ export class SandboxObservabilityService {
     this.staleFailures.set(status, (this.staleFailures.get(status) ?? 0) + 1);
   }
 
+  recordSandboxEgressPodCreate(input: { mode: "restricted" | "full_public" }): void {
+    this.egressPodCreates.set(input.mode, (this.egressPodCreates.get(input.mode) ?? 0) + 1);
+  }
+
+  recordSandboxEgressPodRecycle(input: { reason: "mismatch" | "malformed" | "owner_evict" }): void {
+    this.egressPodRecycles.set(input.reason, (this.egressPodRecycles.get(input.reason) ?? 0) + 1);
+  }
+
+  recordSandboxEgressJob(input: { mode: "restricted" | "full_public" }): void {
+    this.egressJobs.set(input.mode, (this.egressJobs.get(input.mode) ?? 0) + 1);
+  }
+
   getCounters(): CounterSnapshot {
     return {
       submitted: this.submitted,
@@ -158,6 +186,19 @@ export class SandboxObservabilityService {
       staleFailures: {
         queued: this.staleFailures.get("queued") ?? 0,
         running: this.staleFailures.get("running") ?? 0
+      },
+      egressPodCreates: {
+        restricted: this.egressPodCreates.get("restricted") ?? 0,
+        full_public: this.egressPodCreates.get("full_public") ?? 0
+      },
+      egressPodRecycles: {
+        mismatch: this.egressPodRecycles.get("mismatch") ?? 0,
+        malformed: this.egressPodRecycles.get("malformed") ?? 0,
+        owner_evict: this.egressPodRecycles.get("owner_evict") ?? 0
+      },
+      egressJobs: {
+        restricted: this.egressJobs.get("restricted") ?? 0,
+        full_public: this.egressJobs.get("full_public") ?? 0
       }
     };
   }

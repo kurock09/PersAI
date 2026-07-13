@@ -66,6 +66,9 @@ function createLeasePrismaStub() {
       async update(input: { where: { id: string }; data: Record<string, unknown> }) {
         return { id: input.where.id, ...input.data };
       },
+      async updateMany() {
+        return { count: 1 };
+      },
       async findUnique() {
         return null;
       }
@@ -763,6 +766,9 @@ test("SandboxService: render_html_to_pdf runs weasyprint command and removes tra
         const outputFile = input.args[1]!.replace("/workspace/", "");
         await fs.writeFile(join(input.workspaceRoot, outputFile), fakePdfBytes);
         return { exitCode: 0, stdout: null, stderr: null, durationMs: 100, execPodName: null };
+      },
+      async retireModelJobPod() {
+        return { podName: "exec-render", retired: true };
       }
     } as never,
     {} as never
@@ -847,6 +853,10 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
           capturedJobUpdates.push(input.data);
           return { id: input.where.id, ...input.data };
         },
+        async updateMany(input: { data: Record<string, unknown> }) {
+          capturedJobUpdates.push(input.data);
+          return { count: 1 };
+        },
         async findUnique() {
           return null;
         }
@@ -917,6 +927,9 @@ test("SandboxService: execute_document_code mounts sources, runs python3, and cl
       },
       async execShellInSessionPod() {
         return { exitCode: 0, stdout: "", stderr: "", durationMs: 1, execPodName: "ses-code" };
+      },
+      async retireModelJobPod() {
+        return { podName: "ses-code", retired: true };
       }
     } as never,
     {} as never
@@ -984,6 +997,10 @@ function buildGrepGlobService(
           capturedJobUpdates.push(input.data);
           return { id: input.where.id, ...input.data };
         },
+        async updateMany(input: { data: Record<string, unknown> }) {
+          capturedJobUpdates.push(input.data);
+          return { count: 1 };
+        },
         async findUnique() {
           return null;
         }
@@ -1034,6 +1051,9 @@ function buildGrepGlobService(
           durationMs: 1,
           execPodName: "ses-grep-test"
         };
+      },
+      async retireModelJobPod() {
+        return { podName: "ses-grep-test", retired: false };
       }
     } as never,
     {} as never
@@ -1131,6 +1151,9 @@ test("SandboxService: shell tool invokes /bin/bash -lc (not /bin/sh)", async () 
       },
       async warmSessionPod() {
         return { podName: "ses-test", alreadyRunning: false };
+      },
+      async retireModelJobPod() {
+        return { podName: "exec-shell", retired: true };
       }
     } as never,
     {} as never
@@ -1191,6 +1214,9 @@ test("SandboxService: warm-pool fires-and-forgets when runtimeSessionId is set a
         });
         warmSessionPodResolveFn?.();
         return { podName: "ses-warm-test", alreadyRunning: false };
+      },
+      async retireModelJobPod() {
+        return { podName: "ses-warm-test", retired: true };
       }
     } as never,
     {} as never
@@ -1277,6 +1303,9 @@ test("SandboxService: shell cwd accepts full /workspace/... path without doublin
       },
       async warmSessionPod() {
         return { podName: "ses-cwd-test", alreadyRunning: false };
+      },
+      async retireModelJobPod() {
+        return { podName: "ses-cwd-test", retired: true };
       }
     } as never,
     {} as never
@@ -1307,4 +1336,384 @@ test("SandboxService: shell cwd accepts full /workspace/... path without doublin
     runtimeSessionId
   );
   assert.equal(capturedRunInPodCalls[0]!.absoluteCwd, expectedHostCwd);
+});
+
+test("SandboxService: pod retirement follows terminal persistence and precedes lease release", async () => {
+  for (const outcome of ["success", "error", "timeout"] as const) {
+    const events: string[] = [];
+    const service = new SandboxService(
+      {
+        sandboxJob: {
+          async update(input: { data: Record<string, unknown> }) {
+            if (typeof input.data.status === "string") {
+              events.push(`job:${input.data.status}`);
+            }
+            return input.data;
+          },
+          async updateMany(input: { data: Record<string, unknown> }) {
+            if (typeof input.data.status === "string") {
+              events.push(`job:${input.data.status}`);
+            }
+            return { count: 1 };
+          },
+          async findUnique() {
+            return null;
+          }
+        },
+        assistantWorkspaceLease: {
+          async create(input: { data: Record<string, unknown> }) {
+            return {
+              id: `lease-${outcome}`,
+              assistantId: String(input.data.assistantId),
+              workspaceId: String(input.data.workspaceId),
+              sandboxJobId: null,
+              leaseToken: String(input.data.leaseToken),
+              holderId: String(input.data.holderId),
+              expiresAt: input.data.expiresAt as Date
+            };
+          },
+          async updateMany(input: { data: Record<string, unknown> }) {
+            if (String(input.data.leaseToken ?? "").startsWith("released:")) {
+              events.push("lease:released");
+            }
+            return { count: 1 };
+          }
+        }
+      } as never,
+      {
+        buildSandboxObjectKey() {
+          return "obj/key";
+        },
+        buildSessionSnapshotKey() {
+          return "snap/key";
+        },
+        async saveObject(input: { buffer: Buffer }) {
+          return input.buffer.length;
+        }
+      } as never,
+      new SandboxObservabilityService(),
+      createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 0 }),
+      {
+        async runInPod() {
+          const execPodBinding = {
+            namespace: "persai-dev",
+            podName: `exec-${outcome}`,
+            podUid: `uid-${outcome}`,
+            podResourceVersion: "1",
+            leaseToken: `lease-token-${outcome}`,
+            leaseHolderId: "holder-test",
+            jobId: `job-${outcome}`,
+            assistantId: `assistant-${outcome}`,
+            workspaceId: `workspace-${outcome}`,
+            assistantHandle: `assistant-${outcome}`,
+            mode: "restricted" as const
+          };
+          if (outcome === "error") {
+            throw Object.assign(new Error("command failed"), { execPodBinding });
+          }
+          if (outcome === "timeout") {
+            throw Object.assign(new Error("command timed out"), {
+              code: "process_timeout",
+              execPodBinding
+            });
+          }
+          return {
+            exitCode: 0,
+            stdout: "ok",
+            stderr: "",
+            durationMs: 1,
+            execPodName: `exec-${outcome}`,
+            execPodBinding
+          };
+        },
+        async retireModelJobPod() {
+          events.push("pod:retired");
+          return { podName: `exec-${outcome}`, podUid: `uid-${outcome}`, retired: true };
+        }
+      } as never,
+      {} as never
+    );
+
+    await (service as unknown as SandboxServiceTestAccess).executeQueuedJob(`job-${outcome}`, {
+      assistantId: `assistant-${outcome}`,
+      workspaceId: `workspace-${outcome}`,
+      runtimeRequestId: `request-${outcome}`,
+      runtimeSessionId: null,
+      toolCode: "shell",
+      policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+      args: { command: "echo lifecycle" }
+    });
+
+    const terminalIndex = events.findIndex((event) =>
+      outcome === "success" ? event === "job:completed" : event === "job:failed"
+    );
+    const retirementIndex = events.indexOf("pod:retired");
+    const releaseIndex = events.indexOf("lease:released");
+    assert.ok(terminalIndex >= 0, `${outcome}: terminal job state must persist`);
+    assert.ok(retirementIndex > terminalIndex, `${outcome}: retirement must follow persistence`);
+    assert.ok(releaseIndex > retirementIndex, `${outcome}: lease release must follow retirement`);
+  }
+});
+
+test("SandboxService: final retirement RV conflict withholds lease release", async () => {
+  const updates: Array<Record<string, unknown>> = [];
+  let leaseReleased = false;
+  const service = new SandboxService(
+    {
+      sandboxJob: {
+        async update(input: { data: Record<string, unknown> }) {
+          updates.push(input.data);
+          return input.data;
+        },
+        async updateMany(input: { data: Record<string, unknown> }) {
+          updates.push(input.data);
+          return { count: 1 };
+        },
+        async findUnique() {
+          return null;
+        }
+      },
+      assistantWorkspaceLease: {
+        async create(input: { data: Record<string, unknown> }) {
+          return {
+            id: "lease-retire-fail",
+            assistantId: String(input.data.assistantId),
+            workspaceId: String(input.data.workspaceId),
+            sandboxJobId: null,
+            leaseToken: String(input.data.leaseToken),
+            holderId: String(input.data.holderId),
+            expiresAt: input.data.expiresAt as Date
+          };
+        },
+        async updateMany(input: { data: Record<string, unknown> }) {
+          if (String(input.data.leaseToken ?? "").startsWith("released:")) {
+            leaseReleased = true;
+          }
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {
+      buildSandboxObjectKey() {
+        return "obj/key";
+      },
+      buildSessionSnapshotKey() {
+        return "snap/key";
+      },
+      async saveObject(input: { buffer: Buffer }) {
+        return input.buffer.length;
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 0 }),
+    {
+      async runInPod() {
+        return {
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+          durationMs: 1,
+          execPodName: "exec-retire-fail",
+          execPodBinding: {
+            namespace: "persai-dev",
+            podName: "exec-retire-fail",
+            podUid: "uid-retire-fail",
+            podResourceVersion: "1",
+            leaseToken: "lease-token-retire-fail",
+            leaseHolderId: "holder-test",
+            jobId: "job-retire-fail",
+            assistantId: "assistant-retire-fail",
+            workspaceId: "workspace-retire-fail",
+            assistantHandle: "assistant-retire-fail",
+            mode: "restricted"
+          }
+        };
+      },
+      async retireModelJobPod() {
+        throw Object.assign(new Error("resourceVersion precondition conflict"), { code: 409 });
+      }
+    } as never,
+    {} as never
+  );
+
+  await (service as unknown as SandboxServiceTestAccess).executeQueuedJob("job-retire-fail", {
+    assistantId: "assistant-retire-fail",
+    workspaceId: "workspace-retire-fail",
+    runtimeRequestId: "request-retire-fail",
+    runtimeSessionId: null,
+    toolCode: "shell",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+    args: { command: "echo lifecycle" }
+  });
+
+  assert.equal(leaseReleased, false);
+  assert.equal(
+    updates.some((update) => update.violationCode === "sandbox_job_pod_retirement_failed"),
+    false
+  );
+  assert.ok(updates.some((update) => update.status === "completed"));
+});
+
+test("SandboxService: lease acquisition failure never retires a pod", async () => {
+  let retirementCalls = 0;
+  const service = new SandboxService(
+    {
+      sandboxJob: {
+        async update(input: { data: Record<string, unknown> }) {
+          return input.data;
+        },
+        async updateMany() {
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {} as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 0 }),
+    {
+      async retireModelJobPod() {
+        retirementCalls += 1;
+        throw new Error("must not be called");
+      }
+    } as never,
+    {} as never
+  );
+  (
+    service as unknown as {
+      waitForWorkspaceLease(): Promise<never>;
+    }
+  ).waitForWorkspaceLease = async () => {
+    throw Object.assign(new Error("lease unavailable"), {
+      code: "workspace_lease_timeout",
+      blocked: true
+    });
+  };
+
+  await (service as unknown as SandboxServiceTestAccess).executeQueuedJob("job-no-lease", {
+    assistantId: "assistant-no-lease",
+    workspaceId: "workspace-no-lease",
+    runtimeRequestId: "request-no-lease",
+    runtimeSessionId: null,
+    toolCode: "shell",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+    args: { command: "echo never" }
+  });
+
+  assert.equal(retirementCalls, 0);
+});
+
+test("SandboxService: stale recovery terminal truth cannot be overwritten by old worker", async () => {
+  const stored = {
+    status: "failed",
+    resultPayload: { recovery: true },
+    violationCode: "sandbox_stale_pod_generation_recovered"
+  };
+  const prisma = {
+    sandboxJob: {
+      async updateMany(input: { where: { status: string }; data: Record<string, unknown> }) {
+        if (stored.status !== input.where.status) {
+          return { count: 0 };
+        }
+        Object.assign(stored, input.data);
+        return { count: 1 };
+      }
+    }
+  };
+  const service = new SandboxService(
+    prisma as never,
+    {} as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never,
+    {} as never
+  );
+  const guard = {
+    handle: {
+      id: "lease-conditional",
+      assistantId: "assistant-conditional",
+      workspaceId: "workspace-conditional",
+      sandboxJobId: "job-conditional",
+      leaseToken: "token-conditional",
+      holderId: "holder-conditional",
+      expiresAt: new Date(Date.now() + 60_000)
+    },
+    active: true,
+    renewalError: null,
+    heartbeat: null,
+    podBinding: null
+  };
+  const updated = await (
+    service as unknown as {
+      updateSandboxJobUnderActiveLease(input: Record<string, unknown>): Promise<boolean>;
+    }
+  ).updateSandboxJobUnderActiveLease({
+    guard,
+    jobId: "job-conditional",
+    expectedStatus: "running",
+    data: { status: "completed", resultPayload: { oldWorker: true } }
+  });
+  assert.equal(updated, false);
+  assert.deepEqual(stored, {
+    status: "failed",
+    resultPayload: { recovery: true },
+    violationCode: "sandbox_stale_pod_generation_recovered"
+  });
+});
+
+test("SandboxService: exact active lease can terminalize running job", async () => {
+  let capturedWhere: Record<string, unknown> = {};
+  const service = new SandboxService(
+    {
+      sandboxJob: {
+        async updateMany(input: { where: Record<string, unknown>; data: Record<string, unknown> }) {
+          capturedWhere = input.where;
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {} as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never,
+    {} as never
+  );
+  const guard = {
+    handle: {
+      id: "lease-active",
+      assistantId: "assistant-active",
+      workspaceId: "workspace-active",
+      sandboxJobId: "job-active",
+      leaseToken: "token-active",
+      holderId: "holder-active",
+      expiresAt: new Date(Date.now() + 60_000)
+    },
+    active: true,
+    renewalError: null,
+    heartbeat: null,
+    podBinding: null
+  };
+  assert.equal(
+    await (
+      service as unknown as {
+        updateSandboxJobUnderActiveLease(input: Record<string, unknown>): Promise<boolean>;
+      }
+    ).updateSandboxJobUnderActiveLease({
+      guard,
+      jobId: "job-active",
+      expectedStatus: "running",
+      data: { status: "completed", resultPayload: { ok: true } }
+    }),
+    true
+  );
+  const leaseWhere = (
+    capturedWhere.workspaceLeases as {
+      some: Record<string, unknown>;
+    }
+  ).some;
+  assert.equal(leaseWhere.assistantId, "assistant-active");
+  assert.equal(leaseWhere.workspaceId, "workspace-active");
+  assert.equal(leaseWhere.sandboxJobId, "job-active");
+  assert.equal(leaseWhere.leaseToken, "token-active");
+  assert.equal(leaseWhere.holderId, "holder-active");
+  assert.ok((leaseWhere.expiresAt as { gt: unknown }).gt instanceof Date);
 });

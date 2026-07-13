@@ -83,6 +83,8 @@ const baseApiConfigSchema = z.object({
   PERSAI_OPERATOR_ACTOR_EMAIL: optionalNonEmptyString,
   PERSAI_SANDBOX_BASE_URL: optionalUrl,
   PERSAI_SANDBOX_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  /** ADR-146 S3 — exceeds the sandbox pod delete/wait worst-case budget (240s). */
+  PERSAI_SANDBOX_EGRESS_RECYCLE_TIMEOUT_MS: z.coerce.number().int().min(250_000).default(300_000),
   TELEGRAM_WEBHOOK_BASE_URL: z.string().url().optional(),
   TELEGRAM_WEBHOOK_HMAC_SECRET: z.string().min(16).optional(),
   WEB_ACTIVE_CHATS_CAP: z.coerce.number().int().positive().default(20),

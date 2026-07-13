@@ -28,8 +28,9 @@ sandbox remaining `8a0043dd` (Argo Synced; post-rollout
 `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, MCP smoke
 `ADR146_POST_ROLLOUT_OK`). ADR-146 stays open; **S1 is committed locally at
-`775e5781`**; **S2 is landed locally (uncommitted) on that baseline** (Helm
-public-only policy; ExecPodBridge unwired). S3 is next and is **not** started.
+`775e5781`**; **S2 is committed locally at `5a2fd3bd`**; **S3 is landed locally
+(uncommitted) on that baseline** (mode authority / recycle / descendant
+cleanup). S4 Settings UX is next and is **not** started.
 Each later slice runs the full AGENTS gate plus affected
 API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
 and live negative acceptance.
@@ -289,15 +290,33 @@ Automated acceptance must prove:
    keep `automountServiceAccountToken: false`, gVisor, non-root, read-only root,
    and existing resource limits. **(S2+/live.)**
 7. A warm pod with the wrong egress-mode label is deleted and recreated before
-   command execution; a queued/running job blocks a mode change. **(Busy 409 is
-   S1 local; recycle/recreate is S3.)**
-8. Model-started descendant processes cannot survive job completion. **(S3.)**
+   command execution; a queued/running job blocks a mode change. **(S3 local:
+   `exec-pod-bridge.egress.s3.test.ts` + busy/503 coverage in
+   `manage-assistant-sandbox-egress.service.test.ts`.)**
+8. Model-started descendant processes cannot survive job completion. **(S3
+   local: post-lease `(namespace,name,uid,leaseToken,jobId)` binding, exact live
+   DB token/holder/job/expiry at bind and final model-exec gate, caller-captured
+   full identity for lease-free files/hydrate/GC, conditional terminal writes,
+   UID-precondition job retirement, and UID+resourceVersion reaper/owner
+   snapshot deletes after persistence and before lease release. Stale-token
+   crash admission, expired-vs-renewed reaper behavior, owner admission/RV
+   races, replacement races, and retirement failure are covered by
+   `exec-pod-bridge.egress.s3.test.ts` and `sandbox.service.test.ts`.)**
 9. Two assistants in one workspace can use different modes; `files.*`,
    `grep`/`glob`, browser/web tools, and provider workers are unchanged.
-   **(Mode storage S1; enforcement S2/S3.)**
+   **(Mode storage S1; policy S2; runtime authority S3.)**
 10. Audit/log/metric payloads identify mode and assistant/job without recording
     URL query strings, auth headers, credentials, or file contents. **(Owner
-    mode-change audit is S1 local; pod/job log enrichment is later.)**
+    mode-change audit is S1 local; pod/job log+metric enrichment is S3 local.)**
+
+### ADR-146 Slice 3 local checks
+
+```powershell
+corepack pnpm --filter @persai/api exec tsx --test test/manage-assistant-sandbox-egress.service.test.ts
+corepack pnpm --filter @persai/sandbox exec tsx --test test/sandbox-egress-mode.test.ts test/exec-pod-bridge.egress.s3.test.ts test/sandbox-egress-reconcile.controller.test.ts test/exec-pod-bridge.service.test.ts test/sandbox.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/sandbox run typecheck
+```
 
 Live GKE acceptance after an explicitly approved deploy repeats the restricted
 allowlist test, full-public success test, complete private/internal/metadata
