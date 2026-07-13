@@ -31,7 +31,10 @@ sandbox remaining `8a0043dd` (Argo Synced; post-rollout
 `775e5781`**; **S2 is committed locally at `5a2fd3bd`**; **S3 is committed locally at
 `8d0520f4`**; **S4 Settings UX is committed locally at `3f498ef9`**; **S5 is
 committed locally at `d23936d1` on that baseline (unpushed/undeployed)**. **S6
-parent-only final gate, deploy, and live acceptance is next and not started.**
+parent-only final gate started** (2026-07-13): local final gates PASS; predeploy
+default structural `verify` **RESULT PASS** at `40d7a927`/inventory
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`; no
+push/deploy/chart sync/migration/live S2 acceptance yet.
 Each later slice runs the full AGENTS gate plus affected
 API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
 and live negative acceptance.

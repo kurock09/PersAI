@@ -47,8 +47,12 @@ attempt failed after validate/GAR/pin on pin-assert EOF mismatch (extra CLI
 `ADR146_POST_ROLLOUT_OK`. **S1 committed locally at `775e5781`**. **S2 committed
 locally at `5a2fd3bd`**. **S3 is committed locally at `8d0520f4`**. **S4 is
 committed locally at `3f498ef9`**. **S5 is committed locally at `d23936d1` on
-baseline `3f498ef9` (unpushed/undeployed)**. Next under parent orchestration: **Slice 6**
-(parent-only final gate, deploy, live acceptance; not started). Do not claim S6
+baseline `3f498ef9` (unpushed/undeployed)**. **Slice 6 parent-only final gate
+started** (2026-07-13): local final gates PASS; predeploy default structural
+`verify` **RESULT PASS** at `40d7a927`/inventory
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7` after
+`chat_smoke` shell `pwd` exact `ADR146_S6_PREDEPLOY_EXEC_OK`; no
+push/deploy/chart sync/migration/live S2 acceptance yet. Do not claim S6
 complete or close this ADR.
 
 ## Date
@@ -97,7 +101,8 @@ sandbox remains `8a0043dd`. Environment `persai-dev-adr146-foundation`
 open; **S1 committed locally at `775e5781`**; **S2 committed locally at
 `5a2fd3bd`**; **S3 committed locally at `8d0520f4`**; **S4 committed locally at
 `3f498ef9`**; **S5 committed locally at `d23936d1` on baseline `3f498ef9`
-(unpushed/undeployed)**; S6 next (not started).
+(unpushed/undeployed)**; **S6 started** (local gates PASS; predeploy default
+structural verify PASS at `40d7a927`; push/deploy/live acceptance pending).
 
 ## Slice 3 local land (2026-07-13)
 

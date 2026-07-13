@@ -1,12 +1,47 @@
 # SESSION-HANDOFF
 
-## 2026-07-13 — ADR-146 S6 predeploy verify ordering docs repair (local, uncommitted)
+## 2026-07-13 — ADR-146 S6 parent final gate started (local, uncommitted docs)
 
-Status: **Documentation-only repair on clean tree at `72a877cf` (S1–S5 committed
-locally `775e5781` … `d23936d1`; unpushed/undeployed).** ADR-146 stays **open**.
-S6 parent-only final gate, deploy, and live acceptance is **next** (not started).
+Status: **S6 parent-only final gate started on clean tree at `40d7a927`
+(S1–S5 committed locally `775e5781` … `d23936d1`; unpushed/undeployed).**
+ADR-146 stays **open**. No push/deploy/chart sync/migration/live S2 acceptance
+yet.
 
-**Observed blocker:** immediately before first S2 deploy, predeploy
+**Local final gates (all PASS):**
+
+- AGENTS gate: lint, `format:check`, API+web typecheck.
+- Helm lint/template; network-policy tests 8/8.
+- Slice 5 composite `test:adr146-slice5` 18/18.
+- Prisma migrate deploy/status on isolated clean `pgvector/pgvector:pg16` (all
+  186 migrations). Initial shared-DB attempt invalid (historical ADR-079 failed
+  migration); isolated rerun PASS; container removed.
+- Full workspace tests, Step2, build.
+
+**Predeploy live default structural verify:**
+
+- First attempts hit transient Kubernetes API disconnects.
+- Next run failed only on zero Running real `sandbox-exec` pods.
+- Authorized PersAI `chat_smoke` shell `pwd` exact `ADR146_S6_PREDEPLOY_EXEC_OK`.
+- Clean-tree default structural `verify` **RESULT PASS** bound to commit
+  `40d7a927` and inventory SHA-256
+  `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`.
+
+**Out of scope:** code changes; commit/push/deploy; chart/policy Argo sync;
+migration pin; `verify --require-s2-policy`; live S2/S6 acceptance; ADR closure.
+
+**Next:** commit these docs; **parent must rerun clean-tree default structural
+`verify` after commit before push** (new docs SHA); then deploy on explicit
+instruction, post-sync `verify --require-s2-policy`, live acceptance, ADR
+closure only after evidence.
+
+---
+
+## 2026-07-13 — ADR-146 S6 predeploy verify ordering docs repair (committed `40d7a927`)
+
+Status: **Committed at `40d7a927` on baseline `72a877cf`.** Superseded for
+current status by the S6 checkpoint entry above.
+
+**Observed blocker (historical):** immediately before first S2 deploy, predeploy
 `node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy`
 failed only because live `sandbox-exec-full-public-egress` is correctly absent
 (S2 Helm policy is local/unpushed). Verifier semantics are correct: default
@@ -21,11 +56,6 @@ failed only because live `sandbox-exec-full-public-egress` is correctly absent
 - TEST-PLAN S5 local checks + ADR146-OBSERVABILITY related gates aligned;
 - ADR-146 Slice 5 land note records D10 verify split;
 - CHANGELOG entry below.
-
-**Out of scope:** code/tests, commit/push/deploy, S6 execution, ADR closure.
-
-**Next:** S6 parent-only final gate, deploy on explicit instruction, live
-acceptance, ADR closure only after evidence.
 
 ---
 
