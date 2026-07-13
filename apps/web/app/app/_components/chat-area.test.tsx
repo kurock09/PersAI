@@ -763,6 +763,24 @@ describe("ChatArea", () => {
     expect(title.className).not.toMatch(/text-base/);
   });
 
+  it("fades message scroll at the edges with fully transparent header/footer chrome", () => {
+    render(<ChatArea chat={createChat("Hello", { isStreaming: false })} title="Fade chrome" />);
+
+    const scroll = screen.getByTestId("chat-message-scroll");
+    expect(scroll.className).toMatch(/mask-image:linear-gradient/);
+    expect(scroll.className).toMatch(/3\.75rem/);
+    expect(scroll.className).toMatch(/5rem/);
+
+    const header = screen.getByTestId("chat-header-chrome");
+    const footer = screen.getByTestId("chat-footer-chrome");
+    expect(header.className).not.toMatch(/backdrop-blur/);
+    expect(footer.className).not.toMatch(/backdrop-blur/);
+    expect(header.querySelector("[class*='backdrop-blur']")).toBeNull();
+    expect(footer.querySelector("[class*='backdrop-blur']")).toBeNull();
+    expect(header.querySelector("[class*='bg-gradient']")).toBeNull();
+    expect(footer.querySelector("[class*='bg-gradient']")).toBeNull();
+  });
+
   it("shows a quiet scroll-to-bottom button when reading older messages", () => {
     const { container } = render(
       <ChatArea chat={createChat(["Older", "Latest"], { isStreaming: false })} />
@@ -785,8 +803,12 @@ describe("ChatArea", () => {
 
     fireEvent.scroll(scrollContainer);
     const scrollButton = screen.getByLabelText("scrollToBottom");
-    expect(scrollButton).toHaveClass("right-3", "h-11", "w-11", "rounded-full");
+    expect(scrollButton).toHaveClass("h-11", "w-11", "rounded-full");
     expect(scrollButton.className).not.toMatch(/md:left-1\/2/);
+    expect(scrollButton.className).not.toMatch(/\bright-3\b/);
+    const anchor = screen.getByTestId("chat-scroll-to-bottom-anchor");
+    expect(anchor).toHaveClass("px-3", "md:px-4");
+    expect(anchor.firstElementChild).toHaveClass("max-w-[50rem]", "justify-end");
     fireEvent.click(scrollButton);
 
     expect(scrollTo).toHaveBeenCalledWith({ top: 1200, behavior: "smooth" });

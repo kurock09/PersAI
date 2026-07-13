@@ -1139,7 +1139,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     <div
       data-testid="chat-composer-chrome"
       className={cn(
-        // Dissolve veil lives on chat-area footer overlay; composer is just the opaque pill row.
+        // Edge dissolve is the message-scroll mask in chat-area; composer is the opaque pill row.
         "relative px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-4 md:pb-3"
       )}
     >

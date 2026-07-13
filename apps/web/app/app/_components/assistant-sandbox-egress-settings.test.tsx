@@ -65,7 +65,9 @@ function renderControl(
 }
 
 function getSwitch(): HTMLElement {
-  return screen.getByRole("switch", { name: /sandbox network|сеть песочницы/i });
+  return screen.getByRole("switch", {
+    name: /internet access for the assistant|доступ в интернет для ассистента/i
+  });
 }
 
 describe("AssistantSandboxEgressSettings", () => {
@@ -100,12 +102,10 @@ describe("AssistantSandboxEgressSettings", () => {
 
     fireEvent.click(getSwitch());
 
-    expect(
-      screen.getByRole("dialog", { name: /enable full public sandbox network/i })
-    ).toBeInTheDocument();
-    expect(screen.getByText(/entire sandbox execution pod/i)).toBeInTheDocument();
-    expect(screen.getByText(/not browser or web search/i)).toBeInTheDocument();
-    expect(screen.queryByText(/unlimited|unrestricted/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /allow full internet access/i })).toBeInTheDocument();
+    expect(screen.getByText(/any public website/i)).toBeInTheDocument();
+    expect(screen.getByText(/built-in browser and web search are unchanged/i)).toBeInTheDocument();
+    expect(screen.queryByText(/pod|kubernetes|shell|exec/i)).not.toBeInTheDocument();
   });
 
   it("renders RU honest copy for the enable confirmation modal", async () => {
@@ -115,11 +115,11 @@ describe("AssistantSandboxEgressSettings", () => {
     fireEvent.click(getSwitch());
 
     expect(
-      screen.getByRole("dialog", { name: /включить полный публичный доступ сети песочницы/i })
+      screen.getByRole("dialog", { name: /разрешить полный доступ в интернет/i })
     ).toBeInTheDocument();
-    expect(screen.getByText(/исполнительном поде песочницы/i)).toBeInTheDocument();
-    expect(screen.getByText(/не к браузеру и веб-поиску/i)).toBeInTheDocument();
-    expect(screen.queryByText(/без ограничений/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/любые публичные сайты/i)).toBeInTheDocument();
+    expect(screen.getByText(/встроенный браузер и веб-поиск не меняются/i)).toBeInTheDocument();
+    expect(screen.queryByText(/под|kubernetes|shell|exec/i)).not.toBeInTheDocument();
   });
 
   it("loads canonical GET state on mount", async () => {
@@ -169,7 +169,7 @@ describe("AssistantSandboxEgressSettings", () => {
     await waitFor(() => expect(getSwitch()).toHaveAttribute("aria-checked", "false"));
 
     fireEvent.click(getSwitch());
-    fireEvent.click(screen.getByRole("button", { name: /enable full public network/i }));
+    fireEvent.click(screen.getByRole("button", { name: /allow full access/i }));
 
     await waitFor(() => {
       expect(apiMocks.putAssistantSandboxEgress).toHaveBeenCalledWith(
@@ -210,7 +210,7 @@ describe("AssistantSandboxEgressSettings", () => {
     renderControl();
     await waitFor(() => expect(getSwitch()).toHaveAttribute("aria-checked", "false"));
     fireEvent.click(getSwitch());
-    fireEvent.click(screen.getByRole("button", { name: /enable full public network/i }));
+    fireEvent.click(screen.getByRole("button", { name: /allow full access/i }));
 
     await waitFor(() => expect(apiMocks.putAssistantSandboxEgress).toHaveBeenCalledTimes(1));
     expect(getSwitch()).toHaveAttribute("aria-checked", "false");
@@ -239,7 +239,7 @@ describe("AssistantSandboxEgressSettings", () => {
     await waitFor(() => expect(getSwitch()).toHaveAttribute("aria-checked", "false"));
     fireEvent.click(getSwitch());
 
-    const confirm = screen.getByRole("button", { name: /enable full public network/i });
+    const confirm = screen.getByRole("button", { name: /allow full access/i });
     fireEvent.click(confirm);
     await waitFor(() => expect(apiMocks.putAssistantSandboxEgress).toHaveBeenCalledTimes(1));
     fireEvent.click(confirm);
@@ -319,12 +319,12 @@ describe("AssistantSandboxEgressSettings", () => {
     renderControl();
     await waitFor(() => expect(getSwitch()).toHaveAttribute("aria-checked", "false"));
     fireEvent.click(getSwitch());
-    fireEvent.click(screen.getByRole("button", { name: /enable full public network/i }));
+    fireEvent.click(screen.getByRole("button", { name: /allow full access/i }));
 
     await waitFor(() => {
       const dialog = screen.getByRole("dialog");
       const alert = within(dialog).getByRole("alert");
-      expect(alert).toHaveTextContent(/sandbox job is running/i);
+      expect(alert).toHaveTextContent(/assistant is busy right now/i);
       expect(dialog.getAttribute("aria-describedby")).toContain(alert.id);
       expect(getSwitch().getAttribute("aria-describedby")).toContain(alert.id);
       expect(getSwitch()).toHaveAttribute("aria-checked", "false");
@@ -353,12 +353,12 @@ describe("AssistantSandboxEgressSettings", () => {
     renderControl();
     await waitFor(() => expect(getSwitch()).toHaveAttribute("aria-checked", "false"));
     fireEvent.click(getSwitch());
-    fireEvent.click(screen.getByRole("button", { name: /enable full public network/i }));
+    fireEvent.click(screen.getByRole("button", { name: /allow full access/i }));
 
     await waitFor(() => {
       const alert = within(screen.getByRole("dialog")).getByRole("alert");
       expect(alert).toHaveTextContent(/may already be saved/i);
-      expect(alert).toHaveTextContent(/recycling the sandbox execution pod failed/i);
+      expect(alert).toHaveTextContent(/applying it failed/i);
       expect(getSwitch()).toHaveAttribute("aria-checked", "true");
       expect(apiMocks.getAssistantSandboxEgress).toHaveBeenCalledTimes(2);
     });
@@ -370,11 +370,11 @@ describe("AssistantSandboxEgressSettings", () => {
     renderControl();
     await waitFor(() => expect(getSwitch()).toHaveAttribute("aria-checked", "false"));
     fireEvent.click(getSwitch());
-    fireEvent.click(screen.getByRole("button", { name: /enable full public network/i }));
+    fireEvent.click(screen.getByRole("button", { name: /allow full access/i }));
 
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        /could not update sandbox network setting/i
+        /could not update the internet access setting/i
       );
       expect(screen.queryByText(/network down/i)).not.toBeInTheDocument();
     });
@@ -384,9 +384,7 @@ describe("AssistantSandboxEgressSettings", () => {
     streamingMocks.activeThreads = new Set([`${ASSISTANT_ID}::thread-1`]);
     renderControl();
     await waitFor(() => expect(getSwitch()).toBeDisabled());
-    expect(
-      screen.getByText(/unavailable while a turn or sandbox job is active/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/unavailable while the assistant is working/i)).toBeInTheDocument();
   });
 
   it("supports keyboard activation on the semantic switch", async () => {
@@ -419,7 +417,7 @@ describe("AssistantSandboxEgressSettings", () => {
     await waitFor(() => expect(getSwitch()).not.toBeDisabled());
     const sandboxSwitch = getSwitch();
     fireEvent.click(sandboxSwitch);
-    expect(screen.getByRole("button", { name: /enable full public network/i })).toHaveFocus();
+    expect(screen.getByRole("button", { name: /allow full access/i })).toHaveFocus();
 
     fireEvent.keyDown(document, { key: "Escape" });
 
@@ -451,7 +449,7 @@ describe("AssistantSandboxEgressSettings", () => {
     renderControl();
     await waitFor(() => expect(getSwitch()).not.toBeDisabled());
     fireEvent.click(getSwitch());
-    fireEvent.click(screen.getByRole("button", { name: /enable full public network/i }));
+    fireEvent.click(screen.getByRole("button", { name: /allow full access/i }));
     await waitFor(() => expect(apiMocks.putAssistantSandboxEgress).toHaveBeenCalledTimes(1));
 
     fireEvent.keyDown(document, { key: "Escape" });
@@ -471,7 +469,7 @@ describe("AssistantSandboxEgressSettings", () => {
     await waitFor(() => expect(getSwitch()).not.toBeDisabled());
     fireEvent.click(getSwitch());
     const cancel = screen.getByRole("button", { name: /cancel/i });
-    const confirm = screen.getByRole("button", { name: /enable full public network/i });
+    const confirm = screen.getByRole("button", { name: /allow full access/i });
 
     expect(confirm).toHaveFocus();
     fireEvent.keyDown(confirm, { key: "Tab" });
@@ -506,7 +504,7 @@ describe("AssistantSandboxEgressSettings", () => {
     const descriptionIds = getSwitch().getAttribute("aria-describedby")?.split(" ") ?? [];
     expect(descriptionIds.length).toBeGreaterThan(1);
     expect(document.getElementById(descriptionIds[1] ?? "")).toHaveTextContent(
-      /unavailable while a turn or sandbox job is active/i
+      /unavailable while the assistant is working/i
     );
     expect(getSwitch()).toHaveAttribute("aria-busy", "false");
   });
@@ -518,7 +516,7 @@ describe("AssistantSandboxEgressSettings", () => {
     renderControl();
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        /could not load sandbox network setting/i
+        /could not load the internet access setting/i
       );
       expect(screen.queryByText(/sensitive server detail/i)).not.toBeInTheDocument();
       expect(getSwitch()).toBeDisabled();
@@ -534,7 +532,7 @@ describe("AssistantSandboxEgressSettings", () => {
     renderControl();
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(
-        /could not load sandbox network setting/i
+        /could not load the internet access setting/i
       );
       expect(getSwitch()).toHaveAttribute("aria-checked", "false");
       expect(getSwitch()).toBeDisabled();
@@ -561,7 +559,7 @@ describe("AssistantSandboxEgressSettings", () => {
     const view = renderControl("en", { assistantId: ASSISTANT_ID, resolveAuthToken: auth });
     await waitFor(() => expect(getSwitch()).toHaveAttribute("aria-checked", "false"));
     fireEvent.click(getSwitch());
-    fireEvent.click(screen.getByRole("button", { name: /enable full public network/i }));
+    fireEvent.click(screen.getByRole("button", { name: /allow full access/i }));
     await waitFor(() => expect(apiMocks.putAssistantSandboxEgress).toHaveBeenCalledTimes(1));
 
     view.rerender(
@@ -739,7 +737,7 @@ describe("AssistantSandboxEgressSettings", () => {
     renderControl();
     await waitFor(() => expect(getSwitch()).not.toBeDisabled());
     fireEvent.click(getSwitch());
-    fireEvent.click(screen.getByRole("button", { name: /enable full public network/i }));
+    fireEvent.click(screen.getByRole("button", { name: /allow full access/i }));
 
     await waitFor(() => {
       expect(apiMocks.getAssistantSandboxEgress).toHaveBeenCalledTimes(2);
@@ -768,14 +766,14 @@ describe("AssistantSandboxEgressSettings", () => {
     renderControl();
     await waitFor(() => expect(getSwitch()).not.toBeDisabled());
     fireEvent.click(getSwitch());
-    fireEvent.click(screen.getByRole("button", { name: /enable full public network/i }));
+    fireEvent.click(screen.getByRole("button", { name: /allow full access/i }));
 
     await waitFor(() => {
       const alerts = screen.getAllByRole("alert");
       expect(alerts).toHaveLength(2);
       const [loadAlert, modalAlert] = alerts;
-      expect(loadAlert).toHaveTextContent(/could not load sandbox network setting/i);
-      expect(modalAlert).toHaveTextContent(/sandbox job is running/i);
+      expect(loadAlert).toHaveTextContent(/could not load the internet access setting/i);
+      expect(modalAlert).toHaveTextContent(/assistant is busy right now/i);
       expect(loadAlert?.id).toBeTruthy();
       expect(modalAlert?.id).toBeTruthy();
       expect(loadAlert?.id).not.toBe(modalAlert?.id);
@@ -809,12 +807,12 @@ describe("AssistantSandboxEgressSettings", () => {
     renderControl();
     await waitFor(() => expect(getSwitch()).not.toBeDisabled());
     fireEvent.click(getSwitch());
-    fireEvent.click(screen.getByRole("button", { name: /enable full public network/i }));
+    fireEvent.click(screen.getByRole("button", { name: /allow full access/i }));
 
     await waitFor(() => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
       expect(screen.getByRole("alert")).toHaveTextContent(
-        /could not update sandbox network setting/i
+        /could not update the internet access setting/i
       );
       expect(getSwitch()).toHaveAttribute("aria-checked", "false");
     });

@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  type KeyboardEvent,
+  type PointerEvent,
   type ReactNode,
   Suspense,
   createContext,
@@ -31,6 +33,16 @@ import type { AppBootstrapInitialData } from "../_server/fetch-app-bootstrap";
 import { getMe } from "../me-api-client";
 import { getAssistantSupportTickets } from "../assistant-api-client";
 import { getLocaleCookie, isWebLocale, setLocaleCookie } from "@/app/lib/locale-sync";
+import {
+  DESKTOP_SIDEBAR_WIDTH_DESKTOP_DEFAULT_PX,
+  DESKTOP_SIDEBAR_WIDTH_MAX_PX,
+  DESKTOP_SIDEBAR_WIDTH_MIN_PX,
+  clampDesktopSidebarWidthPx,
+  defaultDesktopSidebarWidthForViewport,
+  readStoredDesktopSidebarWidthPx,
+  writeStoredDesktopSidebarWidthPx
+} from "./desktop-sidebar-width";
+import { cn } from "@/app/lib/utils";
 
 /**
  * ADR-076 Slice 6 — code-split the two heaviest slide-over bodies behind
@@ -89,6 +101,12 @@ export function AppShell({
   const [settingsInitialSection, setSettingsInitialSection] = useState<string | undefined>();
   const [telegramOpen, setTelegramOpen] = useState(false);
   const [supportUnreadCount, setSupportUnreadCount] = useState(0);
+  const [desktopSidebarWidthPx, setDesktopSidebarWidthPx] = useState(
+    DESKTOP_SIDEBAR_WIDTH_DESKTOP_DEFAULT_PX
+  );
+  const [sidebarResizeActive, setSidebarResizeActive] = useState(false);
+  const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const sidebarWidthCustomizedRef = useRef(false);
   // ADR-076 Slice 6 — sticky "first open" flags. Once true they stay true so
   // the dynamically-imported panel stays mounted across close/reopen cycles
   // (preserves form state, lets <SlideOver>'s framer-motion exit animation
@@ -101,6 +119,94 @@ export function AppShell({
   useEffect(() => {
     if (telegramOpen) setHasOpenedTelegram(true);
   }, [telegramOpen]);
+  useEffect(() => {
+    const stored = readStoredDesktopSidebarWidthPx();
+    if (stored !== null) {
+      sidebarWidthCustomizedRef.current = true;
+      setDesktopSidebarWidthPx(stored);
+      return;
+    }
+    const applyViewportDefault = () => {
+      if (sidebarWidthCustomizedRef.current) return;
+      setDesktopSidebarWidthPx(defaultDesktopSidebarWidthForViewport());
+    };
+    applyViewportDefault();
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const media = window.matchMedia("(min-width: 1024px)");
+    media.addEventListener("change", applyViewportDefault);
+    return () => media.removeEventListener("change", applyViewportDefault);
+  }, []);
+  useEffect(() => {
+    if (!sidebarResizeActive) return;
+    const previousUserSelect = document.body.style.userSelect;
+    const previousCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    return () => {
+      document.body.style.userSelect = previousUserSelect;
+      document.body.style.cursor = previousCursor;
+    };
+  }, [sidebarResizeActive]);
+
+  const commitDesktopSidebarWidth = useCallback((widthPx: number) => {
+    const next = clampDesktopSidebarWidthPx(widthPx, defaultDesktopSidebarWidthForViewport());
+    sidebarWidthCustomizedRef.current = true;
+    setDesktopSidebarWidthPx(next);
+    writeStoredDesktopSidebarWidthPx(next);
+  }, []);
+
+  const handleSidebarResizePointerDown = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      sidebarResizeRef.current = {
+        startX: event.clientX,
+        startWidth: desktopSidebarWidthPx
+      };
+      setSidebarResizeActive(true);
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [desktopSidebarWidthPx]
+  );
+
+  const handleSidebarResizePointerMove = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      const start = sidebarResizeRef.current;
+      if (start === null) return;
+      commitDesktopSidebarWidth(start.startWidth + (event.clientX - start.startX));
+    },
+    [commitDesktopSidebarWidth]
+  );
+
+  const handleSidebarResizePointerUp = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      if (sidebarResizeRef.current === null) return;
+      sidebarResizeRef.current = null;
+      setSidebarResizeActive(false);
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      writeStoredDesktopSidebarWidthPx(desktopSidebarWidthPx);
+    },
+    [desktopSidebarWidthPx]
+  );
+
+  const handleSidebarResizeKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        commitDesktopSidebarWidth(desktopSidebarWidthPx - 16);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        commitDesktopSidebarWidth(desktopSidebarWidthPx + 16);
+      }
+    },
+    [commitDesktopSidebarWidth, desktopSidebarWidthPx]
+  );
   const appData = useAppData(initialData);
   const ts = useTranslations("settings");
   const tt = useTranslations("telegram");
@@ -236,15 +342,22 @@ export function AppShell({
           <NativeBrowserPreview />
           {/*
           Bento layout on desktop: outer chrome frame (`bg-chrome`) shows
-          between the sidebar and main panels via `md:gap-2 md:p-2`. On
-          mobile the panels run full-bleed so we don't waste precious edges
-          on phones / Capacitor webviews.
+          around/between the sidebar and main panels via wider TG-like
+          `md:gap-4 md:p-4`. On mobile the panels run full-bleed so we don't
+          waste precious edges on phones / Capacitor webviews.
         */}
           <div className="flex h-dvh flex-col overflow-hidden bg-chrome">
-            <div className="flex flex-1 overflow-hidden md:gap-2 md:p-2">
-              {/* Desktop sidebar — always visible */}
+            <div
+              data-testid="app-desktop-shell"
+              className="flex flex-1 overflow-hidden md:gap-4 md:p-4"
+            >
+              {/* Desktop sidebar — always visible, width owned by the shell */}
               <Suspense>
-                <div className="hidden md:flex">
+                <div
+                  data-testid="app-desktop-sidebar-column"
+                  className="relative hidden shrink-0 md:block"
+                  style={{ width: desktopSidebarWidthPx }}
+                >
                   <Sidebar
                     data={appData}
                     supportUnreadCount={supportUnreadCount}
@@ -265,6 +378,31 @@ export function AppShell({
                       setSettingsOpen(true);
                     }}
                   />
+                  <div
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize sidebar"
+                    aria-valuemin={DESKTOP_SIDEBAR_WIDTH_MIN_PX}
+                    aria-valuemax={DESKTOP_SIDEBAR_WIDTH_MAX_PX}
+                    aria-valuenow={desktopSidebarWidthPx}
+                    tabIndex={0}
+                    data-testid="sidebar-resize-handle"
+                    className={cn(
+                      "absolute top-1/2 right-0 z-20 flex -translate-y-1/2 translate-x-1/2 cursor-col-resize flex-col items-center gap-1 rounded-full px-1.5 py-3",
+                      "touch-none select-none",
+                      sidebarResizeActive ? "opacity-100" : "opacity-70 hover:opacity-100"
+                    )}
+                    onPointerDown={handleSidebarResizePointerDown}
+                    onPointerMove={handleSidebarResizePointerMove}
+                    onPointerUp={handleSidebarResizePointerUp}
+                    onPointerCancel={handleSidebarResizePointerUp}
+                    onKeyDown={handleSidebarResizeKeyDown}
+                  >
+                    <span className="h-1 w-1 rounded-full bg-text-subtle/55" aria-hidden="true" />
+                    <span className="h-1 w-1 rounded-full bg-text-subtle/55" aria-hidden="true" />
+                    <span className="h-1 w-1 rounded-full bg-text-subtle/55" aria-hidden="true" />
+                    <span className="h-1 w-1 rounded-full bg-text-subtle/55" aria-hidden="true" />
+                  </div>
                 </div>
               </Suspense>
 

@@ -27,8 +27,20 @@ function makeTodo(overrides: Partial<RuntimeTodoItem> & { id: string }): Runtime
 const noop = async () => {};
 
 function expand(container: HTMLElement): void {
-  const btn = container.querySelector("button[aria-expanded]") as HTMLElement;
-  fireEvent.click(btn);
+  const resting =
+    within(container).queryByTestId("chat-plan-mobile-circle") ??
+    within(container).queryByTestId("chat-plan-collapsed-chip");
+  if (resting) {
+    fireEvent.click(resting);
+  }
+  // Resting opens compact first; a second click opens the list.
+  const toggle = container.querySelector("button[aria-expanded]") as HTMLElement | null;
+  if (toggle?.getAttribute("aria-expanded") === "false") {
+    fireEvent.click(toggle);
+  } else if (!toggle) {
+    const btn = container.querySelector("button[aria-expanded]") as HTMLElement;
+    fireEvent.click(btn);
+  }
 }
 
 function useMobileViewport(): void {
@@ -92,7 +104,7 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={todos} totalCount={5} windowed={false} onClear={noop} />
     );
-    // planCounts rendered in header with done=1, total=5
+    expand(container);
     const countsEl = within(container).getAllByText(/planCounts/)[0];
     expect(countsEl).toBeInTheDocument();
     expect(countsEl?.textContent).toMatch(/"done":1/);
@@ -107,6 +119,7 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={todos} totalCount={5} windowed={true} onClear={noop} />
     );
+    expand(container);
     expect(within(container).getAllByText(/planMoreHidden/).length).toBeGreaterThan(0);
   });
 
@@ -115,10 +128,11 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={todos} totalCount={3} windowed={false} onClear={noop} />
     );
+    expand(container);
     expect(within(container).queryByText(/planMoreHidden/)).toBeNull();
   });
 
-  it("defaults to collapsed and shows in_progress task as a header preview", () => {
+  it("defaults to an X/Y circle on mobile and a Plan X/Y chip on desktop", () => {
     const todos = [
       makeTodo({ id: "1", status: "completed", content: "Done task" }),
       makeTodo({ id: "2", status: "in_progress", content: "Currently working" }),
@@ -127,15 +141,26 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={todos} totalCount={3} windowed={false} onClear={noop} />
     );
-    // collapsed body → in_progress label visible in header, other items NOT visible
-    const toggleBtn = container.querySelector("button[aria-expanded]") as HTMLElement;
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
-    expect(within(container).getByText("Currently working")).toBeInTheDocument();
-    expect(within(container).queryByText("Done task")).toBeNull();
-    expect(within(container).queryByText("Future task")).toBeNull();
+    const circle = within(container).getByTestId("chat-plan-mobile-circle");
+    const chip = within(container).getByTestId("chat-plan-collapsed-chip");
+    expect(circle).toHaveTextContent("1/3");
+    expect(circle).toHaveClass("md:hidden");
+    expect(circle).not.toHaveTextContent("planTitle");
+    expect(chip).toHaveTextContent("planTitle");
+    expect(chip).toHaveTextContent("1/3");
+    expect(chip).toHaveClass("hidden", "md:flex");
+    expect(container.firstChild).toHaveClass(
+      "ml-auto",
+      "h-12",
+      "w-12",
+      "md:w-auto",
+      "rounded-full"
+    );
+    expect(within(container).queryByText("Currently working")).toBeNull();
+    expect(container.querySelector("button[aria-expanded]")).toBeNull();
   });
 
-  it("falls back to the first pending task in the header preview when nothing is in_progress", () => {
+  it("opens the expanded list from the resting control", () => {
     const todos = [
       makeTodo({ id: "1", status: "completed", content: "Done task" }),
       makeTodo({ id: "2", status: "pending", content: "Next up" }),
@@ -144,11 +169,18 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={todos} totalCount={3} windowed={false} onClear={noop} />
     );
+    expand(container);
+    expect(within(container).queryByTestId("chat-plan-mobile-circle")).toBeNull();
+    expect(within(container).queryByTestId("chat-plan-collapsed-chip")).toBeNull();
+    expect(container.querySelector("button[aria-expanded]")).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
     expect(within(container).getByText("Next up")).toBeInTheDocument();
-    expect(within(container).queryByText("After that")).toBeNull();
+    expect(within(container).getByText("After that")).toBeInTheDocument();
   });
 
-  it("shows the All-done indicator in the header preview when every task is completed", () => {
+  it("tints the collapsed resting control quietly when every task is completed", () => {
     const todos = [
       makeTodo({ id: "1", status: "completed", content: "Done 1" }),
       makeTodo({ id: "2", status: "completed", content: "Done 2" })
@@ -156,9 +188,37 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={todos} totalCount={2} windowed={false} onClear={noop} />
     );
-    expect(within(container).getByText("planAllDone")).toBeInTheDocument();
-    // body stays collapsed → individual rows are not in the visible body
+    expect(within(container).getByTestId("chat-plan-mobile-circle")).toHaveTextContent("2/2");
+    expect(container.firstChild).toHaveClass("border-success/45", "ring-success/25");
     expect(within(container).queryByText("Done 1")).toBeNull();
+  });
+
+  it("pulses the collapsed resting control when doneCount increases while collapsed", () => {
+    vi.useFakeTimers();
+    const initial = [
+      makeTodo({ id: "1", status: "completed", content: "Done" }),
+      makeTodo({ id: "2", content: "Next" })
+    ];
+    const { container, rerender } = render(
+      <ChatPlanCard todos={initial} totalCount={2} windowed={false} onClear={noop} />
+    );
+    expect(container.firstChild).not.toHaveClass("plan-progress-pulse");
+
+    rerender(
+      <ChatPlanCard
+        todos={[
+          makeTodo({ id: "1", status: "completed", content: "Done" }),
+          makeTodo({ id: "2", status: "completed", content: "Next" })
+        ]}
+        totalCount={2}
+        windowed={false}
+        onClear={noop}
+      />
+    );
+    expect(container.firstChild).toHaveClass("plan-progress-pulse");
+    act(() => vi.advanceTimersByTime(720));
+    expect(container.firstChild).not.toHaveClass("plan-progress-pulse");
+    expect(container.firstChild).toHaveClass("border-success/45");
   });
 
   it("toggle expand/collapse flips aria-expanded and reveals the body rows", () => {
@@ -169,10 +229,8 @@ describe("ChatPlanCard", () => {
     const { container } = render(
       <ChatPlanCard todos={todos} totalCount={2} windowed={false} onClear={noop} />
     );
+    expand(container);
     const toggleBtn = container.querySelector("button[aria-expanded]") as HTMLElement;
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
-
-    fireEvent.click(toggleBtn);
     expect(toggleBtn.getAttribute("aria-expanded")).toBe("true");
     const bodyRegion = container.querySelector("#chat-plan-body") as HTMLElement;
     expect(bodyRegion).not.toBeNull();
@@ -180,7 +238,7 @@ describe("ChatPlanCard", () => {
     expect(within(bodyRegion).getByText("Pending row")).toBeInTheDocument();
 
     fireEvent.click(toggleBtn);
-    expect(toggleBtn.getAttribute("aria-expanded")).toBe("false");
+    expect(within(container).getByTestId("chat-plan-mobile-circle")).toBeInTheDocument();
     expect(container.querySelector("#chat-plan-body")).toBeNull();
   });
 
@@ -196,18 +254,13 @@ describe("ChatPlanCard", () => {
 
     const circle = within(container).getByTestId("chat-plan-mobile-circle");
     expect(circle).toHaveTextContent("1/7");
-    expect(circle).toHaveClass("h-12", "w-12");
+    expect(circle).not.toHaveTextContent("planTitle");
     expect(container.firstChild).toHaveClass("ml-auto", "h-12", "w-12", "rounded-full");
-    expect(container.querySelector("button[aria-expanded]")?.parentElement).toHaveClass(
-      "hidden",
-      "md:flex"
-    );
 
     fireEvent.click(circle);
     const compactToggle = container.querySelector("button[aria-expanded]") as HTMLElement;
     expect(within(container).queryByTestId("chat-plan-mobile-circle")).toBeNull();
     expect(compactToggle).toHaveAttribute("aria-expanded", "false");
-    // Right-anchored while width transitions circle → full pill.
     expect(container.firstChild).toHaveClass("ml-auto", "w-full");
 
     fireEvent.click(compactToggle);
@@ -215,7 +268,7 @@ describe("ChatPlanCard", () => {
     expect(container.querySelector("#chat-plan-body")).not.toBeNull();
   });
 
-  it("returns an open mobile plan to its progress circle after 10 seconds idle", () => {
+  it("returns an open mobile plan to its X/Y circle after 10 seconds idle", () => {
     vi.useFakeTimers();
     useMobileViewport();
     const { container } = render(
@@ -227,15 +280,14 @@ describe("ChatPlanCard", () => {
       />
     );
 
-    fireEvent.click(within(container).getByTestId("chat-plan-mobile-circle"));
-    fireEvent.click(container.querySelector("button[aria-expanded]") as HTMLElement);
+    expand(container);
     act(() => vi.advanceTimersByTime(10_000));
 
     expect(within(container).getByTestId("chat-plan-mobile-circle")).toBeInTheDocument();
     expect(container.querySelector("#chat-plan-body")).toBeNull();
   });
 
-  it("collapses a mobile plan to its circle when the user taps elsewhere", () => {
+  it("collapses an open mobile plan to its circle when the user taps elsewhere", () => {
     useMobileViewport();
     const { container } = render(
       <ChatPlanCard
@@ -246,13 +298,38 @@ describe("ChatPlanCard", () => {
       />
     );
 
-    fireEvent.click(within(container).getByTestId("chat-plan-mobile-circle"));
+    expand(container);
     fireEvent.pointerDown(document.body);
 
     expect(within(container).getByTestId("chat-plan-mobile-circle")).toBeInTheDocument();
   });
 
-  it("returns an expanded desktop plan to its compact pill after 10 seconds idle", () => {
+  it("uses Plan X/Y → compact pill → expanded list progression on desktop", () => {
+    const todos = [
+      makeTodo({ id: "1", status: "completed", content: "Done" }),
+      makeTodo({ id: "2", content: "Next" })
+    ];
+    const { container } = render(
+      <ChatPlanCard todos={todos} totalCount={7} windowed={true} onClear={noop} />
+    );
+
+    const chip = within(container).getByTestId("chat-plan-collapsed-chip");
+    expect(chip).toHaveTextContent("planTitle");
+    expect(chip).toHaveTextContent("1/7");
+
+    fireEvent.click(chip);
+    const compactToggle = container.querySelector("button[aria-expanded]") as HTMLElement;
+    expect(within(container).queryByTestId("chat-plan-collapsed-chip")).toBeNull();
+    expect(compactToggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(container).getByText("Next")).toBeInTheDocument();
+    expect(container.querySelector("#chat-plan-body")).toBeNull();
+
+    fireEvent.click(compactToggle);
+    expect(compactToggle).toHaveAttribute("aria-expanded", "true");
+    expect(container.querySelector("#chat-plan-body")).not.toBeNull();
+  });
+
+  it("returns an expanded desktop plan to its Plan X/Y chip after 10 seconds idle", () => {
     vi.useFakeTimers();
     const { container } = render(
       <ChatPlanCard
@@ -262,14 +339,15 @@ describe("ChatPlanCard", () => {
         onClear={noop}
       />
     );
-    const toggle = container.querySelector("button[aria-expanded]") as HTMLElement;
 
-    fireEvent.click(toggle);
+    expand(container);
     act(() => vi.advanceTimersByTime(10_000));
 
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(container).getByTestId("chat-plan-collapsed-chip")).toBeInTheDocument();
+    expect(within(container).getByTestId("chat-plan-collapsed-chip")).toHaveTextContent(
+      "planTitle"
+    );
     expect(container.querySelector("#chat-plan-body")).toBeNull();
-    expect(within(container).queryByTestId("chat-plan-mobile-circle")).toBeInTheDocument();
   });
 
   it("collapses an expanded desktop plan when the user clicks elsewhere", () => {
@@ -281,11 +359,10 @@ describe("ChatPlanCard", () => {
         onClear={noop}
       />
     );
-    const toggle = container.querySelector("button[aria-expanded]") as HTMLElement;
-    fireEvent.click(toggle);
+    expand(container);
     fireEvent.pointerDown(document.body);
 
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(container).getByTestId("chat-plan-collapsed-chip")).toBeInTheDocument();
   });
 
   it("clear button on an active plan shows inline confirmation; Cancel does not call onClear", async () => {
@@ -295,6 +372,7 @@ describe("ChatPlanCard", () => {
       <ChatPlanCard todos={todos} totalCount={1} windowed={false} onClear={onClear} />
     );
 
+    expand(container);
     const clearBtn = within(container).getByRole("button", { name: "planClear" });
     fireEvent.click(clearBtn);
 
@@ -312,6 +390,7 @@ describe("ChatPlanCard", () => {
       <ChatPlanCard todos={todos} totalCount={1} windowed={false} onClear={onClear} />
     );
 
+    expand(container);
     fireEvent.click(within(container).getByRole("button", { name: "planClear" }));
     const confirmBtn = within(container).getByText("planClearConfirmAction");
     fireEvent.click(confirmBtn);
@@ -333,6 +412,7 @@ describe("ChatPlanCard", () => {
       <ChatPlanCard todos={todos} totalCount={2} windowed={false} onClear={onClear} />
     );
 
+    expand(container);
     const clearBtn = within(container).getByRole("button", { name: "planClear" });
     fireEvent.click(clearBtn);
 

@@ -796,7 +796,7 @@ describe("AssistantSettings character CTA", () => {
   });
 });
 
-describe("AssistantSettings sandbox network (ADR-146 S4)", () => {
+describe("AssistantSettings internet access (ADR-146 S4)", () => {
   beforeEach(() => {
     clerkMocks.getToken.mockResolvedValue("token-1");
     assistantApiMocks.getAssistantSandboxEgress.mockResolvedValue({
@@ -807,10 +807,12 @@ describe("AssistantSettings sandbox network (ADR-146 S4)", () => {
     });
   });
 
-  it("places Sandbox network in the Assistant block without opening Customize", async () => {
+  it("places Internet access in the Assistant block without opening Customize", async () => {
     renderSettings(makeAppData(), "character");
 
-    expect(await screen.findByRole("switch", { name: /sandbox network/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("switch", { name: /internet access for the assistant/i })
+    ).toBeInTheDocument();
     expect(screen.queryByText("Quick actions")).not.toBeInTheDocument();
     expect(assistantApiMocks.getAssistantSandboxEgress).toHaveBeenCalledWith(
       "token-1",
@@ -819,13 +821,17 @@ describe("AssistantSettings sandbox network (ADR-146 S4)", () => {
     );
   });
 
-  it("does not surface sandbox network in channels or limits sections", async () => {
+  it("does not surface internet access in channels or limits sections", async () => {
     renderSettings(makeAppData(), "channels");
-    expect(screen.queryByRole("switch", { name: /sandbox network/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: /internet access for the assistant/i })
+    ).not.toBeInTheDocument();
 
     cleanup();
     renderSettings(makeAppData(), "limits");
-    expect(screen.queryByRole("switch", { name: /sandbox network/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("switch", { name: /internet access for the assistant/i })
+    ).not.toBeInTheDocument();
   });
 });
 

@@ -445,38 +445,36 @@ export function AssistantSandboxEgressSettings({
                 aria-labelledby={modalTitleId}
                 aria-describedby={inlineError ? `${modalDescId} ${modalErrorId}` : modalDescId}
                 aria-busy={saveBusy}
-                className="w-full max-w-md rounded-2xl border border-border/80 bg-[color:var(--surface)] p-5 shadow-2xl"
+                className="w-full max-w-md rounded-2xl border border-border/80 bg-[color:var(--surface)] p-6 shadow-2xl"
                 onClick={(event) => event.stopPropagation()}
                 onKeyDown={handleModalKeyDown}
                 ref={modalRef}
                 tabIndex={-1}
               >
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 rounded-full bg-warning/10 p-2 text-warning">
+                <div className="flex items-center gap-3">
+                  <div className="shrink-0 rounded-full bg-warning/10 p-2.5 text-warning">
                     <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <h3 id={modalTitleId} className="text-base font-semibold text-text">
-                      {t("sandboxNetworkEnableTitle")}
-                    </h3>
-                    <p
-                      id={modalDescId}
-                      className="mt-2 text-base leading-relaxed text-text-muted md:text-sm"
-                    >
-                      {t("sandboxNetworkEnableBody")}
-                    </p>
-                  </div>
+                  <h3
+                    id={modalTitleId}
+                    className="min-w-0 text-base font-semibold leading-snug text-text"
+                  >
+                    {t("sandboxNetworkEnableTitle")}
+                  </h3>
                 </div>
+                <p id={modalDescId} className="mt-4 text-sm leading-relaxed text-text-muted">
+                  {t("sandboxNetworkEnableBody")}
+                </p>
                 {inlineError ? (
                   <p
                     id={modalErrorId}
                     role="alert"
-                    className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+                    className="mt-4 rounded-xl border border-destructive/30 bg-destructive/5 px-3.5 py-2.5 text-sm leading-relaxed text-destructive"
                   >
                     {inlineError}
                   </p>
                 ) : null}
-                <div className="mt-5 flex justify-end gap-2">
+                <div className="mt-6 flex justify-end gap-2.5">
                   <button
                     ref={cancelButtonRef}
                     type="button"

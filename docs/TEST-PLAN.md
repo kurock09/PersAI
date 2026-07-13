@@ -403,7 +403,7 @@ tests do not claim S6, HTTP-redirect, or DNS-rebind live acceptance.
 
 ```powershell
 corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-sandbox-egress-settings.test.tsx
-corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx -t "sandbox network"
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx -t "internet access"
 corepack pnpm --filter @persai/web run typecheck
 corepack pnpm --filter @persai/web run lint
 ```

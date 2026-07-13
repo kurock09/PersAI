@@ -17,15 +17,7 @@ export interface ChatPlanCardProps {
 const ACTIVE_TODO_LIMIT = 7;
 const PLAN_BODY_MAX_HEIGHT_CLASS = "max-h-[min(40vh,280px)]";
 const PLAN_IDLE_COLLAPSE_MS = 10_000;
-const MOBILE_PLAN_QUERY = "(max-width: 767px)";
-
-function isMobilePlanViewport(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof window.matchMedia === "function" &&
-    window.matchMedia(MOBILE_PLAN_QUERY).matches
-  );
-}
+const PLAN_PROGRESS_PULSE_MS = 720;
 
 interface GroupedTodo {
   item: RuntimeTodoItem;
@@ -285,10 +277,13 @@ function ChatPlanCardBody({
   const [showAllActive, setShowAllActive] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const [mobileCircle, setMobileCircle] = useState(true);
+  // Resting: mobile = X/Y circle; desktop = short "Plan X/Y" chip. Pulse/tint on both.
+  const [countsCollapsed, setCountsCollapsed] = useState(true);
+  const [progressPulse, setProgressPulse] = useState(false);
   const [interactionVersion, setInteractionVersion] = useState(0);
   const cardRef = useRef<HTMLDivElement>(null);
   const planBodyRef = useRef<HTMLDivElement>(null);
+  const previousDoneCountRef = useRef(doneCount);
 
   const sortedTodos = useMemo(() => sortTodosForDisplay(todos), [todos]);
   const grouped = useMemo(() => groupTodos(sortedTodos), [sortedTodos]);
@@ -298,6 +293,12 @@ function ChatPlanCardBody({
     [allRows, showAllActive]
   );
 
+  const collapseToResting = () => {
+    setExpanded(false);
+    setConfirmingClear(false);
+    setCountsCollapsed(true);
+  };
+
   useEffect(() => {
     if (!expanded) {
       setShowAllActive(false);
@@ -305,16 +306,9 @@ function ChatPlanCardBody({
   }, [expanded]);
 
   useEffect(() => {
-    const collapseForViewport = () => {
-      setExpanded(false);
-      setConfirmingClear(false);
-      if (isMobilePlanViewport()) {
-        setMobileCircle(true);
-      }
-    };
     const handleOutsidePointer = (event: PointerEvent) => {
       if (event.target instanceof Node && !cardRef.current?.contains(event.target)) {
-        collapseForViewport();
+        collapseToResting();
       }
     };
     document.addEventListener("pointerdown", handleOutsidePointer);
@@ -322,29 +316,12 @@ function ChatPlanCardBody({
   }, []);
 
   useEffect(() => {
-    const shouldCollapseAfterIdle = expanded || (!mobileCircle && isMobilePlanViewport());
-    if (!shouldCollapseAfterIdle) return;
+    if (countsCollapsed && !expanded) return;
     const timer = window.setTimeout(() => {
-      setExpanded(false);
-      setConfirmingClear(false);
-      if (isMobilePlanViewport()) {
-        setMobileCircle(true);
-      }
+      collapseToResting();
     }, PLAN_IDLE_COLLAPSE_MS);
     return () => window.clearTimeout(timer);
-  }, [expanded, interactionVersion, mobileCircle]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia(MOBILE_PLAN_QUERY);
-    const handleViewportChange = () => {
-      setExpanded(false);
-      setConfirmingClear(false);
-      setMobileCircle(media.matches);
-    };
-    media.addEventListener("change", handleViewportChange);
-    return () => media.removeEventListener("change", handleViewportChange);
-  }, []);
+  }, [expanded, interactionVersion, countsCollapsed]);
 
   useEffect(() => {
     if (!expanded || !showAllActive || firstActiveRowId === null) {
@@ -357,6 +334,15 @@ function ChatPlanCardBody({
       anchor.scrollIntoView({ block: "start" });
     }
   }, [expanded, firstActiveRowId, showAllActive]);
+
+  useEffect(() => {
+    const previousDone = previousDoneCountRef.current;
+    previousDoneCountRef.current = doneCount;
+    if (!countsCollapsed || doneCount <= previousDone) return;
+    setProgressPulse(true);
+    const timer = window.setTimeout(() => setProgressPulse(false), PLAN_PROGRESS_PULSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [doneCount, countsCollapsed]);
 
   const allDone = doneCount === totalCount && totalCount > 0;
   const currentTodo = selectCurrentTodo(sortedTodos);
@@ -388,11 +374,19 @@ function ChatPlanCardBody({
   };
 
   const handleHeaderClick = () => {
-    if (isMobilePlanViewport() && mobileCircle) {
-      setMobileCircle(false);
+    if (countsCollapsed) {
+      // Same progression as mobile: resting → compact → list.
+      setCountsCollapsed(false);
       return;
     }
-    setExpanded((prev) => !prev);
+    setExpanded((prev) => {
+      if (prev) {
+        setCountsCollapsed(true);
+        setConfirmingClear(false);
+        return false;
+      }
+      return true;
+    });
   };
 
   return (
@@ -401,136 +395,158 @@ function ChatPlanCardBody({
       data-testid="chat-plan-card"
       onPointerDownCapture={() => setInteractionVersion((version) => version + 1)}
       className={cn(
-        // Keep ml-auto on mobile for circle and open pill so width grows left from the right edge.
-        "ml-auto overflow-hidden border border-border/40 bg-surface-raised transition-[width] duration-300 ease-out md:ml-0 md:h-auto md:w-full",
-        mobileCircle ? "h-12 w-12" : "w-full",
+        // Keep ml-auto while collapsed so width grows left from the right edge.
+        "overflow-hidden border bg-surface-raised transition-[width,border-color,background-color,box-shadow] duration-300 ease-out",
+        countsCollapsed ? "ml-auto h-12 w-12 md:w-auto" : "ml-auto w-full md:ml-0",
         // Instant radius snap — width may animate, but stadium corners must not lag.
         expanded ? "rounded-[1.375rem]" : "rounded-full",
+        countsCollapsed && allDone
+          ? "border-success/45 ring-1 ring-inset ring-success/25"
+          : "border-border/40",
+        countsCollapsed && allDone && !progressPulse ? "bg-success/[0.07]" : null,
+        countsCollapsed && progressPulse ? "plan-progress-pulse" : null,
         className
       )}
     >
-      {mobileCircle ? (
-        <button
-          type="button"
-          data-testid="chat-plan-mobile-circle"
-          className="flex h-12 w-12 items-center justify-center whitespace-nowrap text-[11px] font-semibold tabular-nums text-text md:hidden"
-          onClick={handleHeaderClick}
-          aria-label={t("planCounts", { done: doneCount, total: totalCount })}
-        >
-          <span>{doneCount}</span>
-          <span className="px-px text-text-subtle/60">/</span>
-          <span>{totalCount}</span>
-        </button>
-      ) : null}
-      <div
-        className={cn(
-          "h-12 items-center gap-1.5 pl-3 pr-1.5",
-          mobileCircle ? "hidden md:flex" : "flex"
-        )}
-      >
-        {confirmingClear ? (
-          <>
-            <span className="min-w-0 flex-1 truncate px-0.5 text-xs text-text-muted">
-              {t("planClearConfirmPrompt")}
+      {countsCollapsed ? (
+        <>
+          <button
+            type="button"
+            data-testid="chat-plan-mobile-circle"
+            className="flex h-12 w-12 items-center justify-center whitespace-nowrap text-[11px] font-semibold tabular-nums text-text md:hidden"
+            onClick={handleHeaderClick}
+            aria-label={t("planCounts", { done: doneCount, total: totalCount })}
+          >
+            <span>{doneCount}</span>
+            <span className="px-px text-text-subtle/60">/</span>
+            <span>{totalCount}</span>
+          </button>
+          <button
+            type="button"
+            data-testid="chat-plan-collapsed-chip"
+            className="hidden h-12 items-center gap-1.5 whitespace-nowrap px-3.5 text-text md:flex"
+            onClick={handleHeaderClick}
+            aria-label={`${t("planTitle")} ${t("planCounts", { done: doneCount, total: totalCount })}`}
+          >
+            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-text-subtle">
+              {t("planTitle")}
             </span>
-            <button
-              type="button"
-              className="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-50"
-              onClick={() => setConfirmingClear(false)}
-              disabled={clearing}
-            >
-              {t("planClearCancel")}
-            </button>
-            <button
-              type="button"
-              className="shrink-0 rounded-full bg-accent px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-accent-hover disabled:opacity-50"
-              onClick={runClear}
-              disabled={clearing}
-            >
-              {clearing ? (
-                <Loader2 className="inline h-3.5 w-3.5 animate-spin" />
-              ) : (
-                t("planClearConfirmAction")
-              )}
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              className="group flex min-w-0 flex-1 items-center gap-2 text-left"
-              onClick={handleHeaderClick}
-              aria-expanded={expanded}
-              aria-controls={bodyId}
-            >
-              <StatusIcon status={headerStatus} size="md" />
-              <span className="shrink-0 text-[11px] font-medium uppercase tracking-[0.06em] text-text-subtle">
-                {t("planTitle")}
+            <span className="text-[11px] font-semibold tabular-nums">
+              <span>{doneCount}</span>
+              <span className="px-px font-medium text-text-subtle/60">/</span>
+              <span>{totalCount}</span>
+            </span>
+          </button>
+        </>
+      ) : null}
+      {countsCollapsed ? null : (
+        <div className="flex h-12 items-center gap-1.5 pl-3 pr-1.5">
+          {confirmingClear ? (
+            <>
+              <span className="min-w-0 flex-1 truncate px-0.5 text-xs text-text-muted">
+                {t("planClearConfirmPrompt")}
               </span>
-              <span className="shrink-0 text-[11px] tabular-nums text-text-muted/80">
-                {t("planCounts", { done: doneCount, total: totalCount })}
-              </span>
-              {hiddenCount > 0 ? (
-                <span className="shrink-0 text-[11px] text-text-muted/60">
-                  {t("planMoreHidden", { count: hiddenCount })}
-                </span>
-              ) : null}
-
-              {!expanded ? (
-                <span className="flex min-w-0 flex-1 items-center gap-2">
-                  <span aria-hidden className="shrink-0 text-text-muted/30">
-                    ·
-                  </span>
-                  {allDone ? (
-                    <span className="truncate text-[12px] text-text-muted">{t("planAllDone")}</span>
-                  ) : currentTodo !== null ? (
-                    <span
-                      className={cn(
-                        "truncate text-[12px]",
-                        currentTodo.status === "in_progress"
-                          ? "font-medium text-text"
-                          : "text-text-subtle"
-                      )}
-                    >
-                      {currentTodo.content}
-                    </span>
-                  ) : null}
-                </span>
-              ) : (
-                <span className="flex-1" />
-              )}
-
-              <ChevronDown
-                className={cn(
-                  "ml-1 h-3.5 w-3.5 shrink-0 text-text-muted/50 transition-transform duration-200 group-hover:text-text-muted",
-                  expanded && "rotate-180"
+              <button
+                type="button"
+                className="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium text-text-muted transition-colors hover:bg-surface-hover hover:text-text disabled:opacity-50"
+                onClick={() => setConfirmingClear(false)}
+                disabled={clearing}
+              >
+                {t("planClearCancel")}
+              </button>
+              <button
+                type="button"
+                className="shrink-0 rounded-full bg-accent px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-accent-hover disabled:opacity-50"
+                onClick={runClear}
+                disabled={clearing}
+              >
+                {clearing ? (
+                  <Loader2 className="inline h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  t("planClearConfirmAction")
                 )}
-                aria-label={expanded ? t("planToggleCollapse") : t("planToggleExpand")}
-              />
-            </button>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="group flex min-w-0 flex-1 items-center gap-2 text-left"
+                onClick={handleHeaderClick}
+                aria-expanded={expanded}
+                aria-controls={bodyId}
+              >
+                <StatusIcon status={headerStatus} size="md" />
+                <span className="shrink-0 text-[11px] font-medium uppercase tracking-[0.06em] text-text-subtle">
+                  {t("planTitle")}
+                </span>
+                <span className="shrink-0 text-[11px] tabular-nums text-text-muted/80">
+                  {t("planCounts", { done: doneCount, total: totalCount })}
+                </span>
+                {hiddenCount > 0 ? (
+                  <span className="shrink-0 text-[11px] text-text-muted/60">
+                    {t("planMoreHidden", { count: hiddenCount })}
+                  </span>
+                ) : null}
 
-            <button
-              type="button"
-              className={cn(
-                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-40",
-                allDone
-                  ? "text-emerald-600/70 hover:bg-emerald-500/10 hover:text-emerald-600"
-                  : "text-text-muted/50 hover:bg-surface-hover hover:text-text-muted"
-              )}
-              onClick={handleTrashClick}
-              disabled={clearing}
-              aria-label={t("planClear")}
-              data-all-done={allDone ? "true" : "false"}
-            >
-              {clearing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Trash2 className="h-3.5 w-3.5" />
-              )}
-            </button>
-          </>
-        )}
-      </div>
+                {!expanded ? (
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <span aria-hidden className="shrink-0 text-text-muted/30">
+                      ·
+                    </span>
+                    {allDone ? (
+                      <span className="truncate text-[12px] text-text-muted">
+                        {t("planAllDone")}
+                      </span>
+                    ) : currentTodo !== null ? (
+                      <span
+                        className={cn(
+                          "truncate text-[12px]",
+                          currentTodo.status === "in_progress"
+                            ? "font-medium text-text"
+                            : "text-text-subtle"
+                        )}
+                      >
+                        {currentTodo.content}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : (
+                  <span className="flex-1" />
+                )}
+
+                <ChevronDown
+                  className={cn(
+                    "ml-1 h-3.5 w-3.5 shrink-0 text-text-muted/50 transition-transform duration-200 group-hover:text-text-muted",
+                    expanded && "rotate-180"
+                  )}
+                  aria-label={expanded ? t("planToggleCollapse") : t("planToggleExpand")}
+                />
+              </button>
+
+              <button
+                type="button"
+                className={cn(
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-40",
+                  allDone
+                    ? "text-success/80 hover:bg-success/10 hover:text-success"
+                    : "text-text-muted/50 hover:bg-surface-hover hover:text-text-muted"
+                )}
+                onClick={handleTrashClick}
+                disabled={clearing}
+                aria-label={t("planClear")}
+                data-all-done={allDone ? "true" : "false"}
+              >
+                {clearing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {expanded ? (
         <>

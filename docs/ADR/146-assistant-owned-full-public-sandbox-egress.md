@@ -687,7 +687,8 @@ reconciles a stale/mislabelled warm pod.
 ### D7 — Assistant Settings UX and consent
 
 The control is placed in the existing `Assistant` settings block under a compact
-“Sandbox network” permission row.
+“Internet access for the assistant” permission row
+(RU: «Доступ в интернет для ассистента»).
 
 UI:
 
@@ -698,17 +699,19 @@ UI:
 - while a turn/sandbox job is active, the control is disabled or an attempted
   save renders the stable busy response without optimistic success;
 - on success, the settings state is reloaded from the server;
-- the control is not shown as a browser/web-search permission.
+- the control is not shown as a browser/web-search permission;
+- product copy must stay human-facing (no pod / Kubernetes / shell / exec jargon
+  in the settings row or confirmation modal).
 
-Required honest enable copy:
+Required honest enable facts (wording may be localized/plain-language):
 
-> Full public internet lets code in this assistant's sandbox connect directly
-> to any public address and send files or data there. PersAI internal networks,
-> Kubernetes, private addresses, and metadata remain blocked.
+- full public mode lets this assistant reach any public website and send workspace
+  files or data there;
+- PersAI internal / private destinations remain blocked;
+- built-in browser and web search are unchanged by this toggle.
 
-The localized Russian copy must preserve the same facts. “Без ограничений” is
-not acceptable because private/internal destinations remain intentionally
-unreachable.
+“Unlimited” / “Без ограничений” is not acceptable because private/internal
+destinations remain intentionally unreachable.
 
 ### D8 — Remove the false legacy network contract
 
@@ -1293,8 +1296,8 @@ Subagent: Cursor Grok 4.5.
 
 Land:
 
-- `Assistant -> Sandbox network` checkbox;
-- RU/EN warning and confirmation;
+- `Assistant -> Internet access for the assistant` toggle;
+- RU/EN human-facing warning and confirmation (no pod/K8s/shell jargon);
 - busy/error/success/refetch behavior;
 - no optimistic checked state before canonical success;
 - focused API-client/settings accessibility and interaction tests.

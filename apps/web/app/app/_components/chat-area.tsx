@@ -636,10 +636,19 @@ export function ChatArea({
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
-      {/* Stage: messages full-bleed; header/footer overlay so text dissolves under chrome (TG). */}
+      {/* Stage: messages full-bleed under transparent chrome; edge fade is on the scroll pane (TG). */}
       <div ref={stageRef} className="relative min-h-0 flex-1">
-        {/* Full-bleed message scroll — chrome overlays this pane. */}
-        <div ref={scrollRef} className="absolute inset-0 overflow-x-hidden overflow-y-auto">
+        {/* Full-bleed message scroll — content fades at top/bottom; pills/composer stay opaque overlays. */}
+        <div
+          ref={scrollRef}
+          data-testid="chat-message-scroll"
+          className={cn(
+            "absolute inset-0 overflow-x-hidden overflow-y-auto",
+            // ~pill height top / ~composer height bottom — text softens to the browser edge under chrome.
+            "[mask-image:linear-gradient(to_bottom,transparent_0,black_3.75rem,black_calc(100%-5rem),transparent_100%)]",
+            "[-webkit-mask-image:linear-gradient(to_bottom,transparent_0,black_3.75rem,black_calc(100%-5rem),transparent_100%)]"
+          )}
+        >
           {isEmpty ? (
             <EmptyState
               name={assistantName}
@@ -719,7 +728,7 @@ export function ChatArea({
           )}
         </div>
 
-        {/* Overlay header: dissolve veil only; opaque pills; messages scroll underneath. */}
+        {/* Overlay header: fully transparent shell; opaque pills only. */}
         <header
           data-testid="chat-header-chrome"
           className={cn(
@@ -727,14 +736,6 @@ export function ChatArea({
             hasChatPlan ? "pb-14 md:pb-16" : "pb-10 md:pb-12"
           )}
         >
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 -z-10 backdrop-blur-xl [-webkit-backdrop-filter:blur(24px)] [mask-image:linear-gradient(to_top,transparent_0%,#000_55%,#000_100%)] [-webkit-mask-image:linear-gradient(to_top,transparent_0%,#000_55%,#000_100%)]"
-          />
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-t from-transparent via-bg/20 to-bg/55"
-          />
           {/* Same envelope as composer + messages: name/mode and plan share one column. */}
           <div className="pointer-events-auto relative mx-auto flex w-full max-w-[50rem] flex-col gap-2">
             <div className="flex w-full items-center gap-2">
@@ -748,7 +749,7 @@ export function ChatArea({
               </button>
               <div
                 className={cn(
-                  // Opaque pill only — dissolve is the overlay veil behind, not a translucent shell.
+                  // Opaque pill — edge dissolve lives on the message scroll mask, not behind chrome.
                   "flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/45 bg-surface-raised py-0 pr-3.5 pl-1.5 transition-colors",
                   editing && "border-accent/45"
                 )}
@@ -844,14 +845,6 @@ export function ChatArea({
           data-testid="chat-footer-chrome"
           className="pointer-events-none absolute inset-x-0 bottom-0 z-40"
         >
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 -z-10 backdrop-blur-xl [-webkit-backdrop-filter:blur(24px)] [mask-image:linear-gradient(to_bottom,transparent_0%,#000_55%,#000_100%)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,#000_55%,#000_100%)]"
-          />
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-transparent via-bg/20 to-bg/55"
-          />
           <div className="pointer-events-auto relative pt-8 md:pt-10">
             {/* Issue banner */}
             {chat.issue && !showChatLimitBanner && !showSafetyRestrictedBanner && (
@@ -1271,18 +1264,25 @@ export function ChatArea({
         </div>
 
         {showScrollToBottom && (
-          <button
-            type="button"
-            onClick={() => scrollToBottom("smooth")}
-            className={cn(
-              "absolute right-3 bottom-[5.25rem] z-30 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised text-text-muted shadow-sm transition-all md:bottom-24",
-              "hover:-translate-y-0.5 hover:border-accent/30 hover:bg-surface-hover hover:text-text active:translate-y-0"
-            )}
-            aria-label={t("scrollToBottom")}
-            title={t("scrollToBottom")}
+          <div
+            data-testid="chat-scroll-to-bottom-anchor"
+            className="pointer-events-none absolute inset-x-0 bottom-[5.25rem] z-30 px-3 md:bottom-24 md:px-4"
           >
-            <ArrowDown className="h-5 w-5" strokeWidth={1.75} />
-          </button>
+            <div className="mx-auto flex w-full max-w-[50rem] justify-end">
+              <button
+                type="button"
+                onClick={() => scrollToBottom("smooth")}
+                className={cn(
+                  "pointer-events-auto flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised text-text-muted shadow-sm transition-all",
+                  "hover:-translate-y-0.5 hover:border-accent/30 hover:bg-surface-hover hover:text-text active:translate-y-0"
+                )}
+                aria-label={t("scrollToBottom")}
+                title={t("scrollToBottom")}
+              >
+                <ArrowDown className="h-5 w-5" strokeWidth={1.75} />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 

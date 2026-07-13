@@ -78,9 +78,11 @@ describe("BrowserLoginModal", () => {
     );
 
     expect(screen.getByTestId("browser-login-modal")).toBeInTheDocument();
-    expect(await screen.findByTestId("browser-login-extension-status")).toBeInTheDocument();
+    expect(
+      await screen.findByText("browserLoginExtensionUnavailable")
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("browser-login-extension-status")).toBeInTheDocument();
     expect(screen.queryByTestId("browser-login-extension-cta")).not.toBeInTheDocument();
-    expect(screen.getByText("browserLoginExtensionUnavailable")).toBeInTheDocument();
     expect(screen.getByText("browserLoginExtensionInstallHint")).toBeInTheDocument();
     expect(screen.getByText("browserLoginCheckBridge")).toBeInTheDocument();
     expect(screen.getByTestId("browser-login-complete")).toBeDisabled();

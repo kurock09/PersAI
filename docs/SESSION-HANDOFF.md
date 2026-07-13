@@ -1,5 +1,72 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — Assistant internet-access settings copy
+
+Status: **implemented locally; gates green; commit/push in progress.**
+
+Baseline SHA: PersAI `e5d7c12e` (+ this UX stack).
+
+**Settings row:** “Internet access for the assistant” /
+«Доступ в интернет для ассистента» with short plain-language on/off hints
+(what the toggle does for ordinary users).
+
+**Confirm modal:** Rewritten EN+RU without pod/K8s/shell jargon; padding and
+title/body/actions composition cleaned up. Honesty invariants kept (public
+sites yes; internal PersAI blocked; browser/search unchanged; no “unlimited”).
+
+**Also in tree:** resizable sidebar defaults, plan pulse, TG edge fade.
+
+**Verification (AGENTS + affected CI):** recursive lint PASS; format:check PASS;
+api+web typecheck PASS; `@persai/web` test 958/958 PASS (hardened one flaky
+browser-login unavailable assertion).
+
+**Next:** after push, hard-refresh Assistant settings + desktop shell resize.
+
+---
+
+## 2026-07-13 — Wider TG shell gaps + resizable sidebar
+
+Status: **implemented locally; visual acceptance pending.**
+
+Baseline SHA: PersAI `e5d7c12e` (+ local UX stack).
+
+**Shell:** Desktop chrome padding/gap `md:p-4`/`md:gap-4`. Sidebar width
+owned by AppShell (min 240 / max 560). Defaults stay breakpoint-based like
+before (`md` 240, `lg+` 280) until the user resizes; then width persists in
+`localStorage`. 4-dot vertical handle in the gutter.
+
+**Also in tree:** plan resting controls + success pulse; TG edge fade;
+scroll-to-bottom alignment.
+
+**Verification:** desktop-sidebar-width + app-shell + sidebar focused tests.
+
+**Next:** hard-refresh desktop shell; drag handle; then commit/push when
+requested.
+
+---
+
+## 2026-07-13 — Plan counts chip + quiet success pulse + TG edge fade
+
+Status: **implemented locally; visual acceptance pending.**
+
+Baseline SHA: PersAI `e5d7c12e` (+ this UX stack).
+
+**Plan:** Mobile rests on `X/Y` circle; desktop on short `Plan X/Y` chip. Both
+use the same progression: resting → compact → list. Completing a step while
+collapsed plays a quiet `--success` heartbeat; a finished plan keeps a soft
+success ring/tint on the resting control.
+
+**Chrome:** Header/footer blur/wash removed; message scroll masks fade at
+~pill/~composer height. Scroll-to-bottom shares the composer `max-w-[50rem]`
+envelope.
+
+**Verification:** plan-card 28/28, chat-area 32/32.
+
+**Next:** hard-refresh long thread + live plan progress; commit/push when
+requested.
+
+---
+
 ## 2026-07-13 — ADR-146 S6 public-master `/32` dual-layer deny repair (committed locally at `2f73d58c`)
 
 Status: **Committed locally at `2f73d58c`** on baseline `bd1c3e0c`

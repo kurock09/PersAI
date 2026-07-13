@@ -263,13 +263,9 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(screen.queryByTestId("chat-list-skeleton")).toBeNull();
   });
 
-  it("uses the medium-window width and Telegram-like desktop rounding", () => {
+  it("fills the desktop shell column and keeps Telegram-like rounding", () => {
     render(<Sidebar data={makeAppData({})} />);
-    expect(screen.getByRole("complementary")).toHaveClass(
-      "md:w-[240px]",
-      "lg:w-[280px]",
-      "md:rounded-[1.375rem]"
-    );
+    expect(screen.getByRole("complementary")).toHaveClass("md:w-full", "md:rounded-[1.375rem]");
   });
 
   it("uses 16px mobile type for the assistant name and New chat", () => {

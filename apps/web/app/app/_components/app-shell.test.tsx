@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppShell } from "./app-shell";
+import { DESKTOP_SIDEBAR_WIDTH_DESKTOP_DEFAULT_PX } from "./desktop-sidebar-width";
 
 const routerMocks = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -125,6 +126,11 @@ describe("AppShell", () => {
     expect(badge.className).toContain("text-white");
     expect(badge.className).not.toContain("bg-accent/12");
     expect(screen.getByTestId("app-main-panel")).toHaveClass("md:rounded-[1.375rem]");
+    expect(screen.getByTestId("app-desktop-shell")).toHaveClass("md:gap-4", "md:p-4");
+    expect(screen.getByTestId("sidebar-resize-handle")).toHaveAttribute("role", "separator");
+    expect(screen.getByTestId("app-desktop-sidebar-column")).toHaveStyle({
+      width: `${String(DESKTOP_SIDEBAR_WIDTH_DESKTOP_DEFAULT_PX)}px`
+    });
 
     await waitFor(() => {
       expect(meApiMocks.getMe).toHaveBeenCalledTimes(1);
