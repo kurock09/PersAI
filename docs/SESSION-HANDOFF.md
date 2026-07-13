@@ -1,36 +1,42 @@
 # SESSION-HANDOFF
 
-## 2026-07-13 — ADR-146 S6 public-master `/32` dual-layer deny repair (local, uncommitted on `bd1c3e0c`)
+## 2026-07-13 — ADR-146 S6 public-master `/32` dual-layer deny repair (committed locally at `2f73d58c`)
 
-Status: **Local implemented / uncommitted** on clean baseline `bd1c3e0c` (ahead of
-`origin/main` by 2 docs commits). No commit, push, deploy, or cloud/Kubernetes
-mutation in this slice. ADR-146 stays **open**. Full S6 and ADR closure remain
-**unclaimed**. Live public-master denial is **not** re-proven yet.
+Status: **Committed locally at `2f73d58c`** on baseline `bd1c3e0c`
+(`fix(infra): deny sandbox access to public master`); clean tree; `main`
+ahead of `origin/main` by 3. **Unpushed / undeployed.** No push, deploy, or
+cloud/Kubernetes mutation in this docs reconciliation. Independent security
+re-audit clean after High preflight blocker repair. ADR-146 stays **open**.
+Full S6 and ADR closure remain **unclaimed**. Live firewall/Calico are **not**
+repaired until final push/gate/apply/sync. `PUBLIC_MASTER_REACHABLE` remains
+the live blocker until re-proof.
 
-**Repair (code/config/tests only):**
+**Landed in commit `2f73d58c`:**
 
-- Inventory adds explicit validated
+- Exact dual-layer `/32`: inventory
   `cidrs.publicControlPlaneEndpoints` (`enabled: true`,
-  `ipv4Cidrs: ["34.38.46.10/32"]`); Service CIDR stays Calico-owned.
-- Shared public-deny builder + VPC firewall destination builder both emit the
-  `/32`; values-dev `requiredDeniedCidrs` / `publicDeniedCidrs` updated for
-  Helm sameSet fail-closed.
-- Live verify fail-closed: cluster public endpoint must be enabled and
-  exact-equal to the inventory `/32` (reuse cluster describe; no Helm/cloud
-  discovery at render).
-- `apply-firewall` plans destination-only `update` for destination drift;
-  its phase-specific preflight admits absent/exact/destination-only-drift
-  states, while priority/tag/network/source-selector/deny-shape drift fails
-  closed; later phases still require exact firewall; never
-  delete-before-replace.
+  `ipv4Cidrs: ["34.38.46.10/32"]`); shared public-deny builder + VPC firewall
+  destination builder both emit the `/32`; Service CIDR stays Calico-owned;
+  values-dev `requiredDeniedCidrs` / `publicDeniedCidrs` updated for Helm
+  sameSet fail-closed.
+- Fail-closed live endpoint equality: cluster public endpoint must be enabled
+  and exact-equal to the inventory `/32` (reuse cluster describe; no
+  Helm/cloud discovery at render).
+- Reachable destination-only firewall updater: `apply-firewall` plans
+  destination-only `update` for destination drift; phase preflight admits
+  absent/exact/destination-only-drift states, while
+  priority/tag/network/source-selector/deny-shape drift fails closed; later
+  phases still require exact firewall; never delete-before-replace.
+- Historical release fixture freeze: closed deferred-resume case remains frozen
+  against immutable proof-commit inventory/values blobs; historical `c9ab…`
+  authenticity still passes; current HEAD fails closed after inventory/sandbox
+  tag/image-tree advance; locked constant and validator unchanged.
 - Public control-plane inventory cardinality is exactly one reviewed IPv4
   `/32`; multiple entries require a deliberate future contract change.
-- The closed historical deferred-resume case remains frozen against immutable
-  proof-commit inventory/values blobs: historical `c9ab…` authenticity still
-  passes, while current HEAD fails closed because inventory, sandbox tag, and
-  image tree advanced. The locked constant and validator are unchanged.
-- Focused foundation/Helm/S6 inventory-driven tests PASS (95 + cross-layer);
-  release-gate tests PASS (42).
+
+**Gates (parent-audited):** focused foundation/S6/Helm **95/95**; release
+**42/42**; detect-affected **30/30**; slice5 **20/20**; Helm lint/template
+**PASS**; full AGENTS lint/format/api+web typecheck **PASS**.
 
 **Inventory bytes changed** → future evidence SHA is
 `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`. Do **not**
@@ -45,10 +51,10 @@ metadata smokes PASS; restricted `probe-restricted` PASS; inbound
 re-proof. HTTP redirect / DNS-rebind and operator-owned S6 fixtures remain
 unclaimed.
 
-**Next:** commit when founder requests; then push/deploy through foundation
-gate; `apply-firewall` update for drifted destinations; post-sync verify;
-live re-proof that full-public TCP to `34.38.46.10:443` fails; continue
-remaining operator-owned S6 fixtures. Do not claim S6 complete.
+**Next:** push/deploy through foundation gate; `apply-firewall` update for
+drifted destinations; post-sync verify; live re-proof that full-public TCP to
+`34.38.46.10:443` fails; continue remaining operator-owned S6 fixtures. Do not
+claim S6 complete.
 
 ---
 
@@ -57,8 +63,9 @@ remaining operator-owned S6 fixtures. Do not claim S6 complete.
 Status: **Local documentation checkpoint only** on clean tree at local commit
 `a759b70b` (one ahead of `origin/main`; docs baseline records release/main
 evidence at `7e385bbe`). **Superseded for implementation status by the
-public-master `/32` dual-layer deny repair entry above** (local uncommitted on
-`bd1c3e0c`). Historical blocker evidence below remains valid until live re-proof.
+public-master `/32` dual-layer deny repair entry above** (committed locally at
+`2f73d58c` on baseline `bd1c3e0c`; unpushed/undeployed). Historical blocker
+evidence below remains valid until live re-proof.
 No code/config/test edit, commit, push, deploy, or cloud mutation in this docs
 checkpoint. ADR-146 stays **open**. Full S6 and ADR closure remain **unclaimed**.
 
@@ -103,12 +110,12 @@ existing ADR-146 D4; no new product ADR):**
 DNS-rebind live proof; broader S6 helper operator-owned SSH/TCP/UDP/redirect/
 DNS fixtures; public-master denial remains **FAIL** until the `/32` repair
 is deployed and live-reproven. **Superseded for implementation status:** the
-repair is now local implemented/uncommitted on `bd1c3e0c` (see newer handoff
-entry).
+repair is now committed locally at `2f73d58c` on baseline `bd1c3e0c`
+(unpushed/undeployed; see newer handoff entry).
 
 **Next (historical for this docs checkpoint):** parent-orchestrated code repair
 slice implementing the D4 public master `/32` dual-layer deny + fail-closed
-verify + firewall update path; then
+verify + firewall update path (now landed at `2f73d58c`); then push/deploy +
 live re-proof that full-public TCP to `34.38.46.10:443` fails; then continue
 remaining operator-owned S6 fixtures. Do not claim S6 complete.
 

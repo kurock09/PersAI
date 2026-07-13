@@ -180,13 +180,16 @@ proof/deploy pins recorded in ADR-146 and SESSION-HANDOFF:
   conflicting higher-priority EGRESS ALLOW rules targeting the sandbox tag are
   inventoried and rejected; **S6 live evidence (2026-07-13) proved the public
   GKE master endpoint `34.38.46.10` is reachable from a full-public exec pod
-  (`PUBLIC_MASTER_REACHABLE`)** — D4 gap-close **implemented locally
-  uncommitted on `bd1c3e0c`** (inventory `publicControlPlaneEndpoints`
-  `34.38.46.10/32` in shared Calico except **and** sandbox-tagged VPC firewall
-  destinations; fail-closed live endpoint equality; firewall apply updates
-  drifted destinations; public endpoint stays enabled for operator/GitHub WIF
-  kubectl). Live denial re-proof and full S6 remain unclaimed; new inventory
-  SHA-256 `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`
+  (`PUBLIC_MASTER_REACHABLE`)** — D4 gap-close **committed locally at
+  `2f73d58c` on baseline `bd1c3e0c`** (unpushed/undeployed; exact dual-layer
+  `/32` inventory `publicControlPlaneEndpoints` `34.38.46.10/32` in shared
+  Calico except **and** sandbox-tagged VPC firewall destinations; fail-closed
+  live endpoint equality; reachable destination-only firewall updater;
+  historical release fixture freeze; public endpoint stays enabled for
+  operator/GitHub WIF kubectl). Live firewall/Calico unrepaired until
+  push/gate/apply/sync; live denial re-proof and full S6 remain unclaimed;
+  future evidence inventory SHA-256
+  `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`
   (do not retcon historical proof SHA
   `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`);
 - mandatory Calico ownership of node-primary, Pod, Service, metadata, and
@@ -202,7 +205,8 @@ proof/deploy pins recorded in ADR-146 and SESSION-HANDOFF:
   `verify`, and separate founder-approved `probe-restricted` (HTTP redirect and
   DNS-rebind remain unclaimed by automation; inbound empty-ingress is now
   live-proven PASS on the full-public contour; public-master denial remains
-  FAIL until the local `/32` repair is deployed and live-reproven);
+  FAIL until the committed `/32` repair (`2f73d58c`) is pushed/deployed and
+  live-reproven);
 - S0.1b production rollout used the repository release gate: the coordinated
   founder push synced Helm
   KSA/NetworkPolicy while non-sandbox tags stay last-good; Dev Image Publish

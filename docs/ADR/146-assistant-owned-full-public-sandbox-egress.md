@@ -62,8 +62,9 @@ network/product failure); controlled `adr146-restricted-probe` +
 `adr146-nat-probe` Ready; `probe-restricted --execute` exit 0 `RESULT: PASS`;
 cleanup PASS (no controlled probes; no remaining restricted exec pod). **Later
 same-day full-public contour evidence (docs checkpoint on local `a759b70b`;
-D4 `/32` dual-layer deny repair later implemented locally uncommitted on
-`bd1c3e0c` — live re-proof still pending):** inbound from sandbox control-plane to full-public
+D4 `/32` dual-layer deny repair later committed locally at `2f73d58c` on
+baseline `bd1c3e0c` — unpushed/undeployed; live re-proof still pending):**
+inbound from sandbox control-plane to full-public
 pod `ses-97982c194f5602591e016a81c3352e53` (`10.109.0.58` /
 `6f1881a4-bc6e-439f-b21b-7c9c0d4a122e`) timed out — inbound residual
 **live-proven PASS** (`INBOUND_TIMEOUT`); local listener positive control PASS.
@@ -79,13 +80,19 @@ sandbox-tagged VPC firewall deny; verifier fail-closed if live endpoint differs
 or is missing; firewall apply must update drifted rules. Keep public endpoint
 enabled for operator/GitHub WIF kubectl; disabling endpoint or master authorized
 networks are optional future founder hardening only. No Dataplane V2 / transition
-mode. **Local repair status (uncommitted on `bd1c3e0c`):** inventory
+mode. **Repair status (committed locally at `2f73d58c` on baseline `bd1c3e0c`;
+unpushed/undeployed):** exact dual-layer `/32` inventory
 `publicControlPlaneEndpoints`, dual CIDR builders, values-dev deny inventory,
-live endpoint exact-match verify, and firewall destination-update planner are
-implemented with focused tests green; new inventory SHA-256
+fail-closed live endpoint equality, reachable destination-only firewall
+updater, and historical release fixture freeze all landed in commit;
+independent security re-audit clean after High preflight blocker repair; gates
+95/95 focused foundation/S6/Helm, release 42/42, detect-affected 30/30,
+slice5 20/20, Helm lint/template PASS, full AGENTS lint/format/api+web
+typecheck PASS; future evidence inventory SHA-256
 `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d` (do not
 retcon historical proof SHA
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). Do **not**
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). Live
+firewall/Calico are **not** repaired until push/gate/apply/sync. Do **not**
 claim live repair, full S6, or ADR closure until post-deploy live re-proof.
 HTTP redirect / DNS-rebind and operator-owned SSH/TCP/UDP/redirect/DNS
 fixtures remain unclaimed; public-master denial remains FAIL until repair is
@@ -144,8 +151,9 @@ at `40d7a927`; earlier **shell/full_public/metadata smokes PASS** preserved;
 **S6 restricted live `probe-restricted` PASS** at release/main **`7e385bbe`**;
 **inbound live-proven PASS** on full-public contour; **public-master
 `PUBLIC_MASTER_REACHABLE` FAIL/blocker** with D4 `/32` dual-layer repair
-**implemented locally uncommitted on `bd1c3e0c`** (live re-proof pending;
-new inventory SHA-256
+**committed locally at `2f73d58c` on baseline `bd1c3e0c`** (unpushed/
+undeployed; live firewall/Calico unrepaired until push/gate/apply/sync; live
+re-proof pending; future evidence inventory SHA-256
 `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`; do not
 retcon historical proof SHA
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`); HTTP redirect / DNS-rebind and operator-owned
@@ -1352,12 +1360,14 @@ and cleanup PASS. **Inbound live-proven PASS** on full-public pod
 control-plane; local listener positive control PASS). **Public master FAIL /
 blocker:** direct TCP to live public endpoint `34.38.46.10:443` succeeded
 (`PUBLIC_MASTER_REACHABLE`). Chat-smoke hard 90s process timeout is not a
-network failure. **Repair decided under D4; implemented locally uncommitted on
-d1c3e0c (live re-proof pending):** inventory
-publicControlPlaneEndpoints + shared Calico except + VPC firewall deny +
-fail-closed live endpoint equality + firewall destination-update planner;
-keep public endpoint enabled; no new ADR, no Dataplane V2, no transition mode.
-New inventory SHA-256
+network failure. **Repair decided under D4; committed locally at `2f73d58c`
+on baseline `bd1c3e0c` (unpushed/undeployed; live firewall/Calico unrepaired
+until push/gate/apply/sync; live re-proof pending):** exact dual-layer `/32`
+inventory publicControlPlaneEndpoints + shared Calico except + VPC firewall
+deny + fail-closed live endpoint equality + reachable destination-only
+firewall updater + historical release fixture freeze; keep public endpoint
+enabled; no new ADR, no Dataplane V2, no transition mode. Future evidence
+inventory SHA-256
 589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d (do not
 retcon historical proof SHA
 c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7). Do not
