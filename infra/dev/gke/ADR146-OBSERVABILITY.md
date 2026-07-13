@@ -156,10 +156,14 @@ Threshold guidance:
   union (not a private-bypass hole).
 - Public GKE master endpoint is a live **S6 security blocker**
   (`PUBLIC_MASTER_REACHABLE` to `34.38.46.10:443` from full-public). D4
-  gap-close decided, **implementation not started**: commit reviewed public
-  master `/32` into shared public-deny inventory (Calico except + sandbox-tagged
-  VPC firewall), fail-closed live endpoint equality, and firewall apply must
-  update drifted rules while keeping the public endpoint enabled.
+  gap-close **implemented locally uncommitted on `bd1c3e0c`** (live re-proof
+  pending): inventory public-master `/32` in shared public-deny inventory
+  (Calico except + sandbox-tagged VPC firewall), fail-closed live endpoint
+  equality, and firewall apply updates drifted destinations while keeping the
+  public endpoint enabled. New inventory SHA-256
+  `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d` (do not
+  retcon historical proof SHA
+  `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`).
 - Inbound empty-ingress is live-proven **PASS** (`INBOUND_TIMEOUT`) on the
   full-public contour; HTTP redirect and DNS-rebind remain **unclaimed** until
   S6 parent records them (`probe-restricted` does not assert them).

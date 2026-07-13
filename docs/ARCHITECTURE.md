@@ -180,13 +180,15 @@ proof/deploy pins recorded in ADR-146 and SESSION-HANDOFF:
   conflicting higher-priority EGRESS ALLOW rules targeting the sandbox tag are
   inventoried and rejected; **S6 live evidence (2026-07-13) proved the public
   GKE master endpoint `34.38.46.10` is reachable from a full-public exec pod
-  (`PUBLIC_MASTER_REACHABLE`) because that `/32` is not yet in the shared
-  public-deny inventory / VPC firewall destinations** — D4 gap-close decided
-  (docs-only checkpoint; implementation not started): commit reviewed
-  public-master `/32` into shared Calico except **and** sandbox-tagged VPC
-  firewall deny, fail-closed live endpoint equality, and firewall apply must
-  update drifted rules while keeping the public endpoint enabled for
-  operator/GitHub WIF kubectl;
+  (`PUBLIC_MASTER_REACHABLE`)** — D4 gap-close **implemented locally
+  uncommitted on `bd1c3e0c`** (inventory `publicControlPlaneEndpoints`
+  `34.38.46.10/32` in shared Calico except **and** sandbox-tagged VPC firewall
+  destinations; fail-closed live endpoint equality; firewall apply updates
+  drifted destinations; public endpoint stays enabled for operator/GitHub WIF
+  kubectl). Live denial re-proof and full S6 remain unclaimed; new inventory
+  SHA-256 `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`
+  (do not retcon historical proof SHA
+  `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`);
 - mandatory Calico ownership of node-primary, Pod, Service, metadata, and
   same-node denies (active probes include live kube-dns Pod IP UDP/TCP 53 and
   same-namespace sandbox control-plane Pod IP); exact NodeLocal
@@ -200,7 +202,7 @@ proof/deploy pins recorded in ADR-146 and SESSION-HANDOFF:
   `verify`, and separate founder-approved `probe-restricted` (HTTP redirect and
   DNS-rebind remain unclaimed by automation; inbound empty-ingress is now
   live-proven PASS on the full-public contour; public-master denial remains
-  FAIL until the `/32` repair lands and is re-proven);
+  FAIL until the local `/32` repair is deployed and live-reproven);
 - S0.1b production rollout used the repository release gate: the coordinated
   founder push synced Helm
   KSA/NetworkPolicy while non-sandbox tags stay last-good; Dev Image Publish

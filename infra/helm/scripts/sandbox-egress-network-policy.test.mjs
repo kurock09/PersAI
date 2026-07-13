@@ -117,6 +117,23 @@ test("rendered full-public policy selects only full-public exec pods", () => {
   assert.ok(publicRule.ports.every((port) => port.port == null));
 });
 
+test("rendered NAT identity probe except uses every shared denied CIDR", () => {
+  const inventory = loadInventory();
+  const rendered = renderHelm();
+  assert.equal(rendered.status, 0, rendered.stderr);
+  const docs = documentsFromHelm(rendered.stdout);
+  const natProbe = findPolicy(docs, "sandbox-nat-identity-probe-isolation");
+  assert.ok(natProbe);
+  const publicRule = natProbe.spec.egress.find(
+    (rule) => rule.to?.[0]?.ipBlock?.cidr === "0.0.0.0/0"
+  );
+  assert.ok(publicRule);
+  assert.deepEqual(
+    [...publicRule.to[0].ipBlock.except].sort(),
+    buildSandboxPublicEgressDeniedCidrs(inventory)
+  );
+});
+
 test("egress-mode contract ConfigMap keeps restricted default and proxy-env split", () => {
   const rendered = renderHelm(["-s", "templates/sandbox-exec-egress-contract.yaml"]);
   assert.equal(rendered.status, 0, rendered.stderr);

@@ -364,13 +364,18 @@ Still unclaimed / open after S6 parent evidence through release `7e385bbe`:
   this contour; keep the manual listener procedure below for regression.
 - **Public GKE master endpoint:** live **FAIL / S6 security blocker** —
   `PUBLIC_MASTER_REACHABLE` (direct TCP from full-public pod to
-  `34.38.46.10:443` succeeded). Minimum D4 repair (implementation not started):
-  commit reviewed public-master `/32` into shared public-deny inventory; feed
+  `34.38.46.10:443` succeeded). Minimum D4 repair **implemented locally
+  uncommitted on `bd1c3e0c`** (live re-proof pending): inventory
+  `publicControlPlaneEndpoints` `34.38.46.10/32` in shared public-deny inventory;
   Calico NP except **and** sandbox-tagged VPC firewall deny; verifier fail-closed
-  if live endpoint differs/missing; firewall apply must **update** drifted rules.
-  Keep public endpoint enabled for operator/GitHub WIF kubectl; disabling the
-  endpoint or enabling master authorized networks are optional future founder
-  hardening only. Do not claim denial until post-repair live re-proof.
+  if live endpoint differs/missing; firewall apply **updates** drifted
+  destination ranges. Keep public endpoint enabled for operator/GitHub WIF
+  kubectl; disabling the endpoint or enabling master authorized networks are
+  optional future founder hardening only. New inventory SHA-256
+  `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d` (do not
+  retcon historical proof SHA
+  `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). Do not
+  claim denial until post-repair deploy + live re-proof.
 - **HTTP redirect and DNS-rebind/private-resolution:** executable preparation
   exists but remain unclaimed until the parent runs and records the approved
   live probe.
@@ -439,8 +444,9 @@ From a founder-approved test exec pod on the private sandbox pool, confirm:
    contour; keep the disposable-listener procedure for regression. HTTP redirect
    and DNS-rebind to private/metadata destinations remain unclaimed by
    automation. Public GKE master endpoint denial is a separate live **FAIL /
-   blocker** (`PUBLIC_MASTER_REACHABLE` to `34.38.46.10:443`) pending the D4
-   `/32` dual-layer inventory repair.
+   blocker** (`PUBLIC_MASTER_REACHABLE` to `34.38.46.10:443`); D4 `/32`
+   dual-layer inventory repair is **local implemented/uncommitted** on
+   `bd1c3e0c` and still needs deploy + live re-proof.
 
 `probe-restricted` executes items 1–5 without credentials, request bodies, file
 contents, auth headers, or query strings; the NAT identity check logs only its

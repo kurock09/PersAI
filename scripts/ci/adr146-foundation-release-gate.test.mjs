@@ -39,6 +39,15 @@ import {
 } from "./pin-dev-image-tags-lib.mjs";
 
 const parseYaml = yaml.parse.bind(yaml);
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+function readImmutableGitBlob(commitSha, relPath) {
+  return execFileSync("git", ["show", `${commitSha}:${relPath}`], {
+    cwd: repoRoot,
+    encoding: null,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+}
 
 describe("ADR-146 foundation release-gate pin plan", () => {
   it("keeps non-foundation builds on the ordinary immediate pin path", () => {
@@ -288,28 +297,41 @@ describe("ADR-146 Dev Image Publish workflow contract", () => {
 
 describe("ADR-146 foundation deferred-pin resume", () => {
   const locked = ADR146_FOUNDATION_DEFERRED_RESUME_LOCKED_CASE;
-  const valuesDevText = readFileSync(
+  const currentValuesDevText = readFileSync(
     new URL("../../infra/helm/values-dev.yaml", import.meta.url),
     "utf8"
   );
-  const inventoryBytes = readFileSync(
+  const currentInventoryBytes = readFileSync(
     new URL(`../../${ADR146_FOUNDATION_INVENTORY_REL_PATH}`, import.meta.url)
   );
-  const liveInventorySha = sha256Hex(inventoryBytes);
+  const currentInventorySha = sha256Hex(currentInventoryBytes);
+  const historicalInventoryBytes = readImmutableGitBlob(
+    locked.sandboxProofCommitSha,
+    ADR146_FOUNDATION_INVENTORY_REL_PATH
+  );
+  const historicalValuesDevBytes = readImmutableGitBlob(
+    locked.sandboxProofCommitSha,
+    "infra/helm/values-dev.yaml"
+  );
+  const historicalValuesDevText = historicalValuesDevBytes.toString("utf8");
+  const historicalInventorySha = sha256Hex(historicalInventoryBytes);
+  const valuesDevText = historicalValuesDevText;
 
   function baseDeps(overrides = {}) {
     return {
       headSha: locked.sandboxProofCommitSha,
-      valuesDevText,
+      valuesDevText: historicalValuesDevText,
       resolveSha: (raw) => String(raw).trim().toLowerCase(),
       isAncestor: () => true,
       listChangedPaths: () => [],
       readGitBlob: (commitSha, relPath) => {
         if (relPath === ADR146_FOUNDATION_INVENTORY_REL_PATH) {
-          return Buffer.from(inventoryBytes);
+          assert.equal(commitSha, locked.sandboxProofCommitSha);
+          return Buffer.from(historicalInventoryBytes);
         }
         if (relPath === "infra/helm/values-dev.yaml") {
-          return Buffer.from(valuesDevText, "utf8");
+          assert.equal(commitSha, locked.sandboxProofCommitSha);
+          return Buffer.from(historicalValuesDevBytes);
         }
         throw new Error(`unexpected blob ${commitSha}:${relPath}`);
       },
@@ -317,7 +339,7 @@ describe("ADR-146 foundation deferred-pin resume", () => {
     };
   }
 
-  it("locks the current coordinated-push resume case", () => {
+  it("freezes the closed historical coordinated-push resume case", () => {
     assert.equal(locked.targetImageSha, "3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f");
     assert.deepEqual([...locked.deferredServices], ["api", "web", "runtime", "provider-gateway"]);
     assert.equal(locked.sandboxProofCommitSha, "e5c249c3dbb9d16406b85637e9dcdd9a418a8a79");
@@ -345,10 +367,15 @@ describe("ADR-146 foundation deferred-pin resume", () => {
         `missing build-context drift path ${path}`
       );
     }
-    assert.equal(liveInventorySha, locked.evidenceInventorySha256);
+    assert.equal(historicalInventorySha, locked.evidenceInventorySha256);
+    assert.equal(
+      currentInventorySha,
+      "589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d"
+    );
+    assert.notEqual(currentInventorySha, locked.evidenceInventorySha256);
   });
 
-  it("accepts the locked current resume fixture against live helpers", () => {
+  it("rejects the closed historical resume against current HEAD and live helpers", () => {
     const result = assertFoundationDeferredResumeRequest({
       targetImageSha: locked.targetImageSha,
       deferredServices: locked.deferredServices.join(","),
@@ -356,15 +383,14 @@ describe("ADR-146 foundation deferred-pin resume", () => {
       evidenceInventorySha256: locked.evidenceInventorySha256,
       migrationChanged: false
     });
-    assert.equal(result.ok, true, result.errors.join("; "));
-    assert.equal(result.summary.targetImageSha, locked.targetImageSha);
-    assert.deepEqual(result.summary.deferredServices, [...locked.deferredServices]);
-    assert.equal(result.summary.sandboxProofCommitSha, locked.sandboxProofCommitSha);
-    assert.equal(result.summary.evidenceInventorySha256, locked.evidenceInventorySha256);
-    assert.equal(result.summary.migrationChanged, false);
+    assert.equal(result.ok, false);
+    assert.notEqual(currentValuesDevText, historicalValuesDevText);
+    assert.notEqual(currentInventorySha, historicalInventorySha);
+    assert.match(result.errors.join("\n"), /sandbox\.image\.tag must remain bound/);
+    assert.match(result.errors.join("\n"), /image-tree drift/);
   });
 
-  it("accepts the locked fixture through injectable deps", () => {
+  it("accepts the frozen historical fixture through immutable proof deps", () => {
     const result = assertFoundationDeferredResumeRequest(
       {
         targetImageSha: locked.targetImageSha,
@@ -643,7 +669,7 @@ describe("ADR-146 foundation deferred-pin resume", () => {
     assert.match(result.errors.join("\n"), /no unrelated values-dev mutation/);
   });
 
-  it("accepts real pin-dev-image-tags.mjs CLI output on live values-dev (exact four deferred tags)", () => {
+  it("accepts real pin-dev-image-tags.mjs CLI output on frozen historical values (exact four deferred tags)", () => {
     const tempRoot = mkdtempSync(path.join(tmpdir(), "persai-adr146-pin-cli-"));
     const valuesPath = path.join(tempRoot, "values-dev.yaml");
     try {

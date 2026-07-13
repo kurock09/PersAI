@@ -88,10 +88,22 @@ export function findOverlaps(namedCidrs) {
 }
 
 /**
+ * Reviewed live public GKE control-plane IPv4 exact /32s from inventory.
+ * These are shared dual-layer denies (Calico except + VPC firewall), not Calico-only.
+ *
+ * @param {import('./foundation.mjs').FoundationInventory} inventory
+ * @returns {string[]}
+ */
+export function inventoryPublicControlPlaneCidrs(inventory) {
+  const cidrs = inventory.cidrs?.publicControlPlaneEndpoints?.ipv4Cidrs;
+  return Array.isArray(cidrs) ? [...cidrs] : [];
+}
+
+/**
  * Expand inventory into the explicit deny destination set used by VPC firewall.
- * Service CIDR is included even when non-RFC1918 (live 34.118.224.0/20).
- * specialUseDenies already covers RFC1918 aggregates; environment peers remain listed
- * for deploy-truth clarity and NetworkPolicy inventory reuse in later slices.
+ * Includes reviewed public control-plane /32s. Service CIDR remains Calico-owned and
+ * is intentionally excluded here. specialUseDenies already covers RFC1918 aggregates;
+ * environment peers remain listed for deploy-truth clarity and NetworkPolicy reuse.
  *
  * @param {import('./foundation.mjs').FoundationInventory} inventory
  * @returns {string[]}
@@ -100,7 +112,8 @@ export function buildFirewallDenyDestinations(inventory) {
   const destinations = new Set([
     ...inventory.cidrs.vpcSubnetDenies,
     ...inventory.cidrs.nonClusterSpecialUseDenies,
-    ...Object.values(inventory.cidrs.peers)
+    ...Object.values(inventory.cidrs.peers),
+    ...inventoryPublicControlPlaneCidrs(inventory)
   ]);
   return [...destinations].sort();
 }
@@ -132,7 +145,8 @@ export function buildRestrictedProxyDeniedCidrs(inventory) {
       inventory.cidrs.service,
       ...inventory.cidrs.vpcSubnetDenies,
       ...inventory.cidrs.observedPeerRoutes,
-      ...Object.values(inventory.cidrs.peers)
+      ...Object.values(inventory.cidrs.peers),
+      ...inventoryPublicControlPlaneCidrs(inventory)
     ])
   ].sort();
 }

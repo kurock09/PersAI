@@ -119,7 +119,12 @@
       "podCidrs": ["10.107.128.0/17", "10.109.0.0/20"],
       "serviceCidrs": ["34.118.224.0/20"],
       "metadataCidrs": ["169.254.0.0/16"],
-      "reason": "These destinations can be required or transformed inside the node datapath. VPC firewall denial could break cross-node kube-dns/Squid or cannot reliably observe the final destination; mandatory Calico policies own them."
+      "reason": "These destinations can be required or transformed inside the node datapath. VPC firewall denial could break cross-node kube-dns/Squid or cannot reliably observe the final destination; mandatory Calico policies own them. Service CIDR remains Calico-owned. Reviewed public control-plane /32s are NOT Calico-only — they belong in the shared public-deny inventory for both Calico except and VPC firewall destinations."
+    },
+    "publicControlPlaneEndpoints": {
+      "enabled": true,
+      "ipv4Cidrs": ["34.38.46.10/32"],
+      "note": "Reviewed live GKE public control-plane IPv4 exact /32 (ADR-146 D4). Shared deny for Calico NetworkPolicy except and sandbox-tagged VPC firewall destinations. Keep the public endpoint enabled for operator/GitHub WIF kubectl; disabling it or enabling master authorized networks is optional future hardening, not a substitute for this inventory gap-close."
     },
     "restrictedProbe": {
       "trustedPod": {

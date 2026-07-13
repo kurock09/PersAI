@@ -43,18 +43,23 @@ web-shell path held real restricted pod
 `exec-ksa-live-wiring: zero Running sandbox-exec pods` only; not a
 network/product failure); controlled probes Ready; `probe-restricted --execute`
 exit 0 `RESULT: PASS`; cleanup PASS. **Later same-day full-public contour (docs checkpoint on local
-`a759b70b`; implementation not started):** inbound `INBOUND_TIMEOUT` **PASS**
+`a759b70b`; D4 `/32` repair later implemented locally uncommitted on
+`bd1c3e0c` — live re-proof pending):** inbound `INBOUND_TIMEOUT` **PASS**
 (live-proven); public master TCP to `34.38.46.10:443` **FAIL/blocker**
 (`PUBLIC_MASTER_REACHABLE`). Chat-smoke hard 90s process timeout is not an
-ADR-146 network failure. D4 gap-close decided: commit reviewed public-master
-`/32` into shared public-deny inventory; Calico except + sandbox-tagged VPC
-firewall deny; verifier fail-closed on live endpoint mismatch/missing; firewall
-apply must update drifted rules; keep public endpoint enabled; no new ADR / no
-Dataplane V2 / no transition mode. HTTP redirect / DNS-rebind remain unclaimed;
-broader S6 helper still needs operator-owned SSH/TCP/UDP/redirect/DNS fixtures;
-public-master denial remains FAIL until repair + re-proof. Do **not** claim
-full S6 or ADR closure. Continuity-doc recording is local documentation on top
-of release pin `7e385bbe`, not a new deploy pin.
+ADR-146 network failure. D4 gap-close **local implemented/uncommitted**: inventory
+`publicControlPlaneEndpoints` `34.38.46.10/32` in shared public-deny + VPC
+firewall destinations; fail-closed live endpoint equality; firewall apply
+destination-only update; keep public endpoint enabled; no new ADR / no
+Dataplane V2 / no transition mode. New inventory SHA-256
+`589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d` (do not
+retcon historical proof SHA
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). HTTP
+redirect / DNS-rebind remain unclaimed; broader S6 helper still needs
+operator-owned SSH/TCP/UDP/redirect/DNS fixtures; public-master denial remains
+FAIL until deploy + re-proof. Do **not** claim full S6 or ADR closure.
+Continuity-doc recording of the blocker is local documentation on top of
+release pin `7e385bbe`, not a new deploy pin.
 Each later slice runs the full AGENTS gate plus affected
 API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
 and live negative acceptance.

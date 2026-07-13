@@ -25,6 +25,7 @@ import {
   natAddressName,
   natEgressIdentityMatches,
   nodeServiceAccountIdentity,
+  planApplyFirewall,
   renderPlanText,
   renderProbeManifestYaml,
   resolveSandboxExecImageFromValuesDev,
@@ -659,8 +660,14 @@ function executePhase(inventory, phase, before) {
     return;
   }
   if (phase === "apply-firewall") {
-    if (before.firewall == null) runCommand(commands, "create-deny-private-egress");
-    else console.log("[exact] firewall");
+    const plan = planApplyFirewall(inventory, before);
+    if (!plan.ok) {
+      throw new Error(plan.error ?? "firewall apply plan failed closed");
+    }
+    for (const item of commands) {
+      if (plan.commandIds.includes(item.id)) runCommand(commands, item.id);
+      else console.log(`[exact] skip ${item.id}`);
+    }
     return;
   }
   if (phase === "apply-calico") {

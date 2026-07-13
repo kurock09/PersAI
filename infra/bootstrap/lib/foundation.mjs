@@ -8,6 +8,7 @@ import {
   buildRestrictedProxyDeniedCidrs,
   criticalNamedCidrs,
   findOverlaps,
+  inventoryPublicControlPlaneCidrs,
   parseCidr
 } from "./cidr.mjs";
 
@@ -524,7 +525,8 @@ export function validateInventory(inventory) {
   for (const cidr of [
     ...(inventory.cidrs?.vpcSubnetDenies ?? []),
     ...(inventory.cidrs?.nonClusterSpecialUseDenies ?? []),
-    ...(inventory.cidrs?.observedPeerRoutes ?? [])
+    ...(inventory.cidrs?.observedPeerRoutes ?? []),
+    ...inventoryPublicControlPlaneCidrs(inventory)
   ]) {
     try {
       parseCidr(cidr);
@@ -532,6 +534,55 @@ export function validateInventory(inventory) {
       errors.push(
         `firewall/live CIDR ${cidr}: ${error instanceof Error ? error.message : String(error)}`
       );
+    }
+  }
+  const publicControlPlane = inventory.cidrs?.publicControlPlaneEndpoints;
+  if (!publicControlPlane || typeof publicControlPlane !== "object") {
+    errors.push("cidrs.publicControlPlaneEndpoints is required");
+  } else {
+    if (publicControlPlane.enabled !== true) {
+      errors.push(
+        "cidrs.publicControlPlaneEndpoints.enabled must be true while the reviewed public endpoint remains required"
+      );
+    }
+    const publicCidrs = publicControlPlane.ipv4Cidrs;
+    if (!Array.isArray(publicCidrs) || publicCidrs.length !== 1) {
+      errors.push(
+        "cidrs.publicControlPlaneEndpoints.ipv4Cidrs must contain exactly one reviewed /32"
+      );
+    } else {
+      for (const cidr of publicCidrs) {
+        try {
+          const parsed = parseCidr(cidr);
+          if (parsed.prefix !== 32) {
+            errors.push(
+              `cidrs.publicControlPlaneEndpoints.ipv4Cidrs entry must be an exact /32: ${cidr}`
+            );
+          }
+        } catch (error) {
+          errors.push(
+            `public control-plane CIDR ${cidr}: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
+      }
+      if (new Set(publicCidrs).size !== publicCidrs.length) {
+        errors.push("cidrs.publicControlPlaneEndpoints.ipv4Cidrs must be unique");
+      }
+      const calicoOwnedList = [
+        ...(inventory.cidrs?.calicoOwnedDenies?.nodeCidrs ?? []),
+        ...(inventory.cidrs?.calicoOwnedDenies?.podCidrs ?? []),
+        ...(inventory.cidrs?.calicoOwnedDenies?.serviceCidrs ?? []),
+        ...(inventory.cidrs?.calicoOwnedDenies?.metadataCidrs ?? [])
+      ];
+      for (const cidr of publicCidrs) {
+        if (calicoOwnedList.includes(cidr)) {
+          errors.push(
+            `public control-plane CIDR ${cidr} must not be classified as Calico-only; it belongs in the shared dual-layer deny inventory`
+          );
+        }
+      }
     }
   }
   for (const overlap of findOverlaps(named)) {
@@ -688,6 +739,174 @@ export function selectApplySandboxPoolCommandIds(inventory, before) {
     ids.push("create-private-sandbox-pool");
   }
   return ids;
+}
+
+/**
+ * Non-destination firewall shape required before a safe destination-only update.
+ * Direction/priority/deny-all/target-tags/network/name must already match inventory.
+ * Gcloud source selectors and alternate target service accounts must be absent.
+ */
+export function firewallNonDestinationShapeMatches(inventory, firewall) {
+  if (!firewall) return false;
+  return (
+    firewall.name === inventory.firewall.denyEgressRuleName &&
+    basenameRef(firewall.network) === inventory.network.vpcName &&
+    firewall.direction === inventory.firewall.direction &&
+    firewall.disabled !== true &&
+    Number(firewall.priority) === inventory.firewall.priority &&
+    firewall.denied?.length === 1 &&
+    firewall.denied[0]?.IPProtocol === "all" &&
+    Object.keys(firewall.denied[0]).length === 1 &&
+    isAbsentOrEmptyArray(firewall.allowed) &&
+    sameSet(firewall.targetTags ?? [], [inventory.firewall.networkTag]) &&
+    isAbsentOrEmptyArray(firewall.targetServiceAccounts) &&
+    isAbsentOrEmptyArray(firewall.sourceRanges) &&
+    isAbsentOrEmptyArray(firewall.sourceTags) &&
+    isAbsentOrEmptyArray(firewall.sourceServiceAccounts)
+  );
+}
+
+function isAbsentOrEmptyArray(value) {
+  return value == null || (Array.isArray(value) && value.length === 0);
+}
+
+/**
+ * Apply-firewall planner: create when absent, destination-only update when shape
+ * matches but destinations drifted, exact skip when fully matched. Fail closed on
+ * non-destination shape drift — never delete the deny before replacement.
+ *
+ * @returns {{ ok: boolean, commandIds: string[], error?: string }}
+ */
+export function planApplyFirewall(inventory, before) {
+  if (before?.firewall == null) {
+    return { ok: true, commandIds: ["create-deny-private-egress"] };
+  }
+  if (firewallMatches(inventory, before.firewall)) {
+    return { ok: true, commandIds: [] };
+  }
+  if (firewallNonDestinationShapeMatches(inventory, before.firewall)) {
+    return { ok: true, commandIds: ["update-deny-private-egress-destinations"] };
+  }
+  return {
+    ok: false,
+    commandIds: [],
+    error:
+      "firewall non-destination shape drift requires deliberate reconciliation; refuse delete-before-replace of persai-sandbox-deny-private-egress"
+  };
+}
+
+/**
+ * Read public control-plane endpoint enablement + addresses from already-collected
+ * cluster describe JSON. No Helm/cloud discovery.
+ *
+ * @returns {{ enabled: boolean | null, addresses: string[], sources: string[] }}
+ */
+export function readLivePublicControlPlaneEndpoint(cluster) {
+  /** @type {Set<string>} */
+  const addresses = new Set();
+  /** @type {string[]} */
+  const sources = [];
+  /** @type {boolean | null} */
+  let enabled = null;
+
+  const ipConfig = cluster?.controlPlaneEndpointsConfig?.ipEndpointsConfig;
+  if (ipConfig != null && typeof ipConfig === "object") {
+    sources.push("controlPlaneEndpointsConfig.ipEndpointsConfig");
+    if (ipConfig.enablePublicEndpoint === true) {
+      enabled = true;
+    } else if (ipConfig.enablePublicEndpoint === false) {
+      enabled = false;
+    }
+    if (typeof ipConfig.publicEndpoint === "string" && ipConfig.publicEndpoint.trim()) {
+      addresses.add(ipConfig.publicEndpoint.trim());
+    }
+  }
+
+  const privateConfig = cluster?.privateClusterConfig;
+  if (privateConfig != null && typeof privateConfig === "object") {
+    sources.push("privateClusterConfig");
+    if (typeof privateConfig.publicEndpoint === "string" && privateConfig.publicEndpoint.trim()) {
+      addresses.add(privateConfig.publicEndpoint.trim());
+      if (enabled == null) enabled = true;
+    }
+    if (privateConfig.enablePrivateEndpoint === true && !privateConfig.publicEndpoint) {
+      if (enabled == null) enabled = false;
+    }
+  }
+
+  return {
+    enabled,
+    addresses: [...addresses].sort(),
+    sources
+  };
+}
+
+/**
+ * Fail-closed equality: inventory-reviewed public control-plane /32s must match
+ * the live enabled public endpoint exactly (single address, no drift).
+ *
+ * @returns {{ ok: boolean, detail: string }}
+ */
+export function publicControlPlaneEndpointMatchesInventory(inventory, cluster) {
+  const expected = inventory.cidrs?.publicControlPlaneEndpoints;
+  if (!expected || expected.enabled !== true) {
+    return {
+      ok: false,
+      detail: "inventory cidrs.publicControlPlaneEndpoints.enabled must be true"
+    };
+  }
+  const expectedCidrs = inventoryPublicControlPlaneCidrs(inventory);
+  if (expectedCidrs.length !== 1) {
+    return {
+      ok: false,
+      detail: "inventory public control-plane ipv4Cidrs must contain exactly one reviewed /32"
+    };
+  }
+  for (const cidr of expectedCidrs) {
+    try {
+      if (parseCidr(cidr).prefix !== 32) {
+        return { ok: false, detail: `inventory public control-plane CIDR malformed: ${cidr}` };
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        detail: `inventory public control-plane CIDR malformed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      };
+    }
+  }
+
+  const live = readLivePublicControlPlaneEndpoint(cluster);
+  if (live.enabled !== true) {
+    return {
+      ok: false,
+      detail: `live public control-plane endpoint disabled or missing contrary to inventory (enabled=${String(live.enabled)}; sources=${live.sources.join(",") || "none"})`
+    };
+  }
+  if (live.addresses.length === 0) {
+    return {
+      ok: false,
+      detail: `live public control-plane endpoint address missing (sources=${live.sources.join(",") || "none"})`
+    };
+  }
+  if (live.addresses.length !== 1) {
+    return {
+      ok: false,
+      detail: `live public control-plane endpoint has multiple/drifted addresses: ${JSON.stringify(live.addresses)}`
+    };
+  }
+  const liveCidrs = live.addresses.map((address) => `${address}/32`);
+  if (!sameSet(liveCidrs, expectedCidrs)) {
+    return {
+      ok: false,
+      detail: `live public control-plane endpoint mismatch: live=${JSON.stringify(liveCidrs)} inventory=${JSON.stringify(expectedCidrs)}`
+    };
+  }
+  return {
+    ok: true,
+    detail: JSON.stringify({ enabled: true, ipv4Cidrs: liveCidrs, sources: live.sources })
+  };
 }
 
 /**
@@ -866,7 +1085,7 @@ export function buildPhasePlans(inventory, resolved = {}) {
     "apply-firewall": [
       command(
         "create-deny-private-egress",
-        "Deny all protocols to reviewed VPC/peer/special CIDRs",
+        "Deny all protocols to reviewed VPC/peer/special/public-control-plane CIDRs",
         [
           "gcloud",
           "compute",
@@ -881,7 +1100,20 @@ export function buildPhasePlans(inventory, resolved = {}) {
           "--rules=all",
           `--destination-ranges=${denyDestinations.join(",")}`,
           `--target-tags=${inventory.firewall.networkTag}`,
-          "--description=ADR-146 reviewed VPC/peer/special deny; Pod/Service/metadata remain Calico-owned"
+          "--description=ADR-146 reviewed VPC/peer/special/public-control-plane deny; Pod/Service/metadata remain Calico-owned"
+        ]
+      ),
+      command(
+        "update-deny-private-egress-destinations",
+        "Safe destination-only update for drifted deny destinations (never delete-before-replace)",
+        [
+          "gcloud",
+          "compute",
+          "firewall-rules",
+          "update",
+          inventory.firewall.denyEgressRuleName,
+          `--project=${project}`,
+          `--destination-ranges=${denyDestinations.join(",")}`
         ]
       )
     ],
@@ -1203,6 +1435,16 @@ export function evaluatePreflight(inventory, live, phase) {
     !JSON.stringify(live.ipMasqAgentConfig?.data ?? {}).includes("0.0.0.0/0"),
     JSON.stringify(live.ipMasqAgentConfig?.data ?? null)
   );
+  const publicControlPlaneMatch = publicControlPlaneEndpointMatchesInventory(
+    inventory,
+    live.cluster
+  );
+  check(
+    checks,
+    "public-control-plane-endpoint-exact",
+    publicControlPlaneMatch.ok,
+    publicControlPlaneMatch.detail
+  );
 
   const actualSecondaries = Object.fromEntries(
     (live.subnet?.secondaryIpRanges ?? []).map((range) => [range.rangeName, range.ipCidrRange])
@@ -1383,7 +1625,22 @@ export function evaluatePreflight(inventory, live, phase) {
   check(checks, "public-pool-shape", publicExpected, summarizePool(publicPool));
 
   const existingChecks = evaluateManagedResources(inventory, live);
-  checks.push(...existingChecks.checks);
+  checks.push(
+    ...existingChecks.checks.filter(
+      (entry) => phase !== "apply-firewall" || entry.id !== "firewall-exact-or-absent"
+    )
+  );
+  if (phase === "apply-firewall") {
+    const firewallApplyPlan = planApplyFirewall(inventory, live);
+    check(
+      checks,
+      "firewall-apply-state-safe",
+      firewallApplyPlan.ok,
+      firewallApplyPlan.ok
+        ? `allowed commands=${firewallApplyPlan.commandIds.join(",") || "exact-skip"}`
+        : firewallApplyPlan.error
+    );
+  }
   const laterThanPrepare = phase !== "prepare" && phase !== "apply-nat";
   const roles = extractRolesForMember(
     live.nodeSaPolicy,
@@ -2911,15 +3168,8 @@ function firewallMatches(inventory, firewall) {
   if (!firewall) return false;
   const denied = buildFirewallDenyDestinations(inventory);
   return (
-    firewall.name === inventory.firewall.denyEgressRuleName &&
-    basenameRef(firewall.network) === inventory.network.vpcName &&
-    firewall.direction === inventory.firewall.direction &&
-    firewall.disabled !== true &&
-    Number(firewall.priority) === inventory.firewall.priority &&
-    firewall.denied?.length === 1 &&
-    sameSet(firewall.denied[0]?.IPProtocol === "all" ? ["all"] : [], ["all"]) &&
-    sameSet(firewall.destinationRanges ?? [], denied) &&
-    sameSet(firewall.targetTags ?? [], [inventory.firewall.networkTag])
+    firewallNonDestinationShapeMatches(inventory, firewall) &&
+    sameSet(firewall.destinationRanges ?? [], denied)
   );
 }
 

@@ -8,7 +8,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   buildFirewallDenyDestinations,
   buildRestrictedProxyDeniedCidrs,
-  cidrsOverlap
+  cidrsOverlap,
+  inventoryPublicControlPlaneCidrs
 } from "./lib/cidr.mjs";
 import {
   APPLY_PHASE_ORDER,
@@ -57,8 +58,11 @@ import {
   nodeServiceAccountIdentity,
   operatorOwnedNodeLabels,
   operatorOwnedNodeTaints,
+  planApplyFirewall,
   privatePoolMatches,
   probeManifestToValidatorPod,
+  publicControlPlaneEndpointMatchesInventory,
+  readLivePublicControlPlaneEndpoint,
   readLiveSandboxConfigType,
   renderPlanText,
   renderProbeManifestYaml,
@@ -202,7 +206,28 @@ function baseLive(inventory) {
         clusterIpv4CidrBlock: inventory.cidrs.podDefault,
         servicesIpv4CidrBlock: inventory.cidrs.service
       },
-      maintenancePolicy: {}
+      maintenancePolicy: {},
+      controlPlaneEndpointsConfig: {
+        dnsEndpointConfig: { allowExternalTraffic: false },
+        ipEndpointsConfig: {
+          enabled: true,
+          enablePublicEndpoint: true,
+          publicEndpoint: inventory.cidrs.publicControlPlaneEndpoints.ipv4Cidrs[0].replace(
+            /\/32$/,
+            ""
+          ),
+          privateEndpoint: "10.132.0.2"
+        }
+      },
+      privateClusterConfig: {
+        enablePrivateNodes: true,
+        enablePrivateEndpoint: false,
+        publicEndpoint: inventory.cidrs.publicControlPlaneEndpoints.ipv4Cidrs[0].replace(
+          /\/32$/,
+          ""
+        ),
+        privateEndpoint: "10.132.0.2"
+      }
     },
     subnet: {
       ipCidrRange: inventory.cidrs.nodePrimary,
@@ -552,6 +577,69 @@ test("VPC deny excludes node-primary, Pod, Service, metadata, and broad 10/8", (
   assert.ok(!denied.includes("169.254.0.0/16"));
   assert.ok(!denied.includes(inventory.cidrs.nodePrimary));
   assert.ok(denied.includes(inventory.cidrs.peers.redis));
+  for (const cidr of inventoryPublicControlPlaneCidrs(inventory)) {
+    assert.ok(denied.includes(cidr));
+  }
+});
+
+test("shared public deny and VPC firewall both include reviewed public control-plane /32", () => {
+  const inventory = loadInventory();
+  const publicCidrs = inventoryPublicControlPlaneCidrs(inventory);
+  assert.deepEqual(publicCidrs, ["34.38.46.10/32"]);
+  assert.equal(inventory.cidrs.publicControlPlaneEndpoints.enabled, true);
+  assert.ok(!inventory.cidrs.calicoOwnedDenies.serviceCidrs.includes("34.38.46.10/32"));
+  assert.ok(!inventory.cidrs.calicoOwnedDenies.nodeCidrs.includes("34.38.46.10/32"));
+
+  const shared = buildRestrictedProxyDeniedCidrs(inventory);
+  const firewall = buildFirewallDenyDestinations(inventory);
+  for (const cidr of publicCidrs) {
+    assert.ok(shared.includes(cidr), `shared deny missing ${cidr}`);
+    assert.ok(firewall.includes(cidr), `firewall deny missing ${cidr}`);
+  }
+  assert.ok(shared.includes(inventory.cidrs.service), "Service CIDR remains in Calico/shared deny");
+  assert.ok(
+    !firewall.includes(inventory.cidrs.service),
+    "Service CIDR remains Calico-owned and excluded from VPC firewall destinations"
+  );
+});
+
+test("inventory validation rejects malformed or Calico-only public control-plane entries", () => {
+  const inventory = loadInventory();
+  const missing = structuredClone(inventory);
+  delete missing.cidrs.publicControlPlaneEndpoints;
+  assert.ok(
+    validateInventory(missing).some((error) =>
+      /publicControlPlaneEndpoints is required/.test(error)
+    )
+  );
+
+  const disabled = structuredClone(inventory);
+  disabled.cidrs.publicControlPlaneEndpoints.enabled = false;
+  assert.ok(
+    validateInventory(disabled).some((error) =>
+      /publicControlPlaneEndpoints\.enabled must be true/.test(error)
+    )
+  );
+
+  const notSlash32 = structuredClone(inventory);
+  notSlash32.cidrs.publicControlPlaneEndpoints.ipv4Cidrs = ["34.38.46.0/24"];
+  assert.ok(validateInventory(notSlash32).some((error) => /exact \/32/.test(error)));
+
+  const multiple = structuredClone(inventory);
+  multiple.cidrs.publicControlPlaneEndpoints.ipv4Cidrs = ["34.38.46.10/32", "34.38.46.11/32"];
+  assert.ok(validateInventory(multiple).some((error) => /exactly one reviewed \/32/.test(error)));
+  assert.equal(
+    publicControlPlaneEndpointMatchesInventory(multiple, baseLive(inventory).cluster).ok,
+    false
+  );
+
+  const calicoOnly = structuredClone(inventory);
+  calicoOnly.cidrs.calicoOwnedDenies.serviceCidrs.push("34.38.46.10/32");
+  assert.ok(
+    validateInventory(calicoOnly).some((error) =>
+      /must not be classified as Calico-only/.test(error)
+    )
+  );
 });
 
 test("inventory validation rejects accidental node/Pod/Service overlap without required-path ALLOW", () => {
@@ -565,12 +653,196 @@ test("inventory validation rejects accidental node/Pod/Service overlap without r
 
 test("firewall command denies all protocols only to reviewed destinations", () => {
   const inventory = loadInventory();
-  const command = buildPhasePlans(inventory)["apply-firewall"][0];
-  assert.ok(command.argv.includes("--rules=all"));
-  const ranges = command.argv.find((arg) => arg.startsWith("--destination-ranges="));
+  const create = buildPhasePlans(inventory)["apply-firewall"].find(
+    (entry) => entry.id === "create-deny-private-egress"
+  );
+  assert.ok(create);
+  assert.ok(create.argv.includes("--rules=all"));
+  const ranges = create.argv.find((arg) => arg.startsWith("--destination-ranges="));
   assert.ok(!ranges.includes(inventory.cidrs.nodePrimary));
   assert.ok(!ranges.includes(inventory.cidrs.service));
   assert.ok(!ranges.includes(inventory.cidrs.podDefault));
+  assert.ok(ranges.includes("34.38.46.10/32"));
+});
+
+test("apply-firewall plans destination-only update for drifted destinations and stays idempotent", () => {
+  const inventory = loadInventory();
+  const expected = buildFirewallDenyDestinations(inventory);
+  const exact = {
+    name: inventory.firewall.denyEgressRuleName,
+    network: inventory.network.vpcName,
+    direction: "EGRESS",
+    priority: 900,
+    denied: [{ IPProtocol: "all" }],
+    destinationRanges: expected,
+    targetTags: [inventory.firewall.networkTag]
+  };
+  assert.deepEqual(planApplyFirewall(inventory, { firewall: exact }).commandIds, []);
+
+  const drifted = {
+    ...exact,
+    destinationRanges: expected.filter((cidr) => cidr !== "34.38.46.10/32")
+  };
+  const updatePlan = planApplyFirewall(inventory, { firewall: drifted });
+  assert.equal(updatePlan.ok, true);
+  assert.deepEqual(updatePlan.commandIds, ["update-deny-private-egress-destinations"]);
+  const update = buildPhasePlans(inventory)["apply-firewall"].find(
+    (entry) => entry.id === "update-deny-private-egress-destinations"
+  );
+  assert.ok(update);
+  assert.ok(update.argv.includes("update"));
+  assert.ok(!update.argv.includes("delete"));
+  assert.ok(
+    update.argv.find((arg) => arg.startsWith("--destination-ranges=")).includes("34.38.46.10/32")
+  );
+
+  assert.deepEqual(planApplyFirewall(inventory, { firewall: null }).commandIds, [
+    "create-deny-private-egress"
+  ]);
+
+  const shapeDrift = {
+    ...exact,
+    priority: 1000
+  };
+  const unsafe = planApplyFirewall(inventory, { firewall: shapeDrift });
+  assert.equal(unsafe.ok, false);
+  assert.deepEqual(unsafe.commandIds, []);
+  assert.match(unsafe.error, /non-destination shape drift|refuse delete-before-replace/);
+});
+
+test("apply-firewall preflight admits only safe create, skip, or destination update states", () => {
+  const inventory = loadInventory();
+  const exactLive = baseLive(inventory);
+  assert.equal(evaluatePreflight(inventory, exactLive, "apply-firewall").ok, true);
+
+  const absent = structuredClone(exactLive);
+  absent.firewall = null;
+  assert.equal(evaluatePreflight(inventory, absent, "apply-firewall").ok, true);
+
+  const destinationDrift = structuredClone(exactLive);
+  destinationDrift.firewall.destinationRanges = destinationDrift.firewall.destinationRanges.filter(
+    (cidr) => cidr !== "34.38.46.10/32"
+  );
+  const updatePreflight = evaluatePreflight(inventory, destinationDrift, "apply-firewall");
+  assert.equal(updatePreflight.ok, true);
+  assert.ok(
+    updatePreflight.checks.some(
+      (entry) =>
+        entry.id === "firewall-apply-state-safe" &&
+        entry.ok &&
+        /update-deny-private-egress-destinations/.test(entry.detail)
+    )
+  );
+
+  for (const [label, mutate] of [
+    ["priority", (firewall) => (firewall.priority = 901)],
+    ["target-tags", (firewall) => (firewall.targetTags = ["other-tag"])],
+    ["network", (firewall) => (firewall.network = "other-network")],
+    ["source-ranges", (firewall) => (firewall.sourceRanges = ["0.0.0.0/0"])]
+  ]) {
+    const drifted = structuredClone(destinationDrift);
+    mutate(drifted.firewall);
+    const result = evaluatePreflight(inventory, drifted, "apply-firewall");
+    assert.equal(result.ok, false, `${label} drift must fail closed`);
+    assert.ok(
+      result.checks.some((entry) => entry.id === "firewall-apply-state-safe" && !entry.ok),
+      `${label} drift must fail firewall-apply-state-safe`
+    );
+  }
+
+  for (const laterPhase of ["apply-calico", "apply-sandbox-pool", "retire-public-pool", "verify"]) {
+    const result = evaluatePreflight(inventory, destinationDrift, laterPhase);
+    assert.equal(result.ok, false, `${laterPhase} must require exact firewall destinations`);
+    assert.ok(
+      result.checks.some(
+        (entry) =>
+          ["firewall-exact-or-absent", "firewall-phase-complete"].includes(entry.id) && !entry.ok
+      ),
+      `${laterPhase} must expose exact-firewall failure`
+    );
+  }
+});
+
+test("firewall update planner rejects all represented source selectors", () => {
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  live.firewall.destinationRanges = live.firewall.destinationRanges.filter(
+    (cidr) => cidr !== "34.38.46.10/32"
+  );
+
+  for (const [field, value] of [
+    ["sourceRanges", ["0.0.0.0/0"]],
+    ["sourceTags", ["source-tag"]],
+    ["sourceServiceAccounts", ["source@example.invalid"]],
+    ["targetServiceAccounts", ["target@example.invalid"]],
+    ["allowed", [{ IPProtocol: "tcp" }]]
+  ]) {
+    const drifted = structuredClone(live);
+    drifted.firewall[field] = value;
+    const plan = planApplyFirewall(inventory, drifted);
+    assert.equal(plan.ok, false, `${field} must block destination-only update`);
+    assert.deepEqual(plan.commandIds, []);
+  }
+
+  const narrowedDeny = structuredClone(live);
+  narrowedDeny.firewall.denied[0].ports = ["443"];
+  assert.equal(planApplyFirewall(inventory, narrowedDeny).ok, false);
+});
+
+test("live public control-plane endpoint must be enabled and exact-equal to inventory /32", () => {
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  assert.equal(evaluateLiveFoundation(inventory, live).ok, true);
+  assert.equal(publicControlPlaneEndpointMatchesInventory(inventory, live.cluster).ok, true);
+
+  const missing = structuredClone(live);
+  delete missing.cluster.controlPlaneEndpointsConfig;
+  delete missing.cluster.privateClusterConfig;
+  const missingMatch = publicControlPlaneEndpointMatchesInventory(inventory, missing.cluster);
+  assert.equal(missingMatch.ok, false);
+  assert.match(missingMatch.detail, /disabled or missing|address missing/);
+  assert.equal(evaluateLiveFoundation(inventory, missing).ok, false);
+
+  const disabled = structuredClone(live);
+  disabled.cluster.controlPlaneEndpointsConfig.ipEndpointsConfig.enablePublicEndpoint = false;
+  disabled.cluster.controlPlaneEndpointsConfig.ipEndpointsConfig.publicEndpoint = undefined;
+  disabled.cluster.privateClusterConfig.publicEndpoint = undefined;
+  const disabledMatch = publicControlPlaneEndpointMatchesInventory(inventory, disabled.cluster);
+  assert.equal(disabledMatch.ok, false);
+  assert.match(disabledMatch.detail, /disabled or missing/);
+
+  const mismatched = structuredClone(live);
+  mismatched.cluster.controlPlaneEndpointsConfig.ipEndpointsConfig.publicEndpoint = "203.0.113.10";
+  mismatched.cluster.privateClusterConfig.publicEndpoint = "203.0.113.10";
+  const mismatch = publicControlPlaneEndpointMatchesInventory(inventory, mismatched.cluster);
+  assert.equal(mismatch.ok, false);
+  assert.match(mismatch.detail, /mismatch/);
+
+  const driftedMulti = structuredClone(live);
+  driftedMulti.cluster.controlPlaneEndpointsConfig.ipEndpointsConfig.publicEndpoint = "34.38.46.10";
+  driftedMulti.cluster.privateClusterConfig.publicEndpoint = "203.0.113.10";
+  const multi = readLivePublicControlPlaneEndpoint(driftedMulti.cluster);
+  assert.deepEqual(multi.addresses, ["203.0.113.10", "34.38.46.10"]);
+  const multiMatch = publicControlPlaneEndpointMatchesInventory(inventory, driftedMulti.cluster);
+  assert.equal(multiMatch.ok, false);
+  assert.match(multiMatch.detail, /multiple\/drifted/);
+});
+
+test("restricted probe and NAT identity targets are unaffected by public-master deny inventory", () => {
+  const inventory = loadInventory();
+  const live = baseLive(inventory);
+  const targets = resolveRestrictedProbeTargets(inventory, live);
+  assert.ok(targets.every((target) => target.host !== "34.38.46.10"));
+  assert.ok(!targets.some((target) => /34\.38\.46\.10/.test(JSON.stringify(target))));
+  const natCommand = buildPhasePlans(inventory)["apply-nat"].find(
+    (entry) => entry.id === "create-nat"
+  );
+  assert.ok(natCommand);
+  assert.ok(
+    !natCommand.argv.some((arg) => String(arg).includes("34.38.46.10")),
+    "NAT create must not bind to public control-plane /32"
+  );
+  assert.equal(evaluateLiveFoundation(inventory, live).ok, true);
 });
 
 test("subnet flow-log command emits gcloud CLI enums, not API describe enums", () => {
@@ -2745,7 +3017,10 @@ test("restricted contour resolver excludes full-public pods and selects restrict
     /zero Running restricted sandbox-exec pods.*full-public pod\(s\) excluded/
   );
   assert.match(onlyFullResolved.errors.join("; "), /ses-full-public-proof/);
-  assert.match(onlyFullResolved.errors.join("; "), /run a restricted-mode shell job before probe-restricted/);
+  assert.match(
+    onlyFullResolved.errors.join("; "),
+    /run a restricted-mode shell job before probe-restricted/
+  );
   assert.equal(validateRestrictedProbePod(probe, onlyFullPublic, inventory).ok, false);
 });
 

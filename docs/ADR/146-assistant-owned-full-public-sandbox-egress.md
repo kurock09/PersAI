@@ -62,7 +62,8 @@ network/product failure); controlled `adr146-restricted-probe` +
 `adr146-nat-probe` Ready; `probe-restricted --execute` exit 0 `RESULT: PASS`;
 cleanup PASS (no controlled probes; no remaining restricted exec pod). **Later
 same-day full-public contour evidence (docs checkpoint on local `a759b70b`;
-implementation not started):** inbound from sandbox control-plane to full-public
+D4 `/32` dual-layer deny repair later implemented locally uncommitted on
+`bd1c3e0c` — live re-proof still pending):** inbound from sandbox control-plane to full-public
 pod `ses-97982c194f5602591e016a81c3352e53` (`10.109.0.58` /
 `6f1881a4-bc6e-439f-b21b-7c9c0d4a122e`) timed out — inbound residual
 **live-proven PASS** (`INBOUND_TIMEOUT`); local listener positive control PASS.
@@ -78,10 +79,18 @@ sandbox-tagged VPC firewall deny; verifier fail-closed if live endpoint differs
 or is missing; firewall apply must update drifted rules. Keep public endpoint
 enabled for operator/GitHub WIF kubectl; disabling endpoint or master authorized
 networks are optional future founder hardening only. No Dataplane V2 / transition
-mode. HTTP redirect / DNS-rebind and operator-owned SSH/TCP/UDP/redirect/DNS
-fixtures remain unclaimed; public-master denial remains FAIL until repair +
-re-proof. Do **not** claim S6 complete or close this ADR. Continuity-doc
-recording of this evidence is local documentation on top of release pin
+mode. **Local repair status (uncommitted on `bd1c3e0c`):** inventory
+`publicControlPlaneEndpoints`, dual CIDR builders, values-dev deny inventory,
+live endpoint exact-match verify, and firewall destination-update planner are
+implemented with focused tests green; new inventory SHA-256
+`589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d` (do not
+retcon historical proof SHA
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). Do **not**
+claim live repair, full S6, or ADR closure until post-deploy live re-proof.
+HTTP redirect / DNS-rebind and operator-owned SSH/TCP/UDP/redirect/DNS
+fixtures remain unclaimed; public-master denial remains FAIL until repair is
+deployed and re-proven. Continuity-doc
+recording of the blocker evidence is local documentation on top of release pin
 `7e385bbe`, not a new deploy pin.
 
 ## Date
@@ -134,8 +143,12 @@ open; **S1 committed locally at `775e5781`**; **S2 committed locally at
 at `40d7a927`; earlier **shell/full_public/metadata smokes PASS** preserved;
 **S6 restricted live `probe-restricted` PASS** at release/main **`7e385bbe`**;
 **inbound live-proven PASS** on full-public contour; **public-master
-`PUBLIC_MASTER_REACHABLE` FAIL/blocker** with D4 `/32` dual-layer repair decided
-but **implementation not started**; HTTP redirect / DNS-rebind and operator-owned
+`PUBLIC_MASTER_REACHABLE` FAIL/blocker** with D4 `/32` dual-layer repair
+**implemented locally uncommitted on `bd1c3e0c`** (live re-proof pending;
+new inventory SHA-256
+`589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`; do not
+retcon historical proof SHA
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`); HTTP redirect / DNS-rebind and operator-owned
 S6 fixtures remain unclaimed; ADR open; full S6 / closure unclaimed).
 
 ## Slice 3 local land (2026-07-13)
@@ -1339,11 +1352,17 @@ and cleanup PASS. **Inbound live-proven PASS** on full-public pod
 control-plane; local listener positive control PASS). **Public master FAIL /
 blocker:** direct TCP to live public endpoint `34.38.46.10:443` succeeded
 (`PUBLIC_MASTER_REACHABLE`). Chat-smoke hard 90s process timeout is not a
-network failure. **Repair decided under D4 (implementation not started):**
-commit reviewed public-master `/32` into shared public-deny inventory; Calico
-except + sandbox-tagged VPC firewall deny; fail-closed live endpoint equality;
-firewall apply must update drifted rules; keep public endpoint enabled; no new
-ADR, no Dataplane V2, no transition mode. HTTP redirect / DNS-rebind remain
+network failure. **Repair decided under D4; implemented locally uncommitted on
+d1c3e0c (live re-proof pending):** inventory
+publicControlPlaneEndpoints + shared Calico except + VPC firewall deny +
+fail-closed live endpoint equality + firewall destination-update planner;
+keep public endpoint enabled; no new ADR, no Dataplane V2, no transition mode.
+New inventory SHA-256
+589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d (do not
+retcon historical proof SHA
+c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7). Do not
+claim live repair or S6 closure until post-deploy re-proof. HTTP redirect /
+DNS-rebind remain
 unclaimed; broader S6 helper still needs operator-owned SSH/TCP/UDP/redirect/
 DNS fixtures. This does **not** complete S6 or close the ADR.
 

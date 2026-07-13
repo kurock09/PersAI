@@ -109,6 +109,25 @@ test("recognizes denied private, loopback, link-local, and metadata IPv4", () =>
   assert.equal(isDeniedPrivateIpv4("not-an-ip"), false);
 });
 
+test("inventory-driven public-master /32 is a shared dual-layer deny without operator fixtures", async () => {
+  const {
+    buildFirewallDenyDestinations,
+    buildRestrictedProxyDeniedCidrs,
+    inventoryPublicControlPlaneCidrs
+  } = await import("./lib/cidr.mjs");
+  const { loadInventory } = await import("./lib/foundation.mjs");
+  const inventory = loadInventory();
+  const publicCidrs = inventoryPublicControlPlaneCidrs(inventory);
+  assert.ok(publicCidrs.includes("34.38.46.10/32"));
+  const shared = buildRestrictedProxyDeniedCidrs(inventory);
+  const firewall = buildFirewallDenyDestinations(inventory);
+  for (const cidr of publicCidrs) {
+    assert.ok(shared.includes(cidr));
+    assert.ok(firewall.includes(cidr));
+    assert.equal(isDeniedPrivateIpv4(cidr.replace(/\/32$/, "")), false);
+  }
+});
+
 test("rollback snippets fail fast and clean the temporary token", () => {
   const runbook = readFileSync(path.join(repoRoot, "infra/dev/gke/RUNBOOK.md"), "utf8");
   for (const required of [

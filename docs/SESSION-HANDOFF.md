@@ -1,12 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 S6 public-master `/32` dual-layer deny repair (local, uncommitted on `bd1c3e0c`)
+
+Status: **Local implemented / uncommitted** on clean baseline `bd1c3e0c` (ahead of
+`origin/main` by 2 docs commits). No commit, push, deploy, or cloud/Kubernetes
+mutation in this slice. ADR-146 stays **open**. Full S6 and ADR closure remain
+**unclaimed**. Live public-master denial is **not** re-proven yet.
+
+**Repair (code/config/tests only):**
+
+- Inventory adds explicit validated
+  `cidrs.publicControlPlaneEndpoints` (`enabled: true`,
+  `ipv4Cidrs: ["34.38.46.10/32"]`); Service CIDR stays Calico-owned.
+- Shared public-deny builder + VPC firewall destination builder both emit the
+  `/32`; values-dev `requiredDeniedCidrs` / `publicDeniedCidrs` updated for
+  Helm sameSet fail-closed.
+- Live verify fail-closed: cluster public endpoint must be enabled and
+  exact-equal to the inventory `/32` (reuse cluster describe; no Helm/cloud
+  discovery at render).
+- `apply-firewall` plans destination-only `update` for destination drift;
+  its phase-specific preflight admits absent/exact/destination-only-drift
+  states, while priority/tag/network/source-selector/deny-shape drift fails
+  closed; later phases still require exact firewall; never
+  delete-before-replace.
+- Public control-plane inventory cardinality is exactly one reviewed IPv4
+  `/32`; multiple entries require a deliberate future contract change.
+- The closed historical deferred-resume case remains frozen against immutable
+  proof-commit inventory/values blobs: historical `c9ab…` authenticity still
+  passes, while current HEAD fails closed because inventory, sandbox tag, and
+  image tree advanced. The locked constant and validator are unchanged.
+- Focused foundation/Helm/S6 inventory-driven tests PASS (95 + cross-layer);
+  release-gate tests PASS (42).
+
+**Inventory bytes changed** → future evidence SHA is
+`589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`. Do **not**
+retcon historical proof/evidence SHA
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7` or the
+locked deferred-resume case. Foundation marker/values-dev semantic change will
+require the existing foundation release gate + Environment approval later.
+
+Preserved earlier live evidence at release `7e385bbe`: shell/full_public/
+metadata smokes PASS; restricted `probe-restricted` PASS; inbound
+`INBOUND_TIMEOUT` PASS; public-master TCP still FAIL until post-deploy live
+re-proof. HTTP redirect / DNS-rebind and operator-owned S6 fixtures remain
+unclaimed.
+
+**Next:** commit when founder requests; then push/deploy through foundation
+gate; `apply-firewall` update for drifted destinations; post-sync verify;
+live re-proof that full-public TCP to `34.38.46.10:443` fails; continue
+remaining operator-owned S6 fixtures. Do not claim S6 complete.
+
+---
+
 ## 2026-07-13 — ADR-146 S6 inbound PASS + public-master blocker (docs-only checkpoint on `a759b70b`)
 
 Status: **Local documentation checkpoint only** on clean tree at local commit
 `a759b70b` (one ahead of `origin/main`; docs baseline records release/main
-evidence at `7e385bbe`). **Implementation of the public-master repair has not
-started.** No code/config/test edit, commit, push, deploy, or cloud mutation in
-this slice. ADR-146 stays **open**. Full S6 and ADR closure remain **unclaimed**.
+evidence at `7e385bbe`). **Superseded for implementation status by the
+public-master `/32` dual-layer deny repair entry above** (local uncommitted on
+`bd1c3e0c`). Historical blocker evidence below remains valid until live re-proof.
+No code/config/test edit, commit, push, deploy, or cloud mutation in this docs
+checkpoint. ADR-146 stays **open**. Full S6 and ADR closure remain **unclaimed**.
 
 Preserved earlier live evidence at release `7e385bbe`: **shell/full_public/
 metadata smokes PASS**; **restricted `probe-restricted` PASS**.
@@ -48,10 +102,13 @@ existing ADR-146 D4; no new product ADR):**
 **Still residual / unclaimed after this checkpoint:** HTTP redirect and
 DNS-rebind live proof; broader S6 helper operator-owned SSH/TCP/UDP/redirect/
 DNS fixtures; public-master denial remains **FAIL** until the `/32` repair
-lands and is live-reproven. Implementation not started.
+is deployed and live-reproven. **Superseded for implementation status:** the
+repair is now local implemented/uncommitted on `bd1c3e0c` (see newer handoff
+entry).
 
-**Next:** parent-orchestrated code repair slice implementing the D4 public
-master `/32` dual-layer deny + fail-closed verify + firewall update path; then
+**Next (historical for this docs checkpoint):** parent-orchestrated code repair
+slice implementing the D4 public master `/32` dual-layer deny + fail-closed
+verify + firewall update path; then
 live re-proof that full-public TCP to `34.38.46.10:443` fails; then continue
 remaining operator-owned S6 fixtures. Do not claim S6 complete.
 
