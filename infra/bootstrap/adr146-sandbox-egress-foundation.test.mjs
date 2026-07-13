@@ -61,9 +61,14 @@ import {
   renderProbeManifestYaml,
   resolveCalicoOwnedProbeTargets,
   resolveNatProbeImage,
+  resolveProductionRestrictedProbeContour,
   resolveRealExecImageForRestrictedProbe,
   resolveRestrictedProbeTargets,
   resolveSandboxExecImageFromValuesDev,
+  resolveSandboxExecProxyEnvFromValuesDev,
+  buildExactRestrictedProxyEnv,
+  ADR146_RESTRICTED_PROXY_ENV_NAMES,
+  validateExactRestrictedProxyEnv,
   runStaticDeployTruth,
   selectApplySandboxPoolCommandIds,
   selectPrepareCommandIds,
@@ -82,15 +87,22 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const valuesDevText = readFileSync(path.join(repoRoot, "infra/helm/values-dev.yaml"), "utf8");
 const CURRENT_SANDBOX_EXEC_IMAGE = resolveSandboxExecImageFromValuesDev(valuesDevText);
+const CURRENT_SANDBOX_EXEC_PROXY_ENV = resolveSandboxExecProxyEnvFromValuesDev(valuesDevText);
 
 function buildRestrictedProbePodManifest(inventory, options = {}) {
   return buildRestrictedProbePodManifestRaw(inventory, {
     ...options,
-    image: options.image ?? CURRENT_SANDBOX_EXEC_IMAGE
+    image: options.image ?? CURRENT_SANDBOX_EXEC_IMAGE,
+    env: options.env ?? CURRENT_SANDBOX_EXEC_PROXY_ENV
   });
 }
 
 function realExecPod(image = CURRENT_SANDBOX_EXEC_IMAGE, overrides = {}) {
+  const defaultContainer = {
+    name: "exec",
+    image,
+    env: CURRENT_SANDBOX_EXEC_PROXY_ENV.map((entry) => ({ ...entry }))
+  };
   return {
     name: "ses-real-image-proof",
     phase: "Running",
@@ -99,8 +111,8 @@ function realExecPod(image = CURRENT_SANDBOX_EXEC_IMAGE, overrides = {}) {
     automountServiceAccountToken: false,
     runtimeClassName: "gvisor",
     labels: { "app.kubernetes.io/component": "sandbox-exec" },
-    containers: [{ name: "exec", image }],
-    spec: { containers: [{ name: "exec", image }] },
+    containers: [defaultContainer],
+    spec: { containers: [defaultContainer] },
     podIP: "10.109.0.99",
     ...overrides
   };
@@ -1424,6 +1436,14 @@ test("restricted probes use audited listeners and treat refusal as reachable", (
   assert.doesNotMatch(source, /34\.118\.224\.1|34\.118\.226\.126|10\.107\.45\.68|10\.105\.140\.58/);
   assert.doesNotMatch(source, /Authorization|auth header|query string|file contents/i);
   assert.doesNotMatch(source, /denialExitIndicatesDrop/);
+  // Restricted allowlisted curl inherits proxy env; direct public bypass unsets it.
+  assert.match(source, /"curl",\s*"-fsSI",\s*"--max-time",\s*"20",\s*"https:\/\/pypi\.org\/"/);
+  assert.match(
+    source,
+    /"env",\s*"-u",\s*"HTTP_PROXY",\s*"-u",\s*"HTTPS_PROXY",\s*"-u",\s*"http_proxy",\s*"-u",\s*"https_proxy"/
+  );
+  assert.match(source, /Squid allowlisted HTTPS/);
+  assert.match(source, /direct public bypass denied/);
 });
 
 test("live verify rejects zero exec pods and default-SA pods for KSA wiring", () => {
@@ -1725,6 +1745,8 @@ test("probe helpers bind restricted and NAT pods to the private gVisor contour",
   natWithProxy.spec.containers[0].env = [{ name: "HTTPS_PROXY", value: "http://proxy:3128" }];
   natWithProxy.containers = natWithProxy.spec.containers;
   assert.equal(validateNatProbePod(natWithProxy, live, inventory).ok, false);
+  assert.equal(natPod.spec.containers[0].env.length, 0);
+  assert.deepEqual(buildNatProbePodManifest(inventory).spec.containers[0].env, []);
 });
 
 test("controlled probe validators reject each material hardening class", () => {
@@ -2073,7 +2095,13 @@ test("generated restricted and NAT probe manifests satisfy live validators", () 
   assert.match(yaml, /seccompProfile:\n\s+type: RuntimeDefault/);
   assert.match(yaml, /cpu: "50m"/);
   assert.match(yaml, /memory: "64Mi"/);
-  assert.doesNotMatch(yaml, /HTTP_PROXY|HTTPS_PROXY|password:|secret:/i);
+  assert.doesNotMatch(yaml, /password:|secret:|valueFrom:/i);
+  const restrictedYaml = renderProbeManifestYaml(restrictedManifest);
+  const natYaml = renderProbeManifestYaml(natManifest);
+  for (const name of ADR146_RESTRICTED_PROXY_ENV_NAMES) {
+    assert.match(restrictedYaml, new RegExp(`name: ${name}`));
+  }
+  assert.doesNotMatch(natYaml, /HTTP_PROXY|HTTPS_PROXY|http_proxy|https_proxy|NO_PROXY|no_proxy/);
   assert.equal(restrictedManifest.spec.securityContext.runAsNonRoot, true);
   assert.equal(
     restrictedManifest.spec.containers[0].securityContext.allowPrivilegeEscalation,
@@ -2113,10 +2141,19 @@ test("restricted probe resolves committed production sandbox-exec image without 
     () => buildRestrictedProbePodManifestRaw(inventory),
     /restricted probe image required/
   );
+  assert.throws(
+    () =>
+      buildRestrictedProbePodManifestRaw(inventory, {
+        image: CURRENT_SANDBOX_EXEC_IMAGE
+      }),
+    /restricted probe proxy env required/
+  );
   const manifest = buildRestrictedProbePodManifestRaw(inventory, {
-    image: CURRENT_SANDBOX_EXEC_IMAGE
+    image: CURRENT_SANDBOX_EXEC_IMAGE,
+    env: CURRENT_SANDBOX_EXEC_PROXY_ENV
   });
   assert.equal(manifest.spec.containers[0].image, CURRENT_SANDBOX_EXEC_IMAGE);
+  assert.deepEqual(manifest.spec.containers[0].env, [...CURRENT_SANDBOX_EXEC_PROXY_ENV]);
   assert.doesNotMatch(renderProbeManifestYaml(manifest), /busybox/);
 
   for (const [name, broken] of [
@@ -2149,18 +2186,105 @@ test("restricted probe resolves committed production sandbox-exec image without 
     "utf8"
   );
   assert.match(source, /resolveSandboxExecImageFromValuesDev\(valuesDevText\)/);
+  assert.match(source, /resolveSandboxExecProxyEnvFromValuesDev\(valuesDevText\)/);
   assert.match(
     source,
-    /buildRestrictedProbePodManifest\(inventory, \{ image: restrictedImage \}\)/
+    /buildRestrictedProbePodManifest\(inventory, \{\s*image: restrictedImage,\s*env: restrictedEnv\s*\}\)/
   );
 });
 
-test("restricted live validator binds tool-capable probe to one real production exec image", () => {
+test("restricted probe resolves committed proxy env six-entry set without fallback", () => {
+  const inventory = loadInventory();
+  const expectedProxyUrl = "http://sandbox-egress-proxy.persai-dev.svc.cluster.local:3128";
+  const expectedNoProxy =
+    "localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc.cluster.local,.cluster.local";
+  assert.deepEqual(
+    [...CURRENT_SANDBOX_EXEC_PROXY_ENV],
+    buildExactRestrictedProxyEnv(expectedProxyUrl, expectedNoProxy)
+  );
+  assert.deepEqual(
+    CURRENT_SANDBOX_EXEC_PROXY_ENV.map((entry) => entry.name),
+    [...ADR146_RESTRICTED_PROXY_ENV_NAMES]
+  );
+  assert.equal(validateExactRestrictedProxyEnv(CURRENT_SANDBOX_EXEC_PROXY_ENV).length, 0);
+
+  const manifest = buildRestrictedProbePodManifest(inventory);
+  assert.deepEqual(manifest.spec.containers[0].env, [...CURRENT_SANDBOX_EXEC_PROXY_ENV]);
+  const yaml = renderProbeManifestYaml(manifest);
+  for (const name of ADR146_RESTRICTED_PROXY_ENV_NAMES) {
+    assert.match(yaml, new RegExp(`- name: ${name}\\n\\s+value: `));
+  }
+  assert.ok(yaml.includes(`value: ${JSON.stringify(expectedProxyUrl)}`));
+  assert.ok(yaml.includes(`value: ${JSON.stringify(expectedNoProxy)}`));
+  assert.doesNotMatch(yaml, /password:|secret:|valueFrom:|user:pass@/i);
+
+  for (const [name, broken, pattern] of [
+    [
+      "missing proxy url",
+      valuesDevText.replace(
+        /SANDBOX_EXEC_EGRESS_PROXY_URL: "http:\/\/sandbox-egress-proxy\.persai-dev\.svc\.cluster\.local:3128"/,
+        ""
+      ),
+      /values-dev\.yaml|SANDBOX_EXEC_EGRESS_PROXY_URL/
+    ],
+    [
+      "empty proxy url",
+      valuesDevText.replace(
+        'SANDBOX_EXEC_EGRESS_PROXY_URL: "http://sandbox-egress-proxy.persai-dev.svc.cluster.local:3128"',
+        'SANDBOX_EXEC_EGRESS_PROXY_URL: ""'
+      ),
+      /proxy URL|values-dev\.yaml/
+    ],
+    [
+      "credentials",
+      valuesDevText.replace(
+        'SANDBOX_EXEC_EGRESS_PROXY_URL: "http://sandbox-egress-proxy.persai-dev.svc.cluster.local:3128"',
+        'SANDBOX_EXEC_EGRESS_PROXY_URL: "http://user:pass@sandbox-egress-proxy.persai-dev.svc.cluster.local:3128"'
+      ),
+      /credentials/
+    ],
+    [
+      "empty no_proxy",
+      valuesDevText.replace(/SANDBOX_EXEC_NO_PROXY: "[^"]+"/, 'SANDBOX_EXEC_NO_PROXY: ""'),
+      /NO_PROXY|values-dev\.yaml/
+    ]
+  ]) {
+    assert.notEqual(broken, valuesDevText, `${name} fixture must mutate values`);
+    assert.throws(() => resolveSandboxExecProxyEnvFromValuesDev(broken), pattern, name);
+  }
+});
+
+test("restricted proxy env fails closed when exact six entries are out of order", () => {
+  const wrongOrder = CURRENT_SANDBOX_EXEC_PROXY_ENV.map((entry) => ({ ...entry }));
+  [wrongOrder[0], wrongOrder[1]] = [wrongOrder[1], wrongOrder[0]];
+
+  const errors = validateExactRestrictedProxyEnv(wrongOrder);
+  assert.ok(
+    errors.some((error) => /order must match real exec/.test(error)),
+    errors.join("; ")
+  );
+  assert.throws(
+    () =>
+      buildRestrictedProbePodManifestRaw(loadInventory(), {
+        image: CURRENT_SANDBOX_EXEC_IMAGE,
+        env: wrongOrder
+      }),
+    /order must match real exec/
+  );
+});
+
+test("restricted live validator binds tool-capable probe to one real production exec image and proxy env", () => {
   const inventory = loadInventory();
   const manifest = buildRestrictedProbePodManifest(inventory);
   const probe = probeManifestToLiveAdmittedValidatorPod(manifest);
 
   const goodLive = liveWithRealExec();
+  assert.deepEqual(resolveProductionRestrictedProbeContour(goodLive), {
+    ok: true,
+    image: CURRENT_SANDBOX_EXEC_IMAGE,
+    env: CURRENT_SANDBOX_EXEC_PROXY_ENV,
+    errors: []
+  });
   assert.deepEqual(resolveRealExecImageForRestrictedProbe(goodLive), {
     ok: true,
     image: CURRENT_SANDBOX_EXEC_IMAGE,
@@ -2183,7 +2307,21 @@ test("restricted live validator binds tool-capable probe to one real production 
       /exactly one named exec container image/
     ],
     [
-      "conflict",
+      "empty-proxy-env",
+      liveWithRealExec({
+        execPods: [
+          realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, {
+            containers: [{ name: "exec", image: CURRENT_SANDBOX_EXEC_IMAGE, env: [] }],
+            spec: {
+              containers: [{ name: "exec", image: CURRENT_SANDBOX_EXEC_IMAGE, env: [] }]
+            }
+          })
+        ]
+      }),
+      /proxy env/
+    ],
+    [
+      "conflict-image",
       liveWithRealExec({
         execPods: [
           realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, { name: "real-a" }),
@@ -2191,6 +2329,114 @@ test("restricted live validator binds tool-capable probe to one real production 
         ]
       }),
       /conflicting current real exec images/
+    ],
+    [
+      "conflict-env",
+      liveWithRealExec({
+        execPods: [
+          realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, { name: "real-a" }),
+          realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, {
+            name: "real-b",
+            containers: [
+              {
+                name: "exec",
+                image: CURRENT_SANDBOX_EXEC_IMAGE,
+                env: buildExactRestrictedProxyEnv(
+                  "http://other-proxy.persai-dev.svc.cluster.local:3128",
+                  CURRENT_SANDBOX_EXEC_PROXY_ENV.find((entry) => entry.name === "NO_PROXY").value
+                )
+              }
+            ],
+            spec: {
+              containers: [
+                {
+                  name: "exec",
+                  image: CURRENT_SANDBOX_EXEC_IMAGE,
+                  env: buildExactRestrictedProxyEnv(
+                    "http://other-proxy.persai-dev.svc.cluster.local:3128",
+                    CURRENT_SANDBOX_EXEC_PROXY_ENV.find((entry) => entry.name === "NO_PROXY").value
+                  )
+                }
+              ]
+            }
+          })
+        ]
+      }),
+      /conflicting current real exec proxy env/
+    ],
+    [
+      "duplicate-env",
+      liveWithRealExec({
+        execPods: [
+          realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, {
+            containers: [
+              {
+                name: "exec",
+                image: CURRENT_SANDBOX_EXEC_IMAGE,
+                env: [
+                  ...CURRENT_SANDBOX_EXEC_PROXY_ENV,
+                  { name: "HTTP_PROXY", value: CURRENT_SANDBOX_EXEC_PROXY_ENV[0].value }
+                ]
+              }
+            ],
+            spec: {
+              containers: [
+                {
+                  name: "exec",
+                  image: CURRENT_SANDBOX_EXEC_IMAGE,
+                  env: [
+                    ...CURRENT_SANDBOX_EXEC_PROXY_ENV,
+                    { name: "HTTP_PROXY", value: CURRENT_SANDBOX_EXEC_PROXY_ENV[0].value }
+                  ]
+                }
+              ]
+            }
+          })
+        ]
+      }),
+      /duplicate|exactly 6/
+    ],
+    [
+      "credentials",
+      liveWithRealExec({
+        execPods: [
+          realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, {
+            containers: [
+              {
+                name: "exec",
+                image: CURRENT_SANDBOX_EXEC_IMAGE,
+                env: CURRENT_SANDBOX_EXEC_PROXY_ENV.map((entry) =>
+                  entry.name === "HTTP_PROXY"
+                    ? {
+                        name: entry.name,
+                        value:
+                          "http://user:secret@sandbox-egress-proxy.persai-dev.svc.cluster.local:3128"
+                      }
+                    : { ...entry }
+                )
+              }
+            ],
+            spec: {
+              containers: [
+                {
+                  name: "exec",
+                  image: CURRENT_SANDBOX_EXEC_IMAGE,
+                  env: CURRENT_SANDBOX_EXEC_PROXY_ENV.map((entry) =>
+                    entry.name === "HTTP_PROXY"
+                      ? {
+                          name: entry.name,
+                          value:
+                            "http://user:secret@sandbox-egress-proxy.persai-dev.svc.cluster.local:3128"
+                        }
+                      : { ...entry }
+                  )
+                }
+              ]
+            }
+          })
+        ]
+      }),
+      /credentials|proxy env/
     ],
     [
       "controlled-spoof",
@@ -2207,7 +2453,7 @@ test("restricted live validator binds tool-capable probe to one real production 
       /carries controlled-probe label/
     ]
   ]) {
-    const resolved = resolveRealExecImageForRestrictedProbe(live);
+    const resolved = resolveProductionRestrictedProbeContour(live);
     assert.equal(resolved.ok, false, name);
     assert.match(resolved.errors.join("; "), expectedError, name);
     assert.equal(validateRestrictedProbePod(probe, live, inventory).ok, false, name);
@@ -2220,6 +2466,24 @@ test("restricted live validator binds tool-capable probe to one real production 
   assert.equal(mismatch.ok, false);
   assert.match(mismatch.errors.join("; "), /must equal current real exec image/);
 
+  const envMismatch = structuredClone(probe);
+  envMismatch.spec.containers[0].env = buildExactRestrictedProxyEnv(
+    "http://stale-proxy.persai-dev.svc.cluster.local:3128",
+    CURRENT_SANDBOX_EXEC_PROXY_ENV.find((entry) => entry.name === "NO_PROXY").value
+  );
+  envMismatch.containers = envMismatch.spec.containers;
+  const envGate = validateRestrictedProbePod(envMismatch, goodLive, inventory);
+  assert.equal(envGate.ok, false);
+  assert.match(envGate.errors.join("; "), /proxy env must exactly equal/);
+
+  const extraEnv = structuredClone(probe);
+  extraEnv.spec.containers[0].env = [
+    ...CURRENT_SANDBOX_EXEC_PROXY_ENV,
+    { name: "EXTRA", value: "nope" }
+  ];
+  extraEnv.containers = extraEnv.spec.containers;
+  assert.equal(validateRestrictedProbePod(extraEnv, goodLive, inventory).ok, false);
+
   // Equality with the actual production image is the proof basis for getent,
   // curl, and python3 support; this static test does not execute those binaries.
   const source = readFileSync(
@@ -2228,6 +2492,14 @@ test("restricted live validator binds tool-capable probe to one real production 
   );
   for (const binary of ['"getent"', '"curl"', '"python3"'])
     assert.match(source, new RegExp(binary));
+  // Allowlisted HTTPS curl uses inherited proxy env; direct bypass explicitly unsets it.
+  assert.match(source, /"curl",\s*"-fsSI",\s*"--max-time",\s*"20",\s*"https:\/\/pypi\.org\/"/);
+  assert.match(
+    source,
+    /"env",\s*"-u",\s*"HTTP_PROXY",\s*"-u",\s*"HTTPS_PROXY",\s*"-u",\s*"http_proxy",\s*"-u",\s*"https_proxy"/
+  );
+  assert.match(source, /direct public bypass denied/);
+  assert.match(source, /Squid allowlisted HTTPS/);
 });
 
 test("NAT probe image is inventory-owned digest-pinned curl; busybox drift fails closed", () => {

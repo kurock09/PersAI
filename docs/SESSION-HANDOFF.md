@@ -1,50 +1,76 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 restricted probe proxy-env repair
+
+Status: **Restricted-probe proxy-env repair committed locally in the current
+unpushed HEAD on baseline `71eb9c0c`; prior executable-image repair pushed/live
+at `5045431e` with bot pin `71eb9c0c`; no cloud mutation; Environment still
+unapproved; S1 blocked.**
+
+**Live truth after executable-image repair (probes re-run):** executable probes
+admitted. Pre-structural foundation **PASS**, all trusted positive controls
+**PASS**, NAT identity reserved IP **PASS**, DNS **PASS**. Active
+`Squid allowlisted HTTPS` **timed out**; Squid proxy logs had **no access** for
+the request. Generated restricted manifest still had `env: []`, so curl went
+direct and Calico correctly dropped it — not a Squid allowlist failure.
+Cleanup **PASS**; no controlled Pods remain. Network/enforcement proof remains
+**incomplete**.
+
+**Repair (committed locally in current unpushed HEAD):** generator already
+reads committed `values-dev.yaml`. Fail-closed resolution of non-secret
+`sandbox.env.SANDBOX_EXEC_EGRESS_PROXY_URL` + `SANDBOX_EXEC_NO_PROXY` builds the
+exact six env entries matching real exec
+(`HTTP_PROXY`/`HTTPS_PROXY`/`http_proxy`/`https_proxy` = proxy URL;
+`NO_PROXY`/`no_proxy` = no-proxy value). No credentials, secrets, arbitrary
+env, or compatibility aliases. `buildRestrictedProbePodManifest` requires
+explicit resolved image **and** exact resolved proxy env (no empty/default
+fallback). NAT remains zero proxy env + exact curl digest.
+`resolveProductionRestrictedProbeContour` returns one consistent `{image, env}`
+from valid real exec pods; live restricted validator requires the controlled
+Pod's exact ordered six-entry set to equal that production set (fail on
+missing/extra/duplicate/wrong-order/conflicting/credentials/mismatch). NAT
+validator still requires empty env. Renderer already renders env safely. Tests
+cover values-dev resolution, generated six vars, dedicated wrong-order
+rejection, live equality, fail-closed cases, NAT zero env, and source contract
+(allowlisted curl inherits proxy; direct bypass unsets proxy vars). No secret
+values in evidence output. No package changes.
+
+**Still incomplete:** not pushed; probes not regenerated or re-run with proxy
+env; network proof incomplete; Environment not approved;
+non-sandbox pins may still wait; S0.1 not live-accepted; S1 blocked. Do **not**
+claim foundation complete.
+
+**Next:** parent push of proxy-env repair → regenerate/apply controlled probes →
+`probe-restricted` / cleanup → Environment approval(s).
+
+---
+
 ## 2026-07-13 — ADR-146 controlled-probe executable image repair
 
-Status: **Controlled-probe executable/TLS repair committed locally in the current
-unpushed HEAD on baseline `c5716b97` (admitted-toleration bot pin); not pushed;
-no cloud mutation; Environment still unapproved; S1 blocked.**
+Status: **Controlled-probe executable/TLS repair pushed/live (bot pin path
+through `71eb9c0c`); Environment still unapproved; S1 blocked.**
 
-**Live truth at `c5716b97`:** structural `verify` **PASS** (including a real
-production exec Pod). Controlled probes applied: pre-structural foundation
-**PASS** and trusted positive controls **PASS**. Active `probe-restricted`
-then **FAIL**ed at `nat-egress-ip`: NAT probe Pod used `busybox:1.36` while the
-script execs `curl` (binary absent) — failure before NAT identity comparison.
-Manual diagnostic BusyBox `wget` observed reserved NAT IP `34.76.34.111` but
-warned TLS certificate validation is not implemented; that observation is
-**not** accepted proof (wget/insecure TLS rejected). Cleanup **PASS**; no
-controlled Pods remain. Probes were **not** regenerated or re-run after this
-image repair.
+**Live truth at post-image-repair probe run:** structural/pre-structural
+**PASS**; trusted positive controls **PASS**; NAT identity reserved IP
+**PASS**; DNS **PASS**. `Squid allowlisted HTTPS` timed out because generated
+restricted `env: []` sent curl direct (Calico drop; no Squid access log).
+Cleanup **PASS**. Follow-on proxy-env repair is the current local slice (see
+entry above).
 
-**Repair (local):** inventory owns exact digest-pinned NAT image
+**Repair (landed):** inventory owns exact digest-pinned NAT image
 `curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13`
-(multiarch manifest list; release 2026-06-24). Restricted probe no longer uses
-BusyBox: generation fail-closed resolves the exact current production
-`sandbox-exec` image from committed `infra/helm/values-dev.yaml`
-(`global.images.{registryHost,projectId,repository}` +
-`sandboxExec.image.{name,tag}`), with no inventory tag or global-tag fallback.
-Its live validator requires equality with one non-controlled Running real exec
-image used for KSA proof and rejects zero/missing/conflicting/spoofed/mismatched
-image evidence. This equality is the proof basis for the restricted
-`getent`/`curl`/`python3` commands; static tests do not claim to execute the
-binaries (actual chat shell smoke already used that production image).
-Builder/renderer/validators require the exact NAT image and fail closed on
-drift/tag-only/busybox/wget. Active NAT script keeps
-`curl --noproxy * -fsS --max-time 20` with certificate verification (no
-`-k`/`--insecure`/`--no-check-certificate`). Hardened `runAsUser: 1000`
-remains; curl image default USER is overridden and stays compatible. Tests lock
-values resolution, restricted production-image equality, YAML render,
-inventory/validator fail-closed drift, and NAT source command/TLS contract. No
-package/dependency changes.
+(multiarch manifest list; release 2026-06-24). Restricted probe resolves the
+exact current production `sandbox-exec` image from committed
+`infra/helm/values-dev.yaml` with no inventory tag or global-tag fallback.
+Live validator requires equality with one non-controlled Running real exec
+image. Active NAT script keeps `curl --noproxy * -fsS --max-time 20` with
+certificate verification.
 
-**Still incomplete:** not pushed; probes not regenerated or re-run with
-production `sandbox-exec` restricted image + curl NAT image; no
-network/enforcement proof; Environment not approved; non-sandbox pins may still
-wait; S0.1 not live-accepted; S1 blocked. Do **not** claim foundation complete.
+**Still incomplete:** network proof incomplete until proxy-env repair is
+pushed and probes re-run; Environment not approved; S1 blocked.
 
-**Next:** parent push → regenerate/apply controlled probes →
-`probe-restricted` / cleanup → Environment approval(s).
+**Next:** land proxy-env repair → regenerate/apply probes → Environment
+approval(s).
 
 ---
 

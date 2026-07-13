@@ -28,6 +28,7 @@ import {
   renderPlanText,
   renderProbeManifestYaml,
   resolveSandboxExecImageFromValuesDev,
+  resolveSandboxExecProxyEnvFromValuesDev,
   resolveRestrictedProbeTargets,
   runStaticDeployTruth,
   privatePoolMatches,
@@ -1074,7 +1075,11 @@ function main() {
   }
   if (args.phase === "generate-probe-manifests") {
     const restrictedImage = resolveSandboxExecImageFromValuesDev(valuesDevText);
-    const restricted = buildRestrictedProbePodManifest(inventory, { image: restrictedImage });
+    const restrictedEnv = resolveSandboxExecProxyEnvFromValuesDev(valuesDevText);
+    const restricted = buildRestrictedProbePodManifest(inventory, {
+      image: restrictedImage,
+      env: restrictedEnv
+    });
     const nat = buildNatProbePodManifest(inventory);
     const outDir = args.outDir ?? path.join(repoRoot, "infra/bootstrap/adr146-probe-manifests");
     mkdirSync(outDir, { recursive: true });

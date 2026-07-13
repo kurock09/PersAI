@@ -96,7 +96,7 @@ function parseSimpleValuesScalar(valuesText, pathParts) {
       throw new Error(`values-dev.yaml line ${index + 1} contains a tab`);
     }
     if (/^\s*(?:#.*)?$/u.test(line)) continue;
-    const match = /^( *)([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(line);
+    const match = /^( *)([A-Za-z_][A-Za-z0-9_]*):(?:\s*(.*))?$/u.exec(line);
     if (!match) continue;
     const indent = match[1].length;
     if (indent % 2 !== 0) {
@@ -149,6 +149,215 @@ export function resolveSandboxExecImageFromValuesDev(valuesDevText) {
     throw new Error(`values-dev.yaml sandboxExec.image.tag must be an exact 40-hex commit SHA`);
   }
   return `${registryHost}/${projectId}/${repository}/${imageName}:${imageTag}`;
+}
+
+/**
+ * Exact restricted-mode proxy env names mirrored by real sandbox-exec pods
+ * (`ExecPodBridgeService.buildProxyEnv`) when both proxy URL and NO_PROXY are set.
+ * No compatibility aliases beyond this exact six-entry set.
+ */
+export const ADR146_RESTRICTED_PROXY_ENV_NAMES = Object.freeze([
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "NO_PROXY",
+  "no_proxy"
+]);
+
+const ADR146_PROXY_URL_ENV_NAMES = Object.freeze([
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "http_proxy",
+  "https_proxy"
+]);
+
+const ADR146_NO_PROXY_ENV_NAMES = Object.freeze(["NO_PROXY", "no_proxy"]);
+
+/**
+ * Reject proxy URL/userinfo credentials and secret-like env shapes. Never log values.
+ */
+export function proxyEnvValueContainsCredentials(value) {
+  if (typeof value !== "string") return true;
+  if (value.includes("@")) return true;
+  if (/^[a-z][a-z0-9+.-]*:\/\/[^/]*:[^/@]+@/iu.test(value)) return true;
+  if (/:(?:\/\/)?[^/\s]*:[^/\s]+@/u.test(value)) return true;
+  return false;
+}
+
+/**
+ * Build the exact six restricted proxy env entries matching real exec pods.
+ * Requires non-empty proxy URL + NO_PROXY; rejects credentials and empty values.
+ */
+export function buildExactRestrictedProxyEnv(proxyUrl, noProxy) {
+  if (typeof proxyUrl !== "string" || proxyUrl.trim().length === 0) {
+    throw new Error("restricted proxy URL required from sandbox.env.SANDBOX_EXEC_EGRESS_PROXY_URL");
+  }
+  if (typeof noProxy !== "string" || noProxy.trim().length === 0) {
+    throw new Error("restricted NO_PROXY required from sandbox.env.SANDBOX_EXEC_NO_PROXY");
+  }
+  if (proxyUrl !== proxyUrl.trim() || /\s/u.test(proxyUrl)) {
+    throw new Error("restricted proxy URL must be an exact non-secret scalar without whitespace");
+  }
+  if (noProxy !== noProxy.trim()) {
+    throw new Error(
+      "restricted NO_PROXY must be an exact non-secret scalar without surrounding whitespace"
+    );
+  }
+  if (!/^https?:\/\/[^/@\s]+(?::\d+)?(?:\/\S*)?$/u.test(proxyUrl)) {
+    throw new Error("restricted proxy URL must be an absolute http(s) URL without credentials");
+  }
+  if (proxyEnvValueContainsCredentials(proxyUrl) || proxyEnvValueContainsCredentials(noProxy)) {
+    throw new Error("restricted proxy env must not contain credentials");
+  }
+  return Object.freeze([
+    Object.freeze({ name: "HTTP_PROXY", value: proxyUrl }),
+    Object.freeze({ name: "HTTPS_PROXY", value: proxyUrl }),
+    Object.freeze({ name: "http_proxy", value: proxyUrl }),
+    Object.freeze({ name: "https_proxy", value: proxyUrl }),
+    Object.freeze({ name: "NO_PROXY", value: noProxy }),
+    Object.freeze({ name: "no_proxy", value: noProxy })
+  ]);
+}
+
+/**
+ * Resolve exact non-secret restricted proxy env from committed values-dev.yaml
+ * (`sandbox.env.SANDBOX_EXEC_EGRESS_PROXY_URL` + `SANDBOX_EXEC_NO_PROXY`).
+ * Fail closed — no empty/default fallback, no secrets, no arbitrary env.
+ */
+export function resolveSandboxExecProxyEnvFromValuesDev(valuesDevText) {
+  const proxyUrl = parseSimpleValuesScalar(valuesDevText, [
+    "sandbox",
+    "env",
+    "SANDBOX_EXEC_EGRESS_PROXY_URL"
+  ]);
+  const noProxy = parseSimpleValuesScalar(valuesDevText, [
+    "sandbox",
+    "env",
+    "SANDBOX_EXEC_NO_PROXY"
+  ]);
+  return buildExactRestrictedProxyEnv(proxyUrl, noProxy);
+}
+
+/**
+ * Validate an env list is exactly the six restricted proxy entries (name+value).
+ * Returns errors without echoing secret-like values.
+ */
+export function validateExactRestrictedProxyEnv(env) {
+  const errors = [];
+  if (!Array.isArray(env)) {
+    return ["restricted proxy env must be an array of exactly six entries"];
+  }
+  if (env.length !== ADR146_RESTRICTED_PROXY_ENV_NAMES.length) {
+    errors.push(
+      `restricted proxy env must have exactly ${ADR146_RESTRICTED_PROXY_ENV_NAMES.length} entries, got ${env.length}`
+    );
+  }
+  const seen = new Map();
+  for (let index = 0; index < env.length; index += 1) {
+    const entry = env[index];
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      errors.push(`restricted proxy env[${index}] must be an object`);
+      continue;
+    }
+    const keys = Object.keys(entry);
+    const unexpected = keys.filter((key) => key !== "name" && key !== "value");
+    if (unexpected.length > 0) {
+      errors.push(
+        `restricted proxy env[${index}] must contain only name/value; unexpected fields: ${unexpected.join(", ")}`
+      );
+    }
+    if (Object.hasOwn(entry, "valueFrom") || entry.valueFrom != null) {
+      errors.push(`restricted proxy env[${index}] must not use valueFrom/secret refs`);
+    }
+    if (typeof entry.name !== "string" || entry.name.length === 0) {
+      errors.push(`restricted proxy env[${index}].name missing`);
+      continue;
+    }
+    if (!ADR146_RESTRICTED_PROXY_ENV_NAMES.includes(entry.name)) {
+      errors.push(`restricted proxy env has unexpected name ${entry.name}`);
+    }
+    if (seen.has(entry.name)) {
+      errors.push(`restricted proxy env has duplicate name ${entry.name}`);
+    } else {
+      seen.set(entry.name, entry.value);
+    }
+    if (typeof entry.value !== "string" || entry.value.length === 0) {
+      errors.push(`restricted proxy env ${entry.name} value must be a non-empty string`);
+      continue;
+    }
+    if (proxyEnvValueContainsCredentials(entry.value)) {
+      errors.push(`restricted proxy env ${entry.name} must not contain credentials`);
+    }
+  }
+  for (const name of ADR146_RESTRICTED_PROXY_ENV_NAMES) {
+    if (!seen.has(name)) {
+      errors.push(`restricted proxy env missing ${name}`);
+    }
+  }
+  const proxyValues = ADR146_PROXY_URL_ENV_NAMES.map((name) => seen.get(name)).filter(
+    (value) => typeof value === "string"
+  );
+  if (proxyValues.length > 0 && new Set(proxyValues).size !== 1) {
+    errors.push("restricted proxy URL env values conflict across HTTP(S)_PROXY names");
+  }
+  const noProxyValues = ADR146_NO_PROXY_ENV_NAMES.map((name) => seen.get(name)).filter(
+    (value) => typeof value === "string"
+  );
+  if (noProxyValues.length > 0 && new Set(noProxyValues).size !== 1) {
+    errors.push("restricted NO_PROXY env values conflict across NO_PROXY/no_proxy");
+  }
+  if (errors.length > 0) return errors;
+  // Canonical order must match real exec buildProxyEnv.
+  for (let index = 0; index < ADR146_RESTRICTED_PROXY_ENV_NAMES.length; index += 1) {
+    if (env[index]?.name !== ADR146_RESTRICTED_PROXY_ENV_NAMES[index]) {
+      errors.push(
+        `restricted proxy env order must match real exec (${ADR146_RESTRICTED_PROXY_ENV_NAMES.join(", ")})`
+      );
+      break;
+    }
+  }
+  return errors;
+}
+
+function restrictedProxyEnvFingerprint(env) {
+  return ADR146_RESTRICTED_PROXY_ENV_NAMES.map((name) => {
+    const entry = (env ?? []).find((candidate) => candidate?.name === name);
+    return `${name}=${typeof entry?.value === "string" ? entry.value : ""}`;
+  }).join("\n");
+}
+
+function restrictedProxyEnvEqual(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  if (left.length !== right.length) return false;
+  return left.every(
+    (entry, index) => entry?.name === right[index]?.name && entry?.value === right[index]?.value
+  );
+}
+
+/**
+ * Extract the exact six restricted proxy env entries from a container env list.
+ * Fail closed on missing/extra/duplicate/credentials/secret refs.
+ * Real exec and controlled restricted probes must carry exactly these six entries.
+ */
+export function extractExactRestrictedProxyEnv(env) {
+  const errors = validateExactRestrictedProxyEnv(env);
+  if (errors.length > 0) {
+    return { ok: false, env: null, errors };
+  }
+  try {
+    const exact = buildExactRestrictedProxyEnv(
+      env.find((entry) => entry.name === "HTTP_PROXY").value,
+      env.find((entry) => entry.name === "NO_PROXY").value
+    );
+    return { ok: true, env: exact, errors: [] };
+  } catch (error) {
+    return {
+      ok: false,
+      env: null,
+      errors: [error instanceof Error ? error.message : String(error)]
+    };
+  }
 }
 /** Known controlled probe Pod names generated by this foundation CLI. */
 export const ADR146_CONTROLLED_PROBE_POD_NAMES = Object.freeze([
@@ -2155,15 +2364,24 @@ export function validateRestrictedProbePod(pod, live, inventory) {
   if (runtimeClassName !== expected.runtimeClassName) {
     errors.push(`runtimeClassName=${runtimeClassName ?? "missing"}`);
   }
-  const productionImage = resolveRealExecImageForRestrictedProbe(live);
-  if (!productionImage.ok) {
-    errors.push(...productionImage.errors);
+  const productionContour = resolveProductionRestrictedProbeContour(live);
+  if (!productionContour.ok) {
+    errors.push(...productionContour.errors);
   } else {
     const containers = pod?.spec?.containers ?? pod?.containers ?? [];
     const probeImage = containers[0]?.image;
-    if (probeImage !== productionImage.image) {
+    if (probeImage !== productionContour.image) {
       errors.push(
-        `restricted probe image must equal current real exec image ${productionImage.image}, got ${probeImage ?? "missing"}`
+        `restricted probe image must equal current real exec image ${productionContour.image}, got ${probeImage ?? "missing"}`
+      );
+    }
+    const probeEnv = containers[0]?.env ?? [];
+    const probeEnvGate = validateExactRestrictedProxyEnv(probeEnv);
+    if (probeEnvGate.length > 0) {
+      errors.push(...probeEnvGate);
+    } else if (!restrictedProxyEnvEqual(probeEnv, productionContour.env)) {
+      errors.push(
+        "restricted probe proxy env must exactly equal current real exec proxy/no_proxy six-entry set"
       );
     }
   }
@@ -2203,12 +2421,14 @@ export function validateNatProbePod(pod, live, inventory) {
     errors.push(`runtimeClassName=${runtimeClassName ?? "missing"}`);
   }
   const containers = pod?.spec?.containers ?? pod?.containers ?? [];
-  const hasProxyEnv = containers.some((container) =>
-    (container.env ?? []).some((entry) =>
-      ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"].includes(entry.name)
-    )
-  );
+  const env = containers[0]?.env ?? [];
+  const hasProxyEnv = Array.isArray(env)
+    ? env.some((entry) => ADR146_RESTRICTED_PROXY_ENV_NAMES.includes(entry?.name))
+    : false;
   if (hasProxyEnv) errors.push("proxy env must be absent");
+  if (Array.isArray(env) && env.length > 0) {
+    errors.push("NAT probe env must be empty (zero proxy/no_proxy entries)");
+  }
   const containerImage = containers[0]?.image;
   if (containerImage !== expected.image) {
     errors.push(
@@ -2341,18 +2561,23 @@ export function selectRealExecPodsForKsaWiring(pods, live = {}) {
 }
 
 /**
- * Exact current production image evidence for restricted controlled probes.
+ * Exact current production restricted-probe contour evidence: image + proxy env.
  * Only valid non-controlled Running exec Pods used by KSA live-wiring count.
+ * Returns a single consistent {image, env} or fail-closed errors.
  */
-export function resolveRealExecImageForRestrictedProbe(live = {}) {
+export function resolveProductionRestrictedProbeContour(live = {}) {
   const realExecPods = selectRealExecPodsForKsaWiring(live.execPods ?? [], live);
   if (realExecPods.length === 0) {
     return {
       ok: false,
+      image: null,
+      env: null,
       errors: ["zero valid Running non-controlled sandbox-exec pods; image equality unprovable"]
     };
   }
   const images = [];
+  const envFingerprints = [];
+  const envs = [];
   const errors = [];
   for (const pod of realExecPods) {
     const labels = pod?.labels ?? pod?.metadata?.labels ?? {};
@@ -2376,19 +2601,51 @@ export function resolveRealExecImageForRestrictedProbe(live = {}) {
       );
       continue;
     }
+    const extracted = extractExactRestrictedProxyEnv(execContainers[0].env ?? []);
+    if (!extracted.ok) {
+      errors.push(
+        `real exec pod ${pod.name ?? "unknown"} proxy env invalid: ${extracted.errors.join("; ")}`
+      );
+      continue;
+    }
     images.push(execContainers[0].image);
+    envs.push(extracted.env);
+    envFingerprints.push(restrictedProxyEnvFingerprint(extracted.env));
   }
-  if (errors.length > 0) return { ok: false, errors };
+  if (errors.length > 0) return { ok: false, image: null, env: null, errors };
   const uniqueImages = [...new Set(images)];
   if (uniqueImages.length !== 1) {
     return {
       ok: false,
+      image: null,
+      env: null,
       errors: [
         `conflicting current real exec images: ${uniqueImages.length > 0 ? uniqueImages.join(", ") : "none"}`
       ]
     };
   }
-  return { ok: true, image: uniqueImages[0], errors: [] };
+  const uniqueEnvFingerprints = [...new Set(envFingerprints)];
+  if (uniqueEnvFingerprints.length !== 1) {
+    return {
+      ok: false,
+      image: null,
+      env: null,
+      errors: [`conflicting current real exec proxy env sets across ${envFingerprints.length} pods`]
+    };
+  }
+  return { ok: true, image: uniqueImages[0], env: envs[0], errors: [] };
+}
+
+/**
+ * Exact current production image evidence for restricted controlled probes.
+ * Derived from {@link resolveProductionRestrictedProbeContour}.
+ */
+export function resolveRealExecImageForRestrictedProbe(live = {}) {
+  const contour = resolveProductionRestrictedProbeContour(live);
+  if (!contour.ok) {
+    return { ok: false, errors: contour.errors };
+  }
+  return { ok: true, image: contour.image, errors: [] };
 }
 
 /**
@@ -2708,7 +2965,8 @@ function buildProbeSecurityAndResources(commandSeconds = ADR146_PROBE_ACTIVE_DEA
 
 /**
  * Controlled restricted probe Pod manifest. The caller must supply the exact
- * production sandbox-exec image resolved from committed values-dev truth.
+ * production sandbox-exec image and exact six-entry proxy env resolved from
+ * committed values-dev truth. No empty/default env fallback.
  */
 export function buildRestrictedProbePodManifest(inventory, options = {}) {
   const expected = inventory.cidrs.restrictedProbe.restrictedExecPod;
@@ -2720,6 +2978,13 @@ export function buildRestrictedProbePodManifest(inventory, options = {}) {
   if (typeof image !== "string" || image.length === 0) {
     throw new Error(
       "restricted probe image required: resolve exact sandbox-exec image from committed values-dev.yaml"
+    );
+  }
+  const env = options.env;
+  const envErrors = validateExactRestrictedProxyEnv(env);
+  if (envErrors.length > 0) {
+    throw new Error(
+      `restricted probe proxy env required: resolve exact sandbox.env proxy/no_proxy from committed values-dev.yaml:\n- ${envErrors.join("\n- ")}`
     );
   }
   const hardened = buildProbeSecurityAndResources(
@@ -2753,7 +3018,7 @@ export function buildRestrictedProbePodManifest(inventory, options = {}) {
           name: "probe",
           image,
           command: hardened.command,
-          env: [],
+          env: env.map((entry) => ({ name: entry.name, value: entry.value })),
           securityContext: hardened.containerSecurityContext,
           resources: hardened.resources
         }

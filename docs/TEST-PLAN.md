@@ -144,17 +144,26 @@ Required local invariants:
     `curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13`
     (compatible with hardened `runAsUser: 1000`). Restricted generation resolves
     the exact current production image from committed `values-dev.yaml` as
-    `${global.images.registryHost}/${global.images.projectId}/${global.images.repository}/${sandboxExec.image.name}:${sandboxExec.image.tag}`;
-    missing/duplicate/malformed fields and missing builder image fail closed,
-    with no inventory tag, global-tag, or BusyBox fallback. Live restricted
-    validation requires equality with exactly one image across valid
-    non-controlled Running real exec Pods used for KSA proof; zero real Pods,
-    missing image, conflicting images, controlled-label spoof, and mismatch all
-    fail. Equality is the proof basis for `getent`/`curl`/`python3`; static tests
-    do not claim those binaries were executed. NAT builder/validators fail
-    closed on image drift (tag-only/busybox/wget/override). Active
-    `nat-egress-ip` source contract execs
-    `curl --noproxy * -fsS --max-time 20` with certificate verification (no
+    `${global.images.registryHost}/${global.images.projectId}/${global.images.repository}/${sandboxExec.image.name}:${sandboxExec.image.tag}`
+    and the exact ordered six-entry proxy env from
+    `sandbox.env.SANDBOX_EXEC_EGRESS_PROXY_URL` + `SANDBOX_EXEC_NO_PROXY`
+    (`HTTP_PROXY`/`HTTPS_PROXY`/`http_proxy`/`https_proxy` = proxy URL;
+    `NO_PROXY`/`no_proxy` = no-proxy value). Missing/duplicate/malformed fields,
+    credentials, empty proxy/no-proxy, wrong order, and missing builder image/env
+    fail closed, with no inventory tag, global-tag, BusyBox, or empty-env
+    fallback. A dedicated unit test swaps two otherwise-valid entries and
+    requires both env validation and manifest construction to reject it. Live
+    restricted validation requires equality with exactly one production contour
+    `{image, env}` across valid non-controlled Running real exec Pods used for
+    KSA proof; zero real Pods, missing image/env, conflicting images/envs,
+    controlled-label spoof, duplicate/extra/wrong-order/credential env, and
+    mismatch all fail. Equality is the proof basis for `getent`/`curl`/`python3`; static tests
+    do not claim those binaries were executed. Active restricted source contract:
+    allowlisted HTTPS curl inherits proxy env; direct public bypass explicitly
+    unsets `HTTP_PROXY`/`HTTPS_PROXY`/`http_proxy`/`https_proxy`. NAT
+    builder/validators fail closed on image drift (tag-only/busybox/wget/override)
+    and require zero proxy/no_proxy env. Active `nat-egress-ip` source contract
+    execs `curl --noproxy * -fsS --max-time 20` with certificate verification (no
     `-k`/`--insecure`/`--no-check-certificate`/wget).
     `exec-ksa-live-wiring` excludes controlled probes and
     requires ≥1 real Running exec pod. `collectLive` exec-pod normalization
