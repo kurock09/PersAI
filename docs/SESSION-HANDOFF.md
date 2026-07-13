@@ -1,5 +1,50 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 S6 restricted live `probe-restricted` PASS (docs-only on release/main `7e385bbe`)
+
+Status: **Production S6 restricted contour live evidence PASS at release/main
+SHA `7e385bbe` (clean tree; `main` matched `origin/main`).** Earlier live
+evidence already proved **shell/full_public/metadata smokes PASS**; that status
+is preserved. This checkpoint records only the concurrent restricted
+`probe-restricted` acceptance run. ADR-146 stays **open**. Full S6 matrix and
+ADR closure remain **unclaimed**.
+
+**Live restricted evidence (2026-07-13):**
+
+- User authenticated in production UI. Current assistant Luma was already
+  `restricted`; its setting was not changed and needs no restoration.
+- A real non-controlled restricted exec pod was held concurrently via the normal
+  web chat shell path. Exact pod name during proof:
+  `ses-25b6b44b4e1a873f23fe145aca7fc952`.
+- Controlled `adr146-restricted-probe` and `adr146-nat-probe` Pods were
+  generated/applied and became Ready.
+- `node infra/bootstrap/adr146-sandbox-egress-foundation.mjs probe-restricted
+--execute --probe-pod adr146-restricted-probe --nat-probe-pod adr146-nat-probe`
+  completed exit 0 with `RESULT: PASS`.
+- Accepted run used explicit normal-path shell `timeoutMs=360000` and
+  `sleep 300` so the production restricted pod remained alive through the
+  verifier. A prior `sleep 120` attempt ended at the default 90s shell timeout
+  and caused only `exec-ksa-live-wiring: zero Running sandbox-exec pods`; that
+  is **not** a network/product failure.
+- Mandatory cleanup succeeded:
+  `PASS cleanup-controlled-probes: no controlled probe Pods remain (idempotent)`;
+  subsequent kubectl query showed no controlled probes and no remaining
+  restricted exec pod.
+
+**Still explicitly unclaimed:** automated probe inbound denial, HTTP redirect,
+and DNS-rebind; broader S6 helper operator-owned SSH/TCP/UDP/redirect/DNS
+fixtures; public GKE master endpoint proof. Do **not** claim full S6 or ADR
+closure.
+
+**Docs vs release pin:** release/main production evidence is pinned at
+`7e385bbe`. This SESSION-HANDOFF / CHANGELOG / ADR / TEST-PLAN / AGENTS update
+is a **local documentation recording** of that evidence (not a new deploy pin).
+
+**Next:** provision/review operator-owned fixtures and complete the remaining
+S6 manual matrix, including inbound and public GKE master endpoint proof.
+
+---
+
 ## 2026-07-13 — ADR-146 S6 restricted-contour mixed-mode resolver repair (committed locally)
 
 Status: **Post-deploy S6 `probe-restricted` blocked at bot pin `c9579a55` (Argo
@@ -10,7 +55,8 @@ the only surviving production pod (`ses-cf…`, label
 `persai.io/sandbox-egress=full-public`) was used as restricted contour evidence
 and failed `proxy env invalid … got 0`. Structural `verify` still PASS because
 `exec-ksa-live-wiring` correctly accepts any real exec pod. Controlled probes
-excluded; cleanup PASS. Full S6 matrix **not** complete.
+excluded; cleanup PASS. Full S6 matrix **not** complete. Superseded for current
+restricted live status by the `7e385bbe` `probe-restricted` PASS entry above.
 
 **Bounded repair (committed locally at `a498dedd` on baseline `c9579a55`;
 unpushed/undeployed):**

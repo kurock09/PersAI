@@ -30,11 +30,23 @@ sandbox remaining `8a0043dd` (Argo Synced; post-rollout
 `ADR146_POST_ROLLOUT_OK`). ADR-146 stays open; **S1 is committed locally at
 `775e5781`**; **S2 is committed locally at `5a2fd3bd`**; **S3 is committed locally at
 `8d0520f4`**; **S4 Settings UX is committed locally at `3f498ef9`**; **S5 is
-committed locally at `d23936d1` on that baseline (unpushed/undeployed)**. **S6
-parent-only final gate started** (2026-07-13): local final gates PASS; predeploy
-default structural `verify` **RESULT PASS** at `40d7a927`/inventory
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`; no
-push/deploy/chart sync/migration/live S2 acceptance yet.
+committed locally at `d23936d1` on that baseline**. **S6 parent-only final gate
+in progress** (2026-07-13): local final gates PASS; predeploy default structural
+`verify` **RESULT PASS** at `40d7a927`/inventory
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. Earlier live
+evidence already proved **shell/full_public/metadata smokes PASS** (preserved).
+**S6 restricted live `probe-restricted` PASS** at release/main SHA **`7e385bbe`**:
+authenticated Luma already `restricted` (no setting change); concurrent normal
+web-shell path held real restricted pod
+`ses-25b6b44b4e1a873f23fe145aca7fc952` with `timeoutMs=360000` + `sleep 300`
+(prior `sleep 120` → default 90s shell timeout →
+`exec-ksa-live-wiring: zero Running sandbox-exec pods` only; not a
+network/product failure); controlled probes Ready; `probe-restricted --execute`
+exit 0 `RESULT: PASS`; cleanup PASS. Automated inbound denial / HTTP redirect /
+DNS-rebind remain unclaimed; broader S6 helper still needs operator-owned
+SSH/TCP/UDP/redirect/DNS fixtures; public GKE master endpoint proof remains
+unclaimed. Do **not** claim full S6 or ADR closure. Continuity-doc recording is
+local documentation on top of release pin `7e385bbe`, not a new deploy pin.
 Each later slice runs the full AGENTS gate plus affected
 API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
 and live negative acceptance.

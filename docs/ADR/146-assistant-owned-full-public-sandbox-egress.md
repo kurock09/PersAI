@@ -12,9 +12,8 @@ mismatch recycle, owner sync eviction with honest `recycled` + `503`, and
 mandatory post-persistence exec-pod retirement before workspace lease release.
 **Slice 4 is committed locally at `3f498ef9` on baseline `8d0520f4`**: Assistant
 Settings consent UX. **Slice 5 is committed locally at `d23936d1` on baseline
-`3f498ef9` (unpushed/undeployed)**: cross-layer audit, D9 observability, legacy active-code audit,
+`3f498ef9`**: cross-layer audit, D9 observability, legacy active-code audit,
 cross-layer contract tests, deploy/rollback runbook. This ADR is **not** closed.
-Deploy/live validation of S1–S5 is deferred.
 
 Live foundation + deferred-pin acceptance (2026-07-13): prepare, exact
 NAT/firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready
@@ -47,13 +46,26 @@ attempt failed after validate/GAR/pin on pin-assert EOF mismatch (extra CLI
 `ADR146_POST_ROLLOUT_OK`. **S1 committed locally at `775e5781`**. **S2 committed
 locally at `5a2fd3bd`**. **S3 is committed locally at `8d0520f4`**. **S4 is
 committed locally at `3f498ef9`**. **S5 is committed locally at `d23936d1` on
-baseline `3f498ef9` (unpushed/undeployed)**. **Slice 6 parent-only final gate
-started** (2026-07-13): local final gates PASS; predeploy default structural
-`verify` **RESULT PASS** at `40d7a927`/inventory
+baseline `3f498ef9`**. **Slice 6 parent-only final gate in progress**
+(2026-07-13): local final gates PASS; predeploy default structural `verify`
+**RESULT PASS** at `40d7a927`/inventory
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7` after
-`chat_smoke` shell `pwd` exact `ADR146_S6_PREDEPLOY_EXEC_OK`; no
-push/deploy/chart sync/migration/live S2 acceptance yet. Do not claim S6
-complete or close this ADR.
+`chat_smoke` shell `pwd` exact `ADR146_S6_PREDEPLOY_EXEC_OK`. Earlier live
+evidence already proved **shell/full_public/metadata smokes PASS** (preserved).
+**S6 restricted live `probe-restricted` PASS** at release/main SHA **`7e385bbe`**:
+authenticated Luma already `restricted` (no setting change); concurrent normal
+web-shell path held real restricted pod
+`ses-25b6b44b4e1a873f23fe145aca7fc952` with `timeoutMs=360000` + `sleep 300`
+(prior `sleep 120` hit default 90s shell timeout →
+`exec-ksa-live-wiring: zero Running sandbox-exec pods` only; not a
+network/product failure); controlled `adr146-restricted-probe` +
+`adr146-nat-probe` Ready; `probe-restricted --execute` exit 0 `RESULT: PASS`;
+cleanup PASS (no controlled probes; no remaining restricted exec pod). Automated
+inbound denial / HTTP redirect / DNS-rebind remain unclaimed; broader S6 helper
+still needs operator-owned SSH/TCP/UDP/redirect/DNS fixtures; public GKE master
+endpoint proof remains unclaimed. Do **not** claim S6 complete or close this
+ADR. Continuity-doc recording of this evidence is local documentation on top of
+release pin `7e385bbe`, not a new deploy pin.
 
 ## Date
 
@@ -100,9 +112,12 @@ sandbox remains `8a0043dd`. Environment `persai-dev-adr146-foundation`
 **approved**; resume run `29237479924` success; S0.1/0.1b live-accepted; ADR
 open; **S1 committed locally at `775e5781`**; **S2 committed locally at
 `5a2fd3bd`**; **S3 committed locally at `8d0520f4`**; **S4 committed locally at
-`3f498ef9`**; **S5 committed locally at `d23936d1` on baseline `3f498ef9`
-(unpushed/undeployed)**; **S6 started** (local gates PASS; predeploy default
-structural verify PASS at `40d7a927`; push/deploy/live acceptance pending).
+`3f498ef9`**; **S5 committed locally at `d23936d1` on baseline `3f498ef9`**;
+**S6 in progress** (local gates PASS; predeploy default structural verify PASS
+at `40d7a927`; earlier **shell/full_public/metadata smokes PASS** preserved;
+**S6 restricted live `probe-restricted` PASS** at release/main **`7e385bbe`**;
+inbound/redirect/DNS-rebind/public-master and operator-owned S6 fixtures remain
+unclaimed; ADR open; full S6 / closure unclaimed).
 
 ## Slice 3 local land (2026-07-13)
 
@@ -1283,6 +1298,15 @@ The parent agent:
    manual inbound/public-master and mode-toggle checks, and records cleanup;
 8. performs live restricted/full/private-negative/browser/web-search acceptance;
 9. closes the ADR only after evidence is recorded.
+
+**Partial live evidence recorded 2026-07-13 at release/main `7e385bbe`:**
+earlier **shell/full_public/metadata smokes PASS** (preserved); restricted
+`probe-restricted --execute` exit 0 `RESULT: PASS` with concurrent real
+restricted pod `ses-25b6b44b4e1a873f23fe145aca7fc952`, controlled probes Ready,
+and cleanup PASS. Automated inbound denial / HTTP redirect / DNS-rebind remain
+unclaimed; broader S6 helper still needs operator-owned
+SSH/TCP/UDP/redirect/DNS fixtures; public GKE master endpoint proof remains
+unclaimed. This does **not** complete S6 or close the ADR.
 
 No subagent may close S6.
 
