@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   buildFirewallDenyDestinations,
   buildRestrictedProxyDeniedCidrs,
@@ -475,6 +475,42 @@ function baseLive(inventory) {
               }
             ],
             ports: [{ protocol: "TCP", port: 443 }]
+          }
+        ]
+      }
+    },
+    fullPublicExecNetworkPolicy: {
+      metadata: { name: "sandbox-exec-full-public-egress" },
+      spec: {
+        podSelector: {
+          matchLabels: {
+            "app.kubernetes.io/component": "sandbox-exec",
+            "persai.io/sandbox-egress": "full-public"
+          }
+        },
+        policyTypes: ["Ingress", "Egress"],
+        ingress: [],
+        egress: [
+          {
+            to: [
+              { ipBlock: { cidr: "169.254.20.10/32" } },
+              { ipBlock: { cidr: "34.118.224.10/32" } }
+            ],
+            ports: [
+              { protocol: "UDP", port: 53 },
+              { protocol: "TCP", port: 53 }
+            ]
+          },
+          {
+            to: [
+              {
+                ipBlock: {
+                  cidr: "0.0.0.0/0",
+                  except: buildRestrictedProxyDeniedCidrs(inventory)
+                }
+              }
+            ],
+            ports: [{ protocol: "TCP" }, { protocol: "UDP" }]
           }
         ]
       }
@@ -1330,7 +1366,118 @@ test("static deploy truth passes values-dev and structural/probe separation", ()
   assert.equal(runStaticDeployTruth(inventory, { valuesDevText }).ok, true);
 });
 
-test("Helm render has identity-less exec KSA, empty ingress, tight DNS, and no full-public mode", () => {
+test("full-public policy presence is optional predeploy and required postdeploy", () => {
+  const inventory = loadInventory();
+
+  const predeployAbsent = baseLive(inventory);
+  delete predeployAbsent.fullPublicExecNetworkPolicy;
+  let evaluated = evaluateLiveFoundation(inventory, predeployAbsent);
+  assert.equal(evaluated.ok, true);
+  assert.ok(
+    evaluated.checks.some(
+      (entry) =>
+        entry.id === "full-public-exec-networkpolicy-structural" &&
+        entry.ok &&
+        /absent before S2 chart deploy/.test(entry.detail)
+    )
+  );
+
+  const presentWrong = baseLive(inventory);
+  presentWrong.fullPublicExecNetworkPolicy.spec.podSelector.matchLabels["app.kubernetes.io/name"] =
+    "sandbox";
+  evaluated = evaluateLiveFoundation(inventory, presentWrong);
+  assert.equal(evaluated.ok, false);
+  assert.ok(
+    evaluated.checks.some(
+      (entry) => entry.id === "full-public-exec-networkpolicy-structural" && !entry.ok
+    )
+  );
+
+  evaluated = evaluateLiveFoundation(inventory, predeployAbsent, {
+    requireFullPublicExecNetworkPolicy: true
+  });
+  assert.equal(evaluated.ok, false);
+  assert.ok(
+    evaluated.checks.some(
+      (entry) =>
+        entry.id === "full-public-exec-networkpolicy-structural" &&
+        !entry.ok &&
+        /post-S2 deploy verification requires it/.test(entry.detail)
+    )
+  );
+
+  evaluated = evaluateLiveFoundation(inventory, baseLive(inventory), {
+    requireFullPublicExecNetworkPolicy: true
+  });
+  assert.equal(evaluated.ok, true);
+  assert.ok(
+    evaluated.checks.some(
+      (entry) => entry.id === "full-public-exec-networkpolicy-structural" && entry.ok
+    )
+  );
+});
+
+test("verify --require-s2-policy CLI wiring is subprocess-safe and verify-only", () => {
+  const cliUrl = pathToFileURL(
+    path.join(repoRoot, "infra/bootstrap/adr146-sandbox-egress-foundation.mjs")
+  ).href;
+  const foundationUrl = pathToFileURL(
+    path.join(repoRoot, "infra/bootstrap/lib/foundation.mjs")
+  ).href;
+  const subprocessSource = `
+    import { readFileSync } from "node:fs";
+    import { parseAndValidateArgs, evaluateVerifyArgs } from ${JSON.stringify(cliUrl)};
+    import { loadInventory } from ${JSON.stringify(foundationUrl)};
+    const args = parseAndValidateArgs(process.argv.slice(1));
+    const live = JSON.parse(readFileSync(0, "utf8"));
+    const evaluated = evaluateVerifyArgs(loadInventory(), live, args);
+    process.stdout.write(JSON.stringify({
+      phase: args.phase,
+      requireS2Policy: args.requireS2Policy,
+      ok: evaluated.ok,
+      check: evaluated.checks.find(
+        (entry) => entry.id === "full-public-exec-networkpolicy-structural"
+      )
+    }));
+  `;
+  const predeployAbsent = baseLive(loadInventory());
+  delete predeployAbsent.fullPublicExecNetworkPolicy;
+
+  const accepted = spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", subprocessSource, "verify", "--require-s2-policy"],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      input: JSON.stringify(predeployAbsent),
+      shell: false
+    }
+  );
+  assert.equal(accepted.status, 0, accepted.stderr);
+  const acceptedResult = JSON.parse(accepted.stdout);
+  assert.equal(acceptedResult.phase, "verify");
+  assert.equal(acceptedResult.requireS2Policy, true);
+  assert.equal(acceptedResult.ok, false);
+  assert.equal(acceptedResult.check.ok, false);
+  assert.match(acceptedResult.check.detail, /post-S2 deploy verification requires it/);
+  assert.doesNotMatch(accepted.stderr + accepted.stdout, /\$ (?:gcloud|kubectl)\b/u);
+
+  const rejected = spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", subprocessSource, "plan", "--require-s2-policy"],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      input: JSON.stringify(predeployAbsent),
+      shell: false
+    }
+  );
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /--require-s2-policy is valid only with the verify phase/);
+  assert.doesNotMatch(rejected.stderr + rejected.stdout, /\$ (?:gcloud|kubectl)\b/u);
+});
+
+test("Helm render has identity-less exec KSA, empty ingress, tight DNS, and additive full-public policy", () => {
   const rendered = spawnSync(
     "helm",
     ["template", "persai-dev", "infra/helm", "-f", "infra/helm/values-dev.yaml"],
@@ -1344,6 +1491,7 @@ test("Helm render has identity-less exec KSA, empty ingress, tight DNS, and no f
     yaml.indexOf("---", yaml.indexOf("name: sandbox-exec-sa"))
   );
   assert.match(execSa, /automountServiceAccountToken: false/);
+  assert.match(execSa, /persai\.io\/sandbox-exec-identity: "none"/);
   assert.doesNotMatch(execSa, /iam\.gke\.io|RoleBinding|annotations:/);
   assert.match(
     yaml,
@@ -1365,7 +1513,52 @@ test("Helm render has identity-less exec KSA, empty ingress, tight DNS, and no f
     yaml,
     /name: sandbox-nat-identity-probe-isolation[\s\S]*sandbox\.gke\.io\/adr146-nat-probe: "true"[\s\S]*ingress: \[\][\s\S]*port: 443/
   );
-  assert.doesNotMatch(yaml, /full-public|full_public/);
+  const fullPublicStart = yaml.indexOf("name: sandbox-exec-full-public-egress");
+  assert.ok(fullPublicStart >= 0);
+  const fullPublicPolicy = yaml.slice(
+    fullPublicStart,
+    yaml.indexOf("---", fullPublicStart) === -1 ? yaml.length : yaml.indexOf("---", fullPublicStart)
+  );
+  assert.match(fullPublicPolicy, /persai\.io\/sandbox-egress: "full-public"/);
+  assert.match(fullPublicPolicy, /app\.kubernetes\.io\/component: sandbox-exec/);
+  assert.doesNotMatch(fullPublicPolicy, /app\.kubernetes\.io\/name: sandbox\b/);
+  assert.doesNotMatch(fullPublicPolicy, /podSelector:[\s\S]*namespaceSelector:/);
+  assert.match(fullPublicPolicy, /ingress: \[\]/);
+  assert.match(fullPublicPolicy, /protocol: TCP\n        - protocol: UDP/);
+  for (const cidr of buildRestrictedProxyDeniedCidrs(loadInventory())) {
+    assert.match(fullPublicPolicy, new RegExp(cidr.replaceAll(".", "\\.").replace("/", "\\/")));
+  }
+  assert.match(yaml, /name: sandbox-exec-egress-mode-contract/);
+  assert.match(yaml, /defaultMode: "restricted"/);
+  assert.match(yaml, /name: HTTP_PROXY/);
+  assert.doesNotMatch(
+    yaml.slice(
+      yaml.indexOf("fullPublicProxyEnvYaml:"),
+      yaml.indexOf("modesJson:", yaml.indexOf("fullPublicProxyEnvYaml:"))
+    ),
+    /HTTP_PROXY|HTTPS_PROXY/
+  );
+});
+
+test("Helm fails closed when sandbox is enabled without NetworkPolicy rendering", () => {
+  const rendered = spawnSync(
+    "helm",
+    [
+      "template",
+      "persai-dev",
+      "infra/helm",
+      "-f",
+      "infra/helm/values-dev.yaml",
+      "--set",
+      "networkPolicy.enabled=false"
+    ],
+    { cwd: repoRoot, encoding: "utf8", shell: false }
+  );
+  assert.notEqual(rendered.status, 0);
+  assert.match(
+    rendered.stderr + rendered.stdout,
+    /sandbox\.enabled requires networkPolicy\.enabled=true/
+  );
 });
 
 test("Helm fails closed when required proxy deny or DNS inventories are absent", () => {

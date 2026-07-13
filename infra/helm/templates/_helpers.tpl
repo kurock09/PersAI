@@ -56,3 +56,96 @@ access_log stdio:/dev/stdout persai_egress
 cache_log stdio:/dev/stderr
 pid_filename none
 {{- end -}}
+
+{{/*
+ADR-146 Slice 2 — sandbox exec egress mode label + proxy-env Helm/pod-spec contract.
+S3 owns runtime mode resolve and pod create/reuse. These helpers are selectable
+builders only: defaultMode must stay restricted; full_public never becomes the
+chart default path.
+*/}}
+{{- define "persai.sandboxExec.egressModeLabelKey" -}}
+{{- .Values.networkPolicy.sandboxEgress.modeLabelKey | default "persai.io/sandbox-egress" -}}
+{{- end -}}
+
+{{- define "persai.sandboxExec.restrictedLabelValue" -}}
+{{- .Values.networkPolicy.sandboxEgress.restrictedLabelValue | default "restricted" -}}
+{{- end -}}
+
+{{- define "persai.sandboxExec.fullPublicLabelValue" -}}
+{{- .Values.networkPolicy.sandboxEgress.fullPublicLabelValue | default "full-public" -}}
+{{- end -}}
+
+{{- define "persai.sandboxExec.assertEgressContract" -}}
+{{- $defaultMode := .Values.sandbox.execEgress.defaultMode | default "restricted" -}}
+{{- if ne $defaultMode "restricted" }}
+{{- fail "ADR-146: sandbox.execEgress.defaultMode must remain restricted; S3 selects full_public at runtime" }}
+{{- end }}
+{{- $labelKey := include "persai.sandboxExec.egressModeLabelKey" . -}}
+{{- if ne $labelKey "persai.io/sandbox-egress" }}
+{{- fail "ADR-146: networkPolicy.sandboxEgress.modeLabelKey must be persai.io/sandbox-egress" }}
+{{- end }}
+{{- $restricted := include "persai.sandboxExec.restrictedLabelValue" . -}}
+{{- if ne $restricted "restricted" }}
+{{- fail "ADR-146: networkPolicy.sandboxEgress.restrictedLabelValue must be restricted" }}
+{{- end }}
+{{- $fullPublic := include "persai.sandboxExec.fullPublicLabelValue" . -}}
+{{- if ne $fullPublic "full-public" }}
+{{- fail "ADR-146: networkPolicy.sandboxEgress.fullPublicLabelValue must be full-public" }}
+{{- end }}
+{{- if .Values.sandbox.execServiceAccount.gcpServiceAccountEmail }}
+{{- fail "ADR-146: sandbox.execServiceAccount must not set gcpServiceAccountEmail (no Workload Identity / IAM on exec pods)" }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Emit the exact ordered six-entry proxy env for restricted mode, or nothing for
+full_public. Call as:
+  include "persai.sandboxExec.proxyEnvForMode" (dict "root" . "mode" "restricted")
+*/}}
+{{- define "persai.sandboxExec.proxyEnvForMode" -}}
+{{- $root := .root -}}
+{{- $mode := .mode -}}
+{{- if eq $mode "restricted" -}}
+{{- $proxyUrl := $root.Values.sandbox.env.SANDBOX_EXEC_EGRESS_PROXY_URL | default "" -}}
+{{- $noProxy := $root.Values.sandbox.env.SANDBOX_EXEC_NO_PROXY | default "" -}}
+{{- if or (eq $proxyUrl "") (eq $noProxy "") }}
+{{- fail "ADR-146: restricted proxy env requires sandbox.env.SANDBOX_EXEC_EGRESS_PROXY_URL and SANDBOX_EXEC_NO_PROXY" }}
+{{- end }}
+- name: HTTP_PROXY
+  value: {{ $proxyUrl | quote }}
+- name: HTTPS_PROXY
+  value: {{ $proxyUrl | quote }}
+- name: http_proxy
+  value: {{ $proxyUrl | quote }}
+- name: https_proxy
+  value: {{ $proxyUrl | quote }}
+- name: NO_PROXY
+  value: {{ $noProxy | quote }}
+- name: no_proxy
+  value: {{ $noProxy | quote }}
+{{- else if eq $mode "full_public" -}}
+{{- /* intentionally empty: full_public pods must not receive proxy env */ -}}
+{{- else -}}
+{{- fail (printf "ADR-146: unknown sandbox egress mode %q" $mode) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Shared fail-closed validation for public-egress deny inventories used by the
+restricted Squid proxy, NAT identity probe, and full-public exec policies.
+*/}}
+{{- define "persai.sandboxEgress.assertPublicDeniedInventory" -}}
+{{- $requiredDenied := .Values.networkPolicy.sandboxEgress.requiredDeniedCidrs | default (list) -}}
+{{- $publicDenied := .Values.networkPolicy.sandboxEgress.publicDeniedCidrs | default (list) -}}
+{{- if eq (len $requiredDenied) 0 }}
+{{- fail "networkPolicy.sandboxEgress.requiredDeniedCidrs must not be empty" }}
+{{- end }}
+{{- if eq (len $publicDenied) 0 }}
+{{- fail "networkPolicy.sandboxEgress.publicDeniedCidrs must not be empty" }}
+{{- end }}
+{{- range $required := $requiredDenied }}
+{{- if not (has $required $publicDenied) }}
+{{- fail (printf "networkPolicy.sandboxEgress.publicDeniedCidrs is missing required CIDR %s" $required) }}
+{{- end }}
+{{- end }}
+{{- end -}}

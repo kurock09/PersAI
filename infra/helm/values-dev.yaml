@@ -17,10 +17,13 @@ networkPolicy:
   # See infra/bootstrap/adr146-sandbox-egress-foundation.json + RUNBOOK
   # (gcloud --enable-network-policy recreates nodes). Structural verify is the
   # release gate before ADR-146 app rollout.
+  # ADR-146 S2: sandbox.enabled requires networkPolicy.enabled=true (chart fail).
   enabled: true
   sandboxDns:
     # Live GKE kube-dns + NodeLocal DNSCache listeners audited 2026-07-12.
     # Do not replace these /32s with a kube-system selector or broad link-local.
+    # peerMode=ipBlockOnly is the restricted DNS selector contract (ADR-146 D3).
+    peerMode: ipBlockOnly
     allowedCidrs:
       - 169.254.20.10/32
       - 34.118.224.10/32
@@ -30,10 +33,17 @@ networkPolicy:
       - protocol: TCP
         port: 53
   sandboxEgress:
-    # Values-owned fail-closed inventory for Squid's public 80/443 egress.
+    # Values-owned fail-closed inventory for Squid's public 80/443 egress and
+    # additive full-public exec TCP/UDP egress (shared deny set).
     # Includes special-use space and every audited live VPC, Pod, Service,
     # PSA, Redis, Filestore, and peered range even where a broad private range
     # already contains the environment-specific entry.
+    # Current environment contract is IPv4-only. IPv6/dual-stack is unsupported
+    # and chart validation fails until a future audited deny inventory lands.
+    ipFamily: IPv4
+    modeLabelKey: persai.io/sandbox-egress
+    restrictedLabelValue: restricted
+    fullPublicLabelValue: full-public
     requiredDeniedCidrs: &sandboxRequiredDeniedCidrs
       - 0.0.0.0/8
       - 10.0.0.0/8
@@ -538,6 +548,12 @@ sandbox:
   execServiceAccount:
     create: true
     name: sandbox-exec-sa
+    gcpServiceAccountEmail: ""
+  execEgress:
+    defaultMode: restricted
+    contractConfigMap:
+      create: true
+      name: sandbox-exec-egress-mode-contract
   image:
     name: sandbox
     tag: 8a0043dded0349bec33bda2bff4b2b2fcbe20a5f
@@ -677,11 +693,3 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
-
-
-
-
-
-
-
-

@@ -1526,7 +1526,8 @@ export function evaluateManagedResources(inventory, live) {
   return result(checks);
 }
 
-export function evaluateLiveFoundation(inventory, live) {
+export function evaluateLiveFoundation(inventory, live, options = {}) {
+  const requireFullPublicExecNetworkPolicy = options.requireFullPublicExecNetworkPolicy === true;
   const checks = [...evaluatePreflight(inventory, live, "verify").checks];
   const expectedSa = nodeServiceAccountIdentity(inventory);
   const roles = extractRolesForMember(live.nodeSaPolicy, `serviceAccount:${expectedSa.email}`);
@@ -1685,6 +1686,19 @@ export function evaluateLiveFoundation(inventory, live) {
     "nat-probe-networkpolicy-structural",
     natProbeNetworkPolicyMatches(inventory, live.natProbeNetworkPolicy),
     JSON.stringify(live.natProbeNetworkPolicy ?? null)
+  );
+  const fullPublicPolicyPresent = live.fullPublicExecNetworkPolicy != null;
+  check(
+    checks,
+    "full-public-exec-networkpolicy-structural",
+    fullPublicPolicyPresent
+      ? fullPublicExecNetworkPolicyMatches(inventory, live.fullPublicExecNetworkPolicy)
+      : !requireFullPublicExecNetworkPolicy,
+    fullPublicPolicyPresent
+      ? JSON.stringify(live.fullPublicExecNetworkPolicy)
+      : requireFullPublicExecNetworkPolicy
+        ? "missing sandbox-exec-full-public-egress; post-S2 deploy verification requires it"
+        : "absent before S2 chart deploy; historical restricted foundation verify permits absence"
   );
   const metadataDaemon = live.metadataDaemonSet;
   check(
@@ -1845,6 +1859,68 @@ function natProbeNetworkPolicyMatches(inventory, policy) {
     egress.length === 2 &&
     dnsRule &&
     publicRule
+  );
+}
+
+/**
+ * ADR-146 S2 additive full-public exec egress. Exact matchLabels only:
+ * component=sandbox-exec + persai.io/sandbox-egress=full-public. No control-plane
+ * selectors, no pod/namespace peers, shared public deny inventory, TCP+UDP.
+ */
+export function fullPublicExecNetworkPolicyMatches(inventory, policy) {
+  if (!policy) return false;
+  const spec = policy.spec ?? {};
+  const egress = spec.egress ?? [];
+  const expectedDns = [
+    inventory.network.dns.nodeLocalAddress,
+    inventory.network.dns.kubeDnsServiceAddress
+  ];
+  const dnsRule = egress.find(
+    (rule) =>
+      exactIpBlockOnlyPeers(rule.to, expectedDns) &&
+      portsMatch(rule.ports, inventory.network.dns.ports)
+  );
+  const publicRule = egress.find(
+    (rule) =>
+      rule.to?.length === 1 &&
+      exactIpBlockPeer(rule.to[0], "0.0.0.0/0", buildRestrictedProxyDeniedCidrs(inventory)) &&
+      portsMatchProtocolOnly(rule.ports, ["TCP", "UDP"])
+  );
+  const hasPodOrNamespacePeer = egress.some((rule) =>
+    (rule.to ?? []).some(
+      (peer) =>
+        peer &&
+        typeof peer === "object" &&
+        (Object.prototype.hasOwnProperty.call(peer, "podSelector") ||
+          Object.prototype.hasOwnProperty.call(peer, "namespaceSelector"))
+    )
+  );
+  return Boolean(
+    policy.metadata?.name === "sandbox-exec-full-public-egress" &&
+    exactPodSelector(spec.podSelector, {
+      "app.kubernetes.io/component": "sandbox-exec",
+      "persai.io/sandbox-egress": "full-public"
+    }) &&
+    sameSet(spec.policyTypes ?? [], ["Ingress", "Egress"]) &&
+    networkPolicyIngressIsEmpty(spec.ingress) &&
+    egress.length === 2 &&
+    dnsRule &&
+    publicRule &&
+    !hasPodOrNamespacePeer
+  );
+}
+
+function portsMatchProtocolOnly(actual = [], expectedProtocols = []) {
+  if (!Array.isArray(actual) || actual.length !== expectedProtocols.length) return false;
+  const normalized = actual.map((entry) => ({
+    protocol: entry?.protocol,
+    port: entry?.port,
+    endPort: entry?.endPort
+  }));
+  if (normalized.some((entry) => entry.port != null || entry.endPort != null)) return false;
+  return sameSet(
+    normalized.map((entry) => entry.protocol),
+    expectedProtocols
   );
 }
 
@@ -2057,8 +2133,53 @@ export function runStaticDeployTruth(inventory, extras = {}) {
       /^\s*networkPolicy:\s*\n(?:.*\n)*?\s*enabled:\s*true\b/m.test(extras.valuesDevText),
       "values-dev networkPolicy.enabled must remain true"
     );
+    const valuesDenied = extractValuesDevPublicDeniedCidrs(extras.valuesDevText);
+    const expectedDenied = buildRestrictedProxyDeniedCidrs(inventory);
+    check(
+      checks,
+      "helm-shared-public-deny-inventory",
+      valuesDenied != null && sameSet(valuesDenied, expectedDenied),
+      valuesDenied == null
+        ? "values-dev publicDeniedCidrs missing"
+        : JSON.stringify({ valuesDenied, expectedDenied })
+    );
+  }
+  if (extras.fullPublicExecNetworkPolicy) {
+    check(
+      checks,
+      "rendered-full-public-exec-networkpolicy",
+      fullPublicExecNetworkPolicyMatches(inventory, extras.fullPublicExecNetworkPolicy),
+      JSON.stringify(extras.fullPublicExecNetworkPolicy)
+    );
   }
   return result(checks);
+}
+
+/**
+ * Extract networkPolicy.sandboxEgress.publicDeniedCidrs from values-dev text.
+ * @param {string} valuesDevText
+ * @returns {string[] | null}
+ */
+export function extractValuesDevPublicDeniedCidrs(valuesDevText) {
+  const match = valuesDevText.match(
+    /sandboxEgress:[\s\S]*?publicDeniedCidrs:\s*\*sandboxRequiredDeniedCidrs/
+  );
+  if (!match) {
+    const inline = valuesDevText.match(/publicDeniedCidrs:\s*\n((?:\s+-\s+[^\n]+\n)+)/);
+    if (!inline) return null;
+    return inline[1]
+      .split("\n")
+      .map((line) => line.match(/^\s+-\s+(.+)\s*$/)?.[1])
+      .filter(Boolean);
+  }
+  const requiredBlock = valuesDevText.match(
+    /requiredDeniedCidrs:\s*&sandboxRequiredDeniedCidrs\s*\n((?:\s+-\s+[^\n]+\n)+)/
+  );
+  if (!requiredBlock) return null;
+  return requiredBlock[1]
+    .split("\n")
+    .map((line) => line.match(/^\s+-\s+(.+)\s*$/)?.[1])
+    .filter(Boolean);
 }
 
 function publicPoolMatches(inventory, pool) {

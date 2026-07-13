@@ -1,40 +1,59 @@
 # SESSION-HANDOFF
 
-## 2026-07-13 — ADR-146 Slice 1 local land (uncommitted)
+## 2026-07-13 — ADR-146 Slice 2 Helm public-only policy (local uncommitted)
 
-Status: **Slice 1 landed locally on clean baseline `6fe4356a`; uncommitted; no
-push/deploy/cloud mutation.** ADR-146 stays **open**. S2–S4 are **not** started.
+Status: **Slice 2 landed locally on clean baseline `775e5781` (S1 committed
+locally at that SHA; main ahead remote; no push/deploy/cloud mutation).**
+ADR-146 stays **open**. S3–S4 are **not** started. ExecPodBridge / create /
+reuse / recycle remain untouched.
 
 **Scope landed:**
 
-- Prisma `AssistantSandboxEgressMode` + required `Assistant.sandboxEgressMode`
-  (`sandbox_egress_mode`) NOT NULL DEFAULT `restricted`;
-- migration `20260713120000_adr146_s1_assistant_sandbox_egress_mode` with
-  default/backfill and plan JSON cleanup deleting
-  `billing_provider_hints.sandboxPolicy.networkAccessEnabled` (no alias);
-- owner-only `GET/PUT /api/v1/assistant/{assistantId}/sandbox-egress` exact body
-  `{mode:"restricted"|"full_public"}`;
-- ownership = `Assistant.userId` (workspace membership alone is insufficient);
-- changed-mode PUT is one interactive transaction: tenant-constrained Assistant
-  `FOR UPDATE`, canonical mode re-read, assistant-only queued/running busy
-  check, mode update, and audit insert. The SandboxJob Assistant FK makes
-  enqueue acquire a conflicting parent `KEY SHARE` lock, closing the admission
-  race without changing sandbox enqueue code;
-- busy = any `SandboxJob` for the assistant in `queued|running` → stable
-  `409 sandbox_egress_change_busy`; denormalized workspace mismatch cannot fail
-  open;
-- idempotent same-mode PUT skips audit; changed mode audits previous/selected
-  mode + actor; concurrent PUTs serialize and audit failure rolls back mode;
-- responses honestly report `recycled: false` until S3 eviction;
-- dead `networkAccessEnabled` removed from runtime-contract, OpenAPI Admin Plans,
-  parsers, Admin Plans UI, ops display, fixtures/tests.
+- additive `sandbox-exec-full-public-egress` selecting only
+  `sandbox-exec` + `persai.io/sandbox-egress=full-public`; empty ingress;
+  DNS `/32` ipBlocks; public TCP/UDP with shared deny inventory; no
+  pod/namespace/private/metadata destination grants; never selects control-plane
+  pods;
+- preserved restricted `sandbox-exec-isolation` on `component=sandbox-exec`
+  (live unlabeled restricted contour unchanged until S3 labels pods);
+- exact `peerMode: ipBlockOnly` DNS and IPv4-only
+  `sandboxEgress.ipFamily: IPv4` contracts; missing/other/IPv6/dual-stack fail
+  rendering; identity-less `sandbox-exec-sa`;
+- chart fail-closed when `sandbox.enabled` and `networkPolicy.enabled=false`;
+- Helm egress-mode contract ConfigMap + proxy-env helpers (restricted only);
+  `defaultMode` must stay `restricted`;
+- foundation static deploy-truth bind of values-dev denies to inventory +
+  rendered full-public matcher; historical default live `verify` permits absent
+  before deploy but rejects malformed-present; explicit
+  `verify --require-s2-policy` requires present+exact postdeploy;
+- focused rendered-policy tests for both modes.
 
-**Out of scope:** S2 Helm/NP/proxy gating; S3 ExecPodBridge recycle; S4 Settings
-UX; deploy/live validation; ADR closure. ExecPodBridge / `buildProxyEnv`
-untouched.
+**Out of scope:** S3 runtime mode authority; S4 checkbox; deploy/live
+full-public acceptance; ADR closure.
 
-**Next:** parent review → commit when founder asks → Slice 2 (Helm public-only
-policy). Do not close ADR-146.
+**Residuals:** default historical `verify` stays green against the current
+pre-S2 remote chart when `sandbox-exec-full-public-egress` is absent. After
+deploy, S5/S6 must run
+`node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy`;
+missing or malformed policy then fails. Unlabeled live exec pods remain under
+restricted isolation only. `static-check` evidence binding fail-closes on this
+dirty tree (expected).
+
+**Next:** parent review → commit when founder asks → Slice 3 (sandbox mode
+authority, recycle, descendant cleanup). Do not close ADR-146.
+
+---
+
+## 2026-07-13 — ADR-146 Slice 1 committed locally at `775e5781`
+
+Status: **Slice 1 committed locally at `775e5781` on prior baseline
+`6fe4356a`; main ahead remote; no push/deploy.** Canonical
+`Assistant.sandboxEgressMode`, owner GET/PUT `/sandbox-egress`, legacy
+`networkAccessEnabled` deletion, migration + focused tests. Responses still
+report `recycled: false` until S3. See ADR-146 Slice 1 local-land section.
+
+**Superseded for next-slice pointer:** S2 is now the local uncommitted land
+(entry above).
 
 ---
 
@@ -43,7 +62,7 @@ policy). Do not close ADR-146.
 Status: **Documentation-only reconciliation on clean `main` at remote/deployed
 bot pin `64be77d6`; no commit/push in this slice; no cloud mutation.** Slices
 0.1 + 0.1b are **live-accepted**. ADR-146 stays **open**. **Superseded for next
-slice:** S1 is now landed locally (see entry above).
+slice:** S1 is committed locally at `775e5781`; S2 is the current local land.
 
 **Current live pin truth:** bot commit **`64be77d6`**; `api`/`web`/`runtime`/
 `provider-gateway` exact **`3cd2ea4f`** (2/2 Ready each); sandbox remains
@@ -77,7 +96,7 @@ remaining).
 **Explicitly unclaimed (RUNBOOK-only):** inbound denial, HTTP redirect,
 DNS-rebind.
 
-**Next:** see Slice 1 local-land entry above.
+**Next:** see Slice 2 local-land entry above.
 
 ---
 

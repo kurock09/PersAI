@@ -138,6 +138,15 @@ export function buildRestrictedProxyDeniedCidrs(inventory) {
 }
 
 /**
+ * Shared non-global / VPC / Pod / Service / peer / metadata deny inventory for
+ * restricted Squid public egress and ADR-146 full-public exec NetworkPolicy.
+ * Alias kept so S2/deploy-truth and Helm fixtures share one builder.
+ */
+export function buildSandboxPublicEgressDeniedCidrs(inventory) {
+  return buildRestrictedProxyDeniedCidrs(inventory);
+}
+
+/**
  * Named CIDRs that must not overlap for a coherent sandbox contour.
  * specialUseDenies intentionally overlap peers (they are aggregates) and are excluded.
  *

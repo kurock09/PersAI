@@ -9,6 +9,9 @@ global:
 networkPolicy:
   enabled: false
   sandboxDns:
+    # ADR-146: peers are exact audited /32 ipBlocks only (NodeLocal + kube-dns
+    # Service). Never kube-system namespaceSelector or broad DNS podSelectors.
+    peerMode: ipBlockOnly
     allowedCidrs: []
     ports:
       - protocol: UDP
@@ -18,6 +21,13 @@ networkPolicy:
   sandboxEgress:
     # Complete environment-specific inventory is mandatory whenever sandbox
     # NetworkPolicies render. Every required entry must also be denied.
+    # Shared by restricted Squid proxy, NAT probe, and full-public exec policy.
+    # S2 emits 0.0.0.0/0 and therefore supports only this audited IPv4 contour.
+    # IPv6/dual-stack must fail until a future environment inventory is reviewed.
+    ipFamily: IPv4
+    modeLabelKey: persai.io/sandbox-egress
+    restrictedLabelValue: restricted
+    fullPublicLabelValue: full-public
     requiredDeniedCidrs: []
     publicDeniedCidrs: []
   apiIngress:
@@ -406,6 +416,15 @@ sandbox:
   execServiceAccount:
     create: true
     name: sandbox-exec-sa
+    # Must stay empty — no Workload Identity / GCP IAM on untrusted exec pods.
+    gcpServiceAccountEmail: ""
+  execEgress:
+    # ADR-146 S2 Helm/pod-spec contract. S3 selects mode at runtime; chart
+    # default must remain restricted (fail-closed if changed).
+    defaultMode: restricted
+    contractConfigMap:
+      create: true
+      name: sandbox-exec-egress-mode-contract
   image:
     name: sandbox
     tag: ""

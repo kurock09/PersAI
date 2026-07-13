@@ -1,0 +1,18 @@
+{{- /*
+ADR-146 Slice 2: fail-closed sandbox egress chart assertions.
+Renders no objects — only validates that sandbox execution cannot run without
+NetworkPolicy rendering and that the Helm/pod-spec egress-mode contract stays
+restricted-default until Slice 3 wires runtime selection.
+*/ -}}
+{{- if .Values.sandbox.enabled }}
+{{- if not .Values.networkPolicy.enabled }}
+{{- fail "ADR-146: sandbox.enabled requires networkPolicy.enabled=true; sandbox execution cannot run with networkPolicy.enabled=false" }}
+{{- end }}
+{{- if ne (.Values.networkPolicy.sandboxDns.peerMode | default "") "ipBlockOnly" }}
+{{- fail "ADR-146: networkPolicy.sandboxDns.peerMode must be exactly ipBlockOnly" }}
+{{- end }}
+{{- if ne (.Values.networkPolicy.sandboxEgress.ipFamily | default "") "IPv4" }}
+{{- fail "ADR-146: networkPolicy.sandboxEgress.ipFamily must be exactly IPv4; IPv6 and dual-stack require a future audited deny inventory" }}
+{{- end }}
+{{- include "persai.sandboxExec.assertEgressContract" . }}
+{{- end }}

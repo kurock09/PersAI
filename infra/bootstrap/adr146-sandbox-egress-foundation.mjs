@@ -2,7 +2,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   APPLY_PHASE_ORDER,
   ADR146_CONTROLLED_PROBE_LABEL,
@@ -59,7 +59,7 @@ const PHASES = new Set([
   "probe-restricted"
 ]);
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const parsed = {
     phase: "plan",
     execute: false,
@@ -68,6 +68,7 @@ function parseArgs(argv) {
     probePod: undefined,
     natProbePod: undefined,
     outDir: undefined,
+    requireS2Policy: false,
     help: false
   };
   const positional = [];
@@ -79,12 +80,29 @@ function parseArgs(argv) {
     else if (arg === "--probe-pod") parsed.probePod = argv[++index];
     else if (arg === "--nat-probe-pod") parsed.natProbePod = argv[++index];
     else if (arg === "--out-dir") parsed.outDir = argv[++index];
+    else if (arg === "--require-s2-policy") parsed.requireS2Policy = true;
     else if (arg === "--help" || arg === "-h") parsed.help = true;
     else if (arg.startsWith("-")) throw new Error(`unknown argument: ${arg}`);
     else positional.push(arg);
   }
   if (positional[0]) parsed.phase = positional[0];
   return parsed;
+}
+
+export function parseAndValidateArgs(argv) {
+  const args = parseArgs(argv);
+  if (args.help) return args;
+  if (!PHASES.has(args.phase)) throw new Error(`unsupported phase ${args.phase}\n${usage()}`);
+  if (args.requireS2Policy && args.phase !== "verify") {
+    throw new Error("--require-s2-policy is valid only with the verify phase");
+  }
+  return args;
+}
+
+export function evaluateVerifyArgs(inventory, live, args) {
+  return evaluateLiveFoundation(inventory, live, {
+    requireFullPublicExecNetworkPolicy: args.requireS2Policy
+  });
 }
 
 function usage() {
@@ -111,6 +129,9 @@ Public pool retirement additionally requires:
 Restricted active probes additionally require:
   --execute --probe-pod <running-restricted-exec-pod>
   --nat-probe-pod <controlled-direct-egress-sandbox-pod>
+
+Post-S2 chart deploy structural verification additionally requires:
+  verify --require-s2-policy
 `;
 }
 
@@ -444,6 +465,10 @@ function collectLive(inventory) {
     ],
     true
   );
+  const fullPublicExecNetworkPolicy = kubectlJson(
+    ["-n", "persai-dev", "get", "networkpolicy", "sandbox-exec-full-public-egress", "-o", "json"],
+    true
+  );
   const metadataDaemonSet = kubectlJson([
     "-n",
     inventory.cidrs.restrictedProbe.metadata.daemonSetNamespace,
@@ -542,6 +567,7 @@ function collectLive(inventory) {
     legacyExecNetworkPolicy,
     proxyNetworkPolicy,
     natProbeNetworkPolicy,
+    fullPublicExecNetworkPolicy,
     metadataDaemonSet,
     trustedProbePods,
     redisInstance,
@@ -1047,9 +1073,8 @@ function cleanupControlledProbes(inventory, execute) {
 }
 
 function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseAndValidateArgs(process.argv.slice(2));
   if (args.help) return process.stdout.write(usage());
-  if (!PHASES.has(args.phase)) throw new Error(`unsupported phase ${args.phase}\n${usage()}`);
   const inventoryPath =
     args.inventoryPath ??
     path.join(repoRoot, "infra/bootstrap/adr146-sandbox-egress-foundation.json");
@@ -1117,8 +1142,13 @@ function main() {
     console.log(
       `evidence.gitCommitSha=${evidence.gitCommitSha} inventorySha256=${evidence.inventorySha256}`
     );
-    const evaluated = evaluateLiveFoundation(inventory, collectLive(inventory));
-    printChecks("Structural live foundation verify", evaluated);
+    const evaluated = evaluateVerifyArgs(inventory, collectLive(inventory), args);
+    printChecks(
+      args.requireS2Policy
+        ? "Post-S2 structural live foundation verify"
+        : "Structural live foundation verify",
+      evaluated
+    );
     if (!evaluated.ok) {
       process.exitCode = 1;
       console.error("Structural verify failed. Dynamic probes were not run or claimed.");
@@ -1177,9 +1207,14 @@ function main() {
   );
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(`[error] ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
+const invokedAsScript =
+  process.argv[1] != null && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+
+if (invokedAsScript) {
+  try {
+    main();
+  } catch (error) {
+    console.error(`[error] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
 }

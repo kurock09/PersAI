@@ -5,10 +5,13 @@
 Accepted — founder-directed production orchestration program opened 2026-07-12.
 Slice 0 read-only code/live-cluster audit completed 2026-07-12 with implementation
 **NO-GO**. **Slices 0.1 + 0.1b are live-accepted** (2026-07-13). **Slice 1 is
-landed locally (uncommitted)** on baseline `6fe4356a`: canonical
-`Assistant.sandboxEgressMode`, owner GET/PUT `/sandbox-egress`, legacy
-`networkAccessEnabled` deletion, migration + focused tests. This ADR is **not**
-closed. Slices 2–4 are **not** started. Deploy/live validation of S1 is deferred.
+committed locally at `775e5781`** (canonical `Assistant.sandboxEgressMode`, owner
+GET/PUT `/sandbox-egress`, legacy `networkAccessEnabled` deletion). **Slice 2 is
+landed locally (uncommitted) on baseline `775e5781`**: Helm public-only policy
+contract, additive full-public NetworkPolicy, shared deny inventory, exec
+identity-less SA hardening, restricted-default egress-mode ConfigMap contract,
+and rendered-policy assertions. This ADR is **not** closed. Slices 3–4 are
+**not** started. Deploy/live validation of S1/S2 is deferred.
 
 Live foundation + deferred-pin acceptance (2026-07-13): prepare, exact
 NAT/firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready
@@ -38,10 +41,10 @@ attempt failed after validate/GAR/pin on pin-assert EOF mismatch (extra CLI
 `main`; the successful second run is current. Post-rollout public
 `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, PersAI MCP chat smoke exact
-`ADR146_POST_ROLLOUT_OK`. **Slice 1 landed locally (uncommitted) on baseline
-`6fe4356a`** — canonical Assistant egress mode + owner API + legacy field
-deletion; `recycled:false` until S3. Next under parent orchestration: **Slice 2**
-(Helm public-only policy). Do **not** claim S2–S4 landed or close this ADR.
+`ADR146_POST_ROLLOUT_OK`. **S1 committed locally at `775e5781`**. **S2 landed
+locally (uncommitted) on that baseline**. Next under parent orchestration:
+**Slice 3** (sandbox mode authority / recycle / descendant cleanup). Do **not**
+claim S3–S4 landed or close this ADR.
 
 ## Date
 
@@ -83,13 +86,55 @@ foundation gate **PASS** at that proof pin; evidence inventory SHA-256
 remote/deployed bot pin **`64be77d6`**: deferred services exact `3cd2ea4f`;
 sandbox remains `8a0043dd`. Environment `persai-dev-adr146-foundation`
 **approved**; resume run `29237479924` success; S0.1/0.1b live-accepted; ADR
-open; **S1 landed locally (uncommitted) on `6fe4356a`**; S2 next (not started).
+open; **S1 committed locally at `775e5781`**; **S2 landed locally
+(uncommitted) on that baseline**; S3 next (not started).
+
+## Slice 2 local land (2026-07-13)
+
+Baseline: clean `main` at `775e5781c0bed5d43266a2494e373d8960b78e14` (S1
+committed locally; ahead of remote; no push).
+
+Landed locally (uncommitted; no commit/push/deploy/cloud mutation):
+
+- additive `sandbox-exec-full-public-egress` NetworkPolicy selecting only
+  `app.kubernetes.io/component=sandbox-exec` +
+  `persai.io/sandbox-egress=full-public` (exact matchLabels); empty ingress;
+  DNS via exact audited `/32` ipBlocks; direct public TCP/UDP with shared
+  `publicDeniedCidrs` except inventory — no pod/namespace peers and no
+  control-plane pod selection;
+- preserved `sandbox-exec-isolation` restricted default contour on
+  `component=sandbox-exec` (live unlabeled pods keep DNS + Squid-only egress
+  until S3 stamps mode labels);
+- shared restricted-proxy / NAT-probe / full-public deny inventory + fail-closed
+  template validation; exact `peerMode: ipBlockOnly` DNS contract and explicit
+  IPv4-only `sandboxEgress.ipFamily: IPv4` contract (missing/IPv6/dual-stack
+  fail rendering);
+- dedicated identity-less `sandbox-exec-sa` (no WI email, no annotations, label
+  `persai.io/sandbox-exec-identity=none`);
+- production chart assertion: `sandbox.enabled` requires
+  `networkPolicy.enabled=true`;
+- Helm/pod-spec egress-mode contract ConfigMap + helpers
+  (`persai.sandboxExec.proxyEnvForMode`) with fail-closed
+  `defaultMode=restricted` and proxy env only for restricted — ExecPodBridge
+  unwired (S3 owns runtime selection);
+- Cloud NAT / VPC-firewall deploy-truth extended via shared deny inventory bind
+  and rendered full-public matcher in `runStaticDeployTruth` / foundation live
+  structural check. Historical default `verify` permits policy absence before
+  deploy but rejects malformed-present; S5/S6 must run
+  `node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy`
+  to require presence plus exact structure;
+- Helm defaults/dev values +
+  `infra/helm/scripts/sandbox-egress-network-policy.test.mjs` for both modes.
+
+Out of scope for this land: S3 ExecPodBridge mode resolve / recycle /
+descendant cleanup; S4 Settings UX; deploy/live full-public acceptance; ADR
+closure. No second Squid, no Dataplane V2, no compatibility alias.
 
 ## Slice 1 local land (2026-07-13)
 
 Baseline: clean `main` at `6fe4356a4c1c71a17678d4dca47eaba239b89a74`.
 
-Landed locally (uncommitted; no commit/push/deploy):
+Committed locally at `775e5781c0bed5d43266a2494e373d8960b78e14` (no push):
 
 - Prisma enum `AssistantSandboxEgressMode` (`restricted | full_public`) and
   required `Assistant.sandboxEgressMode` / `assistants.sandbox_egress_mode`
@@ -229,8 +274,9 @@ rather than copy into the new mode:
 
 ### Slice 0 verdict
 
-- **Code ledger (Slice 0 finding):** GO for the then-future S1 data/API cutover
-  in isolation; S1 subsequently landed locally on `6fe4356a`;
+- **Code ledger (historical Slice 0 finding):** GO for the then-future S1
+  data/API cutover in isolation; S1 was implemented from `6fe4356a` and later
+  committed locally at `775e5781`;
   `networkAccessEnabled` is confirmed vestigial, sandbox already has Prisma
   access to Assistant, and exact warm/create/reuse/delete seams are known.
 - **Program gate:** NO-GO for S1/S2 implementation as a deployable program. D10
@@ -361,8 +407,10 @@ minimum:
 - `169.254.0.0/16`, including GKE/Compute metadata endpoints;
 - the real cluster node, Pod, Service, control-plane, and peered-VPC ranges even
   if a future environment allocates them outside the common RFC1918 blocks;
-- IPv6 loopback, link-local, unique-local, multicast, documentation, and the
-  environment's cluster/internal ranges when IPv6 is enabled.
+- the current chart is explicitly IPv4-only (`sandboxEgress.ipFamily: IPv4`);
+  IPv6 and dual-stack fail rendering until a future audited inventory covers
+  IPv6 loopback, link-local, unique-local, multicast, documentation, metadata,
+  and environment cluster/internal ranges.
 
 The chart must fail rendering or deploy-truth validation when full-public mode
 is enabled without the environment-specific internal CIDR inventory. An empty
@@ -680,7 +728,8 @@ proxy-env + CONNECT denial repairs, and the final restricted
 below). Evidence inventory SHA-256
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. Inbound
 denial / HTTP redirect / DNS-rebind remain explicitly unclaimed RUNBOOK
-checks. ADR-146 is **not** closed. S1 subsequently landed locally on `6fe4356a`.
+checks. ADR-146 is **not** closed. This is dated S0.1 history; S1 was later
+committed locally at `775e5781`.
 
 ### Slice 0.1b — Repository release gate (split-pin)
 
@@ -695,8 +744,8 @@ Environment-gated pin successfully; current bot pin **`64be77d6`** with `api`/`w
 `provider-gateway` exact `3cd2ea4f` and sandbox remaining `8a0043dd`; Argo
 Synced; post-rollout `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, MCP smoke exact
-`ADR146_POST_ROLLOUT_OK`. ADR-146 stays open; **S1 subsequently landed locally
-on `6fe4356a`**.
+`ADR146_POST_ROLLOUT_OK`. ADR-146 stays open. This is dated S0.1/0.1b history;
+S1 was later committed locally at `775e5781`.
 
 Lands:
 
@@ -945,8 +994,8 @@ Synced; post-rollout `https://persai.dev/api/health` 200 `{status:ok}` and
 `https://persai.dev/api/ready` 200 `{status:ready}`; MCP smoke
 `ADR146_POST_ROLLOUT_OK`.
 
-Historical next step at this checkpoint was **Slice 1**. S1 has since landed
-locally on `6fe4356a`; do **not** close this ADR.
+Historical next step at this checkpoint was **Slice 1**. S1 was later committed
+locally at `775e5781`; do **not** close this ADR.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:
@@ -989,14 +1038,16 @@ S0.1 restricted live foundation gate is recorded PASS at `e5c249c3` (evidence
 inventory SHA-256
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). S0.1b
 Environment approval + deferred pins are live-accepted at bot pin `64be77d6`.
-**S1 subsequently landed locally on baseline `6fe4356a`.** A locally rendered
-policy alone is not sufficient evidence for S2 or live acceptance.
+**S1 is committed locally at `775e5781`** (implemented from baseline
+`6fe4356a`; not pushed/deployed). **S2 is local and uncommitted on `775e5781`.**
+A locally rendered policy alone is not live acceptance.
 
 ### Slice 1 — Canonical data/API contract and legacy-field deletion
 
 Subagent: Cursor Grok 4.5.
 
-Status: **landed locally (uncommitted) on baseline `6fe4356a`.**
+Status: **committed locally at `775e5781`** (implemented from baseline
+`6fe4356a`; not pushed/deployed).
 
 Landed:
 

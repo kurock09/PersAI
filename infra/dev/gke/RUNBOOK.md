@@ -677,8 +677,27 @@ kubectl -n "${NAMESPACE}" get networkpolicies
 Expected policies present:
 
 - `sandbox-exec-isolation` (empty ingress; restricted DNS + Squid-only egress
-  for `app.kubernetes.io/component: sandbox-exec`)
+  for `app.kubernetes.io/component: sandbox-exec` — live unlabeled restricted
+  contour until S3 stamps `persai.io/sandbox-egress`)
+- `sandbox-exec-full-public-egress` (ADR-146 S2 additive; empty ingress; DNS +
+  public TCP/UDP with shared deny inventory; selects only
+  `component=sandbox-exec` + `persai.io/sandbox-egress=full-public`; never
+  control-plane pods; no pod/namespace peers)
 - `sandbox-egress-proxy-isolation` (selects proxy pod by `app.kubernetes.io/name: sandbox-egress-proxy`)
+- `sandbox-nat-identity-probe-isolation` (NAT identity probe contour)
+
+Default historical restricted-foundation verification deliberately permits the
+S2 full-public policy to be absent before the chart deploy, but still fails if
+that policy exists with a malformed selector/rule. After S2 is deployed, S5/S6
+operators must require presence plus exact structure:
+
+```bash
+node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy
+```
+
+Do not use the default `verify` invocation as post-S2 deployment acceptance.
+The current chart is IPv4-only (`sandboxEgress.ipFamily: IPv4`); IPv6 or
+dual-stack values fail rendering until a future audited deny inventory exists.
 
 ### 3. Verify exec pods cannot reach the internet directly
 

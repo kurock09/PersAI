@@ -99,7 +99,8 @@ Current active Step 20 persistence includes:
 
 `SandboxFileRef` is not active current-model truth anymore.
 
-**ADR-146 Slice 1 landed locally (uncommitted on `6fe4356a`):**
+**ADR-146 Slice 1 committed locally at `775e5781`** (implemented from baseline
+`6fe4356a`; not pushed/deployed):
 
 - required `Assistant.sandboxEgressMode` /
   `assistants.sandbox_egress_mode` with enum values `restricted | full_public`
@@ -115,6 +116,10 @@ Current active Step 20 persistence includes:
   an enforced direct route;
 - plans continue to own sandbox/tool availability and resource quotas, but
   ADR-146 adds no second plan-level network ceiling.
+
+ADR-146 Slice 2 is local and uncommitted on `775e5781`; it changes Helm policy
+truth only and does not alter this data model. Slice 3 runtime authority is not
+started.
 
 ADR-081 plus ADR-133 extend the target-state authority of path-based Files: every user-visible or assistant-reusable file must be represented by a canonical workspace path plus `workspace_file_metadata` immediately when persisted. The default active path shape is `/workspace/assistants/<assistantId>/sessions/<sessionId>/...`, with assistant/workspace widen facts derived from the visible path rather than a second scope vocabulary. That includes user uploads, assistant-generated artifacts, delivered assistant attachments, and sandbox-created files.
 

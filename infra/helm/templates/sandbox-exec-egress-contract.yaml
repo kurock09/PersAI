@@ -1,0 +1,25 @@
+{{- if and .Values.sandbox.enabled .Values.sandbox.execEgress.contractConfigMap.create }}
+{{- include "persai.sandboxExec.assertEgressContract" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.sandbox.execEgress.contractConfigMap.name }}
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app.kubernetes.io/name: sandbox-exec
+    app.kubernetes.io/component: sandbox-exec-egress-contract
+    persai.io/sandbox-egress-contract: "true"
+data:
+  defaultMode: {{ .Values.sandbox.execEgress.defaultMode | quote }}
+  modeLabelKey: {{ include "persai.sandboxExec.egressModeLabelKey" . | quote }}
+  restrictedLabelValue: {{ include "persai.sandboxExec.restrictedLabelValue" . | quote }}
+  fullPublicLabelValue: {{ include "persai.sandboxExec.fullPublicLabelValue" . | quote }}
+  # S3 selects mode at last responsible moment. Restricted injects proxy env;
+  # full_public must omit every proxy variable. This ConfigMap is the Helm
+  # contract surface only — ExecPodBridge is intentionally unwired in S2.
+  restrictedProxyEnvYaml: |
+{{- include "persai.sandboxExec.proxyEnvForMode" (dict "root" . "mode" "restricted") | nindent 4 }}
+  fullPublicProxyEnvYaml: ""
+  modesJson: |
+    {"restricted":{"label":{{ include "persai.sandboxExec.restrictedLabelValue" . | quote }},"injectProxyEnv":true},"full_public":{"label":{{ include "persai.sandboxExec.fullPublicLabelValue" . | quote }},"injectProxyEnv":false}}
+{{- end }}

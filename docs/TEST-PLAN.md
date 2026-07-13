@@ -27,8 +27,10 @@ RUNBOOK checks. GitHub Environment `persai-dev-adr146-foundation` is
 sandbox remaining `8a0043dd` (Argo Synced; post-rollout
 `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, MCP smoke
-`ADR146_POST_ROLLOUT_OK`). ADR-146 stays open; **S1 is explicitly authorized as
-the next slice** and is **not** implemented. Each later slice runs the full AGENTS gate plus affected
+`ADR146_POST_ROLLOUT_OK`). ADR-146 stays open; **S1 is committed locally at
+`775e5781`**; **S2 is landed locally (uncommitted) on that baseline** (Helm
+public-only policy; ExecPodBridge unwired). S3 is next and is **not** started.
+Each later slice runs the full AGENTS gate plus affected
 API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
 and live negative acceptance.
 
@@ -40,6 +42,7 @@ or RUNBOOK sequencing, run:
 ```powershell
 corepack pnpm run test:adr146-foundation
 node --test infra/helm/scripts/sandbox-egress-proxy-squid-conf.test.mjs
+node --test infra/helm/scripts/sandbox-egress-network-policy.test.mjs
 node infra/helm/scripts/sandbox-egress-proxy-squid-conf.mjs
 # Optional explicit parse gate (no normal-test network pull; use --pull only when requested):
 #   node infra/helm/scripts/sandbox-egress-proxy-squid-conf.mjs --require-parse
@@ -49,7 +52,7 @@ node infra/bootstrap/adr146-sandbox-egress-foundation.mjs plan
 #   node infra/bootstrap/adr146-sandbox-egress-foundation.mjs <phase>
 helm lint infra/helm -f infra/helm/values.yaml -f infra/helm/values-dev.yaml
 helm template persai-dev infra/helm -f infra/helm/values.yaml -f infra/helm/values-dev.yaml > $null
-corepack pnpm exec prettier --check docs/TEST-PLAN.md docs/ARCHITECTURE.md docs/SESSION-HANDOFF.md docs/CHANGELOG.md docs/ADR/146-assistant-owned-full-public-sandbox-egress.md infra/bootstrap/README.md infra/bootstrap/adr146-sandbox-egress-foundation.mjs infra/bootstrap/adr146-sandbox-egress-foundation.test.mjs infra/bootstrap/lib/foundation.mjs infra/bootstrap/lib/cidr.mjs infra/dev/gke/RUNBOOK.md infra/helm/scripts/sandbox-egress-proxy-squid-conf.mjs infra/helm/scripts/sandbox-egress-proxy-squid-conf.test.mjs
+corepack pnpm exec prettier --check docs/TEST-PLAN.md docs/ARCHITECTURE.md docs/SESSION-HANDOFF.md docs/CHANGELOG.md docs/ADR/146-assistant-owned-full-public-sandbox-egress.md infra/bootstrap/README.md infra/bootstrap/adr146-sandbox-egress-foundation.mjs infra/bootstrap/adr146-sandbox-egress-foundation.test.mjs infra/bootstrap/lib/foundation.mjs infra/bootstrap/lib/cidr.mjs infra/dev/gke/RUNBOOK.md infra/helm/scripts/sandbox-egress-proxy-squid-conf.mjs infra/helm/scripts/sandbox-egress-proxy-squid-conf.test.mjs infra/helm/scripts/sandbox-egress-network-policy.test.mjs
 ```
 
 Required local invariants:
@@ -77,13 +80,22 @@ Required local invariants:
    closed. Calico owns node/Pod/Service/metadata/same-node enforcement.
 6. Rendered Helm has identity-less/no-RBAC/no-WI `sandbox-exec-sa`, every exec
    pod names it with token automount false, empty ingress, exact NodeLocal +
-   kube-dns Service `/32` UDP/TCP 53 (ipBlock-only peers), exact Squid proxy
-   port, and the complete values-owned proxy deny inventory. Exec/proxy/NAT-probe
-   top-level and peer selectors have exact matchLabels and reject
-   namespaceSelector/podSelector/matchExpressions widening. Helm fails if required
-   denies are absent. Live structural verify for that KSA allows only the
-   explicit inert controller bookkeeping annotation allowlist
-   (`argocd.argoproj.io/tracking-id`,
+   kube-dns Service `/32` UDP/TCP 53 (ipBlock-only peers;
+   `peerMode: ipBlockOnly`), exact Squid proxy port, and the complete
+   values-owned shared
+   public deny inventory for Squid + NAT probe + additive
+   `sandbox-exec-full-public-egress`. Restricted isolation keeps selecting
+   `app.kubernetes.io/component=sandbox-exec` only (live unlabeled contour).
+   Full-public policy selects only that component plus
+   `persai.io/sandbox-egress=full-public`, never control-plane pods, and grants
+   no pod/namespace peers. Chart validates the environment contract as exactly
+   `sandboxEgress.ipFamily: IPv4`; missing/IPv6/dual-stack values fail because
+   the current policy emits `0.0.0.0/0`. IPv6 remains unsupported until a future
+   audited deny inventory. Chart fails if required denies are absent, DNS
+   `peerMode` is missing/not `ipBlockOnly`, or `sandbox.enabled` with
+   `networkPolicy.enabled=false`. Live structural verify
+   for that KSA allows only the explicit inert controller bookkeeping annotation
+   allowlist (`argocd.argoproj.io/tracking-id`,
    `kubectl.kubernetes.io/last-applied-configuration`) and fail-closes on
    WIF/GCP identity, arbitrary, or security-relevant annotations. Live
    NetworkPolicy structural verify treats omitted/null `spec.ingress` as
@@ -100,7 +112,14 @@ Required local invariants:
    `node --test infra/helm/scripts/sandbox-egress-proxy-squid-conf.test.mjs`
    (includes checksum change on config-driving values) plus optional
    `squid -k parse` when the pinned image is already present (no normal-test
-   network pull).
+   network pull), and
+   `node --test infra/helm/scripts/sandbox-egress-network-policy.test.mjs`
+   for restricted + full-public rendered-policy assertions and the
+   restricted-default egress-mode contract ConfigMap.
+   Historical pre-deploy `verify` permits the S2 policy to be absent but fails
+   if it is present and malformed. Post-S2 deployment acceptance must run
+   `node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy`,
+   which requires presence plus exact structure.
 7. Final structural verify cannot claim exec KSA wiring with zero qualifying
    Running exec pods; default-SA pods fail. Object-level KSA readiness alone is
    pre-rollout structure, not live wiring proof. Zero real Running exec pods

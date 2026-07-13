@@ -86,11 +86,20 @@ spec:
 {{- if or (ne $dnsPortOne.protocol "UDP") (ne ($dnsPortOne.port | int) 53) (ne $dnsPortTwo.protocol "TCP") (ne ($dnsPortTwo.port | int) 53) }}
 {{- fail "networkPolicy.sandboxDns.ports must be exactly UDP/53 followed by TCP/53" }}
 {{- end }}
+{{- /*
+ADR-146: restricted default contour for every untrusted exec pod.
+Selects app.kubernetes.io/component=sandbox-exec only (exact matchLabels) so
+live unlabeled restricted pods keep the current contour until S3 stamps
+persai.io/sandbox-egress. DNS peers are exact audited /32 ipBlocks — never a
+kube-system namespaceSelector or broad DNS workload podSelector.
+*/}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: sandbox-exec-isolation
   namespace: {{ .Values.global.namespace }}
+  labels:
+    persai.io/sandbox-egress-policy: restricted
 spec:
   podSelector:
     matchLabels:
@@ -127,16 +136,8 @@ spec:
 {{- if and .Values.networkPolicy.enabled .Values.sandbox.enabled }}
 {{- $dnsCidrs := .Values.networkPolicy.sandboxDns.allowedCidrs | default (list) }}
 {{- $dnsPorts := .Values.networkPolicy.sandboxDns.ports | default (list) }}
-{{- $requiredDenied := .Values.networkPolicy.sandboxEgress.requiredDeniedCidrs | default (list) }}
+{{- include "persai.sandboxEgress.assertPublicDeniedInventory" . }}
 {{- $publicDenied := .Values.networkPolicy.sandboxEgress.publicDeniedCidrs | default (list) }}
-{{- if eq (len $requiredDenied) 0 }}
-{{- fail "networkPolicy.sandboxEgress.requiredDeniedCidrs must not be empty" }}
-{{- end }}
-{{- range $required := $requiredDenied }}
-{{- if not (has $required $publicDenied) }}
-{{- fail (printf "networkPolicy.sandboxEgress.publicDeniedCidrs is missing required CIDR %s" $required) }}
-{{- end }}
-{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -177,16 +178,8 @@ spec:
 {{- $proxyPort := .Values.sandbox.egressProxy.port | int }}
 {{- $dnsCidrs := .Values.networkPolicy.sandboxDns.allowedCidrs | default (list) }}
 {{- $dnsPorts := .Values.networkPolicy.sandboxDns.ports | default (list) }}
-{{- $requiredDenied := .Values.networkPolicy.sandboxEgress.requiredDeniedCidrs | default (list) }}
+{{- include "persai.sandboxEgress.assertPublicDeniedInventory" . }}
 {{- $publicDenied := .Values.networkPolicy.sandboxEgress.publicDeniedCidrs | default (list) }}
-{{- if eq (len $requiredDenied) 0 }}
-{{- fail "networkPolicy.sandboxEgress.requiredDeniedCidrs must not be empty" }}
-{{- end }}
-{{- range $required := $requiredDenied }}
-{{- if not (has $required $publicDenied) }}
-{{- fail (printf "networkPolicy.sandboxEgress.publicDeniedCidrs is missing required CIDR %s" $required) }}
-{{- end }}
-{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -222,6 +215,7 @@ spec:
 {{- end }}
     # Internet: the proxy is the L7 enforcement boundary; its own egress is allowed
     # on HTTP(S) ports to the allowlisted domains (enforced by Squid, not here).
+    # Shared non-global/private/metadata deny inventory matches full-public exec.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -236,3 +230,64 @@ spec:
           port: 443
 {{- end }}
 ---
+{{- if and .Values.networkPolicy.enabled .Values.sandbox.enabled }}
+{{- $dnsCidrs := .Values.networkPolicy.sandboxDns.allowedCidrs | default (list) }}
+{{- $dnsPorts := .Values.networkPolicy.sandboxDns.ports | default (list) }}
+{{- if lt (len $dnsCidrs) 2 }}
+{{- fail "networkPolicy.sandboxDns.allowedCidrs must contain the audited kube-dns and NodeLocal DNS /32s" }}
+{{- end }}
+{{- if ne (len $dnsPorts) 2 }}
+{{- fail "networkPolicy.sandboxDns.ports must be exactly UDP/53 and TCP/53" }}
+{{- end }}
+{{- include "persai.sandboxEgress.assertPublicDeniedInventory" . }}
+{{- $publicDenied := .Values.networkPolicy.sandboxEgress.publicDeniedCidrs | default (list) }}
+{{- $modeLabelKey := include "persai.sandboxExec.egressModeLabelKey" . }}
+{{- $fullPublicLabel := include "persai.sandboxExec.fullPublicLabelValue" . }}
+{{- /*
+ADR-146 Slice 2 — additive full-public egress. Selects only exec pods that carry
+persai.io/sandbox-egress=full-public. Never selects control-plane pods. Grants
+no pod/namespace peers and no private/metadata destinations (shared deny
+inventory). S3 stamps the label; until then this policy matches zero pods and
+preserves the live restricted contour.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-exec-full-public-egress
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    persai.io/sandbox-egress-policy: full-public
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: sandbox-exec
+      {{ $modeLabelKey }}: {{ $fullPublicLabel | quote }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress:
+    # DNS: same exact audited /32 ipBlocks as restricted (no namespaceSelector).
+    - to:
+{{- range $dnsCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+{{- end }}
+      ports:
+{{- range $dnsPorts }}
+        - protocol: {{ .protocol }}
+          port: {{ .port }}
+{{- end }}
+    # Direct public TCP/UDP only. except covers non-global, VPC, Pod, Service,
+    # node, peer, link-local, and metadata ranges from the environment inventory.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+{{- range $publicDenied }}
+              - {{ . | quote }}
+{{- end }}
+      ports:
+        - protocol: TCP
+        - protocol: UDP
+{{- end }}

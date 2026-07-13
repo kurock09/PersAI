@@ -95,29 +95,43 @@ ADR-140 closes the persistent Browserless session era. The active browser archit
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 
-**ADR-146 accepted target (implementation in progress; Slice 1 landed locally
-uncommitted on `6fe4356a`):** sandbox egress becomes an immediate assistant-owned
-operational choice stored on `Assistant.sandboxEgressMode`. `restricted` remains
-the default proxy/domain-allowlist contour. Explicit `full_public` consent will
-give the whole gVisor execution pod (`shell` / `exec` / `document.*`) direct
-public TCP/UDP egress once Slice 2/3 enforcement lands, while NetworkPolicy,
-explicit non-global/internal CIDR exclusions, an empty-ingress policy, and a
-dedicated no-IAM execution ServiceAccount continue to block Kubernetes, node,
-VPC, private, link-local, and metadata destinations. The setting does not affect
-storage-plane tools, browser, web tools, or provider workers. The old plan
-`networkAccessEnabled` boolean is removed by Slice 1 rather than reinterpreted.
+**ADR-146 accepted target (implementation in progress; S1 committed locally at
+`775e5781`; S2 landed locally uncommitted on that baseline):** sandbox egress is
+an immediate assistant-owned operational choice stored on
+`Assistant.sandboxEgressMode`. `restricted` remains the default
+proxy/domain-allowlist contour. Explicit `full_public` consent will give the
+whole gVisor execution pod (`shell` / `exec` / `document.*`) direct public
+TCP/UDP egress once Slice 3 stamps pod labels against the Slice 2 Helm policy,
+while NetworkPolicy, explicit non-global/internal CIDR exclusions, an
+empty-ingress policy, and a dedicated no-IAM execution ServiceAccount continue
+to block Kubernetes, node, VPC, private, link-local, and metadata destinations.
+The setting does not affect storage-plane tools, browser, web tools, or provider
+workers. The old plan `networkAccessEnabled` boolean is removed by Slice 1
+rather than reinterpreted.
 
-**ADR-146 Slice 0 live finding:** `personal-ai-gke` currently runs
-`LEGACY_DATAPATH` with Calico and Cilium disabled. Helm NetworkPolicy objects are
-present but not enforced, so the deployed restricted contour is presently
-proxy-env + Squid convention rather than a proven kernel deny-all boundary.
-Application implementation is NO-GO until an enforcing dataplane plus
-private/node/Service/metadata negative acceptance is live.
+**ADR-146 Slice 2 Helm policy (local uncommitted):** additive
+`sandbox-exec-full-public-egress` selects only
+`app.kubernetes.io/component=sandbox-exec` +
+`persai.io/sandbox-egress=full-public`. Restricted isolation keeps selecting
+unlabeled/`component=sandbox-exec` pods so the live restricted contour is
+preserved until S3. Shared deny inventory binds Squid, NAT probe, and
+full-public public egress. Chart fails closed if sandbox runs with
+`networkPolicy.enabled=false`. Proxy env remains a Helm/pod-spec contract with
+`defaultMode=restricted`; ExecPodBridge mode selection is Slice 3.
+The rendered public rule is explicitly IPv4-only (`ipFamily: IPv4`,
+`0.0.0.0/0`). IPv6 and dual-stack environments fail chart validation until a
+future ADR/slice supplies an audited IPv6 internal/metadata deny inventory.
 
-**ADR-146 Slice 0.1 foundation (repo-local; not yet applied live):** the
+**ADR-146 Slice 0 live finding (historical):** `personal-ai-gke` originally ran
+`LEGACY_DATAPATH` with Calico and Cilium disabled. Helm NetworkPolicy objects
+were present but not enforced until Slice 0.1. **Slices 0.1 + 0.1b are now
+live-accepted** with Calico enforcing the restricted contour (see SESSION-HANDOFF
+/ ADR-146).
+
+**ADR-146 Slice 0.1 foundation (live-accepted 2026-07-13):** the
 founder-selected current-cluster contour is codified under
-`infra/bootstrap/adr146-sandbox-egress-foundation.*`. This is repository
-automation only — no live apply/verify/probe completion and no deploy/push:
+`infra/bootstrap/adr146-sandbox-egress-foundation.*` and is applied live at the
+proof/deploy pins recorded in ADR-146 and SESSION-HANDOFF:
 
 - enable GKE NetworkPolicy/Calico on `LEGACY_DATAPATH` (node recreation required;
   Helm `networkPolicy.enabled` only renders API objects and does not enable the
@@ -155,8 +169,8 @@ automation only — no live apply/verify/probe completion and no deploy/push:
   idempotency, explicit maintenance-confirmed old-pool retirement, structural
   `verify`, and separate founder-approved `probe-restricted` (inbound denial,
   HTTP redirect, and DNS-rebind remain unclaimed by automation);
-- S1 may proceed locally only after parent approval of S0.1. Production rollout
-  uses the Slice 0.1b repository release gate: one final founder push syncs Helm
+- S0.1b production rollout used the repository release gate: the coordinated
+  founder push synced Helm
   KSA/NetworkPolicy while non-sandbox tags stay last-good; Dev Image Publish
   pins sandbox immediately after a successful sandbox build; controlled probes +
   structural/live verification run with clean-tree evidence bound to the exact
@@ -166,8 +180,8 @@ automation only — no live apply/verify/probe completion and no deploy/push:
   image-tag-only bot pins cannot recurse; remaining service pins wait on ordered
   GitHub Environment approvals (`persai-dev-adr146-foundation`, then
   `persai-dev-migrations` when both apply). CI does not auto-apply foundation
-  mutations or fabricate GKE attestation. Human Environment approval and live
-  parent evidence remain required residuals. No feature flag. Dataplane V2
+  mutations or fabricate GKE attestation. Required Environment approval and live
+  parent evidence were recorded for S0.1/0.1b. No feature flag. Dataplane V2
   migration remains outside ADR-146.
 
 ### Native Tool Runtime instruction model
