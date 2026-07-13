@@ -254,11 +254,14 @@ Do **not** expose the Assistant Settings checkbox before backend enforcement and
 chart policy are live. Rollout order:
 
 1. **Predeploy restricted baseline** — structural foundation must already be
-   live-accepted (Slices 0.1/0.1b). Immediately before product rollout run:
+   live-accepted (Slices 0.1/0.1b). Immediately before product rollout run
+   default structural verify (permits absent S2 policy; rejects
+   malformed-present):
    ```powershell
-   node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy
+   node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify
    ```
-   Missing/malformed `sandbox-exec-full-public-egress` fails closed.
+   Do **not** use `--require-s2-policy` here: before the first S2 chart sync,
+   `sandbox-exec-full-public-egress` is correctly absent on the live cluster.
 2. **Migration approval path** — when the pushed range includes Prisma/schema
    changes (`Assistant.sandbox_egress_mode`), Dev Image Publish pauses on
    `persai-dev-migrations`. Approve only after reviewing the migration SQL
@@ -268,15 +271,21 @@ chart policy are live. Rollout order:
    (sandbox first, Environment gates, then deferred services). Non-foundation
    pushes pin immediately (migration gate when applicable).
 4. **Chart/policy sync** — Argo applies Helm NetworkPolicy, egress contract
-   ConfigMap, and `sandbox-exec-sa` before new pods stamp mode labels.
+   ConfigMap, and `sandbox-exec-sa` before new pods stamp mode labels. After Argo
+   sync completes and **before** web exposure or owner mode enablement, require
+   present+exact S2 policy:
+   ```powershell
+   node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy
+   ```
+   Missing or malformed `sandbox-exec-full-public-egress` fails closed.
 5. **Sandbox/runtime authority** — deploy `sandbox` (and `api` when S1/S3 client
    paths change) before enabling owner mode changes at scale. Sandbox must resolve
    Prisma mode and stamp `persai.io/sandbox-egress` before exec.
 6. **Web UI readiness gate** — this is an operational rollout condition, not CI
    job sequencing: permit the new `web` image to serve the checkbox only after
-   `api` + `sandbox` + chart policy are Ready and
-   `verify --require-s2-policy` passes. Selective monorepo publishing may build
-   images concurrently; readiness controls when the UI is exposed.
+   `api` + `sandbox` + chart policy are Ready and step 4 post-sync
+   `verify --require-s2-policy` has passed. Selective monorepo publishing may
+   build images concurrently; readiness controls when the UI is exposed.
 
 Repository gates to run locally before founder deploy instruction:
 

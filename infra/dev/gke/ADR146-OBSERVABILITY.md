@@ -168,8 +168,12 @@ corepack pnpm run test:adr146-slice5
 node --test scripts/ci/adr146-active-code-audit.test.mjs
 node --test scripts/ci/adr146-cross-layer-contract.test.mjs
 node --test infra/helm/scripts/sandbox-egress-network-policy.test.mjs
-node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy
+node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify
 ```
+
+Predeploy / pre-first-S2-sync structural baseline: default `verify` (absent S2
+policy permitted). Post chart/policy sync and before web exposure or owner mode
+enablement: `verify --require-s2-policy` (RUNBOOK D10 step 4).
 
 `test:adr146-slice5` runs in `.github/workflows/full-verification.yml` after
 checkout, Node/pnpm install, Helm setup, and Prisma checks; it performs no cloud

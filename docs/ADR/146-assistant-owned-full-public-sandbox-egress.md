@@ -1246,7 +1246,9 @@ restored.
 **Local land (committed locally at `d23936d1` on baseline `3f498ef9`;
 unpushed/undeployed):**
 
-- `infra/dev/gke/ADR146-OBSERVABILITY.md` + RUNBOOK deploy/rollback sequence;
+- `infra/dev/gke/ADR146-OBSERVABILITY.md` + RUNBOOK deploy/rollback sequence
+  (D10: predeploy default `verify`; post chart/policy sync
+  `verify --require-s2-policy` before web exposure);
 - sandbox D9 metrics hooks (`mode_mismatch`, retirement/reaper, job duration);
 - `scripts/ci/adr146-active-code-audit.mjs` + tests;
 - `scripts/ci/adr146-cross-layer-contract.mjs` + tests;

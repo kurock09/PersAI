@@ -344,9 +344,14 @@ node --test infra/bootstrap/adr146-s6-live-acceptance.test.mjs
 node infra/bootstrap/adr146-s6-live-acceptance.mjs --help
 corepack pnpm --filter @persai/sandbox exec tsx --test test/sandbox-metrics.service.test.ts
 node --test infra/helm/scripts/sandbox-egress-network-policy.test.mjs
-node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy
+node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify
 helm template persai-dev infra/helm -f infra/helm/values.yaml -f infra/helm/values-dev.yaml > $null
 ```
+
+Pre-S2-deploy live structural verify uses default `verify` (absent S2 policy
+permitted; malformed-present rejected). After chart/policy sync and before web
+exposure or owner mode enablement, operators must run
+`verify --require-s2-policy` per RUNBOOK D10 step 4.
 
 The S6 helper test is S5 acceptance preparation only. It proves required-input
 validation, private/special-use target validation, bounded command specs, and

@@ -1,5 +1,34 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 S6 predeploy verify ordering docs repair (local, uncommitted)
+
+Status: **Documentation-only repair on clean tree at `72a877cf` (S1–S5 committed
+locally `775e5781` … `d23936d1`; unpushed/undeployed).** ADR-146 stays **open**.
+S6 parent-only final gate, deploy, and live acceptance is **next** (not started).
+
+**Observed blocker:** immediately before first S2 deploy, predeploy
+`node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy`
+failed only because live `sandbox-exec-full-public-egress` is correctly absent
+(S2 Helm policy is local/unpushed). Verifier semantics are correct: default
+`verify` permits absent pre-S2 policy and rejects malformed-present;
+`--require-s2-policy` requires present+exact post chart/policy sync.
+
+**Scope landed:**
+
+- RUNBOOK D10 ordering: step 1 predeploy uses default structural `verify`; step 4
+  post-Argo-sync runs `verify --require-s2-policy` before web exposure/mode
+  enablement; step 6 references step 4 gate;
+- TEST-PLAN S5 local checks + ADR146-OBSERVABILITY related gates aligned;
+- ADR-146 Slice 5 land note records D10 verify split;
+- CHANGELOG entry below.
+
+**Out of scope:** code/tests, commit/push/deploy, S6 execution, ADR closure.
+
+**Next:** S6 parent-only final gate, deploy on explicit instruction, live
+acceptance, ADR closure only after evidence.
+
+---
+
 ## 2026-07-13 — ADR-146 Slice 5 cross-layer audit, observability, runbook (committed `d23936d1`)
 
 Status: **Slice 5 committed locally at `d23936d1` on baseline `3f498ef9` (S1
