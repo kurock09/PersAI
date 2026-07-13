@@ -113,12 +113,56 @@ function assertS2PolicyContract(errors, deps) {
   }
 }
 
+function assertSandboxExecPodManagerRole(role, errors) {
+  if (!role) {
+    errors.push("Rendered chart missing sandbox-exec-pod-manager Role");
+    return;
+  }
+  const expectedRules = new Map([
+    ["pods", ["create", "delete", "get", "list", "update"]],
+    ["pods/exec", ["create", "get"]]
+  ]);
+  const actualRules = role.rules ?? [];
+  if (actualRules.length !== expectedRules.size) {
+    errors.push(
+      `sandbox-exec-pod-manager Role must contain exactly ${expectedRules.size} resource rules`
+    );
+  }
+  for (const [resource, expectedVerbs] of expectedRules) {
+    const matchingRules = actualRules.filter(
+      (rule) =>
+        Array.isArray(rule?.apiGroups) &&
+        rule.apiGroups.length === 1 &&
+        rule.apiGroups[0] === "" &&
+        Array.isArray(rule?.resources) &&
+        rule.resources.length === 1 &&
+        rule.resources[0] === resource
+    );
+    if (matchingRules.length !== 1) {
+      errors.push(`sandbox-exec-pod-manager Role must contain exactly one core ${resource} rule`);
+      continue;
+    }
+    const actualVerbs = [...(matchingRules[0]?.verbs ?? [])].sort();
+    if (
+      actualVerbs.length !== expectedVerbs.length ||
+      actualVerbs.some((verb, index) => verb !== expectedVerbs[index])
+    ) {
+      errors.push(
+        `sandbox-exec-pod-manager Role ${resource} verbs must be exactly ${expectedVerbs.join(",")}; got ${actualVerbs.join(",")}`
+      );
+    }
+  }
+}
+
 function assertS3LifecycleContract(errors, deps) {
   const bridge = deps.readFile("apps/sandbox/src/exec-pod-bridge.service.ts");
   const controller = deps.readFile("apps/sandbox/src/sandbox.controller.ts");
   const modeModule = deps.readFile("apps/sandbox/src/sandbox-egress-mode.ts");
   if (!bridge.includes("persai.io/sandbox-egress")) {
     errors.push("ExecPodBridge must stamp persai.io/sandbox-egress label/annotation");
+  }
+  if (!bridge.includes("replaceNamespacedPod")) {
+    errors.push("ExecPodBridge must stamp model-job lease generation via replaceNamespacedPod");
   }
   if (!controller.includes("sandbox-egress/reconcile")) {
     errors.push("Sandbox control plane must expose sandbox-egress reconcile route");
@@ -132,6 +176,30 @@ function assertS3LifecycleContract(errors, deps) {
   if (!apiClient.includes("/sandbox-egress/reconcile")) {
     errors.push("API sandbox control-plane client must call reconcile endpoint");
   }
+  const helmTemplate = deps.readFile("infra/helm/templates/sandbox-serviceaccount.yaml");
+  if (!helmTemplate.includes('"update"')) {
+    errors.push(
+      "sandbox-exec-pod-manager Helm template must grant pods update for ADR-146 S3 lease binding"
+    );
+  }
+  if (helmTemplate.includes('"patch"')) {
+    errors.push(
+      "sandbox-exec-pod-manager Helm template must not grant unused pods patch permission"
+    );
+  }
+  const rendered = deps.renderHelm();
+  if (rendered.status !== 0) {
+    errors.push(`Helm template failed during S3 RBAC check: ${rendered.stderr || rendered.stdout}`);
+    return;
+  }
+  const docs = yaml
+    .parseAllDocuments(rendered.stdout)
+    .map((doc) => doc.toJSON())
+    .filter(Boolean);
+  const podManagerRole = docs.find(
+    (doc) => doc?.kind === "Role" && doc?.metadata?.name === "sandbox-exec-pod-manager"
+  );
+  assertSandboxExecPodManagerRole(podManagerRole, errors);
 }
 
 function assertS4ConsentContract(errors, deps) {

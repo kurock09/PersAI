@@ -924,6 +924,11 @@ pnpm exec prisma migrate deploy
 kubectl get role sandbox-exec-pod-manager -n "${NAMESPACE}"
 kubectl get rolebinding sandbox-exec-pod-manager -n "${NAMESPACE}"
 
+# ADR-146 S3 model-job lease binding stamps pod annotations via replaceNamespacedPod.
+# Without pods update on sandbox-sa, shell/exec jobs fail closed with
+# sandbox_pod_binding_failed (403 Forbidden).
+kubectl auth can-i update pods --as=system:serviceaccount:${NAMESPACE}:sandbox-sa -n "${NAMESPACE}"
+
 # Submit a sandbox job (requires a valid session token) and verify an exec pod is created:
 kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/component=sandbox-exec --watch
 ```

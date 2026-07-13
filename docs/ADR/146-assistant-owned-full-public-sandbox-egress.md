@@ -139,6 +139,10 @@ Landed locally (uncommitted; no commit/push/deploy/cloud mutation):
   `persai.io/sandbox-job-id` + `persai.io/sandbox-lease-token`, reads back
   immutable `metadata.uid`/`resourceVersion`, and binds the exact tuple
   `(namespace,name,uid,leaseToken,jobId)` plus assistant/workspace/handle/mode;
+  **Helm RBAC:** control-plane `sandbox-sa` Role `sandbox-exec-pod-manager`
+  must grant the `pods` verb `update` (not only create/delete) because lease
+  binding uses `replaceNamespacedPod`; missing permission fails closed as
+  `sandbox_pod_binding_failed` (403) before any exec;
   every hydrate/exec gate revalidates caller-captured identity, current DB mode,
   and the exact live DB lease token/holder/job/expiry immediately before opening
   the exec WebSocket;

@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 S6 live shell blocker diagnosed (local uncommitted fix)
+
+Status: **Post-deploy S6 smoke blocked on live cluster at bot pin `1200b2f1`
+(deploy `a6829f03`; Argo Synced/Healthy; post-sync `verify --require-s2-policy`
+PASS; health/ready PASS).** Root cause: **Helm RBAC gap** — ADR-146 S3
+`ExecPodBridgeService.bindModelJobPodGeneration` stamps
+`persai.io/sandbox-job-id` + `persai.io/sandbox-lease-token` via
+`replaceNamespacedPod`, but `sandbox-exec-pod-manager` Role granted only
+`get|list|create|delete` on `pods`. Live proof:
+`kubectl auth can-i update pods --as=system:serviceaccount:persai-dev:sandbox-sa`
+→ **no**; reproduced `chat_smoke` shell `printf ADR146_SHELL_OK` → tool
+`ok:false` with `sandbox_pod_binding_failed (403 Forbidden — serviceaccount
+persai-dev:sandbox-sa cannot update pods)`. Warm/full_public pod create/session
+logs were healthy; failure is pre-exec lease binding, not egress policy.
+
+**Local bounded repair (uncommitted on `1200b2f1`):**
+
+- Helm Role adds only `update` on `pods` + comment in
+  `infra/helm/templates/sandbox-serviceaccount.yaml`;
+- S3 cross-layer contract asserts the `replaceNamespacedPod` seam and exact
+  rendered Role verbs: `pods=get|list|create|update|delete`,
+  `pods/exec=get|create`; unused `patch`, wildcard, and extra mutation grants
+  fail closed;
+- RUNBOOK post-deploy smoke adds `kubectl auth can-i update pods`.
+
+**Out of scope:** commit/push/deploy/cloud RBAC apply; ADR closure.
+
+**Next:** commit repair; redeploy sandbox chart (RBAC-only); confirm live
+`auth can-i update pods` yes; rerun `chat_smoke` shell sentinel; continue S6
+acceptance matrix.
+
+---
+
 ## 2026-07-13 — ADR-146 S6 parent final gate started (local, uncommitted docs)
 
 Status: **S6 parent-only final gate started on clean tree at `40d7a927`

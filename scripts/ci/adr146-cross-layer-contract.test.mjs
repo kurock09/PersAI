@@ -67,6 +67,18 @@ describe("ADR-146 cross-layer contract", () => {
         expected: /expose sandbox-egress reconcile/
       },
       {
+        layer: "S3 RBAC missing update",
+        file: "infra/helm/templates/sandbox-serviceaccount.yaml",
+        mutate: (content) => content.replace('"update", ', ""),
+        expected: /must grant pods update/
+      },
+      {
+        layer: "S3 RBAC unexpected patch",
+        file: "infra/helm/templates/sandbox-serviceaccount.yaml",
+        mutate: (content) => content.replace('"update", ', '"update", "patch", '),
+        expected: /must not grant unused pods patch/
+      },
+      {
         layer: "S4",
         file: "apps/web/app/app/_components/assistant-sandbox-egress-settings.tsx",
         mutate: (content) => content.replaceAll("putAssistantSandboxEgress", "removedPut"),
@@ -88,6 +100,36 @@ describe("ADR-146 cross-layer contract", () => {
     ];
     for (const testCase of cases) {
       const errors = collectWithMutation(testCase.file, testCase.mutate);
+      assert.ok(
+        errors.some((error) => testCase.expected.test(error)),
+        testCase.layer
+      );
+    }
+  });
+
+  it("requires exact rendered sandbox pod-manager verbs", () => {
+    const cases = [
+      {
+        layer: "missing update",
+        mutate: (content) => content.replace('"create", "update", "delete"', '"create", "delete"'),
+        expected: /pods verbs must be exactly .*update/
+      },
+      {
+        layer: "unexpected patch",
+        mutate: (content) =>
+          content.replace('"create", "update", "delete"', '"create", "update", "patch", "delete"'),
+        expected: /pods verbs must be exactly .*got .*patch/
+      }
+    ];
+    for (const testCase of cases) {
+      const errors = collectAdr146CrossLayerContractViolations({
+        readFile(file) {
+          return readFileSync(path.join(repoRoot, file), "utf8");
+        },
+        renderHelm() {
+          return { ...rendered, stdout: testCase.mutate(rendered.stdout) };
+        }
+      });
       assert.ok(
         errors.some((error) => testCase.expected.test(error)),
         testCase.layer
