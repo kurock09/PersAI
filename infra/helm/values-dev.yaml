@@ -540,7 +540,7 @@ sandbox:
     name: sandbox-exec-sa
   image:
     name: sandbox
-    tag: 838789c43ec32acafdc5938f3de091ad97bd8dbb
+    tag: 5045431e609ab07805bae2aac84ee6a4b0ede645
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -677,6 +677,7 @@ ingress:
       domain: api.persai.dev
     - name: persai-bot-cert
       domain: bot.persai.dev
+
 
 
 
