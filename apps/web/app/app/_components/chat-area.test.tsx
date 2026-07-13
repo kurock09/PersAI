@@ -203,6 +203,15 @@ describe("ChatArea", () => {
     });
   });
 
+  it("keeps the chat-mode pill opaque and only slightly muted during a turn", () => {
+    render(<ChatArea chat={createChat("Hello", { isStreaming: true })} chatMode="project" />);
+
+    const modePill = screen.getByRole("button", { name: /modeMenuAria/ });
+    expect(modePill).toBeDisabled();
+    expect(modePill).toHaveClass("bg-surface-raised", "md:w-32", "brightness-95", "saturate-75");
+    expect(modePill).not.toHaveClass("opacity-50");
+  });
+
   it("opens the sidebar and signals project files hint on mobile project activation", async () => {
     getTokenMock.mockResolvedValueOnce("token-1");
     const dispatchSpy = vi.spyOn(projectFilesEvents, "dispatchProjectModeActivated");

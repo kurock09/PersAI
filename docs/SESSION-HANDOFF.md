@@ -1,5 +1,44 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — Desktop shell geometry and opaque header-pill repair
+
+Status: **implemented locally on remote baseline `35024b39`; commit/push pending.**
+
+Founder screenshot evidence showed regressions after the latest web UX pushes:
+
+- the desktop sidebar card shrank to its content instead of filling the shell to
+  the bottom;
+- the 4-dot resize handle sat on the sidebar boundary instead of the horizontal
+  center of the 16px gap between sidebar and main panel;
+- the completed collapsed plan looked transparent instead of retaining a solid
+  pill with a green completion accent;
+- the chat-mode pill became transparent while a turn was running;
+- the collapsed plan and chat-mode pills had mismatched desktop widths.
+
+**Repair:** AppShell's desktop sidebar column now owns `h-full`; Sidebar uses
+`md:h-full` instead of `md:h-auto`; the handle uses `translate-x-full`, placing
+its 16px-wide hit target exactly inside the `md:gap-4` gutter. The completed
+plan keeps `bg-surface-raised` and uses green border/text/ring accents without a
+translucent success fill. The disabled chat-mode pill keeps the same opaque
+surface and uses only mild brightness/saturation muting, without `opacity`.
+Both desktop controls use `md:w-32`. Focused tests lock these classes and reject
+the regressed transparent states.
+
+**Related CI repair:** GitHub CI run `29273316372` failed only because
+`browser-login-modal.test.tsx` was not Prettier-normalized. The local repair
+includes that formatting-only correction.
+
+**Verification:** AppShell + Sidebar + ChatArea + ChatPlanCard 102/102 PASS;
+AssistantSettings isolated 83/83 PASS (an earlier combined eight-file run had
+one 5s timeout under parallel load, then passed in isolation); recursive lint
+PASS; format check PASS; API and web typecheck PASS.
+
+**Next:** commit the repair, record its SHA, push once, wait for CI + web pin,
+then visually confirm the shell and header pills on the founder's desktop
+viewport before resuming ADR-146 S6 live acceptance.
+
+---
+
 ## 2026-07-13 — Assistant internet-access settings copy
 
 Status: **pushed at `7f1238ae` (+ handoff `097a6fb0`).**

@@ -397,13 +397,12 @@ function ChatPlanCardBody({
       className={cn(
         // Keep ml-auto while collapsed so width grows left from the right edge.
         "overflow-hidden border bg-surface-raised transition-[width,border-color,background-color,box-shadow] duration-300 ease-out",
-        countsCollapsed ? "ml-auto h-12 w-12 md:w-auto" : "ml-auto w-full md:ml-0",
+        countsCollapsed ? "ml-auto h-12 w-12 md:w-32" : "ml-auto w-full md:ml-0",
         // Instant radius snap — width may animate, but stadium corners must not lag.
         expanded ? "rounded-[1.375rem]" : "rounded-full",
         countsCollapsed && allDone
-          ? "border-success/45 ring-1 ring-inset ring-success/25"
+          ? "border-success/55 shadow-sm shadow-success/10 ring-1 ring-inset ring-success/25"
           : "border-border/40",
-        countsCollapsed && allDone && !progressPulse ? "bg-success/[0.07]" : null,
         countsCollapsed && progressPulse ? "plan-progress-pulse" : null,
         className
       )}
@@ -424,11 +423,19 @@ function ChatPlanCardBody({
           <button
             type="button"
             data-testid="chat-plan-collapsed-chip"
-            className="hidden h-12 items-center gap-1.5 whitespace-nowrap px-3.5 text-text md:flex"
+            className={cn(
+              "hidden h-12 w-full items-center justify-center gap-1.5 whitespace-nowrap px-3.5 md:flex",
+              allDone ? "text-success" : "text-text"
+            )}
             onClick={handleHeaderClick}
             aria-label={`${t("planTitle")} ${t("planCounts", { done: doneCount, total: totalCount })}`}
           >
-            <span className="text-[11px] font-medium uppercase tracking-[0.06em] text-text-subtle">
+            <span
+              className={cn(
+                "text-[11px] font-medium uppercase tracking-[0.06em]",
+                allDone ? "text-success/85" : "text-text-subtle"
+              )}
+            >
               {t("planTitle")}
             </span>
             <span className="text-[11px] font-semibold tabular-nums">

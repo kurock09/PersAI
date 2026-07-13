@@ -280,7 +280,7 @@ export function Sidebar({
     [isOnline, recheck]
   );
   return (
-    <aside className="relative flex h-dvh w-full shrink-0 flex-col overflow-hidden border-r border-border bg-surface md:h-auto md:w-full md:rounded-[1.375rem] md:border md:border-border">
+    <aside className="relative flex h-dvh w-full shrink-0 flex-col overflow-hidden border-r border-border bg-surface md:h-full md:w-full md:rounded-[1.375rem] md:border md:border-border">
       {/* Mobile close button */}
       {onClose && (
         <div className="flex justify-end px-2 pt-2 md:hidden">

@@ -128,6 +128,9 @@ describe("AppShell", () => {
     expect(screen.getByTestId("app-main-panel")).toHaveClass("md:rounded-[1.375rem]");
     expect(screen.getByTestId("app-desktop-shell")).toHaveClass("md:gap-4", "md:p-4");
     expect(screen.getByTestId("sidebar-resize-handle")).toHaveAttribute("role", "separator");
+    expect(screen.getByTestId("sidebar-resize-handle")).toHaveClass("translate-x-full");
+    expect(screen.getByTestId("sidebar-resize-handle")).not.toHaveClass("translate-x-1/2");
+    expect(screen.getByTestId("app-desktop-sidebar-column")).toHaveClass("h-full");
     expect(screen.getByTestId("app-desktop-sidebar-column")).toHaveStyle({
       width: `${String(DESKTOP_SIDEBAR_WIDTH_DESKTOP_DEFAULT_PX)}px`
     });

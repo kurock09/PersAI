@@ -1449,11 +1449,11 @@ function ChatModeToggle({
           className={cn(
             // Height matches composer/header pills (h-12). Mobile = icon circle; desktop = text pill.
             "inline-flex h-12 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised transition-colors",
-            "w-12 md:w-auto md:gap-1.5 md:px-3.5",
+            "w-12 md:w-32 md:gap-1.5 md:px-3.5",
             mode !== "normal" && "border-accent-premium/25 text-accent-premium",
             mode === "normal" && "text-text-muted",
             menuOpen && "border-border-strong",
-            disabled && "cursor-not-allowed opacity-50"
+            disabled && "cursor-not-allowed brightness-95 saturate-75"
           )}
         >
           <ChatModeIcon

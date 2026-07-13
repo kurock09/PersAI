@@ -355,7 +355,7 @@ export function AppShell({
               <Suspense>
                 <div
                   data-testid="app-desktop-sidebar-column"
-                  className="relative hidden shrink-0 md:block"
+                  className="relative hidden h-full shrink-0 md:block"
                   style={{ width: desktopSidebarWidthPx }}
                 >
                   <Sidebar
@@ -388,7 +388,7 @@ export function AppShell({
                     tabIndex={0}
                     data-testid="sidebar-resize-handle"
                     className={cn(
-                      "absolute top-1/2 right-0 z-20 flex -translate-y-1/2 translate-x-1/2 cursor-col-resize flex-col items-center gap-1 rounded-full px-1.5 py-3",
+                      "absolute top-1/2 right-0 z-20 flex -translate-y-1/2 translate-x-full cursor-col-resize flex-col items-center gap-1 rounded-full px-1.5 py-3",
                       "touch-none select-none",
                       sidebarResizeActive ? "opacity-100" : "opacity-70 hover:opacity-100"
                     )}

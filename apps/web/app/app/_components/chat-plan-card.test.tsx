@@ -149,13 +149,8 @@ describe("ChatPlanCard", () => {
     expect(chip).toHaveTextContent("planTitle");
     expect(chip).toHaveTextContent("1/3");
     expect(chip).toHaveClass("hidden", "md:flex");
-    expect(container.firstChild).toHaveClass(
-      "ml-auto",
-      "h-12",
-      "w-12",
-      "md:w-auto",
-      "rounded-full"
-    );
+    expect(container.firstChild).toHaveClass("ml-auto", "h-12", "w-12", "md:w-32", "rounded-full");
+    expect(chip).toHaveClass("w-full", "justify-center");
     expect(within(container).queryByText("Currently working")).toBeNull();
     expect(container.querySelector("button[aria-expanded]")).toBeNull();
   });
@@ -189,7 +184,16 @@ describe("ChatPlanCard", () => {
       <ChatPlanCard todos={todos} totalCount={2} windowed={false} onClear={noop} />
     );
     expect(within(container).getByTestId("chat-plan-mobile-circle")).toHaveTextContent("2/2");
-    expect(container.firstChild).toHaveClass("border-success/45", "ring-success/25");
+    expect(container.firstChild).toHaveClass(
+      "bg-surface-raised",
+      "border-success/55",
+      "ring-success/25"
+    );
+    expect(container.firstChild).not.toHaveClass("bg-success/[0.07]");
+    expect(within(container).getByTestId("chat-plan-collapsed-chip")).toHaveClass(
+      "w-full",
+      "text-success"
+    );
     expect(within(container).queryByText("Done 1")).toBeNull();
   });
 
@@ -218,7 +222,7 @@ describe("ChatPlanCard", () => {
     expect(container.firstChild).toHaveClass("plan-progress-pulse");
     act(() => vi.advanceTimersByTime(720));
     expect(container.firstChild).not.toHaveClass("plan-progress-pulse");
-    expect(container.firstChild).toHaveClass("border-success/45");
+    expect(container.firstChild).toHaveClass("border-success/55");
   });
 
   it("toggle expand/collapse flips aria-expanded and reveals the body rows", () => {
