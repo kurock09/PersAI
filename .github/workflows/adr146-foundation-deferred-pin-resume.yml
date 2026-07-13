@@ -1,0 +1,290 @@
+# ADR-146 foundation-only deferred-pin resume.
+# Pins existing GAR images for api/web/runtime/provider-gateway after Environment
+# approval, binding approval to an explicit sandbox proof commit + inventory hash.
+# Does not rebuild images and does not relax Dev Image Publish push-only guards.
+# migration_changed=true is intentionally unsupported (fail closed).
+
+name: ADR-146 Foundation Deferred Pin Resume
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_image_sha:
+        description: Existing image tag SHA to pin for deferred services (not HEAD)
+        required: true
+        type: string
+      deferred_services:
+        description: Exact CSV of deferred services (sandbox forbidden)
+        required: true
+        type: string
+        default: api,web,runtime,provider-gateway
+      sandbox_proof_commit_sha:
+        description: Commit SHA of the live sandbox foundation proof
+        required: true
+        type: string
+      evidence_inventory_sha256:
+        description: Exact SHA-256 of committed foundation inventory at the proof commit
+        required: true
+        type: string
+      migration_changed:
+        description: Foundation-only resume only; true is not supported in this workflow
+        required: true
+        type: choice
+        options:
+          - "false"
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-resume:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GAR_REGION: ${{ vars.GAR_REGION }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      GCP_WIF_SERVICE_ACCOUNT: ${{ vars.GCP_WIF_SERVICE_ACCOUNT }}
+      TARGET_IMAGE_SHA: ${{ inputs.target_image_sha }}
+      DEFERRED_SERVICES: ${{ inputs.deferred_services }}
+      SANDBOX_PROOF_COMMIT_SHA: ${{ inputs.sandbox_proof_commit_sha }}
+      EVIDENCE_INVENTORY_SHA256: ${{ inputs.evidence_inventory_sha256 }}
+      MIGRATION_CHANGED: ${{ inputs.migration_changed }}
+    outputs:
+      target_image_sha: ${{ steps.validate.outputs.target_image_sha }}
+      deferred_services: ${{ steps.validate.outputs.deferred_services }}
+      sandbox_proof_commit_sha: ${{ steps.validate.outputs.sandbox_proof_commit_sha }}
+      evidence_inventory_sha256: ${{ steps.validate.outputs.evidence_inventory_sha256 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Validate resume request (ancestor/drift/proof binding)
+        id: validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_IMAGE_SHA="${TARGET_IMAGE_SHA}" \
+          DEFERRED_SERVICES="${DEFERRED_SERVICES}" \
+          SANDBOX_PROOF_COMMIT_SHA="${SANDBOX_PROOF_COMMIT_SHA}" \
+          EVIDENCE_INVENTORY_SHA256="${EVIDENCE_INVENTORY_SHA256}" \
+          MIGRATION_CHANGED="${MIGRATION_CHANGED}" \
+          node scripts/ci/adr146-foundation-release-gate.mjs assert-resume > /tmp/resume-summary.json
+          cat /tmp/resume-summary.json
+          target="$(node -e 'const s=JSON.parse(require("fs").readFileSync("/tmp/resume-summary.json","utf8")); process.stdout.write(s.targetImageSha)')"
+          services="$(node -e 'const s=JSON.parse(require("fs").readFileSync("/tmp/resume-summary.json","utf8")); process.stdout.write(s.deferredServices.join(","))')"
+          proof="$(node -e 'const s=JSON.parse(require("fs").readFileSync("/tmp/resume-summary.json","utf8")); process.stdout.write(s.sandboxProofCommitSha)')"
+          inventory="$(node -e 'const s=JSON.parse(require("fs").readFileSync("/tmp/resume-summary.json","utf8")); process.stdout.write(s.evidenceInventorySha256)')"
+          echo "target_image_sha=${target}" >> "$GITHUB_OUTPUT"
+          echo "deferred_services=${services}" >> "$GITHUB_OUTPUT"
+          echo "sandbox_proof_commit_sha=${proof}" >> "$GITHUB_OUTPUT"
+          echo "evidence_inventory_sha256=${inventory}" >> "$GITHUB_OUTPUT"
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ## ADR-146 deferred-pin resume validation
+
+          - target image SHA: \`${target}\`
+          - deferred services: \`${services}\`
+          - sandbox proof commit: \`${proof}\`
+          - evidence inventory SHA-256: \`${inventory}\`
+          - migration_changed: \`false\` (foundation-only)
+          EOF
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_WIF_SERVICE_ACCOUNT }}
+          token_format: access_token
+          create_credentials_file: false
+
+      - name: Login to Artifact Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.GAR_REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Verify deferred images exist at target SHA (no rebuild)
+        shell: bash
+        env:
+          TARGET_IMAGE_SHA: ${{ steps.validate.outputs.target_image_sha }}
+          TARGET_SERVICES: ${{ steps.validate.outputs.deferred_services }}
+        run: |
+          set -euo pipefail
+          if echo "${TARGET_SERVICES}" | grep -Eq '(^|,)(sandbox|sandbox-exec)(,|$)'; then
+            echo "sandbox must not be resumed via deferred pin" >&2
+            exit 1
+          fi
+          IFS=',' read -ra SERVICES <<< "${TARGET_SERVICES}"
+          for service in "${SERVICES[@]}"; do
+            service_trimmed="$(echo "${service}" | xargs)"
+            test -n "${service_trimmed}" || continue
+            image="${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/${service_trimmed}:${TARGET_IMAGE_SHA}"
+            echo "Verifying ${image}"
+            docker manifest inspect "${image}" > /dev/null
+          done
+
+  pin-foundation-deferred-resume:
+    needs: validate-resume
+    runs-on: ubuntu-latest
+    environment:
+      name: persai-dev-adr146-foundation
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      GAR_REGION: ${{ vars.GAR_REGION }}
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GAR_REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      GCP_WIF_SERVICE_ACCOUNT: ${{ vars.GCP_WIF_SERVICE_ACCOUNT }}
+      TARGET_IMAGE_SHA: ${{ needs.validate-resume.outputs.target_image_sha }}
+      TARGET_SERVICES: ${{ needs.validate-resume.outputs.deferred_services }}
+      SANDBOX_PROOF_COMMIT_SHA: ${{ needs.validate-resume.outputs.sandbox_proof_commit_sha }}
+      EVIDENCE_INVENTORY_SHA256: ${{ needs.validate-resume.outputs.evidence_inventory_sha256 }}
+      MIGRATION_CHANGED: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Re-validate against fresh origin/main after Environment approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git checkout -B main origin/main
+          test -z "$(git status --porcelain=v1)" || {
+            echo "Fresh main checkout is unexpectedly dirty" >&2
+            git status --short >&2
+            exit 1
+          }
+          TARGET_IMAGE_SHA="${TARGET_IMAGE_SHA}" \
+          DEFERRED_SERVICES="${TARGET_SERVICES}" \
+          SANDBOX_PROOF_COMMIT_SHA="${SANDBOX_PROOF_COMMIT_SHA}" \
+          EVIDENCE_INVENTORY_SHA256="${EVIDENCE_INVENTORY_SHA256}" \
+          MIGRATION_CHANGED="${MIGRATION_CHANGED}" \
+          node scripts/ci/adr146-foundation-release-gate.mjs assert-resume > /tmp/resume-summary.json
+          cat /tmp/resume-summary.json
+          node scripts/ci/pin-dev-image-tags.mjs \
+            --file infra/helm/values-dev.yaml \
+            --sha "${TARGET_IMAGE_SHA}" \
+            --services "${TARGET_SERVICES}" \
+            --dry-run
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WIF_PROVIDER }}
+          service_account: ${{ env.GCP_WIF_SERVICE_ACCOUNT }}
+          token_format: access_token
+          create_credentials_file: false
+
+      - name: Login to Artifact Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.GAR_REGION }}-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Re-verify deferred images exist at target SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          if echo "${TARGET_SERVICES}" | grep -Eq '(^|,)(sandbox|sandbox-exec)(,|$)'; then
+            echo "sandbox must not be resumed via deferred pin" >&2
+            exit 1
+          fi
+          IFS=',' read -ra SERVICES <<< "${TARGET_SERVICES}"
+          for service in "${SERVICES[@]}"; do
+            service_trimmed="$(echo "${service}" | xargs)"
+            test -n "${service_trimmed}" || continue
+            image="${GAR_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/${service_trimmed}:${TARGET_IMAGE_SHA}"
+            echo "Verifying ${image}"
+            docker manifest inspect "${image}" > /dev/null
+          done
+
+      - name: Pin deferred services only (tag-only bot pin)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Pinning deferred services after foundation resume approval: ${TARGET_SERVICES} -> ${TARGET_IMAGE_SHA}"
+          node scripts/ci/pin-dev-image-tags.mjs \
+            --file infra/helm/values-dev.yaml \
+            --sha "${TARGET_IMAGE_SHA}" \
+            --services "${TARGET_SERVICES}"
+          BASE_REF=HEAD \
+          HEAD_REF=WORKTREE \
+          TARGET_IMAGE_SHA="${TARGET_IMAGE_SHA}" \
+          DEFERRED_SERVICES="${TARGET_SERVICES}" \
+          node scripts/ci/adr146-foundation-release-gate.mjs assert-resume-pin-state
+
+      - name: Commit and push tag-only resume pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- infra/helm/values-dev.yaml; then
+            echo "No values-dev tag change to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add infra/helm/values-dev.yaml
+          git commit -m "chore(dev-gitops): resume ADR-146 foundation deferred pins for ${TARGET_IMAGE_SHA} (proof ${SANDBOX_PROOF_COMMIT_SHA})"
+
+          assert_resume() {
+            TARGET_IMAGE_SHA="${TARGET_IMAGE_SHA}" \
+            DEFERRED_SERVICES="${TARGET_SERVICES}" \
+            SANDBOX_PROOF_COMMIT_SHA="${SANDBOX_PROOF_COMMIT_SHA}" \
+            EVIDENCE_INVENTORY_SHA256="${EVIDENCE_INVENTORY_SHA256}" \
+            MIGRATION_CHANGED="${MIGRATION_CHANGED}" \
+            node scripts/ci/adr146-foundation-release-gate.mjs assert-resume > /tmp/resume-summary.json
+          }
+          assert_pin_commit() {
+            BASE_REF=HEAD^ \
+            HEAD_REF=HEAD \
+            TARGET_IMAGE_SHA="${TARGET_IMAGE_SHA}" \
+            DEFERRED_SERVICES="${TARGET_SERVICES}" \
+            node scripts/ci/adr146-foundation-release-gate.mjs assert-resume-pin-state
+          }
+
+          assert_resume
+          assert_pin_commit
+          if git push origin HEAD:main; then
+            exit 0
+          fi
+
+          for attempt in 2 3; do
+            echo "Push rejected; rebasing onto fresh origin/main before attempt ${attempt}..."
+            git pull --rebase origin main
+            assert_resume
+            assert_pin_commit
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+          done
+
+          echo "Failed to push ADR-146 deferred resume pin after retries." >&2
+          exit 1

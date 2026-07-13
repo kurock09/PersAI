@@ -5,6 +5,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ROOT_WORKSPACE_BUILD_INPUT_FILES } from "./deploy-build-context-paths.mjs";
 import { analyzePinableServiceImageTags } from "./pin-dev-image-tags-lib.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -541,12 +542,7 @@ function classifyFile(file) {
   const isHelmOrGitOps = file.startsWith("infra/helm/") || file.startsWith("infra/dev/gitops/");
   const isInfraDoc = file.startsWith("infra/") && file.endsWith(".md");
   const isTestOnly = isAppTestFile(file) || isPackageTestFile(file);
-  const isRootWorkspaceFile = new Set([
-    "package.json",
-    "pnpm-lock.yaml",
-    "pnpm-workspace.yaml",
-    ".dockerignore"
-  ]).has(file);
+  const isRootWorkspaceFile = new Set(ROOT_WORKSPACE_BUILD_INPUT_FILES).has(file);
   const isFoundationMarker = ADR146_FOUNDATION_MARKER_PATHS.has(file);
 
   if (isFoundationMarker) {

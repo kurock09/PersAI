@@ -673,6 +673,18 @@ Lands:
 - fail-closed if sandbox build/pin is missing; non-foundation pushes retain the
   prior immediate/migration pin behavior; bot-only image-tag `values-dev.yaml`
   commits still skip main CI and cannot recurse Dev Image Publish;
+- dedicated foundation-only deferred-pin resume workflow
+  (`adr146-foundation-deferred-pin-resume.yml`) for rejected Environment waits:
+  no rebuild, no Dev Image Publish push-guard bypass, explicit target/proof/
+  inventory inputs, exact four-service set, sandbox excluded, ancestor + full
+  root build-context drift + GAR + sandbox proof-tag binding; the gated job
+  validates fresh `origin/main`, revalidates after every rejected-push rebase,
+  and proves the bot commit contains only authoritative deferred tag scalars;
+  every GAR auth step is access-token-only with
+  `create_credentials_file: false` so no `gha-creds-*.json` can pollute that
+  commit-shape invariant;
+  `migration_changed` accepts only boolean `false` or exact string `"false"`
+  (every other representation fails closed);
 - hardened local controlled restricted + NAT probe Pod manifests (controlled-probe
   label, bounded deadline, non-root/read-only/seccomp/resources, exact inventory
   gVisor Toleration `operator: Equal` — lowercase/`EQUAL`/other casings rejected);
@@ -840,9 +852,34 @@ Failure/rollback: remain on last-good non-sandbox pins if verification fails;
 sandbox tag may roll back independently; never disable Calico; never restore the
 removed plan `networkAccessEnabled` boolean.
 
-Next: approve GitHub Environment `persai-dev-adr146-foundation` (and
-`persai-dev-migrations` when that gate applies) so remaining service pins can
-proceed. Do **not** close this ADR or start S1 prematurely. S1 remains blocked.
+**Deferred-pin resume (foundation-only):** the historical Environment wait on
+Dev Image Publish run for coordinated push `3cd2ea4f` was rejected and cannot
+be recreated by ordinary `workflow_dispatch` — split-pin / migration / ordinary
+pin jobs remain guarded by `github.event_name == 'push'`. Do **not** relax those
+guards. The approved resume path is the dedicated workflow
+`.github/workflows/adr146-foundation-deferred-pin-resume.yml`: explicit
+decoupled `target_image_sha` / `sandbox_proof_commit_sha` /
+`evidence_inventory_sha256` / `deferred_services`, no image rebuild, sandbox
+excluded, exact `api,web,runtime,provider-gateway` set, ancestor + complete
+root-context drift fail-closed (`apps`, `packages`, `extensions`, `services`,
+`scripts/smoke`, workspace manifests, `.dockerignore`), GAR manifest existence,
+and `values-dev` sandbox proof-tag binding. After Environment approval the pin
+job checks out/fetches fresh `origin/main`; every rejected-push rebase reruns
+the request and exact tag-only commit validators before retry. This slice is
+**foundation-only** (`migration_changed` accepts only boolean `false` or exact
+string `"false"`); dual-gate migration resume is intentionally unsupported
+rather than weakly implemented. A real temporary bare-origin/runner-clone test
+proves newer protected-path drift is rejected after rebase and before push.
+Locked current
+dispatch inputs: target `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f`, services
+`api,web,runtime,provider-gateway`, proof
+`e5c249c3dbb9d16406b85637e9dcdd9a418a8a79`, inventory
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`.
+
+Next: land/push the resume workflow if not yet on `main`, then dispatch the
+locked resume inputs and approve GitHub Environment
+`persai-dev-adr146-foundation` so remaining service pins can proceed. Do **not**
+close this ADR or start S1 prematurely. S1 remains blocked.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:

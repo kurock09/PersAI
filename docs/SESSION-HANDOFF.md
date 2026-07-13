@@ -1,5 +1,44 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 foundation deferred-pin resume workflow (local)
+
+Status: **Implementation landed locally on clean tree atop docs `fea18014` /
+deployed origin/main `e5c249c3`; no commit/push/dispatch/Environment approval/
+cloud mutation in this slice.**
+
+**What:** Dedicated Environment-gated resume path
+`.github/workflows/adr146-foundation-deferred-pin-resume.yml` plus reusable
+validators/contracts in `scripts/ci/adr146-foundation-release-gate.mjs` (+
+tests). Does **not** relax Dev Image Publish push-only split-pin guards; no
+image rebuild; foundation-only (`migration_changed` accepts only boolean
+`false` or exact string `"false"`; every other value fails closed). Security
+audit repairs require the exact four-service set, cover every root build-context
+path, validate fresh `origin/main` after Environment approval and after every
+rebase, and prove the final bot commit contains only authoritative deferred
+image-tag scalar changes. Both GAR auth steps use access-token output only and
+set `create_credentials_file: false`, preventing `gha-creds-*.json` worktree
+pollution.
+
+The rebase safety seam has a real isolated-git test (temporary bare origin +
+runner clone): dispatch-time validation passes, newer protected-path drift
+lands on origin/main, the stale pin rebases, and post-rebase validation rejects
+before any push.
+
+**Locked dispatch case:** target
+`3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f`; services
+`api,web,runtime,provider-gateway`; proof
+`e5c249c3dbb9d16406b85637e9dcdd9a418a8a79`; inventory
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`;
+`migration_changed=false`.
+
+**Still incomplete:** Environment `persai-dev-adr146-foundation` unapproved;
+non-sandbox pins last-good; ADR open; S1 blocked.
+
+**Next:** commit/push this resume slice when the parent authorizes, then
+dispatch the locked inputs and approve the Environment — do not start S1.
+
+---
+
 ## 2026-07-13 — ADR-146 final live restricted foundation gate PASS (docs)
 
 Status: **Documentation-only reconciliation on clean `main` at deployed/pin
@@ -35,7 +74,8 @@ must not start until the parent explicitly authorizes after Environment
 approval(s).
 
 **Next:** Environment approval(s) for remaining service pins — do not start S1
-prematurely.
+prematurely. After resume workflow lands on `main`, prefer the dedicated
+deferred-pin resume dispatch over recreating a rejected Dev Image Publish wait.
 
 ---
 

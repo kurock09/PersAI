@@ -133,7 +133,30 @@ Required local invariants:
     contract and fail closed without a sandbox build/pin. CI does not auto-apply
     foundation mutations or claim live GKE attestation; human Environment
     approval and live parent evidence remain required. Non-foundation pushes keep
-    the ordinary immediate / migration pin behavior.
+    the ordinary immediate / migration pin behavior. Ordinary Dev Image Publish
+    pin jobs remain `github.event_name == 'push'` only — do not bypass via
+    dispatch. Rejected foundation waits resume through
+    `.github/workflows/adr146-foundation-deferred-pin-resume.yml` +
+    `scripts/ci/adr146-foundation-release-gate.mjs` validators: decoupled
+    target/proof/inventory inputs, no rebuild, sandbox excluded, exact four-service
+    set, ancestor + all root build-context inputs (`apps`, `packages`,
+    `extensions`, `services`, `scripts/smoke`, workspace manifests,
+    `.dockerignore`) fail-closed, GAR manifests, sandbox proof-tag binding, and
+    authoritative tag-scalar-only bot commit. The Environment-gated job must
+    checkout/fetch fresh `origin/main`; every `pull --rebase` retry must rerun
+    request and commit-shape validation before push. Every resume
+    `google-github-actions/auth@v3` step must set
+    `create_credentials_file: false`; tests reject `gha-creds-*.json` worktree
+    pollution. Foundation-only: only boolean `false` or exact string `"false"`
+    is accepted for `migration_changed`; true/numeric/empty/missing/mixed-case/
+    garbage values fail closed. A real temporary bare-origin/runner-clone test
+    commits protected-path drift on newer `origin/main`, rebases the stale pin,
+    and proves post-rebase validation rejects before push. Locked current case in tests:
+    target `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f`, services
+    `api,web,runtime,provider-gateway`, proof
+    `e5c249c3dbb9d16406b85637e9dcdd9a418a8a79`, inventory
+    `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. Run
+    `corepack pnpm run test:adr146-release-gate`.
 13. Active denial acceptance first proves the same live-resolved Service,
     managed-listener, Calico-owned kube-dns Pod IP, trusted control-plane Pod IP,
     and node targets are reachable from a trusted existing control-plane Pod.

@@ -200,6 +200,30 @@ continues to path-ignore bot-only `values-dev.yaml` commits.
    - foundation+migration → step 6 first, then `persai-dev-migrations` (ordered
      dual gate; neither Environment may be bypassed). Sandbox is already pinned.
 
+If the original Dev Image Publish Environment wait was rejected/cancelled and
+there is no waiting approval, do **not** widen ordinary
+`workflow_dispatch` / `base_sha` to bypass `github.event_name == 'push'` pin
+guards. Use the dedicated foundation-only resume workflow
+`.github/workflows/adr146-foundation-deferred-pin-resume.yml` instead:
+
+- inputs: `target_image_sha` (existing GAR tag), `deferred_services` CSV
+  (exactly `api,web,runtime,provider-gateway`; subsets/sandbox forbidden),
+  `sandbox_proof_commit_sha`, `evidence_inventory_sha256`,
+  `migration_changed=false` only;
+- validates ancestor + root-context drift (apps/packages/extensions/services/
+  smoke/workspace manifests/`.dockerignore`) + inventory hash at proof SHA +
+  current `sandbox.image.tag` bound to the proof commit + GAR manifests;
+- after `persai-dev-adr146-foundation` approval, tag-only bot-pins deferred
+  services to `target_image_sha` (no rebuild; never touches sandbox). The gated
+  job first fetches fresh `origin/main`; after every rejected-push rebase it
+  reruns request validation and proves the rebased commit changes only the
+  authoritative deferred image-tag scalars before retrying.
+
+Current locked resume case after restricted gate PASS: target
+`3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f`, proof
+`e5c249c3dbb9d16406b85637e9dcdd9a418a8a79`, inventory
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`.
+
 Non-foundation pushes keep the ordinary immediate pin / migration-approval
 behavior. Bot-only image-tag pin commits to `infra/helm/values-dev.yaml` still
 skip main CI; they may start Dev Image Publish detect-affected but reach no
