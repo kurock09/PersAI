@@ -1,5 +1,52 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 S6 restricted-contour mixed-mode resolver repair (local, uncommitted)
+
+Status: **Post-deploy S6 `probe-restricted` blocked at bot pin `c9579a55` (Argo
+Synced/Healthy; live RBAC `update pods` yes; shell/full_public/metadata smokes
+PASS).** Root cause: `resolveProductionRestrictedProbeContour` considered every
+Running non-controlled `sandbox-exec` pod, so after a full_public smoke job
+the only surviving production pod (`ses-cf…`, label
+`persai.io/sandbox-egress=full-public`) was used as restricted contour evidence
+and failed `proxy env invalid … got 0`. Structural `verify` still PASS because
+`exec-ksa-live-wiring` correctly accepts any real exec pod. Controlled probes
+excluded; cleanup PASS.
+
+**Bounded repair (local on clean `c9579a55`; unpushed/undeployed):**
+
+- `selectRestrictedRealExecPodsForKsaWiring` + egress-label helpers;
+  `resolveProductionRestrictedProbeContour` now uses only
+  `persai.io/sandbox-egress=restricted` pods and emits an actionable error when
+  only full-public pods remain (names listed; instructs restricted-mode shell
+  job before `probe-restricted`);
+- mixed-mode tests: full_public+restricted selects restricted; only full_public
+  fails clearly; controlled probes excluded;
+- `realExecPod` test helper defaults restricted label.
+
+**Out of scope:** commit/push/deploy; ADR closure.
+
+**Next:** parent obtains a Running restricted production pod (see bounded method
+below), regenerate/apply controlled probes, rerun `probe-restricted` → cleanup,
+continue S6 acceptance. ADR-146 stays **open**.
+
+**Bounded restricted-pod method (S3 post-job retirement):** S3 UID-retires the
+bound exec pod after persistence and before lease release. A synchronous
+`chat_smoke printf` returns only after that retirement, so it cannot supply the
+concurrent Running restricted pod needed by `probe-restricted`. Use an
+explicitly approved dedicated restricted assistant; never change a user's
+chosen assistant mode for this proof. Start a bounded long-running shell job
+asynchronously through an approved UI/web turn, with a finite `sleep` deadline
+and sentinel. Wait until its real production pod is Running and has canonical
+`persai.io/sandbox-egress=restricted`, then run the controlled
+`probe-restricted` phase concurrently against that contour. After the probe,
+let the bounded job complete or cancel it through the approved product path,
+clean up controlled probes, and verify S3 retired the exact production pod.
+This is one remaining acceptance operation, not evidence that the full S6
+matrix is complete. Do not weaken contour proof to a values-dev fallback while
+a real restricted production pod can be observed honestly.
+
+---
+
 ## 2026-07-13 — ADR-146 S6 live shell blocker + RBAC repair committed locally
 
 Status: **Post-deploy S6 smoke blocked on live cluster at bot pin `1200b2f1`

@@ -28,6 +28,10 @@ export const APPLY_PHASE_ORDER = [
 ];
 
 export const ADR146_CONTROLLED_PROBE_LABEL = "sandbox.gke.io/adr146-controlled-probe";
+/** Canonical Kubernetes egress-mode label stamped by S3 ExecPodBridge. */
+export const ADR146_SANDBOX_EGRESS_MODE_KEY = "persai.io/sandbox-egress";
+export const ADR146_SANDBOX_EGRESS_RESTRICTED_LABEL = "restricted";
+export const ADR146_SANDBOX_EGRESS_FULL_PUBLIC_LABEL = "full-public";
 /**
  * GKE Sandbox owns this node label and taint when `--sandbox=type=gvisor` is set.
  * Manually specifying either create flag is rejected (HTTP 400).
@@ -2660,6 +2664,19 @@ export function isAdr146ControlledProbePod(pod) {
   return labels[ADR146_CONTROLLED_PROBE_LABEL] === "true";
 }
 
+export function readPodSandboxEgressLabel(pod) {
+  const labels = pod?.labels ?? pod?.metadata?.labels ?? {};
+  return labels[ADR146_SANDBOX_EGRESS_MODE_KEY] ?? null;
+}
+
+export function isRestrictedSandboxEgressExecPod(pod) {
+  return readPodSandboxEgressLabel(pod) === ADR146_SANDBOX_EGRESS_RESTRICTED_LABEL;
+}
+
+export function isFullPublicSandboxEgressExecPod(pod) {
+  return readPodSandboxEgressLabel(pod) === ADR146_SANDBOX_EGRESS_FULL_PUBLIC_LABEL;
+}
+
 export function isValidRealExecPodForKsaWiring(pod, live = {}) {
   if (!pod || pod.phase !== "Running") return false;
   if (isAdr146ControlledProbePod(pod)) return false;
@@ -2682,35 +2699,66 @@ export function selectRealExecPodsForKsaWiring(pods, live = {}) {
 }
 
 /**
+ * Running non-controlled exec pods stamped `persai.io/sandbox-egress=restricted`.
+ * Full-public pods are intentionally excluded from restricted contour proof.
+ */
+export function selectRestrictedRealExecPodsForKsaWiring(pods, live = {}) {
+  return selectRealExecPodsForKsaWiring(pods, live).filter(isRestrictedSandboxEgressExecPod);
+}
+
+function buildRestrictedContourUnavailableErrors(realExecPods) {
+  if (realExecPods.length === 0) {
+    return [
+      "zero valid Running non-controlled sandbox-exec pods; restricted contour image/proxy env unprovable"
+    ];
+  }
+  const fullPublicPods = realExecPods.filter(isFullPublicSandboxEgressExecPod);
+  const unmodeledPods = realExecPods.filter(
+    (pod) => !isRestrictedSandboxEgressExecPod(pod) && !isFullPublicSandboxEgressExecPod(pod)
+  );
+  if (fullPublicPods.length === realExecPods.length) {
+    const names = fullPublicPods.map((pod) => pod.name ?? "unknown").join(", ");
+    return [
+      `zero Running restricted sandbox-exec pods (${fullPublicPods.length} full-public pod(s) excluded: ${names}); run a restricted-mode shell job before probe-restricted`
+    ];
+  }
+  return [
+    `zero Running restricted sandbox-exec pods; ${fullPublicPods.length} full-public and ${unmodeledPods.length} unmodeled pod(s) excluded from restricted contour proof`
+  ];
+}
+
+/**
  * Exact current production restricted-probe contour evidence: image + proxy env.
- * Only valid non-controlled Running exec Pods used by KSA live-wiring count.
+ * Only valid non-controlled Running `persai.io/sandbox-egress=restricted` exec Pods
+ * count. Full-public pods never prove restricted proxy contour.
  * Returns a single consistent {image, env} or fail-closed errors.
  */
 export function resolveProductionRestrictedProbeContour(live = {}) {
   const realExecPods = selectRealExecPodsForKsaWiring(live.execPods ?? [], live);
-  if (realExecPods.length === 0) {
+  const restrictedExecPods = selectRestrictedRealExecPodsForKsaWiring(live.execPods ?? [], live);
+  if (restrictedExecPods.length === 0) {
     return {
       ok: false,
       image: null,
       env: null,
-      errors: ["zero valid Running non-controlled sandbox-exec pods; image equality unprovable"]
+      errors: buildRestrictedContourUnavailableErrors(realExecPods)
     };
   }
   const images = [];
   const envFingerprints = [];
   const envs = [];
   const errors = [];
-  for (const pod of realExecPods) {
+  for (const pod of restrictedExecPods) {
     const labels = pod?.labels ?? pod?.metadata?.labels ?? {};
     if (Object.hasOwn(labels, ADR146_CONTROLLED_PROBE_LABEL)) {
       errors.push(
-        `real exec pod ${pod.name ?? "unknown"} carries controlled-probe label and cannot prove production image`
+        `restricted exec pod ${pod.name ?? "unknown"} carries controlled-probe label and cannot prove production image`
       );
       continue;
     }
     if (!isValidRealExecPodForKsaWiring(pod, live)) {
       errors.push(
-        `real exec pod ${pod.name ?? "unknown"} does not satisfy KSA live-wiring contour`
+        `restricted exec pod ${pod.name ?? "unknown"} does not satisfy KSA live-wiring contour`
       );
       continue;
     }
@@ -2718,14 +2766,14 @@ export function resolveProductionRestrictedProbeContour(live = {}) {
     const execContainers = containers.filter((container) => container?.name === "exec");
     if (execContainers.length !== 1 || typeof execContainers[0]?.image !== "string") {
       errors.push(
-        `real exec pod ${pod.name ?? "unknown"} must expose exactly one named exec container image`
+        `restricted exec pod ${pod.name ?? "unknown"} must expose exactly one named exec container image`
       );
       continue;
     }
     const extracted = extractExactRestrictedProxyEnv(execContainers[0].env ?? []);
     if (!extracted.ok) {
       errors.push(
-        `real exec pod ${pod.name ?? "unknown"} proxy env invalid: ${extracted.errors.join("; ")}`
+        `restricted exec pod ${pod.name ?? "unknown"} proxy env invalid: ${extracted.errors.join("; ")}`
       );
       continue;
     }

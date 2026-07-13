@@ -14,6 +14,9 @@ import {
   APPLY_PHASE_ORDER,
   ADR146_CONTROLLED_PROBE_LABEL,
   ADR146_CONTROLLED_PROBE_POD_NAMES,
+  ADR146_SANDBOX_EGRESS_FULL_PUBLIC_LABEL,
+  ADR146_SANDBOX_EGRESS_MODE_KEY,
+  ADR146_SANDBOX_EGRESS_RESTRICTED_LABEL,
   ADR146_NAT_PROBE_IMAGE,
   ADR146_PROBE_ACTIVE_DEADLINE_SECONDS,
   ADR146_PROBE_RESOURCES,
@@ -73,6 +76,7 @@ import {
   selectApplySandboxPoolCommandIds,
   selectPrepareCommandIds,
   selectRealExecPodsForKsaWiring,
+  selectRestrictedRealExecPodsForKsaWiring,
   squidDenialHttpConnectStatusIndicatesProxyDeny,
   validateControlledProbeGvisorToleration,
   validateControlledProbeHardening,
@@ -110,7 +114,10 @@ function realExecPod(image = CURRENT_SANDBOX_EXEC_IMAGE, overrides = {}) {
     serviceAccountName: "sandbox-exec-sa",
     automountServiceAccountToken: false,
     runtimeClassName: "gvisor",
-    labels: { "app.kubernetes.io/component": "sandbox-exec" },
+    labels: {
+      "app.kubernetes.io/component": "sandbox-exec",
+      [ADR146_SANDBOX_EGRESS_MODE_KEY]: ADR146_SANDBOX_EGRESS_RESTRICTED_LABEL
+    },
     containers: [defaultContainer],
     spec: { containers: [defaultContainer] },
     podIP: "10.109.0.99",
@@ -2640,6 +2647,7 @@ test("restricted live validator binds tool-capable probe to one real production 
           realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, {
             labels: {
               "app.kubernetes.io/component": "sandbox-exec",
+              [ADR146_SANDBOX_EGRESS_MODE_KEY]: ADR146_SANDBOX_EGRESS_RESTRICTED_LABEL,
               [ADR146_CONTROLLED_PROBE_LABEL]: "false"
             }
           })
@@ -2695,6 +2703,50 @@ test("restricted live validator binds tool-capable probe to one real production 
   );
   assert.match(source, /direct public bypass denied/);
   assert.match(source, /Squid allowlisted HTTPS/);
+});
+
+test("restricted contour resolver excludes full-public pods and selects restricted in mixed mode", () => {
+  const inventory = loadInventory();
+  const manifest = buildRestrictedProbePodManifest(inventory);
+  const probe = probeManifestToLiveAdmittedValidatorPod(manifest);
+  const fullPublicPod = realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, {
+    name: "ses-full-public-proof",
+    labels: {
+      "app.kubernetes.io/component": "sandbox-exec",
+      [ADR146_SANDBOX_EGRESS_MODE_KEY]: ADR146_SANDBOX_EGRESS_FULL_PUBLIC_LABEL
+    },
+    containers: [{ name: "exec", image: CURRENT_SANDBOX_EXEC_IMAGE, env: [] }],
+    spec: { containers: [{ name: "exec", image: CURRENT_SANDBOX_EXEC_IMAGE, env: [] }] }
+  });
+  const restrictedPod = realExecPod(CURRENT_SANDBOX_EXEC_IMAGE, { name: "ses-restricted-proof" });
+  const controlledProbe = probeManifestToValidatorPod(buildRestrictedProbePodManifest(inventory));
+
+  const mixedLive = liveWithRealExec({
+    execPods: [fullPublicPod, restrictedPod, controlledProbe]
+  });
+  assert.equal(selectRealExecPodsForKsaWiring(mixedLive.execPods, mixedLive).length, 2);
+  assert.deepEqual(
+    selectRestrictedRealExecPodsForKsaWiring(mixedLive.execPods, mixedLive).map((pod) => pod.name),
+    ["ses-restricted-proof"]
+  );
+  assert.deepEqual(resolveProductionRestrictedProbeContour(mixedLive), {
+    ok: true,
+    image: CURRENT_SANDBOX_EXEC_IMAGE,
+    env: CURRENT_SANDBOX_EXEC_PROXY_ENV,
+    errors: []
+  });
+  assert.equal(validateRestrictedProbePod(probe, mixedLive, inventory).ok, true);
+
+  const onlyFullPublic = liveWithRealExec({ execPods: [fullPublicPod, controlledProbe] });
+  const onlyFullResolved = resolveProductionRestrictedProbeContour(onlyFullPublic);
+  assert.equal(onlyFullResolved.ok, false);
+  assert.match(
+    onlyFullResolved.errors.join("; "),
+    /zero Running restricted sandbox-exec pods.*full-public pod\(s\) excluded/
+  );
+  assert.match(onlyFullResolved.errors.join("; "), /ses-full-public-proof/);
+  assert.match(onlyFullResolved.errors.join("; "), /run a restricted-mode shell job before probe-restricted/);
+  assert.equal(validateRestrictedProbePod(probe, onlyFullPublic, inventory).ok, false);
 });
 
 test("NAT probe image is inventory-owned digest-pinned curl; busybox drift fails closed", () => {
