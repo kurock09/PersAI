@@ -2,9 +2,9 @@
 
 ## 2026-07-13 — Assistant internet-access settings copy
 
-Status: **implemented locally; gates green; commit/push in progress.**
+Status: **committed at `89250c00`; push next.**
 
-Baseline SHA: PersAI `e5d7c12e` (+ this UX stack).
+Baseline SHA: PersAI `e5d7c12e` → UX commit `89250c00`.
 
 **Settings row:** “Internet access for the assistant” /
 «Доступ в интернет для ассистента» with short plain-language on/off hints
@@ -14,7 +14,7 @@ Baseline SHA: PersAI `e5d7c12e` (+ this UX stack).
 title/body/actions composition cleaned up. Honesty invariants kept (public
 sites yes; internal PersAI blocked; browser/search unchanged; no “unlimited”).
 
-**Also in tree:** resizable sidebar defaults, plan pulse, TG edge fade.
+**Also in commit:** resizable sidebar defaults, plan pulse, TG edge fade.
 
 **Verification (AGENTS + affected CI):** recursive lint PASS; format:check PASS;
 api+web typecheck PASS; `@persai/web` test 958/958 PASS (hardened one flaky
