@@ -18,12 +18,14 @@
    * Warm tonal palette + bento chrome (cosmetic refresh, 2026-04-25):
    * One warm achromatic hue with five luminance steps. `--chrome` is the
    * deepest tone — the outer frame visible *between* panels in the desktop
-   * bento layout. Sidebar (`--surface`) sits on chrome; main chat (`--bg`)
-   * is one step lighter; lifted controls / composer / popups
+   * bento layout. Sidebar (`--surface`) sits on chrome; main chat is unframed
+   * so page chrome shows through. Lifted controls / composer / popups
    * (`--surface-raised`) sit one step above that; hover is the lightest
    * neutral. On mobile (Capacitor / phones) the chrome stays hidden behind
    * full-bleed panels so we don't sacrifice precious screen edges.
    * Accent is muted sage so it can live next to chat without competing.
+   * Light theme sets `--chrome` equal to the former chat `--bg` cream so the
+   * page and chat plane match after the chat card fill is removed.
    */
   color-scheme: dark;
   --chrome: #161513;
@@ -46,7 +48,7 @@
    * ("this feature is more expensive") at low opacity, without screaming.
    */
   --accent-premium: #c8a557;
-  --chat-active-tint: #3f5648;
+  --chat-active-tint: #3d3936;
   --destructive: #e26a5c;
   --destructive-hover: #cc5648;
   --success: #6da888;
@@ -61,7 +63,7 @@
    * Light tonal palette — Cursor-like neutral cream / warm gray.
    * Less peach, more product-screenshot calm. Sage remains the action accent.
    */
-  --chrome: #ebe7de;
+  --chrome: #f6f3ec;
   --bg: #f6f3ec;
   --surface: #e8e2d7;
   /* Near-white lift for chat pills / composer / popovers — readable on cream bg. */
@@ -77,7 +79,7 @@
   --accent-hover: #627b6d;
   --accent-glow: rgba(115, 139, 125, 0.13);
   --accent-premium: #9f8556;
-  --chat-active-tint: #dfe6dc;
+  --chat-active-tint: #f3f1eb;
   --destructive: #b85b4f;
   --destructive-hover: #a84c42;
   --success: #6b8f7c;

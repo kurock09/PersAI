@@ -126,6 +126,9 @@ describe("AppShell", () => {
     expect(badge.className).toContain("text-white");
     expect(badge.className).not.toContain("bg-accent/12");
     expect(screen.getByTestId("app-main-panel")).toHaveClass("md:rounded-[1.375rem]");
+    expect(screen.getByTestId("app-main-panel")).not.toHaveClass("bg-bg");
+    expect(screen.getByTestId("app-main-panel")).not.toHaveClass("md:border");
+    expect(screen.getByTestId("app-main-panel")).not.toHaveClass("md:border-border");
     expect(screen.getByTestId("app-desktop-shell")).toHaveClass("md:gap-4", "md:p-4");
     expect(screen.getByTestId("sidebar-resize-handle")).toHaveAttribute("role", "separator");
     expect(screen.getByTestId("sidebar-resize-handle")).toHaveClass("translate-x-full");

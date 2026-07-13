@@ -1,5 +1,25 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — Sidebar bounds + unframed chat chrome
+
+Status: **gates green; commit/push next.**
+
+**Sidebar width:** min 240; tablet max **300** / desktop max **500**; defaults
+md **250** / lg+ **320**. Stored width clamps down when the viewport shrinks.
+
+**Chrome:** Main chat panel loses `bg-bg` + desktop border (both themes). Light
+`--chrome` matches former chat cream (`#f6f3ec`); dark page chrome unchanged.
+Active chat tint matches `--surface-hover` on both themes.
+
+**Chat list:** desktop titles `md:text-[14px]`.
+
+**Verification:** recursive lint PASS; format:check PASS; api+web typecheck PASS;
+affected shell/sidebar/width 43/43 PASS; full web suite 957/959 with 2 unrelated
+assistant-settings timeouts that PASS on isolated rerun.
+
+**Next:** after push, hard-refresh light+dark desktop shell.
+
+---
 ## 2026-07-13 — ADR-146 S6 live acceptance complete; ADR closed (docs-only)
 
 Status: **Docs-only reconciliation uncommitted** on local HEAD `cb0c9adb`

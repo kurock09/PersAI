@@ -35,11 +35,11 @@ import { getAssistantSupportTickets } from "../assistant-api-client";
 import { getLocaleCookie, isWebLocale, setLocaleCookie } from "@/app/lib/locale-sync";
 import {
   DESKTOP_SIDEBAR_WIDTH_DESKTOP_DEFAULT_PX,
-  DESKTOP_SIDEBAR_WIDTH_MAX_PX,
   DESKTOP_SIDEBAR_WIDTH_MIN_PX,
+  DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY,
   clampDesktopSidebarWidthPx,
   defaultDesktopSidebarWidthForViewport,
-  readStoredDesktopSidebarWidthPx,
+  desktopSidebarWidthMaxForViewport,
   writeStoredDesktopSidebarWidthPx
 } from "./desktop-sidebar-width";
 import { cn } from "@/app/lib/utils";
@@ -104,6 +104,7 @@ export function AppShell({
   const [desktopSidebarWidthPx, setDesktopSidebarWidthPx] = useState(
     DESKTOP_SIDEBAR_WIDTH_DESKTOP_DEFAULT_PX
   );
+  const [desktopSidebarMaxPx, setDesktopSidebarMaxPx] = useState(desktopSidebarWidthMaxForViewport);
   const [sidebarResizeActive, setSidebarResizeActive] = useState(false);
   const sidebarResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const sidebarWidthCustomizedRef = useRef(false);
@@ -120,23 +121,57 @@ export function AppShell({
     if (telegramOpen) setHasOpenedTelegram(true);
   }, [telegramOpen]);
   useEffect(() => {
-    const stored = readStoredDesktopSidebarWidthPx();
-    if (stored !== null) {
-      sidebarWidthCustomizedRef.current = true;
-      setDesktopSidebarWidthPx(stored);
-      return;
-    }
-    const applyViewportDefault = () => {
-      if (sidebarWidthCustomizedRef.current) return;
+    const applyViewportSidebarWidth = () => {
+      const maxPx = desktopSidebarWidthMaxForViewport();
+      setDesktopSidebarMaxPx(maxPx);
+      if (sidebarWidthCustomizedRef.current) {
+        setDesktopSidebarWidthPx((current) => {
+          const next = clampDesktopSidebarWidthPx(
+            current,
+            defaultDesktopSidebarWidthForViewport(),
+            maxPx
+          );
+          if (next !== current) {
+            writeStoredDesktopSidebarWidthPx(next);
+          }
+          return next;
+        });
+        return;
+      }
       setDesktopSidebarWidthPx(defaultDesktopSidebarWidthForViewport());
     };
-    applyViewportDefault();
+
+    try {
+      const raw =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem(DESKTOP_SIDEBAR_WIDTH_STORAGE_KEY)
+          : null;
+      if (raw !== null) {
+        sidebarWidthCustomizedRef.current = true;
+        const maxPx = desktopSidebarWidthMaxForViewport();
+        setDesktopSidebarMaxPx(maxPx);
+        const next = clampDesktopSidebarWidthPx(
+          Number(raw),
+          defaultDesktopSidebarWidthForViewport(),
+          maxPx
+        );
+        setDesktopSidebarWidthPx(next);
+        if (String(next) !== raw) {
+          writeStoredDesktopSidebarWidthPx(next);
+        }
+      } else {
+        applyViewportSidebarWidth();
+      }
+    } catch {
+      applyViewportSidebarWidth();
+    }
+
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return;
     }
     const media = window.matchMedia("(min-width: 1024px)");
-    media.addEventListener("change", applyViewportDefault);
-    return () => media.removeEventListener("change", applyViewportDefault);
+    media.addEventListener("change", applyViewportSidebarWidth);
+    return () => media.removeEventListener("change", applyViewportSidebarWidth);
   }, []);
   useEffect(() => {
     if (!sidebarResizeActive) return;
@@ -151,7 +186,11 @@ export function AppShell({
   }, [sidebarResizeActive]);
 
   const commitDesktopSidebarWidth = useCallback((widthPx: number) => {
-    const next = clampDesktopSidebarWidthPx(widthPx, defaultDesktopSidebarWidthForViewport());
+    const next = clampDesktopSidebarWidthPx(
+      widthPx,
+      defaultDesktopSidebarWidthForViewport(),
+      desktopSidebarWidthMaxForViewport()
+    );
     sidebarWidthCustomizedRef.current = true;
     setDesktopSidebarWidthPx(next);
     writeStoredDesktopSidebarWidthPx(next);
@@ -383,7 +422,7 @@ export function AppShell({
                     aria-orientation="vertical"
                     aria-label="Resize sidebar"
                     aria-valuemin={DESKTOP_SIDEBAR_WIDTH_MIN_PX}
-                    aria-valuemax={DESKTOP_SIDEBAR_WIDTH_MAX_PX}
+                    aria-valuemax={desktopSidebarMaxPx}
                     aria-valuenow={desktopSidebarWidthPx}
                     tabIndex={0}
                     data-testid="sidebar-resize-handle"
@@ -457,10 +496,10 @@ export function AppShell({
                 )}
               </AnimatePresence>
 
-              {/* Main panel — bento card on desktop, full-bleed on mobile */}
+              {/* Main panel — unframed on desktop (page chrome shows through); full-bleed on mobile */}
               <div
                 data-testid="app-main-panel"
-                className="flex flex-1 flex-col overflow-hidden bg-bg md:rounded-[1.375rem] md:border md:border-border"
+                className="flex flex-1 flex-col overflow-hidden md:rounded-[1.375rem]"
               >
                 {!isChatPage && (
                   <header className="flex items-center gap-3 border-b border-border px-4 py-3 md:hidden">

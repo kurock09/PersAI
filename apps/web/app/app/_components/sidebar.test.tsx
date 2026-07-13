@@ -318,7 +318,11 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     );
     expect(screen.getByRole("button", { name: "chatActions" })).toHaveClass("h-10", "w-10");
     expect(screen.getByRole("button", { name: "newChat" })).toHaveClass("h-11");
-    expect(screen.getByText("Chat thread-a")).toHaveClass("text-sm", "font-medium");
+    expect(screen.getByText("Chat thread-a")).toHaveClass(
+      "text-sm",
+      "md:text-[14px]",
+      "font-medium"
+    );
   });
 
   it("keeps touch chat-list actions on coarse/no-hover pointers even when the viewport is wide", () => {
