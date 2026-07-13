@@ -2,9 +2,9 @@
 
 ## 2026-07-13 — Assistant internet-access settings copy
 
-Status: **committed at `89250c00`; push next.**
+Status: **pushed at `7f1238ae` (+ handoff `097a6fb0`).**
 
-Baseline SHA: PersAI `e5d7c12e` → UX commit `89250c00`.
+Baseline SHA: PersAI `e5d7c12e` → UX commit `7f1238ae` on `main`.
 
 **Settings row:** “Internet access for the assistant” /
 «Доступ в интернет для ассистента» with short plain-language on/off hints
@@ -20,7 +20,8 @@ sites yes; internal PersAI blocked; browser/search unchanged; no “unlimited”
 api+web typecheck PASS; `@persai/web` test 958/958 PASS (hardened one flaky
 browser-login unavailable assertion).
 
-**Next:** after push, hard-refresh Assistant settings + desktop shell resize.
+**Next:** hard-refresh Assistant settings + desktop shell resize; watch web
+deploy pin.
 
 ---
 
