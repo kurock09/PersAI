@@ -1,6 +1,6 @@
 # SESSION-HANDOFF
 
-## 2026-07-13 — ADR-146 S6 restricted-contour mixed-mode resolver repair (local, uncommitted)
+## 2026-07-13 — ADR-146 S6 restricted-contour mixed-mode resolver repair (committed locally)
 
 Status: **Post-deploy S6 `probe-restricted` blocked at bot pin `c9579a55` (Argo
 Synced/Healthy; live RBAC `update pods` yes; shell/full_public/metadata smokes
@@ -10,9 +10,10 @@ the only surviving production pod (`ses-cf…`, label
 `persai.io/sandbox-egress=full-public`) was used as restricted contour evidence
 and failed `proxy env invalid … got 0`. Structural `verify` still PASS because
 `exec-ksa-live-wiring` correctly accepts any real exec pod. Controlled probes
-excluded; cleanup PASS.
+excluded; cleanup PASS. Full S6 matrix **not** complete.
 
-**Bounded repair (local on clean `c9579a55`; unpushed/undeployed):**
+**Bounded repair (committed locally at `a498dedd` on baseline `c9579a55`;
+unpushed/undeployed):**
 
 - `selectRestrictedRealExecPodsForKsaWiring` + egress-label helpers;
   `resolveProductionRestrictedProbeContour` now uses only
@@ -23,11 +24,12 @@ excluded; cleanup PASS.
   fails clearly; controlled probes excluded;
 - `realExecPod` test helper defaults restricted label.
 
-**Out of scope:** commit/push/deploy; ADR closure.
+**Out of scope:** push/deploy; ADR closure.
 
-**Next:** parent obtains a Running restricted production pod (see bounded method
-below), regenerate/apply controlled probes, rerun `probe-restricted` → cleanup,
-continue S6 acceptance. ADR-146 stays **open**.
+**Next:** push/deploy verifier once; then parent uses the bounded restricted-pod
+method below (explicitly approved dedicated restricted assistant + concurrent
+finite async shell job + `probe-restricted`); cleanup; continue S6 acceptance.
+ADR-146 stays **open**; full S6 matrix not complete.
 
 **Bounded restricted-pod method (S3 post-job retirement):** S3 UID-retires the
 bound exec pod after persistence and before lease release. A synchronous
