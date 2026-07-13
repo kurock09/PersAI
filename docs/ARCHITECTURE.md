@@ -178,7 +178,15 @@ proof/deploy pins recorded in ADR-146 and SESSION-HANDOFF:
   `34.118.224.0/20`, and metadata are deliberately excluded so whole-node
   kubelet/control-plane/Calico and node-local/post-DNAT paths are not broken;
   conflicting higher-priority EGRESS ALLOW rules targeting the sandbox tag are
-  inventoried and rejected;
+  inventoried and rejected; **S6 live evidence (2026-07-13) proved the public
+  GKE master endpoint `34.38.46.10` is reachable from a full-public exec pod
+  (`PUBLIC_MASTER_REACHABLE`) because that `/32` is not yet in the shared
+  public-deny inventory / VPC firewall destinations** — D4 gap-close decided
+  (docs-only checkpoint; implementation not started): commit reviewed
+  public-master `/32` into shared Calico except **and** sandbox-tagged VPC
+  firewall deny, fail-closed live endpoint equality, and firewall apply must
+  update drifted rules while keeping the public endpoint enabled for
+  operator/GitHub WIF kubectl;
 - mandatory Calico ownership of node-primary, Pod, Service, metadata, and
   same-node denies (active probes include live kube-dns Pod IP UDP/TCP 53 and
   same-namespace sandbox control-plane Pod IP); exact NodeLocal
@@ -189,8 +197,10 @@ proof/deploy pins recorded in ADR-146 and SESSION-HANDOFF:
   verification requires ≥1 Running exec pod — zero pods cannot claim wiring);
 - fresh fail-closed live preflight before every mutating phase, exact-match-only
   idempotency, explicit maintenance-confirmed old-pool retirement, structural
-  `verify`, and separate founder-approved `probe-restricted` (inbound denial,
-  HTTP redirect, and DNS-rebind remain unclaimed by automation);
+  `verify`, and separate founder-approved `probe-restricted` (HTTP redirect and
+  DNS-rebind remain unclaimed by automation; inbound empty-ingress is now
+  live-proven PASS on the full-public contour; public-master denial remains
+  FAIL until the `/32` repair lands and is re-proven);
 - S0.1b production rollout used the repository release gate: the coordinated
   founder push synced Helm
   KSA/NetworkPolicy while non-sandbox tags stay last-good; Dev Image Publish

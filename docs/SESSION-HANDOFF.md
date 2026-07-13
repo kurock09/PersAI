@@ -1,5 +1,62 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 S6 inbound PASS + public-master blocker (docs-only checkpoint on `a759b70b`)
+
+Status: **Local documentation checkpoint only** on clean tree at local commit
+`a759b70b` (one ahead of `origin/main`; docs baseline records release/main
+evidence at `7e385bbe`). **Implementation of the public-master repair has not
+started.** No code/config/test edit, commit, push, deploy, or cloud mutation in
+this slice. ADR-146 stays **open**. Full S6 and ADR closure remain **unclaimed**.
+
+Preserved earlier live evidence at release `7e385bbe`: **shell/full_public/
+metadata smokes PASS**; **restricted `probe-restricted` PASS**.
+
+**New full-public contour live evidence (2026-07-13, release `7e385bbe`):**
+
+- Canonical full-public exec pod `ses-97982c194f5602591e016a81c3352e53`
+  (podIP `10.109.0.58`, UID `6f1881a4-bc6e-439f-b21b-7c9c0d4a122e`).
+- Local listener positive control on `127.0.0.1:45678` **PASS**.
+- Inbound attempt from sandbox control-plane pod to `podIP:45678` timed out:
+  `INBOUND_TIMEOUT` **PASS** — inbound residual is now **live-proven** for this
+  contour (no longer an unclaimed inbound residual).
+- Cluster live control-plane config: public endpoint **enabled**; public
+  endpoint `34.38.46.10`; private endpoint `10.132.0.2`; external DNS endpoint
+  traffic **false**; master authorized network CIDRs **empty**.
+- From the full-public pod, direct TCP to `34.38.46.10:443` succeeded:
+  `PUBLIC_MASTER_REACHABLE` — **real S6 security blocker**. Do **not** claim
+  full S6 or ADR closure.
+- Normal chat-smoke hold hit the product hard **90s sandbox process timeout**
+  despite requested `timeoutMs=300000`; concurrent tests completed before
+  retirement. That timeout is **not** an ADR-146 network/security failure and
+  must not be misrepresented as one.
+- Exact pod retired after the bounded job; no controlled probes remained; repo
+  was clean before this docs edit.
+
+**Decision / addendum (both independent Grok audits agree; gap-close under
+existing ADR-146 D4; no new product ADR):**
+
+- Bounded repair: commit the reviewed live public control-plane IPv4 `/32`
+  (`34.38.46.10/32`) into the shared public-deny inventory; feed it into Calico
+  NetworkPolicy `except` **and** the sandbox-tagged VPC firewall deny; verifier
+  must fail closed if the live endpoint differs or is missing; firewall apply
+  must **update** an existing drifted rule (create-skip alone is insufficient).
+- Keep the public control-plane endpoint **enabled** for current operator /
+  GitHub WIF kubectl access. Disabling the public endpoint or enabling master
+  authorized networks are **optional future founder hardening**, not this
+  minimum repair. No Dataplane V2. No transition mode.
+
+**Still residual / unclaimed after this checkpoint:** HTTP redirect and
+DNS-rebind live proof; broader S6 helper operator-owned SSH/TCP/UDP/redirect/
+DNS fixtures; public-master denial remains **FAIL** until the `/32` repair
+lands and is live-reproven. Implementation not started.
+
+**Next:** parent-orchestrated code repair slice implementing the D4 public
+master `/32` dual-layer deny + fail-closed verify + firewall update path; then
+live re-proof that full-public TCP to `34.38.46.10:443` fails; then continue
+remaining operator-owned S6 fixtures. Do not claim S6 complete.
+
+---
+
 ## 2026-07-13 — ADR-146 S6 restricted live `probe-restricted` PASS (docs-only on release/main `7e385bbe`)
 
 Status: **Production S6 restricted contour live evidence PASS at release/main
@@ -7,7 +64,8 @@ SHA `7e385bbe` (clean tree; `main` matched `origin/main`).** Earlier live
 evidence already proved **shell/full_public/metadata smokes PASS**; that status
 is preserved. This checkpoint records only the concurrent restricted
 `probe-restricted` acceptance run. ADR-146 stays **open**. Full S6 matrix and
-ADR closure remain **unclaimed**.
+ADR closure remain **unclaimed**. **Superseded for inbound/public-master status
+by the inbound PASS + public-master blocker checkpoint above.**
 
 **Live restricted evidence (2026-07-13):**
 
@@ -31,17 +89,18 @@ ADR closure remain **unclaimed**.
   subsequent kubectl query showed no controlled probes and no remaining
   restricted exec pod.
 
-**Still explicitly unclaimed:** automated probe inbound denial, HTTP redirect,
-and DNS-rebind; broader S6 helper operator-owned SSH/TCP/UDP/redirect/DNS
-fixtures; public GKE master endpoint proof. Do **not** claim full S6 or ADR
-closure.
+**Still explicitly unclaimed (historical at this entry; see newer checkpoint):**
+automated probe inbound denial, HTTP redirect, and DNS-rebind; broader S6
+helper operator-owned SSH/TCP/UDP/redirect/DNS fixtures; public GKE master
+endpoint proof. Do **not** claim full S6 or ADR closure.
 
 **Docs vs release pin:** release/main production evidence is pinned at
 `7e385bbe`. This SESSION-HANDOFF / CHANGELOG / ADR / TEST-PLAN / AGENTS update
 is a **local documentation recording** of that evidence (not a new deploy pin).
 
-**Next:** provision/review operator-owned fixtures and complete the remaining
-S6 manual matrix, including inbound and public GKE master endpoint proof.
+**Next (historical):** provision/review operator-owned fixtures and complete the
+remaining S6 manual matrix, including inbound and public GKE master endpoint
+proof. Current next step is the public-master `/32` repair in the newer entry.
 
 ---
 

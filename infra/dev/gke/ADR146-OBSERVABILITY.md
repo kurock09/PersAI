@@ -154,10 +154,15 @@ Threshold guidance:
   IPv6/dual-stack fails Helm validation until a future audited inventory lands.
 - Squid remains reachable for **restricted** pods via additive NetworkPolicy
   union (not a private-bypass hole).
-- Public GKE master endpoint validation remains a **residual** until S6 live
-  acceptance records it.
-- Inbound denial, HTTP redirect, and DNS-rebind remain **unclaimed** until S6
-  (`probe-restricted` does not assert them).
+- Public GKE master endpoint is a live **S6 security blocker**
+  (`PUBLIC_MASTER_REACHABLE` to `34.38.46.10:443` from full-public). D4
+  gap-close decided, **implementation not started**: commit reviewed public
+  master `/32` into shared public-deny inventory (Calico except + sandbox-tagged
+  VPC firewall), fail-closed live endpoint equality, and firewall apply must
+  update drifted rules while keeping the public endpoint enabled.
+- Inbound empty-ingress is live-proven **PASS** (`INBOUND_TIMEOUT`) on the
+  full-public contour; HTTP redirect and DNS-rebind remain **unclaimed** until
+  S6 parent records them (`probe-restricted` does not assert them).
 
 ## Related gates
 

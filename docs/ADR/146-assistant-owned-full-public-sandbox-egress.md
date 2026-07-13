@@ -60,12 +60,29 @@ web-shell path held real restricted pod
 `exec-ksa-live-wiring: zero Running sandbox-exec pods` only; not a
 network/product failure); controlled `adr146-restricted-probe` +
 `adr146-nat-probe` Ready; `probe-restricted --execute` exit 0 `RESULT: PASS`;
-cleanup PASS (no controlled probes; no remaining restricted exec pod). Automated
-inbound denial / HTTP redirect / DNS-rebind remain unclaimed; broader S6 helper
-still needs operator-owned SSH/TCP/UDP/redirect/DNS fixtures; public GKE master
-endpoint proof remains unclaimed. Do **not** claim S6 complete or close this
-ADR. Continuity-doc recording of this evidence is local documentation on top of
-release pin `7e385bbe`, not a new deploy pin.
+cleanup PASS (no controlled probes; no remaining restricted exec pod). **Later
+same-day full-public contour evidence (docs checkpoint on local `a759b70b`;
+implementation not started):** inbound from sandbox control-plane to full-public
+pod `ses-97982c194f5602591e016a81c3352e53` (`10.109.0.58` /
+`6f1881a4-bc6e-439f-b21b-7c9c0d4a122e`) timed out — inbound residual
+**live-proven PASS** (`INBOUND_TIMEOUT`); local listener positive control PASS.
+Cluster public endpoint enabled at `34.38.46.10` (private `10.132.0.2`; DNS
+external traffic false; no master authorized network CIDRs). Direct TCP from
+that full-public pod to `34.38.46.10:443` succeeded — `PUBLIC_MASTER_REACHABLE`
+is a **real S6 security blocker**. Chat-smoke hard 90s process timeout despite
+`timeoutMs=300000` is **not** an ADR-146 network failure. Exact pod retired; no
+controlled probes remained. **D4 gap-close addendum (both independent audits
+agree; no new product ADR):** commit reviewed public control-plane IPv4
+`34.38.46.10/32` into shared public-deny inventory; feed Calico NP except **and**
+sandbox-tagged VPC firewall deny; verifier fail-closed if live endpoint differs
+or is missing; firewall apply must update drifted rules. Keep public endpoint
+enabled for operator/GitHub WIF kubectl; disabling endpoint or master authorized
+networks are optional future founder hardening only. No Dataplane V2 / transition
+mode. HTTP redirect / DNS-rebind and operator-owned SSH/TCP/UDP/redirect/DNS
+fixtures remain unclaimed; public-master denial remains FAIL until repair +
+re-proof. Do **not** claim S6 complete or close this ADR. Continuity-doc
+recording of this evidence is local documentation on top of release pin
+`7e385bbe`, not a new deploy pin.
 
 ## Date
 
@@ -116,8 +133,10 @@ open; **S1 committed locally at `775e5781`**; **S2 committed locally at
 **S6 in progress** (local gates PASS; predeploy default structural verify PASS
 at `40d7a927`; earlier **shell/full_public/metadata smokes PASS** preserved;
 **S6 restricted live `probe-restricted` PASS** at release/main **`7e385bbe`**;
-inbound/redirect/DNS-rebind/public-master and operator-owned S6 fixtures remain
-unclaimed; ADR open; full S6 / closure unclaimed).
+**inbound live-proven PASS** on full-public contour; **public-master
+`PUBLIC_MASTER_REACHABLE` FAIL/blocker** with D4 `/32` dual-layer repair decided
+but **implementation not started**; HTTP redirect / DNS-rebind and operator-owned
+S6 fixtures remain unclaimed; ADR open; full S6 / closure unclaimed).
 
 ## Slice 3 local land (2026-07-13)
 
@@ -511,6 +530,15 @@ minimum:
 - `169.254.0.0/16`, including GKE/Compute metadata endpoints;
 - the real cluster node, Pod, Service, control-plane, and peered-VPC ranges even
   if a future environment allocates them outside the common RFC1918 blocks;
+- when the cluster public control-plane endpoint is enabled, the reviewed live
+  public master IPv4 `/32` (currently `34.38.46.10/32`) must be present in the
+  **shared** public-deny inventory used by Calico NetworkPolicy `except` and the
+  sandbox-tagged VPC firewall destinations; live verify must fail closed if the
+  live endpoint differs or is missing; firewall apply must update drifted rules.
+  Keeping the public endpoint enabled for operator/GitHub WIF kubectl is the
+  current minimum posture; disabling the public endpoint or enabling master
+  authorized networks is optional founder hardening, not a substitute for this
+  D4 inventory gap-close;
 - the current chart is explicitly IPv4-only (`sandboxEgress.ipFamily: IPv4`);
   IPv6 and dual-stack fail rendering until a future audited inventory covers
   IPv6 loopback, link-local, unique-local, multicast, documentation, metadata,
@@ -1158,7 +1186,10 @@ Calico contour. Its acceptance is fixed:
   `%{http_connect}` exact `403` (`%{http_code}`/`000` must not pass), Pod/Service/
   node/control-plane/metadata access all fail in a founder-approved test pod;
 - inbound denial, HTTP redirect, and DNS-rebind remain **explicitly unclaimed**
-  by automated `probe-restricted` and stay RUNBOOK-only;
+  by automated `probe-restricted` and stay RUNBOOK-only (S6 later live-proved
+  inbound empty-ingress **PASS** on a full-public contour; public-master denial
+  remains a separate S6 **FAIL/blocker** pending the D4 `/32` dual-layer
+  repair — see Status / Slice 6);
 - the ordinary restricted Squid allowlist path still works.
 
 S0.1 restricted live foundation gate is recorded PASS at `e5c249c3` (evidence
@@ -1303,10 +1334,18 @@ The parent agent:
 earlier **shell/full_public/metadata smokes PASS** (preserved); restricted
 `probe-restricted --execute` exit 0 `RESULT: PASS` with concurrent real
 restricted pod `ses-25b6b44b4e1a873f23fe145aca7fc952`, controlled probes Ready,
-and cleanup PASS. Automated inbound denial / HTTP redirect / DNS-rebind remain
-unclaimed; broader S6 helper still needs operator-owned
-SSH/TCP/UDP/redirect/DNS fixtures; public GKE master endpoint proof remains
-unclaimed. This does **not** complete S6 or close the ADR.
+and cleanup PASS. **Inbound live-proven PASS** on full-public pod
+`ses-97982c194f5602591e016a81c3352e53` (`INBOUND_TIMEOUT` from sandbox
+control-plane; local listener positive control PASS). **Public master FAIL /
+blocker:** direct TCP to live public endpoint `34.38.46.10:443` succeeded
+(`PUBLIC_MASTER_REACHABLE`). Chat-smoke hard 90s process timeout is not a
+network failure. **Repair decided under D4 (implementation not started):**
+commit reviewed public-master `/32` into shared public-deny inventory; Calico
+except + sandbox-tagged VPC firewall deny; fail-closed live endpoint equality;
+firewall apply must update drifted rules; keep public endpoint enabled; no new
+ADR, no Dataplane V2, no transition mode. HTTP redirect / DNS-rebind remain
+unclaimed; broader S6 helper still needs operator-owned SSH/TCP/UDP/redirect/
+DNS fixtures. This does **not** complete S6 or close the ADR.
 
 No subagent may close S6.
 

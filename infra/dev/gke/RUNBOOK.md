@@ -356,10 +356,30 @@ The helper does not create fixtures, mutate Kubernetes/cloud state, toggle
 mode, deploy, or claim acceptance. Record its stdout/stderr/status, UTC
 start/end, release SHA, exact pod UIDs, fixture ownership, and cleanup evidence.
 
-Still unclaimed until S6 manual evidence: inbound denial and public GKE master
-endpoint proof. HTTP redirect and DNS-rebind/private-resolution now have
-executable preparation but remain unclaimed until the parent runs and records
-the approved live probe.
+Still unclaimed / open after S6 parent evidence through release `7e385bbe`:
+
+- **Inbound empty-ingress:** live-proven **PASS** on full-public pod
+  `ses-97982c194f5602591e016a81c3352e53` (`INBOUND_TIMEOUT` from sandbox
+  control-plane after local listener positive control PASS). Treat as proven for
+  this contour; keep the manual listener procedure below for regression.
+- **Public GKE master endpoint:** live **FAIL / S6 security blocker** —
+  `PUBLIC_MASTER_REACHABLE` (direct TCP from full-public pod to
+  `34.38.46.10:443` succeeded). Minimum D4 repair (implementation not started):
+  commit reviewed public-master `/32` into shared public-deny inventory; feed
+  Calico NP except **and** sandbox-tagged VPC firewall deny; verifier fail-closed
+  if live endpoint differs/missing; firewall apply must **update** drifted rules.
+  Keep public endpoint enabled for operator/GitHub WIF kubectl; disabling the
+  endpoint or enabling master authorized networks are optional future founder
+  hardening only. Do not claim denial until post-repair live re-proof.
+- **HTTP redirect and DNS-rebind/private-resolution:** executable preparation
+  exists but remain unclaimed until the parent runs and records the approved
+  live probe.
+- Broader S6 helper still needs operator-owned SSH/TCP/UDP/redirect/DNS
+  fixtures.
+
+Chat-smoke hard 90s sandbox process timeout despite a larger requested
+`timeoutMs` is a product hold residual, **not** an ADR-146 network/security
+failure.
 
 Observability reference: `infra/dev/gke/ADR146-OBSERVABILITY.md`.
 
@@ -414,9 +434,13 @@ From a founder-approved test exec pod on the private sandbox pool, confirm:
 5. only after those controls pass, matching exec denials plus metadata
    `169.254.169.254:80` are dropped; metadata denial requires the
    `gke-metadata-server` DaemonSet desired=ready structural check
-6. inbound remains empty — **manual RUNBOOK residual**, not claimed by
-   automated `probe-restricted`. HTTP redirect and DNS-rebind to private/
-   metadata destinations are likewise unclaimed by automation.
+6. inbound remains empty — **manual RUNBOOK check**. Live S6 evidence on
+   release `7e385bbe` recorded **PASS** (`INBOUND_TIMEOUT`) for the full-public
+   contour; keep the disposable-listener procedure for regression. HTTP redirect
+   and DNS-rebind to private/metadata destinations remain unclaimed by
+   automation. Public GKE master endpoint denial is a separate live **FAIL /
+   blocker** (`PUBLIC_MASTER_REACHABLE` to `34.38.46.10:443`) pending the D4
+   `/32` dual-layer inventory repair.
 
 `probe-restricted` executes items 1–5 without credentials, request bodies, file
 contents, auth headers, or query strings; the NAT identity check logs only its

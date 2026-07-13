@@ -42,11 +42,19 @@ web-shell path held real restricted pod
 (prior `sleep 120` → default 90s shell timeout →
 `exec-ksa-live-wiring: zero Running sandbox-exec pods` only; not a
 network/product failure); controlled probes Ready; `probe-restricted --execute`
-exit 0 `RESULT: PASS`; cleanup PASS. Automated inbound denial / HTTP redirect /
-DNS-rebind remain unclaimed; broader S6 helper still needs operator-owned
-SSH/TCP/UDP/redirect/DNS fixtures; public GKE master endpoint proof remains
-unclaimed. Do **not** claim full S6 or ADR closure. Continuity-doc recording is
-local documentation on top of release pin `7e385bbe`, not a new deploy pin.
+exit 0 `RESULT: PASS`; cleanup PASS. **Later same-day full-public contour (docs checkpoint on local
+`a759b70b`; implementation not started):** inbound `INBOUND_TIMEOUT` **PASS**
+(live-proven); public master TCP to `34.38.46.10:443` **FAIL/blocker**
+(`PUBLIC_MASTER_REACHABLE`). Chat-smoke hard 90s process timeout is not an
+ADR-146 network failure. D4 gap-close decided: commit reviewed public-master
+`/32` into shared public-deny inventory; Calico except + sandbox-tagged VPC
+firewall deny; verifier fail-closed on live endpoint mismatch/missing; firewall
+apply must update drifted rules; keep public endpoint enabled; no new ADR / no
+Dataplane V2 / no transition mode. HTTP redirect / DNS-rebind remain unclaimed;
+broader S6 helper still needs operator-owned SSH/TCP/UDP/redirect/DNS fixtures;
+public-master denial remains FAIL until repair + re-proof. Do **not** claim
+full S6 or ADR closure. Continuity-doc recording is local documentation on top
+of release pin `7e385bbe`, not a new deploy pin.
 Each later slice runs the full AGENTS gate plus affected
 API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
 and live negative acceptance.
