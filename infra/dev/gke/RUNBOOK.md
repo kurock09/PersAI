@@ -217,12 +217,16 @@ guards. Use the dedicated foundation-only resume workflow
   services to `target_image_sha` (no rebuild; never touches sandbox). The gated
   job first fetches fresh `origin/main`; after every rejected-push rebase it
   reruns request validation and proves the rebased commit changes only the
-  authoritative deferred image-tag scalars before retrying.
+  authoritative deferred image-tag scalars before retrying (`pin-dev-image-tags`
+  and `applyPinDevImageTags` share one body; EOF blank-line drift fails closed).
 
 Current locked resume case after restricted gate PASS: target
 `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f`, proof
 `e5c249c3dbb9d16406b85637e9dcdd9a418a8a79`, inventory
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`.
+A prior live resume attempt failed when historical pin CLI extra EOF `\n`
+mismatched the assert expected body; local repair aligns CLI+lib before
+re-dispatch.
 
 Non-foundation pushes keep the ordinary immediate pin / migration-approval
 behavior. Bot-only image-tag pin commits to `infra/helm/values-dev.yaml` still

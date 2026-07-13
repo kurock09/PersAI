@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import yaml from "yaml";
 
 import {
@@ -31,7 +32,11 @@ import {
   resolveFoundationPinPlan,
   sha256Hex
 } from "./adr146-foundation-release-gate.mjs";
-import { applyPinDevImageTags } from "./pin-dev-image-tags-lib.mjs";
+import {
+  analyzePinableServiceImageTags,
+  applyPinDevImageTags,
+  PIN_DEV_IMAGE_SERVICE_TO_SECTION
+} from "./pin-dev-image-tags-lib.mjs";
 
 const parseYaml = yaml.parse.bind(yaml);
 
@@ -604,9 +609,10 @@ describe("ADR-146 foundation deferred-pin resume", () => {
   });
 
   it("accepts only the authoritative exact tag mutation", () => {
-    const expected = valuesDevText.replace(
-      /^(\s+tag: )(?:f35498e6b595d2b58f4cb16d8e721a12524bd598|f1f4407835113b7e934637f327d2f29006e08d51)$/gmu,
-      `$1${locked.targetImageSha}`
+    const expected = applyPinDevImageTags(
+      valuesDevText,
+      locked.deferredServices,
+      locked.targetImageSha
     );
     const result = assertFoundationDeferredResumePinMutation({
       baseValuesDevText: valuesDevText,
@@ -617,13 +623,100 @@ describe("ADR-146 foundation deferred-pin resume", () => {
     assert.equal(result.ok, true, result.errors.join("; "));
   });
 
+  it("rejects the live resume failure shape: historical CLI extra trailing newline", () => {
+    const authoritative = applyPinDevImageTags(
+      valuesDevText,
+      locked.deferredServices,
+      locked.targetImageSha
+    );
+    // Historical pin-dev-image-tags.mjs wrote `${lines.join("\n")}\n`, which
+    // added one EOF blank line whenever values-dev already ended with `\n`.
+    assert.ok(authoritative.endsWith("\n"));
+    const historicalCliShape = `${authoritative}\n`;
+    const result = assertFoundationDeferredResumePinMutation({
+      baseValuesDevText: valuesDevText,
+      headValuesDevText: historicalCliShape,
+      targetImageSha: locked.targetImageSha,
+      deferredServices: locked.deferredServices
+    });
+    assert.equal(result.ok, false);
+    assert.match(result.errors.join("\n"), /no unrelated values-dev mutation/);
+  });
+
+  it("accepts real pin-dev-image-tags.mjs CLI output on live values-dev (exact four deferred tags)", () => {
+    const tempRoot = mkdtempSync(path.join(tmpdir(), "persai-adr146-pin-cli-"));
+    const valuesPath = path.join(tempRoot, "values-dev.yaml");
+    try {
+      writeFileSync(valuesPath, valuesDevText);
+      const pinScript = fileURLToPath(new URL("./pin-dev-image-tags.mjs", import.meta.url));
+      const cliOut = execFileSync(
+        process.execPath,
+        [
+          pinScript,
+          "--file",
+          valuesPath,
+          "--sha",
+          locked.targetImageSha,
+          "--services",
+          locked.deferredServices.join(",")
+        ],
+        { encoding: "utf8" }
+      );
+      assert.match(cliOut, /Pinned api, providerGateway, runtime, web to /);
+
+      const head = readFileSync(valuesPath, "utf8");
+      const expected = applyPinDevImageTags(
+        valuesDevText,
+        locked.deferredServices,
+        locked.targetImageSha
+      );
+      assert.equal(head, expected, "CLI write must equal authoritative applyPinDevImageTags body");
+
+      const mutation = assertFoundationDeferredResumePinMutation({
+        baseValuesDevText: valuesDevText,
+        headValuesDevText: head,
+        targetImageSha: locked.targetImageSha,
+        deferredServices: locked.deferredServices
+      });
+      assert.equal(mutation.ok, true, mutation.errors.join("; "));
+
+      const baseTags = analyzePinableServiceImageTags(valuesDevText).tags;
+      const headTags = analyzePinableServiceImageTags(head).tags;
+      const deferredSections = new Set(
+        locked.deferredServices.map((service) => PIN_DEV_IMAGE_SERVICE_TO_SECTION[service])
+      );
+      for (const [section, baseTag] of baseTags) {
+        const headTag = headTags.get(section);
+        if (deferredSections.has(section)) {
+          assert.equal(headTag, locked.targetImageSha, `${section} must pin to target`);
+          assert.notEqual(headTag, baseTag, `${section} must change`);
+        } else {
+          assert.equal(headTag, baseTag, `${section} must remain untouched`);
+        }
+      }
+      assert.equal(headTags.get("sandbox"), baseTags.get("sandbox"));
+      assert.equal(headTags.get("sandboxExec"), baseTags.get("sandboxExec"));
+
+      const dirty = head.replace("replicaCount: 2", "replicaCount: 3");
+      const unrelated = assertFoundationDeferredResumePinMutation({
+        baseValuesDevText: valuesDevText,
+        headValuesDevText: dirty,
+        targetImageSha: locked.targetImageSha,
+        deferredServices: locked.deferredServices
+      });
+      assert.equal(unrelated.ok, false);
+      assert.match(unrelated.errors.join("\n"), /no unrelated values-dev mutation/);
+    } finally {
+      rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unrelated values-dev mutation in the resume pin", () => {
-    const expected = valuesDevText
-      .replace(
-        /^(\s+tag: )(?:f35498e6b595d2b58f4cb16d8e721a12524bd598|f1f4407835113b7e934637f327d2f29006e08d51)$/gmu,
-        `$1${locked.targetImageSha}`
-      )
-      .replace("replicaCount: 2", "replicaCount: 3");
+    const expected = applyPinDevImageTags(
+      valuesDevText,
+      locked.deferredServices,
+      locked.targetImageSha
+    ).replace("replicaCount: 2", "replicaCount: 3");
     const result = assertFoundationDeferredResumePinMutation({
       baseValuesDevText: valuesDevText,
       headValuesDevText: expected,
@@ -635,9 +728,10 @@ describe("ADR-146 foundation deferred-pin resume", () => {
   });
 
   it("rejects a committed resume pin containing any unrelated path", () => {
-    const expected = valuesDevText.replace(
-      /^(\s+tag: )(?:f35498e6b595d2b58f4cb16d8e721a12524bd598|f1f4407835113b7e934637f327d2f29006e08d51)$/gmu,
-      `$1${locked.targetImageSha}`
+    const expected = applyPinDevImageTags(
+      valuesDevText,
+      locked.deferredServices,
+      locked.targetImageSha
     );
     const result = assertFoundationDeferredResumePinState(
       {
@@ -656,9 +750,10 @@ describe("ADR-146 foundation deferred-pin resume", () => {
   });
 
   it("rejects gha-creds worktree pollution even when deferred tags are exact", () => {
-    const expected = valuesDevText.replace(
-      /^(\s+tag: )(?:f35498e6b595d2b58f4cb16d8e721a12524bd598|f1f4407835113b7e934637f327d2f29006e08d51)$/gmu,
-      `$1${locked.targetImageSha}`
+    const expected = applyPinDevImageTags(
+      valuesDevText,
+      locked.deferredServices,
+      locked.targetImageSha
     );
     const result = assertFoundationDeferredResumePinState(
       {

@@ -80,7 +80,13 @@ export function analyzePinableServiceImageTags(fileText) {
 
 /**
  * Apply the same mutation the pin CLI writes for one or more services.
- * Used by tests to produce realistic pin output.
+ * Used by resume mutation asserts and tests as the authoritative expected body.
+ *
+ * Write shape: `lines.join("\n")`, then ensure a single POSIX trailing newline
+ * only when the joined body does not already end with `\n`. Never append an
+ * extra blank line after a file that already ends in newline — the historical
+ * `writeFileSync(\`${join}\\n\`)` form accumulated EOF blanks and failed live
+ * `assert-resume-pin-state` against this helper.
  *
  * @param {string} fileText
  * @param {string[]} serviceNames deploy service ids (api, web, …)
@@ -138,5 +144,6 @@ export function applyPinDevImageTags(fileText, serviceNames, sha) {
     }
   }
 
-  return `${lines.join("\n")}`;
+  const joined = lines.join("\n");
+  return joined.endsWith("\n") ? joined : `${joined}\n`;
 }

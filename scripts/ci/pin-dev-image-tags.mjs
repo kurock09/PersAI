@@ -4,7 +4,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { PIN_DEV_IMAGE_SERVICE_TO_SECTION } from "./pin-dev-image-tags-lib.mjs";
+import {
+  applyPinDevImageTags,
+  PIN_DEV_IMAGE_SERVICE_TO_SECTION
+} from "./pin-dev-image-tags-lib.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,63 +33,25 @@ if (services.length === 0) {
   process.exit(0);
 }
 
-const serviceToSection = PIN_DEV_IMAGE_SERVICE_TO_SECTION;
-
-const targetSections = new Set(
-  services.map((service) => {
-    const section = serviceToSection[service];
-    if (!section) {
-      throw new Error(`Unsupported service: ${service}`);
-    }
-    return section;
-  })
-);
-
-const lines = readFileSync(filePath, "utf8").split(/\r?\n/u);
-let currentSection = "";
-let inImageBlock = false;
-const updatedSections = new Set();
-
-for (let index = 0; index < lines.length; index += 1) {
-  const line = lines[index];
-  const topLevelMatch = line.match(/^([A-Za-z][A-Za-z0-9]*):\s*$/u);
-  if (topLevelMatch) {
-    currentSection = topLevelMatch[1];
-    inImageBlock = false;
-    continue;
-  }
-
-  if (!targetSections.has(currentSection)) {
-    continue;
-  }
-
-  if (line === "  image:") {
-    inImageBlock = true;
-    continue;
-  }
-
-  if (inImageBlock && /^  [A-Za-z]/u.test(line)) {
-    inImageBlock = false;
-  }
-
-  if (inImageBlock && /^    tag:\s*/u.test(line)) {
-    lines[index] = line.replace(/^    tag:\s*.*/u, `    tag: ${sha}`);
-    updatedSections.add(currentSection);
-    inImageBlock = false;
-  }
-}
-
-for (const section of targetSections) {
-  if (!updatedSections.has(section)) {
-    throw new Error(`Expected to update image tag for section "${section}".`);
-  }
-}
+const fileText = readFileSync(filePath, "utf8");
+const updated = applyPinDevImageTags(fileText, services, sha);
+const updatedSections = [
+  ...new Set(
+    services.map((service) => {
+      const section = PIN_DEV_IMAGE_SERVICE_TO_SECTION[service];
+      if (!section) {
+        throw new Error(`Unsupported service: ${service}`);
+      }
+      return section;
+    })
+  )
+].sort();
 
 if (!dryRun) {
-  writeFileSync(filePath, `${lines.join("\n")}\n`);
+  writeFileSync(filePath, updated);
 }
 process.stdout.write(
-  `${dryRun ? "Validated" : "Pinned"} ${Array.from(updatedSections).sort().join(", ")} to ${sha}.\n`
+  `${dryRun ? "Validated" : "Pinned"} ${updatedSections.join(", ")} to ${sha}.\n`
 );
 
 function parseArgs(argv) {

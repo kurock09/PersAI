@@ -682,7 +682,9 @@ Lands:
   and proves the bot commit contains only authoritative deferred tag scalars;
   every GAR auth step is access-token-only with
   `create_credentials_file: false` so no `gha-creds-*.json` can pollute that
-  commit-shape invariant;
+  commit-shape invariant; pin CLI and `applyPinDevImageTags` share one write
+  body (no historical extra EOF blank after `join`), and resume mutation assert
+  compares that body exactly after CRLF→LF (EOF blank-line drift fails closed);
   `migration_changed` accepts only boolean `false` or exact string `"false"`
   (every other representation fails closed);
 - hardened local controlled restricted + NAT probe Pod manifests (controlled-probe
@@ -870,14 +872,17 @@ the request and exact tag-only commit validators before retry. This slice is
 string `"false"`); dual-gate migration resume is intentionally unsupported
 rather than weakly implemented. A real temporary bare-origin/runner-clone test
 proves newer protected-path drift is rejected after rebase and before push.
-Locked current
+A live resume attempt failed after successful validate/GAR/pin when historical
+`pin-dev-image-tags.mjs` `` `${join}\n` `` EOF blank mismatched
+`applyPinDevImageTags`; local repair aligns CLI+lib and keeps exact mutation
+validation fail-closed on EOF/unrelated drift. Locked current
 dispatch inputs: target `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f`, services
 `api,web,runtime,provider-gateway`, proof
 `e5c249c3dbb9d16406b85637e9dcdd9a418a8a79`, inventory
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`.
 
-Next: land/push the resume workflow if not yet on `main`, then dispatch the
-locked resume inputs and approve GitHub Environment
+Next: land/push the resume workflow + EOF pin repair if not yet on `main`, then
+dispatch the locked resume inputs and approve GitHub Environment
 `persai-dev-adr146-foundation` so remaining service pins can proceed. Do **not**
 close this ADR or start S1 prematurely. S1 remains blocked.
 

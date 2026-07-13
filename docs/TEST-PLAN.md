@@ -149,9 +149,15 @@ Required local invariants:
     `create_credentials_file: false`; tests reject `gha-creds-*.json` worktree
     pollution. Foundation-only: only boolean `false` or exact string `"false"`
     is accepted for `migration_changed`; true/numeric/empty/missing/mixed-case/
-    garbage values fail closed. A real temporary bare-origin/runner-clone test
-    commits protected-path drift on newer `origin/main`, rebases the stale pin,
-    and proves post-rebase validation rejects before push. Locked current case in tests:
+    garbage values fail closed. Authoritative resume pin mutation must equal
+    `applyPinDevImageTags` / `pin-dev-image-tags.mjs` output byte-for-byte after
+    CRLF→LF only (no trailing-newline strip): the historical CLI
+    `` `${lines.join("\n")}\n` `` extra EOF blank line is rejected as unrelated
+    mutation; a real-CLI integration test on live `values-dev` accepts only the
+    exact four deferred tags and rejects unrelated edits. A real temporary
+    bare-origin/runner-clone test commits protected-path drift on newer
+    `origin/main`, rebases the stale pin, and proves post-rebase validation
+    rejects before push. Locked current case in tests:
     target `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f`, services
     `api,web,runtime,provider-gateway`, proof
     `e5c249c3dbb9d16406b85637e9dcdd9a418a8a79`, inventory

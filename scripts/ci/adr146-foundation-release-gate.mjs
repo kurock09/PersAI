@@ -815,14 +815,16 @@ export function assertFoundationDeferredResumePinMutation({
   }
 
   const expected = applyPinDevImageTags(baseValuesDevText, services, targetSha);
-  const normalizedHead = String(headValuesDevText).replace(/\r\n/gu, "\n").replace(/\n$/u, "");
-  const normalizedExpected = expected.replace(/\r\n/gu, "\n").replace(/\n$/u, "");
+  // CRLF→LF only. Do not strip trailing newlines: EOF blank-line drift must
+  // remain fail-closed (the live resume failure was an extra trailing `\n`).
+  const normalizedHead = String(headValuesDevText).replace(/\r\n/gu, "\n");
+  const normalizedExpected = expected.replace(/\r\n/gu, "\n");
   if (normalizedHead !== normalizedExpected) {
     errors.push(
       "resume pin mutation must equal authoritative pin-dev-image-tags output exactly (no unrelated values-dev mutation)"
     );
   }
-  if (String(baseValuesDevText).replace(/\r\n/gu, "\n").replace(/\n$/u, "") === normalizedHead) {
+  if (String(baseValuesDevText).replace(/\r\n/gu, "\n") === normalizedHead) {
     errors.push("resume pin mutation must change at least one deferred image.tag scalar");
   }
 

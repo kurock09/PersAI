@@ -1,5 +1,39 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 resume pin EOF mutation repair (local)
+
+Status: **Local repair only on tree atop resume workflow `c2ac794b`; no
+commit/push/dispatch/Environment approval/cloud mutation in this slice.**
+
+**Live failure:** deferred-pin resume job passed `validate-resume` + GAR checks,
+ran `pin-dev-image-tags` for `api,web,runtime,provider-gateway` and printed
+`Pinned api, providerGateway, runtime, web to 3cd2ea4f…`, then
+`assert-resume-pin-state` failed with `resume pin mutation must equal
+authoritative pin-dev-image-tags output exactly`.
+
+**Root cause:** `pin-dev-image-tags.mjs` historically wrote
+`` `${lines.join("\n")}\n` ``, appending one EOF blank line whenever
+`values-dev` already ended with `\n`. `applyPinDevImageTags` (assert expected
+body) did not. Assert normalization stripped only a single trailing `\n`, so
+multi-blank EOF (current `values-dev` has several) still mismatched.
+
+**Repair:** CLI now writes solely through `applyPinDevImageTags`; helper
+preserves join output and adds a trailing newline only when missing (never an
+extra blank line). Assert compares CRLF→LF only (no `\n$` strip) so EOF drift
+stays fail-closed. Regression: historical extra-`\n` shape rejected; real CLI
+on live `values-dev` accepted for exact four deferred tags only; unrelated
+mutation rejected. Four-service set, sandbox exclusion, migration fail-closed,
+fresh-main/rebase revalidation unchanged.
+
+**Still incomplete:** Environment `persai-dev-adr146-foundation` unapproved;
+non-sandbox pins last-good; ADR open; S1 blocked.
+
+**Next:** commit/push this repair with the resume workflow when the parent
+authorizes, then re-dispatch the locked inputs and approve the Environment —
+do not start S1.
+
+---
+
 ## 2026-07-13 — ADR-146 foundation deferred-pin resume workflow (local)
 
 Status: **Implementation landed locally on clean tree atop docs `fea18014` /
@@ -32,9 +66,11 @@ before any push.
 `migration_changed=false`.
 
 **Still incomplete:** Environment `persai-dev-adr146-foundation` unapproved;
-non-sandbox pins last-good; ADR open; S1 blocked.
+non-sandbox pins last-good; ADR open; S1 blocked. **Superseded for pin-assert
+truth by:** resume pin EOF mutation repair entry above (live assert failure
+after validate/GAR/pin).
 
-**Next:** commit/push this resume slice when the parent authorizes, then
+**Next:** commit/push resume slice + EOF repair when the parent authorizes, then
 dispatch the locked inputs and approve the Environment — do not start S1.
 
 ---
