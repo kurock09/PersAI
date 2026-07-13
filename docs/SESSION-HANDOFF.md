@@ -1,6 +1,6 @@
 # SESSION-HANDOFF
 
-## 2026-07-13 — ADR-146 S6 live shell blocker diagnosed (local uncommitted fix)
+## 2026-07-13 — ADR-146 S6 live shell blocker + RBAC repair committed locally
 
 Status: **Post-deploy S6 smoke blocked on live cluster at bot pin `1200b2f1`
 (deploy `a6829f03`; Argo Synced/Healthy; post-sync `verify --require-s2-policy`
@@ -13,9 +13,11 @@ PASS; health/ready PASS).** Root cause: **Helm RBAC gap** — ADR-146 S3
 → **no**; reproduced `chat_smoke` shell `printf ADR146_SHELL_OK` → tool
 `ok:false` with `sandbox_pod_binding_failed (403 Forbidden — serviceaccount
 persai-dev:sandbox-sa cannot update pods)`. Warm/full_public pod create/session
-logs were healthy; failure is pre-exec lease binding, not egress policy.
+logs were healthy; failure is pre-exec lease binding, not egress policy. **Live
+cluster still denies `update` until chart sync** — do not claim live repair.
 
-**Local bounded repair (uncommitted on `1200b2f1`):**
+**Bounded repair (committed locally at `01b3b8a5` on baseline `1200b2f1`;
+unpushed/undeployed):**
 
 - Helm Role adds only `update` on `pods` + comment in
   `infra/helm/templates/sandbox-serviceaccount.yaml`;
@@ -25,11 +27,11 @@ logs were healthy; failure is pre-exec lease binding, not egress policy.
   fail closed;
 - RUNBOOK post-deploy smoke adds `kubectl auth can-i update pods`.
 
-**Out of scope:** commit/push/deploy/cloud RBAC apply; ADR closure.
+**Out of scope:** push/deploy/cloud RBAC apply; ADR closure.
 
-**Next:** commit repair; redeploy sandbox chart (RBAC-only); confirm live
-`auth can-i update pods` yes; rerun `chat_smoke` shell sentinel; continue S6
-acceptance matrix.
+**Next:** push once; wait Argo Synced/Healthy; confirm live
+`auth can-i update pods` → **yes**; rerun `chat_smoke` shell sentinel; continue
+S6 acceptance matrix. ADR-146 stays **open**.
 
 ---
 
