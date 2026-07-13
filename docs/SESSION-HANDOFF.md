@@ -1,5 +1,83 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-147 S0 Assistant Roles audit and design
+
+Status: **S0 accepted for execution, docs-only and uncommitted; S1 next.** Baseline
+`5e66f1e58488d861ad9644d88db95fdd370b3695` on `main` matched
+`origin/main` when the audit started. Founder-owned parallel edits in
+`chat-plan-card.tsx` and `chat-plan-card.test.tsx` are explicitly excluded and
+untouched by ADR-147.
+
+**Decision:** opened
+`docs/ADR/147-assistant-roles-and-effective-skills.md`. Every Assistant has one
+required reusable system-catalog Role. This is assistant-level authority for
+both single-assistant accounts and B2B accounts with multiple assistants:
+every Role read/write carries an explicit `assistantId`; there is no
+account/workspace Role. Effective Skills are exactly
+`Assistant.roleId -> AssistantRoleSkill -> Skill`. Existing Skill prompt,
+Knowledge, scenario, retrieval, runtime `skill` tool, and bundle mechanics stay
+intact; only their source authority changes.
+
+**Default/cutover:** protected `persai_default` / «Универсальный помощник» has
+zero Skills and is assigned/backfilled for all assistants. User setup,
+recreate, and Settings select Role and no longer expose direct Skill cards.
+Admin gets Role authoring/preview and Role-to-Skill replacement; MCP gets five
+Role tools. Final truth deletes direct assignments, `assistant_skills_assign`,
+Skill-selection contracts/UI, and enabled-Skill billing limits. Production
+order is expand -> role-only -> contract/drop, with no dual-read or alias and
+the physical legacy table retained only until old pod revisions are gone.
+
+**Safety locked:** Role change is one transaction over canonical `roleId`,
+`configDirtyAt`, audit, and all chat decision/retrieval resets. Same-Role
+requests are idempotent. Old in-flight bundle snapshots may finish but cannot
+restore stale Skill state because internal state persistence checks expected
+`roleId` and current Role membership. Generic chat todos are not deleted.
+Materialization dirty clearing becomes compare-and-clear safe.
+
+**Slices:** seven total, S0-S6. S1 schema/expand; S2 role-only
+API/materialization/prompt/retrieval/invalidation; S3 user Role UX; S4 Admin
+constructor + MCP; S5 active-contract deletion then old-revision-proven
+physical drop; S6 cross-layer gates, deploy, B2C+B2B live acceptance, closure.
+No parallel implementation.
+
+**Continuity reconciliation:** corrected stale ADR-130 active wording in
+`AGENTS.md` and stale ADR-146 active wording in the always-applied Cursor rule.
+Current ARCHITECTURE/API/DATA/TEST docs retain direct-assignment descriptions
+because that remains implemented truth until S2/S5; they are not falsely
+rewritten to the target state.
+
+**Parent re-audit:** the first independent read-only review found one blocker
+and nine high/medium specification gaps. ADR-147 now closes them explicitly:
+mid-turn stale Role writes are typed non-retryable discards over top-level
+`effectiveRoleId`; explicit-assistant routes require exact owner identity;
+legacy assignment loss is an intentional founder-gated cutover with an
+access-controlled rollback export; both materialization timestamp races are
+named; setup/recreate, reset-preserves-Role, and MCP operator boundaries are
+exact. The second independent review returned **CLEAN** with no blocker/high
+design gaps.
+
+**Founder execution contract (2026-07-14):** use one sequential implementation
+subagent at a time from the approved GPT-5.4 / Cursor Grok 4.5 / Composer pool;
+the parent selects by slice risk and audits every diff. S1-S5 remain local with
+parent diff/test audit after every slice. Before one final push, S6 runs the
+complete ADR-146-grade repository test/build/typecheck/format/generated-
+contract/clean-Prisma/legacy-zero gate. Deploy occurs only after that green push
+under parent supervision, followed by B2C+B2B/Admin/MCP live acceptance. User
+and Admin UI is fully RU/EN, concise, premium, system-consistent, and free of
+slang/noise; Admin Roles follows the existing Admin Skills visual and
+interaction language.
+
+**Files touched:** ADR-147, `AGENTS.md`, this handoff, `docs/CHANGELOG.md`, and
+`.cursor/rules/persai-session-continuity.mdc`. `git diff --check`, repository
+`format:check`, and explicit Prettier checks for all five S0 docs pass. No code
+or generated artifact changed in S0; lint/typecheck/code tests are not claimed.
+
+**Next:** commit only the S0 docs (exclude founder-owned ChatPlanCard changes),
+then delegate and parent-audit S1. Land the expand migration without changing
+effective-Skill reads. No push or deploy before the final S6 gate.
+
+---
+
 ## 2026-07-13 — Sidebar bounds + unframed chat chrome
 
 Status: **pushed at `87f3185a`.**
@@ -20,6 +98,7 @@ assistant-settings timeouts that PASS on isolated rerun.
 **Next:** hard-refresh light+dark desktop shell; watch web deploy pin.
 
 ---
+
 ## 2026-07-13 — ADR-146 S6 live acceptance complete; ADR closed (docs-only)
 
 Status: **Docs-only reconciliation uncommitted** on local HEAD `cb0c9adb`
