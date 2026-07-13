@@ -1,12 +1,59 @@
 # SESSION-HANDOFF
 
-## 2026-07-13 — ADR-146 resume pin EOF mutation repair (local)
+## 2026-07-13 — ADR-146 S0.1/0.1b live acceptance + Environment approval (docs)
 
-Status: **Local repair only on tree atop resume workflow `c2ac794b`; no
-commit/push/dispatch/Environment approval/cloud mutation in this slice.**
+Status: **Documentation-only reconciliation on clean `main` at remote/deployed
+bot pin `64be77d6`; no commit/push in this slice; no cloud mutation.** Slices
+0.1 + 0.1b are **live-accepted**. ADR-146 stays **open**. **S1 is explicitly
+authorized as the next slice** and is **not** implemented.
 
-**Live failure:** deferred-pin resume job passed `validate-resume` + GAR checks,
-ran `pin-dev-image-tags` for `api,web,runtime,provider-gateway` and printed
+**Current live pin truth:** bot commit **`64be77d6`**; `api`/`web`/`runtime`/
+`provider-gateway` exact **`3cd2ea4f`** (2/2 Ready each); sandbox remains
+**`8a0043dd`** (2/2); Argo Synced.
+
+**Deferred-pin resume:** workflow run **`29237479924`** completed both
+`validate-resume` and the Environment-gated pin **successfully**; protected
+GitHub Environment `persai-dev-adr146-foundation` **approved** by required
+reviewer. Locked inputs unchanged: target `3cd2ea4f…`, proof `e5c249c3…`,
+inventory `c9abf3e8…`, services `api,web,runtime,provider-gateway`,
+`migration_changed=false`.
+
+**Historical (superseded):** first live resume attempt failed after
+validate/GAR/pin when historical `pin-dev-image-tags` extra EOF `\n` mismatched
+`applyPinDevImageTags`; EOF CLI/lib repair landed on `main`
+(`64bca7bb` / resume path `c2ac794b`). Successful second run is current.
+
+**Post-rollout:** public `https://persai.dev/api/health` 200 `{status:ok}`;
+`https://persai.dev/api/ready` 200 `{status:ready}`; PersAI MCP chat smoke exact
+`ADR146_POST_ROLLOUT_OK`.
+
+**Prior restricted foundation gate** at proof pin `e5c249c3` / inventory
+SHA-256 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`
+remains **PASS** (structural RESULT; trusted controls; NAT `34.76.34.111`; DNS;
+allowlisted HTTPS; Squid CONNECT denial for `example.com`; direct-public bypass
+denial; Kubernetes API; metrics-server; Redis; Filestore; Cloud SQL; kube-dns
+Pod UDP/TCP; same-namespace sandbox control-plane Pod; every node kubelet;
+metadata `169.254.169.254` denial; controlled-probe cleanup with no pods
+remaining).
+
+**Explicitly unclaimed (RUNBOOK-only):** inbound denial, HTTP redirect,
+DNS-rebind.
+
+**Next:** implement ADR-146 **Slice 1** (canonical data/API contract and
+legacy-field deletion) under parent orchestration — do not claim S1 landed and
+do not close ADR-146.
+
+---
+
+## 2026-07-13 — ADR-146 resume pin EOF mutation repair (historical)
+
+Status: **Historical.** Local repair later landed on `main` (`64bca7bb`); first
+live resume assert failure is superseded by successful run `29237479924` at bot
+pin `64be77d6` (see live-acceptance entry above).
+
+**Live failure (first resume):** deferred-pin resume job passed both
+`validate-resume` and GAR checks, ran `pin-dev-image-tags` for
+`api,web,runtime,provider-gateway` and printed
 `Pinned api, providerGateway, runtime, web to 3cd2ea4f…`, then
 `assert-resume-pin-state` failed with `resume pin mutation must equal
 authoritative pin-dev-image-tags output exactly`.
@@ -17,46 +64,24 @@ authoritative pin-dev-image-tags output exactly`.
 body) did not. Assert normalization stripped only a single trailing `\n`, so
 multi-blank EOF (current `values-dev` has several) still mismatched.
 
-**Repair:** CLI now writes solely through `applyPinDevImageTags`; helper
+**Repair (landed):** CLI writes solely through `applyPinDevImageTags`; helper
 preserves join output and adds a trailing newline only when missing (never an
 extra blank line). Assert compares CRLF→LF only (no `\n$` strip) so EOF drift
-stays fail-closed. Regression: historical extra-`\n` shape rejected; real CLI
-on live `values-dev` accepted for exact four deferred tags only; unrelated
-mutation rejected. Four-service set, sandbox exclusion, migration fail-closed,
-fresh-main/rebase revalidation unchanged.
-
-**Still incomplete:** Environment `persai-dev-adr146-foundation` unapproved;
-non-sandbox pins last-good; ADR open; S1 blocked.
-
-**Next:** commit/push this repair with the resume workflow when the parent
-authorizes, then re-dispatch the locked inputs and approve the Environment —
-do not start S1.
+stays fail-closed.
 
 ---
 
-## 2026-07-13 — ADR-146 foundation deferred-pin resume workflow (local)
+## 2026-07-13 — ADR-146 foundation deferred-pin resume workflow (historical)
 
-Status: **Implementation landed locally on clean tree atop docs `fea18014` /
-deployed origin/main `e5c249c3`; no commit/push/dispatch/Environment approval/
-cloud mutation in this slice.**
+Status: **Historical.** Resume workflow landed on `main` as `c2ac794b`; live
+acceptance + Environment approval recorded in the top entry above.
 
 **What:** Dedicated Environment-gated resume path
 `.github/workflows/adr146-foundation-deferred-pin-resume.yml` plus reusable
 validators/contracts in `scripts/ci/adr146-foundation-release-gate.mjs` (+
 tests). Does **not** relax Dev Image Publish push-only split-pin guards; no
 image rebuild; foundation-only (`migration_changed` accepts only boolean
-`false` or exact string `"false"`; every other value fails closed). Security
-audit repairs require the exact four-service set, cover every root build-context
-path, validate fresh `origin/main` after Environment approval and after every
-rebase, and prove the final bot commit contains only authoritative deferred
-image-tag scalar changes. Both GAR auth steps use access-token output only and
-set `create_credentials_file: false`, preventing `gha-creds-*.json` worktree
-pollution.
-
-The rebase safety seam has a real isolated-git test (temporary bare origin +
-runner clone): dispatch-time validation passes, newer protected-path drift
-lands on origin/main, the stale pin rebases, and post-rebase validation rejects
-before any push.
+`false` or exact string `"false"`; every other value fails closed).
 
 **Locked dispatch case:** target
 `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f`; services
@@ -65,53 +90,22 @@ before any push.
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`;
 `migration_changed=false`.
 
-**Still incomplete:** Environment `persai-dev-adr146-foundation` unapproved;
-non-sandbox pins last-good; ADR open; S1 blocked. **Superseded for pin-assert
-truth by:** resume pin EOF mutation repair entry above (live assert failure
-after validate/GAR/pin).
-
-**Next:** commit/push resume slice + EOF repair when the parent authorizes, then
-dispatch the locked inputs and approve the Environment — do not start S1.
-
 ---
 
 ## 2026-07-13 — ADR-146 final live restricted foundation gate PASS (docs)
 
-Status: **Documentation-only reconciliation on clean `main` at deployed/pin
-HEAD `e5c249c3` (sandbox image `8a0043dd`); no commit/push in this slice; no
-cloud mutation; Environment still unapproved; ADR open; S1 blocked.**
+Status: **Superseded for Environment/pin truth by the live-acceptance entry
+above.** Restricted foundation gate PASS at proof pin `e5c249c3` (sandbox image
+`8a0043dd`) with evidence inventory SHA-256
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7` remains the
+enforcement evidence.
 
-**Live truth:** restricted-probe proxy-env repair **pushed/live at `dc2fa914`**
-(bot pin path through `188722f9`); Squid CONNECT denial probe repair
-**pushed/live at `8a0043dd`** with current pin **`e5c249c3`**. Final live
-restricted foundation gate **PASS** with evidence inventory SHA-256
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`:
-
-- structural RESULT **PASS**
-- all trusted positive controls **PASS**
-- NAT identity reserved IP `34.76.34.111` **PASS**
-- DNS **PASS**
-- Squid allowlisted HTTPS **PASS**
-- Squid CONNECT denial for non-allowlisted `example.com` **PASS**
-- direct-public bypass denial **PASS**
-- Kubernetes API, metrics-server, Redis, Filestore, Cloud SQL **PASS**
-- kube-dns Pod UDP/TCP **PASS**
-- same-namespace sandbox control-plane Pod **PASS**
-- every node kubelet **PASS**
-- metadata `169.254.169.254` denial **PASS**
-- controlled-probe cleanup **PASS** (no pods remaining)
-
-**Explicitly unclaimed (RUNBOOK-only):** inbound denial, HTTP redirect,
-DNS-rebind.
-
-**Still incomplete:** GitHub Environment `persai-dev-adr146-foundation` not
-approved; non-sandbox pins may still wait last-good; ADR-146 not closed; S1
-must not start until the parent explicitly authorizes after Environment
-approval(s).
-
-**Next:** Environment approval(s) for remaining service pins — do not start S1
-prematurely. After resume workflow lands on `main`, prefer the dedicated
-deferred-pin resume dispatch over recreating a rejected Dev Image Publish wait.
+**Live truth at that checkpoint:** restricted-probe proxy-env repair
+**pushed/live at `dc2fa914`**; Squid CONNECT denial probe repair **pushed/live
+at `8a0043dd`**. Final restricted matrix **PASS** (structural RESULT; trusted
+controls; NAT; DNS; allowlisted HTTPS; CONNECT denial; direct bypass denial;
+cluster/private/metadata denials; cleanup). Inbound denial / HTTP redirect /
+DNS-rebind remain explicitly unclaimed.
 
 ---
 

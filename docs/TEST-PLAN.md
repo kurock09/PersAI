@@ -6,16 +6,14 @@ ADR-072 is closed as the historical native migration ADR. Current continuation w
 
 ## ADR-146 assistant-owned full-public sandbox egress (accepted target)
 
-Slice 0 read-only audit is complete and implementation is NO-GO until the live
-foundation passes: live `personal-ai-gke` had no enforcing NetworkPolicy engine
-until Slice 0.1 was applied. Slice 0.1 repository automation is the
-founder-selected current-cluster Calico plus private/dedicated sandbox egress,
-Cloud NAT/flow-log, and L3 firewall foundation. It is implemented under
-`infra/bootstrap/adr146-sandbox-egress-foundation.*` as separable `plan` / live
-`preflight` / `prepare` / `apply-*` / maintenance retirement / structural
-`verify` / active `probe-restricted` phases. **Final live restricted foundation
-gate PASS** at deployed/pin HEAD `e5c249c3` (sandbox image `8a0043dd`) with
-evidence inventory SHA-256
+Slice 0 read-only audit is complete and implementation was NO-GO until the live
+foundation passed: live `personal-ai-gke` had no enforcing NetworkPolicy engine
+until Slice 0.1 was applied. **Slices 0.1 + 0.1b are live-accepted**
+(2026-07-13). Slice 0.1 is the founder-selected current-cluster Calico plus
+private/dedicated sandbox egress, Cloud NAT/flow-log, and L3 firewall
+foundation under `infra/bootstrap/adr146-sandbox-egress-foundation.*`. **Final
+live restricted foundation gate PASS** at proof pin `e5c249c3` (sandbox image
+`8a0043dd`) with evidence inventory SHA-256
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7` (structural
 RESULT; trusted controls; NAT `34.76.34.111`; DNS; allowlisted HTTPS; Squid
 CONNECT denial for `example.com`; direct-public bypass denial; Kubernetes API;
@@ -23,12 +21,16 @@ metrics-server; Redis; Filestore; Cloud SQL; kube-dns Pod UDP/TCP;
 same-namespace sandbox control-plane Pod; every node kubelet; metadata
 `169.254.169.254` denial; controlled-probe cleanup with no pods remaining).
 Inbound denial, HTTP redirect, and DNS-rebind remain explicitly unclaimed
-RUNBOOK checks. GitHub Environment `persai-dev-adr146-foundation` is still
-**unapproved**; remaining non-sandbox pins may still wait. ADR-146 stays open;
-S1 app/API work remains blocked until the parent explicitly authorizes S1 after
-Environment approval(s). Each later slice runs the full AGENTS gate plus
-affected API/runtime/sandbox/web tests; infra slices additionally run Helm
-lint/template and live negative acceptance.
+RUNBOOK checks. GitHub Environment `persai-dev-adr146-foundation` is
+**approved**; deferred-pin resume run `29237479924` succeeded; current bot pin
+`64be77d6` has `api`/`web`/`runtime`/`provider-gateway` exact `3cd2ea4f` and
+sandbox remaining `8a0043dd` (Argo Synced; post-rollout
+`https://persai.dev/api/health` 200 `{status:ok}`,
+`https://persai.dev/api/ready` 200 `{status:ready}`, MCP smoke
+`ADR146_POST_ROLLOUT_OK`). ADR-146 stays open; **S1 is explicitly authorized as
+the next slice** and is **not** implemented. Each later slice runs the full AGENTS gate plus affected
+API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
+and live negative acceptance.
 
 ### ADR-146 Slice 0.1 local foundation checks
 

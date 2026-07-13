@@ -4,23 +4,21 @@
 
 Accepted — founder-directed production orchestration program opened 2026-07-12.
 Slice 0 read-only code/live-cluster audit completed 2026-07-12 with implementation
-**NO-GO**. Slice 0.1 repository automation for the founder-selected current-cluster
-Calico + private sandbox egress contour **landed on clean `main` at
-`edef3c0b`** (audits + local gates passed). Slice **0.1b release-gate** lands the
-repository-enforced split-pin Dev Image Publish path (`sandbox` immediate;
-remaining services behind GitHub Environment `persai-dev-adr146-foundation`) plus
-probe-manifest generation and commit/inventory evidence binding.
+**NO-GO**. **Slices 0.1 + 0.1b are live-accepted** (2026-07-13): founder-selected
+current-cluster Calico + private sandbox egress contour, repository-enforced
+split-pin release gate, restricted foundation enforcement proof, GitHub
+Environment `persai-dev-adr146-foundation` approval, and deferred non-sandbox
+pins are complete. This ADR is **not** closed. Slice 1 is **explicitly
+authorized as the next slice** and is **not** implemented.
 
-Live foundation progress (2026-07-13): prepare, exact NAT/firewall, Calico
-(`calico-node` 5/5), private `sandbox-pool-private` Ready with exact contour,
-idempotent legacy cordon, and maintenance-gated public-pool retirement have
-completed. Coordinated push **`3cd2ea4f`** and Squid logformat + checksum repair
-**`04b1d0d1` are live**: Argo Synced/Healthy; `sandbox-egress-proxy` Ready;
-sandbox pin immediate. Restricted-probe proxy-env repair is **pushed/live at
-`dc2fa914`** (bot pin path through `188722f9`). Squid CONNECT denial probe
-repair is **pushed/live at `8a0043dd`** with current deployed/pin HEAD
-**`e5c249c3`** (sandbox image `8a0043dd`). **Final live restricted foundation
-gate PASS** at that pin with evidence inventory SHA-256
+Live foundation + deferred-pin acceptance (2026-07-13): prepare, exact
+NAT/firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready
+with exact contour, idempotent legacy cordon, and maintenance-gated public-pool
+retirement completed earlier. Coordinated push **`3cd2ea4f`** and Squid
+logformat + checksum repair **`04b1d0d1`**, proxy-env repair **`dc2fa914`**, and
+Squid CONNECT denial probe repair **`8a0043dd`** remain the enforcement path.
+**Final live restricted foundation gate PASS** at proof pin **`e5c249c3`**
+(sandbox image `8a0043dd`) with evidence inventory SHA-256
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`: structural
 RESULT **PASS**; all trusted positive controls **PASS**; NAT identity reserved
 IP `34.76.34.111` **PASS**; DNS **PASS**; Squid allowlisted HTTPS **PASS**;
@@ -29,13 +27,21 @@ bypass denial **PASS**; Kubernetes API, metrics-server, Redis, Filestore, Cloud
 SQL, kube-dns Pod UDP/TCP, same-namespace sandbox control-plane Pod, every node
 kubelet, and metadata `169.254.169.254` denial **PASS**. Controlled-probe
 cleanup **PASS** (no controlled Pods remaining). Inbound denial, HTTP redirect,
-and DNS-rebind remain **explicitly unclaimed** RUNBOOK checks. GitHub
-Environment `persai-dev-adr146-foundation` still **unapproved** (non-sandbox
-pins may still wait last-good). This ADR is **not** closed. S1 app/API/UI work
-stays blocked until the parent explicitly authorizes S1 after Environment
-approval(s). Next: approve GitHub Environment `persai-dev-adr146-foundation`
-(and `persai-dev-migrations` when that gate applies) so remaining service pins
-can proceed — do **not** start S1 prematurely.
+and DNS-rebind remain **explicitly unclaimed** RUNBOOK checks.
+
+Current remote/deployed bot pin **`64be77d6`**: `api`/`web`/`runtime`/
+`provider-gateway` exact **`3cd2ea4f`** (2/2 Ready each); sandbox remains
+**`8a0043dd`** (2/2); Argo Synced. Deferred-pin resume workflow run
+**`29237479924`**: both `validate-resume` and Environment-gated pin **success**;
+protected Environment **approved** by required reviewer. Historical first resume
+attempt failed after validate/GAR/pin on pin-assert EOF mismatch (extra CLI
+`` `${join}\n` `` vs `applyPinDevImageTags`); EOF CLI/lib repair landed on
+`main`; the successful second run is current. Post-rollout public
+`https://persai.dev/api/health` 200 `{status:ok}`,
+`https://persai.dev/api/ready` 200 `{status:ready}`, PersAI MCP chat smoke exact
+`ADR146_POST_ROLLOUT_OK`. Next: implement **Slice 1** (canonical data/API
+contract and legacy-field deletion) under parent orchestration — do **not**
+claim S1 landed or close this ADR.
 
 ## Date
 
@@ -71,10 +77,13 @@ tolerations preservation repair pushed/live at `97042c45` with bot pin
 **pushed/live at `5045431e` with bot pin `71eb9c0c`**. Restricted-probe
 proxy-env repair **pushed/live at `dc2fa914`** (bot pin path through
 `188722f9`). Squid CONNECT denial probe repair **pushed/live at `8a0043dd`**
-with current deployed/pin HEAD **`e5c249c3`** (sandbox image `8a0043dd`).
-Final live restricted foundation gate **PASS** at that pin; evidence inventory
-SHA-256 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`.
-Environment still unapproved; ADR open; S1 blocked.
+with proof pin **`e5c249c3`** (sandbox image `8a0043dd`). Final live restricted
+foundation gate **PASS** at that proof pin; evidence inventory SHA-256
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. Current
+remote/deployed bot pin **`64be77d6`**: deferred services exact `3cd2ea4f`;
+sandbox remains `8a0043dd`. Environment `persai-dev-adr146-foundation`
+**approved**; resume run `29237479924` success; S0.1/0.1b live-accepted; ADR
+open; **S1 authorized next** (not implemented).
 
 ## Orchestration model
 
@@ -623,27 +632,34 @@ foundation. S1/S2 are blocked.
 
 Subagent: Cursor Grok 4.5.
 
-Status: **repo-local land on clean `main` at `edef3c0b` (2026-07-12); live
-restricted foundation gate PASS at deployed/pin HEAD `e5c249c3` (2026-07-13).**
-Audits and local gates passed for the repo land. Live prepare/NAT/firewall/
-Calico/private pool/legacy retirement, proxy-env + CONNECT denial repairs, and
-the final restricted `probe-restricted` enforcement matrix completed (see Live
-foundation checkpoint below). Evidence inventory SHA-256
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. GitHub
-Environment `persai-dev-adr146-foundation` remains **unapproved**; inbound
-denial / HTTP redirect / DNS-rebind remain explicitly unclaimed RUNBOOK checks.
-ADR-146 is **not** closed. App S1 remains blocked until the parent explicitly
-authorizes S1 after Environment approval(s).
+Status: **live-accepted (2026-07-13).** Repo land on clean `main` at
+`edef3c0b` (2026-07-12); live restricted foundation gate PASS at proof pin
+`e5c249c3` (sandbox image `8a0043dd`); deferred non-sandbox pins live at bot
+pin `64be77d6` (exact `3cd2ea4f`). Audits and local gates passed for the repo
+land. Live prepare/NAT/firewall/Calico/private pool/legacy retirement,
+proxy-env + CONNECT denial repairs, and the final restricted
+`probe-restricted` enforcement matrix completed (see Live foundation checkpoint
+below). Evidence inventory SHA-256
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. Inbound
+denial / HTTP redirect / DNS-rebind remain explicitly unclaimed RUNBOOK
+checks. ADR-146 is **not** closed. **S1 is authorized as the next slice** and
+is not implemented.
 
 ### Slice 0.1b — Repository release gate (split-pin)
 
 Subagent: Cursor Grok 4.5.
 
-Status: **release-gate implementation pushed/live; final restricted foundation
-gate and controlled-probe cleanup PASS at deployed/pin HEAD `e5c249c3`
-(sandbox image `8a0043dd`).** GitHub Environment
-`persai-dev-adr146-foundation` approval remains pending; ADR-146 stays open and
-S1 remains blocked until that approval.
+Status: **live-accepted (2026-07-13).** Release-gate implementation pushed/live;
+final restricted foundation gate and controlled-probe cleanup PASS at proof pin
+`e5c249c3` (sandbox image `8a0043dd`). GitHub Environment
+`persai-dev-adr146-foundation` **approved** by required reviewer; deferred-pin
+resume workflow run **`29237479924`** completed both `validate-resume` and the
+Environment-gated pin successfully; current bot pin **`64be77d6`** with `api`/`web`/`runtime`/
+`provider-gateway` exact `3cd2ea4f` and sandbox remaining `8a0043dd`; Argo
+Synced; post-rollout `https://persai.dev/api/health` 200 `{status:ok}`,
+`https://persai.dev/api/ready` 200 `{status:ready}`, MCP smoke exact
+`ADR146_POST_ROLLOUT_OK`. ADR-146 stays open; **S1 authorized next** (not
+implemented).
 
 Lands:
 
@@ -722,8 +738,9 @@ Lands:
   unavailable git, or disk≠commit inventory mismatch (no `UNAVAILABLE`);
 - inventory `releaseGate.repositoryEnforced: true` with honest human residuals.
 
-Live foundation checkpoint (2026-07-13; restricted gate PASS; Environment still
-unapproved; ADR open; S1 blocked):
+Live foundation checkpoint (2026-07-13; restricted gate PASS at `e5c249c3`;
+Environment later approved; deferred pins live at `64be77d6`; ADR open; S1
+authorized next, not implemented):
 
 - prepare is complete: node SA/roles, NAT IPs, subnet flow logs, Private Google
   Access, and the dedicated sandbox secondary range;
@@ -800,19 +817,20 @@ unapproved; ADR open; S1 blocked):
   (required reviewer `kurock09` / user id `126346824`,
   `prevent_self_review=false`, custom deployment branch policy exactly `main`,
   residual `can_admins_bypass=true` — documented honestly, not mutated here)
-  but is still **not** approved or deployed for remaining pins; S1 remains
-  blocked. Do **not** close this ADR or start S1 prematurely.
+  and is **approved** for the deferred-pin resume path (see below). Do **not**
+  close this ADR; do **not** claim S1 implemented.
 
 Exact push-last sequence (founder-coordinated; live GCP/Calico/private-pool/
 retirement + Environment creation + coordinated push + proxy Ready + verifier/
-toleration/collector/image/proxy-env/CONNECT repairs + restricted gate above
-are done; Environment approval(s) remain):
+toleration/collector/image/proxy-env/CONNECT repairs + restricted gate +
+Environment approval + deferred pins above are done):
 
 1. create protected GitHub Environment `persai-dev-adr146-foundation` —
    **done**: Environment exists live with required reviewer `kurock09`
    (user id `126346824`), `prevent_self_review=false`, and custom deployment
-   branch policy exactly `main`; residual `can_admins_bypass=true`; not
-   approved/deployed. Create `persai-dev-migrations` when that gate is needed;
+   branch policy exactly `main`; residual `can_admins_bypass=true`; later
+   **approved** for deferred-pin resume. Create `persai-dev-migrations` when
+   that gate is needed;
 2. run the final full local gate from a clean tree;
 3. one coordinated founder push of the ADR-146 commit range — **done at
    `3cd2ea4f`**; Squid logformat CrashLoop + checksum rollout repair —
@@ -845,10 +863,13 @@ are done; Environment approval(s) remain):
    `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`), then
    `cleanup-controlled-probes --execute` — **PASS** (no controlled Pods
    remaining);
-6. approve GitHub Environment `persai-dev-adr146-foundation` — **still
-   pending**;
-7. when migrations are also present, approve `persai-dev-migrations` after step 6;
-8. remaining service image tags pin.
+6. approve GitHub Environment `persai-dev-adr146-foundation` — **done**
+   (required reviewer approved the Environment-gated resume pin);
+7. when migrations are also present, approve `persai-dev-migrations` after step 6
+   (not required for this foundation-only resume);
+8. remaining service image tags pin — **done** via resume bot pin
+   **`64be77d6`** (`api`/`web`/`runtime`/`provider-gateway` exact `3cd2ea4f`;
+   sandbox remains `8a0043dd`).
 
 Failure/rollback: remain on last-good non-sandbox pins if verification fails;
 sandbox tag may roll back independently; never disable Calico; never restore the
@@ -872,19 +893,23 @@ the request and exact tag-only commit validators before retry. This slice is
 string `"false"`); dual-gate migration resume is intentionally unsupported
 rather than weakly implemented. A real temporary bare-origin/runner-clone test
 proves newer protected-path drift is rejected after rebase and before push.
-A live resume attempt failed after successful validate/GAR/pin when historical
-`pin-dev-image-tags.mjs` `` `${join}\n` `` EOF blank mismatched
-`applyPinDevImageTags`; local repair aligns CLI+lib and keeps exact mutation
-validation fail-closed on EOF/unrelated drift. Locked current
-dispatch inputs: target `3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f`, services
+**Historical:** a first live resume attempt failed after successful
+validate/GAR/pin when historical `pin-dev-image-tags.mjs` `` `${join}\n` `` EOF
+blank mismatched `applyPinDevImageTags`; EOF CLI/lib repair landed on `main`
+and keeps exact mutation validation fail-closed on EOF/unrelated drift.
+**Current:** second resume workflow run **`29237479924`** completed both
+`validate-resume` and the Environment-gated pin **successfully**; Environment
+approved by required reviewer; bot pin **`64be77d6`** with locked inputs target
+`3cd2ea4fa0c82d319c2e8e63724c5753f03b5e0f`, services
 `api,web,runtime,provider-gateway`, proof
 `e5c249c3dbb9d16406b85637e9dcdd9a418a8a79`, inventory
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`.
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. Argo
+Synced; post-rollout `https://persai.dev/api/health` 200 `{status:ok}` and
+`https://persai.dev/api/ready` 200 `{status:ready}`; MCP smoke
+`ADR146_POST_ROLLOUT_OK`.
 
-Next: land/push the resume workflow + EOF pin repair if not yet on `main`, then
-dispatch the locked resume inputs and approve GitHub Environment
-`persai-dev-adr146-foundation` so remaining service pins can proceed. Do **not**
-close this ADR or start S1 prematurely. S1 remains blocked.
+Next: implement **Slice 1** under parent orchestration. Do **not** close this
+ADR or claim S1 implemented.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:
@@ -925,14 +950,16 @@ Calico contour. Its acceptance is fixed:
 
 S0.1 restricted live foundation gate is recorded PASS at `e5c249c3` (evidence
 inventory SHA-256
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). Remaining
-non-sandbox pins still wait on Environment approval. S1 stays blocked until the
-parent explicitly authorizes it after Environment approval(s). A locally
-rendered policy alone is not sufficient evidence.
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). S0.1b
+Environment approval + deferred pins are live-accepted at bot pin `64be77d6`.
+**S1 is explicitly authorized as the next slice** and is **not** implemented. A
+locally rendered policy alone is not sufficient evidence.
 
 ### Slice 1 — Canonical data/API contract and legacy-field deletion
 
 Subagent: Cursor Grok 4.5.
+
+Status: **authorized next slice; not started / not implemented.**
 
 Land:
 
