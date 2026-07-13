@@ -370,9 +370,15 @@ the exact active DB token/holder/job/expiry, and no public request can supply
 it. No route in this boundary changes browser, web tools, storage plane,
 or provider-worker networking.
 
-**ADR-146 Slice 4 landed locally (uncommitted) on `8d0520f4`:** web Assistant
+**ADR-146 Slice 4 committed locally at `3f498ef9`:** web Assistant
 Settings consumes the existing owner `GET/PUT /api/v1/assistant/{assistantId}/sandbox-egress`
 contract via generated client wrappers only; no API shape change.
+
+**ADR-146 Slice 5 (local uncommitted on `3f498ef9`):** observability contract only.
+Owner mode-change audit fields: `eventCode=assistant.sandbox_egress_mode_updated`,
+`details.previousMode`, `details.selectedMode`, `details.actorUserId`. Sandbox
+`/metrics` exports egress counters documented in
+`infra/dev/gke/ADR146-OBSERVABILITY.md`. No new public API routes.
 
 ### Files
 

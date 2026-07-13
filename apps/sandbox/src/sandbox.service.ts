@@ -682,6 +682,7 @@ export class SandboxService {
     let currentRoot: string | null = null;
     let execPodBinding: ExecPodJobBinding | null = null;
     let terminalWriteSucceeded = false;
+    let jobStartedAtMs: number | null = null;
     try {
       const leaseHandle = await this.waitForWorkspaceLease({
         assistantId: request.assistantId,
@@ -705,6 +706,7 @@ export class SandboxService {
           "Workspace lease was lost before the sandbox job could enter running state."
         );
       }
+      jobStartedAtMs = Date.now();
       this.assertWorkspaceLeaseActive(leaseGuard);
       const assistantHandle = await this.resolveAssistantHandle(
         request.assistantId,
@@ -831,6 +833,12 @@ export class SandboxService {
         );
       }
     } finally {
+      if (terminalWriteSucceeded && jobStartedAtMs !== null && execPodBinding !== null) {
+        this.sandboxObservabilityService.recordSandboxEgressJobDuration({
+          mode: execPodBinding.mode,
+          durationMs: Date.now() - jobStartedAtMs
+        });
+      }
       let retirementSucceeded = execPodBinding === null;
       if (leaseGuard !== null && execPodBinding !== null) {
         try {

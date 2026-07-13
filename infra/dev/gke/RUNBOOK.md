@@ -244,8 +244,115 @@ post-rollout `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, and MCP smoke
 `ADR146_POST_ROLLOUT_OK`). Restricted foundation gate PASS at proof pin
 `e5c249c3` remains the enforcement evidence. Inbound denial / HTTP redirect /
-DNS-rebind stay unclaimed. ADR-146 stays open; **S1 is authorized as the next
-slice** and is not implemented.
+DNS-rebind stay unclaimed. ADR-146 stays open; **S1–S4 are committed locally**
+(`775e5781`, `5a2fd3bd`, `8d0520f4`, `3f498ef9`); **S5 audit/docs/runbook is
+local uncommitted**; **S6 deploy/live acceptance is next** under parent gate.
+
+### ADR-146 S1–S5 product deploy sequence (D10 ordering)
+
+Do **not** expose the Assistant Settings checkbox before backend enforcement and
+chart policy are live. Rollout order:
+
+1. **Predeploy restricted baseline** — structural foundation must already be
+   live-accepted (Slices 0.1/0.1b). Immediately before product rollout run:
+   ```powershell
+   node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy
+   ```
+   Missing/malformed `sandbox-exec-full-public-egress` fails closed.
+2. **Migration approval path** — when the pushed range includes Prisma/schema
+   changes (`Assistant.sandbox_egress_mode`), Dev Image Publish pauses on
+   `persai-dev-migrations`. Approve only after reviewing the migration SQL
+   (default/backfill `restricted`, delete plan `networkAccessEnabled` JSON).
+3. **Selective images/chart** — `scripts/ci/detect-affected.mjs` builds/pins only
+   affected services. Foundation marker pushes still use the split-pin path
+   (sandbox first, Environment gates, then deferred services). Non-foundation
+   pushes pin immediately (migration gate when applicable).
+4. **Chart/policy sync** — Argo applies Helm NetworkPolicy, egress contract
+   ConfigMap, and `sandbox-exec-sa` before new pods stamp mode labels.
+5. **Sandbox/runtime authority** — deploy `sandbox` (and `api` when S1/S3 client
+   paths change) before enabling owner mode changes at scale. Sandbox must resolve
+   Prisma mode and stamp `persai.io/sandbox-egress` before exec.
+6. **Web UI readiness gate** — this is an operational rollout condition, not CI
+   job sequencing: permit the new `web` image to serve the checkbox only after
+   `api` + `sandbox` + chart policy are Ready and
+   `verify --require-s2-policy` passes. Selective monorepo publishing may build
+   images concurrently; readiness controls when the UI is exposed.
+
+Repository gates to run locally before founder deploy instruction:
+
+```powershell
+node scripts/ci/adr146-active-code-audit.mjs
+node scripts/ci/adr146-cross-layer-contract.mjs
+node --test scripts/ci/adr146-active-code-audit.test.mjs
+node --test scripts/ci/adr146-cross-layer-contract.test.mjs
+node --test infra/helm/scripts/sandbox-egress-network-policy.test.mjs
+corepack pnpm --filter @persai/api exec tsx --test test/manage-assistant-sandbox-egress.service.test.ts
+corepack pnpm --filter @persai/sandbox exec tsx --test test/sandbox-metrics.service.test.ts test/exec-pod-bridge.egress.s3.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-sandbox-egress-settings.test.tsx
+```
+
+Live acceptance matrix (S6 parent gate; after approved deploy):
+
+| Check                            | Restricted                              | Full-public                                         |
+| -------------------------------- | --------------------------------------- | --------------------------------------------------- |
+| Allowlisted HTTPS via Squid      | PASS                                    | N/A (no proxy env)                                  |
+| Non-allowlisted public host      | Squid denial                            | Direct success                                      |
+| Public SSH fixture               | Denied unless allowlisted by proxy      | Direct TCP success                                  |
+| Public custom TCP fixture        | Denied unless allowlisted by proxy      | Direct TCP success                                  |
+| Public custom UDP fixture        | Denied                                  | Direct UDP success                                  |
+| HTTP redirect to private target  | Denied                                  | Denied                                              |
+| DNS rebind/private answer        | Resolves; private connect denied        | Resolves; private connect denied                    |
+| Explicit proxy/direct bypass     | Proxy allow+deny; direct timeout        | N/A (no proxy env)                                  |
+| Private/VPC/metadata/kube API    | Denied                                  | Denied                                              |
+| Different restricted assistant   | Remains Running/restricted              | Unaffected                                          |
+| Browser + web-search smoke       | Existing behavior unchanged             | Existing behavior unchanged                         |
+| Mode toggle warm UID replacement | Old UID gone before success             | Old UID gone before success                         |
+| Secrets in pod env               | Absent                                  | Absent                                              |
+| Audit on mode change             | `assistant.sandbox_egress_mode_updated` | same                                                |
+| Metrics/logs                     | mode + job id, no URL query/auth        | same                                                |
+| VPC flow logs                    | baseline                                | abnormal fan-out query in `ADR146-OBSERVABILITY.md` |
+
+The bounded S6 helper is:
+
+```powershell
+node --test infra/bootstrap/adr146-s6-live-acceptance.test.mjs
+node infra/bootstrap/adr146-s6-live-acceptance.mjs --help
+```
+
+Read `infra/bootstrap/adr146-s6-fixtures/README.md`, provision only
+operator-owned fixtures, replace the three fail-closed example command specs,
+and run the documented command once without `--execute`. The dry-run validates
+all required endpoints, ports, URLs, denied IPv4, command deadlines, and
+cleanup contract without network activity. Only the S6 parent, after approved
+deploy, appends `--execute`. The helper:
+
+- verifies canonical Running full-public and different-assistant restricted
+  pod contours before probes;
+- requires an SSH banner and exact nonce echo over custom TCP and UDP;
+- proves restricted proxy allow + CONNECT 403 deny and requires direct bypass
+  to time out;
+- verifies the redirect fixture's exact private `Location`, then requires
+  following it to time out;
+- requires the DNS rebinding fixture to be in its private-answer phase, rejects
+  any public IPv4 answer, and treats connection refusal as failure rather than
+  denial;
+- reruns the second restricted-assistant contour check and invokes
+  operator-owned normal-path browser and web-search smoke commands;
+- always invokes the mandatory idempotent fixture cleanup command after success
+  or failure. Probe/smoke/cleanup deadlines are bounded and any missing input,
+  unexpected output, timeout shape, probe failure, or cleanup failure exits
+  nonzero.
+
+The helper does not create fixtures, mutate Kubernetes/cloud state, toggle
+mode, deploy, or claim acceptance. Record its stdout/stderr/status, UTC
+start/end, release SHA, exact pod UIDs, fixture ownership, and cleanup evidence.
+
+Still unclaimed until S6 manual evidence: inbound denial and public GKE master
+endpoint proof. HTTP redirect and DNS-rebind/private-resolution now have
+executable preparation but remain unclaimed until the parent runs and records
+the approved live probe.
+
+Observability reference: `infra/dev/gke/ADR146-OBSERVABILITY.md`.
 
 ### Verify expectations
 
@@ -324,14 +431,174 @@ kubectl -n persai-dev exec "$EXEC_POD" -- \
   /bin/bash -lc "pkill -f 'python3 -m http.server 18080' || true"
 ```
 
-### Rollback (restricted security preserved)
+### Rollback (restricted security preserved; operational only)
+
+Rollback is **not** dual-runtime. Never restore the removed plan
+`networkAccessEnabled` boolean.
+
+**Phase 1 — product posture (safe, bounded):**
+
+Export the exact affected UUID set first and review it. Keep this file as the
+bounded rollback manifest:
+
+```bash
+ROLLBACK_IDS="adr146-full-public-assistant-ids.csv"
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+  "\copy (SELECT id FROM assistants WHERE sandbox_egress_mode = 'full_public' ORDER BY id) TO '${ROLLBACK_IDS}' CSV"
+wc -l "$ROLLBACK_IDS"
+cat "$ROLLBACK_IDS"
+```
+
+PowerShell:
+
+```powershell
+$RollbackIds = "adr146-full-public-assistant-ids.csv"
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -c "\copy (SELECT id FROM assistants WHERE sandbox_egress_mode = 'full_public' ORDER BY id) TO '$RollbackIds' CSV"
+$Ids = Get-Content $RollbackIds
+$Ids.Count
+$Ids
+```
+
+Validate every captured line as a UUID and record the reviewed count. Empty,
+duplicate, malformed, or unexpectedly large manifests stop the rollback.
+Create a local `adr146-restrict.sql` with:
+
+```sql
+\set ON_ERROR_STOP on
+BEGIN;
+CREATE TEMP TABLE adr146_rollback_ids (id uuid PRIMARY KEY) ON COMMIT DROP;
+\copy adr146_rollback_ids (id) FROM 'adr146-full-public-assistant-ids.csv' CSV
+SELECT count(*)::int AS captured_count FROM adr146_rollback_ids \gset
+SELECT (:captured_count = :expected_count)::text AS count_matches \gset
+\if :count_matches
+\else
+  \echo 'ABORT: captured UUID count differs from reviewed expected_count'
+  ROLLBACK;
+  \quit 3
+\endif
+WITH updated AS (
+  UPDATE assistants AS a
+  SET sandbox_egress_mode = 'restricted'
+  FROM adr146_rollback_ids AS r
+  WHERE a.id = r.id
+    AND a.sandbox_egress_mode = 'full_public'
+  RETURNING a.id
+)
+SELECT count(*)::int AS updated_count FROM updated \gset
+SELECT (:updated_count = :expected_count)::text AS update_matches \gset
+\if :update_matches
+  COMMIT;
+\else
+  \echo 'ABORT: DB changed after export or an expected row was not full_public'
+  ROLLBACK;
+  \quit 4
+\endif
+```
+
+Execute only after review (example count `N`):
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v expected_count=N -f adr146-restrict.sql
+```
+
+Load the sandbox's `PERSAI_INTERNAL_API_TOKEN` value from the approved operator
+secret source into the temporary operator variable
+`PERSAI_INTERNAL_SANDBOX_TOKEN` without printing it (`read -s` or
+`Read-Host -AsSecureString` plus process-scoped conversion); never put it in
+shell history or logs. Then reconcile **each captured validated UUID**. Scope
+`all` is an intent hint, not force-delete: sandbox UID/resourceVersion-deletes
+only idle missing/malformed/stale-mode generations. Active jobs and correct-mode
+pods are preserved.
+
+In a separate terminal, bind the internal sandbox service locally:
+
+```bash
+kubectl -n persai-dev port-forward deploy/sandbox 3013:3013
+```
+
+```bash
+set -euo pipefail
+cleanup_sandbox_token() { unset PERSAI_INTERNAL_SANDBOX_TOKEN || true; }
+trap cleanup_sandbox_token EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+
+read -rsp "Internal sandbox token: " PERSAI_INTERNAL_SANDBOX_TOKEN
+echo
+export PERSAI_INTERNAL_SANDBOX_TOKEN
+while IFS= read -r ASSISTANT_ID; do
+  [[ "$ASSISTANT_ID" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || {
+    echo "Invalid assistant UUID in rollback manifest" >&2
+    exit 5
+  }
+  curl --fail-with-body --silent --show-error -X POST \
+    -H "Authorization: Bearer ${PERSAI_INTERNAL_SANDBOX_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d '{"mode":"restricted","scope":"all"}' \
+    "http://127.0.0.1:3013/api/v1/control/assistants/${ASSISTANT_ID}/sandbox-egress/reconcile"
+done < "$ROLLBACK_IDS"
+```
+
+PowerShell:
+
+```powershell
+$ErrorActionPreference = "Stop"
+try {
+  $SecureToken = Read-Host "Internal sandbox token" -AsSecureString
+  $env:PERSAI_INTERNAL_SANDBOX_TOKEN = [Net.NetworkCredential]::new("", $SecureToken).Password
+  foreach ($AssistantId in $Ids) {
+    $Parsed = [Guid]::Empty
+    if (-not [Guid]::TryParseExact($AssistantId, "D", [ref]$Parsed)) {
+      throw "Invalid assistant UUID in rollback manifest"
+    }
+    Invoke-RestMethod -Method Post `
+      -Headers @{ Authorization = "Bearer $env:PERSAI_INTERNAL_SANDBOX_TOKEN" } `
+      -ContentType "application/json" `
+      -Body '{"mode":"restricted","scope":"all"}' `
+      -Uri "http://127.0.0.1:3013/api/v1/control/assistants/$AssistantId/sandbox-egress/reconcile"
+  }
+}
+finally {
+  Remove-Item Env:PERSAI_INTERNAL_SANDBOX_TOKEN -ErrorAction SilentlyContinue
+}
+```
+
+After active jobs drain, rerun the same bounded reconcile loop until no
+full-public generations remain. Never broad-delete exec pods. Verify both DB and
+cluster truth:
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c \
+  "SELECT count(*) AS remaining_full_public FROM assistants WHERE sandbox_egress_mode = 'full_public';"
+kubectl -n persai-dev get pods -l app.kubernetes.io/component=sandbox-exec \
+  -o custom-columns=NAME:.metadata.name,EGRESS:.metadata.labels.persai\.io/sandbox-egress
+kubectl -n persai-dev get pods \
+  -l app.kubernetes.io/component=sandbox-exec,persai.io/sandbox-egress=full-public \
+  -o name
+```
+
+Both commands must report zero `full_public`. There is no dedicated toggle kill
+switch in the current repo. If an operational freeze is required, use the
+environment's existing maintenance ingress control or roll only `web` to a
+reviewed image without the control. Keep the current API/sandbox reconcile path
+available until the bounded loop and verification complete; do not invent a
+legacy field or silently claim a feature flag exists.
+
+**Phase 2 — images/chart (if needed):**
+
+- roll back selective service tags in `infra/helm/values-dev.yaml` to last-good
+  SHAs (`api`, `web`, `runtime`, `provider-gateway`, `sandbox` independently);
+- keep foundation contour (Calico, private pool, NAT, flow logs, deny firewall)
+  intact;
+- re-run `verify --require-s2-policy` after Argo sync.
 
 Allowed:
 
 - recreate `sandbox-pool-private` with the same private/least-privilege posture
 - repair NAT addresses, NAT logging, flow logs, or the deny firewall rule
 - scale the private sandbox pool
-- after S1+: set every assistant to `restricted` and evict full-public pods
+- after S1+: set the reviewed captured assistants to `restricted`, then
+  reconcile their idle stale-mode pod generations
 
 Forbidden:
 

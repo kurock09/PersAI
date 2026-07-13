@@ -77,6 +77,17 @@ export class SandboxMetricsService {
       "# TYPE sandbox_exec_egress_jobs_total counter",
       `sandbox_exec_egress_jobs_total{mode="restricted"} ${counters.egressJobs.restricted}`,
       `sandbox_exec_egress_jobs_total{mode="full_public"} ${counters.egressJobs.full_public}`,
+      "# HELP sandbox_exec_egress_mode_mismatch_total Total fail-closed sandbox egress mode mismatch errors",
+      "# TYPE sandbox_exec_egress_mode_mismatch_total counter",
+      `sandbox_exec_egress_mode_mismatch_total ${counters.egressModeMismatchFailures}`,
+      "# HELP sandbox_exec_pod_retirement_total Total model-job pod retirement attempts by outcome",
+      "# TYPE sandbox_exec_pod_retirement_total counter",
+      `sandbox_exec_pod_retirement_total{outcome="retired"} ${counters.egressPodRetirements.retired}`,
+      `sandbox_exec_pod_retirement_total{outcome="skipped"} ${counters.egressPodRetirements.skipped}`,
+      `sandbox_exec_pod_retirement_total{outcome="failed"} ${counters.egressPodRetirements.failed}`,
+      "# HELP sandbox_exec_pod_reaper_evict_total Total idle/stale exec pods evicted by the cluster-truth reaper",
+      "# TYPE sandbox_exec_pod_reaper_evict_total counter",
+      `sandbox_exec_pod_reaper_evict_total ${counters.egressReaperEvictions}`,
       "# HELP sandbox_job_status_long_poll_requests_total Total sandbox job status requests that used long-poll waiting",
       "# TYPE sandbox_job_status_long_poll_requests_total counter",
       `sandbox_job_status_long_poll_requests_total ${counters.longPollRequests}`,
@@ -152,6 +163,28 @@ export class SandboxMetricsService {
         `${metricName}_bucket{layer="${layer}",le="+Inf"} ${histogram.count}`,
         `${metricName}_sum{layer="${layer}"} ${histogram.durationMsTotal.toFixed(2)}`,
         `${metricName}_count{layer="${layer}"} ${histogram.count}`
+      );
+    }
+
+    const egressJobDuration = this.sandboxObservabilityService.getEgressJobDuration();
+    const egressJobDurationMetric = "sandbox_exec_egress_job_duration_ms";
+    lines.push(
+      `# HELP ${egressJobDurationMetric} Terminal sandbox job wall-clock duration in milliseconds by egress mode`,
+      `# TYPE ${egressJobDurationMetric} histogram`,
+      `# HELP ${egressJobDurationMetric}_max Maximum observed terminal sandbox job wall-clock duration in milliseconds by egress mode`,
+      `# TYPE ${egressJobDurationMetric}_max gauge`
+    );
+    for (const mode of ["restricted", "full_public"] as const) {
+      const histogram = egressJobDuration[mode];
+      lines.push(
+        ...histogram.buckets.map(
+          (bucket) =>
+            `${egressJobDurationMetric}_bucket{mode="${mode}",le="${bucket.le}"} ${bucket.value}`
+        ),
+        `${egressJobDurationMetric}_bucket{mode="${mode}",le="+Inf"} ${histogram.count}`,
+        `${egressJobDurationMetric}_sum{mode="${mode}"} ${histogram.durationMsTotal.toFixed(2)}`,
+        `${egressJobDurationMetric}_count{mode="${mode}"} ${histogram.count}`,
+        `${egressJobDurationMetric}_max{mode="${mode}"} ${histogram.maxDurationMs.toFixed(2)}`
       );
     }
 

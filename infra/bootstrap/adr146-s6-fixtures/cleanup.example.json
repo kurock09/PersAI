@@ -1,0 +1,5 @@
+{
+  "argv": ["REPLACE_WITH_IDEMPOTENT_OWNED_FIXTURE_CLEANUP_EXECUTABLE"],
+  "expectedStdout": "ADR146_FIXTURES_CLEANED",
+  "timeoutMs": 120000
+}

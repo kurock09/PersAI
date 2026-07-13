@@ -1339,8 +1339,9 @@ test("SandboxService: shell cwd accepts full /workspace/... path without doublin
 });
 
 test("SandboxService: pod retirement follows terminal persistence and precedes lease release", async () => {
-  for (const outcome of ["success", "error", "timeout"] as const) {
+  for (const outcome of ["success", "error", "timeout", "blocked", "terminal-rejected"] as const) {
     const events: string[] = [];
+    const observability = new SandboxObservabilityService();
     const service = new SandboxService(
       {
         sandboxJob: {
@@ -1351,6 +1352,12 @@ test("SandboxService: pod retirement follows terminal persistence and precedes l
             return input.data;
           },
           async updateMany(input: { data: Record<string, unknown> }) {
+            if (
+              outcome === "terminal-rejected" &&
+              ["completed", "failed", "blocked"].includes(String(input.data.status))
+            ) {
+              return { count: 0 };
+            }
             if (typeof input.data.status === "string") {
               events.push(`job:${input.data.status}`);
             }
@@ -1391,7 +1398,7 @@ test("SandboxService: pod retirement follows terminal persistence and precedes l
           return input.buffer.length;
         }
       } as never,
-      new SandboxObservabilityService(),
+      observability,
       createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 0 }),
       {
         async runInPod() {
@@ -1406,7 +1413,7 @@ test("SandboxService: pod retirement follows terminal persistence and precedes l
             assistantId: `assistant-${outcome}`,
             workspaceId: `workspace-${outcome}`,
             assistantHandle: `assistant-${outcome}`,
-            mode: "restricted" as const
+            mode: outcome === "success" ? ("full_public" as const) : ("restricted" as const)
           };
           if (outcome === "error") {
             throw Object.assign(new Error("command failed"), { execPodBinding });
@@ -1414,6 +1421,13 @@ test("SandboxService: pod retirement follows terminal persistence and precedes l
           if (outcome === "timeout") {
             throw Object.assign(new Error("command timed out"), {
               code: "process_timeout",
+              execPodBinding
+            });
+          }
+          if (outcome === "blocked") {
+            throw Object.assign(new Error("policy blocked"), {
+              code: "sandbox_policy_blocked",
+              blocked: true,
               execPodBinding
             });
           }
@@ -1444,14 +1458,28 @@ test("SandboxService: pod retirement follows terminal persistence and precedes l
       args: { command: "echo lifecycle" }
     });
 
-    const terminalIndex = events.findIndex((event) =>
-      outcome === "success" ? event === "job:completed" : event === "job:failed"
-    );
+    const expectedStatus =
+      outcome === "success" ? "completed" : outcome === "blocked" ? "blocked" : "failed";
+    const terminalIndex = events.findIndex((event) => event === `job:${expectedStatus}`);
     const retirementIndex = events.indexOf("pod:retired");
     const releaseIndex = events.indexOf("lease:released");
-    assert.ok(terminalIndex >= 0, `${outcome}: terminal job state must persist`);
-    assert.ok(retirementIndex > terminalIndex, `${outcome}: retirement must follow persistence`);
-    assert.ok(releaseIndex > retirementIndex, `${outcome}: lease release must follow retirement`);
+    const durations = observability.getEgressJobDuration();
+    const duration = outcome === "success" ? durations.full_public : durations.restricted;
+    if (outcome === "terminal-rejected") {
+      assert.equal(terminalIndex, -1, "rejected terminal write must not claim persistence");
+      assert.equal(duration.count, 0, "rejected terminal write must not emit duration");
+      assert.equal(releaseIndex, -1, "rejected terminal write must withhold lease release");
+    } else {
+      assert.ok(terminalIndex >= 0, `${outcome}: terminal job state must persist`);
+      assert.ok(retirementIndex > terminalIndex, `${outcome}: retirement must follow persistence`);
+      assert.ok(releaseIndex > retirementIndex, `${outcome}: lease release must follow retirement`);
+      assert.equal(duration.count, 1, `${outcome}: duration must record exactly once`);
+      assert.equal(
+        outcome === "success" ? durations.restricted.count : durations.full_public.count,
+        0,
+        `${outcome}: duration must use canonical bound mode only`
+      );
+    }
   }
 });
 
@@ -1556,6 +1584,7 @@ test("SandboxService: final retirement RV conflict withholds lease release", asy
 
 test("SandboxService: lease acquisition failure never retires a pod", async () => {
   let retirementCalls = 0;
+  const observability = new SandboxObservabilityService();
   const service = new SandboxService(
     {
       sandboxJob: {
@@ -1568,7 +1597,7 @@ test("SandboxService: lease acquisition failure never retires a pod", async () =
       }
     } as never,
     {} as never,
-    new SandboxObservabilityService(),
+    observability,
     createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 0 }),
     {
       async retireModelJobPod() {
@@ -1600,6 +1629,8 @@ test("SandboxService: lease acquisition failure never retires a pod", async () =
   });
 
   assert.equal(retirementCalls, 0);
+  assert.equal(observability.getEgressJobDuration().restricted.count, 0);
+  assert.equal(observability.getEgressJobDuration().full_public.count, 0);
 });
 
 test("SandboxService: stale recovery terminal truth cannot be overwritten by old worker", async () => {

@@ -18,6 +18,12 @@ const SNAPSHOT_COLD_PULL_BUCKETS_MS = [
   50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000
 ] as const;
 const SNAPSHOT_COLD_PULL_LAYERS = ["session", "shared"] as const;
+// ADR-146 D9 — terminal sandbox job wall-clock by egress mode.
+const EGRESS_JOB_DURATION_BUCKETS_MS = [
+  1_000, 5_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000, 1_800_000
+] as const;
+const EGRESS_MODES = ["restricted", "full_public"] as const;
+const EGRESS_POD_RETIREMENT_OUTCOMES = ["retired", "skipped", "failed"] as const;
 
 type StaleJobStatus = (typeof STALE_JOB_STATUSES)[number];
 type WorkspaceFileOp = (typeof WORKSPACE_FILE_OPS)[number];
@@ -39,6 +45,9 @@ type CounterSnapshot = {
   egressPodCreates: Record<"restricted" | "full_public", number>;
   egressPodRecycles: Record<"mismatch" | "malformed" | "owner_evict", number>;
   egressJobs: Record<"restricted" | "full_public", number>;
+  egressModeMismatchFailures: number;
+  egressPodRetirements: Record<(typeof EGRESS_POD_RETIREMENT_OUTCOMES)[number], number>;
+  egressReaperEvictions: number;
 };
 
 export type WorkspaceFileLatencySnapshot = Record<WorkspaceFileOp, HistogramSnapshot>;
@@ -75,6 +84,31 @@ export class SandboxObservabilityService {
     ["restricted", 0],
     ["full_public", 0]
   ]);
+  private egressModeMismatchFailures = 0;
+  private readonly egressPodRetirements = new Map<
+    (typeof EGRESS_POD_RETIREMENT_OUTCOMES)[number],
+    number
+  >(EGRESS_POD_RETIREMENT_OUTCOMES.map((outcome) => [outcome, 0]));
+  private egressReaperEvictions = 0;
+  private readonly egressJobDuration = new Map<
+    (typeof EGRESS_MODES)[number],
+    {
+      count: number;
+      durationMsTotal: number;
+      maxDurationMs: number;
+      bucketCounts: number[];
+    }
+  >(
+    EGRESS_MODES.map((mode) => [
+      mode,
+      {
+        count: 0,
+        durationMsTotal: 0,
+        maxDurationMs: 0,
+        bucketCounts: EGRESS_JOB_DURATION_BUCKETS_MS.map(() => 0)
+      }
+    ])
+  );
 
   // ADR-126 Slice 3 — per-op pod-exec latency histograms.
   private readonly workspaceFileLatency = new Map<
@@ -177,6 +211,76 @@ export class SandboxObservabilityService {
     this.egressJobs.set(input.mode, (this.egressJobs.get(input.mode) ?? 0) + 1);
   }
 
+  recordSandboxEgressModeMismatchFailure(): void {
+    this.egressModeMismatchFailures += 1;
+  }
+
+  recordSandboxEgressPodRetirement(input: {
+    outcome: (typeof EGRESS_POD_RETIREMENT_OUTCOMES)[number];
+  }): void {
+    this.egressPodRetirements.set(
+      input.outcome,
+      (this.egressPodRetirements.get(input.outcome) ?? 0) + 1
+    );
+  }
+
+  recordSandboxEgressReaperEvict(): void {
+    this.egressReaperEvictions += 1;
+  }
+
+  recordSandboxEgressJobDuration(input: {
+    mode: "restricted" | "full_public";
+    durationMs: number;
+  }): void {
+    const entry = this.egressJobDuration.get(input.mode);
+    if (entry === undefined) {
+      return;
+    }
+    const clampedDurationMs = Math.max(0, input.durationMs);
+    entry.count += 1;
+    entry.durationMsTotal += clampedDurationMs;
+    entry.maxDurationMs = Math.max(entry.maxDurationMs, clampedDurationMs);
+    EGRESS_JOB_DURATION_BUCKETS_MS.forEach((bucket, index) => {
+      if (clampedDurationMs <= bucket) {
+        entry.bucketCounts[index] = (entry.bucketCounts[index] ?? 0) + 1;
+      }
+    });
+  }
+
+  getEgressJobDuration(): Record<
+    (typeof EGRESS_MODES)[number],
+    {
+      buckets: Array<{ le: string; value: number }>;
+      count: number;
+      durationMsTotal: number;
+      maxDurationMs: number;
+    }
+  > {
+    const snapshot = {} as Record<
+      (typeof EGRESS_MODES)[number],
+      {
+        buckets: Array<{ le: string; value: number }>;
+        count: number;
+        durationMsTotal: number;
+        maxDurationMs: number;
+      }
+    >;
+    for (const mode of EGRESS_MODES) {
+      const entry = this.egressJobDuration.get(mode);
+      const bucketCounts = entry?.bucketCounts ?? EGRESS_JOB_DURATION_BUCKETS_MS.map(() => 0);
+      snapshot[mode] = {
+        buckets: EGRESS_JOB_DURATION_BUCKETS_MS.map((bucket, index) => ({
+          le: bucket.toString(),
+          value: bucketCounts[index] ?? 0
+        })),
+        count: entry?.count ?? 0,
+        durationMsTotal: entry?.durationMsTotal ?? 0,
+        maxDurationMs: entry?.maxDurationMs ?? 0
+      };
+    }
+    return snapshot;
+  }
+
   getCounters(): CounterSnapshot {
     return {
       submitted: this.submitted,
@@ -199,7 +303,14 @@ export class SandboxObservabilityService {
       egressJobs: {
         restricted: this.egressJobs.get("restricted") ?? 0,
         full_public: this.egressJobs.get("full_public") ?? 0
-      }
+      },
+      egressModeMismatchFailures: this.egressModeMismatchFailures,
+      egressPodRetirements: {
+        retired: this.egressPodRetirements.get("retired") ?? 0,
+        skipped: this.egressPodRetirements.get("skipped") ?? 0,
+        failed: this.egressPodRetirements.get("failed") ?? 0
+      },
+      egressReaperEvictions: this.egressReaperEvictions
     };
   }
 

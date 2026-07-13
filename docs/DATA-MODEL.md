@@ -119,9 +119,16 @@ Current active Step 20 persistence includes:
   ADR-146 adds no second plan-level network ceiling.
 
 ADR-146 Slice 2 committed locally at `5a2fd3bd` changes Helm policy truth only
-and does not alter this data model. Slice 3 (local uncommitted on that baseline)
-owns runtime mode authority / recycle / descendant cleanup against this
-Assistant field; Slice 4 Settings UX is not started.
+and does not alter this data model. Slice 3 committed locally at `8d0520f4` owns
+runtime mode authority / recycle / descendant cleanup against this Assistant
+field. Slice 4 committed locally at `3f498ef9` is UX-only. Slice 5 (local
+uncommitted) documents audit/observability truth only:
+
+- changed-mode owner PUT inserts `assistant_audit_events` with
+  `eventCode=assistant.sandbox_egress_mode_updated` and
+  `details.{previousMode,selectedMode,actorUserId}`;
+- sandbox Prometheus counters/histograms identify mode and job outcomes without
+  URL query, auth headers, credentials, or file contents.
 
 ADR-081 plus ADR-133 extend the target-state authority of path-based Files: every user-visible or assistant-reusable file must be represented by a canonical workspace path plus `workspace_file_metadata` immediately when persisted. The default active path shape is `/workspace/assistants/<assistantId>/sessions/<sessionId>/...`, with assistant/workspace widen facts derived from the visible path rather than a second scope vocabulary. That includes user uploads, assistant-generated artifacts, delivered assistant attachments, and sandbox-created files.
 

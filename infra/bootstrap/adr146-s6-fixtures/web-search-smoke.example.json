@@ -1,0 +1,5 @@
+{
+  "argv": ["REPLACE_WITH_OWNED_WEB_SEARCH_SMOKE_EXECUTABLE"],
+  "expectedStdout": "ADR146_WEB_SEARCH_UNCHANGED_OK",
+  "timeoutMs": 120000
+}

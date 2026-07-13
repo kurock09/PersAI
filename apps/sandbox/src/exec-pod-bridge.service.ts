@@ -280,6 +280,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     this.execApi = new Exec(this.kc);
   }
 
+  private throwEgressModeMismatch(message: string): never {
+    this.observability?.recordSandboxEgressModeMismatchFailure();
+    throw createBridgeError("sandbox_egress_mode_mismatch", message, true);
+  }
+
   onModuleInit(): void {
     this.reaperTimer = setInterval(() => {
       void this.runReaperTick().catch((error: unknown) => {
@@ -1533,6 +1538,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           podUid,
           this.config.SANDBOX_EXEC_POD_PROVISION_BUDGET_MS
         );
+        this.observability?.recordSandboxEgressReaperEvict();
       }
     }
   }
@@ -1596,10 +1602,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const canonicalMode = await this.resolveCanonicalEgressMode(assistantId);
       if (canonicalMode !== egressMode) {
-        throw createBridgeError(
-          "sandbox_egress_mode_mismatch",
-          `Assistant mode changed while creating pod ${podName}; refusing stale create.`,
-          true
+        this.throwEgressModeMismatch(
+          `Assistant mode changed while creating pod ${podName}; refusing stale create.`
         );
       }
       try {
@@ -3662,10 +3666,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       reason: podMode === null ? "malformed" : "mismatch"
     });
     if (!input.recycleIfMismatched) {
-      throw createBridgeError(
-        "sandbox_egress_mode_mismatch",
-        `Exec pod egress mode mismatch: expected ${input.expectedMode}, got ${podMode ?? "absent_or_malformed"}`,
-        true
+      this.throwEgressModeMismatch(
+        `Exec pod egress mode mismatch: expected ${input.expectedMode}, got ${podMode ?? "absent_or_malformed"}`
       );
     }
     const podUid = this.requirePodUid(pod, input.podName);
@@ -3704,10 +3706,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       annotations: rechecked.metadata?.annotations ?? null
     });
     if (recheckedMode !== input.expectedMode) {
-      throw createBridgeError(
-        "sandbox_egress_mode_mismatch",
-        `Exec pod still mismatched after recycle: expected ${input.expectedMode}, got ${recheckedMode ?? "absent_or_malformed"}`,
-        true
+      this.throwEgressModeMismatch(
+        `Exec pod still mismatched after recycle: expected ${input.expectedMode}, got ${recheckedMode ?? "absent_or_malformed"}`
       );
     }
   }
@@ -3852,10 +3852,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     // Resolve again here, independently of outer staging/hydrate checks.
     const currentMode = await this.resolveCanonicalEgressMode(options.assistantId);
     if (currentMode !== options.egressMode) {
-      throw createBridgeError(
-        "sandbox_egress_mode_mismatch",
-        `Assistant sandbox egress mode changed immediately before job=${options.jobId}.`,
-        true
+      this.throwEgressModeMismatch(
+        `Assistant sandbox egress mode changed immediately before job=${options.jobId}.`
       );
     }
     return this.execCommand(podName, namespace, {
@@ -3878,8 +3876,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       });
     } catch (error) {
       if (this.isKubernetesNotFound(error)) {
+        this.observability?.recordSandboxEgressPodRetirement({ outcome: "skipped" });
         return { podName: binding.podName, podUid: binding.podUid, retired: false };
       }
+      this.observability?.recordSandboxEgressPodRetirement({ outcome: "failed" });
       throw createBridgeError(
         "sandbox_job_pod_retirement_failed",
         `Failed to inspect bound job pod before retirement: ${describeUnknownError(error)}`,
@@ -3889,6 +3889,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
 
     const currentUid = this.requirePodUid(pod, binding.podName);
     if (currentUid !== binding.podUid) {
+      this.observability?.recordSandboxEgressPodRetirement({ outcome: "skipped" });
       return { podName: binding.podName, podUid: binding.podUid, retired: false };
     }
     const annotations = pod.metadata?.annotations ?? {};
@@ -3903,6 +3904,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         annotations
       }) !== binding.mode
     ) {
+      this.observability?.recordSandboxEgressPodRetirement({ outcome: "failed" });
       throw createBridgeError(
         "sandbox_job_pod_retirement_failed",
         `Refusing to retire pod ${binding.podName} uid=${binding.podUid}: bound identity tuple changed.`,
@@ -3926,6 +3928,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       `exec_job_pod_retired job=${binding.jobId} assistant=${binding.assistantId} pod=${binding.podName} uid=${binding.podUid}`
     );
+    this.observability?.recordSandboxEgressPodRetirement({ outcome: "retired" });
     return { podName: binding.podName, podUid: binding.podUid, retired: true };
   }
 }

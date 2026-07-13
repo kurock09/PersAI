@@ -1,11 +1,51 @@
 # SESSION-HANDOFF
 
-## 2026-07-13 — ADR-146 Slice 4 Assistant Settings sandbox egress UX (local uncommitted)
+## 2026-07-13 — ADR-146 Slice 5 cross-layer audit, observability, runbook (local uncommitted)
 
-Status: **Slice 4 landed locally on clean baseline `8d0520f4` (S1 committed at
-`775e5781`, S2 committed at `5a2fd3bd`, S3 committed at `8d0520f4`; main ahead
-remote; no push/deploy/cloud mutation).** ADR-146 stays **open**. S5 is **not**
-started.
+Status: **Slice 5 landed locally on clean baseline `3f498ef9` (S1 `775e5781`, S2
+`5a2fd3bd`, S3 `8d0520f4`, S4 `3f498ef9`; main ahead remote; no
+push/deploy/cloud mutation).** ADR-146 stays **open**. S6 parent final gate is
+**next** (not started).
+
+**Scope landed:**
+
+- cross-layer doc reconciliation across AGENTS, ADR-146, ARCHITECTURE,
+  API-BOUNDARY, DATA-MODEL, TEST-PLAN, RUNBOOK, gitops README, and
+  `ADR146-OBSERVABILITY.md`;
+- D9 observability hooks: mode-mismatch counter, retirement/reaper counters,
+  valid Prometheus egress job-duration histogram+max; exactly-once duration for
+  every successfully persisted started+bound `completed|failed|blocked` outcome;
+- fail-closed `scripts/ci/adr146-active-code-audit.mjs` scans 12 required roots
+  / 1,833 current files, generated contracts/runtime-contract/config/Prisma
+  included; missing/read/symlink roots fail and CLI execution is tested;
+- dependency-injected `scripts/ci/adr146-cross-layer-contract.mjs` tests mutate
+  real S1–S5 seams; composite `test:adr146-slice5` runs in Full Verification;
+- deploy/rollback runbook with D10 ordering, migration approval path, selective
+  publish mechanics, full live matrix, bounded reviewed-UUID SQL/API rollback
+  with honest idle-stale-only reconcile semantics; Bash/PowerShell loops fail
+  fast and guarantee temporary `PERSAI_INTERNAL_SANDBOX_TOKEN` cleanup;
+- bounded S6 acceptance-preparation helper/tests and explicit operator fixture
+  contract for SSH, custom TCP/UDP, redirect/private-DNS denial, restricted
+  proxy/direct bypass, unaffected second assistant, normal browser/web-search
+  smoke, deadlines, exact sentinels, and mandatory cleanup; no default/unowned
+  public endpoints and no live execution or acceptance claim;
+- IPv4-only contract, flow-log retention honesty, Squid additive-union note, and
+  unclaimed inbound/redirect/DNS-rebind/public-master residuals documented.
+
+**Out of scope:** fixture provisioning, commit/push/deploy, S6 live acceptance,
+ADR closure, product semantics changes beyond observability hooks/tests.
+
+**Next:** parent review → commit when founder asks → S6 parent-only final gate,
+deploy on explicit instruction, live acceptance, ADR closure only after evidence.
+
+---
+
+## 2026-07-13 — ADR-146 Slice 4 Assistant Settings sandbox egress UX (committed `3f498ef9`)
+
+Status: **Slice 4 committed locally at `3f498ef9` on baseline `8d0520f4` (S1
+`775e5781`, S2 `5a2fd3bd`, S3 `8d0520f4`; main ahead remote; no
+push/deploy/cloud mutation).** Superseded for next-slice pointer by Slice 5 entry
+above. ADR-146 stays **open**.
 
 **Scope landed:**
 
@@ -33,11 +73,9 @@ sandbox_egress_recycle_failed` inline errors with canonical refetch;
   plan/admin/browser surfaces);
 - docs reconciled: ADR-146, CHANGELOG, TEST-PLAN, ARCHITECTURE, API-BOUNDARY.
 
-**Out of scope:** backend/runtime/Helm changes, commit/push/deploy, S5 audit/docs
-cross-layer slice, S6 gate, ADR closure.
+**Out of scope:** backend/runtime/Helm changes beyond S5 observability, commit/push/deploy, S6 gate, ADR closure.
 
-**Next:** parent review → commit when founder asks → Slice 5 (cross-layer audit,
-docs, runbook). Do not close ADR-146.
+**Next:** see Slice 5 entry above.
 
 ---
 

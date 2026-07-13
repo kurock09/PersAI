@@ -308,7 +308,8 @@ test("ExecPodBridge S3: restricted pod gets label/annotation + six proxy env var
     conflictOnCreateNames: new Set(),
     createCalls: 0
   };
-  const bridge = buildBridge(ctx, { "assistant-1": "restricted" });
+  const observability = new SandboxObservabilityService();
+  const bridge = buildBridge(ctx, { "assistant-1": "restricted" }, observability);
   const access = bridge as unknown as {
     createExecPod(
       podName: string,
@@ -437,7 +438,8 @@ test("ExecPodBridge S3: mismatched warm pod is deleted, waited absent, and recre
     modeAnnotation: "restricted"
   });
   // Force stable session name by stubbing buildSessionPodName.
-  const bridge = buildBridge(ctx, { "assistant-1": "full_public" });
+  const observability = new SandboxObservabilityService();
+  const bridge = buildBridge(ctx, { "assistant-1": "full_public" }, observability);
   (bridge as unknown as { buildSessionPodName: () => string }).buildSessionPodName = () => podName;
 
   const result = await bridge.warmSessionPod({
@@ -455,6 +457,9 @@ test("ExecPodBridge S3: mismatched warm pod is deleted, waited absent, and recre
     ctx.pods.get(podName)?.body.metadata?.labels?.[SANDBOX_EGRESS_MODE_KEY],
     "full-public"
   );
+  const counters = observability.getCounters();
+  assert.equal(counters.egressPodRecycles.mismatch, 1);
+  assert.equal(counters.egressPodCreates.full_public, 1);
 });
 
 test("ExecPodBridge S3: malformed label/annotation recycles before reuse", async () => {
@@ -623,6 +628,50 @@ test("ExecPodBridge S3: restricted-to-full race immediately before exec fails cl
     /UID\/assistant\/workspace\/handle\/mode changed immediately before exec/i
   );
   assert.deepEqual(ctx.deletedPods, []);
+  assert.deepEqual(ctx.execCommands, []);
+});
+
+test("ExecPodBridge S3: pre-job mode mismatch increments fail-closed metric", async () => {
+  const ctx: MockCtx = {
+    pods: new Map(),
+    createdPods: [],
+    deletedPods: [],
+    execCommands: [],
+    conflictOnCreateNames: new Set(),
+    createCalls: 0
+  };
+  const observability = new SandboxObservabilityService();
+  const bridge = buildBridge(ctx, { "assistant-1": "full_public" }, observability);
+  const access = bridge as unknown as {
+    execJobCommand(
+      podName: string,
+      namespace: string,
+      options: {
+        jobId: string;
+        assistantId: string;
+        egressMode: "restricted" | "full_public";
+        command: string;
+        args: string[];
+        podCwd: string;
+        policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY;
+      }
+    ): Promise<unknown>;
+  };
+
+  await assert.rejects(
+    () =>
+      access.execJobCommand("ses-metric-mismatch", "persai-dev", {
+        jobId: "job-metric-mismatch",
+        assistantId: "assistant-1",
+        egressMode: "restricted",
+        command: "echo",
+        args: ["must-not-run"],
+        podCwd: "/workspace",
+        policy: DEFAULT_RUNTIME_SANDBOX_POLICY
+      }),
+    /mode changed immediately before/
+  );
+  assert.equal(observability.getCounters().egressModeMismatchFailures, 1);
   assert.deepEqual(ctx.execCommands, []);
 });
 
@@ -837,7 +886,8 @@ test("ExecPodBridge S3: model-job pod retirement deletes exact pod and waits abs
     conflictOnCreateNames: new Set(),
     createCalls: 0
   };
-  const bridge = buildBridge(ctx, { "assistant-1": "restricted" });
+  const observability = new SandboxObservabilityService();
+  const bridge = buildBridge(ctx, { "assistant-1": "restricted" }, observability);
   const podName = bridge.buildSessionPodName("assistant-1", "ws-1");
   seedPod(ctx, podName, {
     assistantId: "assistant-1",
@@ -874,6 +924,7 @@ test("ExecPodBridge S3: model-job pod retirement deletes exact pod and waits abs
   assert.deepEqual(ctx.deletedPods, [podName]);
   assert.equal(ctx.pods.has(podName), false);
   assert.equal(ctx.pods.has("ses-unrelated"), true);
+  assert.equal(observability.getCounters().egressPodRetirements.retired, 1);
 });
 
 test("ExecPodBridge S3: retirement refuses an unrelated pod at the derived name", async () => {
@@ -1313,15 +1364,4 @@ test("ExecPodBridge S3: lease loss at final gate opens no exec websocket", async
   );
   assert.equal(leaseReads, 2);
   assert.deepEqual(ctx.execCommands, []);
-});
-
-test("ExecPodBridge S3: observability counters record create/recycle/full_public jobs", async () => {
-  const observability = new SandboxObservabilityService();
-  observability.recordSandboxEgressPodCreate({ mode: "full_public" });
-  observability.recordSandboxEgressPodRecycle({ reason: "mismatch" });
-  observability.recordSandboxEgressJob({ mode: "full_public" });
-  const counters = observability.getCounters();
-  assert.equal(counters.egressPodCreates.full_public, 1);
-  assert.equal(counters.egressPodRecycles.mismatch, 1);
-  assert.equal(counters.egressJobs.full_public, 1);
 });

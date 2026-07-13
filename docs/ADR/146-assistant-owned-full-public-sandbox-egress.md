@@ -10,9 +10,11 @@ committed locally at `775e5781`**. **Slice 2 is committed locally at
 last-responsible-moment DB mode authority, pod label/annotation enforcement,
 mismatch recycle, owner sync eviction with honest `recycled` + `503`, and
 mandatory post-persistence exec-pod retirement before workspace lease release.
-**Slice 4 is landed locally (uncommitted) on baseline `8d0520f4`**: Assistant
-Settings consent UX. This ADR is **not** closed.
-Deploy/live validation of S1–S4 is deferred.
+**Slice 4 is committed locally at `3f498ef9` on baseline `8d0520f4`**: Assistant
+Settings consent UX. **Slice 5 is landed locally (uncommitted) on baseline
+`3f498ef9`**: cross-layer audit, D9 observability, legacy active-code audit,
+cross-layer contract tests, deploy/rollback runbook. This ADR is **not** closed.
+Deploy/live validation of S1–S5 is deferred.
 
 Live foundation + deferred-pin acceptance (2026-07-13): prepare, exact
 NAT/firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready
@@ -44,9 +46,10 @@ attempt failed after validate/GAR/pin on pin-assert EOF mismatch (extra CLI
 `https://persai.dev/api/ready` 200 `{status:ready}`, PersAI MCP chat smoke exact
 `ADR146_POST_ROLLOUT_OK`. **S1 committed locally at `775e5781`**. **S2 committed
 locally at `5a2fd3bd`**. **S3 is committed locally at `8d0520f4`**. **S4 is
-landed locally (uncommitted) on that baseline**. Next under parent
-orchestration: **Slice 5** (cross-layer audit, docs, runbook; not started). Do not
-claim S5 landed or close this ADR.
+committed locally at `3f498ef9`**. **S5 is landed locally (uncommitted) on
+baseline `3f498ef9`**. Next under parent orchestration: **Slice 6**
+(parent-only final gate, deploy, live acceptance; not started). Do not claim S6
+complete or close this ADR.
 
 ## Date
 
@@ -89,8 +92,9 @@ remote/deployed bot pin **`64be77d6`**: deferred services exact `3cd2ea4f`;
 sandbox remains `8a0043dd`. Environment `persai-dev-adr146-foundation`
 **approved**; resume run `29237479924` success; S0.1/0.1b live-accepted; ADR
 open; **S1 committed locally at `775e5781`**; **S2 committed locally at
-`5a2fd3bd`**; **S3 committed locally at `8d0520f4`**; **S4 landed locally
-(uncommitted) on that baseline**; S5 next (not started).
+`5a2fd3bd`**; **S3 committed locally at `8d0520f4`**; **S4 committed locally at
+`3f498ef9`**; **S5 landed locally (uncommitted) on baseline `3f498ef9`**; S6
+next (not started).
 
 ## Slice 3 local land (2026-07-13)
 
@@ -1227,9 +1231,28 @@ Land:
 - negative active-code audit for the old field and stale copy;
 - deploy and rollback runbook.
 
-Rollback is operational, not dual-runtime: set every assistant to `restricted`,
-evict full-public pods, verify only restricted pods remain, then roll back
-application/chart images if needed. The removed old plan boolean is not restored.
+Rollback is operational, not dual-runtime: export and review the exact
+full-public Assistant UUID set, transactionally set only that bounded set to
+`restricted`, then invoke per-assistant reconcile until no stale full-public
+generation remains. Reconcile scope `all|stale_only` is an intent hint; both
+paths UID/resourceVersion-delete only idle missing/malformed/mismatched
+generations and preserve active or correct-mode pods. Then roll back
+application/chart images if needed. The removed old plan boolean is not
+restored.
+
+**Local land (uncommitted on baseline `3f498ef9`):**
+
+- `infra/dev/gke/ADR146-OBSERVABILITY.md` + RUNBOOK deploy/rollback sequence;
+- sandbox D9 metrics hooks (`mode_mismatch`, retirement/reaper, job duration);
+- `scripts/ci/adr146-active-code-audit.mjs` + tests;
+- `scripts/ci/adr146-cross-layer-contract.mjs` + tests;
+- composite `test:adr146-slice5` wired into Full Verification;
+- fail-fast Bash/PowerShell rollback loops with guaranteed process-token cleanup;
+- bounded `infra/bootstrap/adr146-s6-live-acceptance.mjs` preparation plus
+  operator-owned fixture/smoke/cleanup contracts; no default public endpoint,
+  live execution, deploy, or acceptance claim;
+- docs reconciled (AGENTS, ARCHITECTURE, API-BOUNDARY, DATA-MODEL, TEST-PLAN,
+  SESSION-HANDOFF, CHANGELOG, gitops README).
 
 ### Slice 6 — Parent-only final gate, deploy, and live acceptance
 
@@ -1241,8 +1264,10 @@ The parent agent:
 4. proves zero active old-field references;
 5. verifies the migration approval path;
 6. deploys only on explicit founder instruction;
-7. performs live restricted/full/private-negative/mode-toggle acceptance;
-8. closes the ADR only after evidence is recorded.
+7. provisions approved operator-owned fixtures, runs the bounded S6 helper plus
+   manual inbound/public-master and mode-toggle checks, and records cleanup;
+8. performs live restricted/full/private-negative/browser/web-search acceptance;
+9. closes the ADR only after evidence is recorded.
 
 No subagent may close S6.
 
@@ -1295,7 +1320,11 @@ After approved migration/deploy:
 4. Probe every private/internal/metadata target from the negative matrix. Every
    probe must fail while ordinary public destinations succeed.
 5. Create a redirect and DNS-rebinding test whose final IP is denied; verify no
-   connection reaches the target.
+   connection reaches the target. Use the bounded
+   `infra/bootstrap/adr146-s6-live-acceptance.mjs` operator-fixture helper for
+   SSH/custom TCP+UDP, redirect, private DNS answer, restricted proxy/direct
+   bypass, different-assistant, browser, web-search, and mandatory cleanup
+   checks. Its local presence is preparation only, not live evidence.
 6. Disable the checkbox. Verify the full-public pod is gone before success is
    shown and the next job is proxy-only.
 7. Verify another assistant remains restricted throughout.

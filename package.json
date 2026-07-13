@@ -17,7 +17,12 @@
     "build": "corepack pnpm run prisma:generate && corepack pnpm -r --if-present run build",
     "test:ci-detect-affected": "node --test scripts/ci/detect-affected.test.mjs",
     "test:adr146-foundation": "node --test infra/bootstrap/adr146-sandbox-egress-foundation.test.mjs",
-    "test:adr146-release-gate": "node --test scripts/ci/adr146-foundation-release-gate.test.mjs"
+    "test:adr146-release-gate": "node --test scripts/ci/adr146-foundation-release-gate.test.mjs",
+    "test:adr146-active-code-audit": "node --test scripts/ci/adr146-active-code-audit.test.mjs",
+    "test:adr146-cross-layer-contract": "node --test scripts/ci/adr146-cross-layer-contract.test.mjs",
+    "audit:adr146-active-code": "node scripts/ci/adr146-active-code-audit.mjs",
+    "audit:adr146-cross-layer-contract": "node scripts/ci/adr146-cross-layer-contract.mjs",
+    "test:adr146-slice5": "node scripts/ci/adr146-active-code-audit.mjs && node scripts/ci/adr146-cross-layer-contract.mjs && node --test scripts/ci/adr146-active-code-audit.test.mjs scripts/ci/adr146-cross-layer-contract.test.mjs infra/bootstrap/adr146-s6-live-acceptance.test.mjs"
   },
   "devDependencies": {
     "prettier": "^3.8.1"

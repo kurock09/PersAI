@@ -41,6 +41,13 @@ test("SandboxMetricsService renders backlog and long-poll metrics", async () => 
   observability.recordBacklogRejected("workspace");
   observability.recordLongPoll(800);
   observability.recordStaleFailure("queued");
+  observability.recordSandboxEgressPodCreate({ mode: "full_public" });
+  observability.recordSandboxEgressPodRecycle({ reason: "mismatch" });
+  observability.recordSandboxEgressJob({ mode: "restricted" });
+  observability.recordSandboxEgressModeMismatchFailure();
+  observability.recordSandboxEgressPodRetirement({ outcome: "retired" });
+  observability.recordSandboxEgressReaperEvict();
+  observability.recordSandboxEgressJobDuration({ mode: "full_public", durationMs: 42_000 });
 
   const metrics = await new SandboxMetricsService(
     {
@@ -70,4 +77,21 @@ test("SandboxMetricsService renders backlog and long-poll metrics", async () => 
   assert.match(metrics, /^sandbox_stale_job_failures_total\{status="queued"\} 1$/m);
   assert.match(metrics, /^sandbox_job_status_long_poll_requests_total 1$/m);
   assert.match(metrics, /^sandbox_job_status_long_poll_wait_ms_sum 800\.00$/m);
+  assert.match(metrics, /^sandbox_exec_pod_create_total\{mode="full_public"\} 1$/m);
+  assert.match(metrics, /^sandbox_exec_pod_recycle_total\{reason="mismatch"\} 1$/m);
+  assert.match(metrics, /^sandbox_exec_egress_jobs_total\{mode="restricted"\} 1$/m);
+  assert.match(metrics, /^sandbox_exec_egress_mode_mismatch_total 1$/m);
+  assert.match(metrics, /^sandbox_exec_pod_retirement_total\{outcome="retired"\} 1$/m);
+  assert.match(metrics, /^sandbox_exec_pod_reaper_evict_total 1$/m);
+  assert.match(metrics, /^sandbox_exec_egress_job_duration_ms_count\{mode="full_public"\} 1$/m);
+  assert.equal(metrics.match(/^# HELP sandbox_exec_egress_job_duration_ms_max /gm)?.length, 1);
+  assert.equal(
+    metrics.match(/^# TYPE sandbox_exec_egress_job_duration_ms_max gauge$/gm)?.length,
+    1
+  );
+  assert.match(metrics, /^sandbox_exec_egress_job_duration_ms_max\{mode="restricted"\} 0\.00$/m);
+  assert.match(
+    metrics,
+    /^sandbox_exec_egress_job_duration_ms_max\{mode="full_public"\} 42000\.00$/m
+  );
 });

@@ -29,8 +29,9 @@ sandbox remaining `8a0043dd` (Argo Synced; post-rollout
 `https://persai.dev/api/ready` 200 `{status:ready}`, MCP smoke
 `ADR146_POST_ROLLOUT_OK`). ADR-146 stays open; **S1 is committed locally at
 `775e5781`**; **S2 is committed locally at `5a2fd3bd`**; **S3 is committed locally at
-`8d0520f4`**; **S4 Settings UX is landed locally (uncommitted) on that baseline**.
-S5 is next and is **not** started.
+`8d0520f4`**; **S4 Settings UX is committed locally at `3f498ef9`**; **S5 is
+landed locally uncommitted on that baseline**. **S6 parent-only final gate,
+deploy, and live acceptance is next and not started.**
 Each later slice runs the full AGENTS gate plus affected
 API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
 and live negative acceptance.
@@ -307,7 +308,15 @@ Automated acceptance must prove:
    **(Mode storage S1; policy S2; runtime authority S3.)**
 10. Audit/log/metric payloads identify mode and assistant/job without recording
     URL query strings, auth headers, credentials, or file contents. **(Owner
-    mode-change audit is S1 local; pod/job log+metric enrichment is S3 local.)**
+    mode-change audit is S1 local; pod/job log+metric enrichment is S3 local;
+    S5 adds mode-mismatch/retirement/reaper counters + job-duration histogram
+    and `ADR146-OBSERVABILITY.md` alert thresholds.)**
+11. Active code/contracts reject removed `networkAccessEnabled` and stale
+    unlimited/unrestricted copy. **(S5:
+    `scripts/ci/adr146-active-code-audit.mjs` + tests.)**
+12. S1–S4 contracts remain aligned across OpenAPI, migration, Helm policy,
+    sandbox lifecycle, and web consent copy. **(S5:
+    `scripts/ci/adr146-cross-layer-contract.mjs` + tests.)**
 
 ### ADR-146 Slice 3 local checks
 
@@ -322,6 +331,33 @@ Live GKE acceptance after an explicitly approved deploy repeats the restricted
 allowlist test, full-public success test, complete private/internal/metadata
 negative matrix, warm-pod UID replacement on enable/disable, secret-free env,
 audit/flow logs, and rollback to all-`restricted`.
+
+### ADR-146 Slice 5 local checks
+
+```powershell
+node scripts/ci/adr146-active-code-audit.mjs
+node scripts/ci/adr146-cross-layer-contract.mjs
+corepack pnpm run test:adr146-slice5
+corepack pnpm run test:adr146-active-code-audit
+corepack pnpm run test:adr146-cross-layer-contract
+node --test infra/bootstrap/adr146-s6-live-acceptance.test.mjs
+node infra/bootstrap/adr146-s6-live-acceptance.mjs --help
+corepack pnpm --filter @persai/sandbox exec tsx --test test/sandbox-metrics.service.test.ts
+node --test infra/helm/scripts/sandbox-egress-network-policy.test.mjs
+node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify --require-s2-policy
+helm template persai-dev infra/helm -f infra/helm/values.yaml -f infra/helm/values-dev.yaml > $null
+```
+
+The S6 helper test is S5 acceptance preparation only. It proves required-input
+validation, private/special-use target validation, bounded command specs, and
+mandatory cleanup on probe failure without network/cloud activity. Before any
+live run, the parent must follow
+`infra/bootstrap/adr146-s6-fixtures/README.md`, supply only approved
+operator-owned SSH/TCP-echo/UDP-echo/redirect/DNS-rebind fixtures, replace all
+fail-closed command-spec examples, dry-run validation, and record cleanup.
+Browser/web-search specs must execute the normal deployed PersAI paths and emit
+their exact sentinel only after unchanged behavior is asserted. Local green
+tests do not claim S6, HTTP-redirect, or DNS-rebind live acceptance.
 
 ### ADR-146 Slice 4 local checks
 

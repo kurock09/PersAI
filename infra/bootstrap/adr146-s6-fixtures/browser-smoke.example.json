@@ -1,0 +1,5 @@
+{
+  "argv": ["REPLACE_WITH_OWNED_BROWSER_SMOKE_EXECUTABLE"],
+  "expectedStdout": "ADR146_BROWSER_UNCHANGED_OK",
+  "timeoutMs": 120000
+}
