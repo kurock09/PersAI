@@ -1,10 +1,47 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 live admitted toleration normalization repair
+
+Status: **Live admitted toleration normalization repair committed locally in the
+current unpushed HEAD on baseline `fe3e1f59` (collector tolerations preservation
+bot pin); not pushed; no cloud mutation; Environment still unapproved; S1 blocked.**
+
+**Live truth at `fe3e1f59`:** structural
+`node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify` **PASS**,
+including a real production exec Pod. Controlled Pods with canonical
+`operator: Equal` were API-admitted and reached Ready. `probe-restricted`
+pre-structural foundation **PASS**, then failed before network probes:
+`restricted probe pod contour invalid: expected exactly one gVisor runtime
+toleration, got 3`. Root cause: live admitted Pods carry the canonical gVisor
+toleration plus two Kubernetes default injected tolerations
+(`node.kubernetes.io/not-ready` and `node.kubernetes.io/unreachable`, each
+`Exists`/`NoExecute`/`tolerationSeconds:300`); generated-manifest validation
+correctly requires exactly one explicit gVisor toleration, but live admitted
+Pod validation was still using the generated one-only rule. Cleanup **PASS**;
+no controlled Pods remain.
+
+**Repair (local):** split generated vs live admitted toleration validation.
+Generated manifests/renderer remain fail-closed on exactly one explicit
+canonical gVisor toleration. Live admitted Pod validators require the exact
+set of three tolerations (one canonical gVisor + the two known Kubernetes
+defaults; no extras/duplicates/wrong seconds/casing). Tests cover generated
+one-only, live exact-three pass, missing gVisor/defaults, unknown/extra/
+duplicate/wrong seconds/wrong casing, and renderer >1 explicit rejection.
+No package/dependency changes.
+
+**Still incomplete:** controlled probes not re-run after toleration repair; no
+network/enforcement proof; Environment not approved; non-sandbox pins may still
+wait; S0.1 not live-accepted; S1 blocked. Do **not** claim foundation complete.
+
+**Next:** parent push → regenerate/apply controlled probes →
+`probe-restricted` / cleanup → Environment approval(s).
+
+---
+
 ## 2026-07-13 — ADR-146 live collector tolerations preservation repair
 
-Status: **Collector tolerations repair committed locally in the current
-unpushed HEAD on baseline `87907361` (live sandbox bot pin); not pushed; no
-cloud mutation; Environment still unapproved; S1 blocked.**
+Status: **Collector tolerations preservation repair pushed/live at `97042c45`
+with bot pin `fe3e1f59`; Environment still unapproved; S1 blocked.**
 
 **Live truth at `87907361`:** structural
 `node infra/bootstrap/adr146-sandbox-egress-foundation.mjs verify` **PASS**,

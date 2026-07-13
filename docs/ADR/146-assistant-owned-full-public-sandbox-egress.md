@@ -19,17 +19,21 @@ checksum repair **`04b1d0d1` are live**: Argo Synced/Healthy;
 `sandbox-egress-proxy` Ready; sandbox pin immediate; deferred remaining pins
 still wait on GitHub Environment `persai-dev-adr146-foundation` (**not
 approved**; non-sandbox pins last-good). Structural `verify` **PASS** at
-`87907361` (Equal-casing repair + live-verifier normalization), including a
-real production exec Pod. Controlled Pods with canonical `operator: Equal` were
-API-admitted/Ready. `probe-restricted` pre-structural foundation **PASS**,
-then failed before network probes because `collectLive` exec-pod normalization
-dropped `spec.tolerations` (`expected exactly one gVisor runtime toleration,
-got 0`). Collector tolerations preservation repair is **committed locally in
-the current unpushed HEAD** on baseline `87907361`. Probes not re-run after
-collector fix; cleanup succeeded; no controlled Pods remain. Environment still
-unapproved; S0.1 is **not** live-complete, and this ADR is **not** closed. S1
-app/API/UI work stays blocked until S0.1 is live-accepted. Next: push collector
-repair → regenerate/apply controlled probes → active probes/cleanup →
+`fe3e1f59` (Equal-casing repair + live-verifier normalization + collector
+tolerations preservation bot pin), including a real production exec Pod.
+Controlled Pods with canonical `operator: Equal` were API-admitted/Ready.
+`probe-restricted` pre-structural foundation **PASS**, then failed before
+network probes because live admitted Pods carry three tolerations (canonical
+gVisor plus two Kubernetes default injected tolerations) while live admitted
+validation still required exactly one explicit gVisor toleration
+(`expected exactly one gVisor runtime toleration, got 3`). Live admitted
+toleration normalization repair is **committed locally in the current unpushed
+HEAD on baseline `fe3e1f59`**. Collector tolerations preservation repair is
+**pushed/live at `97042c45` with bot pin `fe3e1f59`**. Probes not re-run after
+toleration repair; cleanup **PASS**; no controlled Pods remain. Environment
+still unapproved; S0.1 is **not** live-complete, and this ADR is **not**
+closed. S1 app/API/UI work stays blocked until S0.1 is live-accepted. Next:
+parent push → regenerate/apply controlled probes → active probes/cleanup →
 Environment approval(s).
 
 ## Date
@@ -60,10 +64,14 @@ PASS including a real production exec Pod). Controlled-probe toleration
 `operator: Equal` casing repair live at
 `42a4f42549d71f52e6d6a838b30fadea95790e54` (`42a4f425`; sandbox bot pin
 `87907361ceabc226c2a06c756c5b5b7a62e06da9` / `87907361` is current). Live
-collector tolerations preservation repair is **committed locally in the current
-unpushed HEAD** on baseline `87907361`: `probe-restricted` pre-structural PASS
-then failed before network probes because `collectLive` dropped
-`spec.tolerations`; probes not re-run after collector fix; cleanup succeeded.
+collector tolerations preservation repair pushed/live at `97042c45` with bot pin
+`fe3e1f59`. At `fe3e1f59`, `probe-restricted` pre-structural PASS then failed
+before network probes because live admitted Pods carry three tolerations
+(canonical gVisor plus two Kubernetes default injected tolerations) while live
+admitted validation still required exactly one explicit gVisor toleration
+(`got 3`). Live admitted toleration normalization repair is **committed locally
+in the current unpushed HEAD on baseline `fe3e1f59`**; probes not re-run after
+repair; cleanup **PASS**.
 
 ## Orchestration model
 
@@ -658,10 +666,15 @@ Lands:
 - hardened local controlled restricted + NAT probe Pod manifests (controlled-probe
   label, bounded deadline, non-root/read-only/seccomp/resources, exact inventory
   gVisor Toleration `operator: Equal` — lowercase/`EQUAL`/other casings rejected);
-  renderer validates exactly one non-null exact toleration before emitting YAML
-  and throws instead of supplying a missing/empty/null/wrong/extra fallback;
-  validators enforce that hardening; `exec-ksa-live-wiring` excludes controlled
-  probes and requires ≥1 real Running exec pod; `cleanup-controlled-probes`
+  generated-shape validation and the renderer require exactly one non-null
+  canonical gVisor toleration before emitting YAML and throw instead of supplying
+  a missing/empty/null/wrong/extra fallback; live-admitted validation separately
+  requires the exact order-independent set of three API-visible tolerations
+  (canonical gVisor plus the exact Kubernetes `not-ready` and `unreachable`
+  defaults, each `Exists`/`NoExecute`/`tolerationSeconds: 300`) with no unknown,
+  extra, duplicate, or malformed entries; validators enforce the remaining
+  hardening; `exec-ksa-live-wiring` excludes controlled probes and requires
+  ≥1 real Running exec pod; `cleanup-controlled-probes`
   (dry-run default, `--execute` required) deletes only the two known probe Pods
   by exact name/label on success and failure paths;
 - plan/verify/generate-probe-manifests/probe evidence fail-closed on dirty trees,
@@ -709,12 +722,14 @@ Live foundation checkpoint (2026-07-13; partial, not acceptance):
   both probe Pods before creation (`spec.tolerations[0].operator` lowercase
   `"equal"`; apiserver requires canonical `"Equal"`). Equal-casing repair
   **live at `42a4f425`** (sandbox bot pin **`87907361`** current). At
-  `87907361`, controlled Pods with canonical `operator: Equal` were
-  API-admitted/Ready; `probe-restricted` pre-structural **PASS**, then failed
-  before network probes because `collectLive` dropped `spec.tolerations`.
-  Collector tolerations preservation repair is **committed locally in the
-  current unpushed HEAD** on baseline `87907361`; probes not re-run after
-  collector fix; cleanup succeeded;
+  `fe3e1f59` (collector tolerations preservation bot pin), controlled Pods with
+  canonical `operator: Equal` were API-admitted/Ready; `probe-restricted`
+  pre-structural **PASS**, then failed before network probes because live
+  admitted Pods carry three tolerations (canonical gVisor plus two Kubernetes
+  default injected tolerations) while live admitted validation still required
+  exactly one explicit gVisor toleration (`got 3`). Live admitted toleration
+  normalization repair is **committed locally in the current unpushed HEAD on
+  baseline `fe3e1f59`**; probes not re-run after repair; cleanup **PASS**;
 - GitHub Environment `persai-dev-adr146-foundation` **exists live**
   (required reviewer `kurock09` / user id `126346824`,
   `prevent_self_review=false`, custom deployment branch policy exactly `main`,
@@ -744,11 +759,12 @@ approvals remain):
    structural `verify` PASS including a real production exec Pod), push
    controlled-probe Toleration `Equal` casing repair (**done at `42a4f425` /
    sandbox bot pin `87907361`**; prior apply rejected lowercase `"equal"` before
-   Pod creation), push collector tolerations preservation repair (committed
-   locally in the current unpushed HEAD on baseline `87907361`; probes not
-   re-run after collector fix; cleanup succeeded), regenerate/apply controlled
-   probes, run active probes, then `cleanup-controlled-probes --execute`
-   (required on success and failure);
+   Pod creation), push collector tolerations preservation repair (**done:
+   pushed/live at `97042c45` with bot pin `fe3e1f59`**), push live admitted
+   toleration normalization repair (committed locally in the current unpushed
+   HEAD on baseline `fe3e1f59`; probes not re-run after repair; cleanup
+   **PASS**), regenerate/apply controlled probes, run active probes, then
+   `cleanup-controlled-probes --execute` (required on success and failure);
 6. approve GitHub Environment `persai-dev-adr146-foundation`;
 7. when migrations are also present, approve `persai-dev-migrations` after step 6;
 8. remaining service image tags pin.
@@ -757,7 +773,7 @@ Failure/rollback: remain on last-good non-sandbox pins if verification fails;
 sandbox tag may roll back independently; never disable Calico; never restore the
 removed plan `networkAccessEnabled` boolean.
 
-Next: push collector tolerations preservation repair → regenerate/apply
+Next: parent push toleration normalization repair → regenerate/apply
 controlled probes → active probes → cleanup → Environment approval(s). Do
 **not** claim foundation complete. S1 remains blocked.
 

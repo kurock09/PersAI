@@ -49,6 +49,25 @@ export const KUBERNETES_REJECTED_TOLERATION_OPERATOR_CASINGS = Object.freeze([
   "EQUAL",
   "eQuAl"
 ]);
+/** Kubernetes default injected Pod toleration for node NotReady taint. */
+export const KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_NOT_READY = Object.freeze({
+  key: "node.kubernetes.io/not-ready",
+  operator: "Exists",
+  effect: "NoExecute",
+  tolerationSeconds: 300
+});
+/** Kubernetes default injected Pod toleration for node Unreachable taint. */
+export const KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_UNREACHABLE = Object.freeze({
+  key: "node.kubernetes.io/unreachable",
+  operator: "Exists",
+  effect: "NoExecute",
+  tolerationSeconds: 300
+});
+/** Exact pair of Kubernetes default injected tolerations observed on admitted exec Pods. */
+export const KUBERNETES_DEFAULT_INJECTED_POD_TOLERATIONS = Object.freeze([
+  KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_NOT_READY,
+  KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_UNREACHABLE
+]);
 export const ADR146_PROBE_ACTIVE_DEADLINE_SECONDS = 600;
 /** Exact small resource envelope required on controlled probe Pods. */
 export const ADR146_PROBE_RESOURCES = Object.freeze({
@@ -1845,9 +1864,48 @@ export function validateRequiredGvisorTolerationShape(toleration) {
   return errors;
 }
 
+function tolerationHasExactFields(actual, expected) {
+  if (!actual || typeof actual !== "object" || Array.isArray(actual)) {
+    return false;
+  }
+  const expectedFields = Object.keys(expected);
+  const actualFields = Object.keys(actual);
+  if (actualFields.length !== expectedFields.length) {
+    return false;
+  }
+  return expectedFields.every((field) => actual[field] === expected[field]);
+}
+
+function validateExactTolerationEntry(toleration, expected, label) {
+  const errors = [];
+  if (!toleration || typeof toleration !== "object" || Array.isArray(toleration)) {
+    return [`${label} must be an object`];
+  }
+  const expectedFields = Object.keys(expected);
+  const actualFields = Object.keys(toleration);
+  const unexpectedFields = actualFields.filter((field) => !expectedFields.includes(field));
+  if (unexpectedFields.length > 0) {
+    errors.push(
+      `${label} must contain only ${expectedFields.join("/")}; unexpected fields: ${unexpectedFields.join(", ")}`
+    );
+  }
+  for (const field of expectedFields) {
+    if (toleration[field] !== expected[field]) {
+      errors.push(
+        `${label}.${field} must be ${JSON.stringify(expected[field])}, got ${JSON.stringify(toleration[field])}`
+      );
+    }
+  }
+  return errors;
+}
+
+function readPodTolerations(pod) {
+  return pod?.spec?.tolerations ?? pod?.tolerations ?? [];
+}
+
 /**
- * Live + generated controlled probe Pods must carry the exact inventory gVisor
- * toleration. Rejects apiserver-rejected casings such as lowercase `"equal"`.
+ * Generated controlled probe manifests must carry exactly one explicit inventory
+ * gVisor toleration. Rejects apiserver-rejected casings such as lowercase `"equal"`.
  */
 export function validateControlledProbeGvisorToleration(pod, inventory) {
   const expected = inventory?.cidrs?.restrictedProbe?.requiredGvisorToleration;
@@ -1855,7 +1913,7 @@ export function validateControlledProbeGvisorToleration(pod, inventory) {
   if (shapeErrors.length > 0) {
     return { ok: false, errors: shapeErrors };
   }
-  const tolerations = pod?.spec?.tolerations ?? pod?.tolerations ?? [];
+  const tolerations = readPodTolerations(pod);
   const errors = [];
   if (!Array.isArray(tolerations) || tolerations.length !== 1) {
     errors.push(
@@ -1863,25 +1921,93 @@ export function validateControlledProbeGvisorToleration(pod, inventory) {
     );
     return { ok: false, errors };
   }
-  const actual = tolerations[0] ?? {};
-  if (actual.key !== expected.key) {
-    errors.push(`tolerations[0].key must be ${expected.key}, got ${JSON.stringify(actual.key)}`);
+  errors.push(...validateExactTolerationEntry(tolerations[0], expected, "tolerations[0]"));
+  return { ok: errors.length === 0, errors };
+}
+
+/**
+ * Live API-admitted controlled probe Pods must carry exactly one canonical gVisor
+ * toleration plus the exact two Kubernetes default injected tolerations and no others.
+ */
+export function validateLiveAdmittedProbeTolerations(pod, inventory) {
+  const expectedGvisor = inventory?.cidrs?.restrictedProbe?.requiredGvisorToleration;
+  const shapeErrors = validateRequiredGvisorTolerationShape(expectedGvisor);
+  if (shapeErrors.length > 0) {
+    return { ok: false, errors: shapeErrors };
   }
-  if (actual.operator !== expected.operator) {
+  const tolerations = readPodTolerations(pod);
+  const errors = [];
+  if (!Array.isArray(tolerations)) {
+    errors.push("tolerations missing");
+    return { ok: false, errors };
+  }
+  if (tolerations.length !== 3) {
     errors.push(
-      `tolerations[0].operator must be exactly "${expected.operator}" (Kubernetes apiserver rejects lowercase "equal" and other casings), got ${JSON.stringify(actual.operator)}`
+      `expected exactly three admitted Pod tolerations (one canonical gVisor + two Kubernetes default injected), got ${tolerations.length}`
+    );
+    return { ok: false, errors };
+  }
+
+  const permittedShapes = [
+    expectedGvisor,
+    KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_NOT_READY,
+    KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_UNREACHABLE
+  ];
+  const matchedPermitted = new Set();
+
+  for (let index = 0; index < tolerations.length; index += 1) {
+    const toleration = tolerations[index];
+    const matchingShapeIndexes = permittedShapes
+      .map((shape, shapeIndex) =>
+        tolerationHasExactFields(toleration, shape) ? shapeIndex : -1
+      )
+      .filter((shapeIndex) => shapeIndex >= 0);
+    if (matchingShapeIndexes.length === 0) {
+      const sameKeyShape = permittedShapes.find((shape) => shape.key === toleration?.key);
+      if (sameKeyShape) {
+        errors.push(
+          ...validateExactTolerationEntry(toleration, sameKeyShape, `tolerations[${index}]`)
+        );
+      } else {
+        errors.push(
+          `tolerations[${index}] is not canonical gVisor or a permitted Kubernetes default injected toleration`
+        );
+      }
+      continue;
+    }
+    if (matchingShapeIndexes.length > 1) {
+      errors.push(`tolerations[${index}] matches multiple permitted toleration shapes`);
+      continue;
+    }
+    const shapeIndex = matchingShapeIndexes[0];
+    if (matchedPermitted.has(shapeIndex)) {
+      errors.push(`duplicate admitted Pod toleration for ${permittedShapes[shapeIndex].key}`);
+      continue;
+    }
+    matchedPermitted.add(shapeIndex);
+    errors.push(
+      ...validateExactTolerationEntry(
+        toleration,
+        permittedShapes[shapeIndex],
+        `tolerations[${index}]`
+      )
     );
   }
-  if (actual.value !== expected.value) {
+
+  if (!matchedPermitted.has(0)) {
+    errors.push("missing canonical gVisor runtime toleration");
+  }
+  if (!matchedPermitted.has(1)) {
     errors.push(
-      `tolerations[0].value must be ${expected.value}, got ${JSON.stringify(actual.value)}`
+      `missing Kubernetes default injected toleration ${KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_NOT_READY.key}`
     );
   }
-  if (actual.effect !== expected.effect) {
+  if (!matchedPermitted.has(2)) {
     errors.push(
-      `tolerations[0].effect must be ${expected.effect}, got ${JSON.stringify(actual.effect)}`
+      `missing Kubernetes default injected toleration ${KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_UNREACHABLE.key}`
     );
   }
+
   return { ok: errors.length === 0, errors };
 }
 
@@ -1911,7 +2037,7 @@ export function validateRestrictedProbePod(pod, live, inventory) {
   if (runtimeClassName !== expected.runtimeClassName) {
     errors.push(`runtimeClassName=${runtimeClassName ?? "missing"}`);
   }
-  errors.push(...validateControlledProbeGvisorToleration(pod, inventory).errors);
+  errors.push(...validateLiveAdmittedProbeTolerations(pod, inventory).errors);
   errors.push(...validateControlledProbeHardening(pod).errors);
   return { ok: errors.length === 0, errors };
 }
@@ -1953,7 +2079,7 @@ export function validateNatProbePod(pod, live, inventory) {
     )
   );
   if (hasProxyEnv) errors.push("proxy env must be absent");
-  errors.push(...validateControlledProbeGvisorToleration(pod, inventory).errors);
+  errors.push(...validateLiveAdmittedProbeTolerations(pod, inventory).errors);
   errors.push(...validateControlledProbeHardening(pod).errors);
   return { ok: errors.length === 0, errors };
 }

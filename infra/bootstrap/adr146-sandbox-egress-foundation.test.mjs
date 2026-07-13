@@ -20,6 +20,8 @@ import {
   GKE_MANAGED_SANDBOX_RUNTIME_KEY,
   GKE_SANDBOX_TYPE_GVISOR,
   KUBERNETES_REJECTED_TOLERATION_OPERATOR_CASINGS,
+  KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_NOT_READY,
+  KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_UNREACHABLE,
   KUBERNETES_TOLERATION_OPERATOR_EQUAL,
   buildControlledProbeCleanupPlan,
   buildEvidenceBinding,
@@ -66,12 +68,29 @@ import {
   validateControlledProbeGvisorToleration,
   validateControlledProbeHardening,
   validateInventory,
+  validateLiveAdmittedProbeTolerations,
   validateNatProbePod,
   validateRequiredGvisorTolerationShape,
   validateRestrictedProbePod
 } from "./lib/foundation.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+function buildLiveAdmittedProbeTolerations(inventory) {
+  return [
+    { ...inventory.cidrs.restrictedProbe.requiredGvisorToleration },
+    { ...KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_NOT_READY },
+    { ...KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_UNREACHABLE }
+  ];
+}
+
+function probeManifestToLiveAdmittedValidatorPod(manifest, options = {}) {
+  const pod = probeManifestToValidatorPod(manifest, options);
+  const tolerations = buildLiveAdmittedProbeTolerations(loadInventory());
+  pod.tolerations = tolerations;
+  pod.spec.tolerations = tolerations;
+  return pod;
+}
 
 function baseLive(inventory) {
   const { email } = nodeServiceAccountIdentity(inventory);
@@ -1655,7 +1674,7 @@ test("NetworkPolicy DNS and selector matchers reject widened shapes", () => {
 test("probe helpers bind restricted and NAT pods to the private gVisor contour", () => {
   const inventory = loadInventory();
   const live = baseLive(inventory);
-  const okPod = probeManifestToValidatorPod(buildRestrictedProbePodManifest(inventory));
+  const okPod = probeManifestToLiveAdmittedValidatorPod(buildRestrictedProbePodManifest(inventory));
   assert.equal(validateRestrictedProbePod(okPod, live, inventory).ok, true);
   assert.equal(
     validateRestrictedProbePod({ ...okPod, runtimeClassName: "runc" }, live, inventory).ok,
@@ -1665,7 +1684,7 @@ test("probe helpers bind restricted and NAT pods to the private gVisor contour",
     validateRestrictedProbePod({ ...okPod, serviceAccountName: "default" }, live, inventory).ok,
     false
   );
-  const natPod = probeManifestToValidatorPod(buildNatProbePodManifest(inventory));
+  const natPod = probeManifestToLiveAdmittedValidatorPod(buildNatProbePodManifest(inventory));
   assert.equal(validateNatProbePod(natPod, live, inventory).ok, true);
   const natWithProxy = structuredClone(natPod);
   natWithProxy.spec.containers[0].env = [{ name: "HTTPS_PROXY", value: "http://proxy:3128" }];
@@ -1676,7 +1695,7 @@ test("probe helpers bind restricted and NAT pods to the private gVisor contour",
 test("controlled probe validators reject each material hardening class", () => {
   const inventory = loadInventory();
   const live = baseLive(inventory);
-  const good = probeManifestToValidatorPod(buildRestrictedProbePodManifest(inventory));
+  const good = probeManifestToLiveAdmittedValidatorPod(buildRestrictedProbePodManifest(inventory));
   assert.equal(validateRestrictedProbePod(good, live, inventory).ok, true);
   assert.equal(validateControlledProbeHardening(good).ok, true);
   assert.deepEqual(good.spec.containers[0].resources, {
@@ -1758,7 +1777,7 @@ test("controlled probe validators reject each material hardening class", () => {
   dropMissingAll.containers = dropMissingAll.spec.containers;
   assert.equal(validateControlledProbeHardening(dropMissingAll).ok, false);
 
-  const natGood = probeManifestToValidatorPod(buildNatProbePodManifest(inventory));
+  const natGood = probeManifestToLiveAdmittedValidatorPod(buildNatProbePodManifest(inventory));
   assert.equal(validateNatProbePod(natGood, live, inventory).ok, true);
   const natMissingProbeLabel = structuredClone(natGood);
   delete natMissingProbeLabel.labels["sandbox.gke.io/adr146-nat-probe"];
@@ -1987,17 +2006,21 @@ test("generated restricted and NAT probe manifests satisfy live validators", () 
   const restrictedManifest = buildRestrictedProbePodManifest(inventory);
   const natManifest = buildNatProbePodManifest(inventory);
   assert.equal(
-    validateRestrictedProbePod(probeManifestToValidatorPod(restrictedManifest), live, inventory).ok,
+    validateRestrictedProbePod(
+      probeManifestToLiveAdmittedValidatorPod(restrictedManifest),
+      live,
+      inventory
+    ).ok,
     true
   );
   assert.equal(
-    validateNatProbePod(probeManifestToValidatorPod(natManifest), live, inventory).ok,
+    validateNatProbePod(probeManifestToLiveAdmittedValidatorPod(natManifest), live, inventory).ok,
     true
   );
   const natWithProxy = structuredClone(natManifest);
   natWithProxy.spec.containers[0].env = [{ name: "HTTPS_PROXY", value: "http://proxy:3128" }];
   assert.equal(
-    validateNatProbePod(probeManifestToValidatorPod(natWithProxy), live, inventory).ok,
+    validateNatProbePod(probeManifestToLiveAdmittedValidatorPod(natWithProxy), live, inventory).ok,
     false
   );
   const yaml = `${renderProbeManifestYaml(restrictedManifest)}\n${renderProbeManifestYaml(natManifest)}`;
@@ -2064,7 +2087,9 @@ test("controlled probe gVisor toleration uses canonical Equal and rejects apiser
 
   const good = probeManifestToValidatorPod(restrictedManifest);
   assert.equal(validateControlledProbeGvisorToleration(good, inventory).ok, true);
-  assert.equal(validateRestrictedProbePod(good, live, inventory).ok, true);
+  const liveAdmitted = probeManifestToLiveAdmittedValidatorPod(restrictedManifest);
+  assert.equal(validateLiveAdmittedProbeTolerations(liveAdmitted, inventory).ok, true);
+  assert.equal(validateRestrictedProbePod(liveAdmitted, live, inventory).ok, true);
 
   // Reproduce live apiserver rejection: Unsupported value: "equal"
   // (supported values: "Equal", "Exists") — validators must fail closed the same way.
@@ -2088,13 +2113,17 @@ test("controlled probe gVisor toleration uses canonical Equal and rejects apiser
     badPod.spec.tolerations[0].operator = badOperator;
     badPod.tolerations = badPod.spec.tolerations;
     const gate = validateControlledProbeGvisorToleration(badPod, inventory);
-    assert.equal(gate.ok, false, `live probe must reject operator=${badOperator}`);
+    assert.equal(gate.ok, false, `generated probe must reject operator=${badOperator}`);
     assert.ok(
-      gate.errors.some((error) => error.includes("rejects lowercase") || error.includes("casings")),
+      gate.errors.some((error) => error.includes("operator must be")),
       gate.errors.join("; ")
     );
-    assert.equal(validateRestrictedProbePod(badPod, live, inventory).ok, false);
-    const badNat = probeManifestToValidatorPod(natManifest);
+    const badLivePod = structuredClone(liveAdmitted);
+    badLivePod.spec.tolerations[0].operator = badOperator;
+    badLivePod.tolerations = badLivePod.spec.tolerations;
+    assert.equal(validateLiveAdmittedProbeTolerations(badLivePod, inventory).ok, false);
+    assert.equal(validateRestrictedProbePod(badLivePod, live, inventory).ok, false);
+    const badNat = probeManifestToLiveAdmittedValidatorPod(natManifest);
     badNat.spec.tolerations[0].operator = badOperator;
     assert.equal(validateNatProbePod(badNat, live, inventory).ok, false);
   }
@@ -2103,11 +2132,192 @@ test("controlled probe gVisor toleration uses canonical Equal and rejects apiser
   delete missingToleration.spec.tolerations;
   delete missingToleration.tolerations;
   assert.equal(validateControlledProbeGvisorToleration(missingToleration, inventory).ok, false);
+  assert.equal(validateLiveAdmittedProbeTolerations(missingToleration, inventory).ok, false);
   assert.equal(validateRestrictedProbePod(missingToleration, live, inventory).ok, false);
 
   const wrongKey = structuredClone(good);
   wrongKey.spec.tolerations[0].key = "dedicated";
   assert.equal(validateControlledProbeGvisorToleration(wrongKey, inventory).ok, false);
+});
+
+test("live admitted probe tolerations require canonical gVisor plus exact Kubernetes defaults", () => {
+  const inventory = loadInventory();
+  const manifest = buildRestrictedProbePodManifest(inventory);
+  const liveAdmitted = probeManifestToLiveAdmittedValidatorPod(manifest);
+  assert.equal(validateLiveAdmittedProbeTolerations(liveAdmitted, inventory).ok, true);
+
+  const [gvisor, notReady, unreachable] = liveAdmitted.spec.tolerations;
+  const orderPermutations = [
+    [gvisor, notReady, unreachable],
+    [gvisor, unreachable, notReady],
+    [notReady, gvisor, unreachable],
+    [notReady, unreachable, gvisor],
+    [unreachable, gvisor, notReady],
+    [unreachable, notReady, gvisor]
+  ];
+  for (const tolerations of orderPermutations) {
+    const permuted = structuredClone(liveAdmitted);
+    permuted.spec.tolerations = structuredClone(tolerations);
+    permuted.tolerations = permuted.spec.tolerations;
+    assert.equal(validateLiveAdmittedProbeTolerations(permuted, inventory).ok, true);
+  }
+
+  const generatedOnly = probeManifestToValidatorPod(manifest);
+  const generatedGate = validateLiveAdmittedProbeTolerations(generatedOnly, inventory);
+  assert.equal(generatedGate.ok, false);
+  assert.ok(
+    generatedGate.errors.some((error) =>
+      error.includes("expected exactly three admitted Pod tolerations")
+    )
+  );
+
+  const missingGvisor = structuredClone(liveAdmitted);
+  missingGvisor.spec.tolerations[0] = {
+    key: "dedicated",
+    operator: "Exists",
+    effect: "NoSchedule"
+  };
+  missingGvisor.tolerations = missingGvisor.spec.tolerations;
+  const missingGvisorGate = validateLiveAdmittedProbeTolerations(missingGvisor, inventory);
+  assert.equal(missingGvisorGate.ok, false);
+  assert.ok(
+    missingGvisorGate.errors.some((error) =>
+      error.includes("missing canonical gVisor runtime toleration")
+    )
+  );
+
+  const missingNotReady = structuredClone(liveAdmitted);
+  missingNotReady.spec.tolerations = [
+    { ...inventory.cidrs.restrictedProbe.requiredGvisorToleration },
+    {
+      key: "dedicated",
+      operator: "Exists",
+      effect: "NoSchedule"
+    },
+    { ...KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_UNREACHABLE }
+  ];
+  missingNotReady.tolerations = missingNotReady.spec.tolerations;
+  const missingNotReadyGate = validateLiveAdmittedProbeTolerations(missingNotReady, inventory);
+  assert.equal(missingNotReadyGate.ok, false);
+  assert.ok(
+    missingNotReadyGate.errors.some((error) =>
+      error.includes(KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_NOT_READY.key)
+    )
+  );
+
+  const missingUnreachable = structuredClone(liveAdmitted);
+  missingUnreachable.spec.tolerations = [
+    { ...inventory.cidrs.restrictedProbe.requiredGvisorToleration },
+    { ...KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_NOT_READY },
+    {
+      key: "dedicated",
+      operator: "Exists",
+      effect: "NoSchedule"
+    }
+  ];
+  missingUnreachable.tolerations = missingUnreachable.spec.tolerations;
+  const missingUnreachableGate = validateLiveAdmittedProbeTolerations(
+    missingUnreachable,
+    inventory
+  );
+  assert.equal(missingUnreachableGate.ok, false);
+  assert.ok(
+    missingUnreachableGate.errors.some((error) =>
+      error.includes(KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_UNREACHABLE.key)
+    )
+  );
+
+  const extra = structuredClone(liveAdmitted);
+  extra.spec.tolerations.push({
+    key: "dedicated",
+    operator: "Exists",
+    effect: "NoSchedule"
+  });
+  extra.tolerations = extra.spec.tolerations;
+  const extraGate = validateLiveAdmittedProbeTolerations(extra, inventory);
+  assert.equal(extraGate.ok, false);
+  assert.ok(
+    extraGate.errors.some((error) =>
+      error.includes("expected exactly three admitted Pod tolerations")
+    )
+  );
+
+  const nullEntry = structuredClone(liveAdmitted);
+  nullEntry.spec.tolerations[1] = null;
+  nullEntry.tolerations = nullEntry.spec.tolerations;
+  const nullEntryGate = validateLiveAdmittedProbeTolerations(nullEntry, inventory);
+  assert.equal(nullEntryGate.ok, false);
+  assert.ok(
+    nullEntryGate.errors.some((error) =>
+      error.includes("is not canonical gVisor or a permitted Kubernetes default injected toleration")
+    )
+  );
+
+  const duplicateGvisor = structuredClone(liveAdmitted);
+  duplicateGvisor.spec.tolerations[2] = {
+    ...inventory.cidrs.restrictedProbe.requiredGvisorToleration
+  };
+  duplicateGvisor.tolerations = duplicateGvisor.spec.tolerations;
+  const duplicateGate = validateLiveAdmittedProbeTolerations(duplicateGvisor, inventory);
+  assert.equal(duplicateGate.ok, false);
+  assert.ok(
+    duplicateGate.errors.some((error) =>
+      error.includes("duplicate admitted Pod toleration")
+    )
+  );
+
+  const duplicateDefault = structuredClone(liveAdmitted);
+  duplicateDefault.spec.tolerations[2] = {
+    ...KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_NOT_READY
+  };
+  duplicateDefault.tolerations = duplicateDefault.spec.tolerations;
+  const duplicateDefaultGate = validateLiveAdmittedProbeTolerations(
+    duplicateDefault,
+    inventory
+  );
+  assert.equal(duplicateDefaultGate.ok, false);
+  assert.ok(
+    duplicateDefaultGate.errors.some((error) =>
+      error.includes(
+        `duplicate admitted Pod toleration for ${KUBERNETES_DEFAULT_INJECTED_POD_TOLERATION_NOT_READY.key}`
+      )
+    )
+  );
+
+  const wrongNotReadySeconds = structuredClone(liveAdmitted);
+  wrongNotReadySeconds.spec.tolerations[1].tolerationSeconds = 301;
+  wrongNotReadySeconds.tolerations = wrongNotReadySeconds.spec.tolerations;
+  const wrongNotReadySecondsGate = validateLiveAdmittedProbeTolerations(
+    wrongNotReadySeconds,
+    inventory
+  );
+  assert.equal(wrongNotReadySecondsGate.ok, false);
+  assert.ok(
+    wrongNotReadySecondsGate.errors.some((error) =>
+      error.includes("tolerationSeconds must be 300")
+    )
+  );
+
+  const wrongUnreachableSeconds = structuredClone(liveAdmitted);
+  wrongUnreachableSeconds.spec.tolerations[2].tolerationSeconds = 299;
+  wrongUnreachableSeconds.tolerations = wrongUnreachableSeconds.spec.tolerations;
+  const wrongUnreachableSecondsGate = validateLiveAdmittedProbeTolerations(
+    wrongUnreachableSeconds,
+    inventory
+  );
+  assert.equal(wrongUnreachableSecondsGate.ok, false);
+  assert.ok(
+    wrongUnreachableSecondsGate.errors.some((error) =>
+      error.includes("tolerationSeconds must be 300")
+    )
+  );
+
+  for (const badOperator of KUBERNETES_REJECTED_TOLERATION_OPERATOR_CASINGS) {
+    const wrongCasing = structuredClone(liveAdmitted);
+    wrongCasing.spec.tolerations[0].operator = badOperator;
+    wrongCasing.tolerations = wrongCasing.spec.tolerations;
+    assert.equal(validateLiveAdmittedProbeTolerations(wrongCasing, inventory).ok, false);
+  }
 });
 
 test("probe manifest renderer fails closed on invalid gVisor tolerations", () => {
@@ -2172,6 +2382,7 @@ test("probe manifest renderer fails closed on invalid gVisor tolerations", () =>
 });
 
 function probeManifestToKubectlItem(manifest, { nodeName = "private-node", phase = "Running" } = {}) {
+  const inventory = loadInventory();
   return {
     metadata: {
       name: manifest.metadata.name,
@@ -2179,7 +2390,8 @@ function probeManifestToKubectlItem(manifest, { nodeName = "private-node", phase
     },
     spec: {
       ...manifest.spec,
-      nodeName
+      nodeName,
+      tolerations: buildLiveAdmittedProbeTolerations(inventory)
     },
     status: {
       phase,
@@ -2195,8 +2407,9 @@ test("collectLive exec pod mapper preserves admitted tolerations for probe conto
   const kubectlItem = probeManifestToKubectlItem(manifest);
   const mapped = mapExecPodFromKubectlItem(kubectlItem);
 
-  assert.deepEqual(mapped.spec.tolerations, manifest.spec.tolerations);
-  assert.deepEqual(mapped.tolerations, manifest.spec.tolerations);
+  assert.deepEqual(mapped.spec.tolerations, kubectlItem.spec.tolerations);
+  assert.deepEqual(mapped.tolerations, kubectlItem.spec.tolerations);
+  assert.equal(validateLiveAdmittedProbeTolerations(mapped, inventory).ok, true);
   assert.equal(validateRestrictedProbePod(mapped, live, inventory).ok, true);
 
   const withoutTolerations = structuredClone(kubectlItem);
@@ -2206,7 +2419,9 @@ test("collectLive exec pod mapper preserves admitted tolerations for probe conto
   const missingGate = validateRestrictedProbePod(mappedMissing, live, inventory);
   assert.equal(missingGate.ok, false);
   assert.ok(
-    missingGate.errors.some((error) => error.includes("expected exactly one gVisor runtime toleration"))
+    missingGate.errors.some((error) =>
+      error.includes("expected exactly three admitted Pod tolerations")
+    )
   );
 
   for (const badOperator of KUBERNETES_REJECTED_TOLERATION_OPERATOR_CASINGS) {
@@ -2217,7 +2432,11 @@ test("collectLive exec pod mapper preserves admitted tolerations for probe conto
     const badGate = validateRestrictedProbePod(mappedBad, live, inventory);
     assert.equal(badGate.ok, false, `must reject operator=${badOperator} after collector mapping`);
     assert.ok(
-      badGate.errors.some((error) => error.includes("operator must be exactly")),
+      badGate.errors.some(
+        (error) =>
+          error.includes("operator must be") ||
+          error.includes("is not canonical gVisor or a permitted Kubernetes default injected toleration")
+      ),
       badGate.errors.join("; ")
     );
   }
@@ -2229,11 +2448,13 @@ test("collectLive exec pod mapper preserves admitted tolerations for probe conto
     effect: "NoSchedule"
   });
   const mappedExtra = mapExecPodFromKubectlItem(extraItem);
-  assert.equal(mappedExtra.spec.tolerations.length, 2);
+  assert.equal(mappedExtra.spec.tolerations.length, 4);
   const extraGate = validateRestrictedProbePod(mappedExtra, live, inventory);
   assert.equal(extraGate.ok, false);
   assert.ok(
-    extraGate.errors.some((error) => error.includes("expected exactly one gVisor runtime toleration, got 2"))
+    extraGate.errors.some((error) =>
+      error.includes("expected exactly three admitted Pod tolerations")
+    )
   );
 
   const wrongKeyItem = structuredClone(kubectlItem);
@@ -2242,6 +2463,8 @@ test("collectLive exec pod mapper preserves admitted tolerations for probe conto
   const wrongKeyGate = validateRestrictedProbePod(mappedWrongKey, live, inventory);
   assert.equal(wrongKeyGate.ok, false);
   assert.ok(
-    wrongKeyGate.errors.some((error) => error.includes("tolerations[0].key must be"))
+    wrongKeyGate.errors.some((error) =>
+      error.includes("is not canonical gVisor or a permitted Kubernetes default injected toleration")
+    )
   );
 });

@@ -144,8 +144,13 @@ Required local invariants:
     `exec-ksa-live-wiring` excludes controlled probes and
     requires ≥1 real Running exec pod. `collectLive` exec-pod normalization
     must preserve exact live `spec.tolerations` so admitted controlled probes
-    pass contour validation; tests map kubectl Pod items through
-    `mapExecPodFromKubectlItem` and prove missing/wrong/extra tolerations fail.
+    pass contour validation; live admitted Pod validators require the exact set
+    of three tolerations (one canonical gVisor plus the two known Kubernetes
+    default injected tolerations; no extras/duplicates/wrong seconds/casing)
+    while generated manifests/renderer remain fail-closed on exactly one explicit
+    gVisor toleration. Tests map kubectl Pod items through
+    `mapExecPodFromKubectlItem` and prove generated one-only, live exact-three
+    pass, and missing/wrong/extra/default failures.
     Operators must run
     `cleanup-controlled-probes --execute` after probes on success and failure
     paths (exact names/labels only; never broad-delete production exec pods).
