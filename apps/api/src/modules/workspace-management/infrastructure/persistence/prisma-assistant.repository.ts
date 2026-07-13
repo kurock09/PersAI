@@ -10,6 +10,7 @@ import type {
 } from "../../domain/assistant.repository";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 import { buildAssistantHandle } from "../../application/assistant-handle";
+import { DEFAULT_ASSISTANT_ROLE_ID } from "../../../../../prisma/assistant-role-seed-data";
 
 @Injectable()
 export class PrismaAssistantRepository implements AssistantRepository {
@@ -39,7 +40,8 @@ export class PrismaAssistantRepository implements AssistantRepository {
           id: newId,
           userId,
           workspaceId,
-          handle
+          handle,
+          roleId: DEFAULT_ASSISTANT_ROLE_ID
         }
       });
     });
@@ -203,6 +205,7 @@ export class PrismaAssistantRepository implements AssistantRepository {
       applyErrorCode: assistant.applyErrorCode,
       applyErrorMessage: assistant.applyErrorMessage,
       configDirtyAt: assistant.configDirtyAt,
+      roleId: assistant.roleId,
       sandboxEgressMode: assistant.sandboxEgressMode,
       createdAt: assistant.createdAt,
       updatedAt: assistant.updatedAt

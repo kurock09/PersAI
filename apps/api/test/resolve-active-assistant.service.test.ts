@@ -9,6 +9,7 @@ type AssistantRow = {
   id: string;
   userId: string;
   workspaceId: string;
+  roleId: string;
 };
 
 function createAssistant(row: AssistantRow) {
@@ -35,6 +36,7 @@ function createAssistant(row: AssistantRow) {
     applyErrorCode: null,
     applyErrorMessage: null,
     configDirtyAt: null,
+    roleId: row.roleId,
     sandboxEgressMode: "restricted",
     createdAt: now,
     updatedAt: now
@@ -158,8 +160,8 @@ async function runExplicitAssistantWins(): Promise<void> {
       activeAssistantId: "assistant-1"
     },
     assistants: [
-      { id: "assistant-1", userId: "user-1", workspaceId: "ws-1" },
-      { id: "assistant-2", userId: "user-1", workspaceId: "ws-1" }
+      { id: "assistant-1", userId: "user-1", workspaceId: "ws-1", roleId: "role-1" },
+      { id: "assistant-2", userId: "user-1", workspaceId: "ws-1", roleId: "role-2" }
     ]
   });
 
@@ -170,6 +172,7 @@ async function runExplicitAssistantWins(): Promise<void> {
 
   assert.equal(result.assistantId, "assistant-2");
   assert.equal(result.assistant.id, "assistant-2");
+  assert.equal(result.assistant.roleId, "role-2");
   assert.equal(result.assistantLimit.maxAssistants, 2);
   assert.deepEqual(workspaceMemberUpdates, []);
 }
@@ -182,8 +185,8 @@ async function runActivePointerUsedByDefault(): Promise<void> {
       activeAssistantId: "assistant-1"
     },
     assistants: [
-      { id: "assistant-1", userId: "user-1", workspaceId: "ws-1" },
-      { id: "assistant-2", userId: "user-1", workspaceId: "ws-1" }
+      { id: "assistant-1", userId: "user-1", workspaceId: "ws-1", roleId: "role-1" },
+      { id: "assistant-2", userId: "user-1", workspaceId: "ws-1", roleId: "role-2" }
     ]
   });
 
@@ -198,7 +201,7 @@ async function runSingleAssistantFallbackSetsActivePointer(): Promise<void> {
       workspaceId: "ws-1",
       activeAssistantId: null
     },
-    assistants: [{ id: "assistant-1", userId: "user-1", workspaceId: "ws-1" }]
+    assistants: [{ id: "assistant-1", userId: "user-1", workspaceId: "ws-1", roleId: "role-1" }]
   });
 
   const result = await service.execute({ userId: "user-1" });
@@ -218,7 +221,7 @@ async function runInvalidActivePointerSelfHealsForSingleAssistant(): Promise<voi
       workspaceId: "ws-1",
       activeAssistantId: "deleted-assistant"
     },
-    assistants: [{ id: "assistant-1", userId: "user-1", workspaceId: "ws-1" }]
+    assistants: [{ id: "assistant-1", userId: "user-1", workspaceId: "ws-1", roleId: "role-1" }]
   });
 
   const result = await service.execute({ userId: "user-1" });
@@ -239,8 +242,8 @@ async function runMultipleAssistantsWithoutPointerFailsHonestly(): Promise<void>
       activeAssistantId: null
     },
     assistants: [
-      { id: "assistant-1", userId: "user-1", workspaceId: "ws-1" },
-      { id: "assistant-2", userId: "user-1", workspaceId: "ws-1" }
+      { id: "assistant-1", userId: "user-1", workspaceId: "ws-1", roleId: "role-1" },
+      { id: "assistant-2", userId: "user-1", workspaceId: "ws-1", roleId: "role-2" }
     ]
   });
 
@@ -255,8 +258,8 @@ async function runCrossWorkspaceExplicitAssistantRejected(): Promise<void> {
       activeAssistantId: "assistant-1"
     },
     assistants: [
-      { id: "assistant-1", userId: "user-1", workspaceId: "ws-1" },
-      { id: "assistant-2", userId: "user-1", workspaceId: "ws-2" }
+      { id: "assistant-1", userId: "user-1", workspaceId: "ws-1", roleId: "role-1" },
+      { id: "assistant-2", userId: "user-1", workspaceId: "ws-2", roleId: "role-2" }
     ]
   });
 

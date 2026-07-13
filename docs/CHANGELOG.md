@@ -3,6 +3,10 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-14
+
+- **Change (ADR-147 S1 Role schema and safe expand; local).** Adds additive `AssistantRoleStatus`, `AssistantRole`, `AssistantRoleSkill`, and required `Assistant.roleId`; safe expand migration inserts deterministic zero-Skill `persai_default`, retains a DB default for old pod creation, backfills every Assistant, then enforces NOT NULL/FK/indexes. New Assistant creation writes the default explicitly; domain mapping carries `roleId`; reset preserves it. Dev seed is deterministic-id, insert-only, fail-closed on id/key mismatch; production API startup performs no Role writes. Migration/seed payload parity is locked. Existing `AssistantSkillAssignment` and all effective-Skill reads remain unchanged. Initial parent audit rejected destructive startup cleanup, startup coupling, parity drift, and Prisma formatting noise; repaired diff re-audited CLEAN, then both medium residuals closed. PASS: Prisma validate/generate, eight focused standalone API tests, API typecheck/lint, helper ESLint, format, diff check, IDE diagnostics. Clean isolated pgvector migration proof remains S6 pre-push work. No push/deploy.
+
 ## 2026-07-13
 
 - **ADR (ADR-147 founder execution contract; accepted for S1).** S0 design passed founder/parent audit. Implementation is sequential using the founder-approved GPT-5.4 / Cursor Grok 4.5 / Composer pool selected by slice risk, with parent diff/test audit after every slice. S1-S5 remain local. One final push is allowed only after the complete ADR-146-grade repository gate, generated-contract zero-diff, clean isolated Prisma migration proof, and active legacy/dead-code zero audit; deploy then runs under parent supervision with B2C+B2B/Admin/MCP live acceptance. Role UI must be fully RU/EN, concise, premium, system-consistent, and free of slang/noise; Admin Roles follows Admin Skills.

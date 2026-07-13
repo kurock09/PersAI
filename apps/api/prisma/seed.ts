@@ -13,6 +13,7 @@ import {
   STARTER_TRIAL_TOOL_POLICY,
   defaultPlanFullProjection
 } from "./tool-catalog-data.js";
+import { ensureDefaultAssistantRole } from "./assistant-role-bootstrap.js";
 import { PROMPT_TEMPLATE_DEFAULTS } from "./bootstrap-preset-data.js";
 import { PERSONA_ARCHETYPE_DEFAULTS } from "./persona-archetype-data.js";
 import { PRODUCT_KB_SEED_TEXT_ENTRIES } from "./product-kb-seed-data.js";
@@ -153,6 +154,7 @@ async function main(): Promise<void> {
   await upsertPromptTemplates();
   await upsertPersonaArchetypes();
   await upsertPlatformSitePages();
+  await ensureDefaultAssistantRole(prisma);
 
   await prisma.appUser.upsert({
     where: { id: SEED_USER_ID },

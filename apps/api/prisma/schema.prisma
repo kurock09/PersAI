@@ -375,6 +375,12 @@ enum SkillScenarioStatus {
   archived
 }
 
+enum AssistantRoleStatus {
+  draft
+  active
+  archived
+}
+
 enum AssistantSkillAssignmentStatus {
   active
   disabled
@@ -867,6 +873,7 @@ model Assistant {
   applyErrorCode                       String?                               @map("apply_error_code")
   applyErrorMessage                    String?                               @map("apply_error_message")
   configDirtyAt                        DateTime?                             @map("config_dirty_at") @db.Timestamptz(6)
+  roleId                               String                                @default(dbgenerated("'00000000-0000-4000-8000-000000000147'::uuid")) @map("role_id") @db.Uuid
   /// ADR-146 — owner-controlled sandbox egress mode. Defaults/backfills to
   /// `restricted`. Not draft/governance/plan/chat/session state.
   sandboxEgressMode                    AssistantSandboxEgressMode            @default(restricted) @map("sandbox_egress_mode")
@@ -875,6 +882,7 @@ model Assistant {
   user                                 AppUser                               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspace                            Workspace                             @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   workspaceMember                      WorkspaceMember                       @relation("AssistantWorkspaceScope", fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Restrict, onUpdate: Cascade)
+  role                                 AssistantRole                         @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   applyTargetVersion                   AssistantPublishedVersion?            @relation("AssistantApplyTargetVersion", fields: [applyTargetVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   applyAppliedVersion                  AssistantPublishedVersion?            @relation("AssistantApplyAppliedVersion", fields: [applyAppliedVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   governance                           AssistantGovernance?
@@ -929,6 +937,7 @@ model Assistant {
   @@index([userId])
   @@index([workspaceId])
   @@index([workspaceId, userId])
+  @@index([roleId])
   @@map("assistants")
 }
 
@@ -2931,6 +2940,7 @@ model Skill {
   knowledgeCards      SkillKnowledgeCard[]
   knowledgeCardChunks SkillKnowledgeCardChunk[]
   assignments         AssistantSkillAssignment[]
+  roleLinks           AssistantRoleSkill[]
   indexingJobs        KnowledgeIndexingJob[]
   vectorChunks        KnowledgeVectorChunk[]
   scenarios           SkillScenario[]
@@ -2939,6 +2949,41 @@ model Skill {
   @@index([category, status])
   @@index([createdByUserId, createdAt(sort: Desc)])
   @@map("skills")
+}
+
+model AssistantRole {
+  id           String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key          String               @unique @db.VarChar(64)
+  name         Json                 @db.JsonB
+  description  Json                 @db.JsonB
+  mission      Json                 @db.JsonB
+  category     String               @db.VarChar(64)
+  iconEmoji    String?              @map("icon_emoji") @db.VarChar(16)
+  color        String?              @db.VarChar(32)
+  status       AssistantRoleStatus  @default(draft)
+  displayOrder Int                  @default(100) @map("display_order")
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistants   Assistant[]
+  skillLinks   AssistantRoleSkill[]
+
+  @@index([status, displayOrder])
+  @@index([category, status])
+  @@map("assistant_roles")
+}
+
+model AssistantRoleSkill {
+  roleId       String        @map("role_id") @db.Uuid
+  skillId      String        @map("skill_id") @db.Uuid
+  displayOrder Int           @default(100) @map("display_order")
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  role         AssistantRole @relation(fields: [roleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  skill        Skill         @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([roleId, skillId])
+  @@index([roleId, displayOrder])
+  @@index([skillId, displayOrder])
+  @@map("assistant_role_skills")
 }
 
 model SkillScenario {

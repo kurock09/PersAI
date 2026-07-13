@@ -5,6 +5,7 @@ type AssistantStub = {
   id: string;
   userId: string;
   workspaceId: string;
+  roleId: string;
 };
 
 type SkillRow = {
@@ -36,8 +37,18 @@ type AssignmentRow = {
 };
 
 async function run(): Promise<void> {
-  const assistantA: AssistantStub = { id: "assistant-a", userId: "user-1", workspaceId: "ws-1" };
-  const assistantB: AssistantStub = { id: "assistant-b", userId: "user-1", workspaceId: "ws-1" };
+  const assistantA: AssistantStub = {
+    id: "assistant-a",
+    userId: "user-1",
+    workspaceId: "ws-1",
+    roleId: "role-a"
+  };
+  const assistantB: AssistantStub = {
+    id: "assistant-b",
+    userId: "user-1",
+    workspaceId: "ws-1",
+    roleId: "role-b"
+  };
   let activeAssistant = assistantA;
 
   const skills: SkillRow[] = [
@@ -206,6 +217,15 @@ async function run(): Promise<void> {
     (assignment) => assignment.assistantId === assistantB.id && assignment.skillId === "skill-2"
   );
   assert.equal(assistantBAssignment?.status, "active");
+  assert.equal(
+    assignments.some(
+      (assignment) =>
+        assignment.assistantId === assistantB.id &&
+        assignment.skillId === "skill-1" &&
+        assignment.status === "active"
+    ),
+    false
+  );
 }
 
 void run();

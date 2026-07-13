@@ -12,10 +12,12 @@ async function run(): Promise<void> {
   const releasedKnowledgeBytes: bigint[] = [];
   const deletedPrefixes: string[] = [];
   const auditEvents: Array<{ summary: string; eventCode: string }> = [];
+  const assistantUpdates: Array<Record<string, unknown>> = [];
   const assistant = {
     id: "assistant-1",
     workspaceId: "ws-1",
-    userId: "user-1"
+    userId: "user-1",
+    roleId: "role-current"
   };
   const recordDelete = (label: string) => async () => {
     deleted.push(label);
@@ -23,7 +25,10 @@ async function run(): Promise<void> {
 
   const tx = {
     assistant: {
-      update: async () => undefined
+      update: async (input: Record<string, unknown>) => {
+        assistantUpdates.push(input);
+        return undefined;
+      }
     },
     assistantChatMessageAttachment: {
       deleteMany: recordDelete("assistantChatMessageAttachment")
@@ -142,6 +147,9 @@ async function run(): Promise<void> {
   );
   assert.equal(auditEvents.length, 1);
   assert.equal(auditEvents[0]?.eventCode, "assistant.full_reset");
+  const assistantUpdateData = assistantUpdates[0]?.data as Record<string, unknown> | undefined;
+  assert.ok(assistantUpdateData !== undefined);
+  assert.equal("roleId" in assistantUpdateData, false, "full reset must preserve the current role");
   assert.equal(
     auditEvents[0]?.summary,
     "Full assistant reset: chats, memory, tasks, knowledge sources, runtime state, published versions, materialized specs, and workspace files deleted."

@@ -80,6 +80,7 @@ async function run(): Promise<void> {
             applyErrorCode: null,
             applyErrorMessage: null,
             configDirtyAt: null,
+            roleId: "00000000-0000-4000-8000-000000000147",
             sandboxEgressMode: "restricted",
             createdAt: now,
             updatedAt: now

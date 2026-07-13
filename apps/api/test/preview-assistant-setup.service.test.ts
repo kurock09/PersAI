@@ -29,6 +29,7 @@ const assistant: Assistant = {
   applyErrorCode: null,
   applyErrorMessage: null,
   configDirtyAt: null,
+  roleId: "00000000-0000-4000-8000-000000000147",
   sandboxEgressMode: "restricted",
   createdAt: new Date("2026-04-03T00:00:00.000Z"),
   updatedAt: new Date("2026-04-03T00:00:00.000Z")

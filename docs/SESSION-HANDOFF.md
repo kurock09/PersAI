@@ -1,5 +1,51 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-147 S1 Role schema and safe expand
+
+Status: **implemented locally and parent-audited CLEAN; uncommitted, unpushed,
+undeployed.** Baseline S0 commit `bb5760a5`; `main` remains ahead of
+`origin/main` only by local ADR-147 commits. Founder-owned parallel
+`chat-plan-card.tsx` / `.test.tsx` edits remain untouched and excluded.
+
+**Landed S1 truth:** additive Prisma `AssistantRoleStatus`, `AssistantRole`,
+`AssistantRoleSkill`, and required `Assistant.roleId`. Migration
+`20260714001000_adr147_s1_assistant_roles_expand` creates the catalog/link
+tables, inserts deterministic protected `persai_default`, adds the retained DB
+default, backfills every Assistant, then applies NOT NULL/FK/indexes. Existing
+`AssistantSkillAssignment` storage and every effective-Skill read remain
+unchanged in S1.
+
+New Assistant repository creation writes default Role id explicitly; the
+database default keeps old pod revisions safe during expand. Domain mapping
+carries `roleId`; full Assistant reset preserves it. Dev seeding uses
+deterministic-id, insert-only upsert and fails closed on id/key mismatch. API
+startup performs no Role bootstrap and no destructive Role→Skill cleanup.
+Migration/seed initial payload parity is source-contract tested, including
+localized copy and nullable presentation fields.
+
+**Parent audit:** first review rejected boot-time `deleteMany`, startup coupling,
+duplicated unguarded payload truth, and Prisma formatting churn. The repaired
+diff removes all four. Independent re-audit returned CLEAN with no blocker/high;
+the two medium test/static-gate residuals were then closed.
+
+**Verification PASS:** Prisma validate + generate; eight focused S1 tests via
+the repository's real standalone `tsx` runner; API typecheck; API lint; direct
+ESLint for both new Prisma helpers; repository format check; `git diff --check`;
+IDE diagnostics. An earlier parent Vitest invocation failed honestly because
+API tests are standalone scripts, then the correct runner passed all eight.
+No migration was run against a shared/dev DB. Clean isolated pgvector migration
+deploy/status remains mandatory in S6 before push.
+
+**Files:** Prisma schema/seed/default helper/expand migration; Assistant
+domain/repository; focused lifecycle/assignment/schema/bootstrap tests;
+ADR-147, DATA-MODEL, TEST-PLAN, AGENTS, handoff, changelog.
+
+**Next:** commit only audited S1 files, excluding founder ChatPlanCard edits.
+Then delegate S2 role-only API/runtime/prompt/retrieval/invalidation cutover.
+No push/deploy.
+
+---
+
 ## 2026-07-13 — ADR-147 S0 Assistant Roles audit and design
 
 Status: **S0 accepted for execution, docs-only and uncommitted; S1 next.** Baseline

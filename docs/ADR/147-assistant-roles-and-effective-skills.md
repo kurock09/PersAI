@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted for execution — Slice 0 audit/design complete; implementation starts
-with S1.
+In progress — S0 accepted and S1 schema/expand implemented locally; S2 is next.
+No ADR-147 code has been pushed or deployed.
 
 ## Date
 
@@ -558,8 +558,8 @@ compatibility mode.
 - Backfill every assistant, including unpublished/in-setup assistants.
 - Enforce NOT NULL and FK.
 - Update new-assistant creation to set the default explicitly.
-- Add Role catalog/admin application services needed by later code, without
-  changing effective-Skill reads.
+- Defer Role catalog/admin application services to Release B/S2; Release A adds
+  no unused Role service abstractions and does not change effective-Skill reads.
 - Keep old pods valid through the database default.
 
 Release A uses the normal `persai-dev-migrations` approval path.
@@ -626,7 +626,8 @@ ADR-147 has seven slices: S0 through S6.
 - Add/backfill required `Assistant.roleId`.
 - Update assistant domain/repository/create coverage and lock reset-preserves-
   Role behavior.
-- Add Role catalog persistence and focused migration tests.
+- Add Role schema persistence and focused migration/source-contract tests;
+  defer application Role catalog services to S2.
 - Do not change effective-Skill reads.
 
 Primary files/modules:
@@ -635,7 +636,7 @@ Primary files/modules:
 - new `apps/api/prisma/migrations/*adr147*`;
 - `apps/api/prisma/seed.ts`;
 - assistant domain/repository/create/reset services;
-- new Role persistence/types/services;
+- deterministic default-Role seed constants/helper only;
 - focused Prisma/domain tests.
 
 ### S2 — role-only API/runtime/prompt cutover

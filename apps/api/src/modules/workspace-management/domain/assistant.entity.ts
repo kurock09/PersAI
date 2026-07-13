@@ -43,6 +43,7 @@ export type Assistant = {
   applyErrorCode: string | null;
   applyErrorMessage: string | null;
   configDirtyAt: Date | null;
+  roleId: string;
   /** ADR-146 — owner-controlled sandbox egress; default `restricted`. */
   sandboxEgressMode: AssistantSandboxEgressMode;
   createdAt: Date;

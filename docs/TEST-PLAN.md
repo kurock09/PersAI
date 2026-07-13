@@ -2348,6 +2348,21 @@ corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx
 - `read-assistant-knowledge.service.test.ts` (`runSkillPull`) asserts that with `smartSearchEnabled=false` a normal `skill_document` hit stays snippet-only (no `inlinedDocument` / `inlinedSection`), and that a `skill_knowledge_card` hit returns its FULL card text inline (`inlinedDocument`, all card chunks joined, `truncated=false`).
 - `plans/page.test.tsx` asserts the retrieval preset dropdown fills all 16 raw retrieval draft fields atomically for `rich` / `lean` / `balanced`, and that the dropdown reflects `custom` when the draft matches no preset (UI fill-helper only; no persisted `retrievalPolicy.preset`).
 
+## ADR-147 Slice 1 — assistant roles expand only
+
+- `adr147-s1-assistant-roles-schema.test.ts` guards the additive Prisma contract: required `Assistant.roleId` with the stable DB default, additive `AssistantRole` / `AssistantRoleSkill` tables, the safe expand migration/backfill/FK shape, and exact immutable initial-payload parity (including nullable icon/color presentation fields) between seed constants and migration SQL.
+- `prisma-assistant.repository.test.ts` proves repository creation explicitly writes the stable default role id; `create-assistant.service.test.ts` remains the existing create lifecycle regression check, and `reset-assistant.service.test.ts` proves full reset does not mutate `roleId`.
+- `manage-assistant-skills.service.test.ts` proves unchanged S1 behavior only: multiple assistants under one owner still keep independent direct Skill assignments while Role persistence remains additive and unread by effective-Skill paths.
+- `assistant-role-bootstrap.test.ts` guards the dev seed primitive: deterministic-id insert-only upsert semantics preserve admin-editable copy and fail closed on id/key mismatch. Production API startup does not bootstrap or mutate Roles.
+
+The API package's ordinary TypeScript and lint globs do not include every Prisma helper. Run the focused helper gate explicitly:
+
+```powershell
+corepack pnpm --filter @persai/api exec tsc --noEmit --strict --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2022 prisma/assistant-role-seed-data.ts prisma/assistant-role-bootstrap.ts
+corepack pnpm --filter @persai/api exec eslint --max-warnings=0 prisma/assistant-role-seed-data.ts prisma/assistant-role-bootstrap.ts
+corepack pnpm exec prettier --check apps/api/prisma/assistant-role-seed-data.ts apps/api/prisma/assistant-role-bootstrap.ts
+```
+
 ## ADR-119 golden tests
 
 Six golden tests lock the invariants from the ADR-119 prompt architecture program. All six must pass on every PR. Failure of any golden test indicates a structural regression in the prompt assembly pipeline.
