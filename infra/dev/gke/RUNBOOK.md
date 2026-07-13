@@ -238,15 +238,17 @@ Failure/rollback: remain on last-good non-sandbox pins if verification fails;
 sandbox tag may roll back independently; never disable Calico; never restore the
 removed plan `networkAccessEnabled` boolean.
 
-**Slices 0.1 + 0.1b are live-accepted** at bot pin `64be77d6` (deferred services
+**Historical foundation checkpoint:** Slices 0.1 + 0.1b were live-accepted at
+bot pin `64be77d6` (deferred services
 exact `3cd2ea4f`; sandbox `8a0043dd`; Environment approved; Argo Synced;
 post-rollout `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, and MCP smoke
 `ADR146_POST_ROLLOUT_OK`). Restricted foundation gate PASS at proof pin
-`e5c249c3` remains the enforcement evidence. Inbound denial / HTTP redirect /
-DNS-rebind stay unclaimed. ADR-146 stays open; **S1–S5 are committed locally**
-(`775e5781`, `5a2fd3bd`, `8d0520f4`, `3f498ef9`, `d23936d1`; unpushed/
-undeployed); **S6 deploy/live acceptance is next** under parent gate.
+`e5c249c3` remains historical foundation enforcement evidence. **Current:**
+S1–S5 (`775e5781`, `5a2fd3bd`, `8d0520f4`, `3f498ef9`, `d23936d1`) and D4
+repair `2f73d58c` are deployed; S6 parent acceptance closed ADR-146 on release
+`35024b39`. Inbound, redirect private-follow, private-answer DNS connect, and
+public-master denial are proven; see the acceptance record below.
 
 ### ADR-146 S1–S5 product deploy sequence (D10 ordering)
 
@@ -328,12 +330,16 @@ node --test infra/bootstrap/adr146-s6-live-acceptance.test.mjs
 node infra/bootstrap/adr146-s6-live-acceptance.mjs --help
 ```
 
-Read `infra/bootstrap/adr146-s6-fixtures/README.md`, provision only
-operator-owned fixtures, replace the three fail-closed example command specs,
-and run the documented command once without `--execute`. The dry-run validates
-all required endpoints, ports, URLs, denied IPv4, command deadlines, and
-cleanup contract without network activity. Only the S6 parent, after approved
-deploy, appends `--execute`. The helper:
+For future regression, read
+`infra/bootstrap/adr146-s6-fixtures/README.md`, provision only operator-owned
+fixtures, replace the three fail-closed example command specs, and run the
+documented command once without `--execute`. The dry-run validates all required
+endpoints, ports, URLs, denied IPv4, command deadlines, and cleanup contract
+without network activity. The helper may then package the live probes under
+`--execute`; equivalent parent-run direct probes may also satisfy the matrix
+when every outcome, pod UID, fixture owner, deadline, and cleanup result is
+recorded honestly. Final S6 used the equivalent direct-probe method, not one
+exact helper `--execute`. The helper:
 
 - verifies canonical Running full-public and different-assistant restricted
   pod contours before probes;
@@ -353,40 +359,26 @@ deploy, appends `--execute`. The helper:
   nonzero.
 
 The helper does not create fixtures, mutate Kubernetes/cloud state, toggle
-mode, deploy, or claim acceptance. Record its stdout/stderr/status, UTC
-start/end, release SHA, exact pod UIDs, fixture ownership, and cleanup evidence.
+mode, deploy, or claim acceptance by itself. For helper or equivalent direct
+execution, record outputs/status, UTC start/end, release SHA, exact pod UIDs,
+fixture ownership, and cleanup evidence.
 
-Still unclaimed / open after S6 parent evidence through release `7e385bbe`:
+S6 parent acceptance closed ADR-146 on release `35024b39`:
 
-- **Inbound empty-ingress:** live-proven **PASS** on full-public pod
-  `ses-97982c194f5602591e016a81c3352e53` (`INBOUND_TIMEOUT` from sandbox
-  control-plane after local listener positive control PASS). Treat as proven for
-  this contour; keep the manual listener procedure below for regression.
-- **Public GKE master endpoint:** live **FAIL / S6 security blocker** —
-  `PUBLIC_MASTER_REACHABLE` (direct TCP from full-public pod to
-  `34.38.46.10:443` succeeded). Minimum D4 repair **committed locally at
-  `2f73d58c` on baseline `bd1c3e0c`** (unpushed/undeployed; live firewall/Calico
-  unrepaired until push/gate/apply/sync; live re-proof pending): exact
-  dual-layer `/32` inventory `publicControlPlaneEndpoints` `34.38.46.10/32` in
-  shared public-deny inventory; Calico NP except **and** sandbox-tagged VPC
-  firewall deny; fail-closed live endpoint equality; reachable destination-only
-  firewall updater; historical release fixture freeze. Keep public endpoint
-  enabled for operator/GitHub WIF kubectl; disabling the endpoint or enabling
-  master authorized networks are optional future founder hardening only. Future
-  evidence inventory SHA-256
-  `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d` (do not
-  retcon historical proof SHA
-  `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). Do not
-  claim denial until post-repair deploy + live re-proof.
-- **HTTP redirect and DNS-rebind/private-resolution:** executable preparation
-  exists but remain unclaimed until the parent runs and records the approved
-  live probe.
-- Broader S6 helper still needs operator-owned SSH/TCP/UDP/redirect/DNS
-  fixtures.
+- equivalent direct probes were executed and recorded individually rather than
+  through one exact helper `--execute` invocation;
+- inbound empty-ingress, public-master denial (`PUBLIC_MASTER_BLOCKED`),
+  operator-owned SSH/custom TCP+UDP, redirect private-follow denial,
+  restricted custom TCP+UDP denial, browser/web-search unchanged behavior,
+  mode-toggle retirement, audit, metrics, and cleanup all passed;
+- the private-answer phase passed: DNS returned only the denied private answer
+  and the subsequent connection was blocked. A timed public-to-private
+  rebinding race remains optional hardening, not an ADR-146 closure condition;
+- evidence inventory SHA-256 is
+  `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`.
 
-Chat-smoke hard 90s sandbox process timeout despite a larger requested
-`timeoutMs` is a product hold residual, **not** an ADR-146 network/security
-failure.
+The approximately 90-second hard shell process timeout is a non-egress product
+residual, **not** an ADR-146 network/security failure.
 
 Observability reference: `infra/dev/gke/ADR146-OBSERVABILITY.md`.
 
@@ -441,15 +433,14 @@ From a founder-approved test exec pod on the private sandbox pool, confirm:
 5. only after those controls pass, matching exec denials plus metadata
    `169.254.169.254:80` are dropped; metadata denial requires the
    `gke-metadata-server` DaemonSet desired=ready structural check
-6. inbound remains empty — **manual RUNBOOK check**. Live S6 evidence on
-   release `7e385bbe` recorded **PASS** (`INBOUND_TIMEOUT`) for the full-public
-   contour; keep the disposable-listener procedure for regression. HTTP redirect
-   and DNS-rebind to private/metadata destinations remain unclaimed by
-   automation. Public GKE master endpoint denial is a separate live **FAIL /
-   blocker** (`PUBLIC_MASTER_REACHABLE` to `34.38.46.10:443`); D4 `/32`
-   dual-layer inventory repair is **committed locally at `2f73d58c`** on
-   baseline `bd1c3e0c` (unpushed/undeployed) and still needs push/gate/apply/
-   sync + live re-proof.
+6. inbound remains empty — **manual RUNBOOK check**. Live S6 evidence first
+   recorded `INBOUND_TIMEOUT` at release `7e385bbe`; keep the disposable-listener
+   procedure for regression. Final release `35024b39` additionally proved
+   `PUBLIC_MASTER_BLOCKED`, redirect private-follow denial, and private-answer
+   DNS connect denial. The private-answer phase passed; a timed
+   public-to-private rebinding race is optional hardening, not a closure
+   condition. These were equivalent direct parent probes, not one exact helper
+   `--execute`.
 
 `probe-restricted` executes items 1–5 without credentials, request bodies, file
 contents, auth headers, or query strings; the NAT identity check logs only its

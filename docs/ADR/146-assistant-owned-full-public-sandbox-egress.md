@@ -2,18 +2,36 @@
 
 ## Status
 
-Accepted — founder-directed production orchestration program opened 2026-07-12.
+**Closed 2026-07-13** — founder-directed production orchestration program opened
+2026-07-12; Slices 0–5 landed; **Slice 6 parent live acceptance complete** against
+deployed release baseline `origin/main` **`35024b39`** (local UI repair commit
+`cb0c9adb` not pushed). Do **not** reopen for new scope.
+
 Slice 0 read-only code/live-cluster audit completed 2026-07-12 with implementation
-**NO-GO**. **Slices 0.1 + 0.1b are live-accepted** (2026-07-13). **Slice 1 is
-committed locally at `775e5781`**. **Slice 2 is committed locally at
-`5a2fd3bd`**. **Slice 3 is committed locally at `8d0520f4` on baseline `5a2fd3bd`**:
-last-responsible-moment DB mode authority, pod label/annotation enforcement,
-mismatch recycle, owner sync eviction with honest `recycled` + `503`, and
-mandatory post-persistence exec-pod retirement before workspace lease release.
-**Slice 4 is committed locally at `3f498ef9` on baseline `8d0520f4`**: Assistant
-Settings consent UX. **Slice 5 is committed locally at `d23936d1` on baseline
-`3f498ef9`**: cross-layer audit, D9 observability, legacy active-code audit,
-cross-layer contract tests, deploy/rollback runbook. This ADR is **not** closed.
+**NO-GO**. **Slices 0.1 + 0.1b are live-accepted** (2026-07-13). **Slice 1**
+`775e5781`. **Slice 2** `5a2fd3bd`. **Slice 3** `8d0520f4`. **Slice 4**
+`3f498ef9`. **Slice 5** `d23936d1`. Public-master D4 `/32` dual-layer deny repair
+`2f73d58c` is live on the release path; live re-proof
+`PUBLIC_MASTER_BLOCKED` **PASS** (inventory SHA-256
+`589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`).
+
+**S6 parent evidence method (honest):** the parent ran individual direct checks
+and separate browser/web-search smokes. It did **not** run one exact
+`adr146-s6-live-acceptance.mjs --execute` invocation. The written Closure
+conditions require recorded live acceptance proving public success plus
+internal/private failure; they do **not** mandate a single helper process exit.
+Equivalent parent probes covering the RUNBOOK/fixture matrix are accepted.
+The helper remains preparation/packaging, not the sole closure artifact.
+
+**S6 private-answer DNS precision:** operator-owned fixture
+`private-answer.adr146-s6-dns-fixture.svc.cluster.local` answered only
+`10.0.0.1`; full-public pod UID `5313bc91-0e86-45db-b0d3-36f7c61b39fa` recorded
+`ADR146_PRIVATE_DNS_ANSWER_OK` + `ADR146_PRIVATE_DNS_CONNECT_BLOCKED`. That
+satisfies the ADR/RUNBOOK/fixture **private-answer phase** (resolve private /
+special-use; connect denied). It is **not** a timed public→private rebinding
+transition. The written contract requires the private-answer phase, not a timed
+rebinding race; timed rebinding is optional future hardening, not an ADR-146
+blocker.
 
 Live foundation + deferred-pin acceptance (2026-07-13): prepare, exact
 NAT/firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready
@@ -30,75 +48,93 @@ Squid CONNECT denial for non-allowlisted `example.com` **PASS**; direct-public
 bypass denial **PASS**; Kubernetes API, metrics-server, Redis, Filestore, Cloud
 SQL, kube-dns Pod UDP/TCP, same-namespace sandbox control-plane Pod, every node
 kubelet, and metadata `169.254.169.254` denial **PASS**. Controlled-probe
-cleanup **PASS** (no controlled Pods remaining). Inbound denial, HTTP redirect,
-and DNS-rebind remain **explicitly unclaimed** RUNBOOK checks.
+cleanup **PASS** (no controlled Pods remaining). Historical note: inbound /
+HTTP redirect / DNS private-answer were later live-proven in S6 (see below);
+do not treat this foundation paragraph as current unclaimed residuals.
 
-Current remote/deployed bot pin **`64be77d6`**: `api`/`web`/`runtime`/
-`provider-gateway` exact **`3cd2ea4f`** (2/2 Ready each); sandbox remains
-**`8a0043dd`** (2/2); Argo Synced. Deferred-pin resume workflow run
-**`29237479924`**: both `validate-resume` and Environment-gated pin **success**;
-protected Environment **approved** by required reviewer. Historical first resume
-attempt failed after validate/GAR/pin on pin-assert EOF mismatch (extra CLI
-`` `${join}\n` `` vs `applyPinDevImageTags`); EOF CLI/lib repair landed on
-`main`; the successful second run is current. Post-rollout public
+**Historical foundation-era deployment/pin evidence:** bot pin **`64be77d6`**
+had `api`/`web`/`runtime`/`provider-gateway` exact **`3cd2ea4f`** (2/2 Ready
+each); sandbox **`8a0043dd`** (2/2); Argo Synced. Deferred-pin resume workflow
+run **`29237479924`**: both `validate-resume` and Environment-gated pin
+**success**; protected Environment **approved** by required reviewer.
+Historical first resume attempt failed after validate/GAR/pin on pin-assert EOF
+mismatch (extra CLI `` `${join}\n` `` vs `applyPinDevImageTags`); EOF CLI/lib
+repair landed on `main`; the successful second run is the accepted historical
+foundation outcome. Post-rollout public
 `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, PersAI MCP chat smoke exact
-`ADR146_POST_ROLLOUT_OK`. **S1 committed locally at `775e5781`**. **S2 committed
-locally at `5a2fd3bd`**. **S3 is committed locally at `8d0520f4`**. **S4 is
-committed locally at `3f498ef9`**. **S5 is committed locally at `d23936d1` on
-baseline `3f498ef9`**. **Slice 6 parent-only final gate in progress**
-(2026-07-13): local final gates PASS; predeploy default structural `verify`
-**RESULT PASS** at `40d7a927`/inventory
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7` after
-`chat_smoke` shell `pwd` exact `ADR146_S6_PREDEPLOY_EXEC_OK`. Earlier live
-evidence already proved **shell/full_public/metadata smokes PASS** (preserved).
-**S6 restricted live `probe-restricted` PASS** at release/main SHA **`7e385bbe`**:
-authenticated Luma already `restricted` (no setting change); concurrent normal
-web-shell path held real restricted pod
-`ses-25b6b44b4e1a873f23fe145aca7fc952` with `timeoutMs=360000` + `sleep 300`
-(prior `sleep 120` hit default 90s shell timeout →
-`exec-ksa-live-wiring: zero Running sandbox-exec pods` only; not a
-network/product failure); controlled `adr146-restricted-probe` +
-`adr146-nat-probe` Ready; `probe-restricted --execute` exit 0 `RESULT: PASS`;
-cleanup PASS (no controlled probes; no remaining restricted exec pod). **Later
-same-day full-public contour evidence (docs checkpoint on local `a759b70b`;
-D4 `/32` dual-layer deny repair later committed locally at `2f73d58c` on
-baseline `bd1c3e0c` — unpushed/undeployed; live re-proof still pending):**
-inbound from sandbox control-plane to full-public
-pod `ses-97982c194f5602591e016a81c3352e53` (`10.109.0.58` /
-`6f1881a4-bc6e-439f-b21b-7c9c0d4a122e`) timed out — inbound residual
-**live-proven PASS** (`INBOUND_TIMEOUT`); local listener positive control PASS.
-Cluster public endpoint enabled at `34.38.46.10` (private `10.132.0.2`; DNS
-external traffic false; no master authorized network CIDRs). Direct TCP from
-that full-public pod to `34.38.46.10:443` succeeded — `PUBLIC_MASTER_REACHABLE`
-is a **real S6 security blocker**. Chat-smoke hard 90s process timeout despite
-`timeoutMs=300000` is **not** an ADR-146 network failure. Exact pod retired; no
-controlled probes remained. **D4 gap-close addendum (both independent audits
-agree; no new product ADR):** commit reviewed public control-plane IPv4
-`34.38.46.10/32` into shared public-deny inventory; feed Calico NP except **and**
-sandbox-tagged VPC firewall deny; verifier fail-closed if live endpoint differs
-or is missing; firewall apply must update drifted rules. Keep public endpoint
-enabled for operator/GitHub WIF kubectl; disabling endpoint or master authorized
-networks are optional future founder hardening only. No Dataplane V2 / transition
-mode. **Repair status (committed locally at `2f73d58c` on baseline `bd1c3e0c`;
-unpushed/undeployed):** exact dual-layer `/32` inventory
-`publicControlPlaneEndpoints`, dual CIDR builders, values-dev deny inventory,
-fail-closed live endpoint equality, reachable destination-only firewall
-updater, and historical release fixture freeze all landed in commit;
-independent security re-audit clean after High preflight blocker repair; gates
-95/95 focused foundation/S6/Helm, release 42/42, detect-affected 30/30,
-slice5 20/20, Helm lint/template PASS, full AGENTS lint/format/api+web
-typecheck PASS; future evidence inventory SHA-256
-`589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d` (do not
-retcon historical proof SHA
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). Live
-firewall/Calico are **not** repaired until push/gate/apply/sync. Do **not**
-claim live repair, full S6, or ADR closure until post-deploy live re-proof.
-HTTP redirect / DNS-rebind and operator-owned SSH/TCP/UDP/redirect/DNS
-fixtures remain unclaimed; public-master denial remains FAIL until repair is
-deployed and re-proven. Continuity-doc
-recording of the blocker evidence is local documentation on top of release pin
-`7e385bbe`, not a new deploy pin.
+`ADR146_POST_ROLLOUT_OK`. **S1–S5 SHAs recorded** (`775e5781` …
+`d23936d1`). **Slice 6 closed 2026-07-13** on deployed release baseline
+`origin/main` **`35024b39`** (local UI repair `cb0c9adb` not pushed).
+
+**Supersedes earlier same-day “S6 in progress / PUBLIC_MASTER_REACHABLE
+blocker / fixtures unclaimed” Status claims.** Historical partial evidence in
+Baseline SHA / Slice 6 remains for audit trail; current truth is S6 complete
+and this ADR **closed**.
+
+### Final S6 live acceptance (2026-07-13; release `35024b39`)
+
+Parent-equivalent evidence (not one helper `--execute`):
+
+- `verify --require-s2-policy`: initial fail only for zero Running exec pods;
+  rerun while real full-public exec pod `ses-97982c194f5602591e016a81c3352e53`
+  UID `08e2f049-dcfd-48a5-8082-fab8370b1e1e` was Running →
+  `exec-ksa-live-wiring` **PASS**, overall `RESULT: PASS`; inventory SHA
+  `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`.
+- Same pod UID `08e2f049-dcfd-48a5-8082-fab8370b1e1e`: direct TCP to public GKE
+  endpoint `34.38.46.10:443` exact `PUBLIC_MASTER_BLOCKED`; pod retired.
+  **Supersedes** earlier `PUBLIC_MASTER_REACHABLE` FAIL/blocker.
+- Normal built-in `web_search` exact `ADR146_WEB_SEARCH_UNCHANGED_OK` after
+  successful iana.org result; normal browser opened example.com exact
+  `ADR146_BROWSER_UNCHANGED_OK`.
+- First in-cluster public LB fixture honestly rejected after repeated hairpin
+  timeouts; namespace/LBs/firewalls/target pools removed completely — **not**
+  acceptance.
+- Replacement operator-owned no-SA Debian e2-micro
+  `adr146-s6-public-fixture-20260713`, ephemeral public IP `104.199.5.79`,
+  firewall only NAT IPs, custom Python services (later deleted with firewall).
+  From full-public pod `ses-97982c194f5602591e016a81c3352e53` UID
+  `b6f0e4ad-f294-44c6-98c6-4bc68c3c5e20`: exact `ADR146_PUBLIC_SSH_OK`,
+  `ADR146_PUBLIC_TCP_OK`, `ADR146_PUBLIC_UDP_OK`,
+  `ADR146_REDIRECT_LOCATION_OK` (`Location http://10.0.0.1:19003/`),
+  `ADR146_REDIRECT_PRIVATE_FOLLOW_BLOCKED`.
+- Controlled restricted pod (production image/runtime/KSA, canonical restricted
+  label, gVisor, token automount false): exact
+  `ADR146_RESTRICTED_CUSTOM_TCP_BLOCKED`,
+  `ADR146_RESTRICTED_CUSTOM_UDP_BLOCKED`; deleted.
+- Private-answer DNS fixture
+  `private-answer.adr146-s6-dns-fixture.svc.cluster.local` → only `10.0.0.1`;
+  full-public pod UID `5313bc91-0e86-45db-b0d3-36f7c61b39fa`:
+  `ADR146_PRIVATE_DNS_ANSWER_OK`, `ADR146_PRIVATE_DNS_CONNECT_BLOCKED`;
+  namespace deleted. Satisfies **private-answer phase**, not timed public→private
+  rebinding.
+- Live UI on Luma: start restricted → enable confirmation accepted → canonical
+  pod `ses-25b6b44b4e1a873f23fe145aca7fc952` UID
+  `c8e73060-d9b4-4f4c-b47c-bf00100a7314`, assistant
+  `7fd2c02c-6663-4691-977d-feb3f706836d`, mode full-public, proxy env absent;
+  during turn switch disabled/busy with honest unavailable copy; UID later
+  deleted with `exec_pod_deleted` / `exec_job_pod_retired` /
+  `sandbox_job_pod_retirement_complete retired=true`; UI restore to restricted
+  (`checked=false`); no exec pods remained.
+- DB audit: two succeeded rows for Luma —
+  restricted→full_public at `19:24:04Z` and full_public→restricted at
+  `19:31:12Z`, code `assistant.sandbox_egress_mode_updated`.
+- Both sandbox replicas expose valid egress metrics (restricted/full_public
+  counters + duration histograms); mismatch counter `0`.
+- Final cleanup: no sandbox-exec pods, controlled probes, fixture namespaces,
+  VM, firewall, forwarding rule, or target pool remain.
+- Preserved earlier evidence: restricted `probe-restricted` PASS; inbound
+  denial PASS; private/VPC/metadata/Kubernetes/node controls PASS; full-public
+  ordinary HTTPS/NAT PASS; two-assistant mixed-mode proof already recorded.
+- Product residual only: hard shell process timeout ~90s — **not** an
+  egress/security failure.
+
+**Historical S6 partial evidence (superseded for closure status):** earlier
+shell/full_public/metadata smokes PASS; restricted `probe-restricted` PASS at
+`7e385bbe`; inbound `INBOUND_TIMEOUT` PASS; then temporary
+`PUBLIC_MASTER_REACHABLE` FAIL with D4 `/32` repair `2f73d58c` (future evidence
+inventory `589c1c0e…`) — all retained as trail; live public-master denial and
+operator-owned fixture matrix are now proven above.
 
 ## Date
 
@@ -142,22 +178,16 @@ foundation gate **PASS** at that proof pin; evidence inventory SHA-256
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. Current
 remote/deployed bot pin **`64be77d6`**: deferred services exact `3cd2ea4f`;
 sandbox remains `8a0043dd`. Environment `persai-dev-adr146-foundation`
-**approved**; resume run `29237479924` success; S0.1/0.1b live-accepted; ADR
-open; **S1 committed locally at `775e5781`**; **S2 committed locally at
-`5a2fd3bd`**; **S3 committed locally at `8d0520f4`**; **S4 committed locally at
-`3f498ef9`**; **S5 committed locally at `d23936d1` on baseline `3f498ef9`**;
-**S6 in progress** (local gates PASS; predeploy default structural verify PASS
-at `40d7a927`; earlier **shell/full_public/metadata smokes PASS** preserved;
-**S6 restricted live `probe-restricted` PASS** at release/main **`7e385bbe`**;
-**inbound live-proven PASS** on full-public contour; **public-master
-`PUBLIC_MASTER_REACHABLE` FAIL/blocker** with D4 `/32` dual-layer repair
-**committed locally at `2f73d58c` on baseline `bd1c3e0c`** (unpushed/
-undeployed; live firewall/Calico unrepaired until push/gate/apply/sync; live
-re-proof pending; future evidence inventory SHA-256
+**approved**; resume run `29237479924` success; S0.1/0.1b live-accepted;
+**S1–S5** recorded (`775e5781` … `d23936d1`). **Historical mid-S6 note
+(superseded):** at release `7e385bbe` public-master was temporarily
+`PUBLIC_MASTER_REACHABLE` until D4 `/32` repair `2f73d58c` and live re-proof;
+HTTP redirect / DNS private-answer / operator fixtures were then unclaimed.
+**Current:** S6 complete on release `35024b39`; inventory evidence SHA-256
 `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`; do not
 retcon historical proof SHA
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`); HTTP redirect / DNS-rebind and operator-owned
-S6 fixtures remain unclaimed; ADR open; full S6 / closure unclaimed).
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`; this ADR
+is **closed**.
 
 ## Slice 3 local land (2026-07-13)
 
@@ -1173,8 +1203,8 @@ Synced; post-rollout `https://persai.dev/api/health` 200 `{status:ok}` and
 `https://persai.dev/api/ready` 200 `{status:ready}`; MCP smoke
 `ADR146_POST_ROLLOUT_OK`.
 
-Historical next step at this checkpoint was **Slice 1**. S1 was later committed
-locally at `775e5781`; do **not** close this ADR.
+Historical next step at this checkpoint was **Slice 1**. S1–S5 later landed and
+S6 closed this ADR on 2026-07-13; see Status.
 
 This is the first implementation slice on the founder-selected current-cluster
 Calico contour. Its acceptance is fixed:
@@ -1209,20 +1239,18 @@ Calico contour. Its acceptance is fixed:
 - restricted direct bypass, Squid non-allowlisted HTTPS CONNECT denial via curl
   `%{http_connect}` exact `403` (`%{http_code}`/`000` must not pass), Pod/Service/
   node/control-plane/metadata access all fail in a founder-approved test pod;
-- inbound denial, HTTP redirect, and DNS-rebind remain **explicitly unclaimed**
-  by automated `probe-restricted` and stay RUNBOOK-only (S6 later live-proved
-  inbound empty-ingress **PASS** on a full-public contour; public-master denial
-  remains a separate S6 **FAIL/blocker** pending the D4 `/32` dual-layer
-  repair — see Status / Slice 6);
+- inbound denial, HTTP redirect, and DNS private-answer were **explicitly
+  unclaimed** by automated `probe-restricted` at foundation time and stayed
+  RUNBOOK/S6 items; **S6 later live-proved** inbound empty-ingress PASS,
+  public-master `PUBLIC_MASTER_BLOCKED`, redirect private-follow denial, and
+  private-answer DNS connect denial (see Status);
 - the ordinary restricted Squid allowlist path still works.
 
 S0.1 restricted live foundation gate is recorded PASS at `e5c249c3` (evidence
 inventory SHA-256
 `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). S0.1b
 Environment approval + deferred pins are live-accepted at bot pin `64be77d6`.
-**S1 is committed locally at `775e5781`** (implemented from baseline
-`6fe4356a`; not pushed/deployed). **S2 is committed locally at `5a2fd3bd`.**
-**S3 is landed locally (uncommitted) on `5a2fd3bd`.**
+**S1–S5 recorded; S6 complete; this ADR closed 2026-07-13** (see Status).
 A locally rendered policy alone is not live acceptance.
 
 ### Slice 1 — Canonical data/API contract and legacy-field deletion
@@ -1349,37 +1377,32 @@ The parent agent:
 4. proves zero active old-field references;
 5. verifies the migration approval path;
 6. deploys only on explicit founder instruction;
-7. provisions approved operator-owned fixtures, runs the bounded S6 helper plus
-   manual inbound/public-master and mode-toggle checks, and records cleanup;
+7. provisions approved operator-owned fixtures and either runs the bounded S6
+   helper or records equivalent parent-run direct probes covering the same
+   outcomes; manual inbound/public-master and mode-toggle checks plus cleanup
+   remain mandatory. Final S6 used equivalent direct probes individually, not
+   one exact helper `--execute` invocation;
 8. performs live restricted/full/private-negative/browser/web-search acceptance;
 9. closes the ADR only after evidence is recorded.
 
-**Partial live evidence recorded 2026-07-13 at release/main `7e385bbe`:**
-earlier **shell/full_public/metadata smokes PASS** (preserved); restricted
-`probe-restricted --execute` exit 0 `RESULT: PASS` with concurrent real
-restricted pod `ses-25b6b44b4e1a873f23fe145aca7fc952`, controlled probes Ready,
-and cleanup PASS. **Inbound live-proven PASS** on full-public pod
-`ses-97982c194f5602591e016a81c3352e53` (`INBOUND_TIMEOUT` from sandbox
-control-plane; local listener positive control PASS). **Public master FAIL /
-blocker:** direct TCP to live public endpoint `34.38.46.10:443` succeeded
-(`PUBLIC_MASTER_REACHABLE`). Chat-smoke hard 90s process timeout is not a
-network failure. **Repair decided under D4; committed locally at `2f73d58c`
-on baseline `bd1c3e0c` (unpushed/undeployed; live firewall/Calico unrepaired
-until push/gate/apply/sync; live re-proof pending):** exact dual-layer `/32`
-inventory publicControlPlaneEndpoints + shared Calico except + VPC firewall
-deny + fail-closed live endpoint equality + reachable destination-only
-firewall updater + historical release fixture freeze; keep public endpoint
-enabled; no new ADR, no Dataplane V2, no transition mode. Future evidence
-inventory SHA-256
-589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d (do not
-retcon historical proof SHA
-c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7). Do not
-claim live repair or S6 closure until post-deploy re-proof. HTTP redirect /
-DNS-rebind remain
-unclaimed; broader S6 helper still needs operator-owned SSH/TCP/UDP/redirect/
-DNS fixtures. This does **not** complete S6 or close the ADR.
+**S6 complete / ADR closed 2026-07-13** on deployed release baseline
+`origin/main` **`35024b39`** (local UI repair `cb0c9adb` not pushed). See
+Status → Final S6 live acceptance for exact pod UIDs, fixture hosts, sentinels,
+audit timestamps, metrics, and cleanup. Parent used equivalent direct probes +
+separate browser/web-search smokes (not one `adr146-s6-live-acceptance.mjs
+--execute`). Private-answer DNS phase satisfied; timed public→private rebinding
+not required by the written contract. Hairpin in-cluster LB attempt rejected
+and not counted. Product residual: ~90s hard shell process timeout (not
+egress/security).
 
-No subagent may close S6.
+**Historical partial evidence at `7e385bbe` (superseded for closure):**
+shell/full_public/metadata smokes PASS; restricted `probe-restricted` PASS;
+inbound `INBOUND_TIMEOUT` PASS; temporary `PUBLIC_MASTER_REACHABLE` then D4
+`/32` repair `2f73d58c` with evidence inventory
+`589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`. Live
+`PUBLIC_MASTER_BLOCKED` and operator-owned fixture matrix are now proven.
+
+No subagent may reopen S6 for new scope.
 
 ## Automated acceptance
 
@@ -1430,11 +1453,16 @@ After approved migration/deploy:
 4. Probe every private/internal/metadata target from the negative matrix. Every
    probe must fail while ordinary public destinations succeed.
 5. Create a redirect and DNS-rebinding test whose final IP is denied; verify no
-   connection reaches the target. Use the bounded
+   connection reaches the target. Prefer the bounded
    `infra/bootstrap/adr146-s6-live-acceptance.mjs` operator-fixture helper for
    SSH/custom TCP+UDP, redirect, private DNS answer, restricted proxy/direct
    bypass, different-assistant, browser, web-search, and mandatory cleanup
-   checks. Its local presence is preparation only, not live evidence.
+   checks. Parent-recorded equivalent direct probes covering the same matrix
+   outcomes also satisfy this item; a single helper `--execute` exit is not a
+   Closure-condition requirement. Helper presence alone is preparation, not
+   live evidence. The DNS contract is the **private-answer phase** (private /
+   special-use answers; connect denied), not a timed public→private rebinding
+   race.
 6. Disable the checkbox. Verify the full-public pod is gone before success is
    shown and the next job is proxy-only.
 7. Verify another assistant remains restricted throughout.
@@ -1451,3 +1479,12 @@ ADR-146 closes only when:
 - live acceptance proves public success plus internal/private failure;
 - no active `networkAccessEnabled` contract remains;
 - founder accepts the Assistant Settings behavior.
+
+**Met 2026-07-13.** S1–S5 SHAs recorded; parent S6 live matrix proven on release
+`35024b39` (parent-equivalent probes accepted; exact helper `--execute` not
+required by these conditions); public-master denial, redirect private-follow
+denial, private-answer DNS connect denial, SSH/TCP/UDP, restricted custom
+deny, UI toggle + audit + metrics + cleanup recorded; dead
+`networkAccessEnabled` already deleted in S1; Settings consent UX live-proven
+on Luma. This ADR is **closed**. Timed public→private DNS rebinding remains
+optional hardening outside this ADR.

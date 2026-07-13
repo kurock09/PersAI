@@ -99,8 +99,8 @@ Current active Step 20 persistence includes:
 
 `SandboxFileRef` is not active current-model truth anymore.
 
-**ADR-146 Slice 1 committed locally at `775e5781`** (implemented from baseline
-`6fe4356a`; not pushed/deployed):
+**ADR-146 closed data model (Slice 1 `775e5781`, deployed and
+live-accepted):**
 
 - required `Assistant.sandboxEgressMode` /
   `assistants.sandbox_egress_mode` with enum values `restricted | full_public`
@@ -118,18 +118,22 @@ Current active Step 20 persistence includes:
 - plans continue to own sandbox/tool availability and resource quotas, but
   ADR-146 adds no second plan-level network ceiling.
 
-ADR-146 Slice 2 committed locally at `5a2fd3bd` changes Helm policy truth only
-and does not alter this data model. Slice 3 committed locally at `8d0520f4` owns
-runtime mode authority / recycle / descendant cleanup against this Assistant
-field. Slice 4 committed locally at `3f498ef9` is UX-only. Slice 5 committed
-locally at `d23936d1` (unpushed/undeployed) documents audit/observability truth
-only:
+ADR-146 Slice 2 `5a2fd3bd` changes Helm policy truth only and does not alter
+this data model. Slice 3 `8d0520f4` owns runtime mode authority / recycle /
+descendant cleanup against this Assistant field. Slice 4 `3f498ef9` is UX-only.
+Slice 5 `d23936d1` documents audit/observability truth only:
 
 - changed-mode owner PUT inserts `assistant_audit_events` with
   `eventCode=assistant.sandbox_egress_mode_updated` and
   `details.{previousMode,selectedMode,actorUserId}`;
 - sandbox Prometheus counters/histograms identify mode and job outcomes without
   URL query, auth headers, credentials, or file contents.
+
+Final S6 acceptance on deployed release `35024b39` recorded the Luma
+`restricted → full_public → restricted` lifecycle, two succeeded
+`assistant.sandbox_egress_mode_updated` audit rows, valid mode counters and
+duration histograms, and mismatch counter `0`. ADR-146 is closed; no additional
+data-model residual remains.
 
 ADR-081 plus ADR-133 extend the target-state authority of path-based Files: every user-visible or assistant-reusable file must be represented by a canonical workspace path plus `workspace_file_metadata` immediately when persisted. The default active path shape is `/workspace/assistants/<assistantId>/sessions/<sessionId>/...`, with assistant/workspace widen facts derived from the visible path rather than a second scope vocabulary. That includes user uploads, assistant-generated artifacts, delivered assistant attachments, and sandbox-created files.
 

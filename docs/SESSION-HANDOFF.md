@@ -1,8 +1,71 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 S6 live acceptance complete; ADR closed (docs-only)
+
+Status: **Docs-only reconciliation uncommitted** on local HEAD `cb0c9adb`
+(1 ahead of `origin/main`; committed UI repair unpushed). Production S6
+evidence is against deployed release baseline **`origin/main` `35024b39`**.
+No code/infra/workflow edit, commit, or push in this slice. **ADR-146 is
+closed.**
+
+**Closure determination:** written Closure conditions require recorded live
+acceptance proving public success plus internal/private failure — **not** one
+exact `adr146-s6-live-acceptance.mjs --execute`. Parent-equivalent direct
+probes + separate browser/web-search smokes are sufficient when honestly
+recorded. Operator private-answer DNS
+(`ADR146_PRIVATE_DNS_ANSWER_OK` + `ADR146_PRIVATE_DNS_CONNECT_BLOCKED`)
+satisfies the ADR/RUNBOOK/fixture **private-answer phase**; it is **not** a
+timed public→private rebinding transition (optional hardening only; not a
+blocker). Hairpin in-cluster LB attempt was honestly rejected and **not**
+counted.
+
+**Final S6 evidence (parent; release `35024b39`):**
+
+- `verify --require-s2-policy` PASS with Running full-public pod
+  `ses-97982c194f5602591e016a81c3352e53` UID
+  `08e2f049-dcfd-48a5-8082-fab8370b1e1e`; inventory
+  `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`.
+- Same UID: TCP `34.38.46.10:443` exact `PUBLIC_MASTER_BLOCKED` (supersedes
+  earlier `PUBLIC_MASTER_REACHABLE` blocker); pod retired.
+- `ADR146_WEB_SEARCH_UNCHANGED_OK`; `ADR146_BROWSER_UNCHANGED_OK`.
+- Operator VM `adr146-s6-public-fixture-20260713` (`104.199.5.79`): from pod
+  UID `b6f0e4ad-f294-44c6-98c6-4bc68c3c5e20` exact SSH/TCP/UDP OK + redirect
+  Location `http://10.0.0.1:19003/` + private follow blocked; VM/firewall
+  deleted.
+- Controlled restricted pod: custom TCP/UDP blocked; deleted.
+- Private-answer DNS fixture → `10.0.0.1` only; pod UID
+  `5313bc91-0e86-45db-b0d3-36f7c61b39fa` answer OK + connect blocked;
+  namespace deleted.
+- Luma UI toggle: assistant `7fd2c02c-6663-4691-977d-feb3f706836d`, pod
+  `ses-25b6b44b4e1a873f23fe145aca7fc952` UID
+  `c8e73060-d9b4-4f4c-b47c-bf00100a7314` full-public then retired; restored
+  restricted; audit rows `19:24:04Z` / `19:31:12Z`
+  `assistant.sandbox_egress_mode_updated`; sandbox metrics OK, mismatch `0`;
+  cleanup empty.
+- Preserved: restricted `probe-restricted`, inbound, private/VPC/metadata/kube
+  /node, ordinary HTTPS/NAT, two-assistant mixed-mode.
+- Product residual only: ~90s hard shell process timeout (not egress/security).
+
+**Supersedes** stale open-S6 / unpushed-S1–S5 / public-master-blocker /
+unclaimed-fixture claims across architecture, API/data model, RUNBOOK,
+observability, GitOps, ADR, test plan, changelog, and historical handoff
+checkpoints. Historical entries remain historical; this top entry is current.
+
+**Final verification complete:** full lint, format, API/web typecheck, 185
+focused web tests, ADR foundation 78, release gate 42, Slice 5 20, Helm
+contracts 15, Squid parse, and Helm lint/template all **PASS**.
+
+**Next:** local history contains committed UI repair `cb0c9adb` plus this
+uncommitted closure-doc slice; nothing has been pushed. Await independent
+re-audit, create one closure-doc commit, then perform one founder-authorized
+single push/deploy. Do not reopen ADR-146 for new scope.
+
+---
+
 ## 2026-07-13 — Desktop shell geometry and opaque header-pill repair
 
-Status: **implemented locally on remote baseline `35024b39`; commit/push pending.**
+Status: **committed locally at `cb0c9adb` on remote baseline `35024b39`;
+unpushed.**
 
 Founder screenshot evidence showed regressions after the latest web UX pushes:
 
@@ -33,9 +96,10 @@ AssistantSettings isolated 83/83 PASS (an earlier combined eight-file run had
 one 5s timeout under parallel load, then passed in isolation); recursive lint
 PASS; format check PASS; API and web typecheck PASS.
 
-**Next:** commit the repair, record its SHA, push once, wait for CI + web pin,
-then visually confirm the shell and header pills on the founder's desktop
-viewport before resuming ADR-146 S6 live acceptance.
+**Next:** include committed repair `cb0c9adb` in the founder-authorized single
+push after the closure-doc commit and final verification; then visually confirm
+the shell and header pills on the founder's desktop viewport. **ADR-146 S6 is
+closed** (see entry above); do not treat this UX slice as an ADR-146 blocker.
 
 ---
 
@@ -110,13 +174,10 @@ requested.
 ## 2026-07-13 — ADR-146 S6 public-master `/32` dual-layer deny repair (committed locally at `2f73d58c`)
 
 Status: **Committed locally at `2f73d58c`** on baseline `bd1c3e0c`
-(`fix(infra): deny sandbox access to public master`); clean tree; `main`
-ahead of `origin/main` by 3. **Unpushed / undeployed.** No push, deploy, or
-cloud/Kubernetes mutation in this docs reconciliation. Independent security
-re-audit clean after High preflight blocker repair. ADR-146 stays **open**.
-Full S6 and ADR closure remain **unclaimed**. Live firewall/Calico are **not**
-repaired until final push/gate/apply/sync. `PUBLIC_MASTER_REACHABLE` remains
-the live blocker until re-proof.
+(`fix(infra): deny sandbox access to public master`). **Superseded for S6 /
+ADR closure status by the 2026-07-13 ADR-146 S6 live acceptance complete entry
+above** (release `35024b39`; `PUBLIC_MASTER_BLOCKED` live-proven; ADR closed).
+Historical repair narrative below remains valid as the landed D4 fix trail.
 
 **Landed in commit `2f73d58c`:**
 
@@ -154,14 +215,14 @@ require the existing foundation release gate + Environment approval later.
 
 Preserved earlier live evidence at release `7e385bbe`: shell/full_public/
 metadata smokes PASS; restricted `probe-restricted` PASS; inbound
-`INBOUND_TIMEOUT` PASS; public-master TCP still FAIL until post-deploy live
-re-proof. HTTP redirect / DNS-rebind and operator-owned S6 fixtures remain
-unclaimed.
+`INBOUND_TIMEOUT` PASS. **Historical at this entry:** public-master TCP still
+FAIL pending re-proof; HTTP redirect / DNS-rebind and operator-owned fixtures
+unclaimed. **Superseded:** live `PUBLIC_MASTER_BLOCKED` + full fixture matrix
+proven; ADR-146 closed (see top entry).
 
-**Next:** push/deploy through foundation gate; `apply-firewall` update for
-drifted destinations; post-sync verify; live re-proof that full-public TCP to
-`34.38.46.10:443` fails; continue remaining operator-owned S6 fixtures. Do not
-claim S6 complete.
+**Next (historical; superseded):** push/deploy through foundation gate;
+`apply-firewall` update; live re-proof; remaining S6 fixtures. Current next is
+the top closure entry; RUNBOOK current-state wording is reconciled.
 
 ---
 

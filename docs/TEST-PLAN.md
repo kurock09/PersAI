@@ -4,72 +4,39 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
-## ADR-146 assistant-owned full-public sandbox egress (accepted target)
+## ADR-146 assistant-owned full-public sandbox egress (closed 2026-07-13)
 
-Slice 0 read-only audit is complete and implementation was NO-GO until the live
-foundation passed: live `personal-ai-gke` had no enforcing NetworkPolicy engine
-until Slice 0.1 was applied. **Slices 0.1 + 0.1b are live-accepted**
-(2026-07-13). Slice 0.1 is the founder-selected current-cluster Calico plus
-private/dedicated sandbox egress, Cloud NAT/flow-log, and L3 firewall
-foundation under `infra/bootstrap/adr146-sandbox-egress-foundation.*`. **Final
-live restricted foundation gate PASS** at proof pin `e5c249c3` (sandbox image
-`8a0043dd`) with evidence inventory SHA-256
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7` (structural
-RESULT; trusted controls; NAT `34.76.34.111`; DNS; allowlisted HTTPS; Squid
-CONNECT denial for `example.com`; direct-public bypass denial; Kubernetes API;
-metrics-server; Redis; Filestore; Cloud SQL; kube-dns Pod UDP/TCP;
-same-namespace sandbox control-plane Pod; every node kubelet; metadata
-`169.254.169.254` denial; controlled-probe cleanup with no pods remaining).
-Inbound denial, HTTP redirect, and DNS-rebind remain explicitly unclaimed
-RUNBOOK checks. GitHub Environment `persai-dev-adr146-foundation` is
-**approved**; deferred-pin resume run `29237479924` succeeded; current bot pin
-`64be77d6` has `api`/`web`/`runtime`/`provider-gateway` exact `3cd2ea4f` and
-sandbox remaining `8a0043dd` (Argo Synced; post-rollout
-`https://persai.dev/api/health` 200 `{status:ok}`,
-`https://persai.dev/api/ready` 200 `{status:ready}`, MCP smoke
-`ADR146_POST_ROLLOUT_OK`). ADR-146 stays open; **S1 is committed locally at
-`775e5781`**; **S2 is committed locally at `5a2fd3bd`**; **S3 is committed locally at
-`8d0520f4`**; **S4 Settings UX is committed locally at `3f498ef9`**; **S5 is
-committed locally at `d23936d1` on that baseline**. **S6 parent-only final gate
-in progress** (2026-07-13): local final gates PASS; predeploy default structural
-`verify` **RESULT PASS** at `40d7a927`/inventory
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. Earlier live
-evidence already proved **shell/full_public/metadata smokes PASS** (preserved).
-**S6 restricted live `probe-restricted` PASS** at release/main SHA **`7e385bbe`**:
-authenticated Luma already `restricted` (no setting change); concurrent normal
-web-shell path held real restricted pod
-`ses-25b6b44b4e1a873f23fe145aca7fc952` with `timeoutMs=360000` + `sleep 300`
-(prior `sleep 120` → default 90s shell timeout →
-`exec-ksa-live-wiring: zero Running sandbox-exec pods` only; not a
-network/product failure); controlled probes Ready; `probe-restricted --execute`
-exit 0 `RESULT: PASS`; cleanup PASS. **Later same-day full-public contour (docs checkpoint on local
-`a759b70b`; D4 `/32` repair later committed locally at `2f73d58c` on baseline
-`bd1c3e0c` — unpushed/undeployed; live re-proof pending):** inbound
-`INBOUND_TIMEOUT` **PASS**
-(live-proven); public master TCP to `34.38.46.10:443` **FAIL/blocker**
-(`PUBLIC_MASTER_REACHABLE`). Chat-smoke hard 90s process timeout is not an
-ADR-146 network failure. D4 gap-close **committed locally at `2f73d58c`**
-(unpushed/undeployed): exact dual-layer `/32` inventory
-`publicControlPlaneEndpoints` `34.38.46.10/32` in shared public-deny + VPC
-firewall destinations; fail-closed live endpoint equality; reachable
-destination-only firewall updater; historical release fixture freeze; keep
-public endpoint enabled; no new ADR / no Dataplane V2 / no transition mode.
-Independent security re-audit clean after High preflight blocker repair. Gates:
-95/95 focused foundation/S6/Helm; release 42/42; detect-affected 30/30;
-slice5 20/20; Helm lint/template PASS; full AGENTS lint/format/api+web
-typecheck PASS. Future evidence inventory SHA-256
-`589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d` (do not
-retcon historical proof SHA
-`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`). Live
-firewall/Calico unrepaired until push/gate/apply/sync. HTTP redirect /
-DNS-rebind remain unclaimed; broader S6 helper still needs operator-owned
-SSH/TCP/UDP/redirect/DNS fixtures; public-master denial remains FAIL until
-deploy + re-proof. Do **not** claim full S6 or ADR closure.
-Continuity-doc recording of the blocker is local documentation on top of
-release pin `7e385bbe`, not a new deploy pin.
-Each later slice runs the full AGENTS gate plus affected
-API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
-and live negative acceptance.
+**Closed.** Slices 0–5 landed; **S6 parent live acceptance complete** against
+deployed release baseline `origin/main` **`35024b39`** (local UI repair
+`cb0c9adb` not pushed). Do **not** reopen for new scope.
+
+**Evidence method:** parent individual direct probes + separate
+browser/web-search smokes; **not** one exact
+`adr146-s6-live-acceptance.mjs --execute`. Written Closure conditions accept
+equivalent recorded matrix proof. Private-answer DNS phase satisfied
+(`ADR146_PRIVATE_DNS_ANSWER_OK` + `ADR146_PRIVATE_DNS_CONNECT_BLOCKED`); timed
+public→private rebinding is optional hardening only.
+
+**Final matrix highlights:** `verify --require-s2-policy` PASS (inventory
+`589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`);
+`PUBLIC_MASTER_BLOCKED`; SSH/TCP/UDP + redirect private-follow denial;
+restricted custom TCP/UDP blocked; Luma UI toggle + audit + metrics + cleanup;
+preserved restricted `probe-restricted`, inbound, private/VPC/metadata, ordinary
+HTTPS/NAT, mixed-mode. Hairpin LB not counted. Product residual: ~90s shell
+process timeout (not egress/security).
+
+Slice 0 read-only audit completed with implementation NO-GO until live
+foundation passed. **Slices 0.1 + 0.1b live-accepted.** Final restricted
+foundation gate PASS at proof pin `e5c249c3` / historical inventory
+`c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`. S1–S5 SHAs
+`775e5781` … `d23936d1`. **Supersedes** earlier TEST-PLAN claims that S6 was
+in progress, public-master was FAIL, or redirect/DNS/operator fixtures remained
+unclaimed.
+
+Each later slice historically ran the full AGENTS gate plus affected
+API/runtime/sandbox/web tests; infra slices additionally ran Helm lint/template
+and live negative acceptance. Regression continues to use the focused ADR-146
+foundation / S5 / network-policy suites below.
 
 ### ADR-146 Slice 0.1 local foundation checks
 

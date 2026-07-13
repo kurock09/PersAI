@@ -95,10 +95,8 @@ ADR-140 closes the persistent Browserless session era. The active browser archit
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 
-**ADR-146 accepted target (implementation in progress; S1 committed locally at
-`775e5781`; S2 committed locally at `5a2fd3bd`; S3 committed locally at
-`8d0520f4`; S4 Settings UX committed locally at `3f498ef9`; S5 committed locally
-at `d23936d1` on that baseline, unpushed/undeployed):** sandbox egress is
+**ADR-146 closed target (Slices 0–6 landed, deployed, and live-accepted
+2026-07-13 on release `35024b39`):** sandbox egress is
 an immediate assistant-owned operational choice stored on
 `Assistant.sandboxEgressMode`. `restricted` remains the default
 proxy/domain-allowlist contour. Explicit `full_public` consent gives the
@@ -109,12 +107,12 @@ while NetworkPolicy, explicit non-global/internal CIDR exclusions, an
 empty-ingress policy, and a dedicated no-IAM execution ServiceAccount continue
 to block Kubernetes, node, VPC, private, link-local, and metadata destinations.
 The setting does not affect storage-plane tools, browser, web tools, or provider
-workers. **Slice 4 (committed locally at `3f498ef9`)** surfaces owner consent in Assistant
+workers. **Slice 4 (`3f498ef9`)** surfaces owner consent in Assistant
 Settings → Assistant block (`Sandbox network` row): unchecked `restricted`,
 checked `full_public`, enable confirmation modal, canonical GET/PUT refetch, no
 optimistic UI.
 
-**ADR-146 Slice 5 (committed locally at `d23936d1` on `3f498ef9`; unpushed/undeployed):** D9 observability exports
+**ADR-146 Slice 5 (`d23936d1` on `3f498ef9`):** D9 observability exports
 egress counters/histograms from sandbox `/metrics`; audit/log fields documented
 in `infra/dev/gke/ADR146-OBSERVABILITY.md`; fail-closed active-code and
 cross-layer contract scripts gate legacy-field absence and S1–S5 alignment. The old plan `networkAccessEnabled` boolean is removed by Slice 1
@@ -131,7 +129,7 @@ so a same-name or newly patched replacement is never deleted. Failed
 retirement withholds lease release; durable annotations, not a DB name
 quarantine or process marker, carry crash contamination.
 
-**ADR-146 Slice 2 Helm policy (committed locally at `5a2fd3bd`):** additive
+**ADR-146 Slice 2 Helm policy (`5a2fd3bd`):** additive
 `sandbox-exec-full-public-egress` selects only
 `app.kubernetes.io/component=sandbox-exec` +
 `persai.io/sandbox-egress=full-public`. Restricted isolation keeps selecting
@@ -178,20 +176,15 @@ proof/deploy pins recorded in ADR-146 and SESSION-HANDOFF:
   `34.118.224.0/20`, and metadata are deliberately excluded so whole-node
   kubelet/control-plane/Calico and node-local/post-DNAT paths are not broken;
   conflicting higher-priority EGRESS ALLOW rules targeting the sandbox tag are
-  inventoried and rejected; **S6 live evidence (2026-07-13) proved the public
-  GKE master endpoint `34.38.46.10` is reachable from a full-public exec pod
-  (`PUBLIC_MASTER_REACHABLE`)** — D4 gap-close **committed locally at
-  `2f73d58c` on baseline `bd1c3e0c`** (unpushed/undeployed; exact dual-layer
-  `/32` inventory `publicControlPlaneEndpoints` `34.38.46.10/32` in shared
-  Calico except **and** sandbox-tagged VPC firewall destinations; fail-closed
-  live endpoint equality; reachable destination-only firewall updater;
-  historical release fixture freeze; public endpoint stays enabled for
-  operator/GitHub WIF kubectl). Live firewall/Calico unrepaired until
-  push/gate/apply/sync; live denial re-proof and full S6 remain unclaimed;
-  future evidence inventory SHA-256
+  inventoried and rejected; historical S6 evidence first found the public GKE
+  master endpoint reachable (`PUBLIC_MASTER_REACHABLE`), then D4 repair
+  `2f73d58c` added the exact dual-layer `34.38.46.10/32` deny. Final S6 evidence
+  on release `35024b39` proved `PUBLIC_MASTER_BLOCKED`; current evidence
+  inventory SHA-256 is
   `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`
-  (do not retcon historical proof SHA
-  `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`);
+  (historical foundation proof SHA
+  `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`
+  remains historical);
 - mandatory Calico ownership of node-primary, Pod, Service, metadata, and
   same-node denies (active probes include live kube-dns Pod IP UDP/TCP 53 and
   same-namespace sandbox control-plane Pod IP); exact NodeLocal
@@ -202,11 +195,12 @@ proof/deploy pins recorded in ADR-146 and SESSION-HANDOFF:
   verification requires ≥1 Running exec pod — zero pods cannot claim wiring);
 - fresh fail-closed live preflight before every mutating phase, exact-match-only
   idempotency, explicit maintenance-confirmed old-pool retirement, structural
-  `verify`, and separate founder-approved `probe-restricted` (HTTP redirect and
-  DNS-rebind remain unclaimed by automation; inbound empty-ingress is now
-  live-proven PASS on the full-public contour; public-master denial remains
-  FAIL until the committed `/32` repair (`2f73d58c`) is pushed/deployed and
-  live-reproven);
+  `verify`, and separate founder-approved `probe-restricted`; final S6 parent
+  evidence proved inbound empty-ingress, redirect private-follow denial,
+  private-answer DNS connect denial, and public-master denial. The parent ran
+  equivalent direct probes individually rather than one exact helper
+  `--execute`; the private-answer phase passed, while a timed public-to-private
+  rebinding race remains optional hardening;
 - S0.1b production rollout used the repository release gate: the coordinated
   founder push synced Helm
   KSA/NetworkPolicy while non-sandbox tags stay last-good; Dev Image Publish
@@ -221,6 +215,12 @@ proof/deploy pins recorded in ADR-146 and SESSION-HANDOFF:
   mutations or fabricate GKE attestation. Required Environment approval and live
   parent evidence were recorded for S0.1/0.1b. No feature flag. Dataplane V2
   migration remains outside ADR-146.
+
+Final S6 acceptance also proved operator-owned public SSH/custom TCP+UDP,
+restricted custom-port denial, unchanged browser/web-search behavior, Luma mode
+toggle/retirement, audit rows, mode metrics, and complete fixture/pod cleanup.
+The approximately 90-second hard shell process timeout is a non-egress product
+residual. ADR-146 is closed; new scope requires a new ADR.
 
 ### Native Tool Runtime instruction model
 

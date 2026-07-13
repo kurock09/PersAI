@@ -148,27 +148,29 @@ Threshold guidance:
   1 hour → investigate abuse; correlate with
   `sandbox_exec_egress_job_duration_ms_max{mode="full_public"}`.
 
-## IPv4-only and foundation residuals
+## Closed acceptance and residuals
 
 - Chart contract is **IPv4-only** (`networkPolicy.sandboxEgress.ipFamily: IPv4`).
   IPv6/dual-stack fails Helm validation until a future audited inventory lands.
 - Squid remains reachable for **restricted** pods via additive NetworkPolicy
   union (not a private-bypass hole).
-- Public GKE master endpoint is a live **S6 security blocker**
-  (`PUBLIC_MASTER_REACHABLE` to `34.38.46.10:443` from full-public). D4
-  gap-close **committed locally at `2f73d58c` on baseline `bd1c3e0c`**
-  (unpushed/undeployed; live firewall/Calico unrepaired until push/gate/apply/
-  sync; live re-proof pending): exact dual-layer `/32` in shared public-deny
-  inventory (Calico except + sandbox-tagged VPC firewall), fail-closed live
-  endpoint equality, reachable destination-only firewall updater, and
-  historical release fixture freeze while keeping the public endpoint enabled.
-  Future evidence inventory SHA-256
-  `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d` (do not
-  retcon historical proof SHA
-  `c9abf3e86a55768937584ae8f105495897da79dda475a5490c927e0986a217f7`).
-- Inbound empty-ingress is live-proven **PASS** (`INBOUND_TIMEOUT`) on the
-  full-public contour; HTTP redirect and DNS-rebind remain **unclaimed** until
-  S6 parent records them (`probe-restricted` does not assert them).
+- Historical `PUBLIC_MASTER_REACHABLE` was closed by deployed D4 repair
+  `2f73d58c`; final S6 on release `35024b39` recorded
+  `PUBLIC_MASTER_BLOCKED`. Evidence inventory SHA-256:
+  `589c1c0e0561645dc08cf45a58313450f90ab5c460b939ca6d60692bd2b8126d`
+  (historical foundation proof SHA `c9abf3e8…` remains historical).
+- Final parent acceptance proved inbound empty-ingress, operator-owned
+  SSH/custom TCP+UDP, restricted custom-port denial, redirect private-follow
+  denial, private-answer DNS connect denial, unchanged browser/web-search,
+  Luma mode toggle/retirement, audit, metrics, and cleanup. The parent executed
+  equivalent direct probes individually rather than one exact helper
+  `--execute`.
+- The private-answer phase passed; a timed public-to-private rebinding race is
+  optional hardening. The approximately 90-second hard shell timeout is a
+  non-egress product residual.
+
+ADR-146 is closed. Continue to alert on the metrics above; new product scope
+requires a new ADR.
 
 ## Related gates
 

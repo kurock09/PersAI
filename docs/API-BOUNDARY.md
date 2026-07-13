@@ -336,7 +336,7 @@ Current active internal sandbox endpoints are served by `apps/sandbox`:
 
 These are internal runtime-to-sandbox boundaries for isolated exec/document work, not public product APIs.
 
-**ADR-146 Slice 1 committed locally at `775e5781`** (not pushed/deployed):
+**ADR-146 closed boundary (Slice 1 `775e5781`, deployed and live-accepted):**
 owner-authenticated
 `GET/PUT /api/v1/assistant/{assistantId}/sandbox-egress` with the exact mode
 enum `restricted | full_public`. The value is immediate Assistant operational
@@ -345,10 +345,10 @@ an assistant audit event. Queued/running sandbox work returns stable
 `409 sandbox_egress_change_busy` rather than being killed. The old Admin
 Plan/runtime `networkAccessEnabled` field is removed without an alias.
 
-**ADR-146 Slice 2 committed locally at `5a2fd3bd`:** Helm policy contracts only;
+**ADR-146 Slice 2 `5a2fd3bd`:** Helm policy contracts only;
 no API boundary change.
 
-**ADR-146 Slice 3 committed locally at `8d0520f4`:** owner PUT now
+**ADR-146 Slice 3 `8d0520f4`:** owner PUT
 requests synchronous warm-pod reconcile after DB/audit commit. Response
 `recycled` is honest (`true` only when an idle stale-mode pod snapshot was
 UID+resourceVersion delete-requested and its old UID was confirmed gone; a
@@ -370,15 +370,20 @@ the exact active DB token/holder/job/expiry, and no public request can supply
 it. No route in this boundary changes browser, web tools, storage plane,
 or provider-worker networking.
 
-**ADR-146 Slice 4 committed locally at `3f498ef9`:** web Assistant
+**ADR-146 Slice 4 `3f498ef9`:** web Assistant
 Settings consumes the existing owner `GET/PUT /api/v1/assistant/{assistantId}/sandbox-egress`
 contract via generated client wrappers only; no API shape change.
 
-**ADR-146 Slice 5 (committed locally at `d23936d1` on `3f498ef9`; unpushed/undeployed):** observability contract only.
+**ADR-146 Slice 5 (`d23936d1` on `3f498ef9`):** observability contract only.
 Owner mode-change audit fields: `eventCode=assistant.sandbox_egress_mode_updated`,
 `details.previousMode`, `details.selectedMode`, `details.actorUserId`. Sandbox
 `/metrics` exports egress counters documented in
 `infra/dev/gke/ADR146-OBSERVABILITY.md`. No new public API routes.
+
+Final S6 acceptance on deployed release `35024b39` proved this boundary through
+the Luma owner toggle, exact pod retirement, two succeeded audit rows, mode
+metrics, and restore to `restricted`; browser/search and storage-plane
+boundaries remained unchanged. ADR-146 is closed.
 
 ### Files
 
