@@ -73,7 +73,7 @@ import {
   selectApplySandboxPoolCommandIds,
   selectPrepareCommandIds,
   selectRealExecPodsForKsaWiring,
-  squidDenialHttpStatusIndicatesProxyDeny,
+  squidDenialHttpConnectStatusIndicatesProxyDeny,
   validateControlledProbeGvisorToleration,
   validateControlledProbeHardening,
   validateInventory,
@@ -1390,19 +1390,19 @@ test("Helm fails closed when required proxy deny or DNS inventories are absent",
   }
 });
 
-test("Squid denial status validator accepts only exact HTTP 403", () => {
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny("403"), true);
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny("403\n"), true);
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny(" 403 "), true);
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny("000"), false);
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny(""), false);
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny(undefined), false);
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny("200"), false);
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny("404"), false);
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny("502"), false);
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny("403 Forbidden"), false);
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny("40"), false);
-  assert.equal(squidDenialHttpStatusIndicatesProxyDeny("4030"), false);
+test("Squid CONNECT denial status validator accepts only exact CONNECT 403", () => {
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny("403"), true);
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny("403\n"), true);
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny(" 403 "), true);
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny("000"), false);
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny(""), false);
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny(undefined), false);
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny("200"), false);
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny("404"), false);
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny("502"), false);
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny("403 Forbidden"), false);
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny("40"), false);
+  assert.equal(squidDenialHttpConnectStatusIndicatesProxyDeny("4030"), false);
 });
 
 test("restricted probes use audited listeners and treat refusal as reachable", () => {
@@ -1417,8 +1417,10 @@ test("restricted probes use audited listeners and treat refusal as reachable", (
   assert.match(source, /validateRestrictedProbePod/);
   assert.match(source, /validateNatProbePod/);
   assert.match(source, /squidDeniedPublicHttpsHostname/);
-  assert.match(source, /squidDenialHttpStatusIndicatesProxyDeny/);
-  assert.match(source, /-w[\s\S]*%\{http_code\}/);
+  assert.match(source, /squidDenialHttpConnectStatusIndicatesProxyDeny/);
+  assert.match(source, /-w[\s\S]*%\{http_connect\}/);
+  assert.doesNotMatch(source, /%\{http_code\}/);
+  assert.match(source, /Squid CONNECT denial for non-allowlisted/);
   assert.match(source, /-o[\s\S]*\/dev\/null/);
   assert.match(source, /errno\.ENETUNREACH,errno\.EHOSTUNREACH,errno\.ETIMEDOUT/);
   assert.match(source, /ECONNREFUSED is not denial/);

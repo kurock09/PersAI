@@ -34,11 +34,14 @@ exact ordered six-entry real-exec proxy env set
 (`HTTP_PROXY`/`HTTPS_PROXY`/`http_proxy`/`https_proxy` = proxy URL;
 `NO_PROXY`/`no_proxy` = no-proxy value); live validation requires exact
 controlled-pod equality with one consistent production `{image, env}` contour;
-NAT remains zero proxy env. Network/enforcement proof remains **incomplete**. Environment
+NAT remains zero proxy env. Local uncommitted follow-on on baseline
+`188722f9`: restricted HTTPS Squid denial probe now asserts curl
+`%{http_connect}` exact `403` (not `%{http_code}`/`000`, which false-failed
+CONNECT ACL denial). Network/enforcement proof remains **incomplete**. Environment
 still unapproved; S0.1 is **not** live-complete, and this ADR is **not**
 closed. S1 app/API/UI work stays blocked until S0.1 is live-accepted.
-Next: parent push of the proxy-env repair → regenerate/apply controlled probes → active
-probes/cleanup → Environment approval(s).
+Next: parent push of the proxy-env + CONNECT denial repairs → regenerate/apply
+controlled probes → active probes/cleanup → Environment approval(s).
 
 ## Date
 
@@ -78,7 +81,8 @@ probe run: pre-structural + controls + NAT identity + DNS **PASS**; Squid
 allowlisted HTTPS **timed out** because generated restricted `env: []` went
 direct (Calico drop; no Squid access log). Cleanup **PASS**. Restricted-probe
 proxy-env repair is **committed locally in the current unpushed HEAD on baseline
-`71eb9c0c`**.
+`71eb9c0c`**. Local uncommitted CONNECT denial probe repair on baseline
+`188722f9` asserts `%{http_connect}` exact `403` (not `%{http_code}`/`000`).
 
 ## Orchestration model
 
@@ -849,7 +853,8 @@ Calico contour. Its acceptance is fixed:
 - active denial covers Calico-owned kube-dns Pod IP and same-namespace sandbox
   control-plane Pod IP (TCP/UDP where meaningful), with trusted positive
   controls first; `ECONNREFUSED` is never treated as denial;
-- restricted direct bypass, Squid non-allowlisted HTTPS denial, Pod/Service/
+- restricted direct bypass, Squid non-allowlisted HTTPS CONNECT denial via curl
+  `%{http_connect}` exact `403` (`%{http_code}`/`000` must not pass), Pod/Service/
   node/control-plane/metadata access all fail in a founder-approved test pod;
 - inbound denial, HTTP redirect, and DNS-rebind remain **explicitly unclaimed**
   by automated `probe-restricted` and stay RUNBOOK-only;

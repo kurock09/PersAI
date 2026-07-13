@@ -129,7 +129,8 @@ Required local invariants:
     Metadata denial additionally requires a ready `gke-metadata-server`
     DaemonSet. A controlled private-sandbox probe must observe one reserved NAT
     IP from the fixed no-query plain-IP endpoint. Restricted probe also proves
-    Squid denial for fixed non-allowlisted `example.com` HTTPS. `ECONNREFUSED`
+    Squid CONNECT denial for fixed non-allowlisted `example.com` HTTPS via curl
+    `%{http_connect}` exact `403` (`%{http_code}` / `000` must not pass). `ECONNREFUSED`
     is never treated as denial; absent targets refuse to false-pass.
 14. Local `generate-probe-manifests` produces restricted/NAT probe Pod YAML that
     satisfies the contour validators (private selector, gVisor,

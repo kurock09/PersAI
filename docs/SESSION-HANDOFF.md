@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-07-13 — ADR-146 Squid CONNECT denial probe repair
+
+Status: **Local uncommitted repair on clean baseline `188722f9`; no commit/push;
+no cloud mutation; Environment still unapproved; S1 blocked.**
+
+**Root cause:** HTTPS Squid ACL denial answers on the CONNECT channel. Curl
+exposes that as `%{http_connect}=403`, while `%{http_code}` stays `000` and
+false-failed the restricted denial probe.
+
+**Repair (local, uncommitted):** denial probe asserts `%{http_connect}` exact
+`403` only; validator/renames/comments and focused/source-contract tests updated
+consistently; `000` remains fail-closed. No allowlist, `NO_PROXY`, inventory
+target, Helm policy, or live-resource changes.
+
+**Still incomplete:** proxy-env repair still unpushed; probes not re-run;
+network proof incomplete; Environment not approved; S0.1 not live-accepted;
+S1 blocked.
+
+**Next:** commit/push stack (proxy-env + this CONNECT denial repair) →
+regenerate/apply controlled probes → `probe-restricted` / cleanup →
+Environment approval(s).
+
+---
+
 ## 2026-07-13 — ADR-146 restricted probe proxy-env repair
 
 Status: **Restricted-probe proxy-env repair committed locally in the current
@@ -38,10 +62,10 @@ values in evidence output. No package changes.
 **Still incomplete:** not pushed; probes not regenerated or re-run with proxy
 env; network proof incomplete; Environment not approved;
 non-sandbox pins may still wait; S0.1 not live-accepted; S1 blocked. Do **not**
-claim foundation complete.
+claim foundation complete. Follow-on local CONNECT denial probe repair is above.
 
-**Next:** parent push of proxy-env repair → regenerate/apply controlled probes →
-`probe-restricted` / cleanup → Environment approval(s).
+**Next:** parent push of proxy-env + CONNECT denial repairs → regenerate/apply
+controlled probes → `probe-restricted` / cleanup → Environment approval(s).
 
 ---
 

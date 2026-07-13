@@ -2695,12 +2695,13 @@ export function buildControlledProbeCleanupPlan(pods, options = {}) {
 }
 
 /**
- * Validate bounded curl `-w "%{http_code}"` output for Squid ACL denial.
- * Passes only on exact HTTP 403; "000", empty, malformed, and other statuses fail closed.
+ * Validate bounded curl `-w "%{http_connect}"` output for Squid HTTPS CONNECT ACL denial.
+ * HTTPS deny answers appear on the CONNECT channel; `%{http_code}` is "000" and must not pass.
+ * Passes only on exact CONNECT 403; "000", empty, malformed, and other statuses fail closed.
  * Does not inspect response bodies, headers, query strings, or auth material.
  */
-export function squidDenialHttpStatusIndicatesProxyDeny(httpStatusOutput) {
-  const trimmed = String(httpStatusOutput ?? "").trim();
+export function squidDenialHttpConnectStatusIndicatesProxyDeny(httpConnectStatusOutput) {
+  const trimmed = String(httpConnectStatusOutput ?? "").trim();
   if (!/^[0-9]{3}$/.test(trimmed)) return false;
   return trimmed === "403";
 }

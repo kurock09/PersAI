@@ -36,7 +36,7 @@ import {
   selectApplySandboxPoolCommandIds,
   selectPrepareCommandIds,
   shellJoin,
-  squidDenialHttpStatusIndicatesProxyDeny,
+  squidDenialHttpConnectStatusIndicatesProxyDeny,
   validateNatProbePod,
   validateRestrictedProbePod
 } from "./lib/foundation.mjs";
@@ -928,7 +928,7 @@ function runRestrictedProbes(inventory, podName, natProbePodName) {
   ].join("\n");
   exec(["getent", "hosts", "pypi.org"], true, "DNS resolution");
   exec(["curl", "-fsSI", "--max-time", "20", "https://pypi.org/"], true, "Squid allowlisted HTTPS");
-  const squidDenialLabel = `Squid denial for non-allowlisted ${probe.squidDeniedPublicHttpsHostname}`;
+  const squidDenialLabel = `Squid CONNECT denial for non-allowlisted ${probe.squidDeniedPublicHttpsHostname}`;
   const squidDenialResult = run(
     [
       "kubectl",
@@ -942,14 +942,14 @@ function runRestrictedProbes(inventory, podName, natProbePodName) {
       "-o",
       "/dev/null",
       "-w",
-      "%{http_code}",
+      "%{http_connect}",
       "--max-time",
       "20",
       `https://${probe.squidDeniedPublicHttpsHostname}/`
     ],
     { allowFailure: true }
   );
-  const squidDenialOk = squidDenialHttpStatusIndicatesProxyDeny(squidDenialResult.stdout);
+  const squidDenialOk = squidDenialHttpConnectStatusIndicatesProxyDeny(squidDenialResult.stdout);
   console.log(`${squidDenialOk ? "PASS" : "FAIL"} probe ${squidDenialLabel}`);
   if (!squidDenialOk) throw new Error(`restricted probe failed: ${squidDenialLabel}`);
   exec(
