@@ -348,7 +348,7 @@ Plan/runtime `networkAccessEnabled` field is removed without an alias.
 **ADR-146 Slice 2 committed locally at `5a2fd3bd`:** Helm policy contracts only;
 no API boundary change.
 
-**ADR-146 Slice 3 landed locally (uncommitted) on `5a2fd3bd`:** owner PUT now
+**ADR-146 Slice 3 committed locally at `8d0520f4`:** owner PUT now
 requests synchronous warm-pod reconcile after DB/audit commit. Response
 `recycled` is honest (`true` only when an idle stale-mode pod snapshot was
 UID+resourceVersion delete-requested and its old UID was confirmed gone; a
@@ -369,6 +369,10 @@ state stamped only after workspace lease acquisition; bind/exec also requires
 the exact active DB token/holder/job/expiry, and no public request can supply
 it. No route in this boundary changes browser, web tools, storage plane,
 or provider-worker networking.
+
+**ADR-146 Slice 4 landed locally (uncommitted) on `8d0520f4`:** web Assistant
+Settings consumes the existing owner `GET/PUT /api/v1/assistant/{assistantId}/sandbox-egress`
+contract via generated client wrappers only; no API shape change.
 
 ### Files
 

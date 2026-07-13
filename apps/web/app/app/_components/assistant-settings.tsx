@@ -141,6 +141,7 @@ import {
 import { AssistantKnowledgeManager } from "./assistant-knowledge-manager";
 import { WorkspaceFilesGallery } from "./workspace-files-gallery";
 import { AssistantSkillsManager } from "./assistant-skills-manager";
+import { AssistantSandboxEgressSettings } from "./assistant-sandbox-egress-settings";
 
 interface AssistantSettingsProps {
   data: AppData;
@@ -4050,6 +4051,12 @@ export function AssistantSettings({
             }}
           />
           <FeedbackLine fb={saveFb?.type === "err" ? saveFb : null} />
+
+          <AssistantSandboxEgressSettings
+            key={assistant.id}
+            assistantId={assistant.id}
+            resolveAuthToken={resolveBillingToken}
+          />
 
           {editingPersonality && (
             <div className="mt-4 border-t border-border/45 px-1 pt-4">

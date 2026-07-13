@@ -75,7 +75,9 @@ const assistantApiMocks = vi.hoisted(() => ({
   updateWorkspaceVideoPersona: vi.fn(),
   deleteWorkspaceVideoPersona: vi.fn(),
   archiveWorkspaceVideoClonedVoice: vi.fn(),
-  setWorkspaceVideoClonedVoiceDefault: vi.fn()
+  setWorkspaceVideoClonedVoiceDefault: vi.fn(),
+  getAssistantSandboxEgress: vi.fn(),
+  putAssistantSandboxEgress: vi.fn()
 }));
 
 const browserProfileMocks = vi.hoisted(() => ({
@@ -149,6 +151,8 @@ vi.mock("../assistant-api-client", async () => {
     deleteWorkspaceVideoPersona: assistantApiMocks.deleteWorkspaceVideoPersona,
     archiveWorkspaceVideoClonedVoice: assistantApiMocks.archiveWorkspaceVideoClonedVoice,
     setWorkspaceVideoClonedVoiceDefault: assistantApiMocks.setWorkspaceVideoClonedVoiceDefault,
+    getAssistantSandboxEgress: assistantApiMocks.getAssistantSandboxEgress,
+    putAssistantSandboxEgress: assistantApiMocks.putAssistantSandboxEgress,
     listAssistantBrowserProfiles: browserProfileMocks.listAssistantBrowserProfiles,
     deleteAssistantBrowserProfile: browserProfileMocks.deleteAssistantBrowserProfile,
     reconnectAssistantBrowserProfile: browserProfileMocks.reconnectAssistantBrowserProfile,
@@ -789,6 +793,39 @@ describe("AssistantSettings character CTA", () => {
     expect(screen.queryByText("PersAI")).toBeNull();
     expect(screen.queryByText("Luma")).toBeNull();
     expect(screen.queryByText("Theo")).toBeNull();
+  });
+});
+
+describe("AssistantSettings sandbox network (ADR-146 S4)", () => {
+  beforeEach(() => {
+    clerkMocks.getToken.mockResolvedValue("token-1");
+    assistantApiMocks.getAssistantSandboxEgress.mockResolvedValue({
+      requestId: "req-1",
+      assistantId: "assistant-1",
+      mode: "restricted",
+      recycled: false
+    });
+  });
+
+  it("places Sandbox network in the Assistant block without opening Customize", async () => {
+    renderSettings(makeAppData(), "character");
+
+    expect(await screen.findByRole("switch", { name: /sandbox network/i })).toBeInTheDocument();
+    expect(screen.queryByText("Quick actions")).not.toBeInTheDocument();
+    expect(assistantApiMocks.getAssistantSandboxEgress).toHaveBeenCalledWith(
+      "token-1",
+      "assistant-1",
+      expect.any(AbortSignal)
+    );
+  });
+
+  it("does not surface sandbox network in channels or limits sections", async () => {
+    renderSettings(makeAppData(), "channels");
+    expect(screen.queryByRole("switch", { name: /sandbox network/i })).not.toBeInTheDocument();
+
+    cleanup();
+    renderSettings(makeAppData(), "limits");
+    expect(screen.queryByRole("switch", { name: /sandbox network/i })).not.toBeInTheDocument();
   });
 });
 

@@ -96,8 +96,8 @@ ADR-140 closes the persistent Browserless session era. The active browser archit
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 
 **ADR-146 accepted target (implementation in progress; S1 committed locally at
-`775e5781`; S2 committed locally at `5a2fd3bd`; S3 landed locally uncommitted on
-that baseline):** sandbox egress is
+`775e5781`; S2 committed locally at `5a2fd3bd`; S3 committed locally at
+`8d0520f4`; S4 Settings UX landed locally uncommitted on that baseline):** sandbox egress is
 an immediate assistant-owned operational choice stored on
 `Assistant.sandboxEgressMode`. `restricted` remains the default
 proxy/domain-allowlist contour. Explicit `full_public` consent gives the
@@ -108,7 +108,10 @@ while NetworkPolicy, explicit non-global/internal CIDR exclusions, an
 empty-ingress policy, and a dedicated no-IAM execution ServiceAccount continue
 to block Kubernetes, node, VPC, private, link-local, and metadata destinations.
 The setting does not affect storage-plane tools, browser, web tools, or provider
-workers. The old plan `networkAccessEnabled` boolean is removed by Slice 1
+workers. **Slice 4 (local uncommitted)** surfaces owner consent in Assistant
+Settings → Assistant block (`Sandbox network` row): unchecked `restricted`,
+checked `full_public`, enable confirmation modal, canonical GET/PUT refetch, no
+optimistic UI. The old plan `networkAccessEnabled` boolean is removed by Slice 1
 rather than reinterpreted. Owner PUT synchronously reconciles only idle
 missing/malformed/mismatched-mode pods (honest `recycled`; active exact-lease
 operations and post-commit correct-mode admissions survive; post-commit failure

@@ -28,9 +28,9 @@ sandbox remaining `8a0043dd` (Argo Synced; post-rollout
 `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, MCP smoke
 `ADR146_POST_ROLLOUT_OK`). ADR-146 stays open; **S1 is committed locally at
-`775e5781`**; **S2 is committed locally at `5a2fd3bd`**; **S3 is landed locally
-(uncommitted) on that baseline** (mode authority / recycle / descendant
-cleanup). S4 Settings UX is next and is **not** started.
+`775e5781`**; **S2 is committed locally at `5a2fd3bd`**; **S3 is committed locally at
+`8d0520f4`**; **S4 Settings UX is landed locally (uncommitted) on that baseline**.
+S5 is next and is **not** started.
 Each later slice runs the full AGENTS gate plus affected
 API/runtime/sandbox/web tests; infra slices additionally run Helm lint/template
 and live negative acceptance.
@@ -322,6 +322,15 @@ Live GKE acceptance after an explicitly approved deploy repeats the restricted
 allowlist test, full-public success test, complete private/internal/metadata
 negative matrix, warm-pod UID replacement on enable/disable, secret-free env,
 audit/flow logs, and rollback to all-`restricted`.
+
+### ADR-146 Slice 4 local checks
+
+```powershell
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-sandbox-egress-settings.test.tsx
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-settings.test.tsx -t "sandbox network"
+corepack pnpm --filter @persai/web run typecheck
+corepack pnpm --filter @persai/web run lint
+```
 
 ## ADR-145 chat-list archive + mobile row actions
 

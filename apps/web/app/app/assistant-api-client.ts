@@ -77,9 +77,12 @@ import {
   type PostAssistantBillingPaymentIntentRequest,
   ContractsApiError,
   type AssistantLifecycleState,
+  type AssistantSandboxEgressMode,
+  type AssistantSandboxEgressResponse,
   type UserPlanVisibilityState,
   deleteAssistantWebChat as deleteAssistantWebChatContract,
   getAssistant as getAssistantContract,
+  getAssistantSandboxEgress as getAssistantSandboxEgressContract,
   getAssistantList as getAssistantListContract,
   getAssistantPersonaArchetypes as getAssistantPersonaArchetypesContract,
   getAssistantMemoryItems as getAssistantMemoryItemsContract,
@@ -98,6 +101,7 @@ import {
   getAssistantWebChatCompaction as getAssistantWebChatCompactionContract,
   postAssistantCreate as postAssistantCreateContract,
   postAssistantSwitch as postAssistantSwitchContract,
+  putAssistantSandboxEgress as putAssistantSandboxEgressContract,
   postAssistantWebChatCompact as postAssistantWebChatCompactContract,
   postAdminPlanCreate as postAdminPlanCreateContract,
   postAdminStepUpChallenge as postAdminStepUpChallengeContract,
@@ -1690,6 +1694,49 @@ export async function getAssistantLifecycleView(
 
 export async function getAssistant(token: string): Promise<AssistantLifecycleState | null> {
   return (await getAssistantLifecycleView(token)).assistant;
+}
+
+export async function getAssistantSandboxEgress(
+  token: string,
+  assistantId: string,
+  signal?: AbortSignal
+): Promise<AssistantSandboxEgressResponse> {
+  const response = await getAssistantSandboxEgressContract(assistantId, {
+    headers: getAuthHeaders(token),
+    ...(signal ? { signal } : {})
+  });
+
+  if (response.status !== 200) {
+    throw new Error(
+      "Unexpected non-success response for GET /assistant/{assistantId}/sandbox-egress."
+    );
+  }
+
+  return response.data;
+}
+
+export async function putAssistantSandboxEgress(
+  token: string,
+  assistantId: string,
+  mode: AssistantSandboxEgressMode,
+  signal?: AbortSignal
+): Promise<AssistantSandboxEgressResponse> {
+  const response = await putAssistantSandboxEgressContract(
+    assistantId,
+    { mode },
+    {
+      headers: getAuthHeaders(token),
+      ...(signal ? { signal } : {})
+    }
+  );
+
+  if (response.status !== 200) {
+    throw new Error(
+      "Unexpected non-success response for PUT /assistant/{assistantId}/sandbox-egress."
+    );
+  }
+
+  return response.data;
 }
 
 export type AssistantPersonaArchetypeState =

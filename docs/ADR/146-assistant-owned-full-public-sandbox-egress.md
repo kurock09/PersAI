@@ -6,13 +6,13 @@ Accepted — founder-directed production orchestration program opened 2026-07-12
 Slice 0 read-only code/live-cluster audit completed 2026-07-12 with implementation
 **NO-GO**. **Slices 0.1 + 0.1b are live-accepted** (2026-07-13). **Slice 1 is
 committed locally at `775e5781`**. **Slice 2 is committed locally at
-`5a2fd3bd`**. **Slice 3 is landed locally (uncommitted) on baseline `5a2fd3bd`**:
+`5a2fd3bd`**. **Slice 3 is committed locally at `8d0520f4` on baseline `5a2fd3bd`**:
 last-responsible-moment DB mode authority, pod label/annotation enforcement,
 mismatch recycle, owner sync eviction with honest `recycled` + `503`, and
 mandatory post-persistence exec-pod retirement before workspace lease release.
-This ADR is **not** closed.
-Slice 4 (Settings UX) is **not** started. Deploy/live validation of S1–S3 is
-deferred.
+**Slice 4 is landed locally (uncommitted) on baseline `8d0520f4`**: Assistant
+Settings consent UX. This ADR is **not** closed.
+Deploy/live validation of S1–S4 is deferred.
 
 Live foundation + deferred-pin acceptance (2026-07-13): prepare, exact
 NAT/firewall, Calico (`calico-node` 5/5), private `sandbox-pool-private` Ready
@@ -43,9 +43,10 @@ attempt failed after validate/GAR/pin on pin-assert EOF mismatch (extra CLI
 `https://persai.dev/api/health` 200 `{status:ok}`,
 `https://persai.dev/api/ready` 200 `{status:ready}`, PersAI MCP chat smoke exact
 `ADR146_POST_ROLLOUT_OK`. **S1 committed locally at `775e5781`**. **S2 committed
-locally at `5a2fd3bd`**. **S3 is landed locally (uncommitted) on that baseline**.
-Next under parent orchestration: **Slice 4** (Settings UX; not started). Do not
-claim S4 landed or close this ADR.
+locally at `5a2fd3bd`**. **S3 is committed locally at `8d0520f4`**. **S4 is
+landed locally (uncommitted) on that baseline**. Next under parent
+orchestration: **Slice 5** (cross-layer audit, docs, runbook; not started). Do not
+claim S5 landed or close this ADR.
 
 ## Date
 
@@ -88,8 +89,8 @@ remote/deployed bot pin **`64be77d6`**: deferred services exact `3cd2ea4f`;
 sandbox remains `8a0043dd`. Environment `persai-dev-adr146-foundation`
 **approved**; resume run `29237479924` success; S0.1/0.1b live-accepted; ADR
 open; **S1 committed locally at `775e5781`**; **S2 committed locally at
-`5a2fd3bd`**; **S3 landed locally (uncommitted) on that baseline**; S4 next
-(not started).
+`5a2fd3bd`**; **S3 committed locally at `8d0520f4`**; **S4 landed locally
+(uncommitted) on that baseline**; S5 next (not started).
 
 ## Slice 3 local land (2026-07-13)
 
@@ -1204,6 +1205,8 @@ No runtime/model field is accepted as authority for the mode.
 ### Slice 4 — Assistant Settings consent UX
 
 Subagent: Cursor Grok 4.5.
+
+**Status: landed locally (uncommitted) on baseline `8d0520f4`.**
 
 Land:
 

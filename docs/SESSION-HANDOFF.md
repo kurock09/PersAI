@@ -1,10 +1,52 @@
 # SESSION-HANDOFF
 
-## 2026-07-13 — ADR-146 Slice 3 sandbox mode authority (local uncommitted)
+## 2026-07-13 — ADR-146 Slice 4 Assistant Settings sandbox egress UX (local uncommitted)
 
-Status: **Slice 3 landed locally on clean baseline `5a2fd3bd` (S1 committed at
-`775e5781`, S2 committed at `5a2fd3bd`; main ahead remote; no push/deploy/cloud
-mutation).** ADR-146 stays **open**. S4 is **not** started.
+Status: **Slice 4 landed locally on clean baseline `8d0520f4` (S1 committed at
+`775e5781`, S2 committed at `5a2fd3bd`, S3 committed at `8d0520f4`; main ahead
+remote; no push/deploy/cloud mutation).** ADR-146 stays **open**. S5 is **not**
+started.
+
+**Scope landed:**
+
+- Assistant Settings → Assistant block compact `Sandbox network` permission row
+  (`restricted` unchecked / `full_public` checked);
+- canonical GET/PUT via generated `@persai/contracts` client wrapped in
+  `assistant-api-client.ts` (`getAssistantSandboxEgress` /
+  `putAssistantSandboxEgress`);
+- enable confirmation modal with honest EN/RU copy (shell/exec/document only; no
+  unlimited/unrestricted wording); disable is immediate;
+- no optimistic checked state; save busy disables switch + modal actions;
+  streaming/media/document thread registry disables control while assistant work
+  is active; stable `409 sandbox_egress_change_busy` and honest `503
+sandbox_egress_recycle_failed` inline errors with canonical refetch;
+- assistant-id + monotonic request-generation guards, response assistant-id
+  validation, AbortSignal propagation, and keyed remounting prevent stale
+  GET/PUT/refetch completion from crossing assistant state; successful PUT is
+  displayed only after a separate canonical GET, whose failure leaves mode
+  unknown/disabled with localized copy;
+- modal Escape/backdrop dismissal, focus restoration/containment, busy/error
+  associations, and load/save `aria-busy` are covered;
+- focused web tests for copy, load, enable cancel/confirm, disable, busy,
+  response mismatch, assistant-switch/out-of-order/unmount races, errors,
+  accessibility/keyboard, and Assistant-block placement (not channels/limits/
+  plan/admin/browser surfaces);
+- docs reconciled: ADR-146, CHANGELOG, TEST-PLAN, ARCHITECTURE, API-BOUNDARY.
+
+**Out of scope:** backend/runtime/Helm changes, commit/push/deploy, S5 audit/docs
+cross-layer slice, S6 gate, ADR closure.
+
+**Next:** parent review → commit when founder asks → Slice 5 (cross-layer audit,
+docs, runbook). Do not close ADR-146.
+
+---
+
+## 2026-07-13 — ADR-146 Slice 3 sandbox mode authority (committed locally at `8d0520f4`)
+
+Status: **Slice 3 committed locally at `8d0520f4` on baseline `5a2fd3bd` (S1
+committed at `775e5781`, S2 committed at `5a2fd3bd`; main ahead remote; no
+push/deploy/cloud mutation).** ADR-146 stays **open**. Superseded for
+next-slice pointer by Slice 4 entry above.
 
 **Scope landed:**
 
