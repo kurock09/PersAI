@@ -11,7 +11,11 @@ Postgres migrate exposed a real S2 `system` preset gap; local undeployed repair
 landed and parent-audited CLEAN 2026-07-14. A fresh pgvector database then
 applied all 188 migrations successfully. The complete S6 Release B pre-push
 repository gate passed on committed tree `01690e37`, including generated
-contracts twice with zero diff. No ADR-147 code has been pushed or deployed.
+contracts twice with zero diff. Release B `a225143e` is deployed through bot
+pin `4c28dd52`; CI, migration, Argo health, exact-revision inventory, and
+operator-accessible Role/runtime/MCP acceptance are green. Authenticated
+setup/recreate/Settings/Admin visuals and real B2B independence still require
+manual Clerk sessions, so S5b remains blocked.
 
 ## Date
 

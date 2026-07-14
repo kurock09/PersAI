@@ -1,5 +1,61 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-147 Release B deployed; live acceptance partial
+
+Status: **Release B deployed healthy; automated/operator-accessible acceptance
+PASS; manual authenticated UI/B2B acceptance blocked and still required before
+S5b.**
+
+**Release truth:** founder push `a225143e` passed GitHub CI run
+`29341123464`; affected `api`, `web`, `runtime`, and `sandbox` images built in
+Dev Image Publish run `29341123302`. Parent approved the required
+`persai-dev-migrations` Environment only after CI was green. Bot pin
+`4c28dd52` advanced those four service tags to
+`a225143ef3699f32223130a067bcfb1495697a62`; provider-gateway remained on its
+unchanged pin. Argo reached `Synced Healthy Succeeded` at `4c28dd52`; PreSync
+`api-migrate` reported `Succeeded`; health and readiness returned 200
+`{status:ok}` / `{status:ready}`. All affected Deployments are 2/2 updated and
+available on the new image. Old api/web/runtime/sandbox pods are gone and old
+runtime ReplicaSets are scaled to zero.
+
+**Live acceptance PASS where current auth permits:** production has 33
+Assistants on active protected zero-Skill `persai_default`. A temporary active
+Role linked only to existing Marketer Skill was created through rebuilt MCP,
+assigned to the founder Assistant, and used in a real chat: Skill
+`131c1531-5566-4ad2-9422-3b9b76f6d666` engaged with scenario
+`instagram_carousel` through the unchanged `skill` tool. Reassignment to
+`persai_default` atomically cleared both chat Skill-state columns; a new default
+Role chat answered `42` with no Skill activation/tool call. Editing the
+in-use temporary Role advanced the affected Assistant `configDirtyAt` from
+`15:05:44.478Z` to `15:06:14.274Z` while preserving its one Skill link.
+Standalone stdio MCP acceptance proved exactly the five Role tools, absence of
+the removed assignment tool, Role list/get, upsert, full Skill replacement, and
+Assistant assignment against the live API. Cleanup restored the founder
+Assistant to `persai_default`; the probe Role is archived with zero Assistants
+and zero Skills.
+
+**Honest blockers:** Cursor's already-open `user-persai` connection still shows
+its cached pre-reload catalog even though the rebuilt stdio process passes the
+new catalog/API smoke. The browser acceptance tab is at Clerk sign-in.
+Production operator auth is intentionally bound to one configured founder
+actor and cannot impersonate the real B2B user (`alex@agse.ru`, three
+Assistants); request headers do not override that boundary. Therefore setup /
+recreate / Settings/Admin visual acceptance and an authenticated B2B
+independence mutation remain unproved. No Clerk bypass, production actor-config
+change, or direct-database Role mutation was attempted.
+
+**S5b decision:** old-revision inventory proof is technically present, but the
+parent keeps S5b blocked until the remaining Release B acceptance is completed
+under real authenticated sessions.
+
+**Next recommended step:** founder signs in on the open browser tab (and, for
+B2B, uses the `alex@agse.ru` account/session) and reloads the Cursor PersAI MCP
+connection. Parent then completes setup/recreate/Settings/Admin and two-Assistant
+B2B acceptance, records final Release B go/no-go, and only then starts S5b
+Release C.
+
+---
+
 ## 2026-07-14 — ADR-147 S6 Release B pre-push gate
 
 Status: **full local pre-release gate PASS; committed through `01690e37`;
