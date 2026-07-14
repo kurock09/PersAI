@@ -134,17 +134,17 @@ const HISTORICAL_WORDING_ALLOWANCES: ExactAllowance[] = [
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "AssistantSkillAssignment",
-    exactCount: 9
+    exactCount: 8
   },
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "assistant_skill_assignments",
-    exactCount: 5
+    exactCount: 3
   },
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "AssistantSkillAssignmentStatus",
-    exactCount: 2
+    exactCount: 1
   },
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
@@ -164,22 +164,22 @@ const HISTORICAL_WORDING_ALLOWANCES: ExactAllowance[] = [
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "max_enabled_skills",
-    exactCount: 3
+    exactCount: 2
   },
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "enabled_skills_limit",
-    exactCount: 3
+    exactCount: 2
   },
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "skill_assignments_limit",
-    exactCount: 3
+    exactCount: 2
   },
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "skillPolicy",
-    exactCount: 4
+    exactCount: 3
   },
   // Current handoff / changelog / data-model historical wording.
   {

@@ -2,33 +2,18 @@
 
 ## Status
 
-In progress — S0 accepted; S1 schema/expand, S2 role-only API/runtime/prompt,
-S3 user Role UX, S4 Admin Role constructor/MCP, S5a Release-B contract cutover,
-and S5b physical contract/drop are implemented and deployed. S1–S5a are parent-audited
-CLEAN. S5a was accepted after two rejected audits and final fail-closed gate
-hardening. S5b landed as audited release `a11c8b6b`.
-Two parent audits rejected focused evidence around a missed indexing-job
-status-list reader and an invalid cross-workspace B2B fixture; both were
-repaired, focused S5b tests pass 9/9, and final independent re-audit is CLEAN.
-Release C is deployed through migration-approved bot pin `05ccaed4`. S5b migration
-`20260714003000_adr147_s5b_drop_assistant_skill_assignments` idempotently
-removes persisted plan Skill-limit JSON (`billing_provider_hints.skillPolicy`
-and `limits_permissions` keys `enabled_skills_limit` / `max_enabled_skills` /
-`skill_assignments_limit`), then `DROP TABLE IF EXISTS assistant_skill_assignments`
-and `DROP TYPE IF EXISTS AssistantSkillAssignmentStatus`. Prisma model/enum/
-relations are removed. S6 clean isolated Postgres migrate earlier exposed a
-real S2 `system` preset gap; local undeployed repair landed and parent-audited
-CLEAN 2026-07-14. A fresh isolated pgvector database now applies all 189
-migrations through S5b and reports current; postconditions and semantic JSON
-fixtures pass, and the proof container is removed. The complete S6 Release B
-pre-push repository gate passed on committed tree `01690e37`. Release B
-`a225143e` is deployed through bot pin `4c28dd52`. Authenticated B2B acceptance
-and local repair commit `d8195d1d` are present. Full S5b repository and GitHub
-gates pass; production migration, Argo health, exact images, public health, live
-DB postconditions, and refreshed user Settings Role visual all pass. S6 remains
-open only for one authenticated Admin preview visual and a new-Agent-chat MCP
-catalog check; the current ordinary B2B Clerk session/current Agent chat cannot
-honestly provide those two client contexts.
+Closed 2026-07-14 — S0–S6 accepted. S1 schema/expand, S2 Role-only
+API/runtime/prompt, S3 user Role UX, S4 Admin Role constructor/MCP, S5a active
+contract cutover, and S5b physical contract/drop are implemented,
+parent-audited CLEAN, deployed, and live-accepted. Release C `a11c8b6b` deployed
+through migration-approved bot pin `05ccaed4`; all 189 migrations, exact
+images, Argo health, public readiness, and live DB postconditions pass.
+Authenticated B2C/B2B Role behavior, Skill/scenario indication, refreshed
+Settings current-Role rendering, Admin Role preview, and the five Role MCP tools
+in a newly opened post-reload Agent chat are founder-accepted. Direct user Skill
+management and its physical assignment/plan-limit residue are absent while
+existing Skill/Scenario/Knowledge/runtime mechanics remain intact behind Role
+authority. Do not reopen ADR-147 for new scope; use a new ADR.
 
 ## Date
 

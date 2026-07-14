@@ -1,5 +1,26 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-147 closed
+
+Status: **CLOSED — S0–S6 implemented, parent-audited, deployed, and
+founder-live-accepted.**
+
+Founder completed the two final client-context checks after Release C:
+
+- authenticated Admin `/admin/roles` preview works for a Role with Skills;
+- after MCP reload, a newly opened Agent chat exposes the new Role tools.
+
+Together with the already recorded clean audits/gates, 189-migration Release C,
+Argo/exact-image/readiness/live DB acceptance, authenticated B2B behavior,
+Skill/scenario title indication, and refreshed current-Role Settings visual,
+this closes ADR-147. No product-code residual or deploy action remains. Do not
+reopen ADR-147 for new scope; open a new ADR if follow-up work is requested.
+
+**Next recommended step:** no ADR-147 work. Await the founder's next explicit
+priority.
+
+---
+
 ## 2026-07-14 — ADR-147 Release C deploy and live acceptance
 
 Status: **Release C deployed from `a11c8b6b` through migration-approved bot pin
