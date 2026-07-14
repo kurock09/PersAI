@@ -3255,55 +3255,51 @@ describe("AssistantSettings character save and publish", () => {
 });
 
 describe("AssistantSettings voice picker", () => {
-  it(
-    "saves the selected ElevenLabs voice id",
-    async () => {
-      assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
-        schema: "persai.assistantVoiceSettings.v1",
-        primaryProviderId: "elevenlabs",
-        elevenlabs: {
-          configured: true,
-          loadState: "ready",
-          warning: null,
-          voices: [
-            {
-              voiceId: "eleven-voice-selected",
-              name: "Ava",
-              gender: "female",
-              category: "featured",
-              language: "en",
-              languageBucket: "en",
-              previewUrl: null
-            }
-          ]
-        }
-      });
+  it("saves the selected ElevenLabs voice id", async () => {
+    assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
+      schema: "persai.assistantVoiceSettings.v1",
+      primaryProviderId: "elevenlabs",
+      elevenlabs: {
+        configured: true,
+        loadState: "ready",
+        warning: null,
+        voices: [
+          {
+            voiceId: "eleven-voice-selected",
+            name: "Ava",
+            gender: "female",
+            category: "featured",
+            language: "en",
+            languageBucket: "en",
+            previewUrl: null
+          }
+        ]
+      }
+    });
 
-      renderSettings(makeAppData(), "character");
+    renderSettings(makeAppData(), "character");
 
-      fireEvent.click(screen.getByRole("button", { name: "Personalization" }));
-      expect(await screen.findByRole("dialog", { name: "Personalization" })).toBeInTheDocument();
-      fireEvent.click(await screen.findByRole("button", { name: "Ava" }));
-      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Personalization" }));
+    expect(await screen.findByRole("dialog", { name: "Personalization" })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Ava" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-      await waitFor(() => {
-        expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledWith(
-          "token-1",
-          expect.objectContaining({
-            voiceProfile: expect.objectContaining({
-              elevenlabs: { voiceId: "eleven-voice-selected" }
-            })
+    await waitFor(() => {
+      expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledWith(
+        "token-1",
+        expect.objectContaining({
+          voiceProfile: expect.objectContaining({
+            elevenlabs: { voiceId: "eleven-voice-selected" }
           })
-        );
-      });
-      expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-1", {
-        assistantId: "assistant-1",
-        expectedRoleKey: "persai_default",
-        roleKey: "persai_default"
-      });
-    },
-    15000
-  );
+        })
+      );
+    });
+    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-1", {
+      assistantId: "assistant-1",
+      expectedRoleKey: "persai_default",
+      roleKey: "persai_default"
+    });
+  }, 15000);
 
   it("keeps the admin top picker on public voices and updates it after approval", async () => {
     assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
