@@ -1,5 +1,44 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-147 Release C deploy and live acceptance
+
+Status: **Release C deployed from `a11c8b6b` through migration-approved bot pin
+`05ccaed4`; CI/build/migration/Argo/health/live DB PASS. User Settings current
+Role visual PASS. Admin preview visual remains blocked only by the current
+non-Admin Clerk session; current Agent chat retains its pre-reload MCP catalog.**
+
+The audited S5b tree was committed as `a11c8b6b` and pushed once with the two
+previously unpushed ADR-147 checkpoints. GitHub CI run `29355887436` passed the
+full-check path, including Prisma migrate check, tests, smoke/E2E, and build.
+Dev Image Publish `29355887809` built `api`, `web`, `runtime`, and `sandbox`;
+after CI was green, the parent approved only `persai-dev-migrations`. Bot pin
+`05ccaed4` advanced all four images. PreSync applied the 189th migration,
+reported schema current, and completed catalog seed. Argo then reached
+`Synced / Healthy / Succeeded` at exact revision `05ccaed4`; all four affected
+Deployments are 2/2 updated and available on exact image `a11c8b6b`.
+Public `/api/health` and `/api/ready` return `ok` / `ready`.
+
+Read-only live DB postconditions pass: legacy physical storage and enum are
+absent; target billing-hint and entitlement residues are both zero; the S5b
+migration has exactly one successful record; all Assistants have a Role; there
+is exactly one active protected default Role with zero Skill links.
+
+After reloading the pre-deploy browser tab onto the new web bundle, authenticated
+Assistant Settings resolved `Универсальный помощник` with localized description,
+mission, current badge, and `Сменить роль`; loading and error text were absent.
+The current Clerk session exposes the ordinary B2B user account menu, no Admin
+entry, and direct `/admin/roles` redirects to `/app`, so the parent did not
+bypass Admin step-up to repeat the preview visual. The already-open Agent chat
+still exposes its attached pre-reload MCP catalog; server reload plus a **new
+Agent chat** remains required to observe the five Role tools.
+
+**Next recommended step:** founder opens/authenticates an Admin browser session
+and repeats one preview click, then opens a new Cursor Agent chat after MCP
+reload and verifies the five Role tools. If both pass, close ADR-147 S6 with a
+docs-only checkpoint; no further product code or deploy is currently indicated.
+
+---
+
 ## 2026-07-14 — ADR-147 S5b physical contract/drop (local)
 
 Status: **S5b implemented locally against clean committed HEAD `d8195d1d`;
