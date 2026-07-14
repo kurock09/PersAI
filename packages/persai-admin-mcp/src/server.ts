@@ -154,6 +154,10 @@ const orderedUniqueSkillIdsSchema = z
     }
   );
 
+export const adminSkillMcpInputSchemas = {
+  skillList: z.object({}).strict()
+} as const;
+
 export const adminRoleMcpInputSchemas = {
   roleList: z.object({}).strict(),
   roleGet: z.object({ roleKey: roleKeySchema }).strict(),
@@ -163,6 +167,12 @@ export const adminRoleMcpInputSchemas = {
     .strict(),
   assistantRoleAssign: z.object({ assistantId: z.string().uuid(), roleKey: roleKeySchema }).strict()
 } as const;
+
+type SkillHttpClient = Pick<PersaiOperatorClient, "requestJson">;
+
+export async function requestSkillList(client: SkillHttpClient): Promise<unknown> {
+  return client.requestJson({ method: "GET", path: "/api/v1/admin/skills" });
+}
 
 export async function resolveAdminRoleIdByKey(
   client: Pick<PersaiOperatorClient, "requestJson">,
@@ -355,6 +365,23 @@ export function createPersaiAdminMcpServer(
     name: "persai-admin-mcp",
     version: "0.1.0"
   });
+
+  server.registerTool(
+    "skill_list",
+    {
+      description:
+        "List all canonical admin Skills with their IDs and current metadata via GET /api/v1/admin/skills. Use this before skill_get, Role composition, or catalog migration.",
+      inputSchema: adminSkillMcpInputSchemas.skillList
+    },
+    async () => {
+      try {
+        const payload = await requestSkillList(client);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
 
   server.registerTool(
     "skill_upsert",

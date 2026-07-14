@@ -37,12 +37,14 @@ Optional: `PERSAI_MCP_CHAT_TIMEOUT_MS` (default 310000), `PERSAI_MCP_INDEXING_TI
 
 ## Tools
 
-- `skill_upsert`, `skill_get`, `skill_card_upsert`, `skill_document_upload`, `skill_scenario_upsert`
+- `skill_list`, `skill_upsert`, `skill_get`, `skill_card_upsert`, `skill_document_upload`, `skill_scenario_upsert`
 - `role_upsert`, `role_get`, `role_list`, `role_skills_replace`, `assistant_role_assign`
 - `indexing_wait`, `assistant_publish`
 - `chat_stage_attachment`, `chat_smoke`, `chat_list_deliverables`, `chat_inspect_attachments`, `chat_fetch_attachment`
 
 Role tools use immutable `roleKey`, resolve `roleId` through `GET /api/v1/admin/roles`, then call the roleId Admin HTTP routes. `role_skills_replace` is full replacement only. `assistant_role_assign` requires exact `assistantId` + `roleKey` and calls `PUT /api/v1/assistant/{assistantId}/role`.
+
+`skill_list({})` returns the canonical unfiltered `GET /api/v1/admin/skills` payload, including Skill UUIDs and current metadata. Use it before `skill_get`, `role_skills_replace`, or catalog migration; it does not add local filtering, sorting, pagination, or response projection.
 
 **Cursor agents:** read [`SMOKE-AGENT.md`](./SMOKE-AGENT.md) for PASS/FAIL workflow (skill/scenario/todos + vision QA on delivered images).
 
@@ -58,8 +60,9 @@ Optional: `PERSAI_MCP_ARTIFACT_DIR` — local folder for `chat_inspect_attachmen
 
 ## Typical flow
 
-1. `skill_upsert` → cards → documents → `indexing_wait`
-2. `skill_scenario_upsert` (status active)
-3. `role_upsert` → `role_skills_replace` (full ordered Skill ids) → `assistant_role_assign`
-4. `assistant_publish`
-5. `chat_smoke` with `goal` for Cursor-side PASS/FAIL
+1. `skill_list` → `skill_get` for canonical existing Skill ids/metadata
+2. `skill_upsert` → cards → documents → `indexing_wait`
+3. `skill_scenario_upsert` (status active)
+4. `role_upsert` → `role_skills_replace` (full ordered Skill ids) → `assistant_role_assign`
+5. `assistant_publish`
+6. `chat_smoke` with `goal` for Cursor-side PASS/FAIL

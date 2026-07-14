@@ -2439,6 +2439,26 @@ corepack pnpm --filter @persai/admin-mcp test
 corepack pnpm --filter @persai/admin-mcp run typecheck
 ```
 
+## Admin MCP `skill_list` bounded repair
+
+- `packages/persai-admin-mcp/test/admin-skills.test.ts` pins exactly one
+  `skill_list` registration with strict `{}` input, one bodyless
+  `GET /api/v1/admin/skills`, unchanged canonical payload projection (including
+  UUID/status/localized fields/instruction card/documents), the standard
+  `PersaiOperatorApiError` MCP contour, README discoverability, and continued
+  registration of all existing Skill and Role tools.
+- The MCP layer must not filter, reorder, paginate, or truncate the canonical
+  Admin Skills list response.
+
+Focused commands:
+
+```powershell
+corepack pnpm --filter @persai/admin-mcp test
+corepack pnpm --filter @persai/admin-mcp run lint
+corepack pnpm --filter @persai/admin-mcp run typecheck
+corepack pnpm run format:check
+```
+
 ## ADR-119 golden tests
 
 Six golden tests lock the invariants from the ADR-119 prompt architecture program. All six must pass on every PR. Failure of any golden test indicates a structural regression in the prompt assembly pipeline.

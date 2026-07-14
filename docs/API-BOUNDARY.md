@@ -24,7 +24,7 @@ Primary public API surface:
 - guest trust-page reads under `/api/v1/public/site-pages/*`
 - guest country hints under `/api/v1/public/geo-hint`
 - authenticated assistant routes under `/api/v1/assistant/*`
-- ADR-147 Slice S5b local-only Role boundary: `GET /api/v1/assistant/roles` lists the active system role catalog; `GET /api/v1/assistant/{assistantId}/role` and `PUT /api/v1/assistant/{assistantId}/role` require a strict UUID path and are exact owner-only role read/write endpoints; malformed ids return stable `400 assistant_role_invalid_assistant_id` before persistence. Changed PUTs read the database clock only after acquiring the Assistant lock. Direct per-assistant Skill selection remains removed from the active API/MCP/web contract; Role links are the sole effective Skills authority. S5b drops physical assignment storage after Release B old-revision proof (local implementation awaiting parent audit; Release C not deployed).
+- ADR-147 closed Role boundary: `GET /api/v1/assistant/roles` lists the active system role catalog; `GET /api/v1/assistant/{assistantId}/role` and `PUT /api/v1/assistant/{assistantId}/role` require a strict UUID path and are exact owner-only role read/write endpoints; malformed ids return stable `400 assistant_role_invalid_assistant_id` before persistence. Changed PUTs read the database clock only after acquiring the Assistant lock. Direct per-assistant Skill selection is absent from the active API/MCP/web contract; Role links are the sole effective Skills authority. Deployed Release C `a11c8b6b` / bot pin `05ccaed4` completed S5b physical assignment-storage removal.
 - Voice DNA assistant read route: `GET /api/v1/assistant/persona-archetypes`
 - admin routes under `/api/v1/admin/*`
 - ADR-115 admin inbound-safety policy routes under `/api/v1/admin/safety-policy/*` (`heuristic-rules`, `settings`); ops restriction controls remain `/api/v1/admin/safety-controls/*` (slice 115.4)
@@ -249,7 +249,7 @@ Active boundary rules:
 
 - Skills are an admin-managed platform catalog, not admin global knowledge `scope=skill`; Skill rows, documents, cards, chunks, indexing jobs, and vectors are not tenant workspace-owned
 - `Skill.category` is the current group key shown in admin/user UI (`work`, `engineering`, `personal`, `education`)
-- delete archives a Skill rather than hard-deleting the product concept; ADR-147 S2 performs the active-Role-link guard and archive update transactionally and does not mutate residual direct assignments
+- delete archives a Skill rather than hard-deleting the product concept; ADR-147 S2 performs the active-Role-link guard and archive update transactionally without depending on removed direct assignments
 - Skill document upload/reindex creates pending DB indexing jobs; the API indexing worker processes Skill documents through the same normalized source/chunk/vector boundary as assistant and Product knowledge
 - ADR-080 Skill knowledge cards and assistant-assisted Skill drafts belong to the admin Skill surface; generated proposals must not become active runtime knowledge without explicit admin save/activation
 - assistant-assisted Skill draft/enrichment is API/control-plane authoring that calls provider-gateway using the admin Knowledge `authoringModelKey`; it is not a runtime chat turn and does not mutate saved Skill or Knowledge rows unless the admin saves the proposal

@@ -1,5 +1,42 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — Admin MCP `skill_list` bounded repair (local)
+
+Status: **implemented against clean baseline `3b2e28b1`; full local gate PASS;
+committed and pushed. Package-only change — no image pin required. MCP reload +
+new Agent chat still required to observe `skill_list`.**
+
+Added one read-only Admin MCP tool, `skill_list`, over the existing canonical
+`GET /api/v1/admin/skills` operator route. Its input is strict `{}`; it sends
+one bodyless request through the existing `PersaiOperatorClient.requestJson`,
+returns the API payload without local filtering/sorting/pagination/projection,
+and uses the existing `toolError` contour. Existing Skill and Role tools are
+unchanged. README now directs agents to list canonical Skill UUIDs before
+`skill_get`, Role composition, or catalog migration.
+
+`packages/persai-admin-mcp/test/admin-skills.test.ts` pins exactly one
+registration, strict empty input, one bodyless GET, passthrough requestId/Skills
+with UUID/status/localized/instruction-card/document fields, standard API error
+mapping, README discovery, and continued existing Skill/Role registrations.
+Focused skill_list tests 4/4 and full Admin MCP suite 17/17 pass; package
+lint/typecheck/build, recursive lint, repository format, API/web typechecks,
+vocabulary zero gate, and `git diff --check` all pass.
+
+Mandatory startup reconciliation also corrected stale post-closure wording in
+`ARCHITECTURE.md`, `API-BOUNDARY.md`, and `DATA-MODEL.md`: ADR-147/Release C are
+deployed and closed, not local/awaiting audit. The fail-closed vocabulary gate
+was retuned only by removing obsolete DATA-MODEL historical allowances and
+passes.
+
+The currently attached Cursor `user-persai` catalog still lacks `skill_list`
+until MCP rebuild/reload and a **new** Agent chat. Role tools remain visible
+from the prior ADR-147 acceptance.
+
+**Next recommended step:** rebuild/reload Admin MCP, open a new Agent chat, and
+validate `skill_list({})` returns production UUIDs plus one working `skill_get`.
+
+---
+
 ## 2026-07-14 — ADR-147 closed
 
 Status: **CLOSED — S0–S6 implemented, parent-audited, deployed, and

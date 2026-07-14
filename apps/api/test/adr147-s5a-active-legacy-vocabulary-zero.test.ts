@@ -297,26 +297,6 @@ const HISTORICAL_WORDING_ALLOWANCES: ExactAllowance[] = [
     termId: "factSkills",
     exactCount: 2
   },
-  {
-    path: "docs/DATA-MODEL.md",
-    termId: "AssistantSkillAssignment",
-    exactCount: 2
-  },
-  {
-    path: "docs/DATA-MODEL.md",
-    termId: "AssistantSkillAssignmentStatus",
-    exactCount: 1
-  },
-  {
-    path: "docs/DATA-MODEL.md",
-    termId: "assistant_skill_assignments",
-    exactCount: 1
-  },
-  {
-    path: "docs/DATA-MODEL.md",
-    termId: "skillPolicy",
-    exactCount: 1
-  },
   // S1/S2/S5b authority / absence gates.
   {
     path: "apps/api/test/adr147-s1-assistant-roles-schema.test.ts",
