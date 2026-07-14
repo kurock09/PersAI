@@ -381,13 +381,6 @@ enum AssistantRoleStatus {
   archived
 }
 
-enum AssistantSkillAssignmentStatus {
-  active
-  disabled
-  archived
-  plan_disabled
-}
-
 enum KnowledgeIndexingJobSourceType {
   assistant_knowledge_source
   global_knowledge_source
@@ -765,7 +758,6 @@ model Workspace {
   chatMessageAttachments            AssistantChatMessageAttachment[]
   knowledgeSources                  AssistantKnowledgeSource[]
   knowledgeSourceChunks             AssistantKnowledgeSourceChunk[]
-  assistantSkillAssignments         AssistantSkillAssignment[]
   knowledgeIndexingJobs             KnowledgeIndexingJob[]
   knowledgeVectorChunks             KnowledgeVectorChunk[]
   knowledgeRetrievalEvents          KnowledgeRetrievalEvent[]
@@ -822,7 +814,6 @@ model WorkspaceMember {
   assistantBackgroundTasks     AssistantBackgroundTask[]
   assistantBackgroundTaskRuns  AssistantBackgroundTaskRun[]
   assistantKnowledgeSources    AssistantKnowledgeSource[]
-  assistantSkillAssignments    AssistantSkillAssignment[]
   abuseGuardStates             AssistantAbuseGuardState[]
   workspace                    Workspace                     @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   user                         AppUser                       @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
@@ -896,7 +887,6 @@ model Assistant {
   backgroundTaskRuns                   AssistantBackgroundTaskRun[]
   knowledgeSources                     AssistantKnowledgeSource[]
   knowledgeSourceChunks                AssistantKnowledgeSourceChunk[]
-  skillAssignments                     AssistantSkillAssignment[]
   knowledgeIndexingJobs                KnowledgeIndexingJob[]
   knowledgeVectorChunks                KnowledgeVectorChunk[]
   channelSurfaceBindings               AssistantChannelSurfaceBinding[]
@@ -2939,7 +2929,6 @@ model Skill {
   documentChunks      SkillDocumentChunk[]
   knowledgeCards      SkillKnowledgeCard[]
   knowledgeCardChunks SkillKnowledgeCardChunk[]
-  assignments         AssistantSkillAssignment[]
   roleLinks           AssistantRoleSkill[]
   indexingJobs        KnowledgeIndexingJob[]
   vectorChunks        KnowledgeVectorChunk[]
@@ -3112,29 +3101,6 @@ model SkillKnowledgeCardChunk {
   @@unique([skillKnowledgeCardId, sourceVersion, chunkIndex])
   @@index([skillId, createdAt(sort: Desc)])
   @@map("skill_knowledge_card_chunks")
-}
-
-model AssistantSkillAssignment {
-  id              String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assistantId     String                         @map("assistant_id") @db.Uuid
-  userId          String                         @map("user_id") @db.Uuid
-  workspaceId     String                         @map("workspace_id") @db.Uuid
-  skillId         String                         @map("skill_id") @db.Uuid
-  status          AssistantSkillAssignmentStatus @default(active)
-  disabledReason  String?                        @map("disabled_reason") @db.VarChar(128)
-  enabledAt       DateTime?                      @map("enabled_at") @db.Timestamptz(6)
-  disabledAt      DateTime?                      @map("disabled_at") @db.Timestamptz(6)
-  createdAt       DateTime                       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime                       @updatedAt @map("updated_at") @db.Timestamptz(6)
-  assistant       Assistant                      @relation(fields: [assistantId, userId], references: [id, userId], onDelete: Cascade, onUpdate: Cascade)
-  workspaceMember WorkspaceMember                @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade, onUpdate: Cascade)
-  workspace       Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  skill           Skill                          @relation(fields: [skillId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@unique([assistantId, skillId])
-  @@index([assistantId, status, updatedAt(sort: Desc)])
-  @@index([workspaceId, skillId, status])
-  @@map("assistant_skill_assignments")
 }
 
 model KnowledgeIndexingJob {

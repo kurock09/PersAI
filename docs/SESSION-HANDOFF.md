@@ -1,10 +1,79 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-147 S5b physical contract/drop (local)
+
+Status: **S5b implemented locally against clean committed HEAD `d8195d1d`;
+two parent audits rejected focused evidence, both repaired; final re-audit CLEAN.
+Clean isolated migration proof PASS. Uncommitted, unpushed, undeployed.
+Release C not deployed; complete local repository gate PASS.**
+
+Founder explicitly authorized S5b after the authenticated acceptance repair.
+Old-revision proof from Release B remains present. This slice adds monotonic
+migration `20260714003000_adr147_s5b_drop_assistant_skill_assignments` only
+(no historical migration edits): idempotent plan JSON cleanup first
+(`billing_provider_hints` removes top-level `skillPolicy`;
+`limits_permissions` removes exact keys `enabled_skills_limit` /
+`max_enabled_skills` / `skill_assignments_limit`, preserving order and never
+nulling arrays), then `DROP TABLE IF EXISTS assistant_skill_assignments`, then
+`DROP TYPE IF EXISTS AssistantSkillAssignmentStatus`. Prisma removes
+`AssistantSkillAssignmentStatus`, `AssistantSkillAssignment`, and the four
+relation fields on Workspace / WorkspaceMember / Assistant / Skill.
+
+The first parent audit found one missed active status-list reader:
+`list-knowledge-indexing-jobs.service.ts`. S5a's prior inventory claim of zero
+production readers was therefore incomplete, although runtime/prompt/Knowledge
+content authority was already Role-only. The repair makes shared Skill-job
+visibility use the resolved active Assistant's exact canonical `roleId` and
+requires active Role plus active, non-archived Skill; the assistant-private
+branch remains exact `(assistantId, workspaceId)`. A focused runtime unit test
+pins B2C plus same-workspace B2B resolver use, active-Assistant switching
+(workspace fixed while Assistant/Role change), exact Role/status filters, normal
+row mapping, and unchanged Admin listing. The second audit rejected the initial
+cross-workspace B2B fixture; the corrected same-workspace fixture passed 9/9
+focused S5b tests, and final independent re-audit found no blocker/high/medium.
+
+Read-only production pre-drop inventory records the intentional Release C
+cleanup set: **41 assignment rows across 10 Assistants (24 active, 17
+non-active), 6 billing-hint rows, and 6 entitlement rows/entries**. These rows
+have not been deleted; Release C is not deployed. Focused
+tests invert S1 residual-model and admin-delete Cascade residue to absence,
+retarget Admin Plans preservation to neutral unowned JSON, add an S5b
+migration contract test, and retune the fail-closed active-vocabulary zero
+gate (schema residue zero; historical create/read allowances exact; S5b
+migration exact path+term+count). Optional `EnabledSkillPromptAssignmentStatus`
+cleanup is out of scope. OpenAPI/contracts stay zero semantic diff (assignment
+artifacts already absent).
+
+**Clean migration proof PASS:** isolated `pgvector/pgvector:pg16` applied all
+189 migrations and reported schema current. Postconditions proved the physical
+table/type absent, protected active zero-Skill default Role intact, and exactly
+one canonical Role prompt placeholder. Re-running the contract SQL over
+fixtures proved null/clean billing hints unchanged, target billing policy
+removed while unrelated fields survived, mixed entitlement order preserved,
+all-target arrays became non-null `[]`, malformed non-array JSON remained
+untouched, and physical drops stayed idempotent. The first fixture attempt
+failed before inserting rows because Prisma-managed `updated_at` has no DB
+default; corrected fixture supplied it and passed. Proof container was removed.
+
+**Complete local gate PASS:** recursive lint, repository format, API/web
+typechecks, full API/web/runtime/Admin MCP test suites (web 81 files / 989
+tests; MCP 13/13), API/web/runtime/Admin MCP production builds, Prisma validate,
+stable generated-contract diff, and `git diff --check` all passed. API and
+runtime isolated runners both reached their final suite with exit 0.
+
+**Next recommended step:** commit the audited repair+S5b tree, then perform the
+one founder-authorized push. Release C deploy remains migration-gated and
+parent-supervised; repeat authenticated Settings current-Role and Admin preview
+visual checks on the deployed revision.
+
+---
+
 ## 2026-07-14 — ADR-147 authenticated UI/B2B acceptance repair
 
 Status: **authenticated diagnosis and B2B Role/indicator acceptance PASS; four
-bounded local repairs implemented and full local repair gate PASS; uncommitted,
-unpushed, and undeployed. S5b remains blocked.**
+bounded local repairs implemented and full local repair gate PASS; committed
+locally at `d8195d1d` (historical checkpoint: S5b was still blocked until
+founder authorization).**
 
 Baseline was clean local `dfcd96f4`, one docs checkpoint ahead of
 `origin/main`. The authenticated `alex@agse.ru` B2B session exposes three
@@ -62,9 +131,8 @@ complete Admin MCP 13/13; active-vocabulary zero gate; API and web production
 builds (34/34 static pages). `git diff --check` and IDE diagnostics are clean.
 The only build warning is the existing Next middleware-convention deprecation.
 
-**Next recommended step:** request founder authorization to commit and push this
-repair. After deploy, repeat Settings current-Role and Admin preview visual
-checks on the new revision. Do not start S5b until those deployed repairs pass.
+**Next recommended step (historical):** founder authorized commit of this repair
+and then S5b; see the S5b checkpoint above.
 
 ---
 

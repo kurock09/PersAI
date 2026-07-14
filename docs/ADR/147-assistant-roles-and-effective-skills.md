@@ -3,23 +3,29 @@
 ## Status
 
 In progress — S0 accepted; S1 schema/expand, S2 role-only API/runtime/prompt,
-S3 user Role UX, S4 Admin Role constructor/MCP, and S5a Release-B contract
-cutover are implemented locally. S1–S5a are parent-audited CLEAN. S5a was
-accepted after two rejected audits and final fail-closed gate hardening.
-S5b (physical drop) waits for Release B old-revision proof. S6 clean isolated
-Postgres migrate exposed a real S2 `system` preset gap; local undeployed repair
-landed and parent-audited CLEAN 2026-07-14. A fresh pgvector database then
-applied all 188 migrations successfully. The complete S6 Release B pre-push
-repository gate passed on committed tree `01690e37`, including generated
-contracts twice with zero diff. Release B `a225143e` is deployed through bot
-pin `4c28dd52`; CI, migration, Argo health, exact-revision inventory, and
-operator-accessible Role/runtime/MCP acceptance are green. Authenticated B2B
-acceptance now proves three independently addressed Assistants and a real
-Role-linked Skill/scenario subtitle. It also exposed local undeployed repairs
-for the Settings Role-loading loop, Admin preview HTTP 201/200 mismatch, and
-engagement subtitle release/cross-thread correctness. The complete local repair
-gate passes; changes remain uncommitted, unpushed, and undeployed. Deployed
-Settings/Admin visual recheck remains; S5b stays blocked.
+S3 user Role UX, S4 Admin Role constructor/MCP, S5a Release-B contract cutover,
+and S5b physical contract/drop are implemented locally. S1–S5a are parent-audited
+CLEAN. S5a was accepted after two rejected audits and final fail-closed gate
+hardening. S5b is implemented locally against committed repair HEAD `d8195d1d`.
+Two parent audits rejected focused evidence around a missed indexing-job
+status-list reader and an invalid cross-workspace B2B fixture; both were
+repaired, focused S5b tests pass 9/9, and final independent re-audit is CLEAN.
+Release C is not deployed. Old-revision proof and founder authorization to
+implement S5b are present. S5b migration
+`20260714003000_adr147_s5b_drop_assistant_skill_assignments` idempotently
+removes persisted plan Skill-limit JSON (`billing_provider_hints.skillPolicy`
+and `limits_permissions` keys `enabled_skills_limit` / `max_enabled_skills` /
+`skill_assignments_limit`), then `DROP TABLE IF EXISTS assistant_skill_assignments`
+and `DROP TYPE IF EXISTS AssistantSkillAssignmentStatus`. Prisma model/enum/
+relations are removed. S6 clean isolated Postgres migrate earlier exposed a
+real S2 `system` preset gap; local undeployed repair landed and parent-audited
+CLEAN 2026-07-14. A fresh isolated pgvector database now applies all 189
+migrations through S5b and reports current; postconditions and semantic JSON
+fixtures pass, and the proof container is removed. The complete S6 Release B
+pre-push repository gate passed on committed tree `01690e37`. Release B
+`a225143e` is deployed through bot pin `4c28dd52`. Authenticated B2B acceptance
+and local repair commit `d8195d1d` are present. Full S5b repository gate now
+passes. Commit, push, and Release C deploy remain unclaimed.
 
 ## Date
 
@@ -839,22 +845,38 @@ S5 has two ordered operational phases, not additional product slices:
 2. S5b runs only after Release B old-revision proof and drops the table/enum plus
    persisted plan-limit JSON.
 
-**Local status update (2026-07-14): S5a landed locally against committed S4
-baseline `c39a8481`; not committed/pushed/deployed.** Active direct-assignment
+**Local status update (2026-07-14): S5a landed and parent-audited CLEAN; S5b
+implemented locally against `d8195d1d`; first parent audit rejected one MEDIUM,
+now repaired and awaiting re-audit; Release C not deployed.** S5a removed active direct-assignment
 controller/service/OpenAPI/web wrappers/MCP tool and plan Skill-count limit
-read/write behavior are removed. Persisted plan Skill-limit JSON is ignored on
-read and generically preserved on ordinary Admin Plan updates (unowned
-`billingProviderHints` fields and unowned `limitsPermissions` entries) without
-naming removed Skill-limit keys in production; create does not invent them.
-Prisma model/enum/relations and historical migrations remain for S5b Release C.
-Admin user delete relies on Assistant FK cascade for residual assignment rows
-(no explicit `assistant_skill_assignments` DELETE) and the delete regression
-pins schema `onDelete: Cascade`. Active-vocabulary zero gate is fail-closed on
-the true repository root with full active roots, exact path+term+exactCount
-allowances only, and concatenation detection. Two parent audits rejected S5a
-(first product/docs soft-gate findings; second soft zero-gate / missing Cascade
-pin); final repairs landed in the same uncommitted tree. This is not the S6
-full-repository gate.
+read/write behavior. The S5b audit discovered that S5a's “zero production
+readers” inventory was incomplete: the user-visible indexing-job status list
+still used the residual relation. Runtime/prompt/Knowledge content authority
+was already Role-only. The repair makes that list resolve shared Skill jobs
+through the active Assistant's exact current Role and requires active Role plus
+active, non-archived Skill, while preserving the assistant-private exact
+Assistant/workspace branch. Focused runtime coverage proves B2B active-Assistant
+switch isolation and unchanged Admin listing. S5b adds monotonic migration
+`20260714003000_adr147_s5b_drop_assistant_skill_assignments`: idempotent JSON
+cleanup of `plan_catalog_plans.billing_provider_hints` top-level `skillPolicy`
+and `plan_catalog_entitlements.limits_permissions` entries whose `key` is
+exactly `enabled_skills_limit`, `max_enabled_skills`, or
+`skill_assignments_limit` (order-preserving; arrays never nulled), then
+`DROP TABLE IF EXISTS assistant_skill_assignments`, then
+`DROP TYPE IF EXISTS AssistantSkillAssignmentStatus`. Prisma
+`AssistantSkillAssignment` model/enum and Workspace/WorkspaceMember/Assistant/
+Skill relation fields are removed. Historical create/read migrations remain
+immutable. Admin Plan create/update still preserves neutral unowned JSON
+without inventing removed Skill-limit keys. Active-vocabulary zero gate keeps
+fail-closed exact path+term+exactCount allowances only (schema residue zero;
+historical migrations exact; S5b migration exact). Optional
+`EnabledSkillPromptAssignmentStatus` cleanup is out of scope. This is not the
+S6 full-repository gate, commit, push, or deploy.
+
+Read-only production pre-drop inventory records the intentional Release C
+cleanup set: 41 assignment rows across 10 Assistants (24 active, 17
+non-active), 6 billing-hint rows, and 6 entitlement rows/entries. No deletion
+or deployment is claimed.
 
 Primary files/modules:
 
@@ -887,10 +909,10 @@ Primary files/modules:
 - Admin/MCP authoring and invalidation acceptance.
 - Founder closure only after evidence.
 
-Authenticated acceptance follow-up (2026-07-14, local repair undeployed):
-production Clerk/B2B evidence confirmed three Assistants have independently
-addressable required Roles, all ADR-147 routes are middleware-registered, and a
-real Marketer `instagram_carousel` engage renders
+Authenticated acceptance follow-up (2026-07-14, local repair committed at
+`d8195d1d`): production Clerk/B2B evidence confirmed three Assistants have
+independently addressable required Roles, all ADR-147 routes are
+middleware-registered, and a real Marketer `instagram_carousel` engage renders
 `Маркетолог · Instagram-карусель` under the chat title. The audit repaired four
 bounded issues without changing Role/Skill architecture: unstable auth callback
 identity could self-abort Settings Role loading; Admin preview returned Nest's
@@ -898,8 +920,9 @@ default 201 instead of contract 200; inactive completion omitted explicit
 `engagementSummary: null`; and a background completion lacked a visible-thread
 guard. Focused regressions pin resolver stability, HTTP status, nullable
 normal/replay send+stream transport, SSE set/clear, cross-thread/B2B isolation,
-and publish middleware coverage. S5b remains blocked until the repair passes
-the full gate, deploys, and Settings/Admin visuals pass on the new revision.
+and publish middleware coverage. Founder authorized S5b after that repair;
+S5b is implemented locally and awaits parent audit — not yet committed, pushed,
+or deployed as Release C.
 
 ## Exact S0 conflict ledger
 

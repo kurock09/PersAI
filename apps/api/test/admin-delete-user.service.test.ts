@@ -337,7 +337,7 @@ async function run(): Promise<void> {
     "GC lease must be written before assistant row is deleted"
   );
 
-  // S5a: rely on Assistant FK cascade; explicit assignment DELETE must not return.
+  // S5b: assignment model/relation must be absent; no explicit legacy table DELETE.
   assert.equal(
     normalizedRawSql.some((sql) => sql.includes("assistant_skill_assignments")),
     false,
@@ -361,12 +361,20 @@ async function run(): Promise<void> {
     fileURLToPath(new URL("../prisma/schema.prisma", import.meta.url)),
     "utf8"
   );
-  const assignmentModel = prismaSchema.match(/model AssistantSkillAssignment \{[\s\S]*?\n\}/);
-  assert.ok(assignmentModel, "Prisma must retain residual assignment model until S5b");
-  assert.match(
-    assignmentModel[0],
-    /assistant\s+Assistant\s+@relation\(\s*fields:\s*\[assistantId,\s*userId\],\s*references:\s*\[id,\s*userId\],\s*onDelete:\s*Cascade,\s*onUpdate:\s*Cascade\s*\)/,
-    "assignment.assistant FK must keep onDelete: Cascade"
+  assert.doesNotMatch(
+    prismaSchema,
+    /model AssistantSkillAssignment\s*\{/,
+    "Prisma must not retain AssistantSkillAssignment after S5b"
+  );
+  assert.doesNotMatch(
+    prismaSchema,
+    /enum AssistantSkillAssignmentStatus/,
+    "Prisma must not retain AssistantSkillAssignmentStatus after S5b"
+  );
+  assert.doesNotMatch(
+    prismaSchema,
+    /skillAssignments\s+AssistantSkillAssignment/,
+    "Assistant must not retain skillAssignments relation after S5b"
   );
 }
 

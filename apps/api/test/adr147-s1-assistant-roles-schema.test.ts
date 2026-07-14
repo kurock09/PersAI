@@ -138,4 +138,8 @@ assert.equal(
   false,
   "S5a deletes the active direct-assignment controller"
 );
-assert.match(schema, /model AssistantSkillAssignment \{/);
+assert.doesNotMatch(schema, /model AssistantSkillAssignment \{/);
+assert.doesNotMatch(schema, /enum AssistantSkillAssignmentStatus/);
+assert.doesNotMatch(schema, /assistantSkillAssignments\s+AssistantSkillAssignment/);
+assert.doesNotMatch(schema, /skillAssignments\s+AssistantSkillAssignment/);
+assert.doesNotMatch(schema, /assignments\s+AssistantSkillAssignment/);

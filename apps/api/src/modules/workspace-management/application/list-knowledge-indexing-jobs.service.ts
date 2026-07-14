@@ -46,11 +46,14 @@ export class ListKnowledgeIndexingJobsService {
           {
             sourceType: { in: ["skill_document", "skill_knowledge_card"] },
             skill: {
-              assignments: {
+              status: "active",
+              archivedAt: null,
+              roleLinks: {
                 some: {
-                  assistantId: assistant.assistantId,
-                  userId,
-                  status: "active"
+                  roleId: assistant.assistant.roleId,
+                  role: {
+                    status: "active"
+                  }
                 }
               }
             }

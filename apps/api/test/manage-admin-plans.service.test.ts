@@ -243,7 +243,6 @@ async function run(): Promise<void> {
     imageEditMonthlyUnitsLimit: 10,
     knowledgeStorageBytesLimit: 4096
   });
-  assert.equal((writeInput.billingProviderHints as Record<string, unknown>).skillPolicy, undefined);
   assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).assistantPolicy, {
     schema: "persai.assistantPolicy.v1",
     maxAssistants: 1
@@ -252,6 +251,12 @@ async function run(): Promise<void> {
     schema: "persai.planContextHydration.v1",
     ...contextPolicy
   });
+  // Create/update invent none of the removed Skill-limit keys via active owned
+  // vocabulary only (no production aliases for removed names).
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(writeInput.billingProviderHints, "skillPolicy"),
+    false
+  );
 
   const state = (
     service as unknown as {
@@ -465,24 +470,6 @@ async function run(): Promise<void> {
     1
   );
 
-  const ignoredLegacySkillPolicyParsed = service.parseUpdateInput({
-    ...parsed,
-    skillPolicy: {
-      maxEnabledSkills: 0
-    }
-  });
-  const ignoredLegacySkillPolicyWriteInput = (
-    service as unknown as {
-      toWriteInput(input: typeof ignoredLegacySkillPolicyParsed): { billingProviderHints: unknown };
-    }
-  ).toWriteInput(ignoredLegacySkillPolicyParsed);
-  assert.equal(
-    (ignoredLegacySkillPolicyWriteInput.billingProviderHints as Record<string, unknown>)
-      .skillPolicy,
-    undefined,
-    "S5a ignores request skillPolicy and does not rewrite persisted Skill-limit JSON keys"
-  );
-
   // Create must not invent unowned residual plan JSON fields.
   const createWriteWithoutExisting = (
     service as unknown as {
@@ -492,10 +479,22 @@ async function run(): Promise<void> {
       };
     }
   ).toWriteInput(parsed);
-  assert.equal(createWriteWithoutExisting.billingProviderHints.skillPolicy, undefined);
-  assert.deepEqual(createWriteWithoutExisting.entitlementModel.limitsPermissions, []);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      createWriteWithoutExisting.billingProviderHints,
+      "skillPolicy"
+    ),
+    false,
+    "create must not invent removed Skill-limit billingProviderHints keys"
+  );
+  assert.deepEqual(
+    createWriteWithoutExisting.entitlementModel.limitsPermissions,
+    [],
+    "create must not invent limitsPermissions entries"
+  );
 
-  // Update round-trip: preserve unowned residual Skill-limit JSON without Admin/Public exposure.
+  // Update round-trip: preserve neutral unowned JSON without Admin/Public exposure.
+  // Do not use removed Skill-limit vocabulary as the preservation fixture.
   let legacyPreserveWriteInput: {
     billingProviderHints: Record<string, unknown>;
     entitlementModel: { limitsPermissions: unknown[] };
@@ -514,7 +513,7 @@ async function run(): Promise<void> {
             schema: "persai.billingHints.v1",
             providerAgnostic: true,
             notes: "keep me",
-            skillPolicy: { maxEnabledSkills: 7 },
+            operatorLegacyTag: "preserve-me",
             contextPolicy: {
               schema: "persai.planContextHydration.v1",
               ...contextPolicy
@@ -557,9 +556,8 @@ async function run(): Promise<void> {
               { key: "max", allowed: false }
             ],
             limitsPermissions: [
-              { key: "enabled_skills_limit", value: 7 },
-              { key: "max_enabled_skills", value: 7 },
-              { key: "skill_assignments_limit", value: 7 }
+              { key: "legacy_operator_quota", value: 7 },
+              { key: "active_web_chats_limit", value: 12 }
             ]
           },
           toolActivations: [],
@@ -640,19 +638,18 @@ async function run(): Promise<void> {
     "step-up"
   );
   assert.ok(legacyPreserveWriteInput !== null);
-  assert.deepEqual(
+  assert.equal(
     (legacyPreserveWriteInput as NonNullable<typeof legacyPreserveWriteInput>).billingProviderHints
-      .skillPolicy,
-    { maxEnabledSkills: 7 },
+      .operatorLegacyTag,
+    "preserve-me",
     "update must preserve unowned residual billingProviderHints fields"
   );
   assert.deepEqual(
     (legacyPreserveWriteInput as NonNullable<typeof legacyPreserveWriteInput>).entitlementModel
       .limitsPermissions,
     [
-      { key: "enabled_skills_limit", value: 7 },
-      { key: "max_enabled_skills", value: 7 },
-      { key: "skill_assignments_limit", value: 7 }
+      { key: "legacy_operator_quota", value: 7 },
+      { key: "active_web_chats_limit", value: 12 }
     ],
     "update must preserve unowned residual limitsPermissions entries"
   );
@@ -662,7 +659,7 @@ async function run(): Promise<void> {
     "patched notes"
   );
   assert.equal(
-    "skillPolicy" in legacyPreserveAdminState,
+    Object.prototype.hasOwnProperty.call(legacyPreserveAdminState, "skillPolicy"),
     false,
     "Admin plan state must not expose removed Skill-limit fields"
   );
@@ -720,7 +717,7 @@ async function run(): Promise<void> {
   }).listPublicPricingPlans();
   assert.equal(legacyPreservePublic.length, 1);
   assert.equal(
-    "skillPolicy" in (legacyPreservePublic[0] as object),
+    Object.prototype.hasOwnProperty.call(legacyPreservePublic[0] as object, "skillPolicy"),
     false,
     "Public pricing state must not expose removed Skill-limit fields"
   );

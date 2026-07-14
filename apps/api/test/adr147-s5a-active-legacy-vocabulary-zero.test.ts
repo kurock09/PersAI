@@ -11,12 +11,13 @@ import { isAbsolute, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * ADR-147 S5a active-legacy-vocabulary zero gate.
+ * ADR-147 S5a/S5b active-legacy-vocabulary zero gate.
  *
- * Fail-closed scan of every configured active root. Physical Prisma residue and
- * immutable historical migrations use exact path+term+exactCount allowances.
- * Historical/absence wording uses the same exact-count contract. No wildcards.
- * No allowance may apply to production code.
+ * Fail-closed scan of every configured active root. After S5b, Prisma schema
+ * residue is zero. Immutable historical migrations and the S5b contract
+ * migration use exact path+term+exactCount allowances. Historical/absence
+ * wording uses the same exact-count contract. No wildcards. No allowance may
+ * apply to production code.
  */
 
 const GATE_REL_POSIX = "apps/api/test/adr147-s5a-active-legacy-vocabulary-zero.test.ts";
@@ -62,28 +63,11 @@ type ExactAllowance = {
   exactCount: number;
 };
 
-/** Current Prisma model/enum/relation residue — exact path + term + count only. */
+/**
+ * Physical Prisma residue — schema must be zero after S5b. Immutable historical
+ * create/read migrations and the S5b contract migration use exact path+term+count.
+ */
 const PHYSICAL_RESIDUE_ALLOWANCES: ExactAllowance[] = [
-  {
-    path: "apps/api/prisma/schema.prisma",
-    termId: "AssistantSkillAssignment",
-    exactCount: 7
-  },
-  {
-    path: "apps/api/prisma/schema.prisma",
-    termId: "assistantSkillAssignment",
-    exactCount: 2
-  },
-  {
-    path: "apps/api/prisma/schema.prisma",
-    termId: "assistant_skill_assignments",
-    exactCount: 1
-  },
-  {
-    path: "apps/api/prisma/schema.prisma",
-    termId: "AssistantSkillAssignmentStatus",
-    exactCount: 2
-  },
   {
     path: "apps/api/prisma/migrations/20260501120000_adr079_knowledge_skills_foundation/migration.sql",
     termId: "AssistantSkillAssignment",
@@ -103,6 +87,41 @@ const PHYSICAL_RESIDUE_ALLOWANCES: ExactAllowance[] = [
     path: "apps/api/prisma/migrations/20260505214500_adr079_skill_decision_and_cadence_state/migration.sql",
     termId: "assistant_skill_assignments",
     exactCount: 1
+  },
+  {
+    path: "apps/api/prisma/migrations/20260714003000_adr147_s5b_drop_assistant_skill_assignments/migration.sql",
+    termId: "AssistantSkillAssignment",
+    exactCount: 2
+  },
+  {
+    path: "apps/api/prisma/migrations/20260714003000_adr147_s5b_drop_assistant_skill_assignments/migration.sql",
+    termId: "assistant_skill_assignments",
+    exactCount: 2
+  },
+  {
+    path: "apps/api/prisma/migrations/20260714003000_adr147_s5b_drop_assistant_skill_assignments/migration.sql",
+    termId: "AssistantSkillAssignmentStatus",
+    exactCount: 2
+  },
+  {
+    path: "apps/api/prisma/migrations/20260714003000_adr147_s5b_drop_assistant_skill_assignments/migration.sql",
+    termId: "skillPolicy",
+    exactCount: 3
+  },
+  {
+    path: "apps/api/prisma/migrations/20260714003000_adr147_s5b_drop_assistant_skill_assignments/migration.sql",
+    termId: "enabled_skills_limit",
+    exactCount: 2
+  },
+  {
+    path: "apps/api/prisma/migrations/20260714003000_adr147_s5b_drop_assistant_skill_assignments/migration.sql",
+    termId: "max_enabled_skills",
+    exactCount: 2
+  },
+  {
+    path: "apps/api/prisma/migrations/20260714003000_adr147_s5b_drop_assistant_skill_assignments/migration.sql",
+    termId: "skill_assignments_limit",
+    exactCount: 2
   }
 ];
 
@@ -111,15 +130,20 @@ const PHYSICAL_RESIDUE_ALLOWANCES: ExactAllowance[] = [
  * Must not apply to production code (enforced separately).
  */
 const HISTORICAL_WORDING_ALLOWANCES: ExactAllowance[] = [
-  // ADR-147 documents cutover and remaining S5b physical drop.
+  // ADR-147 documents cutover and S5b physical drop.
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "AssistantSkillAssignment",
-    exactCount: 6
+    exactCount: 9
   },
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "assistant_skill_assignments",
+    exactCount: 5
+  },
+  {
+    path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
+    termId: "AssistantSkillAssignmentStatus",
     exactCount: 2
   },
   {
@@ -140,28 +164,38 @@ const HISTORICAL_WORDING_ALLOWANCES: ExactAllowance[] = [
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "max_enabled_skills",
-    exactCount: 1
+    exactCount: 3
   },
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "enabled_skills_limit",
-    exactCount: 1
+    exactCount: 3
   },
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "skill_assignments_limit",
-    exactCount: 1
+    exactCount: 3
   },
   {
     path: "docs/ADR/147-assistant-roles-and-effective-skills.md",
     termId: "skillPolicy",
-    exactCount: 2
+    exactCount: 4
   },
-  // Current handoff / changelog historical wording.
+  // Current handoff / changelog / data-model historical wording.
   {
     path: "docs/SESSION-HANDOFF.md",
     termId: "AssistantSkillAssignment",
-    exactCount: 3
+    exactCount: 6
+  },
+  {
+    path: "docs/SESSION-HANDOFF.md",
+    termId: "AssistantSkillAssignmentStatus",
+    exactCount: 2
+  },
+  {
+    path: "docs/SESSION-HANDOFF.md",
+    termId: "assistant_skill_assignments",
+    exactCount: 2
   },
   {
     path: "docs/SESSION-HANDOFF.md",
@@ -177,6 +211,26 @@ const HISTORICAL_WORDING_ALLOWANCES: ExactAllowance[] = [
     path: "docs/SESSION-HANDOFF.md",
     termId: "assistant_skills_assign",
     exactCount: 2
+  },
+  {
+    path: "docs/SESSION-HANDOFF.md",
+    termId: "max_enabled_skills",
+    exactCount: 1
+  },
+  {
+    path: "docs/SESSION-HANDOFF.md",
+    termId: "enabled_skills_limit",
+    exactCount: 1
+  },
+  {
+    path: "docs/SESSION-HANDOFF.md",
+    termId: "skill_assignments_limit",
+    exactCount: 1
+  },
+  {
+    path: "docs/SESSION-HANDOFF.md",
+    termId: "skillPolicy",
+    exactCount: 1
   },
   {
     path: "docs/SESSION-HANDOFF.md",
@@ -186,7 +240,17 @@ const HISTORICAL_WORDING_ALLOWANCES: ExactAllowance[] = [
   {
     path: "docs/CHANGELOG.md",
     termId: "AssistantSkillAssignment",
+    exactCount: 2
+  },
+  {
+    path: "docs/CHANGELOG.md",
+    termId: "AssistantSkillAssignmentStatus",
     exactCount: 1
+  },
+  {
+    path: "docs/CHANGELOG.md",
+    termId: "assistant_skill_assignments",
+    exactCount: 2
   },
   {
     path: "docs/CHANGELOG.md",
@@ -205,8 +269,23 @@ const HISTORICAL_WORDING_ALLOWANCES: ExactAllowance[] = [
   },
   {
     path: "docs/CHANGELOG.md",
-    termId: "skillPolicy",
+    termId: "max_enabled_skills",
     exactCount: 1
+  },
+  {
+    path: "docs/CHANGELOG.md",
+    termId: "enabled_skills_limit",
+    exactCount: 1
+  },
+  {
+    path: "docs/CHANGELOG.md",
+    termId: "skill_assignments_limit",
+    exactCount: 1
+  },
+  {
+    path: "docs/CHANGELOG.md",
+    termId: "skillPolicy",
+    exactCount: 2
   },
   {
     path: "docs/CHANGELOG.md",
@@ -218,16 +297,41 @@ const HISTORICAL_WORDING_ALLOWANCES: ExactAllowance[] = [
     termId: "factSkills",
     exactCount: 2
   },
-  // S1/S2 authority / absence gates.
+  {
+    path: "docs/DATA-MODEL.md",
+    termId: "AssistantSkillAssignment",
+    exactCount: 2
+  },
+  {
+    path: "docs/DATA-MODEL.md",
+    termId: "AssistantSkillAssignmentStatus",
+    exactCount: 1
+  },
+  {
+    path: "docs/DATA-MODEL.md",
+    termId: "assistant_skill_assignments",
+    exactCount: 1
+  },
+  {
+    path: "docs/DATA-MODEL.md",
+    termId: "skillPolicy",
+    exactCount: 1
+  },
+  // S1/S2/S5b authority / absence gates.
   {
     path: "apps/api/test/adr147-s1-assistant-roles-schema.test.ts",
     termId: "AssistantSkillAssignment",
+    exactCount: 5
+  },
+  {
+    path: "apps/api/test/adr147-s1-assistant-roles-schema.test.ts",
+    termId: "AssistantSkillAssignmentStatus",
     exactCount: 1
   },
   {
     path: "apps/api/test/adr147-s1-assistant-roles-schema.test.ts",
     termId: "assistantSkillAssignment",
-    exactCount: 2
+    exactCount: 3
   },
   {
     path: "apps/api/test/adr147-s1-assistant-roles-schema.test.ts",
@@ -264,33 +368,48 @@ const HISTORICAL_WORDING_ALLOWANCES: ExactAllowance[] = [
     termId: "assistant-skills.controller",
     exactCount: 1
   },
-  // Plan update fixtures prove ignore + preserve without Admin/Public exposure.
   {
-    path: "apps/api/test/manage-admin-plans.service.test.ts",
-    termId: "skillPolicy",
+    path: "apps/api/test/adr147-s5b-drop-assistant-skill-assignments-migration.test.ts",
+    termId: "AssistantSkillAssignment",
+    exactCount: 7
+  },
+  {
+    path: "apps/api/test/adr147-s5b-drop-assistant-skill-assignments-migration.test.ts",
+    termId: "AssistantSkillAssignmentStatus",
+    exactCount: 6
+  },
+  {
+    path: "apps/api/test/adr147-s5b-drop-assistant-skill-assignments-migration.test.ts",
+    termId: "assistant_skill_assignments",
     exactCount: 9
   },
   {
-    path: "apps/api/test/manage-admin-plans.service.test.ts",
-    termId: "maxEnabledSkills",
-    exactCount: 3
+    path: "apps/api/test/adr147-s5b-drop-assistant-skill-assignments-migration.test.ts",
+    termId: "skillPolicy",
+    exactCount: 4
   },
   {
-    path: "apps/api/test/manage-admin-plans.service.test.ts",
-    termId: "max_enabled_skills",
-    exactCount: 2
-  },
-  {
-    path: "apps/api/test/manage-admin-plans.service.test.ts",
+    path: "apps/api/test/adr147-s5b-drop-assistant-skill-assignments-migration.test.ts",
     termId: "enabled_skills_limit",
-    exactCount: 2
+    exactCount: 1
   },
   {
-    path: "apps/api/test/manage-admin-plans.service.test.ts",
-    termId: "skill_assignments_limit",
-    exactCount: 2
+    path: "apps/api/test/adr147-s5b-drop-assistant-skill-assignments-migration.test.ts",
+    termId: "max_enabled_skills",
+    exactCount: 1
   },
-  // Admin-delete: no explicit table DELETE + Assistant FK Cascade pin.
+  {
+    path: "apps/api/test/adr147-s5b-drop-assistant-skill-assignments-migration.test.ts",
+    termId: "skill_assignments_limit",
+    exactCount: 1
+  },
+  // Plan update fixtures prove invent-none + neutral unowned preservation.
+  {
+    path: "apps/api/test/manage-admin-plans.service.test.ts",
+    termId: "skillPolicy",
+    exactCount: 4
+  },
+  // Admin-delete: no explicit table DELETE + model/relation absent after S5b.
   {
     path: "apps/api/test/admin-delete-user.service.test.ts",
     termId: "assistant_skill_assignments",
@@ -299,7 +418,12 @@ const HISTORICAL_WORDING_ALLOWANCES: ExactAllowance[] = [
   {
     path: "apps/api/test/admin-delete-user.service.test.ts",
     termId: "AssistantSkillAssignment",
-    exactCount: 1
+    exactCount: 5
+  },
+  {
+    path: "apps/api/test/admin-delete-user.service.test.ts",
+    termId: "AssistantSkillAssignmentStatus",
+    exactCount: 2
   },
   // Pricing copy absence.
   {
