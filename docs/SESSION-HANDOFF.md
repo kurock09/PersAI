@@ -2,10 +2,11 @@
 
 ## 2026-07-14 — ADR-148 sandbox session warmth repair (local)
 
-Status: **implemented on `main` together with local Role status-line UX;
-sandbox suite `107/107` PASS; web focused Role/settings/sidebar `131/131`
-PASS; AGENTS lint/format + api/web/sandbox/runtime typecheck PASS; commit/push
-next.**
+Status: **landed and pushed on `origin/main` as `9e26f145` together with Role
+status-line UX; sandbox suite `107/107` PASS; web focused Role/settings/sidebar
+`131/131` PASS; AGENTS lint/format + api/web/sandbox/runtime typecheck PASS.
+Await Dev Image Publish / sandbox image pin, then live-prove warm pod reuse and
+`pip install --user` across separate shell commands.**
 
 Founder-directed ADR-148 repairs the regression that unconditionally retired the
 bound sandbox pod after every `shell` / `exec` / `document.*` job. The active
