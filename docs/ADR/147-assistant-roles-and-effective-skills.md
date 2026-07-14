@@ -6,8 +6,11 @@ In progress — S0 accepted; S1 schema/expand, S2 role-only API/runtime/prompt,
 S3 user Role UX, S4 Admin Role constructor/MCP, and S5a Release-B contract
 cutover are implemented locally. S1–S5a are parent-audited CLEAN. S5a was
 accepted after two rejected audits and final fail-closed gate hardening.
-S5b (physical drop) waits for Release B old-revision proof. No ADR-147 code has
-been pushed or deployed.
+S5b (physical drop) waits for Release B old-revision proof. S6 clean isolated
+Postgres migrate exposed a real S2 `system` preset gap; local undeployed repair
+landed and parent-audited CLEAN 2026-07-14. A fresh pgvector database then
+applied all 188 migrations successfully; the complete S6 repository gate still
+must rerun from the repaired tree. No ADR-147 code has been pushed or deployed.
 
 ## Date
 
@@ -737,6 +740,16 @@ Assistant/expected-Role/engage-Skill UUIDs are validated before raw casts. The e
 `AssistantSkillAssignment` storage remain physically available for the
 unchanged S3 UI through S2, but neither contributes effective runtime truth.
 
+S6 clean-DB repair (2026-07-14, local, undeployed): the S2 prompt migration
+required `bootstrap_document_presets.id='system'`, but historical migrations
+never inserted that row (application seed did). On a pristine migration-only DB
+(`assistants` and `workspaces` both empty) the undeployed S2 migration now
+inserts the canonical visible system default minus only
+`{{assistant_role_block}}`, then runs the existing one-time role-placeholder
+insertion/order validation. A populated DB missing `system` remains fail-closed.
+Existing production rows stay lock-and-patch / idempotent as before. Historical
+migrations are not rewritten. This repair is not a full S6 acceptance claim.
+
 ### S3 — user Role UX
 
 - **Local status update (2026-07-14): landed locally, not deployed.**
@@ -852,7 +865,9 @@ Primary files/modules:
 - Run the complete repository test/build/verification contour used by ADR-146,
   not only affected checks.
 - Generated-contract zero-diff.
-- Clean-database Prisma migration validation.
+- Clean-database Prisma migration validation (S6 exposed that the S2 system
+  preset bootstrap was required for migration-only DBs; local repair landed
+  2026-07-14 — parent must re-prove the isolated migrate before claiming S6).
 - Active legacy/dead-code/vocabulary zero audit.
 - Commit all locally accepted slices; verify clean tracked/untracked state.
 - Perform one parent-authorized push only after every pre-push gate is green.

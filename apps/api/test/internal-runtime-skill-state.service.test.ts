@@ -290,7 +290,8 @@ async function run(): Promise<void> {
   );
   assert.match(
     roleService,
-    /FROM "assistants"[\s\S]*WHERE "id" = \$\{resolved\.assistantId\}::uuid[\s\S]*FOR UPDATE/
+    /FROM "assistants"[\s\S]*WHERE "id" = \$\{input\.assistantId\}::uuid[\s\S]*AND "user_id" = \$\{input\.ownerUserId\}::uuid[\s\S]*AND "workspace_id" = \$\{input\.workspaceId\}::uuid[\s\S]*FOR UPDATE/,
+    "Role change must lock the explicit Assistant under owner and workspace scope"
   );
   assert.match(
     roleService,

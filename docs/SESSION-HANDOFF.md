@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-147 S6 clean-DB migration repair (system preset bootstrap)
+
+Status: **implemented locally and parent-audited CLEAN; unpushed,
+undeployed.** Baseline HEAD was `e7390528`. The founder-authorized
+`chat-plan-card.tsx` / `.test.tsx` changes were already included in that
+baseline and were not modified by this repair.
+
+**S6 blocker (real):** an isolated migration-only Postgres apply of all current
+migrations succeeded through `20260714002000_adr147_s2_assistant_role_prompt_block`
+and then failed because `bootstrap_document_presets.id='system'` was absent.
+Historical `20260401100001_h3_bootstrap_preset_seed_data` inserts only
+soul/user/identity/agents; `20260518003000_prompt_constructor_polish_prod` only
+UPDATEs system. Production normally received the system row via application
+seed (`ManagePromptTemplatesService` / `prisma/seed.ts`), so shared/prod DBs
+were fine while a pristine migration-only DB was not.
+
+**Repair:** edit only the undeployed S2 migration (no historical migration
+rewrites). When `system` is missing and the DB is demonstrably pristine
+(`assistants` count = 0 and `workspaces` count = 0), INSERT the canonical
+visible system default minus only `{{assistant_role_block}}`, then run the
+existing one-time role-placeholder insertion/order validation. A populated DB
+missing `system` still raises fail-closed. Existing production row remains
+`FOR UPDATE` locked and patched exactly as before; duplicate/out-of-order
+placeholder stays fail-closed; idempotent `IS DISTINCT FROM` update preserved.
+Source/migration parity is locked in the focused SQL/source contract test.
+
+**Focused verification PASS:** `adr147-s2-assistant-role-prompt-migration.test.ts`,
+`bootstrap-preset-data.test.ts`, recursive lint, `format:check`, API + web
+typecheck, `git diff --check`. Parent then recreated an isolated pgvector
+Postgres database and all 188 migrations applied successfully; Prisma status
+was current, `persai_default` was active with zero Role Skills, and the system
+template had exactly one Role placeholder in canonical identity → Role →
+enabled-Skills order. Independent parent audit found no blocker/high finding.
+This is not yet the complete S6 repository gate.
+
+**Out of scope / residuals:** no S5b, no push/deploy, and no full S6 gate claim.
+The remaining S6 pre-push contour must rerun from the repaired committed tree.
+
+**Next recommended step:** commit this audited repair and rerun the complete S6
+pre-release gate from that exact tree. Keep S5b blocked until Release B
+old-revision absence is proved.
+
+---
+
 ## 2026-07-14 — ADR-147 S5a Release-B contract cutover
 
 Status: **implemented locally and parent-audited CLEAN after two rejected
