@@ -47,6 +47,10 @@ import {
   deleteAssistantWebChat
 } from "../assistant-api-client";
 import {
+  resolveAssistantStatusLineText,
+  useAssistantLiveRoleName
+} from "./use-assistant-live-role-name";
+import {
   useHasThreadActiveDocumentJobs,
   useHasThreadActiveMediaJobs,
   useIsThreadStreaming
@@ -212,6 +216,7 @@ export function Sidebar({
   const t = useTranslations("sidebar");
   const ts = useTranslations("settings");
   const locale = useLocale();
+  const { getToken } = useAuth();
   const statusCfg = STATUS_CONFIG[data.assistantStatus];
   const statusLabelMap: Record<string, string> = {
     live: ts("live"),
@@ -221,6 +226,18 @@ export function Sidebar({
     degraded: ts("degraded"),
     none: ts("notCreated")
   };
+  const statusLabel = statusLabelMap[data.assistantStatus] ?? statusCfg.label;
+  const liveRoleName = useAssistantLiveRoleName({
+    assistantId: data.assistant?.id,
+    assistantStatus: data.assistantStatus,
+    locale,
+    getToken
+  });
+  const statusLineLabel = resolveAssistantStatusLineText({
+    status: data.assistantStatus,
+    statusLabel,
+    liveRoleName
+  });
   const assistantName = data.assistant?.draft.displayName ?? t("defaultAssistant");
   const hasUnreadSupport = supportUnreadCount > 0;
   const hasMultiAssistantAccess = (data.assistantLimit?.maxAssistants ?? 1) > 1;
@@ -330,9 +347,7 @@ export function Sidebar({
               ) : (
                 <span className="flex items-center gap-1.5">
                   <span className={cn("inline-block h-2 w-2 rounded-full", statusCfg.dot)} />
-                  <span className="text-xs text-text-muted">
-                    {statusLabelMap[data.assistantStatus] ?? statusCfg.label}
-                  </span>
+                  <span className="text-xs text-text-muted">{statusLineLabel}</span>
                 </span>
               )}
             </div>

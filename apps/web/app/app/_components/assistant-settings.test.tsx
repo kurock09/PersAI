@@ -791,6 +791,17 @@ describe("AssistantSettings character CTA", () => {
     expect(screen.getByRole("button", { name: "Customize" })).toBeInTheDocument();
   }, 10000);
 
+  it("shows the current Role name under the assistant name when status is live", async () => {
+    renderSettings(makeAppData(), "character");
+
+    await waitFor(() => {
+      expect(assistantApiMocks.getAssistantRole).toHaveBeenCalled();
+      expect(screen.getByText("Personal assistant")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Live")).toBeNull();
+    expect(screen.queryByText("live")).toBeNull();
+  });
+
   it("moves memory and recreate into character actions and opens dedicated overlays", async () => {
     renderSettings(makeAppData(), "character");
 
@@ -3180,6 +3191,8 @@ describe("AssistantSettings character save and publish", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalled());
+    assistantApiMocks.getAssistantRole.mockClear();
+    assistantApiMocks.postAssistantPublish.mockClear();
 
     rerender(
       <NextIntlClientProvider locale="en" messages={enMessages}>
@@ -3192,8 +3205,15 @@ describe("AssistantSettings character save and publish", () => {
 
     patchDeferred.resolve(undefined);
     await Promise.resolve();
+    await Promise.resolve();
 
-    expect(assistantApiMocks.getAssistantRole).not.toHaveBeenCalled();
+    // Live status-line may fetch Role for assistant-2 after the switch; the abandoned
+    // save must not continue into publish for the original assistant.
+    expect(assistantApiMocks.getAssistantRole).not.toHaveBeenCalledWith(
+      "token-1",
+      "assistant-1",
+      expect.any(AbortSignal)
+    );
     expect(assistantApiMocks.postAssistantPublish).not.toHaveBeenCalled();
     expect(reload).not.toHaveBeenCalled();
     expect(screen.queryByText("Saved.")).not.toBeInTheDocument();

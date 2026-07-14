@@ -1483,6 +1483,297 @@ test("SandboxService: pod retirement follows terminal persistence and precedes l
   }
 });
 
+test("SandboxService: session pod cleanup follows terminal persistence and precedes lease release", async () => {
+  const events: string[] = [];
+  const service = new SandboxService(
+    {
+      sandboxJob: {
+        async updateMany(input: { data: Record<string, unknown> }) {
+          if (typeof input.data.status === "string") {
+            events.push(`job:${input.data.status}`);
+          }
+          return { count: 1 };
+        }
+      },
+      assistantWorkspaceLease: {
+        async create(input: { data: Record<string, unknown> }) {
+          return {
+            id: "lease-clean-session",
+            assistantId: String(input.data.assistantId),
+            workspaceId: String(input.data.workspaceId),
+            sandboxJobId: null,
+            leaseToken: String(input.data.leaseToken),
+            holderId: String(input.data.holderId),
+            expiresAt: input.data.expiresAt as Date
+          };
+        },
+        async updateMany(input: { data: Record<string, unknown> }) {
+          if (String(input.data.leaseToken ?? "").startsWith("released:")) {
+            events.push("lease:released");
+          }
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {
+      buildSandboxObjectKey() {
+        return "obj/key";
+      },
+      buildSessionSnapshotKey() {
+        return "snap/key";
+      },
+      async saveObject(input: { buffer: Buffer }) {
+        return input.buffer.length;
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 0 }),
+    {
+      async runInPod() {
+        return {
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+          durationMs: 1,
+          execPodName: "ses-clean-session",
+          execPodBinding: {
+            namespace: "persai-dev",
+            podName: "ses-clean-session",
+            podUid: "uid-clean-session",
+            podResourceVersion: "1",
+            leaseToken: "lease-token-clean-session",
+            leaseHolderId: "holder-test",
+            jobId: "job-clean-session",
+            assistantId: "assistant-clean-session",
+            workspaceId: "workspace-clean-session",
+            assistantHandle: "assistant-clean-session",
+            mode: "restricted"
+          }
+        };
+      },
+      async cleanupBoundSessionPod() {
+        events.push("pod:clean");
+        return { podName: "ses-clean-session", podUid: "uid-clean-session" };
+      },
+      async retireModelJobPod() {
+        events.push("pod:retired");
+        return { podName: "ses-clean-session", podUid: "uid-clean-session", retired: true };
+      }
+    } as never,
+    {} as never
+  );
+
+  await (service as unknown as SandboxServiceTestAccess).executeQueuedJob("job-clean-session", {
+    assistantId: "assistant-clean-session",
+    workspaceId: "workspace-clean-session",
+    runtimeRequestId: "request-clean-session",
+    runtimeSessionId: "runtime-session-clean",
+    toolCode: "shell",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+    args: { command: "echo lifecycle" }
+  });
+
+  const terminalIndex = events.indexOf("job:completed");
+  const cleanupIndex = events.indexOf("pod:clean");
+  const retirementIndex = events.indexOf("pod:retired");
+  const releaseIndex = events.indexOf("lease:released");
+  assert.ok(terminalIndex >= 0, "terminal job state must persist");
+  assert.ok(cleanupIndex > terminalIndex, "cleanup must follow persistence");
+  assert.equal(retirementIndex, -1, "clean session pod must not retire");
+  assert.ok(releaseIndex > cleanupIndex, "lease release must follow cleanup");
+});
+
+test("SandboxService: failed session pod cleanup falls back to retirement before lease release", async () => {
+  const events: string[] = [];
+  const service = new SandboxService(
+    {
+      sandboxJob: {
+        async updateMany(input: { data: Record<string, unknown> }) {
+          if (typeof input.data.status === "string") {
+            events.push(`job:${input.data.status}`);
+          }
+          return { count: 1 };
+        }
+      },
+      assistantWorkspaceLease: {
+        async create(input: { data: Record<string, unknown> }) {
+          return {
+            id: "lease-cleanup-fallback",
+            assistantId: String(input.data.assistantId),
+            workspaceId: String(input.data.workspaceId),
+            sandboxJobId: null,
+            leaseToken: String(input.data.leaseToken),
+            holderId: String(input.data.holderId),
+            expiresAt: input.data.expiresAt as Date
+          };
+        },
+        async updateMany(input: { data: Record<string, unknown> }) {
+          if (String(input.data.leaseToken ?? "").startsWith("released:")) {
+            events.push("lease:released");
+          }
+          return { count: 1 };
+        }
+      }
+    } as never,
+    {
+      buildSandboxObjectKey() {
+        return "obj/key";
+      },
+      buildSessionSnapshotKey() {
+        return "snap/key";
+      },
+      async saveObject(input: { buffer: Buffer }) {
+        return input.buffer.length;
+      }
+    } as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig({ SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT: 0 }),
+    {
+      async runInPod() {
+        return {
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+          durationMs: 1,
+          execPodName: "ses-cleanup-fallback",
+          execPodBinding: {
+            namespace: "persai-dev",
+            podName: "ses-cleanup-fallback",
+            podUid: "uid-cleanup-fallback",
+            podResourceVersion: "1",
+            leaseToken: "lease-token-cleanup-fallback",
+            leaseHolderId: "holder-test",
+            jobId: "job-cleanup-fallback",
+            assistantId: "assistant-cleanup-fallback",
+            workspaceId: "workspace-cleanup-fallback",
+            assistantHandle: "assistant-cleanup-fallback",
+            mode: "restricted"
+          }
+        };
+      },
+      async cleanupBoundSessionPod() {
+        events.push("pod:cleanup-failed");
+        throw new Error("cleanup could not prove baseline");
+      },
+      async retireModelJobPod() {
+        events.push("pod:retired");
+        return { podName: "ses-cleanup-fallback", podUid: "uid-cleanup-fallback", retired: true };
+      }
+    } as never,
+    {} as never
+  );
+
+  await (service as unknown as SandboxServiceTestAccess).executeQueuedJob("job-cleanup-fallback", {
+    assistantId: "assistant-cleanup-fallback",
+    workspaceId: "workspace-cleanup-fallback",
+    runtimeRequestId: "request-cleanup-fallback",
+    runtimeSessionId: "runtime-session-fallback",
+    toolCode: "shell",
+    policy: { ...DEFAULT_RUNTIME_SANDBOX_POLICY, enabled: true },
+    args: { command: "echo lifecycle" }
+  });
+
+  const terminalIndex = events.indexOf("job:completed");
+  const cleanupFailedIndex = events.indexOf("pod:cleanup-failed");
+  const retirementIndex = events.indexOf("pod:retired");
+  const releaseIndex = events.indexOf("lease:released");
+  assert.ok(terminalIndex >= 0, "terminal job state must persist");
+  assert.ok(cleanupFailedIndex > terminalIndex, "cleanup failure must follow persistence");
+  assert.ok(retirementIndex > cleanupFailedIndex, "retirement must follow cleanup failure");
+  assert.ok(releaseIndex > retirementIndex, "lease release must follow fail-closed retirement");
+});
+
+test("SandboxService: dependency contour permits large session package trees without poisoning ordinary file quota", () => {
+  const service = new SandboxService(
+    createLeasePrismaStub(),
+    {} as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never,
+    {} as never
+  );
+  const access = service as unknown as {
+    assertWorkspacePolicySnapshot(
+      snapshot: ReadonlyMap<string, { kind: "file" | "directory"; sizeBytes: number }>,
+      policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY,
+      baselineSnapshot: ReadonlyMap<string, { kind: "file" | "directory"; sizeBytes: number }>,
+      assistantId: string,
+      runtimeSessionId: string | null
+    ): void;
+  };
+  const assistantId = "assistant-deps";
+  const runtimeSessionId = "session-deps";
+  const snapshot = new Map<string, { kind: "file" | "directory"; sizeBytes: number }>();
+  snapshot.set(buildAssistantSessionRoot(assistantId, runtimeSessionId), {
+    kind: "directory",
+    sizeBytes: 0
+  });
+  snapshot.set(`${buildAssistantSessionRoot(assistantId, runtimeSessionId)}/node_modules`, {
+    kind: "directory",
+    sizeBytes: 0
+  });
+  for (let index = 0; index < 1_600; index += 1) {
+    snapshot.set(
+      `${buildAssistantSessionRoot(assistantId, runtimeSessionId)}/node_modules/pkg-${String(index)}.js`,
+      { kind: "file", sizeBytes: 128 }
+    );
+  }
+
+  access.assertWorkspacePolicySnapshot(
+    snapshot,
+    {
+      ...DEFAULT_RUNTIME_SANDBOX_POLICY,
+      maxFileCountPerJob: 16,
+      maxDirectoryCountPerJob: 16,
+      maxWorkspaceBytesPerJob: 32 * 1024
+    },
+    new Map(),
+    assistantId,
+    runtimeSessionId
+  );
+});
+
+test("SandboxService: dependency contour still rejects abusive dependency tree growth", () => {
+  const service = new SandboxService(
+    createLeasePrismaStub(),
+    {} as never,
+    new SandboxObservabilityService(),
+    createSandboxConfig(),
+    {} as never,
+    {} as never
+  );
+  const access = service as unknown as {
+    assertWorkspacePolicySnapshot(
+      snapshot: ReadonlyMap<string, { kind: "file" | "directory"; sizeBytes: number }>,
+      policy: typeof DEFAULT_RUNTIME_SANDBOX_POLICY,
+      baselineSnapshot: ReadonlyMap<string, { kind: "file" | "directory"; sizeBytes: number }>,
+      assistantId: string,
+      runtimeSessionId: string | null
+    ): void;
+  };
+  const assistantId = "assistant-deps-abuse";
+  const runtimeSessionId = "session-deps-abuse";
+  const snapshot = new Map<string, { kind: "file" | "directory"; sizeBytes: number }>();
+  for (let index = 0; index <= 20_000; index += 1) {
+    snapshot.set(
+      `${buildAssistantSessionRoot(assistantId, runtimeSessionId)}/node_modules/pkg-${String(index)}.js`,
+      { kind: "file", sizeBytes: 1 }
+    );
+  }
+
+  assert.throws(
+    () =>
+      access.assertWorkspacePolicySnapshot(
+        snapshot,
+        DEFAULT_RUNTIME_SANDBOX_POLICY,
+        new Map(),
+        assistantId,
+        runtimeSessionId
+      ),
+    /dependency files/i
+  );
+});
+
 test("SandboxService: final retirement RV conflict withholds lease release", async () => {
   const updates: Array<Record<string, unknown>> = [];
   let leaseReleased = false;

@@ -4,6 +4,37 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-148 sandbox session warmth and fail-closed cleanup (local)
+
+Current local evidence must cover:
+
+1. healthy session jobs keep the same pod UID reusable after completed,
+   failed, and blocked terminal handling when cleanup proof succeeds;
+2. cleanup-proof failure retires the exact bound UID before lease release;
+3. sessionless jobs still retire after terminal persistence;
+4. runtime package state persists under the canonical session root across
+   separate commands and legitimate pod recreation;
+5. large dependency installs stay within the dedicated dependency contour and do
+   not poison later ordinary jobs;
+6. restored dependency baseline is not recounted as fresh per-job growth;
+7. duplicate same-prefix session hydrate is absent;
+8. expected cold-start marker misses do not emit `stdinless_probe_failed`.
+
+Focused local regression command used in this slice:
+
+```powershell
+corepack pnpm --filter @persai/sandbox test -- --runInBand apps/sandbox/test/sandbox.service.test.ts apps/sandbox/test/exec-pod-bridge.service.test.ts apps/sandbox/test/exec-image-dockerfile.test.ts
+```
+
+Repository-clean verification before push/deploy still requires the AGENTS gate:
+
+```powershell
+corepack pnpm -r --if-present run lint
+corepack pnpm run format:check
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
 ## ADR-146 assistant-owned full-public sandbox egress (closed 2026-07-13)
 
 **Closed.** Slices 0–5 landed; **S6 parent live acceptance complete** against

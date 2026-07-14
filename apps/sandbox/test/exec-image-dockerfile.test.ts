@@ -63,6 +63,21 @@ test("exec image login shell PATH includes npm-global bin", async () => {
   );
 });
 
+test("exec image installs tini for session pod init and reaping", async () => {
+  const dockerfile = await readFile(join(process.cwd(), "exec-image", "Dockerfile"), "utf8");
+
+  assert.match(
+    dockerfile,
+    /\btini\b/,
+    "exec image must install tini so persistent session pods can reap terminated descendants"
+  );
+  assert.match(
+    dockerfile,
+    /\/usr\/bin\/tini --version/,
+    "self-check must verify tini is present in the image"
+  );
+});
+
 test("exec image self-check verifies bash brace expansion + pipefail + npm", async () => {
   const dockerfile = await readFile(join(process.cwd(), "exec-image", "Dockerfile"), "utf8");
 

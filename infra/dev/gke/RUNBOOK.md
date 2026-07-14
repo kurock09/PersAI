@@ -1060,7 +1060,14 @@ kubectl -n "${NAMESPACE}" logs -l app.kubernetes.io/name=sandbox -f | grep exec_
 ```
 
 Expected on first job: `exec_pod_session_create pod=ses-<hash>`.
-Expected on second job: `exec_pod_session` (reuse) — NO `exec_pod_session_create`.
+Expected on second job: `exec_pod_session` (reuse) — NO `exec_pod_session_create`,
+same pod UID, and after terminal persistence either:
+
+- `exec_job_pod_clean ...` / `sandbox_job_pod_cleanup_complete ...` for a clean
+  reusable session pod; or
+- exact-UID retirement only when cleanup proof fails or another existing recycle
+  reason applies.
+
 Session pod names must start with `ses-` and be stable (same hash for same sessionId).
 
 ### 2. Verify session pod survives between jobs (not deleted)
@@ -1069,7 +1076,8 @@ Session pod names must start with `ses-` and be stable (same hash for same sessi
 kubectl -n "${NAMESPACE}" get pods -l app.kubernetes.io/component=sandbox-exec
 ```
 
-Expected: session pod (`ses-<hash>`) remains Running after a job completes and is NOT deleted.
+Expected: session pod (`ses-<hash>`) remains Running after a job completes and is NOT deleted
+when cleanup proof succeeds.
 Ephemeral pods (`exec-<jobid>`) must be absent after their job completes (sessionless jobs only).
 
 ### 3. Verify idle-TTL reaper fires and deletes stale session pods
@@ -1093,6 +1101,22 @@ Submit a session job that writes a file, then submit a second job that reads it:
 
 Expected: second job reads the file written by the first job, confirming pod-level workspace persistence.
 
+### 4b. Verify runtime package state survives across jobs
+
+Use the same live session for both commands:
+
+```bash
+# First job
+pip install --user paramiko
+
+# Second job
+python3 -c "import paramiko; print(paramiko.__version__)"
+```
+
+Expected: the second job imports successfully without recreating the package.
+For npm global tools, the active session root should expose
+`/workspace/assistants/<assistantId>/sessions/<sessionId>/.npm-global`.
+
 ### 5. Verify GCS session snapshot is created after each job
 
 ```bash
@@ -1112,6 +1136,19 @@ kubectl -n "${NAMESPACE}" delete pod ses-<hash>
 ```
 
 Expected: the new pod is created (`exec_pod_session_create` logged), and the workspace is restored from the GCS snapshot (ephemeral files from previous jobs should be present).
+
+### 6b. Verify dependency contour does not poison later jobs
+
+Within one session, run a bounded dependency install such as `npm install lodash`
+or `pip install --user paramiko`, then run a trivial follow-up command like
+`ls` or `python3 -c "import paramiko"`.
+
+Expected:
+
+- the install is allowed when within the dedicated dependency contour;
+- the follow-up job is not blocked by the ordinary per-job file-count quota;
+- restored dependency trees are baseline state on later commands, not fresh
+  growth every time.
 
 ### 7. Verify Slice 1+2 invariants still hold
 

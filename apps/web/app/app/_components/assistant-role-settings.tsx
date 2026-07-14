@@ -11,6 +11,7 @@ import {
   type AssistantRoleState
 } from "../assistant-api-client";
 import { AssistantRoleCard, AssistantRoleSelector } from "./assistant-role-selector";
+import { notifyAssistantRoleChanged } from "./use-assistant-live-role-name";
 
 function mapRoleError(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -265,6 +266,7 @@ export function AssistantRoleSettings({
         setPickerOpen(false);
         setSaveError(null);
         setSaveFeedback(t("roleSaved"));
+        notifyAssistantRoleChanged();
       }
     } catch (error) {
       if (!isCurrent(expectedAssistantId, generation)) {

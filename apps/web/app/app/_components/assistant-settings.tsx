@@ -140,6 +140,10 @@ import { AssistantKnowledgeManager } from "./assistant-knowledge-manager";
 import { WorkspaceFilesGallery } from "./workspace-files-gallery";
 import { AssistantRoleSettings } from "./assistant-role-settings";
 import { AssistantSandboxEgressSettings } from "./assistant-sandbox-egress-settings";
+import {
+  resolveAssistantStatusLineText,
+  useAssistantLiveRoleName
+} from "./use-assistant-live-role-name";
 
 interface AssistantSettingsProps {
   data: AppData;
@@ -1442,6 +1446,17 @@ export function AssistantSettings({
       } as Record<string, string>
     )[data.assistantStatus] ?? "notCreated"
   );
+  const liveRoleName = useAssistantLiveRoleName({
+    assistantId: data.assistant?.id,
+    assistantStatus: data.assistantStatus,
+    locale,
+    getToken
+  });
+  const statusLineLabel = resolveAssistantStatusLineText({
+    status: data.assistantStatus,
+    statusLabel,
+    liveRoleName
+  });
   const statusDot = STATUS_LABELS[data.assistantStatus]?.dot ?? "bg-text-subtle";
   const quotaBucketLabels: Record<QuotaBucketState["bucketCode"], string> = {
     token_budget: t("tokenBudget"),
@@ -3921,7 +3936,7 @@ export function AssistantSettings({
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                       <div className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] text-text-muted">
                         <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
-                        <span>{statusLabel}</span>
+                        <span>{statusLineLabel}</span>
                       </div>
                       {hasAssistantSwitcher ? (
                         <button

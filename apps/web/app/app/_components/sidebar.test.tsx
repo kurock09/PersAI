@@ -26,7 +26,22 @@ const assistantApiMocks = vi.hoisted(() => ({
       files: [],
       nextCursor: null
     })
-  )
+  ),
+  getAssistantRole: vi.fn(async () => ({
+    requestId: "role-req",
+    assistantId: "assistant-1",
+    role: {
+      id: "role-1",
+      key: "analyst",
+      name: { en: "Analyst", ru: "Аналитик" },
+      description: { en: "d", ru: "d" },
+      mission: { en: "m", ru: "m" },
+      category: "general",
+      iconEmoji: null,
+      color: null,
+      displayOrder: 1
+    }
+  }))
 }));
 
 const chatApiMocks = vi.hoisted(() => ({
@@ -106,7 +121,8 @@ vi.mock("../assistant-api-client", () => ({
   postAssistantWebChatArchive: chatApiMocks.archive,
   postAssistantWebChatUnarchive: chatApiMocks.unarchive,
   deleteAssistantWebChat: chatApiMocks.delete,
-  listChatWorkspaceFiles: assistantApiMocks.listChatWorkspaceFiles
+  listChatWorkspaceFiles: assistantApiMocks.listChatWorkspaceFiles,
+  getAssistantRole: assistantApiMocks.getAssistantRole
 }));
 
 vi.mock("@/app/lib/clerk-navigation", () => ({
@@ -119,6 +135,22 @@ afterEach(() => {
   vi.unstubAllGlobals();
   searchParamsMocks.thread = null;
   assistantApiMocks.listChatWorkspaceFiles.mockReset();
+  assistantApiMocks.getAssistantRole.mockClear();
+  assistantApiMocks.getAssistantRole.mockResolvedValue({
+    requestId: "role-req",
+    assistantId: "assistant-1",
+    role: {
+      id: "role-1",
+      key: "analyst",
+      name: { en: "Analyst", ru: "Аналитик" },
+      description: { en: "d", ru: "d" },
+      mission: { en: "m", ru: "m" },
+      category: "general",
+      iconEmoji: null,
+      color: null,
+      displayOrder: 1
+    }
+  });
   chatApiMocks.patch.mockClear();
   chatApiMocks.archive.mockClear();
   chatApiMocks.unarchive.mockClear();
@@ -637,6 +669,43 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
 
     expect(screen.getByText("supportUnreadStatus:2")).toBeInTheDocument();
     expect(screen.queryByText("live")).toBeNull();
+  });
+
+  it("shows the current Role name under the assistant when status is live/green", async () => {
+    render(
+      <Sidebar
+        data={makeAppData({
+          assistant: {
+            id: "assistant-1",
+            draft: { displayName: "Alpha", avatarUrl: null, avatarEmoji: null }
+          } as AppData["assistant"],
+          assistantStatus: "live"
+        })}
+      />
+    );
+
+    await waitFor(() => {
+      expect(assistantApiMocks.getAssistantRole).toHaveBeenCalled();
+      expect(screen.getByText("Analyst")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("live")).toBeNull();
+  });
+
+  it("keeps the lifecycle status label when the assistant is not live", () => {
+    render(
+      <Sidebar
+        data={makeAppData({
+          assistant: {
+            id: "assistant-1",
+            draft: { displayName: "Alpha", avatarUrl: null, avatarEmoji: null }
+          } as AppData["assistant"],
+          assistantStatus: "draft"
+        })}
+      />
+    );
+
+    expect(screen.getByText("draft")).toBeInTheDocument();
+    expect(assistantApiMocks.getAssistantRole).not.toHaveBeenCalled();
   });
 
   it("blocks chat navigation and exposes the offline overlay when health recheck fails", async () => {

@@ -17,8 +17,6 @@ import type { SandboxConfig } from "@persai/config";
 import {
   type RuntimeSandboxPolicy,
   DEFAULT_RUNTIME_SANDBOX_POLICY,
-  classifyVisibleWorkspacePath,
-  isValidVisibleWorkspacePath,
   normalizeWorkspacePath
 } from "@persai/runtime-contract";
 import { SANDBOX_CONFIG } from "./sandbox-config";
@@ -29,7 +27,6 @@ import {
   buildBootstrapHydrateSubPaths,
   buildSharedOnlyHydrateSubPath,
   collectOnDemandHydratePaths,
-  isWithinBootstrapHydrateScope,
   toWorkspaceGcsSubPath,
   type WorkspaceHydrateScopeLabel
 } from "./workspace-mount-hydrate";
@@ -40,6 +37,7 @@ import {
   readPodSandboxEgressMode,
   type AssistantSandboxEgressMode
 } from "./sandbox-egress-mode";
+import { buildSessionRuntimeEnvironmentPaths } from "./session-runtime-contour";
 
 // Annotations carrying the assistant+workspace identity on the reusable exec pod.
 // The exec pod is keyed by (assistantId, workspaceId), NOT by chat session, so all
@@ -55,6 +53,7 @@ const WORKSPACE_ID_ANNOTATION = "persai.io/workspace-id";
 const ASSISTANT_HANDLE_ANNOTATION = "persai.io/assistant-handle";
 const SANDBOX_JOB_ID_ANNOTATION = "persai.io/sandbox-job-id";
 const SANDBOX_LEASE_TOKEN_ANNOTATION = "persai.io/sandbox-lease-token";
+const SANDBOX_BASELINE_PROCESS_PIDS_ANNOTATION = "persai.io/sandbox-base-process-pids";
 // Marker file the workspace-mount bootstrap writes to record completion so we
 // don't re-run mkdir/chmod on every job dispatched at a warm pod.
 const WORKSPACE_MOUNT_BOOTSTRAP_MARKER = "/tmp/.persai_workspace_bootstrap_ok";
@@ -253,6 +252,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   private readonly execApi: Exec;
   private readonly jobBindingContext = new AsyncLocalStorage<PendingExecPodJobBinding>();
   private readonly executionIdentityContext = new AsyncLocalStorage<PodExecutionIdentity>();
+  private bootstrapExecIdentity: PodExecutionIdentity | null = null;
 
   private reaperTimer: NodeJS.Timeout | null = null;
 
@@ -764,14 +764,6 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       siblingHandles
     );
     const podCwd = this.toPodCwd(options.workspaceRoot, options.absoluteCwd);
-    await this.recoverExecCwdFromStoragePlane({
-      podName,
-      namespace,
-      workspaceId,
-      assistantId,
-      runtimeSessionId: options.runtimeSessionId,
-      podCwd
-    });
     const onDemandPaths = collectOnDemandHydratePaths({
       assistantId,
       runtimeSessionId: options.runtimeSessionId,
@@ -812,7 +804,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       command: options.command,
       args: options.args,
       podCwd,
-      policy: options.policy
+      policy: options.policy,
+      runtimeEnvironment:
+        options.runtimeSessionId === null
+          ? null
+          : buildSessionRuntimeEnvironmentPaths(assistantId, options.runtimeSessionId)
     });
     await this.pullWorkspace(podName, namespace, options.workspaceRoot);
 
@@ -919,7 +915,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       command: options.command,
       args: options.args,
       podCwd,
-      policy: options.policy
+      policy: options.policy,
+      runtimeEnvironment: null
     });
     await this.pullWorkspace(podName, namespace, options.workspaceRoot);
     return {
@@ -1022,7 +1019,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         });
         if (phase === "Running") {
           if (podMode === egressMode) {
-            return {
+            return await this.ensureBaselineProcessSet({
               namespace,
               podName,
               podUid,
@@ -1030,7 +1027,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
               workspaceId,
               assistantHandle,
               mode: egressMode
-            };
+            });
           }
           this.logger.warn(
             `exec_pod_mode_mismatch_recycle pod=${podName} assistant=${assistantId} job=${jobId ?? "none"} expected=${egressMode} actual=${podMode ?? "absent_or_malformed"}`
@@ -1130,7 +1127,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         true
       );
     }
-    return {
+    return await this.ensureBaselineProcessSet({
       namespace,
       podName,
       podUid: this.requirePodUid(readyPod, podName),
@@ -1138,7 +1135,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       workspaceId,
       assistantHandle,
       mode: egressMode
-    };
+    });
   }
 
   /**
@@ -1765,7 +1762,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
               {
                 name: "exec",
                 image,
-                command: ["/bin/sh", "-c", "sleep infinity"],
+                command: ["/usr/bin/tini", "-g", "--", "sleep", "infinity"],
                 env: this.buildProxyEnv(egressMode),
                 securityContext: {
                   allowPrivilegeEscalation: false,
@@ -1854,6 +1851,117 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async ensureBaselineProcessSet(
+    identity: PodExecutionIdentity
+  ): Promise<PodExecutionIdentity> {
+    const pod = await this.k8sApi.readNamespacedPod({
+      name: identity.podName,
+      namespace: identity.namespace
+    });
+    const annotations = pod.metadata?.annotations ?? {};
+    const existing = this.parseBaselineProcessAnnotation(
+      annotations[SANDBOX_BASELINE_PROCESS_PIDS_ANNOTATION]
+    );
+    if (existing !== null) {
+      return identity;
+    }
+    const baselinePids = await this.captureBaselineProcessPids(identity);
+    await this.applyBaselineProcessPids(identity, pod, baselinePids);
+    return identity;
+  }
+
+  private parseBaselineProcessAnnotation(value: string | undefined): string[] | null {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      return null;
+    }
+    const pids = value
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => /^[1-9][0-9]*$/.test(part));
+    return pids.length > 0 ? pids : null;
+  }
+
+  private async captureBaselineProcessPids(identity: PodExecutionIdentity): Promise<string[]> {
+    this.bootstrapExecIdentity = identity;
+    let result;
+    try {
+      result = await this.execCommand(identity.podName, identity.namespace, {
+        command: "/bin/sh",
+        args: [
+          "-c",
+          [
+            "out=''",
+            "for proc in /proc/[0-9]*; do",
+            "  pid=${proc#/proc/}",
+            '  if [ "$pid" = "$$" ] || [ "$pid" = "$PPID" ]; then',
+            "    continue",
+            "  fi",
+            '  out="${out}${out:+,}${pid}"',
+            "done",
+            'printf "%s" "$out"'
+          ].join("\n")
+        ],
+        podCwd: "/",
+        policy: BOOTSTRAP_HYDRATE_POLICY,
+        skipIdentityAssertion: true
+      });
+    } finally {
+      this.bootstrapExecIdentity = null;
+    }
+    if (result.exitCode !== 0) {
+      throw createBridgeError(
+        "process_spawn_failed",
+        `Failed to capture exec pod baseline processes: ${(result.stderr ?? "").trim() || "non-zero exit"}`
+      );
+    }
+    const parsed = this.parseBaselineProcessAnnotation(result.stdout.trim());
+    if (parsed === null) {
+      throw createBridgeError(
+        "process_spawn_failed",
+        "Failed to capture a non-empty exec pod baseline process set."
+      );
+    }
+    return parsed;
+  }
+
+  private async applyBaselineProcessPids(
+    identity: PodExecutionIdentity,
+    pod: V1Pod,
+    baselinePids: readonly string[]
+  ): Promise<void> {
+    const currentUid = this.requirePodUid(pod, identity.podName);
+    if (currentUid !== identity.podUid) {
+      throw createBridgeError(
+        "sandbox_pod_generation_mismatch",
+        `Exec pod ${identity.podName} changed UID while recording baseline processes.`,
+        true
+      );
+    }
+    const annotations = pod.metadata?.annotations ?? {};
+    try {
+      await this.k8sApi.replaceNamespacedPod({
+        name: identity.podName,
+        namespace: identity.namespace,
+        body: {
+          ...pod,
+          metadata: {
+            ...pod.metadata,
+            annotations: {
+              ...annotations,
+              [SANDBOX_BASELINE_PROCESS_PIDS_ANNOTATION]: baselinePids.join(",")
+            }
+          }
+        }
+      });
+    } catch (error) {
+      throw createBridgeError(
+        "sandbox_pod_binding_failed",
+        `Failed to persist exec pod baseline processes: ${describeUnknownError(error)}`,
+        true
+      );
+    }
+  }
+
   /**
    * ADR-133 Slice 2 — bootstrap the writable `/workspace` mount inside a
    * session or ephemeral pod. Hierarchical assistant/session directories are
@@ -1885,7 +1993,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       podName,
       namespace,
       `test -f ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_MARKER)} && printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL)}`,
-      WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL
+      WORKSPACE_MOUNT_BOOTSTRAP_OK_SENTINEL,
+      { logFailures: false }
     );
     if (!podDirsBootstrapped) {
       const dirsScript = [
@@ -1937,7 +2046,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           podName,
           namespace,
           `test -f ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_MARKER)} && printf '%s' ${posixSingleQuote(WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL)}`,
-          WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL
+          WORKSPACE_MOUNT_HYDRATE_SHARED_OK_SENTINEL,
+          { logFailures: false }
         );
         if (!sharedHydrated) {
           const workspaceHydrateStartedAt = Date.now();
@@ -2309,37 +2419,6 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
-  private async recoverExecCwdFromStoragePlane(input: {
-    podName: string;
-    namespace: string;
-    workspaceId: string;
-    assistantId: string;
-    runtimeSessionId: string;
-    podCwd: string;
-  }): Promise<void> {
-    if (!input.podCwd.startsWith("/workspace/")) {
-      return;
-    }
-    if (!isValidVisibleWorkspacePath(input.podCwd)) {
-      return;
-    }
-    const pathInfo = classifyVisibleWorkspacePath(input.podCwd);
-    if (!isWithinBootstrapHydrateScope(pathInfo, input.assistantId, input.runtimeSessionId)) {
-      return;
-    }
-    const gcsSubPath = toWorkspaceGcsSubPath(input.podCwd);
-    if (gcsSubPath.length === 0) {
-      return;
-    }
-    await this.hydrateWorkspaceMountPrefix(
-      input.podName,
-      input.namespace,
-      input.workspaceId,
-      gcsSubPath,
-      "on_demand"
-    );
-  }
-
   private async writePodFileBytes(
     podName: string,
     namespace: string,
@@ -2507,7 +2586,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     podName: string,
     namespace: string,
     shellCommand: string,
-    sentinel: string
+    sentinel: string,
+    options?: {
+      logFailures?: boolean;
+    }
   ): Promise<boolean> {
     await this.assertCanonicalPodModeImmediatelyBeforeExec(podName, namespace);
     return new Promise<boolean>((resolve) => {
@@ -2530,7 +2612,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       const finish = (value: boolean) => {
         if (settled.value) return;
         settled.value = true;
-        if (!value) {
+        if (!value && options?.logFailures !== false) {
           const stderrMessage = Buffer.concat(stderrBuf).toString("utf8").trim();
           const stdoutMessage = Buffer.concat(stdoutBuf).toString("utf8").trim();
           this.logger.warn(
@@ -2610,14 +2692,20 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       podCwd: string;
       policy: RuntimeSandboxPolicy;
       stdin?: Buffer | null;
+      shellPreamble?: readonly string[];
+      skipIdentityAssertion?: boolean;
     }
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
-    await this.assertCanonicalPodModeImmediatelyBeforeExec(podName, namespace);
-    const execArgs = [
-      "/bin/sh",
-      "-c",
-      `mkdir -p ${posixSingleQuote(options.podCwd)} && cd ${posixSingleQuote(options.podCwd)} && ${posixCommandArray([options.command, ...options.args])}`
+    if (options.skipIdentityAssertion !== true) {
+      await this.assertCanonicalPodModeImmediatelyBeforeExec(podName, namespace);
+    }
+    const shellLines = [
+      `mkdir -p ${posixSingleQuote(options.podCwd)}`,
+      `cd ${posixSingleQuote(options.podCwd)}`,
+      ...(options.shellPreamble ?? []),
+      posixCommandArray([options.command, ...options.args])
     ];
+    const execArgs = ["/bin/sh", "-c", shellLines.join("\n")];
 
     const stdoutCollector = new LimitedCollector(
       options.policy.maxStdoutBytes,
@@ -3535,7 +3623,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     const jobExpected = this.jobBindingContext.getStore();
     const leaseFreeExpected = this.executionIdentityContext.getStore();
     const expected: PodExecutionIdentity | PendingExecPodJobBinding | undefined =
-      jobExpected ?? leaseFreeExpected;
+      jobExpected ?? leaseFreeExpected ?? this.bootstrapExecIdentity ?? undefined;
     if (expected === undefined || expected.podUid === null || expected.mode === null) {
       throw createBridgeError(
         "sandbox_pod_identity_unbound",
@@ -3827,11 +3915,23 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  private buildRuntimeEnvironmentShellPreamble(
+    runtimeEnvironment: ReturnType<typeof buildSessionRuntimeEnvironmentPaths>
+  ): string[] {
+    return [
+      ...runtimeEnvironment.writableDirs.map((dir) => `mkdir -p ${posixSingleQuote(dir)}`),
+      `export HOME=${posixSingleQuote(runtimeEnvironment.home)}`,
+      `export PYTHONUSERBASE=${posixSingleQuote(runtimeEnvironment.pythonUserBase)}`,
+      "export PIP_USER=1",
+      `export NPM_CONFIG_PREFIX=${posixSingleQuote(runtimeEnvironment.npmPrefix)}`,
+      `export PATH=${posixSingleQuote(runtimeEnvironment.pathPrefix)}:$PATH`
+    ];
+  }
+
   /**
-   * Model-authored command execution. Descendant cleanup is intentionally not
-   * attempted from inside the writable pod: SandboxService retires the entire
-   * exact pod after output/workspace/job persistence and before lease release.
-   * Pod namespace destruction is the only cleanup proof.
+   * Model-authored command execution. Session-scoped pods persist after the
+   * job, so control-plane cleanup/verification runs after persistence and before
+   * lease release; sessionless jobs still retire their exact bound pod.
    */
   private async execJobCommand(
     podName: string,
@@ -3844,6 +3944,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       args: string[];
       podCwd: string;
       policy: RuntimeSandboxPolicy;
+      runtimeEnvironment: ReturnType<typeof buildSessionRuntimeEnvironmentPaths> | null;
     }
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
     this.logger.log(
@@ -3856,12 +3957,195 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         `Assistant sandbox egress mode changed immediately before job=${options.jobId}.`
       );
     }
+    if (options.runtimeEnvironment === null) {
+      return this.execCommand(podName, namespace, {
+        command: options.command,
+        args: options.args,
+        podCwd: options.podCwd,
+        policy: options.policy
+      });
+    }
     return this.execCommand(podName, namespace, {
       command: options.command,
       args: options.args,
       podCwd: options.podCwd,
-      policy: options.policy
+      policy: options.policy,
+      shellPreamble: this.buildRuntimeEnvironmentShellPreamble(options.runtimeEnvironment)
     });
+  }
+
+  async cleanupBoundSessionPod(input: {
+    binding: ExecPodJobBinding;
+  }): Promise<{ podName: string; podUid: string }> {
+    return await this.jobBindingContext.run({ ...input.binding }, async () => {
+      await this.assertActiveWorkspaceLease(input.binding);
+      const pod = await this.k8sApi.readNamespacedPod({
+        name: input.binding.podName,
+        namespace: input.binding.namespace
+      });
+      const annotations = pod.metadata?.annotations ?? {};
+      const currentUid = this.requirePodUid(pod, input.binding.podName);
+      if (currentUid !== input.binding.podUid) {
+        throw createBridgeError(
+          "sandbox_pod_generation_mismatch",
+          `Exec pod ${input.binding.podName} changed UID before cleanup.`,
+          true
+        );
+      }
+      const baselinePids = this.parseBaselineProcessAnnotation(
+        annotations[SANDBOX_BASELINE_PROCESS_PIDS_ANNOTATION]
+      );
+      if (baselinePids === null) {
+        throw createBridgeError(
+          "sandbox_cleanup_verification_failed",
+          `Exec pod ${input.binding.podName} is missing baseline process metadata.`,
+          true
+        );
+      }
+      const cleanupResult = await this.execCommand(input.binding.podName, input.binding.namespace, {
+        command: "/bin/sh",
+        args: ["-c", this.buildSessionPodCleanupScript(baselinePids)],
+        podCwd: "/",
+        policy: BOOTSTRAP_HYDRATE_POLICY
+      });
+      if (cleanupResult.exitCode !== 0) {
+        throw createBridgeError(
+          "sandbox_cleanup_verification_failed",
+          (cleanupResult.stderr ?? "").trim() ||
+            `Exec pod cleanup failed with exit ${String(cleanupResult.exitCode)}.`,
+          true
+        );
+      }
+      await this.clearBoundPodGeneration(input.binding);
+      this.logger.log(
+        `exec_job_pod_clean job=${input.binding.jobId} assistant=${input.binding.assistantId} pod=${input.binding.podName} uid=${input.binding.podUid}`
+      );
+      return { podName: input.binding.podName, podUid: input.binding.podUid };
+    });
+  }
+
+  private buildSessionPodCleanupScript(baselinePids: readonly string[]): string {
+    const baseline = baselinePids.join(" ");
+    return [
+      "set -eu",
+      `BASELINE_PIDS="${baseline}"`,
+      'KEEP_PIDS="$$"',
+      "cursor=$$",
+      'while [ "$cursor" != "1" ]; do',
+      '  next_parent=""',
+      '  while IFS=" " read -r key value _rest; do',
+      '    if [ "$key" = "PPid:" ]; then',
+      '      next_parent="$value"',
+      "      break",
+      "    fi",
+      '  done < "/proc/${cursor}/status"',
+      '  if [ -z "$next_parent" ] || [ "$next_parent" = "0" ]; then',
+      "    break",
+      "  fi",
+      '  case " $KEEP_PIDS " in',
+      '    *" $next_parent "*) ;;',
+      '    *) KEEP_PIDS="$KEEP_PIDS $next_parent" ;;',
+      "  esac",
+      '  if [ "$next_parent" = "1" ]; then',
+      "    break",
+      "  fi",
+      '  cursor="$next_parent"',
+      "done",
+      "is_keep_pid() {",
+      '  target="$1"',
+      '  case " $BASELINE_PIDS $KEEP_PIDS " in',
+      '    *" $target "*) return 0 ;;',
+      "  esac",
+      "  return 1",
+      "}",
+      "target_pids() {",
+      "  out=''",
+      "  for proc in /proc/[0-9]*; do",
+      '    pid="${proc#/proc/}"',
+      '    if is_keep_pid "$pid"; then',
+      "      continue",
+      "    fi",
+      '    out="${out}${out:+ }${pid}"',
+      "  done",
+      '  printf "%s" "$out"',
+      "}",
+      "has_targets() {",
+      '  [ -n "$(target_pids)" ]',
+      "}",
+      "kill_targets() {",
+      '  signal="$1"',
+      "  for pid in $(target_pids); do",
+      '    kill -s "$signal" "$pid" 2>/dev/null || true',
+      "  done",
+      "}",
+      "wait_clear() {",
+      '  attempts="$1"',
+      '  while [ "$attempts" -gt 0 ]; do',
+      "    if ! has_targets; then",
+      "      return 0",
+      "    fi",
+      "    sleep 0.2",
+      "    attempts=$((attempts - 1))",
+      "  done",
+      "  return 1",
+      "}",
+      "kill_targets TERM",
+      "if ! wait_clear 10; then",
+      "  kill_targets KILL",
+      "  if ! wait_clear 10; then",
+      '    printf "%s" "remaining_pids=$(target_pids)" >&2',
+      "    exit 70",
+      "  fi",
+      "fi",
+      'printf "%s" "__PERSAI_CLEAN_PROCESS_BASELINE__"'
+    ].join("\n");
+  }
+
+  private async clearBoundPodGeneration(binding: ExecPodJobBinding): Promise<void> {
+    const pod = await this.k8sApi.readNamespacedPod({
+      name: binding.podName,
+      namespace: binding.namespace
+    });
+    const currentUid = this.requirePodUid(pod, binding.podName);
+    if (currentUid !== binding.podUid) {
+      throw createBridgeError(
+        "sandbox_pod_generation_mismatch",
+        `Exec pod ${binding.podName} changed UID before generation clear.`,
+        true
+      );
+    }
+    const annotations = { ...(pod.metadata?.annotations ?? {}) };
+    if (
+      annotations[SANDBOX_JOB_ID_ANNOTATION] !== binding.jobId ||
+      annotations[SANDBOX_LEASE_TOKEN_ANNOTATION] !== binding.leaseToken
+    ) {
+      throw createBridgeError(
+        "sandbox_pod_generation_mismatch",
+        `Exec pod ${binding.podName} changed lease/job identity before generation clear.`,
+        true
+      );
+    }
+    delete annotations[SANDBOX_JOB_ID_ANNOTATION];
+    delete annotations[SANDBOX_LEASE_TOKEN_ANNOTATION];
+    try {
+      await this.k8sApi.replaceNamespacedPod({
+        name: binding.podName,
+        namespace: binding.namespace,
+        body: {
+          ...pod,
+          metadata: {
+            ...pod.metadata,
+            annotations
+          }
+        }
+      });
+    } catch (error) {
+      throw createBridgeError(
+        "sandbox_pod_binding_failed",
+        `Failed to clear model-job lease generation on pod ${binding.podName}: ${describeUnknownError(error)}`,
+        true
+      );
+    }
   }
 
   async retireModelJobPod(input: {

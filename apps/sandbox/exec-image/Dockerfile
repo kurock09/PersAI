@@ -30,6 +30,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     # shell + core utilities
     bash \
+    tini \
     coreutils \
     tar \
     ca-certificates \
@@ -168,6 +169,7 @@ USER sandbox
 # change ever lets a login shell resolve `python3` to the bare system
 # interpreter again, this import fails and the build breaks loudly.
 RUN rg --version \
+  && /usr/bin/tini --version \
   && fd --version \
   && git --version \
   && tesseract --version \

@@ -39,6 +39,10 @@ import {
   normalizeAndClampPath,
   WORKSPACE_MOUNT_ROOT
 } from "./workspace-path";
+import {
+  isSessionDependencyVisiblePath,
+  SESSION_DEPENDENCY_CONTOUR_LIMITS
+} from "./session-runtime-contour";
 
 type WorkspaceStats = {
   fileCount: number;
@@ -46,10 +50,21 @@ type WorkspaceStats = {
   totalBytes: number;
 };
 
-const EMPTY_WORKSPACE_STATS: WorkspaceStats = {
-  fileCount: 0,
-  directoryCount: 0,
-  totalBytes: 0
+type WorkspaceTreeEntry = {
+  kind: "file" | "directory";
+  sizeBytes: number;
+};
+
+type WorkspacePolicyDelta = {
+  addedFileCount: number;
+  addedDirectoryCount: number;
+  addedBytes: number;
+};
+
+const EMPTY_WORKSPACE_POLICY_DELTA: WorkspacePolicyDelta = {
+  addedFileCount: 0,
+  addedDirectoryCount: 0,
+  addedBytes: 0
 };
 
 type SandboxToolExecutionResult = {
@@ -716,6 +731,7 @@ export class SandboxService {
         request.assistantId,
         request.runtimeSessionId ?? null
       );
+      const sessionRuntimeId = request.runtimeSessionId ?? null;
       workspaceRoot = this.resolveWorkspaceRoot(request.workspaceId);
       currentRoot = this.resolveVisiblePathWithinWorkspaceRoot(workspaceRoot, defaultVisibleRoot);
       await this.ensureWorkspaceSessionReady(
@@ -725,7 +741,7 @@ export class SandboxService {
         request.runtimeSessionId ?? null
       );
       this.assertWorkspaceLeaseActive(leaseGuard);
-      const baselineWorkspaceStats = await this.computeWorkspaceStats(workspaceRoot);
+      const baselineWorkspaceSnapshot = await this.collectWorkspacePolicySnapshot(workspaceRoot);
 
       // ADR-126 Slice 3 — resolve the handle + sibling handles once per job so
       // every downstream pod-exec call (runInPod, render_html_to_pdf, doc-code)
@@ -751,7 +767,14 @@ export class SandboxService {
 
       const stats = await this.computeWorkspaceStats(workspaceRoot);
       this.assertWorkspaceLeaseActive(leaseGuard);
-      this.assertWorkspaceStats(stats, request.policy, baselineWorkspaceStats);
+      const nextWorkspaceSnapshot = await this.collectWorkspacePolicySnapshot(workspaceRoot);
+      this.assertWorkspacePolicySnapshot(
+        nextWorkspaceSnapshot,
+        request.policy,
+        baselineWorkspaceSnapshot,
+        request.assistantId,
+        sessionRuntimeId
+      );
 
       if (request.runtimeSessionId !== null && request.runtimeSessionId !== undefined) {
         await this.saveSessionWorkspaceSnapshot(
@@ -839,26 +862,51 @@ export class SandboxService {
           durationMs: Date.now() - jobStartedAtMs
         });
       }
-      let retirementSucceeded = execPodBinding === null;
+      let podFinalizationSucceeded = execPodBinding === null;
       if (leaseGuard !== null && execPodBinding !== null) {
         try {
-          const retirement = await this.execPodBridgeService.retireModelJobPod({
-            binding: execPodBinding
-          });
-          retirementSucceeded = true;
-          this.logger.log(
-            `sandbox_job_pod_retirement_complete job=${jobId} assistant=${request.assistantId} pod=${retirement.podName} uid=${retirement.podUid} retired=${String(retirement.retired)}`
-          );
-        } catch (retirementError) {
-          const message =
-            retirementError instanceof Error ? retirementError.message : String(retirementError);
+          if (request.runtimeSessionId === null) {
+            const retirement = await this.execPodBridgeService.retireModelJobPod({
+              binding: execPodBinding
+            });
+            podFinalizationSucceeded = true;
+            this.logger.log(
+              `sandbox_job_pod_retirement_complete job=${jobId} assistant=${request.assistantId} pod=${retirement.podName} uid=${retirement.podUid} retired=${String(retirement.retired)}`
+            );
+          } else {
+            const cleanup = await this.execPodBridgeService.cleanupBoundSessionPod({
+              binding: execPodBinding
+            });
+            podFinalizationSucceeded = true;
+            this.logger.log(
+              `sandbox_job_pod_cleanup_complete job=${jobId} assistant=${request.assistantId} pod=${cleanup.podName} uid=${cleanup.podUid}`
+            );
+          }
+        } catch (cleanupError) {
+          const cleanupMessage =
+            cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
           this.logger.error(
-            `sandbox_job_pod_retirement_failed job=${jobId} assistant=${request.assistantId} workspace=${request.workspaceId} pod=${execPodBinding.podName} uid=${execPodBinding.podUid} error=${message}`
+            `sandbox_job_pod_cleanup_failed job=${jobId} assistant=${request.assistantId} workspace=${request.workspaceId} pod=${execPodBinding.podName} uid=${execPodBinding.podUid} error=${cleanupMessage}`
           );
+          try {
+            const retirement = await this.execPodBridgeService.retireModelJobPod({
+              binding: execPodBinding
+            });
+            podFinalizationSucceeded = true;
+            this.logger.warn(
+              `sandbox_job_pod_cleanup_retired job=${jobId} assistant=${request.assistantId} pod=${retirement.podName} uid=${retirement.podUid} retired=${String(retirement.retired)}`
+            );
+          } catch (retirementError) {
+            const retirementMessage =
+              retirementError instanceof Error ? retirementError.message : String(retirementError);
+            this.logger.error(
+              `sandbox_job_pod_retirement_failed job=${jobId} assistant=${request.assistantId} workspace=${request.workspaceId} pod=${execPodBinding.podName} uid=${execPodBinding.podUid} error=${retirementMessage}`
+            );
+          }
         }
       }
       await this.stopWorkspaceLeaseHeartbeat(leaseGuard, {
-        release: terminalWriteSucceeded && retirementSucceeded
+        release: terminalWriteSucceeded && podFinalizationSucceeded
       });
     }
   }
@@ -2068,32 +2116,117 @@ export class SandboxService {
     return { fileCount, directoryCount, totalBytes };
   }
 
-  private assertWorkspaceStats(
-    stats: WorkspaceStats,
+  private async collectWorkspacePolicySnapshot(
+    workspaceRoot: string
+  ): Promise<Map<string, WorkspaceTreeEntry>> {
+    const snapshot = new Map<string, WorkspaceTreeEntry>();
+    const workspaceRootResolved = resolve(workspaceRoot);
+    const visit = async (currentDir: string): Promise<void> => {
+      const entries = await fs.readdir(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        const absolutePath = join(currentDir, entry.name);
+        const relativePath = relative(workspaceRootResolved, absolutePath).replace(/\\/g, "/");
+        const visiblePath =
+          relativePath.length === 0
+            ? WORKSPACE_MOUNT_ROOT
+            : `${WORKSPACE_MOUNT_ROOT}/${relativePath}`;
+        if (entry.isDirectory()) {
+          snapshot.set(visiblePath, { kind: "directory", sizeBytes: 0 });
+          await visit(absolutePath);
+          continue;
+        }
+        const stat = await fs.lstat(absolutePath);
+        snapshot.set(visiblePath, {
+          kind: "file",
+          sizeBytes: stat.isSymbolicLink() ? 0 : stat.size
+        });
+      }
+    };
+    await visit(workspaceRootResolved);
+    return snapshot;
+  }
+
+  private buildWorkspacePolicyDeltas(
+    snapshot: ReadonlyMap<string, WorkspaceTreeEntry>,
+    baseline: ReadonlyMap<string, WorkspaceTreeEntry>,
+    assistantId: string,
+    runtimeSessionId: string | null
+  ): {
+    ordinary: WorkspacePolicyDelta;
+    dependency: WorkspacePolicyDelta;
+  } {
+    const ordinary = { ...EMPTY_WORKSPACE_POLICY_DELTA };
+    const dependency = { ...EMPTY_WORKSPACE_POLICY_DELTA };
+    for (const [visiblePath, entry] of snapshot.entries()) {
+      if (baseline.has(visiblePath)) {
+        continue;
+      }
+      const target =
+        runtimeSessionId !== null &&
+        isSessionDependencyVisiblePath(visiblePath, assistantId, runtimeSessionId)
+          ? dependency
+          : ordinary;
+      if (entry.kind === "directory") {
+        target.addedDirectoryCount += 1;
+        continue;
+      }
+      target.addedFileCount += 1;
+      target.addedBytes += entry.sizeBytes;
+    }
+    return { ordinary, dependency };
+  }
+
+  private assertWorkspacePolicySnapshot(
+    snapshot: ReadonlyMap<string, WorkspaceTreeEntry>,
     policy: RuntimeSandboxPolicy,
-    baselineStats: WorkspaceStats = EMPTY_WORKSPACE_STATS
+    baselineSnapshot: ReadonlyMap<string, WorkspaceTreeEntry>,
+    assistantId: string,
+    runtimeSessionId: string | null
   ): void {
-    const addedFileCount = Math.max(stats.fileCount - baselineStats.fileCount, 0);
-    const addedDirectoryCount = Math.max(stats.directoryCount - baselineStats.directoryCount, 0);
-    const addedBytes = Math.max(stats.totalBytes - baselineStats.totalBytes, 0);
-    if (addedFileCount > policy.maxFileCountPerJob) {
+    const { ordinary, dependency } = this.buildWorkspacePolicyDeltas(
+      snapshot,
+      baselineSnapshot,
+      assistantId,
+      runtimeSessionId
+    );
+    if (ordinary.addedFileCount > policy.maxFileCountPerJob) {
       this.throwPolicy(
         "file_count_limit_exceeded",
-        `Sandbox job added ${String(addedFileCount)} files, above the per-job limit of ${String(
+        `Sandbox job added ${String(ordinary.addedFileCount)} files, above the per-job limit of ${String(
           policy.maxFileCountPerJob
         )}.`
       );
     }
-    if (addedDirectoryCount > policy.maxDirectoryCountPerJob) {
+    if (ordinary.addedDirectoryCount > policy.maxDirectoryCountPerJob) {
       this.throwPolicy(
         "directory_count_limit_exceeded",
-        `Sandbox job added ${String(addedDirectoryCount)} directories, above the per-job limit of ${String(policy.maxDirectoryCountPerJob)}.`
+        `Sandbox job added ${String(ordinary.addedDirectoryCount)} directories, above the per-job limit of ${String(policy.maxDirectoryCountPerJob)}.`
       );
     }
-    if (addedBytes > policy.maxWorkspaceBytesPerJob) {
+    if (ordinary.addedBytes > policy.maxWorkspaceBytesPerJob) {
       this.throwPolicy(
         "workspace_size_limit_exceeded",
-        `Sandbox job increased workspace bytes by ${String(addedBytes)}, above the per-job limit of ${String(policy.maxWorkspaceBytesPerJob)} bytes.`
+        `Sandbox job increased workspace bytes by ${String(ordinary.addedBytes)}, above the per-job limit of ${String(policy.maxWorkspaceBytesPerJob)} bytes.`
+      );
+    }
+    if (dependency.addedFileCount > SESSION_DEPENDENCY_CONTOUR_LIMITS.maxAddedFilesPerJob) {
+      this.throwPolicy(
+        "file_count_limit_exceeded",
+        `Sandbox job added ${String(dependency.addedFileCount)} dependency files, above the dependency contour limit of ${String(SESSION_DEPENDENCY_CONTOUR_LIMITS.maxAddedFilesPerJob)}.`
+      );
+    }
+    if (
+      dependency.addedDirectoryCount > SESSION_DEPENDENCY_CONTOUR_LIMITS.maxAddedDirectoriesPerJob
+    ) {
+      this.throwPolicy(
+        "directory_count_limit_exceeded",
+        `Sandbox job added ${String(dependency.addedDirectoryCount)} dependency directories, above the dependency contour limit of ${String(SESSION_DEPENDENCY_CONTOUR_LIMITS.maxAddedDirectoriesPerJob)}.`
+      );
+    }
+    if (dependency.addedBytes > SESSION_DEPENDENCY_CONTOUR_LIMITS.maxAddedBytesPerJob) {
+      this.throwPolicy(
+        "workspace_size_limit_exceeded",
+        `Sandbox job increased dependency bytes by ${String(dependency.addedBytes)}, above the dependency contour limit of ${String(SESSION_DEPENDENCY_CONTOUR_LIMITS.maxAddedBytesPerJob)} bytes.`
       );
     }
   }

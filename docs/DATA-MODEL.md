@@ -97,6 +97,18 @@ Current active Step 20 persistence includes:
 - `assistant_workspace_leases` for multi-pod workspace ownership/serialization
 - `sandbox_jobs` for queued/running/completed/blocked sandbox execution telemetry and result state
 
+ADR-148 adds no new SQL tables. Its current local truth is operational:
+
+- session pod cleanliness is tracked by control-plane-owned pod annotations,
+  including the captured baseline PID set and the bound job/lease identity;
+- workspace lease release is now coupled to either successful session cleanup or
+  successful exact-UID retirement after cleanup-proof failure;
+- runtime package persistence is path-owned under the canonical session root
+  rather than fixed `/workspace/.local` / `/workspace/.npm-global` aliases;
+- dependency-tree limits are execution-policy contour, not relational data-model
+  truth, and restored dependency baseline must not be re-counted as fresh
+  per-job creation.
+
 `SandboxFileRef` is not active current-model truth anymore.
 
 **ADR-146 closed data model (Slice 1 `775e5781`, deployed and

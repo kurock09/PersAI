@@ -69,6 +69,10 @@ function isWorkspacePull(command: string[]): boolean {
   return command.includes("-cf") && command.includes("/workspace");
 }
 
+function isBaselineProcessProbe(command: string[]): boolean {
+  return command.some((part) => part.includes("for proc in /proc/[0-9]*"));
+}
+
 type KubeConfigLike = {
   loadFromCluster(): void;
   makeApiClient<T>(apiClass: new (...args: unknown[]) => T): T;
@@ -248,6 +252,20 @@ function buildMockBridge(ctx: MockK8sContext): ExecPodBridgeService {
       _tty: boolean,
       statusCallback?: (status: { status: string }) => void
     ) {
+      if (isBaselineProcessProbe(command)) {
+        ctx.execCallCount += 1;
+        ctx.execCommands.push([...command]);
+        const ws = { on: () => undefined };
+        void Promise.resolve().then(() => {
+          if (stdout !== null) {
+            stdout.write("1,2");
+          }
+          if (statusCallback !== undefined) {
+            statusCallback({ status: "Success" });
+          }
+        });
+        return Promise.resolve(ws as never);
+      }
       const response = ctx.execResponses[execCallIndex];
       execCallIndex += 1;
       ctx.execCallCount += 1;
@@ -1185,6 +1203,11 @@ test("ExecPodBridgeService: sessionless runInPod leaves retirement to job lifecy
     ctx.createdPods[0]?.body.metadata?.name?.startsWith("exec-"),
     "pod name must start exec-"
   );
+  assert.deepEqual(
+    ctx.createdPods[0]?.body.spec?.containers?.[0]?.command,
+    ["/usr/bin/tini", "-g", "--", "sleep", "infinity"],
+    "persistent exec pod must start under tini for child reaping"
+  );
   assert.equal(ctx.deletedPods.length, 0, "pod must remain until outputs and job state persist");
 });
 
@@ -1365,6 +1388,22 @@ test("ExecPodBridgeService: session runInPod guarantees the pod cwd exists befor
     shell.includes("cd '/workspace/assistants/assistant-1/sessions/session-1/reports'"),
     "session exec must still cd into the requested hierarchical cwd"
   );
+  assert.ok(
+    shell.includes("export HOME='/workspace/assistants/assistant-1/sessions/session-1'"),
+    "session exec must move HOME into the canonical session root"
+  );
+  assert.ok(
+    shell.includes(
+      "export PYTHONUSERBASE='/workspace/assistants/assistant-1/sessions/session-1/.local'"
+    ),
+    "session exec must move PYTHONUSERBASE into the canonical session root"
+  );
+  assert.ok(
+    shell.includes(
+      "export NPM_CONFIG_PREFIX='/workspace/assistants/assistant-1/sessions/session-1/.npm-global'"
+    ),
+    "session exec must move npm global installs into the canonical session root"
+  );
 });
 
 test("ExecPodBridgeService: later canonical session write is visible to the next shell run", async () => {
@@ -1470,6 +1509,9 @@ test("ExecPodBridgeService: later canonical session write is visible to the next
     }
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> => {
     const shell = request.args[1] ?? "";
+    if (shell.includes("for proc in /proc/[0-9]*")) {
+      return { exitCode: 0, stdout: "1,2", stderr: "" };
+    }
     if (
       request.command === "/bin/sh" &&
       shell.includes("/tmp/.persai_workspace_hydrate_session") &&
@@ -1747,7 +1789,9 @@ test("ExecPodBridgeService: next lease recycles stale annotated UID before execu
     ) {
       const ws = { on: () => undefined };
       Promise.resolve().then(() => {
-        if (stdout !== null && isWorkspacePull(command)) {
+        if (stdout !== null && isBaselineProcessProbe(command)) {
+          stdout.write("1,2");
+        } else if (stdout !== null && isWorkspacePull(command)) {
           stdout.write(VALID_EMPTY_TAR);
         }
         if (statusCallback !== undefined) {

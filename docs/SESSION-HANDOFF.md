@@ -1,5 +1,59 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-148 sandbox session warmth repair (local)
+
+Status: **implemented on `main` together with local Role status-line UX;
+sandbox suite `107/107` PASS; web focused Role/settings/sidebar `131/131`
+PASS; AGENTS lint/format + api/web/sandbox/runtime typecheck PASS; commit/push
+next.**
+
+Founder-directed ADR-148 repairs the regression that unconditionally retired the
+bound sandbox pod after every `shell` / `exec` / `document.*` job. The active
+local truth is now:
+
+- healthy **session-scoped** pods survive completed/failed/blocked terminal
+  handling and remain reusable until idle TTL, mode mismatch, contamination,
+  lease/generation drift, explicit reconcile, or infrastructure failure;
+- **sessionless** jobs remain disposable and still retire their exact bound pod;
+- after every session job, the control plane performs a fail-closed cleanup exec
+  using a pod-annotation baseline process set, terminates residual non-baseline
+  descendants with `TERM` then `KILL`, verifies the clean baseline, and clears
+  the bound lease/job annotations only on success;
+- cleanup proof failure triggers exact-UID retirement before lease release;
+- runtime package state now lives under the canonical session root
+  (`HOME`, `PYTHONUSERBASE`, `NPM_CONFIG_PREFIX`, login-shell PATH), so pip/npm
+  state persists across separate commands and after legitimate pod recreation;
+- ordinary per-job workspace quotas remain strict, while active session
+  dependency trees (`.local`, `.npm-global`, `node_modules`) get their own
+  bounded contour (`20k` files / `4k` dirs / `512 MiB`) and restored dependency
+  baseline is not recounted on later jobs;
+- redundant same-prefix on-demand session rehydrate is removed; expected
+  cold-start marker misses no longer emit `stdinless_probe_failed`.
+
+ADR-146 remains closed. ADR-148 supersedes only ADR-146 Slice 3's terminal
+"always retire the pod" behavior; it does not reopen the egress program.
+
+**Next recommended step:** complete AGENTS gate, commit/push the combined local
+tree, then deploy and live-prove warm reuse + `pip install --user` persistence.
+
+---
+
+## 2026-07-14 — Live status line shows Role name
+
+Status: **implemented locally; visual acceptance pending.**
+
+When assistant lifecycle status is green/`live`, the subtitle under the assistant
+name in the left sidebar and Settings character header shows the current Role
+name instead of “Active”/“Активен”. Any other lifecycle status still shows the
+status label. Role rename/save notifies both surfaces via
+`persai:assistant-role-changed`.
+
+**Verification:** focused helper + sidebar + settings status-line tests PASS.
+
+**Next:** hard-refresh live assistant; confirm Role under name; then non-live
+states still show status.
+
+---
 ## 2026-07-14 — Admin MCP `skill_list` bounded repair (local)
 
 Status: **implemented against clean baseline `3b2e28b1`; full local gate PASS;
