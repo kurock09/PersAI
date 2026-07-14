@@ -2,10 +2,10 @@
 
 ## 2026-07-15 — Settings Assistant personalization + change-role modals
 
-Status: **committed locally during rebase onto `origin/main` (includes ADR-148
-cleanup repair `2342c2ae`); AGENTS lint/format + api/web typecheck PASS;
-recursive `pnpm test` PASS (web 999/999); web suite reconfirmed with
-`--maxWorkers=2`; ADR-146 slice5 + detect-affected PASS. Push in progress.**
+Status: **pushed to `origin/main` as `af3ce0dc`; AGENTS lint/format + api/web
+typecheck PASS; recursive `pnpm test` PASS (web 999/999); web suite reconfirmed
+with `--maxWorkers=2`; ADR-146 slice5 + detect-affected PASS. Await Dev Image
+Publish for api+web, then visual acceptance.**
 
 Founder-directed Settings redesign for the Assistant block:
 
@@ -22,7 +22,7 @@ Founder-directed Settings redesign for the Assistant block:
   (active links only) for catalog/current/PUT responses — display projection,
   not Skill selection. ADR-147 / API-BOUNDARY carve-out recorded.
 
-**Next recommended step:** after push, deploy api+web; visual acceptance on
+**Next recommended step:** await api+web image pin; visual acceptance on
 desktop + mobile Settings; live Role skills preview in Change role.
 
 ---
