@@ -113,3 +113,16 @@ export async function lockRoleSkillRow(
   `);
   return rows.length === 1;
 }
+
+export async function lockRoleSkillRowsForRole(
+  tx: Prisma.TransactionClient,
+  roleId: string
+): Promise<Array<{ roleId: string; skillId: string }>> {
+  return tx.$queryRaw<Array<{ roleId: string; skillId: string }>>(Prisma.sql`
+    SELECT "role_id" AS "roleId", "skill_id" AS "skillId"
+    FROM "assistant_role_skills"
+    WHERE "role_id" = ${roleId}::uuid
+    ORDER BY "role_id", "skill_id"
+    FOR UPDATE
+  `);
+}

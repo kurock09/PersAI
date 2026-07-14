@@ -15,6 +15,7 @@ async function run(): Promise<void> {
   const repositoryRoot = new URL("../../../", import.meta.url);
   const [
     materialize,
+    roleEffectiveSkillsPrompt,
     preview,
     ensureCurrent,
     materializationVersion,
@@ -30,6 +31,7 @@ async function run(): Promise<void> {
     contractFormatter
   ] = await Promise.all([
     source("materialize-assistant-published-version.service.ts"),
+    source("assistant-role-effective-skills-prompt.ts"),
     source("preview-assistant-setup.service.ts"),
     source("ensure-assistant-materialized-spec-current.service.ts"),
     source("assistant-materialization-version.ts"),
@@ -50,6 +52,7 @@ async function run(): Promise<void> {
 
   for (const [name, text] of [
     ["materialization", materialize],
+    ["Role effective-Skills prompt", roleEffectiveSkillsPrompt],
     ["Skill Knowledge authorization", knowledge],
     ["admin Skill invalidation", adminSkills],
     ["scenario invalidation", scenarios]
@@ -61,8 +64,10 @@ async function run(): Promise<void> {
     );
   }
 
-  assert.match(materialize, /assistantRoleSkill\.findMany/);
-  assert.match(materialize, /roleId: params\.assistant\.roleId/);
+  assert.match(materialize, /resolveAssistantRoleEffectiveSkillsPrompt/);
+  assert.match(materialize, /roleId: assistant\.roleId/);
+  assert.match(roleEffectiveSkillsPrompt, /assistantRoleSkill\.findMany/);
+  assert.match(roleEffectiveSkillsPrompt, /roleId: params\.roleId/);
   assert.match(materialize, /effectiveRoleId: assistant\.roleId/);
   assert.match(materializationVersion, /CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION = 2/);
   assert.match(materialize, /CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION/);

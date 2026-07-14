@@ -2399,6 +2399,42 @@ corepack pnpm --filter @persai/admin-mcp test
 corepack pnpm --filter @persai/admin-mcp run typecheck
 ```
 
+## ADR-147 Slice 4 — Admin Role constructor and MCP
+
+- `manage-admin-roles.service.test.ts` covers default Role immutability and corrupt-link repair, in-use archive/demotion, authoritative `assistantCount`/`inUse`, DB-clock core dirtying without chat clear, activation link-snapshot retry/exhaustion, archive idempotence, Skill-replace snapshot retry + chat Skill-state clear, and request validation.
+- `manage-admin-roles.service.test.ts` also pins exact create/update/preview/
+  replace key allowlists, strict RU/EN-only authoring, and activation/replacement
+  rejection for missing/draft/archived Skills with stable codes.
+- `admin-roles.controller.test.ts` covers parse/service delegation, response envelopes, authenticated app-user context, direct static preview dispatch, and malformed-UUID rejection before GET/PATCH/DELETE/PUT delegation.
+- `assistant-role-prompt.test.ts` exercises `ManageAdminRolesService.preview` and the production Role effective-Skills pipeline over one multi-Skill fixture with mixed-case historical locale keys, XML escaping, instruction cards, and active scenarios, then asserts byte equality and explicit `displayOrder` precedence over reversed link timestamps.
+- `identity-access.module.test.ts` pins Admin Roles clerk/operator route allowlist including static `/admin/roles/preview`.
+- `app/admin/roles/page.test.tsx` renders the real page under EN/RU
+  `NextIntlClientProvider` catalogs with mocked auth/API boundaries. It covers
+  initial Role+Skill loading, in-use/default disabled controls and counts,
+  exact server preview request/blocks, ordered core-update + full Skill
+  replacement, and localized canonical refetch after second-request failure,
+  in addition to payload/validation helpers.
+- `app/app/assistant-api-client.test.ts` executes the production Admin Role
+  wrappers and asserts exact generated-client arguments for list/get/create/
+  update/archive/full-replace/preview. The wrapper layer does not duplicate
+  generated transport.
+- `packages/persai-admin-mcp/test/admin-roles.test.ts` covers exact path/body mapping for all five Role tools, including create/update branches and full replacement. It directly parses the schemas used by registration and rejects invalid Role keys, extra locales, 500/800 overflows, and duplicate UUIDs.
+- Admin preview must stay byte-identical to production mission + enabled-Skills renderers; no client-side prompt reconstruction.
+
+Focused S4 commands:
+
+```powershell
+corepack pnpm --filter @persai/contracts run generate
+corepack pnpm --filter @persai/contracts run typecheck
+corepack pnpm --filter @persai/api exec tsx --test test/manage-admin-roles.service.test.ts test/assistant-role-prompt.test.ts test/admin-roles.controller.test.ts test/identity-access.module.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/web exec vitest run app/admin/roles/page.test.tsx
+corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts -t "admin Role generated-client wrappers"
+corepack pnpm --filter @persai/web run typecheck
+corepack pnpm --filter @persai/admin-mcp test
+corepack pnpm --filter @persai/admin-mcp run typecheck
+```
+
 ## ADR-119 golden tests
 
 Six golden tests lock the invariants from the ADR-119 prompt architecture program. All six must pass on every PR. Failure of any golden test indicates a structural regression in the prompt assembly pipeline.

@@ -80,12 +80,10 @@ import {
   type PromptTemplateMap
 } from "./compile-prompt-constructor.service";
 import {
-  resolveEnabledSkillPromptCards,
-  resolveEnabledSkillScenariosForBundle,
-  type EnabledSkillPromptCandidate,
-  type EnabledSkillPromptInstructionCard,
-  type EnabledSkillScenarioCandidate
-} from "./enabled-skills-prompt-materialization";
+  localizeAssistantRoleText,
+  resolveAssistantRoleEffectiveSkillsPrompt
+} from "./assistant-role-effective-skills-prompt";
+export { normalizeSkillScenarioSteps } from "./skill-scenario-runtime-normalization";
 import { ManagePersonaArchetypesService } from "./manage-persona-archetypes.service";
 import {
   modulateVoiceDna,
@@ -903,31 +901,28 @@ export class MaterializeAssistantPublishedVersionService {
       publishedVersion,
       userContext.locale
     );
-    const [assistantRole, enabledSkillCards] = await Promise.all([
+    const [assistantRole, effectiveSkillsPrompt] = await Promise.all([
       this.prisma.assistantRole.findUnique({
         where: { id: assistant.roleId },
         select: { mission: true }
       }),
-      this.resolveEnabledSkillPromptCards({
-        assistant,
+      resolveAssistantRoleEffectiveSkillsPrompt({
+        prisma: this.prisma,
+        roleId: assistant.roleId,
         locale: userContext.locale
       })
     ]);
-    const enabledSkillScenarios = await this.resolveEnabledSkillScenariosForBundle({
-      skillIds: enabledSkillCards.map((card) => card.id),
-      locale: userContext.locale
-    });
-    // Inject resolved scenarios into the prompt cards so the catalog renders in the cached prefix.
-    const enabledSkillCardsWithScenarios = enabledSkillCards.map((card) => ({
-      ...card,
-      scenarios: enabledSkillScenarios.get(card.id) ?? []
-    }));
+    const enabledSkillCards = effectiveSkillsPrompt.cards;
+    const enabledSkillScenarios = effectiveSkillsPrompt.scenariosBySkillId;
     const compiledPromptConstructor = this.compilePromptConstructorService.compile({
       publishedVersion,
       userContext,
       toolPolicies,
-      assistantRoleMission: localizeTextRecord(assistantRole?.mission ?? null, userContext.locale),
-      enabledSkillCards: enabledSkillCardsWithScenarios,
+      assistantRoleMission: localizeAssistantRoleText(
+        assistantRole?.mission ?? null,
+        userContext.locale
+      ),
+      enabledSkillCards,
       promptTemplates,
       voiceDna
     });
@@ -1933,74 +1928,6 @@ export class MaterializeAssistantPublishedVersionService {
     }));
   }
 
-  private async resolveEnabledSkillPromptCards(params: { assistant: Assistant; locale: string }) {
-    const links = await this.prisma.assistantRoleSkill.findMany({
-      where: {
-        roleId: params.assistant.roleId,
-        skill: {
-          status: "active",
-          archivedAt: null
-        }
-      },
-      include: {
-        skill: true
-      },
-      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }, { skillId: "asc" }]
-    });
-    const candidates: EnabledSkillPromptCandidate[] = links.map((link) => ({
-      id: link.skill.id,
-      name: normalizeStringRecord(link.skill.name),
-      description: normalizeStringRecord(link.skill.description),
-      category: link.skill.category,
-      tags: normalizeStringArray(link.skill.tags),
-      displayOrder: link.displayOrder,
-      status: link.skill.status,
-      instructionCard: normalizeInstructionCard(link.skill.instructionCard),
-      iconEmoji: link.skill.iconEmoji,
-      assignmentStatus: "active",
-      assignmentEnabledAt: link.createdAt
-    }));
-    return resolveEnabledSkillPromptCards({
-      candidates,
-      locale: params.locale,
-      limit: null
-    });
-  }
-
-  private async resolveEnabledSkillScenariosForBundle(params: {
-    skillIds: string[];
-    locale: string;
-  }): Promise<
-    Map<string, import("@persai/runtime-bundle").AssistantRuntimeEnabledSkillSummary["scenarios"]>
-  > {
-    if (params.skillIds.length === 0) {
-      return new Map();
-    }
-    const rows = await this.prisma.skillScenario.findMany({
-      where: {
-        skillId: { in: params.skillIds },
-        status: "active"
-      },
-      orderBy: [{ skillId: "asc" }, { displayOrder: "asc" }, { createdAt: "asc" }, { id: "asc" }]
-    });
-    const scenarioCandidates: EnabledSkillScenarioCandidate[] = rows.map((row) => ({
-      skillId: row.skillId,
-      key: row.key,
-      displayName: normalizeStringRecord(row.displayName),
-      description: normalizeStringRecord(row.description),
-      iconEmoji: row.iconEmoji,
-      intentExamples: normalizeStringArray(row.intentExamples),
-      steps: normalizeSkillScenarioSteps(row.steps),
-      recommendedTools: normalizeStringArray(row.recommendedTools),
-      exitCondition: row.exitCondition,
-      firstStepPreview: typeof row.firstStepPreview === "string" ? row.firstStepPreview : null
-    }));
-    return resolveEnabledSkillScenariosForBundle({
-      candidates: scenarioCandidates,
-      locale: params.locale
-    });
-  }
-
   private async resolveUserContext(
     userId: string,
     workspaceId: string
@@ -2245,81 +2172,4 @@ export class MaterializeAssistantPublishedVersionService {
       auditHook: governance.auditHook
     };
   }
-}
-
-function normalizeStringRecord(value: unknown): Record<string, string> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-  const result: Record<string, string> = {};
-  for (const [key, text] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof text === "string") {
-      result[key.toLowerCase()] = text;
-    }
-  }
-  return result;
-}
-
-function normalizeStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
-}
-
-function localizeTextRecord(value: unknown, locale: string): string | null {
-  const normalized = normalizeStringRecord(value);
-  const normalizedLocale = locale.trim().toLowerCase();
-  if (normalizedLocale.length > 0 && typeof normalized[normalizedLocale] === "string") {
-    return normalized[normalizedLocale] ?? null;
-  }
-  const baseLocale = normalizedLocale.split("-")[0] ?? normalizedLocale;
-  if (baseLocale.length > 0 && typeof normalized[baseLocale] === "string") {
-    return normalized[baseLocale] ?? null;
-  }
-  if (typeof normalized.en === "string") {
-    return normalized.en;
-  }
-  if (typeof normalized.ru === "string") {
-    return normalized.ru;
-  }
-  return Object.values(normalized).find((text) => text.trim().length > 0) ?? null;
-}
-
-export function normalizeSkillScenarioSteps(
-  value: unknown
-): import("@persai/runtime-contract").RuntimeBundleSkillScenarioStep[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .filter((item) => item !== null && typeof item === "object")
-    .map((item) => {
-      const row = item as Record<string, unknown>;
-      return {
-        number: typeof row.number === "number" ? row.number : 0,
-        directive: typeof row.directive === "string" ? row.directive : "",
-        recommendedToolCall:
-          typeof row.recommendedToolCall === "string" ? row.recommendedToolCall : null,
-        mayBeSkippedIf: typeof row.mayBeSkippedIf === "string" ? row.mayBeSkippedIf : null,
-        negativeGuards: normalizeStringArray(row.negativeGuards),
-        expectedUserResponse:
-          typeof row.expectedUserResponse === "string" ? row.expectedUserResponse : null,
-        nextStepTrigger: typeof row.nextStepTrigger === "string" ? row.nextStepTrigger : null,
-        recoveryGuidance: typeof row.recoveryGuidance === "string" ? row.recoveryGuidance : null
-      };
-    });
-}
-
-function normalizeInstructionCard(value: unknown): EnabledSkillPromptInstructionCard {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return { title: "", body: "", guardrails: [], examples: [], whenToUse: "" };
-  }
-  const row = value as Record<string, unknown>;
-  return {
-    title: typeof row.title === "string" ? row.title : "",
-    body: typeof row.body === "string" ? row.body : "",
-    guardrails: normalizeStringArray(row.guardrails),
-    examples: normalizeStringArray(row.examples),
-    whenToUse: typeof row.whenToUse === "string" ? row.whenToUse : ""
-  };
 }

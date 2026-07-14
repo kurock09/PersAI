@@ -1,5 +1,77 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-147 S4 Admin Role constructor and MCP
+
+Status: **implemented locally and parent-audited CLEAN after iterative repair;
+uncommitted, unpushed, undeployed.** Baseline committed S3 HEAD was `32a209c1`. Founder-owned
+`chat-plan-card.tsx` / `.test.tsx` remain dirty and were never modified,
+staged, or included.
+
+**Landed S4 truth:** Admin Role constructor mirrors Admin Skills authorization
+and IA. HTTP routes: `GET/POST /api/v1/admin/roles`, static
+`POST /api/v1/admin/roles/preview`, `GET/PATCH/DELETE /api/v1/admin/roles/{roleId}`,
+`PUT /api/v1/admin/roles/{roleId}/skills`. Role key is required on create and
+immutable on update; ru+en name/description/mission are required; default Role
+`persai_default` keeps key/active/empty Skills immutable while localized copy
+and presentation remain editable; in-use Roles cannot leave active; archive
+rejects default/in-use after Role→Assistant serialization. Core edits dirty
+every Assistant using the Role from the post-lock DB clock without clearing
+chat Skill state. Full Skill replacement uses bounded optimistic retry with
+lock order `Skill -> AssistantRole -> Assistant -> AssistantChat ->
+AssistantRoleSkill`, revalidates active Skills, replaces exactly, dirties
+affected Assistants, and clears both chat Skill fields to `DbNull`. Shared
+`renderAssistantRoleMissionBlock` plus one shared production/Admin
+effective-Skills candidate/scenario/renderer pipeline make Admin preview
+byte-identical, ordered by Role-link `displayOrder` rather than link creation
+time. Activation uses bounded fresh-snapshot `Skill -> Role` retry. Role API
+state includes authoritative `assistantCount` / `inUse`; empty default-role
+replacement repairs corrupt links. Web `/admin/roles` + nav use next-intl and
+are fully RU/EN, disable in-use demotion/archive, and reload canonical state
+after a partial two-request save. Five MCP tools (`role_upsert`, `role_get`, `role_list`,
+`role_skills_replace`, `assistant_role_assign`) resolve immutable `roleKey`
+through Admin HTTP and keep `assistant_skills_assign` until S5. Operator
+allowlist, OpenAPI/generated contracts, API-BOUNDARY, ADR-136/147, ARCHITECTURE,
+DATA-MODEL, TEST-PLAN, and MCP README updated.
+
+**Focused repaired evidence:** Role API/controller/prompt suite 20/20 plus
+identity source gate; production prompt/materialization regressions PASS; rendered web Role suite 11/11,
+generated-client wrapper test 1/1, and full Admin MCP suite 12/12. OpenAPI is
+a localized additive `661 insertions / 0 deletions` default diff (the same
+whitespace-insensitive), replacing the rejected `3450/2789` global-format
+diff. Contract generation produced
+identical generated-diff SHA-256
+`59aebb485d6576b47cdbb8ff73b2e236c77972d8`
+twice. Remaining repository gates are recorded only after they run below; this
+is not an S6 final gate.
+
+**Requested S4 verification PASS:** recursive lint; repository `format:check`;
+API, web, contracts, and Admin MCP typechecks; production web build (34/34
+static pages, `/admin/roles` present); and `git diff --check`. The build reports
+only the pre-existing Next.js middleware-convention deprecation warning. These
+are S4 repair gates, not the final S6 full-repository acceptance gate.
+
+**Final strict-parity repair:** every Admin Role `roleId` HTTP path rejects
+malformed UUIDs as stable `400 admin_role_invalid_id` before delegation.
+Create/update/preview/replace parsers reject unknown fields; Role authoring
+localized values are exact non-empty `ru`+`en` only across runtime types,
+OpenAPI, MCP schemas, and UI payloads. Historical DB prompt reads retain
+case-insensitive locale normalization. MCP registration schemas share the Role
+key regex and reject extra locales, overlength copy, and duplicate Skill UUIDs.
+Prompt equality explicitly proves Skill 302 precedes Skill 301 by
+`displayOrder` despite reversed `createdAt`; activation and replacement reject
+missing/draft/archived Skills. Focused strict API/controller/service/prompt
+suite: 20/20; MCP: 12/12. Generated contracts remain deterministic at
+`59aebb485d6576b47cdbb8ff73b2e236c77972d8`.
+
+**Out of scope / residuals:** no S5 legacy deletion, no commit/push/deploy/live
+acceptance, no founder ChatPlanCard edits, and this is not the S6 full-repo
+gate.
+
+**Next recommended step:** commit only parent-audited S4 files while excluding
+founder ChatPlanCard edits, then begin S5 legacy contract/storage deletion.
+
+---
+
 ## 2026-07-14 — contracts Orval Windows open-retry wrapper
 
 Status: **local tooling repair only; uncommitted, unpushed, undeployed.**
@@ -12,8 +84,7 @@ Package `generate` is wrapper → existing `prettier-write-retry`. Focused
 `orval-generate-retry.test.mjs` + S2 source-contract wiring updated. No S3
 product code, founder ChatPlanCard files, S4/S5, commit, push, or deploy.
 
-**Next recommended step:** commit the parent-audited S3 slice while excluding
-founder ChatPlanCard edits, then begin S4 Admin Roles and MCP authoring.
+**Next recommended step:** superseded by S4 implementation entry above.
 
 ---
 

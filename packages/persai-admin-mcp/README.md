@@ -1,6 +1,6 @@
 # @persai/admin-mcp
 
-Stdio MCP server for PersAI operator workflows (ADR-136): admin Skill authoring, assign/publish, and web chat smoke with attachments.
+Stdio MCP server for PersAI operator workflows (ADR-136 + ADR-147 S4): admin Skill authoring, admin Role authoring/assignment, assign/publish, and web chat smoke with attachments.
 
 ## Cursor setup
 
@@ -38,8 +38,11 @@ Optional: `PERSAI_MCP_CHAT_TIMEOUT_MS` (default 310000), `PERSAI_MCP_INDEXING_TI
 ## Tools
 
 - `skill_upsert`, `skill_get`, `skill_card_upsert`, `skill_document_upload`, `skill_scenario_upsert`
-- `indexing_wait`, `assistant_skills_assign`, `assistant_publish`
+- `role_upsert`, `role_get`, `role_list`, `role_skills_replace`, `assistant_role_assign`
+- `indexing_wait`, `assistant_skills_assign` (retained until ADR-147 S5), `assistant_publish`
 - `chat_stage_attachment`, `chat_smoke`, `chat_list_deliverables`, `chat_inspect_attachments`, `chat_fetch_attachment`
+
+Role tools use immutable `roleKey`, resolve `roleId` through `GET /api/v1/admin/roles`, then call the roleId Admin HTTP routes. `role_skills_replace` is full replacement only. `assistant_role_assign` requires exact `assistantId` + `roleKey` and calls `PUT /api/v1/assistant/{assistantId}/role`.
 
 **Cursor agents:** read [`SMOKE-AGENT.md`](./SMOKE-AGENT.md) for PASS/FAIL workflow (skill/scenario/todos + vision QA on delivered images).
 
@@ -57,5 +60,6 @@ Optional: `PERSAI_MCP_ARTIFACT_DIR` — local folder for `chat_inspect_attachmen
 
 1. `skill_upsert` → cards → documents → `indexing_wait`
 2. `skill_scenario_upsert` (status active)
-3. `assistant_skills_assign` → `assistant_publish`
-4. `chat_smoke` with `goal` for Cursor-side PASS/FAIL
+3. `role_upsert` → `role_skills_replace` (full ordered Skill ids) → `assistant_role_assign`
+4. `assistant_publish`
+5. `chat_smoke` with `goal` for Cursor-side PASS/FAIL

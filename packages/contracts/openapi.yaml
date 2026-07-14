@@ -7009,6 +7009,344 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/roles:
+    get:
+      operationId: getAdminRoles
+      summary: List admin-managed Assistant Roles
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Admin Role catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminRolesResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: postAdminRole
+      summary: Create an admin-managed Assistant Role
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRoleCreateRequest"
+      responses:
+        "200":
+          description: Created Role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminRoleResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Role key conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/roles/preview:
+    post:
+      operationId: postAdminRolePreview
+      summary: Preview exact Role mission and enabled-Skills prompt blocks
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRolePreviewRequest"
+      responses:
+        "200":
+          description: Byte-identical production prompt preview blocks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostAdminRolePreviewResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/roles/{roleId}:
+    get:
+      operationId: getAdminRole
+      summary: Read one admin-managed Assistant Role with ordered Skills
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Admin Role state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminRoleResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Role not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: patchAdminRole
+      summary: Update an admin-managed Assistant Role core fields
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRoleUpdateRequest"
+      responses:
+        "200":
+          description: Updated Role
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminRoleResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Role not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Default or in-use Role protection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAdminRole
+      summary: Archive an admin-managed Assistant Role
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Role archived
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteAdminRoleResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Role not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Default or in-use Role protection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/roles/{roleId}/skills:
+    put:
+      operationId: putAdminRoleSkills
+      summary: Full-replace ordered Skills linked to an Assistant Role
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRoleSkillsReplaceRequest"
+      responses:
+        "200":
+          description: Role with replaced Skills
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminRoleResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Role not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Default Role protection or lock retry exhaustion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
 components:
   securitySchemes:
     bearerAuth:
@@ -7016,6 +7354,329 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    AdminRoleStatus:
+      type: string
+      enum:
+        - draft
+        - active
+        - archived
+    AdminRoleNameDescriptionLocalizedText:
+      type: object
+      additionalProperties: false
+      required:
+        - ru
+        - en
+      properties:
+        ru:
+          type: string
+          minLength: 1
+          maxLength: 500
+        en:
+          type: string
+          minLength: 1
+          maxLength: 500
+    AdminRoleMissionLocalizedText:
+      type: object
+      additionalProperties: false
+      required:
+        - ru
+        - en
+      properties:
+        ru:
+          type: string
+          minLength: 1
+          maxLength: 800
+        en:
+          type: string
+          minLength: 1
+          maxLength: 800
+    AdminRoleCreateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - key
+        - name
+        - description
+        - mission
+        - category
+      properties:
+        key:
+          type: string
+          minLength: 2
+          maxLength: 64
+          pattern: "^[a-z][a-z0-9_]{1,63}$"
+        name:
+          $ref: "#/components/schemas/AdminRoleNameDescriptionLocalizedText"
+        description:
+          $ref: "#/components/schemas/AdminRoleNameDescriptionLocalizedText"
+        mission:
+          $ref: "#/components/schemas/AdminRoleMissionLocalizedText"
+        category:
+          type: string
+          minLength: 1
+          maxLength: 64
+        iconEmoji:
+          type: string
+          nullable: true
+          maxLength: 16
+        color:
+          type: string
+          nullable: true
+          maxLength: 32
+        displayOrder:
+          type: integer
+          nullable: true
+        status:
+          allOf:
+            - $ref: "#/components/schemas/AdminRoleStatus"
+          nullable: true
+    AdminRoleUpdateRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - description
+        - mission
+        - category
+      properties:
+        name:
+          $ref: "#/components/schemas/AdminRoleNameDescriptionLocalizedText"
+        description:
+          $ref: "#/components/schemas/AdminRoleNameDescriptionLocalizedText"
+        mission:
+          $ref: "#/components/schemas/AdminRoleMissionLocalizedText"
+        category:
+          type: string
+          minLength: 1
+          maxLength: 64
+        iconEmoji:
+          type: string
+          nullable: true
+          maxLength: 16
+        color:
+          type: string
+          nullable: true
+          maxLength: 32
+        displayOrder:
+          type: integer
+          nullable: true
+        status:
+          allOf:
+            - $ref: "#/components/schemas/AdminRoleStatus"
+          nullable: true
+    AdminRoleSkillsReplaceRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - skillIds
+      properties:
+        skillIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    AdminRolePreviewRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - locale
+        - mission
+        - skillIds
+      properties:
+        locale:
+          type: string
+          enum:
+            - en
+            - ru
+        mission:
+          $ref: "#/components/schemas/AdminRoleMissionLocalizedText"
+        skillIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    AdminRoleSkillLinkState:
+      type: object
+      required:
+        - skillId
+        - displayOrder
+        - createdAt
+        - skill
+      properties:
+        skillId:
+          type: string
+          format: uuid
+        displayOrder:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        skill:
+          type: object
+          required:
+            - id
+            - status
+            - name
+            - description
+            - category
+            - iconEmoji
+            - color
+          properties:
+            id:
+              type: string
+              format: uuid
+            status:
+              $ref: "#/components/schemas/SkillStatus"
+            name:
+              $ref: "#/components/schemas/SkillLocalizedText"
+            description:
+              $ref: "#/components/schemas/SkillLocalizedText"
+            category:
+              type: string
+            iconEmoji:
+              type: string
+              nullable: true
+            color:
+              type: string
+              nullable: true
+    AdminRoleState:
+      type: object
+      required:
+        - id
+        - key
+        - name
+        - description
+        - mission
+        - category
+        - iconEmoji
+        - color
+        - status
+        - displayOrder
+        - isDefault
+        - assistantCount
+        - inUse
+        - skillIds
+        - skills
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        name:
+          $ref: "#/components/schemas/AdminRoleNameDescriptionLocalizedText"
+        description:
+          $ref: "#/components/schemas/AdminRoleNameDescriptionLocalizedText"
+        mission:
+          $ref: "#/components/schemas/AdminRoleMissionLocalizedText"
+        category:
+          type: string
+        iconEmoji:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+        status:
+          $ref: "#/components/schemas/AdminRoleStatus"
+        displayOrder:
+          type: integer
+        isDefault:
+          type: boolean
+        assistantCount:
+          type: integer
+          minimum: 0
+        inUse:
+          type: boolean
+        skillIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRoleSkillLinkState"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AdminRolePreviewState:
+      type: object
+      required:
+        - locale
+        - missionBlock
+        - enabledSkillsBlock
+        - skillIds
+      properties:
+        locale:
+          type: string
+          enum:
+            - en
+            - ru
+        missionBlock:
+          type: string
+        enabledSkillsBlock:
+          type: string
+        skillIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    GetAdminRolesResponse:
+      type: object
+      required:
+        - requestId
+        - roles
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminRoleState"
+    GetAdminRoleResponse:
+      type: object
+      required:
+        - requestId
+        - role
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        role:
+          $ref: "#/components/schemas/AdminRoleState"
+    DeleteAdminRoleResponse:
+      type: object
+      required:
+        - requestId
+        - archived
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        archived:
+          type: boolean
+          enum:
+            - true
+    PostAdminRolePreviewResponse:
+      type: object
+      required:
+        - requestId
+        - preview
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        preview:
+          $ref: "#/components/schemas/AdminRolePreviewState"
     UpdateUserPreferencesRequest:
       type: object
       properties:

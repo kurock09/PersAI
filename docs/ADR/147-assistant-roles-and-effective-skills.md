@@ -3,8 +3,9 @@
 ## Status
 
 In progress — S0 accepted; S1 schema/expand, S2 role-only API/runtime/prompt,
-and S3 user Role UX are implemented locally and parent-audited CLEAN. S4 is
-next. No ADR-147 code has been pushed or deployed.
+S3 user Role UX, and S4 Admin Role constructor/MCP are implemented locally.
+S1–S4 are parent-audited CLEAN. S5 is next. No ADR-147 code has been pushed or
+deployed.
 
 ## Date
 
@@ -771,11 +772,30 @@ Primary files/modules:
 
 ### S4 — Admin Role constructor and MCP
 
-- Add `/admin/roles`.
-- Add Role CRUD, archive protections, Skill replacement, and exact preview.
-- Add the five MCP Role tools over the same APIs.
-- Keep `/admin/skills` authoring unchanged.
-- Invalidate all assistants using an edited Role.
+- **Local status update (2026-07-14): implemented locally, awaiting parent
+  audit; not committed/pushed/deployed.** Baseline before S4 was committed
+  S3 `32a209c1`.
+- Added `/admin/roles` admin HTTP surface mirroring Admin Skills auth:
+  list/create, static `POST /preview`, get/patch/delete by `roleId`, and
+  full-replace `PUT /{roleId}/skills`.
+- Enforced immutable Role key, required ru+en copy/mission, default Role
+  protections, in-use archive rejection, core-edit dirtying without chat
+  clear, and bounded optimistic Skill-replace locking
+  (`Skill -> Role -> Assistant -> Chat -> RoleSkill`) with chat Skill-state
+  clear on replace.
+- Extracted one shared production/Admin effective-Skills prompt pipeline with
+  deterministic `AssistantRoleSkill.displayOrder`, normalized locale keys,
+  active scenarios, instruction cards, and XML escaping. The service-level
+  preview test proves byte-identical `missionBlock` / `enabledSkillsBlock`.
+- Activation uses bounded fresh-link retry in `Skill -> Role` order. API state
+  exposes authoritative `assistantCount` / `inUse`; empty replacement repairs
+  corrupted default-role links under the canonical lock hierarchy.
+- Added next-intl-backed RU/EN `/admin/roles` UI + localized nav,
+  OpenAPI/generated contracts, and five MCP
+  tools (`role_upsert`, `role_get`, `role_list`, `role_skills_replace`,
+  `assistant_role_assign`) with exact request-mapping tests, while keeping
+  `assistant_skills_assign` until S5.
+- Keep `/admin/skills` authoring unchanged. No S5 deletion in this slice.
 
 Primary files/modules:
 

@@ -417,6 +417,14 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/skills/:skillId", method: RequestMethod.GET },
       { path: "api/v1/admin/skills/:skillId", method: RequestMethod.PATCH },
       { path: "api/v1/admin/skills/:skillId", method: RequestMethod.DELETE },
+      // ADR-147 S4 — Admin Roles constructor (static preview before :roleId).
+      { path: "api/v1/admin/roles", method: RequestMethod.GET },
+      { path: "api/v1/admin/roles", method: RequestMethod.POST },
+      { path: "api/v1/admin/roles/preview", method: RequestMethod.POST },
+      { path: "api/v1/admin/roles/:roleId", method: RequestMethod.GET },
+      { path: "api/v1/admin/roles/:roleId", method: RequestMethod.PATCH },
+      { path: "api/v1/admin/roles/:roleId", method: RequestMethod.DELETE },
+      { path: "api/v1/admin/roles/:roleId/skills", method: RequestMethod.PUT },
       { path: "api/v1/admin/skills/:skillId/authoring/draft", method: RequestMethod.POST },
       { path: "api/v1/admin/skills/:skillId/documents", method: RequestMethod.POST },
       {

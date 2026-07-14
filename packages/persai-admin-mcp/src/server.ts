@@ -120,6 +120,129 @@ export async function resolveAssistantPublishBody(
   };
 }
 
+const roleNameDescriptionSchema = z
+  .object({ ru: z.string().min(1).max(500), en: z.string().min(1).max(500) })
+  .strict();
+const roleMissionSchema = z
+  .object({ ru: z.string().min(1).max(800), en: z.string().min(1).max(800) })
+  .strict();
+
+const roleUpsertBodySchema = z
+  .object({
+    name: roleNameDescriptionSchema,
+    description: roleNameDescriptionSchema,
+    mission: roleMissionSchema,
+    category: z.string().min(1).max(64),
+    iconEmoji: z.string().max(16).nullable().optional(),
+    color: z.string().max(32).nullable().optional(),
+    displayOrder: z.number().int().optional(),
+    status: z.enum(["draft", "active", "archived"]).optional()
+  })
+  .strict();
+const roleKeySchema = z
+  .string()
+  .min(2)
+  .max(64)
+  .regex(/^[a-z][a-z0-9_]{1,63}$/, "must match ^[a-z][a-z0-9_]{1,63}$");
+const orderedUniqueSkillIdsSchema = z
+  .array(z.string().uuid())
+  .refine(
+    (skillIds) =>
+      new Set(skillIds.map((skillId) => skillId.toLowerCase())).size === skillIds.length,
+    {
+      message: "skillIds must not contain duplicates"
+    }
+  );
+
+export const adminRoleMcpInputSchemas = {
+  roleList: z.object({}).strict(),
+  roleGet: z.object({ roleKey: roleKeySchema }).strict(),
+  roleUpsert: z.object({ roleKey: roleKeySchema, body: roleUpsertBodySchema }).strict(),
+  roleSkillsReplace: z
+    .object({ roleKey: roleKeySchema, skillIds: orderedUniqueSkillIdsSchema })
+    .strict(),
+  assistantRoleAssign: z.object({ assistantId: z.string().uuid(), roleKey: roleKeySchema }).strict()
+} as const;
+
+export async function resolveAdminRoleIdByKey(
+  client: Pick<PersaiOperatorClient, "requestJson">,
+  roleKey: string
+): Promise<string> {
+  const payload = asRecord(
+    await client.requestJson({
+      method: "GET",
+      path: "/api/v1/admin/roles"
+    })
+  );
+  const roles = Array.isArray(payload?.roles) ? payload.roles : [];
+  for (const item of roles) {
+    const role = asRecord(item);
+    if (role !== null && role.key === roleKey && typeof role.id === "string") {
+      return role.id;
+    }
+  }
+  throw new Error(`Admin Role key "${roleKey}" was not found.`);
+}
+
+type RoleHttpClient = Pick<PersaiOperatorClient, "requestJson">;
+
+export async function requestRoleList(client: RoleHttpClient): Promise<unknown> {
+  return client.requestJson({ method: "GET", path: "/api/v1/admin/roles" });
+}
+
+export async function requestRoleGet(client: RoleHttpClient, roleKey: string): Promise<unknown> {
+  const roleId = await resolveAdminRoleIdByKey(client, roleKey);
+  return client.requestJson({ method: "GET", path: `/api/v1/admin/roles/${roleId}` });
+}
+
+export async function requestRoleUpsert(
+  client: RoleHttpClient,
+  roleKey: string,
+  body: Record<string, unknown>
+): Promise<unknown> {
+  const list = asRecord(await requestRoleList(client));
+  const roles = Array.isArray(list?.roles) ? list.roles : [];
+  const existing = roles
+    .map(asRecord)
+    .find((role) => role?.key === roleKey && typeof role.id === "string");
+  return existing && typeof existing.id === "string"
+    ? client.requestJson({
+        method: "PATCH",
+        path: `/api/v1/admin/roles/${existing.id}`,
+        body
+      })
+    : client.requestJson({
+        method: "POST",
+        path: "/api/v1/admin/roles",
+        body: { key: roleKey, ...body }
+      });
+}
+
+export async function requestRoleSkillsReplace(
+  client: RoleHttpClient,
+  roleKey: string,
+  skillIds: string[]
+): Promise<unknown> {
+  const roleId = await resolveAdminRoleIdByKey(client, roleKey);
+  return client.requestJson({
+    method: "PUT",
+    path: `/api/v1/admin/roles/${roleId}/skills`,
+    body: { skillIds }
+  });
+}
+
+export async function requestAssistantRoleAssign(
+  client: RoleHttpClient,
+  assistantId: string,
+  roleKey: string
+): Promise<unknown> {
+  return client.requestJson({
+    method: "PUT",
+    path: `/api/v1/assistant/${assistantId}/role`,
+    body: { roleKey }
+  });
+}
+
 /**
  * Body shape for POST (create, no top-level scenarioKey arg — `key` required here) and
  * PATCH (update, top-level scenarioKey supplied separately — `key` ignored/not required).
@@ -516,6 +639,90 @@ export function createPersaiAdminMcpServer(
           path: "/api/v1/assistant/skills",
           body: { skillIds: merged }
         });
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "role_list",
+    {
+      description: "List admin Assistant Roles via GET /api/v1/admin/roles.",
+      inputSchema: adminRoleMcpInputSchemas.roleList
+    },
+    async () => {
+      try {
+        const payload = await requestRoleList(client);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "role_get",
+    {
+      description:
+        "Fetch one admin Assistant Role by immutable roleKey. Resolves roleId via GET /api/v1/admin/roles then GET /api/v1/admin/roles/{roleId}.",
+      inputSchema: adminRoleMcpInputSchemas.roleGet
+    },
+    async ({ roleKey }) => {
+      try {
+        const payload = await requestRoleGet(client, roleKey);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "role_upsert",
+    {
+      description:
+        "Create or update an admin Assistant Role by immutable roleKey. Create uses POST /admin/roles; update resolves roleId then PATCH /admin/roles/{roleId}. Key is immutable.",
+      inputSchema: adminRoleMcpInputSchemas.roleUpsert
+    },
+    async ({ roleKey, body }) => {
+      try {
+        const payload = await requestRoleUpsert(client, roleKey, body);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "role_skills_replace",
+    {
+      description:
+        "Full-replace ordered Skills for an Assistant Role by roleKey via PUT /api/v1/admin/roles/{roleId}/skills. Never merges.",
+      inputSchema: adminRoleMcpInputSchemas.roleSkillsReplace
+    },
+    async ({ roleKey, skillIds }) => {
+      try {
+        const payload = await requestRoleSkillsReplace(client, roleKey, skillIds);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "assistant_role_assign",
+    {
+      description:
+        "Assign an Assistant Role by exact assistantId + immutable roleKey via PUT /api/v1/assistant/{assistantId}/role.",
+      inputSchema: adminRoleMcpInputSchemas.assistantRoleAssign
+    },
+    async ({ assistantId, roleKey }) => {
+      try {
+        const payload = await requestAssistantRoleAssign(client, assistantId, roleKey);
         return toolText(payload);
       } catch (error) {
         return toolError(error);

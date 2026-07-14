@@ -18,6 +18,10 @@ import type {
   AdminMemoryBackfillRequest,
   AdminPlanCreateRequest,
   AdminPlanUpdateRequest,
+  AdminRoleCreateRequest,
+  AdminRolePreviewRequest,
+  AdminRoleSkillsReplaceRequest,
+  AdminRoleUpdateRequest,
   AdminRuntimeProviderSettingsRequest,
   AdminSafetyRestrictRequest,
   AdminSafetyUnblockRequest,
@@ -47,6 +51,7 @@ import type {
   CreateWorkspaceVideoPersonaBody,
   DeleteAdminKnowledgeSourceResponse,
   DeleteAdminOpsUserPlanOverrideParams,
+  DeleteAdminRoleResponse,
   DeleteAdminSkillDocumentResponse,
   DeleteAdminSkillKnowledgeCardResponse,
   DeleteAdminSkillResponse,
@@ -80,6 +85,8 @@ import type {
   GetAdminPlatformRolloutFailedItemsResponse,
   GetAdminPlatformRolloutsResponse,
   GetAdminPromptTemplatesResponse,
+  GetAdminRoleResponse,
+  GetAdminRolesResponse,
   GetAdminRuntimeProviderSettingsResponse,
   GetAdminSafetyControlsCasesParams,
   GetAdminSafetyControlsCasesResponse,
@@ -160,6 +167,7 @@ import type {
   PostAdminPlanResponse,
   PostAdminPlatformRolloutCancelPendingResponse,
   PostAdminPlatformRolloutRetryFailedResponse,
+  PostAdminRolePreviewResponse,
   PostAdminSafetyControlsRestrictResponse,
   PostAdminSafetyControlsUnblockResponse,
   PostAdminSitePagePublishRequest,
@@ -10161,4 +10169,437 @@ export const archiveWorkspaceVideoPersona = async (
       method: "DELETE"
     }
   );
+};
+
+/**
+ * @summary List admin-managed Assistant Roles
+ */
+export type getAdminRolesResponse200 = {
+  data: GetAdminRolesResponse;
+  status: 200;
+};
+
+export type getAdminRolesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminRolesResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminRolesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminRolesResponseSuccess = getAdminRolesResponse200 & {
+  headers: Headers;
+};
+export type getAdminRolesResponseError = (
+  | getAdminRolesResponse401
+  | getAdminRolesResponse403
+  | getAdminRolesResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminRolesResponse = getAdminRolesResponseSuccess | getAdminRolesResponseError;
+
+export const getGetAdminRolesUrl = () => {
+  return `/admin/roles`;
+};
+
+export const getAdminRoles = async (options?: RequestInit): Promise<getAdminRolesResponse> => {
+  return customFetch<getAdminRolesResponse>(getGetAdminRolesUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Create an admin-managed Assistant Role
+ */
+export type postAdminRoleResponse200 = {
+  data: GetAdminRoleResponse;
+  status: 200;
+};
+
+export type postAdminRoleResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminRoleResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminRoleResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminRoleResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAdminRoleResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminRoleResponseSuccess = postAdminRoleResponse200 & {
+  headers: Headers;
+};
+export type postAdminRoleResponseError = (
+  | postAdminRoleResponse400
+  | postAdminRoleResponse401
+  | postAdminRoleResponse403
+  | postAdminRoleResponse409
+  | postAdminRoleResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminRoleResponse = postAdminRoleResponseSuccess | postAdminRoleResponseError;
+
+export const getPostAdminRoleUrl = () => {
+  return `/admin/roles`;
+};
+
+export const postAdminRole = async (
+  adminRoleCreateRequest: AdminRoleCreateRequest,
+  options?: RequestInit
+): Promise<postAdminRoleResponse> => {
+  return customFetch<postAdminRoleResponse>(getPostAdminRoleUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminRoleCreateRequest)
+  });
+};
+
+/**
+ * @summary Preview exact Role mission and enabled-Skills prompt blocks
+ */
+export type postAdminRolePreviewResponse200 = {
+  data: PostAdminRolePreviewResponse;
+  status: 200;
+};
+
+export type postAdminRolePreviewResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminRolePreviewResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAdminRolePreviewResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAdminRolePreviewResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAdminRolePreviewResponseSuccess = postAdminRolePreviewResponse200 & {
+  headers: Headers;
+};
+export type postAdminRolePreviewResponseError = (
+  | postAdminRolePreviewResponse400
+  | postAdminRolePreviewResponse401
+  | postAdminRolePreviewResponse403
+  | postAdminRolePreviewResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAdminRolePreviewResponse =
+  | postAdminRolePreviewResponseSuccess
+  | postAdminRolePreviewResponseError;
+
+export const getPostAdminRolePreviewUrl = () => {
+  return `/admin/roles/preview`;
+};
+
+export const postAdminRolePreview = async (
+  adminRolePreviewRequest: AdminRolePreviewRequest,
+  options?: RequestInit
+): Promise<postAdminRolePreviewResponse> => {
+  return customFetch<postAdminRolePreviewResponse>(getPostAdminRolePreviewUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminRolePreviewRequest)
+  });
+};
+
+/**
+ * @summary Read one admin-managed Assistant Role with ordered Skills
+ */
+export type getAdminRoleResponse200 = {
+  data: GetAdminRoleResponse;
+  status: 200;
+};
+
+export type getAdminRoleResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminRoleResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminRoleResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAdminRoleResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAdminRoleResponseSuccess = getAdminRoleResponse200 & {
+  headers: Headers;
+};
+export type getAdminRoleResponseError = (
+  | getAdminRoleResponse401
+  | getAdminRoleResponse403
+  | getAdminRoleResponse404
+  | getAdminRoleResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAdminRoleResponse = getAdminRoleResponseSuccess | getAdminRoleResponseError;
+
+export const getGetAdminRoleUrl = (roleId: string) => {
+  return `/admin/roles/${roleId}`;
+};
+
+export const getAdminRole = async (
+  roleId: string,
+  options?: RequestInit
+): Promise<getAdminRoleResponse> => {
+  return customFetch<getAdminRoleResponse>(getGetAdminRoleUrl(roleId), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Update an admin-managed Assistant Role core fields
+ */
+export type patchAdminRoleResponse200 = {
+  data: GetAdminRoleResponse;
+  status: 200;
+};
+
+export type patchAdminRoleResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type patchAdminRoleResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type patchAdminRoleResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type patchAdminRoleResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type patchAdminRoleResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type patchAdminRoleResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type patchAdminRoleResponseSuccess = patchAdminRoleResponse200 & {
+  headers: Headers;
+};
+export type patchAdminRoleResponseError = (
+  | patchAdminRoleResponse400
+  | patchAdminRoleResponse401
+  | patchAdminRoleResponse403
+  | patchAdminRoleResponse404
+  | patchAdminRoleResponse409
+  | patchAdminRoleResponse500
+) & {
+  headers: Headers;
+};
+
+export type patchAdminRoleResponse = patchAdminRoleResponseSuccess | patchAdminRoleResponseError;
+
+export const getPatchAdminRoleUrl = (roleId: string) => {
+  return `/admin/roles/${roleId}`;
+};
+
+export const patchAdminRole = async (
+  roleId: string,
+  adminRoleUpdateRequest: AdminRoleUpdateRequest,
+  options?: RequestInit
+): Promise<patchAdminRoleResponse> => {
+  return customFetch<patchAdminRoleResponse>(getPatchAdminRoleUrl(roleId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminRoleUpdateRequest)
+  });
+};
+
+/**
+ * @summary Archive an admin-managed Assistant Role
+ */
+export type deleteAdminRoleResponse200 = {
+  data: DeleteAdminRoleResponse;
+  status: 200;
+};
+
+export type deleteAdminRoleResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type deleteAdminRoleResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type deleteAdminRoleResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type deleteAdminRoleResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type deleteAdminRoleResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type deleteAdminRoleResponseSuccess = deleteAdminRoleResponse200 & {
+  headers: Headers;
+};
+export type deleteAdminRoleResponseError = (
+  | deleteAdminRoleResponse401
+  | deleteAdminRoleResponse403
+  | deleteAdminRoleResponse404
+  | deleteAdminRoleResponse409
+  | deleteAdminRoleResponse500
+) & {
+  headers: Headers;
+};
+
+export type deleteAdminRoleResponse = deleteAdminRoleResponseSuccess | deleteAdminRoleResponseError;
+
+export const getDeleteAdminRoleUrl = (roleId: string) => {
+  return `/admin/roles/${roleId}`;
+};
+
+export const deleteAdminRole = async (
+  roleId: string,
+  options?: RequestInit
+): Promise<deleteAdminRoleResponse> => {
+  return customFetch<deleteAdminRoleResponse>(getDeleteAdminRoleUrl(roleId), {
+    ...options,
+    method: "DELETE"
+  });
+};
+
+/**
+ * @summary Full-replace ordered Skills linked to an Assistant Role
+ */
+export type putAdminRoleSkillsResponse200 = {
+  data: GetAdminRoleResponse;
+  status: 200;
+};
+
+export type putAdminRoleSkillsResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAdminRoleSkillsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type putAdminRoleSkillsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type putAdminRoleSkillsResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type putAdminRoleSkillsResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type putAdminRoleSkillsResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type putAdminRoleSkillsResponseSuccess = putAdminRoleSkillsResponse200 & {
+  headers: Headers;
+};
+export type putAdminRoleSkillsResponseError = (
+  | putAdminRoleSkillsResponse400
+  | putAdminRoleSkillsResponse401
+  | putAdminRoleSkillsResponse403
+  | putAdminRoleSkillsResponse404
+  | putAdminRoleSkillsResponse409
+  | putAdminRoleSkillsResponse500
+) & {
+  headers: Headers;
+};
+
+export type putAdminRoleSkillsResponse =
+  | putAdminRoleSkillsResponseSuccess
+  | putAdminRoleSkillsResponseError;
+
+export const getPutAdminRoleSkillsUrl = (roleId: string) => {
+  return `/admin/roles/${roleId}/skills`;
+};
+
+export const putAdminRoleSkills = async (
+  roleId: string,
+  adminRoleSkillsReplaceRequest: AdminRoleSkillsReplaceRequest,
+  options?: RequestInit
+): Promise<putAdminRoleSkillsResponse> => {
+  return customFetch<putAdminRoleSkillsResponse>(getPutAdminRoleSkillsUrl(roleId), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminRoleSkillsReplaceRequest)
+  });
 };

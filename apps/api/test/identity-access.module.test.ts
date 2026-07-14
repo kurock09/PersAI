@@ -238,6 +238,14 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
       path: "api/v1/admin/skills/:skillId/scenarios/:scenarioKey",
       method: RequestMethod.DELETE
     },
+    // ADR-147 S4 — Admin Roles constructor routes.
+    { path: "api/v1/admin/roles", method: RequestMethod.GET },
+    { path: "api/v1/admin/roles", method: RequestMethod.POST },
+    { path: "api/v1/admin/roles/preview", method: RequestMethod.POST },
+    { path: "api/v1/admin/roles/:roleId", method: RequestMethod.GET },
+    { path: "api/v1/admin/roles/:roleId", method: RequestMethod.PATCH },
+    { path: "api/v1/admin/roles/:roleId", method: RequestMethod.DELETE },
+    { path: "api/v1/admin/roles/:roleId/skills", method: RequestMethod.PUT },
     { path: "api/v1/admin/site-pages", method: RequestMethod.GET },
     { path: "api/v1/admin/site-pages/:slug", method: RequestMethod.PUT },
     { path: "api/v1/admin/site-pages/:slug/publish", method: RequestMethod.POST },

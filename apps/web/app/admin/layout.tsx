@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import type { Route } from "next";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
+import { useTranslations } from "next-intl";
 import {
   ArrowLeft,
   CreditCard,
@@ -22,7 +23,8 @@ import {
   Menu,
   X,
   Loader2,
-  MessageCircle
+  MessageCircle,
+  UserRoundCog
 } from "lucide-react";
 import { cn } from "@/app/lib/utils";
 import { getAdminPlanVisibility } from "@/app/app/assistant-api-client";
@@ -36,6 +38,7 @@ const NAV_ITEMS = [
   { href: "/admin/site-pages", label: "Site Pages", icon: FileText },
   { href: "/admin/knowledge", label: "Knowledge", icon: Library },
   { href: "/admin/skills", label: "Skills", icon: GraduationCap },
+  { href: "/admin/roles", label: "Roles", labelKey: "roles", icon: UserRoundCog },
   { href: "/admin/plans", label: "Plans", icon: CreditCard },
   { href: "/admin/billing-settings", label: "Billing Settings", icon: Settings },
   { href: "/admin/ops", label: "Ops Cockpit", icon: Activity },
@@ -49,6 +52,7 @@ const NAV_ITEMS = [
 function AdminSidebar({ onClose }: { onClose?: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
+  const roleT = useTranslations("adminRoles");
 
   return (
     <aside className="flex h-dvh w-[220px] shrink-0 flex-col border-r border-border bg-surface">
@@ -90,7 +94,7 @@ function AdminSidebar({ onClose }: { onClose?: () => void }) {
               )}
             >
               <Icon className="h-3.5 w-3.5" />
-              {item.label}
+              {"labelKey" in item && item.labelKey === "roles" ? roleT("title") : item.label}
             </button>
           );
         })}

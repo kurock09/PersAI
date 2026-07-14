@@ -8,6 +8,7 @@ import { buildAssistantRuntimePromptStablePrefix as toStablePrefix } from "@pers
 import type { RuntimeToolPolicy } from "@persai/runtime-contract";
 import type { AssistantPublishedVersion } from "../domain/assistant-published-version.entity";
 import { normalizeAssistantGender } from "./assistant-gender";
+import { renderAssistantRoleMissionBlock } from "./assistant-role-prompt";
 import {
   renderEnabledSkillsPromptBlock,
   type EnabledSkillPromptCard
@@ -418,20 +419,7 @@ export class CompilePromptConstructorService {
   }
 
   private generateAssistantRolePrompt(mission: string | null): string {
-    const normalizedMission = this.normalizeOptionalText(mission);
-    if (normalizedMission === null) {
-      return "";
-    }
-    return `<assistant_role>\n<mission>${this.escapeXmlText(normalizedMission)}</mission>\n</assistant_role>`;
-  }
-
-  private escapeXmlText(value: string): string {
-    return value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;");
+    return renderAssistantRoleMissionBlock(mission);
   }
 
   private generateToolsPrompt(_toolPolicies: RuntimeToolPolicy[], template: string | null): string {

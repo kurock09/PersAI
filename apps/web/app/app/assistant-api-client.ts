@@ -11,6 +11,12 @@ import {
   type MaterializationRolloutView,
   type PostAdminPlatformRolloutCancelPendingResponse,
   type PostAdminPlatformRolloutRetryFailedResponse,
+  type AdminRoleCreateRequest,
+  type AdminRolePreviewRequest,
+  type AdminRolePreviewState,
+  type AdminRoleSkillsReplaceRequest,
+  type AdminRoleState,
+  type AdminRoleUpdateRequest,
   type AdminSkillState,
   type AdminSkillUpsertRequest,
   type AssistantRoleSelectionResponse,
@@ -134,6 +140,13 @@ import {
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
   getAssistantRole as getAssistantRoleContract,
   getAssistantRoles as getAssistantRolesContract,
+  getAdminRoles as getAdminRolesContract,
+  getAdminRole as getAdminRoleContract,
+  postAdminRole as postAdminRoleContract,
+  patchAdminRole as patchAdminRoleContract,
+  deleteAdminRole as deleteAdminRoleContract,
+  putAdminRoleSkills as putAdminRoleSkillsContract,
+  postAdminRolePreview as postAdminRolePreviewContract,
   getAssistantSkills as getAssistantSkillsContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   getAdminAbuseControlsAssistants as getAdminAbuseControlsAssistantsContract,
@@ -5596,6 +5609,12 @@ export async function reindexAdminKnowledgeSource(
 
 export type {
   AssistantRoleState,
+  AdminRoleState,
+  AdminRoleCreateRequest,
+  AdminRoleUpdateRequest,
+  AdminRoleSkillsReplaceRequest,
+  AdminRolePreviewRequest,
+  AdminRolePreviewState,
   AdminSkillState,
   AdminSkillUpsertRequest,
   AssistantRoleSelectionResponse as AssistantRoleSelectionState,
@@ -5894,6 +5913,89 @@ export async function archiveAdminSkill(token: string, skillId: string): Promise
   if (!res.ok) {
     throw new Error(await readJsonErrorMessage(res, "Failed to archive Skill."));
   }
+}
+
+export async function getAdminRoles(token: string): Promise<AdminRoleState[]> {
+  const response = await getAdminRolesContract({
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for GET /admin/roles.");
+  }
+  return response.data.roles;
+}
+
+export async function getAdminRole(token: string, roleId: string): Promise<AdminRoleState> {
+  const response = await getAdminRoleContract(roleId, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for GET /admin/roles/{roleId}.");
+  }
+  return response.data.role;
+}
+
+export async function createAdminRole(
+  token: string,
+  payload: AdminRoleCreateRequest
+): Promise<AdminRoleState> {
+  const response = await postAdminRoleContract(payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for POST /admin/roles.");
+  }
+  return response.data.role;
+}
+
+export async function updateAdminRole(
+  token: string,
+  roleId: string,
+  payload: AdminRoleUpdateRequest
+): Promise<AdminRoleState> {
+  const response = await patchAdminRoleContract(roleId, payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for PATCH /admin/roles/{roleId}.");
+  }
+  return response.data.role;
+}
+
+export async function archiveAdminRole(token: string, roleId: string): Promise<void> {
+  const response = await deleteAdminRoleContract(roleId, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for DELETE /admin/roles/{roleId}.");
+  }
+}
+
+export async function replaceAdminRoleSkills(
+  token: string,
+  roleId: string,
+  payload: AdminRoleSkillsReplaceRequest
+): Promise<AdminRoleState> {
+  const response = await putAdminRoleSkillsContract(roleId, payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for PUT /admin/roles/{roleId}/skills.");
+  }
+  return response.data.role;
+}
+
+export async function previewAdminRole(
+  token: string,
+  payload: AdminRolePreviewRequest
+): Promise<AdminRolePreviewState> {
+  const response = await postAdminRolePreviewContract(payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for POST /admin/roles/preview.");
+  }
+  return response.data.preview;
 }
 
 export async function uploadAdminSkillDocument(

@@ -29,6 +29,13 @@ import {
   getWorkspaceVideoClonedVoices,
   getAssistantRole,
   getAssistantRoles,
+  getAdminRole,
+  getAdminRoles,
+  createAdminRole,
+  updateAdminRole,
+  archiveAdminRole,
+  replaceAdminRoleSkills,
+  previewAdminRole,
   updateAssistantRole,
   postAssistantPublish,
   createWorkspaceVideoClonedVoice,
@@ -59,7 +66,14 @@ const contractMocks = vi.hoisted(() => {
     getAssistantRoles: vi.fn(),
     getAssistantRole: vi.fn(),
     putAssistantRole: vi.fn(),
-    postAssistantPublish: vi.fn()
+    postAssistantPublish: vi.fn(),
+    getAdminRoles: vi.fn(),
+    getAdminRole: vi.fn(),
+    postAdminRole: vi.fn(),
+    patchAdminRole: vi.fn(),
+    deleteAdminRole: vi.fn(),
+    putAdminRoleSkills: vi.fn(),
+    postAdminRolePreview: vi.fn()
   };
 });
 
@@ -83,7 +97,14 @@ vi.mock("@persai/contracts", async () => {
     getAssistantRoles: contractMocks.getAssistantRoles,
     getAssistantRole: contractMocks.getAssistantRole,
     putAssistantRole: contractMocks.putAssistantRole,
-    postAssistantPublish: contractMocks.postAssistantPublish
+    postAssistantPublish: contractMocks.postAssistantPublish,
+    getAdminRoles: contractMocks.getAdminRoles,
+    getAdminRole: contractMocks.getAdminRole,
+    postAdminRole: contractMocks.postAdminRole,
+    patchAdminRole: contractMocks.patchAdminRole,
+    deleteAdminRole: contractMocks.deleteAdminRole,
+    putAdminRoleSkills: contractMocks.putAdminRoleSkills,
+    postAdminRolePreview: contractMocks.postAdminRolePreview
   };
 });
 
@@ -207,6 +228,101 @@ describe("assistant Role API wrappers", () => {
     ).rejects.toMatchObject({
       code: "assistant_publish_role_conflict"
     });
+  });
+});
+
+describe("admin Role generated-client wrappers", () => {
+  const role = {
+    id: "00000000-0000-4000-8000-000000000201",
+    key: "analyst",
+    name: { en: "Analyst", ru: "Аналитик" },
+    description: { en: "Analysis", ru: "Анализ" },
+    mission: { en: "Analyze.", ru: "Анализируй." },
+    category: "work",
+    iconEmoji: null,
+    color: null,
+    status: "active" as const,
+    displayOrder: 10,
+    isDefault: false,
+    assistantCount: 0,
+    inUse: false,
+    skillIds: [],
+    skills: [],
+    createdAt: "2026-07-14T00:00:00.000Z",
+    updatedAt: "2026-07-14T00:00:00.000Z"
+  };
+  const core = {
+    name: role.name,
+    description: role.description,
+    mission: role.mission,
+    category: role.category,
+    iconEmoji: null,
+    color: null,
+    displayOrder: 10,
+    status: "active" as const
+  };
+
+  it("maps list/get/create/update/archive/replace/preview to generated clients", async () => {
+    contractMocks.getAdminRoles.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, roles: [role] }
+    });
+    contractMocks.getAdminRole.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, role }
+    });
+    contractMocks.postAdminRole.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, role }
+    });
+    contractMocks.patchAdminRole.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, role }
+    });
+    contractMocks.deleteAdminRole.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, archived: true }
+    });
+    contractMocks.putAdminRoleSkills.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, role }
+    });
+    const preview = {
+      locale: "ru" as const,
+      missionBlock: "<assistant_role>точно</assistant_role>",
+      enabledSkillsBlock: "<enabled_skills>точно</enabled_skills>",
+      skillIds: ["00000000-0000-4000-8000-000000000301"]
+    };
+    contractMocks.postAdminRolePreview.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, preview }
+    });
+
+    const createPayload = { key: "analyst", ...core };
+    const skillPayload = { skillIds: preview.skillIds };
+    const previewPayload = {
+      locale: "ru" as const,
+      mission: role.mission,
+      skillIds: preview.skillIds
+    };
+    await expect(getAdminRoles("token")).resolves.toEqual([role]);
+    await expect(getAdminRole("token", role.id)).resolves.toEqual(role);
+    await expect(createAdminRole("token", createPayload)).resolves.toEqual(role);
+    await expect(updateAdminRole("token", role.id, core)).resolves.toEqual(role);
+    await expect(archiveAdminRole("token", role.id)).resolves.toBeUndefined();
+    await expect(replaceAdminRoleSkills("token", role.id, skillPayload)).resolves.toEqual(role);
+    await expect(previewAdminRole("token", previewPayload)).resolves.toEqual(preview);
+
+    const options = expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer token" })
+    });
+    expect(contractMocks.getAdminRoles).toHaveBeenCalledWith(options);
+    expect(contractMocks.getAdminRole).toHaveBeenCalledWith(role.id, options);
+    expect(contractMocks.postAdminRole).toHaveBeenCalledWith(createPayload, options);
+    expect(contractMocks.patchAdminRole).toHaveBeenCalledWith(role.id, core, options);
+    expect(contractMocks.deleteAdminRole).toHaveBeenCalledWith(role.id, options);
+    expect(contractMocks.putAdminRoleSkills).toHaveBeenCalledWith(role.id, skillPayload, options);
+    expect(contractMocks.postAdminRolePreview).toHaveBeenCalledWith(previewPayload, options);
   });
 });
 

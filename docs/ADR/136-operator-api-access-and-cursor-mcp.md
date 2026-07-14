@@ -114,7 +114,7 @@ Extend `ClerkAuthMiddleware` (or equivalent single choke point on clerk-protecte
 2. Otherwise existing Clerk JWT path unchanged.
 3. If operator token is configured but actor user missing → `401` with clear message at request time (or fail-fast at boot — pick one in S1 and document).
 
-Operator auth applies to the same route allowlist already registered in `identity-access.module.ts` for clerk middleware (includes `/admin/skills/*`, `/assistant/skills`, `/assistant/publish`, `/assistant/chat/web`, `/assistant/chat/web/stage-attachment`, chat file preview routes).
+Operator auth applies to the same route allowlist already registered in `identity-access.module.ts` for clerk middleware (includes `/admin/skills/*`, ADR-147 S4 `/admin/roles/*`, `/assistant/skills`, `/assistant/{assistantId}/role`, `/assistant/publish`, `/assistant/chat/web`, `/assistant/chat/web/stage-attachment`, chat file preview routes).
 
 **v1 scope:** dev environment only; document rotation runbook; no separate operator ingress / IP allowlist in v1.
 

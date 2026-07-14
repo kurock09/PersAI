@@ -12,7 +12,7 @@ Founder Cursor / MCP workflows use a **machine operator bearer**, not Clerk.
 
 - Env: `PERSAI_OPERATOR_TOKEN` + (`PERSAI_OPERATOR_ACTOR_USER_ID` **or** `PERSAI_OPERATOR_ACTOR_EMAIL`).
 - `ClerkAuthMiddleware` accepts `Authorization: Bearer <operator token>` before Clerk verification and binds `req.resolvedAppUser` to the configured actor `app_users` row.
-- Operator auth covers the same clerk-registered public routes used for admin Skill CRUD (`/api/v1/admin/skills*`), assistant assign/publish (`/api/v1/assistant/skills`, `/api/v1/assistant/publish`), and web chat smoke (`/api/v1/assistant/chat/web`, `/api/v1/assistant/chat/web/stage-attachment`, chat file preview/download).
+- Operator auth covers the same clerk-registered public routes used for admin Skill CRUD (`/api/v1/admin/skills*`), admin Role CRUD (`/api/v1/admin/roles*`), assistant assign/publish/role (`/api/v1/assistant/skills`, `/api/v1/assistant/publish`, `/api/v1/assistant/{assistantId}/role`), and web chat smoke (`/api/v1/assistant/chat/web`, `/api/v1/assistant/chat/web/stage-attachment`, chat file preview/download).
 - `PERSAI_INTERNAL_API_TOKEN` remains **internal-only** (`/api/v1/internal/*` on `API_INTERNAL_PORT`); it must not authorize operator/admin/chat public routes.
 - MCP package: `packages/persai-admin-mcp` (stdio). Dev defaults in `infra/helm/values-dev.yaml` pin actor email `kurock09@gmail.com`.
 
@@ -33,6 +33,7 @@ Primary public API surface:
 - admin knowledge routes under `/api/v1/admin/knowledge-sources*`
 - admin memory backfill routes under `/api/v1/admin/memory-backfill*` (assistant-scoped dry-run preview + step-up confirmed apply for legacy durable-memory cleanup)
 - admin Skill routes under `/api/v1/admin/skills*`
+- ADR-147 S4 admin Role routes under `/api/v1/admin/roles*` (list/create, static `POST /preview`, get/patch/delete by `roleId`, full-replace `PUT /{roleId}/skills`)
 - future ADR-080 admin authoring routes for Skill knowledge cards, Skill draft enrichment, and Product KB text entries stay under `/api/v1/admin/skills*` and `/api/v1/admin/knowledge-sources*`
 - admin document-processing provider settings under `/api/v1/admin/tools/document-processing*`
 - admin billing-provider credential settings under `/api/v1/admin/tools/billing`
@@ -253,6 +254,29 @@ Active boundary rules:
 - ADR-080 Skill knowledge cards and assistant-assisted Skill drafts belong to the admin Skill surface; generated proposals must not become active runtime knowledge without explicit admin save/activation
 - assistant-assisted Skill draft/enrichment is API/control-plane authoring that calls provider-gateway using the admin Knowledge `authoringModelKey`; it is not a runtime chat turn and does not mutate saved Skill or Knowledge rows unless the admin saves the proposal
 - `/admin/skills` is the admin UI owner for Skill list/create/edit/archive and Skill document upload/delete/reindex/status management; `/admin/knowledge` remains Product KB and must not expose the old Skill library scope
+
+### Admin Roles
+
+ADR-147 S4 adds the admin Role constructor boundary (local, not deployed):
+
+- `GET /api/v1/admin/roles`
+- `POST /api/v1/admin/roles`
+- `POST /api/v1/admin/roles/preview`
+- `GET /api/v1/admin/roles/:roleId`
+- `PATCH /api/v1/admin/roles/:roleId`
+- `DELETE /api/v1/admin/roles/:roleId`
+- `PUT /api/v1/admin/roles/:roleId/skills`
+
+Active boundary rules:
+
+- Role `key` is required on create and immutable on update
+- localized `name` / `description` / `mission` require non-empty `ru` and `en`
+- default Role `persai_default` keeps key/active status/empty Skills immutable; localized copy and bounded presentation remain editable
+- any Role used by an Assistant cannot leave active status; archive rejects default and in-use Roles
+- core Role edits dirty every Assistant using that Role without clearing chat Skill state
+- Skill replacement is full ordered replace only, locks `Skill -> Role -> Assistant -> Chat -> RoleSkill`, dirties affected Assistants from the post-lock DB clock, and clears both chat Skill fields
+- `POST /preview` returns production-identical `missionBlock` / `enabledSkillsBlock` from the shared renderer pipeline
+- `/admin/roles` is the admin UI owner; MCP Role tools are thin HTTP wrappers over these routes plus owner `PUT /assistant/{assistantId}/role`
 
 ### Assistant Roles and retained direct-Skill management
 
