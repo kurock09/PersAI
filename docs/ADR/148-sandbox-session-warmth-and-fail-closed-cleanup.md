@@ -119,8 +119,13 @@ warnings.
   inspectable inside the gVisor exec environment.
 - When cleanup proof fails, the system retires the whole pod fail-closed and
   loses warmth for that session until the next hydrate.
-- Full confidence still requires deploy plus live acceptance against a real
-  cluster and real package-install workloads.
+- Live pin `9e26f145` initially still lost warmth on every job because cleanup
+  treated its own `$(target_pids)` subshell as a leftover (`remaining_pids=<n>`)
+  and because space-only `IFS` failed to parse tab-separated gVisor
+  `/proc/*/status`. The 2026-07-15 repair collects targets in-shell, parses
+  status with default IFS, and ignores threads/zombies/cleanup-shell children.
+- Full confidence still requires redeploy of that repair plus live acceptance
+  against a real cluster and real package-install workloads.
 
 ## Verification required
 

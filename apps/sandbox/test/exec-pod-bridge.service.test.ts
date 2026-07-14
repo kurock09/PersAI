@@ -73,6 +73,42 @@ function isBaselineProcessProbe(command: string[]): boolean {
   return command.some((part) => part.includes("for proc in /proc/[0-9]*"));
 }
 
+test("session pod cleanup script never scans /proc via command substitution", async () => {
+  const source = await fs.readFile(
+    join(process.cwd(), "src", "exec-pod-bridge.service.ts"),
+    "utf8"
+  );
+  const cleanupFnStart = source.indexOf("private buildSessionPodCleanupScript(");
+  assert.ok(cleanupFnStart >= 0, "cleanup script builder must exist");
+  const cleanupFn = source.slice(cleanupFnStart, cleanupFnStart + 8_000);
+
+  assert.match(
+    cleanupFn,
+    /collect_targets\(\) \{/,
+    "cleanup must collect leftover PIDs in the same shell"
+  );
+  assert.doesNotMatch(
+    cleanupFn,
+    /\$\(target_pids\)/,
+    "command-substitution /proc scans create a false leftover PID and force fail-closed retire"
+  );
+  assert.doesNotMatch(
+    cleanupFn,
+    /IFS=" " read -r key value _rest/,
+    "gVisor /proc/*/status is tab-separated; space-only IFS breaks PPid ancestry parsing"
+  );
+  assert.match(
+    cleanupFn,
+    /if \[ "\$ppid" = "\$\$" \]; then/,
+    "cleanup must ignore its own wait helpers so sleep waiters are not treated as leftovers"
+  );
+  assert.match(
+    cleanupFn,
+    /case "\$state" in[\s\S]*Z\*\) continue ;;/,
+    "cleanup must ignore zombie entries that cannot be killed"
+  );
+});
+
 type KubeConfigLike = {
   loadFromCluster(): void;
   makeApiClient<T>(apiClass: new (...args: unknown[]) => T): T;

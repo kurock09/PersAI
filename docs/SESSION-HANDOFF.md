@@ -1,12 +1,36 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — ADR-148 cleanup false-positive remaining_pids repair
+
+Status: **implemented in worktree `adr148-cleanup-remaining-pids`; sandbox
+`108/108` PASS; sandbox typecheck/lint/prettier PASS. Ready to commit/push
+sandbox image rebuild so live warmth can hold.**
+
+Root cause (gVisor exec image, live-proved):
+
+- cleanup used `$(target_pids)` / `[ -n "$(target_pids)" ]`, so the command-
+  substitution subshell PID appeared as a leftover and made `has_targets` always
+  true;
+- `/proc/*/status` is tab-separated, but ancestry walk used `IFS=" "` and never
+  read `PPid:`.
+
+Repair: collect targets in-shell into `TARGET_PIDS`, parse status with default
+IFS, skip threads/zombies/cleanup-shell children, keep fail-closed retirement for
+real leftovers.
+
+**Next recommended step:** sandbox focused tests + push/deploy sandbox image;
+live-prove `exec_job_pod_clean` (not `cleanup_retired`) across two shell commands
+and `pip install --user` persistence.
+
+---
+
 ## 2026-07-14 — ADR-148 sandbox session warmth repair (local)
 
 Status: **landed and pushed on `origin/main` as `9e26f145` together with Role
 status-line UX; sandbox suite `107/107` PASS; web focused Role/settings/sidebar
 `131/131` PASS; AGENTS lint/format + api/web/sandbox/runtime typecheck PASS.
-Await Dev Image Publish / sandbox image pin, then live-prove warm pod reuse and
-`pip install --user` across separate shell commands.**
+Dev pin `6e631283` deployed sandbox/`sandbox-exec`/`web` to `9e26f145`, but live
+cleanup false-positives still retired every session pod — see 2026-07-15 repair.**
 
 Founder-directed ADR-148 repairs the regression that unconditionally retired the
 bound sandbox pod after every `shell` / `exec` / `document.*` job. The active
@@ -55,6 +79,7 @@ status label. Role rename/save notifies both surfaces via
 states still show status.
 
 ---
+
 ## 2026-07-14 — Admin MCP `skill_list` bounded repair (local)
 
 Status: **implemented against clean baseline `3b2e28b1`; full local gate PASS;
