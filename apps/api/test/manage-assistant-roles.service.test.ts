@@ -56,6 +56,19 @@ class FakePrismaService {
   concurrentRoleChangeOnFirstAssistantLock: string | null = null;
   concurrentRoleChanges: string[] = [];
   assistantLockCount = 0;
+  roleSkillLinks: Array<{
+    roleId: string;
+    skillId: string;
+    displayOrder: number;
+    skill: {
+      name: Record<string, string>;
+      category: string;
+      iconEmoji: string | null;
+      color: string | null;
+      status: "draft" | "active" | "archived";
+      archivedAt: Date | null;
+    };
+  }> = [];
 
   assistant = {
     findFirst: async ({
@@ -92,6 +105,43 @@ class FakePrismaService {
             left.createdAt.getTime() - right.createdAt.getTime() ||
             left.key.localeCompare(right.key)
         )
+  };
+
+  assistantRoleSkill = {
+    findMany: async ({
+      where
+    }: {
+      where: {
+        roleId: { in: string[] };
+        skill: { status: "active"; archivedAt: null };
+      };
+      select: unknown;
+      orderBy: unknown;
+    }) => {
+      const roleIds = new Set(where.roleId.in);
+      return this.roleSkillLinks
+        .filter(
+          (link) =>
+            roleIds.has(link.roleId) &&
+            link.skill.status === "active" &&
+            link.skill.archivedAt === null
+        )
+        .sort(
+          (left, right) =>
+            left.displayOrder - right.displayOrder || left.skillId.localeCompare(right.skillId)
+        )
+        .map((link) => ({
+          roleId: link.roleId,
+          skillId: link.skillId,
+          displayOrder: link.displayOrder,
+          skill: {
+            name: link.skill.name,
+            category: link.skill.category,
+            iconEmoji: link.skill.iconEmoji,
+            color: link.skill.color
+          }
+        }));
+    }
   };
 
   async $transaction<T>(callback: (tx: FakePrismaTransaction) => Promise<T>): Promise<T> {
@@ -363,6 +413,102 @@ export async function runManageAssistantRolesServiceTest(): Promise<void> {
       ["persai_default", "writer", "analyst"],
       "catalog must expose ordered active roles only"
     );
+    assert.deepEqual(
+      roles.map((role) => role.skills),
+      [[], [], []],
+      "catalog roles without links expose empty skills arrays"
+    );
+  }
+
+  {
+    const prisma = new FakePrismaService();
+    seed(prisma);
+    prisma.roleSkillLinks.push(
+      {
+        roleId: "role-2",
+        skillId: "skill-b",
+        displayOrder: 20,
+        skill: {
+          name: { en: "Second", ru: "Второй" },
+          category: "ops",
+          iconEmoji: "2",
+          color: null,
+          status: "active",
+          archivedAt: null
+        }
+      },
+      {
+        roleId: "role-2",
+        skillId: "skill-a",
+        displayOrder: 10,
+        skill: {
+          name: { en: "First", ru: "Первый" },
+          category: "ops",
+          iconEmoji: "1",
+          color: "#111111",
+          status: "active",
+          archivedAt: null
+        }
+      },
+      {
+        roleId: "role-2",
+        skillId: "skill-archived",
+        displayOrder: 5,
+        skill: {
+          name: { en: "Hidden" },
+          category: "ops",
+          iconEmoji: null,
+          color: null,
+          status: "archived",
+          archivedAt: new Date("2026-07-01T00:00:00.000Z")
+        }
+      },
+      {
+        roleId: "role-1",
+        skillId: "skill-default",
+        displayOrder: 1,
+        skill: {
+          name: { en: "Default skill" },
+          category: "general",
+          iconEmoji: null,
+          color: null,
+          status: "active",
+          archivedAt: null
+        }
+      }
+    );
+    const roles = await makeService(prisma).listCatalog("owner-1");
+    const writer = roles.find((role) => role.key === "writer");
+    assert.ok(writer);
+    assert.deepEqual(writer.skills, [
+      {
+        skillId: "skill-a",
+        displayOrder: 10,
+        name: { en: "First", ru: "Первый" },
+        category: "ops",
+        iconEmoji: "1",
+        color: "#111111"
+      },
+      {
+        skillId: "skill-b",
+        displayOrder: 20,
+        name: { en: "Second", ru: "Второй" },
+        category: "ops",
+        iconEmoji: "2",
+        color: null
+      }
+    ]);
+    const current = await makeService(prisma).getCurrentRole("owner-1", "assistant-1");
+    assert.deepEqual(current.role.skills, [
+      {
+        skillId: "skill-default",
+        displayOrder: 1,
+        name: { en: "Default skill" },
+        category: "general",
+        iconEmoji: null,
+        color: null
+      }
+    ]);
   }
 
   {
@@ -372,6 +518,7 @@ export async function runManageAssistantRolesServiceTest(): Promise<void> {
       roleKey: "persai_default"
     });
     assert.equal(result.role.key, "persai_default");
+    assert.deepEqual(result.role.skills, []);
     assert.equal(prisma.audits.length, 0, "same-role PUT must be idempotent");
     assert.equal(prisma.operations.includes("assistant:update"), false);
   }

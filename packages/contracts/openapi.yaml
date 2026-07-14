@@ -10182,6 +10182,34 @@ components:
       type: object
       additionalProperties:
         type: string
+    AssistantRoleSkillDisplayState:
+      type: object
+      description: >
+        Read-only display projection of active Skills linked to a Role for Settings
+        catalog/detail UI. Not a Skill-selection or enable/disable contract.
+      required:
+        - skillId
+        - displayOrder
+        - name
+        - category
+        - iconEmoji
+        - color
+      properties:
+        skillId:
+          type: string
+          format: uuid
+        displayOrder:
+          type: integer
+        name:
+          $ref: "#/components/schemas/SkillLocalizedText"
+        category:
+          type: string
+        iconEmoji:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
     AssistantRoleState:
       type: object
       required:
@@ -10194,6 +10222,7 @@ components:
         - iconEmoji
         - color
         - displayOrder
+        - skills
       properties:
         id:
           type: string
@@ -10216,6 +10245,10 @@ components:
           nullable: true
         displayOrder:
           type: integer
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssistantRoleSkillDisplayState"
     GetAssistantRolesResponse:
       type: object
       required:

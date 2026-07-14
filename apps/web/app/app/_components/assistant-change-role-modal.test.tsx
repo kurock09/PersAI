@@ -1,9 +1,11 @@
+"use client";
+
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../messages/en.json";
 import type { AssistantRoleState } from "../assistant-api-client";
-import { AssistantRoleSettings } from "./assistant-role-settings";
+import { AssistantChangeRoleModal } from "./assistant-change-role-modal";
 
 const api = vi.hoisted(() => ({
   getAssistantRoles: vi.fn(),
@@ -31,7 +33,17 @@ const personal: AssistantRoleState = {
   category: "personal",
   iconEmoji: "P",
   color: "#6D7CFF",
-  displayOrder: 1
+  displayOrder: 1,
+  skills: [
+    {
+      skillId: "skill-1",
+      displayOrder: 1,
+      name: { en: "Daily planner", ru: "Планировщик" },
+      category: "productivity",
+      iconEmoji: "📅",
+      color: null
+    }
+  ]
 };
 
 const engineer: AssistantRoleState = {
@@ -46,7 +58,8 @@ const engineer: AssistantRoleState = {
   category: "engineering",
   iconEmoji: null,
   color: null,
-  displayOrder: 2
+  displayOrder: 2,
+  skills: []
 };
 
 function catalog() {
@@ -67,10 +80,19 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function renderSettings(assistantId = "assistant-a") {
+function renderModal(
+  assistantId = "assistant-a",
+  onClose = vi.fn(),
+  resolveAuthToken: () => Promise<string | null> = async () => "token"
+) {
   return render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <AssistantRoleSettings assistantId={assistantId} resolveAuthToken={async () => "token"} />
+      <AssistantChangeRoleModal
+        open
+        assistantId={assistantId}
+        resolveAuthToken={resolveAuthToken}
+        onClose={onClose}
+      />
     </NextIntlClientProvider>
   );
 }
@@ -86,16 +108,26 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-describe("AssistantRoleSettings", () => {
-  it("validates PUT response, refetches canonical GET, then shows success", async () => {
+describe("AssistantChangeRoleModal", () => {
+  it("shows split catalog detail with read-only connected skills", async () => {
+    renderModal();
+
+    expect(await screen.findByRole("dialog", { name: "Choose a new role" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Personal assistant/ })).toBeInTheDocument();
+    expect(screen.getByText("Plan and follow through.")).toBeInTheDocument();
+    expect(screen.getByText("Connected skills")).toBeInTheDocument();
+    expect(screen.getByText("Daily planner")).toBeInTheDocument();
+  });
+
+  it("validates PUT response, refetches canonical GET, then closes", async () => {
+    const onClose = vi.fn();
     api.getAssistantRole
       .mockResolvedValueOnce(selection("assistant-a", personal))
       .mockResolvedValueOnce(selection("assistant-a", engineer));
-    renderSettings();
+    renderModal("assistant-a", onClose);
 
     expect(await screen.findByText("Plan and follow through.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Change role" }));
-    fireEvent.click(screen.getByRole("button", { name: /Engineer/ }));
+    fireEvent.click(screen.getByRole("option", { name: /Engineer/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save role" }));
 
     await waitFor(() => {
@@ -106,45 +138,44 @@ describe("AssistantRoleSettings", () => {
         expect.any(AbortSignal)
       );
     });
-    await waitFor(() => expect(screen.getByText("Role updated.")).toBeInTheDocument());
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(api.getAssistantRole).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("Turn requirements into working software.")).toBeInTheDocument();
   });
 
-  it("rejects a mismatched PUT assistantId and refetches canonical state without success", async () => {
+  it("rejects a mismatched PUT assistantId and refetches canonical state without closing", async () => {
+    const onClose = vi.fn();
     api.updateAssistantRole.mockResolvedValue(selection("assistant-b", engineer));
     api.getAssistantRole
       .mockResolvedValueOnce(selection("assistant-a", personal))
       .mockResolvedValueOnce(selection("assistant-a", personal));
-    renderSettings();
+    renderModal("assistant-a", onClose);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Change role" }));
-    fireEvent.click(screen.getByRole("button", { name: /Engineer/ }));
+    fireEvent.click(await screen.findByRole("option", { name: /Engineer/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save role" }));
 
-    await waitFor(() => expect(api.getAssistantRole).toHaveBeenCalledTimes(2));
-    expect(screen.queryByText("Role updated.")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.updateAssistantRole).toHaveBeenCalled());
+    expect(api.getAssistantRole).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
     expect(await screen.findByText("Could not update the role.")).toBeInTheDocument();
-    expect(screen.getAllByText("Plan and follow through.").length).toBeGreaterThan(0);
+    expect(screen.getByRole("option", { name: /Personal assistant/ })).toBeInTheDocument();
+    expect(screen.getByText("Turn requirements into working software.")).toBeInTheDocument();
   });
 
   it("refetches canonical state after an ambiguous PUT failure", async () => {
+    const onClose = vi.fn();
     api.updateAssistantRole.mockRejectedValue(new Error("network interrupted"));
     api.getAssistantRole
       .mockResolvedValueOnce(selection("assistant-a", personal))
       .mockResolvedValueOnce(selection("assistant-a", engineer));
-    renderSettings();
+    renderModal("assistant-a", onClose);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Change role" }));
-    fireEvent.click(screen.getByRole("button", { name: /Engineer/ }));
+    fireEvent.click(await screen.findByRole("option", { name: /Engineer/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save role" }));
 
     await waitFor(() => expect(api.getAssistantRole).toHaveBeenCalledTimes(2));
     expect(await screen.findByText("network interrupted")).toBeInTheDocument();
-    expect(screen.queryByText("Role updated.")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Turn requirements into working software.").length).toBeGreaterThan(
-      0
-    );
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText("Turn requirements into working software.")).toBeInTheDocument();
   });
 
   it("aborts in-flight role requests on unmount", async () => {
@@ -152,7 +183,7 @@ describe("AssistantRoleSettings", () => {
     const pendingRole = deferred<ReturnType<typeof selection>>();
     api.getAssistantRoles.mockReturnValue(pendingCatalog.promise);
     api.getAssistantRole.mockReturnValue(pendingRole.promise);
-    const { unmount } = renderSettings();
+    const { unmount } = renderModal();
 
     await waitFor(() => expect(api.getAssistantRole).toHaveBeenCalledTimes(1));
     const signal = api.getAssistantRole.mock.calls[0]?.[2] as AbortSignal;
@@ -166,7 +197,12 @@ describe("AssistantRoleSettings", () => {
     const secondResolver = vi.fn(async () => "token-b");
     const { rerender } = render(
       <NextIntlClientProvider locale="en" messages={enMessages}>
-        <AssistantRoleSettings assistantId="assistant-a" resolveAuthToken={firstResolver} />
+        <AssistantChangeRoleModal
+          open
+          assistantId="assistant-a"
+          resolveAuthToken={firstResolver}
+          onClose={() => undefined}
+        />
       </NextIntlClientProvider>
     );
 
@@ -176,7 +212,12 @@ describe("AssistantRoleSettings", () => {
 
     rerender(
       <NextIntlClientProvider locale="en" messages={enMessages}>
-        <AssistantRoleSettings assistantId="assistant-a" resolveAuthToken={secondResolver} />
+        <AssistantChangeRoleModal
+          open
+          assistantId="assistant-a"
+          resolveAuthToken={secondResolver}
+          onClose={() => undefined}
+        />
       </NextIntlClientProvider>
     );
     await Promise.resolve();
@@ -195,13 +236,18 @@ describe("AssistantRoleSettings", () => {
       .mockReturnValueOnce(roleA.promise)
       .mockResolvedValueOnce(selection("assistant-b", engineer));
 
-    const { rerender } = renderSettings("assistant-a");
+    const { rerender } = renderModal("assistant-a");
     await waitFor(() => expect(api.getAssistantRole).toHaveBeenCalledTimes(1));
     const signalA = api.getAssistantRole.mock.calls[0]?.[2] as AbortSignal;
 
     rerender(
       <NextIntlClientProvider locale="en" messages={enMessages}>
-        <AssistantRoleSettings assistantId="assistant-b" resolveAuthToken={async () => "token"} />
+        <AssistantChangeRoleModal
+          open
+          assistantId="assistant-b"
+          resolveAuthToken={async () => "token"}
+          onClose={() => undefined}
+        />
       </NextIntlClientProvider>
     );
     expect(signalA.aborted).toBe(true);
@@ -216,7 +262,7 @@ describe("AssistantRoleSettings", () => {
 
   it("fails closed when current role is absent from the active catalog", async () => {
     api.getAssistantRoles.mockResolvedValue({ requestId: "roles", roles: [engineer] });
-    renderSettings();
+    renderModal();
     expect(await screen.findByText("Could not load the role.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });

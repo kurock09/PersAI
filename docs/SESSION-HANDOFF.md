@@ -1,5 +1,32 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — Settings Assistant personalization + change-role modals
+
+Status: **committed locally during rebase onto `origin/main` (includes ADR-148
+cleanup repair `2342c2ae`); AGENTS lint/format + api/web typecheck PASS;
+recursive `pnpm test` PASS (web 999/999); web suite reconfirmed with
+`--maxWorkers=2`; ADR-146 slice5 + detect-affected PASS. Push in progress.**
+
+Founder-directed Settings redesign for the Assistant block:
+
+- Hero keeps avatar, read-only name, live Role status line, **Personalization**
+  / **Change role** CTAs, and the internet-access row.
+- Separate Settings **Role** accordion removed.
+- **Personalization** is a centered premium dialog on desktop and **fullscreen**
+  on mobile: name, behavior, gender, voice, character tuning, Recreate; **Memory**
+  swaps in-place inside the same dialog; Save lives in the modal footer.
+- **Change role** is a wide desktop dialog / **fullscreen** mobile sheet: thin
+  role list left, description/mission + read-only connected Skills right;
+  flat/minimal chrome (no inset-3D role cards).
+- User Role API `AssistantRoleState` now requires read-only `skills[]`
+  (active links only) for catalog/current/PUT responses — display projection,
+  not Skill selection. ADR-147 / API-BOUNDARY carve-out recorded.
+
+**Next recommended step:** after push, deploy api+web; visual acceptance on
+desktop + mobile Settings; live Role skills preview in Change role.
+
+---
+
 ## 2026-07-15 — ADR-148 cleanup false-positive remaining_pids repair
 
 Status: **pushed to `origin/main` as `2342c2ae`; sandbox `108/108` PASS;

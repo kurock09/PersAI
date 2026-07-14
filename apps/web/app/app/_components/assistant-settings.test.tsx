@@ -549,9 +549,7 @@ beforeEach(() => {
       iconEmoji: "P",
       color: "#6D7CFF",
       displayOrder: 1,
-      archivedAt: null,
-      createdAt: "2026-04-01T10:00:00.000Z",
-      updatedAt: "2026-04-01T10:00:00.000Z"
+      skills: []
     }
   });
   assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
@@ -785,10 +783,12 @@ describe("mergeMemoryViews (ADR-074 M3.3 — Memory Center merge + dedup)", () =
 });
 
 describe("AssistantSettings character CTA", () => {
-  it("uses the shorter customize label in the character section", () => {
+  it("opens Personalization and Change role from the character section", () => {
     renderSettings(makeAppData(), "character");
 
-    expect(screen.getByRole("button", { name: "Customize" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Personalization" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change role" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   }, 10000);
 
   it("shows the current Role name under the assistant name when status is live", async () => {
@@ -802,24 +802,28 @@ describe("AssistantSettings character CTA", () => {
     expect(screen.queryByText("live")).toBeNull();
   });
 
-  it("moves memory and recreate into character actions and opens dedicated overlays", async () => {
+  it("moves memory and recreate into personalization and opens memory in-place", async () => {
     renderSettings(makeAppData(), "character");
 
-    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Personalization" }));
 
+    expect(await screen.findByRole("dialog", { name: "Personalization" })).toBeInTheDocument();
     expect(screen.getByText("Quick actions")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Memory" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Character tuning" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Recreate" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));
     expect(await screen.findByRole("dialog", { name: "Memory" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search memories...")).toBeInTheDocument();
+    expect(screen.queryByText("Quick actions")).not.toBeInTheDocument();
 
+    fireEvent.click(screen.getByRole("button", { name: "Back to personalization" }));
     fireEvent.click(screen.getByRole("button", { name: "Recreate" }));
     expect(await screen.findByRole("dialog", { name: "Recreate" })).toBeInTheDocument();
     expect(screen.getByText(/delete chats, memory, and assistant settings/i)).toBeInTheDocument();
-  });
+  }, 15000);
 
   it("shows avatar presets without visible name labels in assistant settings", () => {
     renderSettings(makeAppData(), "character");
@@ -830,6 +834,16 @@ describe("AssistantSettings character CTA", () => {
     expect(screen.queryByText("PersAI")).toBeNull();
     expect(screen.queryByText("Luma")).toBeNull();
     expect(screen.queryByText("Theo")).toBeNull();
+  });
+
+  it("keeps the assistant name read-only on the character hero", () => {
+    renderSettings(makeAppData(), "character");
+
+    expect(screen.queryByPlaceholderText("Assistant name")).not.toBeInTheDocument();
+    expect(screen.getByText("Nova")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Personalization" }));
+    expect(screen.getByPlaceholderText("Assistant name")).toBeInTheDocument();
   });
 });
 
@@ -3145,12 +3159,14 @@ describe("AssistantSettings character save and publish", () => {
         category: "personal",
         iconEmoji: "P",
         color: "#6D7CFF",
-        displayOrder: 1
+        displayOrder: 1,
+        skills: []
       }
     });
 
     const reload = vi.fn();
     renderSettings(makeAppData({ reload }), "character");
+    fireEvent.click(screen.getByRole("button", { name: "Personalization" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
@@ -3189,6 +3205,7 @@ describe("AssistantSettings character save and publish", () => {
       </NextIntlClientProvider>
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Personalization" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalled());
     assistantApiMocks.getAssistantRole.mockClear();
@@ -3228,6 +3245,7 @@ describe("AssistantSettings character save and publish", () => {
     );
 
     renderSettings(makeAppData(), "character");
+    fireEvent.click(screen.getByRole("button", { name: "Personalization" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
@@ -3237,50 +3255,55 @@ describe("AssistantSettings character save and publish", () => {
 });
 
 describe("AssistantSettings voice picker", () => {
-  it("saves the selected ElevenLabs voice id", async () => {
-    assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
-      schema: "persai.assistantVoiceSettings.v1",
-      primaryProviderId: "elevenlabs",
-      elevenlabs: {
-        configured: true,
-        loadState: "ready",
-        warning: null,
-        voices: [
-          {
-            voiceId: "eleven-voice-selected",
-            name: "Ava",
-            gender: "female",
-            category: "featured",
-            language: "en",
-            languageBucket: "en",
-            previewUrl: null
-          }
-        ]
-      }
-    });
+  it(
+    "saves the selected ElevenLabs voice id",
+    async () => {
+      assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
+        schema: "persai.assistantVoiceSettings.v1",
+        primaryProviderId: "elevenlabs",
+        elevenlabs: {
+          configured: true,
+          loadState: "ready",
+          warning: null,
+          voices: [
+            {
+              voiceId: "eleven-voice-selected",
+              name: "Ava",
+              gender: "female",
+              category: "featured",
+              language: "en",
+              languageBucket: "en",
+              previewUrl: null
+            }
+          ]
+        }
+      });
 
-    renderSettings(makeAppData(), "character");
+      renderSettings(makeAppData(), "character");
 
-    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Ava" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      fireEvent.click(screen.getByRole("button", { name: "Personalization" }));
+      expect(await screen.findByRole("dialog", { name: "Personalization" })).toBeInTheDocument();
+      fireEvent.click(await screen.findByRole("button", { name: "Ava" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => {
-      expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledWith(
-        "token-1",
-        expect.objectContaining({
-          voiceProfile: expect.objectContaining({
-            elevenlabs: { voiceId: "eleven-voice-selected" }
+      await waitFor(() => {
+        expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledWith(
+          "token-1",
+          expect.objectContaining({
+            voiceProfile: expect.objectContaining({
+              elevenlabs: { voiceId: "eleven-voice-selected" }
+            })
           })
-        })
-      );
-    });
-    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-1", {
-      assistantId: "assistant-1",
-      expectedRoleKey: "persai_default",
-      roleKey: "persai_default"
-    });
-  });
+        );
+      });
+      expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-1", {
+        assistantId: "assistant-1",
+        expectedRoleKey: "persai_default",
+        roleKey: "persai_default"
+      });
+    },
+    15000
+  );
 
   it("keeps the admin top picker on public voices and updates it after approval", async () => {
     assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
@@ -3430,7 +3453,8 @@ describe("AssistantSettings voice picker", () => {
 
     renderSettings(makeAppData({ isAdmin: true }), "character");
 
-    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Personalization" }));
+    expect(await screen.findByRole("dialog", { name: "Personalization" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Public Ava" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Candidate Luna" })).not.toBeInTheDocument();
 
@@ -3450,7 +3474,7 @@ describe("AssistantSettings voice picker", () => {
       );
     });
     expect(await screen.findByRole("button", { name: "Candidate Luna" })).toBeInTheDocument();
-  });
+  }, 15000);
 
   it("refreshes the admin voice catalog on demand", async () => {
     assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
@@ -3534,7 +3558,8 @@ describe("AssistantSettings voice picker", () => {
 
     renderSettings(makeAppData({ isAdmin: true }), "character");
 
-    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Personalization" }));
+    expect(await screen.findByRole("dialog", { name: "Personalization" })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole("button", { name: "Refresh cache" }));
 
     await waitFor(() => {
@@ -3543,7 +3568,7 @@ describe("AssistantSettings voice picker", () => {
       );
     });
     expect(await screen.findByRole("button", { name: "Refreshed Iris" })).toBeInTheDocument();
-  });
+  }, 15000);
 });
 
 // ---------------------------------------------------------------------------

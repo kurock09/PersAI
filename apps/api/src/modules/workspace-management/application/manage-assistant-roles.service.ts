@@ -15,6 +15,15 @@ import { ResolveActiveAssistantService } from "./resolve-active-assistant.servic
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_ROLE_ASSIGNMENT_ATTEMPTS = 3;
 
+export type AssistantRoleSkillDisplayState = {
+  skillId: string;
+  displayOrder: number;
+  name: Record<string, string>;
+  category: string;
+  iconEmoji: string | null;
+  color: string | null;
+};
+
 export type AssistantRoleState = {
   id: string;
   key: string;
@@ -25,7 +34,21 @@ export type AssistantRoleState = {
   iconEmoji: string | null;
   color: string | null;
   displayOrder: number;
+  skills: AssistantRoleSkillDisplayState[];
 };
+
+function normalizeLocalizedTextState(value: unknown): Record<string, string> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const [key, text] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof text === "string" && text.trim().length > 0) {
+      out[key] = text;
+    }
+  }
+  return out;
+}
 
 export type AssistantRoleSelectionState = {
   assistantId: string;
@@ -112,7 +135,8 @@ export class ManageAssistantRolesService {
     this.assertAuthenticatedUserId(userId);
     await this.resolveActiveAssistantService.resolveMembership(userId);
     const roles = await this.assistantRoleRepository.findActiveCatalog();
-    return roles.map((role) => this.toState(role));
+    const skillsByRoleId = await this.loadDisplaySkillsByRoleIds(roles.map((role) => role.id));
+    return roles.map((role) => this.toState(role, skillsByRoleId.get(role.id) ?? []));
   }
 
   async getCurrentRole(userId: string, assistantId: string): Promise<AssistantRoleSelectionState> {
@@ -121,9 +145,10 @@ export class ManageAssistantRolesService {
     if (role === null) {
       throw new NotFoundException("Assistant role not found.");
     }
+    const skillsByRoleId = await this.loadDisplaySkillsByRoleIds([role.id]);
     return {
       assistantId: assistant.id,
-      role: this.toState(role)
+      role: this.toState(role, skillsByRoleId.get(role.id) ?? [])
     };
   }
 
@@ -187,9 +212,10 @@ export class ManageAssistantRolesService {
     if (role === null) {
       throw new NotFoundException("Assistant role not found.");
     }
+    const skillsByRoleId = await this.loadDisplaySkillsByRoleIds([role.id]);
     return {
       assistantId: updated.assistantId,
-      role: this.toState(role)
+      role: this.toState(role, skillsByRoleId.get(role.id) ?? [])
     };
   }
 
@@ -350,7 +376,59 @@ export class ManageAssistantRolesService {
     return row;
   }
 
-  private toState(role: AssistantRole): AssistantRoleState {
+  private async loadDisplaySkillsByRoleIds(
+    roleIds: string[]
+  ): Promise<Map<string, AssistantRoleSkillDisplayState[]>> {
+    const byRoleId = new Map<string, AssistantRoleSkillDisplayState[]>();
+    if (roleIds.length === 0) {
+      return byRoleId;
+    }
+    const links = await this.prisma.assistantRoleSkill.findMany({
+      where: {
+        roleId: { in: roleIds },
+        skill: {
+          status: "active",
+          archivedAt: null
+        }
+      },
+      select: {
+        roleId: true,
+        skillId: true,
+        displayOrder: true,
+        skill: {
+          select: {
+            name: true,
+            category: true,
+            iconEmoji: true,
+            color: true
+          }
+        }
+      },
+      orderBy: [{ displayOrder: "asc" }, { skillId: "asc" }]
+    });
+    for (const link of links) {
+      const entry: AssistantRoleSkillDisplayState = {
+        skillId: link.skillId,
+        displayOrder: link.displayOrder,
+        name: normalizeLocalizedTextState(link.skill.name),
+        category: link.skill.category,
+        iconEmoji: link.skill.iconEmoji,
+        color: link.skill.color
+      };
+      const existing = byRoleId.get(link.roleId);
+      if (existing === undefined) {
+        byRoleId.set(link.roleId, [entry]);
+      } else {
+        existing.push(entry);
+      }
+    }
+    return byRoleId;
+  }
+
+  private toState(
+    role: AssistantRole,
+    skills: AssistantRoleSkillDisplayState[]
+  ): AssistantRoleState {
     return {
       id: role.id,
       key: role.key,
@@ -360,7 +438,8 @@ export class ManageAssistantRolesService {
       category: role.category,
       iconEmoji: role.iconEmoji,
       color: role.color,
-      displayOrder: role.displayOrder
+      displayOrder: role.displayOrder,
+      skills
     };
   }
 

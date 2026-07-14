@@ -15,6 +15,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     include: ["app/**/*.test.ts", "app/**/*.test.tsx"],
-    setupFiles: ["./vitest.setup.ts"]
+    setupFiles: ["./vitest.setup.ts"],
+    // Full-suite parallel runs on Windows frequently exceed the default 5s when
+    // large Settings/Admin trees mount; keep assertions honest, raise budget only.
+    testTimeout: 10000
   }
 });

@@ -39,7 +39,8 @@ const assistantApiMocks = vi.hoisted(() => ({
       category: "general",
       iconEmoji: null,
       color: null,
-      displayOrder: 1
+      displayOrder: 1,
+      skills: []
     }
   }))
 }));
@@ -148,7 +149,8 @@ afterEach(() => {
       category: "general",
       iconEmoji: null,
       color: null,
-      displayOrder: 1
+      displayOrder: 1,
+      skills: []
     }
   });
   chatApiMocks.patch.mockClear();

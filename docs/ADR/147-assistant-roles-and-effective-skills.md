@@ -324,8 +324,11 @@ Rules:
 Target user endpoints:
 
 - `GET /api/v1/assistant/roles` — active system catalog, ordered for setup and
-  Settings; returns user-safe Role identity/presentation only, never Skill
-  composition;
+  Settings; returns user-safe Role identity/presentation plus a required
+  read-only `skills[]` display projection of active Role-linked Skills
+  (same active/`archivedAt: null` filter as runtime). This is presentation
+  only — never Skill selection, enable/disable, counts, plan limits, or
+  composition controls.
 - `GET /api/v1/assistant/{assistantId}/role` — current Role for one authorized
   assistant;
 - `PUT /api/v1/assistant/{assistantId}/role` — exact body
@@ -472,10 +475,11 @@ Users configure Role, not Skills.
 - Full Assistant reset preserves the current `roleId`, because Role is
   independent Assistant configuration. A subsequent recreate command may
   explicitly select a different Role.
-- Assistant Settings renames the `skills` section to `role`.
-- The section shows the current Role's interactive card, localized
-  name/description/mission, category/icon presentation, and `Change role`.
-- `Change role` opens the shared single-select catalog.
+- Assistant Settings folds Role into the Assistant block: current Role name
+  appears under the assistant name when live; `Change role` opens a premium
+  split dialog (thin role list + detail with description/mission and
+  read-only connected Skills). The separate Settings `role` accordion is
+  removed.
 - Cancel makes no mutation.
 - Confirm performs one Role assignment request, validates its `assistantId`,
   then refetches catalog/current. Success is shown only after that GET confirms
@@ -490,8 +494,11 @@ No user surface shows:
 - Skill enable/disable controls;
 - effective Skill counts;
 - plan Skill limits;
-- Role Skill composition;
 - Skill add-ons.
+
+Settings may show a read-only list of Skills linked to a Role in the
+change-role detail pane. That display projection is not Skill composition
+authoring and does not restore direct Skill selection.
 
 Existing runtime scenario/working behavior remains intact. User-facing
 configuration and Role cards do not expose Skills as a configurable product

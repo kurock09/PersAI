@@ -145,7 +145,8 @@ describe("assistant Role API wrappers", () => {
     category: "personal",
     iconEmoji: null,
     color: null,
-    displayOrder: 1
+    displayOrder: 1,
+    skills: []
   };
 
   it("passes AbortSignal through catalog, current Role, and PUT wrappers", async () => {

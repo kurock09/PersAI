@@ -352,9 +352,7 @@ function makeAssistantRolesResponse() {
         iconEmoji: "P",
         color: "#6D7CFF",
         displayOrder: 1,
-        archivedAt: null,
-        createdAt: "2026-04-01T10:00:00.000Z",
-        updatedAt: "2026-04-01T10:00:00.000Z"
+        skills: []
       },
       {
         id: "role-legal",
@@ -372,9 +370,7 @@ function makeAssistantRolesResponse() {
         iconEmoji: "L",
         color: "#7B61FF",
         displayOrder: 2,
-        archivedAt: null,
-        createdAt: "2026-04-01T10:00:00.000Z",
-        updatedAt: "2026-04-01T10:00:00.000Z"
+        skills: []
       }
     ]
   };

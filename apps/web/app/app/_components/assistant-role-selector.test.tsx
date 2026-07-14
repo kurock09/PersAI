@@ -20,7 +20,8 @@ const roles: AssistantRoleState[] = [
     category: "personal",
     iconEmoji: "P",
     color: "#6D7CFF",
-    displayOrder: 1
+    displayOrder: 1,
+    skills: []
   },
   {
     id: "role-engineer",
@@ -34,7 +35,8 @@ const roles: AssistantRoleState[] = [
     category: "engineering",
     iconEmoji: null,
     color: null,
-    displayOrder: 2
+    displayOrder: 2,
+    skills: []
   }
 ];
 

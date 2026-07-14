@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AssistantRoleLocalizedText } from "./assistantRoleLocalizedText";
+import type { AssistantRoleSkillDisplayState } from "./assistantRoleSkillDisplayState";
 
 export interface AssistantRoleState {
   id: string;
@@ -18,4 +19,5 @@ export interface AssistantRoleState {
   /** @nullable */
   color: string | null;
   displayOrder: number;
+  skills: AssistantRoleSkillDisplayState[];
 }
