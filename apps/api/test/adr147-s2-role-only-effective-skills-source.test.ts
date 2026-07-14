@@ -25,7 +25,6 @@ async function run(): Promise<void> {
     scenarios,
     roleManagement,
     internalSkillState,
-    legacyManagement,
     contractPackage,
     contractOpenApi,
     contractFormatter
@@ -41,7 +40,6 @@ async function run(): Promise<void> {
     source("manage-skill-scenarios.service.ts"),
     source("manage-assistant-roles.service.ts"),
     source("internal-runtime-skill-state.service.ts"),
-    source("manage-assistant-skills.service.ts"),
     readFile(fileURLToPath(new URL("packages/contracts/package.json", repositoryRoot)), "utf8"),
     readFile(fileURLToPath(new URL("packages/contracts/openapi.yaml", repositoryRoot)), "utf8"),
     readFile(
@@ -141,10 +139,19 @@ async function run(): Promise<void> {
   assert.ok(contractOrvalRetry.includes(String.raw`\bEPERM\b`));
   assert.ok(contractOrvalRetry.includes(String.raw`\bEACCES\b|access denied`));
   assert.doesNotMatch(contractOrvalRetry, /pendingBrowserLogin|AssistantWebChat|\.replace\(/);
-  assert.match(
-    legacyManagement,
-    /assistantSkillAssignment/,
-    "the retained S2 legacy management endpoint remains its sole explicit writer"
+  const { access } = await import("node:fs/promises");
+  await assert.rejects(
+    () => access(fileURLToPath(new URL("manage-assistant-skills.service.ts", applicationRoot))),
+    /ENOENT/,
+    "S5a removes the active direct-assignment writer; Role authority remains the sole effective Skills source"
+  );
+  await assert.rejects(
+    () =>
+      access(
+        fileURLToPath(new URL("../interface/http/assistant-skills.controller.ts", applicationRoot))
+      ),
+    /ENOENT/,
+    "S5a removes the active direct-assignment controller"
   );
 }
 

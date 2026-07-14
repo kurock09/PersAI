@@ -136,8 +136,6 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     true
   );
   for (const route of [
-    { path: "api/v1/assistant/skills", method: RequestMethod.GET },
-    { path: "api/v1/assistant/skills", method: RequestMethod.PUT },
     { path: "api/v1/assistant/roles", method: RequestMethod.GET },
     { path: "api/v1/assistant/:assistantId/role", method: RequestMethod.GET },
     { path: "api/v1/assistant/:assistantId/role", method: RequestMethod.PUT }
@@ -255,8 +253,6 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
       path: "api/v1/admin/tools/document-processing/test-connection",
       method: RequestMethod.POST
     },
-    { path: "api/v1/assistant/skills", method: RequestMethod.GET },
-    { path: "api/v1/assistant/skills", method: RequestMethod.PUT },
     { path: "api/v1/assistant/billing/payment-intents", method: RequestMethod.POST },
     {
       path: "api/v1/assistant/billing/payment-intents/:paymentIntentId",

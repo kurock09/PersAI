@@ -16,12 +16,9 @@ function createHarness(activeRoleLink = false) {
   const documents = new Map<string, MockRow>();
   const cards = new Map<string, MockRow>();
   const jobs = new Map<string, MockRow>();
-  const assignments: Array<{
+  const roleLinkedAssistants: Array<{
     assistantId: string;
     skillId: string;
-    status: string;
-    archivedAt: Date | null;
-    skillStatus: string;
   }> = [];
   const vectorDeletes: Array<{ sourceType: string; sourceId: string }> = [];
   const assistantChatUpdates: Array<{
@@ -214,73 +211,20 @@ function createHarness(activeRoleLink = false) {
     knowledgeIndexingJob: {
       deleteMany: tx.knowledgeIndexingJob.deleteMany
     },
-    assistantSkillAssignment: {
-      updateMany: async ({
-        where,
-        data
-      }: {
-        where: { skillId?: string; status?: string };
-        data: Record<string, unknown>;
-      }) => {
-        let count = 0;
-        for (const assignment of assignments) {
-          if (
-            (where.skillId === undefined || assignment.skillId === where.skillId) &&
-            (where.status === undefined || assignment.status === where.status)
-          ) {
-            Object.assign(assignment, data);
-            count += 1;
-          }
-        }
-        return { count };
-      },
-      findMany: async ({ where }: { where: { skillId: string } }) =>
-        assignments
-          .filter((assignment) => assignment.skillId === where.skillId)
-          .map((assignment) => ({ assistantId: assignment.assistantId })),
-      groupBy: async ({
-        where
-      }: {
-        where: {
-          assistantId: { in: string[] };
-          status: string;
-          skill: { status: string; archivedAt: null };
-        };
-      }) =>
-        where.assistantId.in
-          .map((assistantId) => ({
-            assistantId,
-            _count: {
-              assistantId: assignments.filter(
-                (assignment) =>
-                  assignment.assistantId === assistantId &&
-                  assignment.status === where.status &&
-                  assignment.skillStatus === where.skill.status &&
-                  assignment.archivedAt === where.skill.archivedAt
-              ).length
-            }
-          }))
-          .filter((row) => row._count.assistantId > 0)
-    },
     assistant: {
       updateMany: async () => ({ count: 0 }),
       findMany: async ({ where }: { where: Record<string, unknown> }) => {
         const idFilter = where.id as { in?: string[] } | undefined;
         if (idFilter?.in !== undefined) {
-          return assignments
-            .filter(
-              (assignment) =>
-                idFilter.in?.includes(assignment.assistantId) === true &&
-                assignment.skillStatus === "active" &&
-                assignment.archivedAt === null
-            )
-            .map((assignment) => ({ id: assignment.assistantId }));
+          return roleLinkedAssistants
+            .filter((link) => idFilter.in?.includes(link.assistantId) === true)
+            .map((link) => ({ id: link.assistantId }));
         }
         const role = where.role as { skillLinks?: { some?: { skillId?: string } } } | undefined;
         const skillId = role?.skillLinks?.some?.skillId;
-        return assignments
-          .filter((assignment) => assignment.skillId === skillId)
-          .map((assignment) => ({ id: assignment.assistantId }));
+        return roleLinkedAssistants
+          .filter((link) => link.skillId === skillId)
+          .map((link) => ({ id: link.assistantId }));
       }
     },
     assistantChat: {
@@ -336,7 +280,7 @@ function createHarness(activeRoleLink = false) {
     documents,
     cards,
     jobs,
-    assignments,
+    roleLinkedAssistants,
     assistantChatUpdates,
     deletedObjects,
     vectorDeletes
@@ -365,12 +309,9 @@ async function run(): Promise<void> {
   const created = await harness.service.create("admin-1", skillInput);
   assert.equal(created.status, "active");
   assert.equal(created.name.en, "Accountant");
-  harness.assignments.push({
+  harness.roleLinkedAssistants.push({
     assistantId: "assistant-1",
-    skillId: created.id,
-    status: "active",
-    archivedAt: null,
-    skillStatus: "active"
+    skillId: created.id
   });
 
   const upload = await harness.service.uploadDocument({

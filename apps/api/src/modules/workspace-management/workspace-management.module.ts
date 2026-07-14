@@ -36,7 +36,6 @@ import { AdminRolesController } from "./interface/http/admin-roles.controller";
 import { AssistantKnowledgeSourcesController } from "./interface/http/assistant-knowledge-sources.controller";
 import { AssistantBillingController } from "./interface/http/assistant-billing.controller";
 import { AssistantRolesController } from "./interface/http/assistant-roles.controller";
-import { AssistantSkillsController } from "./interface/http/assistant-skills.controller";
 import { CloudpaymentsWebhookController } from "./interface/http/cloudpayments-webhook.controller";
 import { KnowledgeIndexingJobsController } from "./interface/http/knowledge-indexing-jobs.controller";
 import { InternalCronFireController } from "./interface/http/internal-cron-fire.controller";
@@ -234,7 +233,6 @@ import { GetAssistantAppBootstrapService } from "./application/get-assistant-app
 import { ResolveUserSafetyStandingService } from "./application/resolve-user-safety-standing.service";
 import { ManageAssistantKnowledgeSourcesService } from "./application/manage-assistant-knowledge-sources.service";
 import { ManageAssistantRolesService } from "./application/manage-assistant-roles.service";
-import { ManageAssistantSkillsService } from "./application/manage-assistant-skills.service";
 import { ManageAssistantAvatarService } from "./application/manage-assistant-avatar.service";
 import { ManageAssistantWorkspaceMemoryService } from "./application/manage-assistant-workspace-memory.service";
 import { ReadAssistantKnowledgeService } from "./application/read-assistant-knowledge.service";
@@ -467,7 +465,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AdminSkillsController,
     AdminRolesController,
     KnowledgeIndexingJobsController,
-    AssistantSkillsController,
     AssistantRolesController,
     CloudpaymentsWebhookController,
     InternalCronFireController,
@@ -681,7 +678,6 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageAssistantAvatarService,
     ManageAssistantKnowledgeSourcesService,
     ManageAssistantRolesService,
-    ManageAssistantSkillsService,
     ManageAssistantWorkspaceMemoryService,
     ReadAssistantKnowledgeService,
     SkillRetrievalPolicyService,

@@ -206,9 +206,6 @@ async function run(): Promise<void> {
               knowledgeStorageBytesLimit: null,
               workspaceStorageBytesLimit: null
             },
-            skillPolicy: {
-              maxEnabledSkills: 8
-            },
             presentation: {
               showOnPricingPage: true,
               displayOrder: 2,
@@ -256,9 +253,6 @@ async function run(): Promise<void> {
               mediaStorageBytesLimit: null,
               knowledgeStorageBytesLimit: null,
               workspaceStorageBytesLimit: null
-            },
-            skillPolicy: {
-              maxEnabledSkills: 4
             },
             presentation: {
               showOnPricingPage: true,
@@ -545,9 +539,6 @@ async function run(): Promise<void> {
               mediaStorageBytesLimit: null,
               knowledgeStorageBytesLimit: null,
               workspaceStorageBytesLimit: null
-            },
-            skillPolicy: {
-              maxEnabledSkills: 8
             },
             presentation: {
               showOnPricingPage: true,
@@ -945,9 +936,6 @@ async function run(): Promise<void> {
               mediaStorageBytesLimit: null,
               knowledgeStorageBytesLimit: null,
               workspaceStorageBytesLimit: null
-            },
-            skillPolicy: {
-              maxEnabledSkills: 4
             },
             presentation: {
               showOnPricingPage: true,

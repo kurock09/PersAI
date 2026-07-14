@@ -1,5 +1,69 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-147 S5a Release-B contract cutover
+
+Status: **implemented locally and parent-audited CLEAN after two rejected
+audits plus final fail-closed gate hardening; uncommitted, unpushed,
+undeployed.** Baseline committed S4 HEAD was `c39a8481`. Founder-owned
+`chat-plan-card.tsx` / `.test.tsx` remain dirty and were never modified,
+staged, or included.
+
+**Parent audit #1 rejection (repaired earlier in this tree):** (1) vocabulary-zero
+gate resolved `apps/` and silently skipped missing roots; (2) admin user delete
+still named an explicit assignment-table DELETE; (3) ordinary Admin Plan updates
+wiped unowned persisted billing/limits JSON instead of generically preserving
+it; (4) `settings.failed` EN/RU was removed with pricing `factSkills`; (5)
+TEST-PLAN still referenced deleted `manage-assistant-skills.service.test.ts`.
+
+**Parent audit #2 rejection (this repair):** product cutover otherwise clean, but
+the zero gate remained soft — incomplete active root set, wildcard / maxCount
+allowances, full-file Prisma/migration skips, weak concatenation detection, and
+admin-delete regression missing an explicit Prisma `onDelete: Cascade` pin for
+the residual assignment model’s `assistant` FK.
+
+**Landed final S5a truth:** Active direct Skill-selection surfaces are gone from
+API/contracts/web/MCP/plan/pricing. Role APIs and five MCP Role tools own
+selection. Plan Skill-count limit fields are removed from types/OpenAPI/Admin
+Plans UI/public pricing facts. Persisted unowned `billingProviderHints` fields
+and unowned `limitsPermissions` entries are preserved on update without naming
+removed Skill-limit keys in production; create does not invent them; Admin/
+Public state never exposes them. Admin delete relies on Assistant FK cascade for
+residual assignment rows and the delete regression pins schema
+`onDelete: Cascade`. `settings.failed` restored; pricing `factSkills` stays
+removed. Prisma assignment model/enum/relations and immutable historical
+migrations remain for S5b Release C only. Hardened active-vocabulary zero gate:
+`realpathSync` repo root; every configured root via `lstatSync` (reject
+symlinks/escape/read errors); full active roots (api/web/messages/runtime/
+provider-gateway/sandbox/extension/contracts/MCP/package src + current docs);
+exact physical residue file roots for schema + historical migrations with
+path+term+exactCount only; exact historical/absence wording allowances (no
+wildcards; exactCount must match); direct/bracket/concat detection with
+in-file self-tests; gate file exact self-exclusion only. S1/S2 source tests
+still require the legacy writer absent.
+
+**Focused final verification PASS:** API S5a vocabulary-zero, S1/S2 authority,
+identity, admin-plans preserve/ignore, admin-delete (incl. Cascade pin),
+admin-skills, payment (8/8); web Admin Plans + pricing 47/47 (includes
+`settings.failed` / `factSkills` message assertion) + Role settings 6/6; MCP
+suite 13/13 including removed-tool absence; independent production vocabulary
+search CLEAN; API/web/contracts/Admin MCP typechecks; recursive lint; format
+check; web production build (34/34); contracts generated twice with identical
+generated-diff SHA-256
+`1636379AB3E9819D0D1DA1EACA53E8861F8EF0B337EDF29934BDE1E86E3B36DE`;
+`git diff --check` clean. Gate: 32 scan roots, 46 exact allowances. This is not
+the S6 full-repository acceptance gate.
+
+**Out of scope / residuals:** no S5b DROP/data-scrub migration, no Prisma model
+deletion, no commit/push/deploy/live acceptance, no founder ChatPlanCard edits,
+and this is not the S6 full-repo gate.
+
+**Next recommended step:** keep S5b blocked until Release B is deployed and
+old-revision absence is proved. The next executable phase is S6 pre-release
+full-repository gating and the parent-supervised Release B rollout; Release C
+contract/drop follows only after that proof.
+
+---
+
 ## 2026-07-14 — ADR-147 S4 Admin Role constructor and MCP
 
 Status: **implemented locally and parent-audited CLEAN after iterative repair;

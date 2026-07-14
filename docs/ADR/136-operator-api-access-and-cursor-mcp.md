@@ -24,7 +24,7 @@ Use this section to verify the ADR matches what was agreed in review. If any row
 | 4 | Second user bearer for chat vs admin | **No** — one operator token impersonates one actor `app_users.id` |
 | 5 | Goal in smoke tests | **MCP parameter only** — echoed in tool result for Cursor model; **not** persisted in API |
 | 6 | Scenario schema in MCP | **Full pass-through** — same JSON as `POST/PATCH /admin/skills/:id/scenarios/:key` (all step fields) |
-| 7 | Skill assign semantics | **`PUT /assistant/skills` replaces full `skillIds[]`** — MCP must merge with current list |
+| 7 | Role assign semantics | **`PUT /assistant/{assistantId}/role`** with exact `{ roleKey }`; Role Skill composition uses Admin `PUT /admin/roles/{roleId}/skills` full replace |
 | 8 | Publish before scenario smoke | **Anthropic workflow** — `assistant_publish` before each scenario test |
 | 9 | Anthropic working table | **Out of product scope** — model maintains its own table in Cursor |
 | 10 | Clerk in `mcp.json` | **No** — operator env only |
@@ -81,7 +81,7 @@ Today the founder must use admin UI + Clerk session to author skills and web UI 
 | File KB | `POST /api/v1/admin/skills/:id/documents` (multipart) |
 | Scenarios | `POST/PATCH/GET /api/v1/admin/skills/:id/scenarios/:key` |
 | Indexing jobs | `GET /api/v1/admin/knowledge-indexing/jobs` |
-| Assign | `GET/PUT /api/v1/admin/skills` **not** — `GET/PUT /api/v1/assistant/skills` |
+| Role assign | `PUT /api/v1/assistant/{assistantId}/role` (owner) / Admin Role Skill replace via `/api/v1/admin/roles/{roleId}/skills` |
 | Publish | `POST /api/v1/assistant/publish` |
 | Chat sync | `POST /api/v1/assistant/chat/web` |
 | Stage user attachment | `POST /api/v1/assistant/chat/web/stage-attachment` |
@@ -114,7 +114,7 @@ Extend `ClerkAuthMiddleware` (or equivalent single choke point on clerk-protecte
 2. Otherwise existing Clerk JWT path unchanged.
 3. If operator token is configured but actor user missing → `401` with clear message at request time (or fail-fast at boot — pick one in S1 and document).
 
-Operator auth applies to the same route allowlist already registered in `identity-access.module.ts` for clerk middleware (includes `/admin/skills/*`, ADR-147 S4 `/admin/roles/*`, `/assistant/skills`, `/assistant/{assistantId}/role`, `/assistant/publish`, `/assistant/chat/web`, `/assistant/chat/web/stage-attachment`, chat file preview routes).
+Operator auth applies to the same route allowlist already registered in `identity-access.module.ts` for clerk middleware (includes `/admin/skills/*`, ADR-147 `/admin/roles/*`, `/assistant/roles`, `/assistant/{assistantId}/role`, `/assistant/publish`, `/assistant/chat/web`, `/assistant/chat/web/stage-attachment`, chat file preview routes).
 
 **v1 scope:** dev environment only; document rotation runbook; no separate operator ingress / IP allowlist in v1.
 
@@ -159,7 +159,7 @@ HTTP client: `fetch` + `FormData` for multipart. Types: reuse `packages/contract
 
 | Tool | API | Notes |
 |------|-----|-------|
-| `assistant_skills_assign` | `GET` + `PUT /assistant/skills` | **merge** new ids into `assignedSkillIds` then replace |
+| `assistant_role_assign` | `PUT /assistant/{assistantId}/role` | exact `{ roleKey }` for one owned assistant |
 | `assistant_publish` | `POST /assistant/publish` | sync materialize + apply |
 
 #### Chat smoke + attachments (actor user scope)
@@ -283,7 +283,7 @@ HTTP client: `fetch` + `FormData` for multipart. Types: reuse `packages/contract
 | Risk | Mitigation |
 |------|------------|
 | Operator token leak | Dev-only v1, rotation doc, separate from internal token |
-| `PUT assistant/skills` clobber | `assistant_skills_assign` always merge |
+| Role Skill composition | Admin/MCP `role_skills_replace` is full replacement only |
 | Smoke without publish | Document + tool description: publish before scenario test |
 | 300s chat timeout | MCP fetch timeout aligned with API config |
 | Bulk smoke hits abuse rate limit | Document ~8 req/min user slowdown; pace tests |

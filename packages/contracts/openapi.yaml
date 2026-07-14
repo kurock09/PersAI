@@ -3860,85 +3860,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
-  /assistant/skills:
-    get:
-      operationId: getAssistantSkills
-      summary: List physically retained direct Skill assignments for the current assistant
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Legacy Assistant Skill assignment management state
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GetAssistantSkillsResponse"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "404":
-          description: Assistant not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-    put:
-      operationId: putAssistantSkillAssignments
-      summary: Replace physically retained direct Skill assignments for the current assistant
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PutAssistantSkillAssignmentsRequest"
-      responses:
-        "200":
-          description: Updated legacy Assistant Skill assignment management state
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/GetAssistantSkillsResponse"
-        "400":
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "404":
-          description: Assistant not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "409":
-          description: Skill is archived or over the retained assignment-management limit
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
-        "500":
-          description: Internal error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/roles:
     get:
       operationId: getAssistantRoles
@@ -9524,13 +9445,6 @@ components:
         - draft
         - active
         - archived
-    AssistantSkillAssignmentStatus:
-      type: string
-      enum:
-        - active
-        - disabled
-        - archived
-        - plan_disabled
     KnowledgeIndexingJobSourceType:
       type: string
       enum:
@@ -10264,62 +10178,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminSkillScenario"
-    AssistantSkillCatalogItemState:
-      type: object
-      required:
-        - skill
-        - assignment
-        - selectable
-        - disabledReason
-      properties:
-        skill:
-          $ref: "#/components/schemas/AdminSkillState"
-        assignment:
-          allOf:
-            - $ref: "#/components/schemas/AssistantSkillAssignmentState"
-          nullable: true
-        selectable:
-          type: boolean
-        disabledReason:
-          type: string
-          nullable: true
-    AssistantSkillAssignmentState:
-      type: object
-      required:
-        - id
-        - skillId
-        - status
-        - disabledReason
-        - enabledAt
-        - disabledAt
-        - createdAt
-        - updatedAt
-      properties:
-        id:
-          type: string
-          format: uuid
-        skillId:
-          type: string
-          format: uuid
-        status:
-          $ref: "#/components/schemas/AssistantSkillAssignmentStatus"
-        disabledReason:
-          type: string
-          nullable: true
-        enabledAt:
-          type: string
-          format: date-time
-          nullable: true
-        disabledAt:
-          type: string
-          format: date-time
-          nullable: true
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
     AssistantRoleLocalizedText:
       type: object
       additionalProperties:
@@ -10881,40 +10739,6 @@ components:
           type: boolean
           enum:
             - true
-    GetAssistantSkillsResponse:
-      type: object
-      required:
-        - requestId
-        - skills
-        - assignedSkillIds
-        - limit
-      properties:
-        requestId:
-          type: string
-          nullable: true
-        skills:
-          type: array
-          items:
-            $ref: "#/components/schemas/AssistantSkillCatalogItemState"
-        assignedSkillIds:
-          type: array
-          items:
-            type: string
-            format: uuid
-        limit:
-          type: integer
-          nullable: true
-    PutAssistantSkillAssignmentsRequest:
-      type: object
-      additionalProperties: false
-      required:
-        - skillIds
-      properties:
-        skillIds:
-          type: array
-          items:
-            type: string
-            format: uuid
     AssistantBillingPaymentMethodClass:
       type: string
       enum:
@@ -13949,12 +13773,6 @@ components:
         workspaceStorageBytesLimit:
           type: integer
           nullable: true
-    AdminPlanSkillPolicy:
-      type: object
-      properties:
-        maxEnabledSkills:
-          type: integer
-          nullable: true
     AdminPlanAssistantPolicy:
       type: object
       required:
@@ -14392,8 +14210,6 @@ components:
           $ref: "#/components/schemas/AdminPlanEntitlements"
         quotaLimits:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
-        skillPolicy:
-          $ref: "#/components/schemas/AdminPlanSkillPolicy"
         assistantPolicy:
           $ref: "#/components/schemas/AdminPlanAssistantPolicy"
         contextPolicy:
@@ -14517,7 +14333,6 @@ components:
         - enabledToolCodes
         - entitlements
         - quotaLimits
-        - skillPolicy
         - assistantPolicy
         - presentation
         - videoVcoinMonthlyGrant
@@ -14545,8 +14360,6 @@ components:
           $ref: "#/components/schemas/AdminPlanEntitlements"
         quotaLimits:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
-        skillPolicy:
-          $ref: "#/components/schemas/AdminPlanSkillPolicy"
         assistantPolicy:
           $ref: "#/components/schemas/AdminPlanAssistantPolicy"
         presentation:
@@ -14796,8 +14609,6 @@ components:
           $ref: "#/components/schemas/AdminPlanEntitlements"
         quotaLimits:
           $ref: "#/components/schemas/AdminPlanQuotaLimits"
-        skillPolicy:
-          $ref: "#/components/schemas/AdminPlanSkillPolicy"
         assistantPolicy:
           $ref: "#/components/schemas/AdminPlanAssistantPolicy"
         contextPolicy:

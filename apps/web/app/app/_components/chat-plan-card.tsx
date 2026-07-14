@@ -395,9 +395,9 @@ function ChatPlanCardBody({
       data-testid="chat-plan-card"
       onPointerDownCapture={() => setInteractionVersion((version) => version + 1)}
       className={cn(
-        // Keep ml-auto while collapsed so width grows left from the right edge.
+        // Keep ml-auto always so width grows left from the right-edge pill.
         "overflow-hidden border bg-surface-raised transition-[width,border-color,background-color,box-shadow] duration-300 ease-out",
-        countsCollapsed ? "ml-auto h-12 w-12 md:w-32" : "ml-auto w-full md:ml-0",
+        countsCollapsed ? "ml-auto h-12 w-12 md:w-32" : "ml-auto w-full",
         // Instant radius snap — width may animate, but stadium corners must not lag.
         expanded ? "rounded-[1.375rem]" : "rounded-full",
         countsCollapsed && allDone

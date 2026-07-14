@@ -12,7 +12,7 @@ Founder Cursor / MCP workflows use a **machine operator bearer**, not Clerk.
 
 - Env: `PERSAI_OPERATOR_TOKEN` + (`PERSAI_OPERATOR_ACTOR_USER_ID` **or** `PERSAI_OPERATOR_ACTOR_EMAIL`).
 - `ClerkAuthMiddleware` accepts `Authorization: Bearer <operator token>` before Clerk verification and binds `req.resolvedAppUser` to the configured actor `app_users` row.
-- Operator auth covers the same clerk-registered public routes used for admin Skill CRUD (`/api/v1/admin/skills*`), admin Role CRUD (`/api/v1/admin/roles*`), assistant assign/publish/role (`/api/v1/assistant/skills`, `/api/v1/assistant/publish`, `/api/v1/assistant/{assistantId}/role`), and web chat smoke (`/api/v1/assistant/chat/web`, `/api/v1/assistant/chat/web/stage-attachment`, chat file preview/download).
+- Operator auth covers the same clerk-registered public routes used for admin Skill CRUD (`/api/v1/admin/skills*`), admin Role CRUD (`/api/v1/admin/roles*`), assistant publish/role (`/api/v1/assistant/publish`, `/api/v1/assistant/{assistantId}/role`, `/api/v1/assistant/roles`), and web chat smoke (`/api/v1/assistant/chat/web`, `/api/v1/assistant/chat/web/stage-attachment`, chat file preview/download).
 - `PERSAI_INTERNAL_API_TOKEN` remains **internal-only** (`/api/v1/internal/*` on `API_INTERNAL_PORT`); it must not authorize operator/admin/chat public routes.
 - MCP package: `packages/persai-admin-mcp` (stdio). Dev defaults in `infra/helm/values-dev.yaml` pin actor email `kurock09@gmail.com`.
 
@@ -24,7 +24,7 @@ Primary public API surface:
 - guest trust-page reads under `/api/v1/public/site-pages/*`
 - guest country hints under `/api/v1/public/geo-hint`
 - authenticated assistant routes under `/api/v1/assistant/*`
-- ADR-147 Slice S2 local-only role boundary: `GET /api/v1/assistant/roles` lists the active system role catalog; `GET /api/v1/assistant/{assistantId}/role` and `PUT /api/v1/assistant/{assistantId}/role` require a strict UUID path and are exact owner-only role read/write endpoints; malformed ids return stable `400 assistant_role_invalid_assistant_id` before persistence. Changed PUTs read the database clock only after acquiring the Assistant lock. The older assistant Skill assignment UI/API is no longer the effective runtime/knowledge authority even though legacy storage remains physically present for later cleanup.
+- ADR-147 Slice S5a local-only Role boundary: `GET /api/v1/assistant/roles` lists the active system role catalog; `GET /api/v1/assistant/{assistantId}/role` and `PUT /api/v1/assistant/{assistantId}/role` require a strict UUID path and are exact owner-only role read/write endpoints; malformed ids return stable `400 assistant_role_invalid_assistant_id` before persistence. Changed PUTs read the database clock only after acquiring the Assistant lock. Direct per-assistant Skill selection is removed from the active API/MCP/web contract; Role links are the sole effective Skills authority. The unused physical assignment table remains until S5b Release C.
 - Voice DNA assistant read route: `GET /api/v1/assistant/persona-archetypes`
 - admin routes under `/api/v1/admin/*`
 - ADR-115 admin inbound-safety policy routes under `/api/v1/admin/safety-policy/*` (`heuristic-rules`, `settings`); ops restriction controls remain `/api/v1/admin/safety-controls/*` (slice 115.4)
@@ -278,25 +278,19 @@ Active boundary rules:
 - `POST /preview` returns production-identical `missionBlock` / `enabledSkillsBlock` from the shared renderer pipeline
 - `/admin/roles` is the admin UI owner; MCP Role tools are thin HTTP wrappers over these routes plus owner `PUT /assistant/{assistantId}/role`
 
-### Assistant Roles and retained direct-Skill management
+### Assistant Roles
 
-ADR-147 S2 adds the owner-only role authority:
+ADR-147 owns assistant specialization through Role APIs only:
 
 - `GET /api/v1/assistant/roles`
 - `GET /api/v1/assistant/{assistantId}/role`
 - `PUT /api/v1/assistant/{assistantId}/role`
 
-The pre-S3 management routes remain served through S2:
-
-- `GET /api/v1/assistant/skills`
-- `PUT /api/v1/assistant/skills`
-
 Active boundary rules:
 
 - Role GET/PUT requires the exact Assistant owner (`Assistant.id`, workspace, and `Assistant.userId`), not workspace membership alone. PUT accepts exactly `{roleKey}`, locks current+target Role ids in sorted order before the Assistant/chat rows, revalidates the current `roleId`, and bounded-retries from a fresh snapshot on a concurrent assignment before applying its own dirty/reset/audit.
-- Effective prompt cards, compact summaries, scenarios, Skill Knowledge authorization, and invalidation resolve only through `Assistant.roleId -> AssistantRoleSkill -> active Skill`; direct assignments and plan Skill limits do not participate.
+- Effective prompt cards, compact summaries, scenarios, Skill Knowledge authorization, and invalidation resolve only through `Assistant.roleId -> AssistantRoleSkill -> active Skill`. Direct per-assistant Skill selection routes and plan Skill-count limits are removed from the active contract in S5a; the unused physical assignment table remains only until S5b Release C.
 - `POST /api/v1/assistant/publish` accepts exactly `{assistantId, expectedRoleKey, roleKey}`. The API locks and revalidates the Assistant's current Role against `expectedRoleKey` inside the outer publish transaction before Role assignment, published-version creation, audit, or apply-pending mutation. Drift returns stable `409 assistant_publish_role_conflict`; it is never auto-rebased to the newer Role. Setup/recreate send canonical-current expected plus the selected desired Role. Ordinary Settings Save and existing MCP `assistant_publish` preserve Role by sending expected equal to desired after canonical GET, so concurrent Role changes conflict instead of being overwritten.
-- `GET/PUT /assistant/skills` remains only as retained physical compatibility through S3. Its generated contracts/controller/auth routes stay present, but it is no longer surfaced in user configuration and its rows are non-authoritative for effective runtime behavior.
 - Internal engage/release requests require the materialized bundle's `expectedRoleId`. API validates `assistantId`, `expectedRoleId`, and engage `skillId` as UUIDs before raw casts; malformed values return stable typed 400 validation. Skill-related persistence locks `Skill -> AssistantRole -> Assistant -> AssistantChat -> AssistantRoleSkill`. Release first reads an unlocked chat candidate to identify the Skill, then revalidates locked chat state under canonical locks and bounded-retries a changed candidate without writing. Missing/stale Role identity or missing/inactive linkage returns `applied:false`, `stale_assistant_role_snapshot`; runtime does not retry or claim persistence.
 
 ### Internal runtime

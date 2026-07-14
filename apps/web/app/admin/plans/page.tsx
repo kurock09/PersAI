@@ -151,7 +151,6 @@ export type PlanDraft = {
   mediaStorageMb: string;
   knowledgeStorageMb: string;
   workspaceStorageMb: string;
-  maxEnabledSkills: string;
   maxAssistants: string;
   retrievalDefaultMaxResults: string;
   retrievalHardMaxResults: string;
@@ -257,7 +256,6 @@ type NumericDraftField =
   | "mediaStorageMb"
   | "knowledgeStorageMb"
   | "workspaceStorageMb"
-  | "maxEnabledSkills"
   | "maxAssistants"
   | "retrievalDefaultMaxResults"
   | "retrievalHardMaxResults"
@@ -704,7 +702,6 @@ const NUMERIC_DRAFT_RULES: NumericDraftRule[] = [
   },
   { field: "mediaStorageMb", label: "Media upload budget (MB)", min: 1, allowBlank: true },
   { field: "knowledgeStorageMb", label: "Knowledge storage (MB)", min: 1, allowBlank: true },
-  { field: "maxEnabledSkills", label: "Max enabled Skills", min: 0, allowBlank: true },
   { field: "maxAssistants", label: "Max assistants", min: 1 },
   { field: "retrievalDefaultMaxResults", label: "Default results", min: 1 },
   { field: "retrievalHardMaxResults", label: "Hard max results", min: 1 },
@@ -945,7 +942,6 @@ function emptyDraft(): PlanDraft {
     mediaStorageMb: "",
     knowledgeStorageMb: "",
     workspaceStorageMb: "",
-    maxEnabledSkills: "",
     retrievalDefaultMaxResults: "5",
     retrievalHardMaxResults: "8",
     retrievalLexicalCandidateLimit: "60",
@@ -1075,7 +1071,6 @@ export function planToDraft(plan: AdminPlanState): PlanDraft {
       plan.quotaLimits?.workspaceStorageBytesLimit != null
         ? String(Math.round(plan.quotaLimits.workspaceStorageBytesLimit / 1048576))
         : "",
-    maxEnabledSkills: plan.skillPolicy?.maxEnabledSkills?.toString() ?? "",
     maxAssistants: plan.assistantPolicy?.maxAssistants?.toString() ?? "1",
     retrievalDefaultMaxResults: String(plan.retrievalPolicy.defaultMaxResults),
     retrievalHardMaxResults: String(plan.retrievalPolicy.maxMaxResults),
@@ -1255,11 +1250,6 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
     min: 1,
     allowBlank: true
   });
-  const maxEnabledSkills = parseStrictIntegerDraft(draft.maxEnabledSkills, {
-    label: "Max enabled Skills",
-    min: 0,
-    allowBlank: true
-  });
   const maxAssistants = parseStrictIntegerDraft(draft.maxAssistants, {
     label: "Max assistants",
     min: 1
@@ -1352,9 +1342,6 @@ export function draftToPayload(draft: PlanDraft): AdminPlanUpdateRequest {
       knowledgeStorageBytesLimit: knowledgeStorageMb === null ? null : knowledgeStorageMb * 1048576,
       workspaceStorageBytesLimit: workspaceStorageMb === null ? null : workspaceStorageMb * 1048576
     } as PlanQuotaLimitsDraftShape,
-    skillPolicy: {
-      maxEnabledSkills
-    },
     assistantPolicy: {
       maxAssistants
     },
@@ -3244,25 +3231,6 @@ export function PlanForm({
                 </label>
                 <FieldError message={validationErrors.knowledgeStorageMb} />
                 <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
-                  <span title="Maximum professional Skills a user can enable for one assistant on this plan. Blank = unlimited.">
-                    Max enabled Skills
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    value={draft.maxEnabledSkills}
-                    onChange={(e) => onPatch({ maxEnabledSkills: e.target.value })}
-                    placeholder="unlimited"
-                    className={cn(
-                      "w-28 appearance-none rounded border bg-bg px-2 py-1 text-right text-xs text-text placeholder:text-text-subtle/70 focus:outline-none focus:ring-1 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]",
-                      validationErrors.maxEnabledSkills
-                        ? "border-red-400/70 focus:border-red-400 focus:ring-red-400/50"
-                        : "border-border focus:border-accent focus:ring-accent/50"
-                    )}
-                  />
-                </label>
-                <FieldError message={validationErrors.maxEnabledSkills} />
-                <label className="flex items-center justify-between gap-2 text-[11px] font-medium text-text">
                   <span title="Plan-owned assistant count. B2C plans stay at 1; B2B/operator plans may set a higher number.">
                     Max assistants
                   </span>
@@ -4195,10 +4163,6 @@ function PlanCardReadOnly({
           />
           <SummaryStat label="Monthly media" value={formatMonthlyMediaCollapsedSummary(plan)} />
           <SummaryStat
-            label="Skills"
-            value={String(plan.skillPolicy?.maxEnabledSkills ?? "unlimited")}
-          />
-          <SummaryStat
             label="Assistants"
             value={String(plan.assistantPolicy?.maxAssistants ?? 1)}
           />
@@ -4294,10 +4258,6 @@ function PlanCardReadOnly({
                 <div>
                   <span className="text-text-muted">Workspace</span> ·{" "}
                   {formatStorageLimit(plan.quotaLimits?.workspaceStorageBytesLimit)}
-                </div>
-                <div>
-                  <span className="text-text-muted">Skills cap</span> ·{" "}
-                  {plan.skillPolicy?.maxEnabledSkills ?? "unlimited"}
                 </div>
                 <div>
                   <span className="text-text-muted">Assistants</span> ·{" "}

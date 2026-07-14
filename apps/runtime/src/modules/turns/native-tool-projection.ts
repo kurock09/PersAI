@@ -400,10 +400,10 @@ export function projectRuntimeNativeTools(
   }
   // ADR-118 Slice 2: skill tool is omitted when no Skills are enabled for this assistant.
   // The schema is byte-stable per turn (no per-turn mutation based on chat state).
-  const skillPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "skill");
+  const skillToolPolicy = resolveAllowedModelVisibleToolPolicy(bundle, "skill");
   const enabledSkills = bundle.skills?.enabled ?? [];
-  if (skillPolicy !== null && enabledSkills.length > 0) {
-    projectedTools.push(createSkillToolDefinition(skillPolicy));
+  if (skillToolPolicy !== null && enabledSkills.length > 0) {
+    projectedTools.push(createSkillToolDefinition(skillToolPolicy));
   }
 
   const projection: RuntimeNativeToolProjection = {

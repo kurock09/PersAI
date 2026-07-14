@@ -179,7 +179,7 @@
 3. `skill_document_upload` — загрузить PDF fundamentals (сначала пишем PDF локально, затем грузим через `filePath`).
 4. `indexing_wait` — дождаться `ready` по всем документам/карточкам перед тестом.
 5. `skill_scenario_upsert` — завести сценарий (`status: active`) с шагами из раздела 4.
-6. `assistant_skills_assign` — назначить skill активному ассистенту founder (merge, не перезаписывая остальные).
+6. `assistant_role_assign` — назначить Role активному ассистенту founder по точному `assistantId` + immutable `roleKey` (эффективные Skills приходят только из Role).
 7. `assistant_publish` — опубликовать (Anthropic workflow: publish перед каждым новым тестом сценария).
 8. `chat_smoke` с конкретным `goal` (например: *"пользователь ИП на УСН 6% без сотрудников, доход 1.2 млн/год — должен получить рекомендацию режима + календарь дедлайнов за один сценарий"*) — итеративно улучшать карточки/PDF/сценарий, пока результат не идеальный.
 9. Полировка: смотреть `skillActivation`, `toolSignals`, `plan.todos` (см. `packages/persai-admin-mcp/SMOKE-AGENT.md`), при необходимости добавлять недостающие карточки/шаги.
@@ -241,7 +241,7 @@ Founder попросил прокачать «Маркетолога» как п
 2. **Fundamentals MD** — один большой структурированный документ с таблицами, hex-кодами, чек-листами; загрузка через `skill_document_upload`.
 3. **FAQ cards** — атомарные ответы на частые вопросы (1 тема = 1 карточка); `skill_card_upsert` с plain-string `title`/`body` + `locale:"ru"`.
 4. **Сценарии** — `steps[].directive` (не `title`/`instructions`), `exitCondition`, `firstStepPreview` где уместно.
-5. **`indexing_wait`** → **`assistant_skills_assign`** → **`assistant_publish`** → **`chat_smoke`** с `surfaceThreadKey`.
+5. **`indexing_wait`** → **`role_skills_replace`** / **`assistant_role_assign`** → **`assistant_publish`** → **`chat_smoke`** с `surfaceThreadKey`.
 
 ### QA для эталона
 

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { AdminDeleteUserService } from "../src/modules/workspace-management/application/admin-delete-user.service";
 import type { AdminAuthorizationService } from "../src/modules/workspace-management/application/admin-authorization.service";
 
@@ -333,6 +335,38 @@ async function run(): Promise<void> {
   assert.ok(
     deleted.indexOf("sandboxWorkspaceGcLease.create") < deleted.indexOf("assistant"),
     "GC lease must be written before assistant row is deleted"
+  );
+
+  // S5a: rely on Assistant FK cascade; explicit assignment DELETE must not return.
+  assert.equal(
+    normalizedRawSql.some((sql) => sql.includes("assistant_skill_assignments")),
+    false,
+    "admin delete must not explicitly DELETE assistant_skill_assignments"
+  );
+  const adminDeleteUserSource = readFileSync(
+    fileURLToPath(
+      new URL(
+        "../src/modules/workspace-management/application/admin-delete-user.service.ts",
+        import.meta.url
+      )
+    ),
+    "utf8"
+  );
+  assert.equal(
+    adminDeleteUserSource.includes("assistant_skill_assignments"),
+    false,
+    "admin-delete-user.service.ts must not name assistant_skill_assignments"
+  );
+  const prismaSchema = readFileSync(
+    fileURLToPath(new URL("../prisma/schema.prisma", import.meta.url)),
+    "utf8"
+  );
+  const assignmentModel = prismaSchema.match(/model AssistantSkillAssignment \{[\s\S]*?\n\}/);
+  assert.ok(assignmentModel, "Prisma must retain residual assignment model until S5b");
+  assert.match(
+    assignmentModel[0],
+    /assistant\s+Assistant\s+@relation\(\s*fields:\s*\[assistantId,\s*userId\],\s*references:\s*\[id,\s*userId\],\s*onDelete:\s*Cascade,\s*onUpdate:\s*Cascade\s*\)/,
+    "assignment.assistant FK must keep onDelete: Cascade"
   );
 }
 

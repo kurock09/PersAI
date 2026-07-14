@@ -423,6 +423,80 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * Keys currently owned/authored by Admin Plans writes into `billingProviderHints`.
+ * Unowned keys (including any pre-S5a residual JSON) are preserved on update and
+ * never invented on create. Do not add removed Skill-limit key names here.
+ */
+const OWNED_BILLING_PROVIDER_HINT_KEYS: ReadonlySet<string> = new Set([
+  "schema",
+  "providerAgnostic",
+  "commercialTag",
+  "notes",
+  "presentation",
+  "lifecyclePolicy",
+  "quotaAccounting",
+  "assistantPolicy",
+  "contextPolicy",
+  "retrievalPolicy",
+  "sandboxPolicy",
+  "primaryModelKey",
+  "primaryModelProviderKey",
+  "premiumModelKey",
+  "premiumModelProviderKey",
+  "reasoningModelKey",
+  "reasoningModelProviderKey",
+  "systemToolModelKey",
+  "systemToolModelProviderKey",
+  "retrievalModelKey",
+  "retrievalModelProviderKey",
+  "imageGenerateModelKey",
+  "imageGenerateFallbackModelKey",
+  "imageEditModelKey",
+  "imageEditFallbackModelKey",
+  "videoGenerateModelKey",
+  "videoGenerateFallbackModelKey",
+  "talkingAvatarModelKey",
+  "talkingAvatarFallbackModelKey",
+  "talkingVideoEnabled",
+  "mediaCompletionVisionEnabled",
+  "videoVcoinMonthlyGrant",
+  "runtimeTierDefault",
+  "toolBudgets",
+  "thinkingBudgetByLevel"
+]);
+
+/** Currently no Admin Plans–owned `limitsPermissions` keys; preserve all existing entries on update. */
+const OWNED_LIMITS_PERMISSION_KEYS: ReadonlySet<string> = new Set();
+
+function mergeOwnedBillingProviderHints(
+  ownedCanonical: Record<string, unknown>,
+  existingHints: unknown
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  if (isRecord(existingHints)) {
+    for (const [key, value] of Object.entries(existingHints)) {
+      if (!OWNED_BILLING_PROVIDER_HINT_KEYS.has(key)) {
+        merged[key] = value;
+      }
+    }
+  }
+  Object.assign(merged, ownedCanonical);
+  return merged;
+}
+
+function mergeUnownedLimitsPermissions(existingLimits: unknown): unknown[] {
+  if (!Array.isArray(existingLimits)) {
+    return [];
+  }
+  return existingLimits.filter((item) => {
+    if (!isRecord(item) || typeof item.key !== "string") {
+      return true;
+    }
+    return !OWNED_LIMITS_PERMISSION_KEYS.has(item.key);
+  });
+}
+
 function mergePlanPatchValue(currentValue: unknown, patchValue: unknown): unknown {
   if (patchValue === undefined) {
     return currentValue;
@@ -478,29 +552,6 @@ function hasQuotaGovernedFlag(items: unknown, key: string): boolean {
     const typed = item as Record<string, unknown>;
     return typed.key === key && typed.quotaGoverned === true;
   });
-}
-
-function readEnabledSkillLimitFromLimitsPermissions(value: unknown): number | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  for (const item of value) {
-    if (item === null || typeof item !== "object" || Array.isArray(item)) {
-      continue;
-    }
-    const typed = item as Record<string, unknown>;
-    if (
-      typed.key === "enabled_skills_limit" ||
-      typed.key === "max_enabled_skills" ||
-      typed.key === "skill_assignments_limit"
-    ) {
-      const limit = toNullableNonNegativeInt(typed.value) ?? toNullableNonNegativeInt(typed.limit);
-      if (limit !== null) {
-        return limit;
-      }
-    }
-  }
-  return null;
 }
 
 function normalizePlanToolDisplayName(toolCode: string, displayName: string): string {
@@ -675,7 +726,6 @@ export class ManageAdminPlansService {
             .map((tool) => tool.toolCode),
           entitlements: plan.entitlements,
           quotaLimits: plan.quotaLimits,
-          skillPolicy: plan.skillPolicy,
           assistantPolicy: plan.assistantPolicy,
           presentation: plan.presentation,
           videoVcoinMonthlyGrant: grant,
@@ -893,7 +943,10 @@ export class ManageAdminPlansService {
     await this.assertLifecycleFallbackPlansAreActive(mergedInput, normalizedCode);
     const updated = await this.planCatalogRepository.updateByCode(
       normalizedCode,
-      this.toWriteInput(mergedInput)
+      this.toWriteInput(mergedInput, {
+        billingProviderHints: existing.billingProviderHints,
+        entitlementModel: existing.entitlementModel
+      })
     );
     if (updated === null) {
       throw new NotFoundException("Plan not found.");
@@ -1020,10 +1073,6 @@ export class ManageAdminPlansService {
       parsed.quotaLimits !== undefined && parsed.quotaLimits !== null
         ? parseObject(parsed.quotaLimits, "quotaLimits")
         : {};
-    const skillPolicyRaw =
-      parsed.skillPolicy !== undefined && parsed.skillPolicy !== null
-        ? parseObject(parsed.skillPolicy, "skillPolicy")
-        : {};
     const assistantPolicy = parsePlanAssistantPolicy(parsed.assistantPolicy);
     const contextPolicy =
       parsed.contextPolicy === undefined || parsed.contextPolicy === null
@@ -1097,9 +1146,6 @@ export class ManageAdminPlansService {
           quotaLimitsRaw.knowledgeStorageBytesLimit
         ),
         workspaceStorageBytesLimit: toNullablePositiveInt(quotaLimitsRaw.workspaceStorageBytesLimit)
-      },
-      skillPolicy: {
-        maxEnabledSkills: toNullableNonNegativeInt(skillPolicyRaw.maxEnabledSkills)
       },
       assistantPolicy,
       contextPolicy,
@@ -1283,7 +1329,13 @@ export class ManageAdminPlansService {
     });
   }
 
-  private toWriteInput(input: AdminPlanInput): AssistantPlanCatalogWriteInput {
+  private toWriteInput(
+    input: AdminPlanInput,
+    existing?: {
+      billingProviderHints: unknown;
+      entitlementModel: AssistantPlanCatalog["entitlementModel"];
+    } | null
+  ): AssistantPlanCatalogWriteInput {
     const quotaAccounting: Record<string, unknown> = {};
     if (input.quotaLimits.tokenBudgetLimit !== null) {
       quotaAccounting.tokenBudgetLimit = input.quotaLimits.tokenBudgetLimit;
@@ -1313,6 +1365,104 @@ export class ManageAdminPlansService {
     if (input.quotaLimits.workspaceStorageBytesLimit !== null) {
       quotaAccounting.workspaceStorageBytesLimit = input.quotaLimits.workspaceStorageBytesLimit;
     }
+    const ownedBillingProviderHints: Record<string, unknown> = {
+      schema: "persai.billingHints.v1",
+      providerAgnostic: true,
+      commercialTag: input.metadata.commercialTag,
+      notes: input.metadata.notes,
+      presentation: {
+        schema: "persai.planPresentation.v1",
+        showOnPricingPage: input.presentation.showOnPricingPage,
+        displayOrder: input.presentation.displayOrder,
+        highlighted: input.presentation.highlighted,
+        title: input.presentation.title,
+        subtitle: input.presentation.subtitle,
+        notes: input.presentation.notes,
+        badge: input.presentation.badge,
+        ctaLabel: input.presentation.ctaLabel,
+        price: input.presentation.price,
+        highlightItems: input.presentation.highlightItems
+      },
+      lifecyclePolicy: {
+        schema: "persai.planLifecyclePolicy.v1",
+        trialFallbackPlanCode: input.lifecyclePolicy.trialFallbackPlanCode,
+        paidFallbackPlanCode: input.lifecyclePolicy.paidFallbackPlanCode
+      },
+      ...(Object.keys(quotaAccounting).length > 0 ? { quotaAccounting } : {}),
+      assistantPolicy: {
+        schema: "persai.assistantPolicy.v1",
+        maxAssistants: input.assistantPolicy.maxAssistants
+      },
+      contextPolicy: toPlanContextHydrationPolicyDocument(input.contextPolicy),
+      retrievalPolicy: input.retrievalPolicy,
+      sandboxPolicy: toPlanSandboxPolicyDocument(input.sandboxPolicy),
+      ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {}),
+      ...(input.primaryModelProviderKey !== null
+        ? { primaryModelProviderKey: input.primaryModelProviderKey }
+        : {}),
+      ...(input.premiumModelKey !== null ? { premiumModelKey: input.premiumModelKey } : {}),
+      ...(input.premiumModelProviderKey !== null
+        ? { premiumModelProviderKey: input.premiumModelProviderKey }
+        : {}),
+      ...(input.reasoningModelKey !== null ? { reasoningModelKey: input.reasoningModelKey } : {}),
+      ...(input.reasoningModelProviderKey !== null
+        ? { reasoningModelProviderKey: input.reasoningModelProviderKey }
+        : {}),
+      ...(input.systemToolModelKey !== null
+        ? { systemToolModelKey: input.systemToolModelKey }
+        : {}),
+      ...(input.systemToolModelProviderKey !== null
+        ? { systemToolModelProviderKey: input.systemToolModelProviderKey }
+        : {}),
+      ...(input.retrievalModelKey !== null ? { retrievalModelKey: input.retrievalModelKey } : {}),
+      ...(input.retrievalModelProviderKey !== null
+        ? { retrievalModelProviderKey: input.retrievalModelProviderKey }
+        : {}),
+      ...(input.imageGenerateModelKey !== null
+        ? { imageGenerateModelKey: input.imageGenerateModelKey }
+        : {}),
+      ...(input.imageGenerateFallbackModelKey !== null
+        ? { imageGenerateFallbackModelKey: input.imageGenerateFallbackModelKey }
+        : {}),
+      ...(input.imageEditModelKey !== null ? { imageEditModelKey: input.imageEditModelKey } : {}),
+      ...(input.imageEditFallbackModelKey !== null
+        ? { imageEditFallbackModelKey: input.imageEditFallbackModelKey }
+        : {}),
+      ...(input.videoGenerateModelKey !== null
+        ? { videoGenerateModelKey: input.videoGenerateModelKey }
+        : {}),
+      ...(input.videoGenerateFallbackModelKey !== null
+        ? { videoGenerateFallbackModelKey: input.videoGenerateFallbackModelKey }
+        : {}),
+      ...(input.talkingAvatarModelKey !== null
+        ? { talkingAvatarModelKey: input.talkingAvatarModelKey }
+        : {}),
+      ...(input.talkingAvatarFallbackModelKey !== null
+        ? { talkingAvatarFallbackModelKey: input.talkingAvatarFallbackModelKey }
+        : {}),
+      talkingVideoEnabled: input.talkingVideoEnabled,
+      mediaCompletionVisionEnabled: input.mediaCompletionVisionEnabled,
+      videoVcoinMonthlyGrant: input.videoVcoinMonthlyGrant,
+      ...(input.runtimeTierDefault !== null
+        ? { runtimeTierDefault: input.runtimeTierDefault }
+        : {}),
+      ...(hasAnyToolBudgetOverride(input.toolBudgets)
+        ? { toolBudgets: toPlanToolBudgetsDocument(input.toolBudgets) }
+        : {}),
+      ...(hasAnyThinkingBudgetOverride(input.thinkingBudgetByLevel)
+        ? {
+            thinkingBudgetByLevel: toPlanThinkingBudgetByLevelDocument(input.thinkingBudgetByLevel)
+          }
+        : {})
+    };
+    const billingProviderHints =
+      existing == null
+        ? ownedBillingProviderHints
+        : mergeOwnedBillingProviderHints(ownedBillingProviderHints, existing.billingProviderHints);
+    const limitsPermissions =
+      existing == null
+        ? []
+        : mergeUnownedLimitsPermissions(existing.entitlementModel?.limitsPermissions);
     return {
       displayName: input.displayName,
       description: input.description,
@@ -1320,101 +1470,7 @@ export class ManageAdminPlansService {
       isDefaultFirstRegistrationPlan: input.defaultOnRegistration,
       isTrialPlan: input.trialEnabled,
       trialDurationDays: input.trialDurationDays,
-      billingProviderHints: {
-        schema: "persai.billingHints.v1",
-        providerAgnostic: true,
-        commercialTag: input.metadata.commercialTag,
-        notes: input.metadata.notes,
-        presentation: {
-          schema: "persai.planPresentation.v1",
-          showOnPricingPage: input.presentation.showOnPricingPage,
-          displayOrder: input.presentation.displayOrder,
-          highlighted: input.presentation.highlighted,
-          title: input.presentation.title,
-          subtitle: input.presentation.subtitle,
-          notes: input.presentation.notes,
-          badge: input.presentation.badge,
-          ctaLabel: input.presentation.ctaLabel,
-          price: input.presentation.price,
-          highlightItems: input.presentation.highlightItems
-        },
-        lifecyclePolicy: {
-          schema: "persai.planLifecyclePolicy.v1",
-          trialFallbackPlanCode: input.lifecyclePolicy.trialFallbackPlanCode,
-          paidFallbackPlanCode: input.lifecyclePolicy.paidFallbackPlanCode
-        },
-        ...(Object.keys(quotaAccounting).length > 0 ? { quotaAccounting } : {}),
-        ...(input.skillPolicy.maxEnabledSkills !== null
-          ? { skillPolicy: { maxEnabledSkills: input.skillPolicy.maxEnabledSkills } }
-          : {}),
-        assistantPolicy: {
-          schema: "persai.assistantPolicy.v1",
-          maxAssistants: input.assistantPolicy.maxAssistants
-        },
-        contextPolicy: toPlanContextHydrationPolicyDocument(input.contextPolicy),
-        retrievalPolicy: input.retrievalPolicy,
-        sandboxPolicy: toPlanSandboxPolicyDocument(input.sandboxPolicy),
-        ...(input.primaryModelKey !== null ? { primaryModelKey: input.primaryModelKey } : {}),
-        ...(input.primaryModelProviderKey !== null
-          ? { primaryModelProviderKey: input.primaryModelProviderKey }
-          : {}),
-        ...(input.premiumModelKey !== null ? { premiumModelKey: input.premiumModelKey } : {}),
-        ...(input.premiumModelProviderKey !== null
-          ? { premiumModelProviderKey: input.premiumModelProviderKey }
-          : {}),
-        ...(input.reasoningModelKey !== null ? { reasoningModelKey: input.reasoningModelKey } : {}),
-        ...(input.reasoningModelProviderKey !== null
-          ? { reasoningModelProviderKey: input.reasoningModelProviderKey }
-          : {}),
-        ...(input.systemToolModelKey !== null
-          ? { systemToolModelKey: input.systemToolModelKey }
-          : {}),
-        ...(input.systemToolModelProviderKey !== null
-          ? { systemToolModelProviderKey: input.systemToolModelProviderKey }
-          : {}),
-        ...(input.retrievalModelKey !== null ? { retrievalModelKey: input.retrievalModelKey } : {}),
-        ...(input.retrievalModelProviderKey !== null
-          ? { retrievalModelProviderKey: input.retrievalModelProviderKey }
-          : {}),
-        ...(input.imageGenerateModelKey !== null
-          ? { imageGenerateModelKey: input.imageGenerateModelKey }
-          : {}),
-        ...(input.imageGenerateFallbackModelKey !== null
-          ? { imageGenerateFallbackModelKey: input.imageGenerateFallbackModelKey }
-          : {}),
-        ...(input.imageEditModelKey !== null ? { imageEditModelKey: input.imageEditModelKey } : {}),
-        ...(input.imageEditFallbackModelKey !== null
-          ? { imageEditFallbackModelKey: input.imageEditFallbackModelKey }
-          : {}),
-        ...(input.videoGenerateModelKey !== null
-          ? { videoGenerateModelKey: input.videoGenerateModelKey }
-          : {}),
-        ...(input.videoGenerateFallbackModelKey !== null
-          ? { videoGenerateFallbackModelKey: input.videoGenerateFallbackModelKey }
-          : {}),
-        ...(input.talkingAvatarModelKey !== null
-          ? { talkingAvatarModelKey: input.talkingAvatarModelKey }
-          : {}),
-        ...(input.talkingAvatarFallbackModelKey !== null
-          ? { talkingAvatarFallbackModelKey: input.talkingAvatarFallbackModelKey }
-          : {}),
-        talkingVideoEnabled: input.talkingVideoEnabled,
-        mediaCompletionVisionEnabled: input.mediaCompletionVisionEnabled,
-        videoVcoinMonthlyGrant: input.videoVcoinMonthlyGrant,
-        ...(input.runtimeTierDefault !== null
-          ? { runtimeTierDefault: input.runtimeTierDefault }
-          : {}),
-        ...(hasAnyToolBudgetOverride(input.toolBudgets)
-          ? { toolBudgets: toPlanToolBudgetsDocument(input.toolBudgets) }
-          : {}),
-        ...(hasAnyThinkingBudgetOverride(input.thinkingBudgetByLevel)
-          ? {
-              thinkingBudgetByLevel: toPlanThinkingBudgetByLevelDocument(
-                input.thinkingBudgetByLevel
-              )
-            }
-          : {})
-      },
+      billingProviderHints,
       entitlementModel: {
         schemaVersion: 1,
         capabilities: [],
@@ -1436,15 +1492,7 @@ export class ManageAdminPlansService {
           { key: "whatsapp", allowed: input.entitlements.channelsAndSurfaces.whatsapp },
           { key: "max", allowed: input.entitlements.channelsAndSurfaces.max }
         ],
-        limitsPermissions:
-          input.skillPolicy.maxEnabledSkills === null
-            ? []
-            : [
-                {
-                  key: "enabled_skills_limit",
-                  value: input.skillPolicy.maxEnabledSkills
-                }
-              ]
+        limitsPermissions
       },
       toolActivationOverrides: this.toCanonicalToolActivationOverrides(input).map((ta) => ({
         toolCode: ta.toolCode,
@@ -1773,12 +1821,6 @@ export class ManageAdminPlansService {
       !Array.isArray(billingHints.quotaAccounting)
         ? (billingHints.quotaAccounting as Record<string, unknown>)
         : {};
-    const skillPolicyRaw =
-      billingHints.skillPolicy !== null &&
-      typeof billingHints.skillPolicy === "object" &&
-      !Array.isArray(billingHints.skillPolicy)
-        ? (billingHints.skillPolicy as Record<string, unknown>)
-        : {};
     const assistantPolicy = parsePlanAssistantPolicy(billingHints.assistantPolicy);
     const lifecyclePolicyRaw =
       billingHints.lifecyclePolicy !== null &&
@@ -1889,11 +1931,6 @@ export class ManageAdminPlansService {
         workspaceStorageBytesLimit: toNullablePositiveInt(
           quotaAccountingRaw.workspaceStorageBytesLimit
         )
-      },
-      skillPolicy: {
-        maxEnabledSkills:
-          toNullableNonNegativeInt(skillPolicyRaw.maxEnabledSkills) ??
-          readEnabledSkillLimitFromLimitsPermissions(entitlement?.limitsPermissions)
       },
       assistantPolicy,
       contextPolicy,

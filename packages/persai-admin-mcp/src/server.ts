@@ -615,38 +615,6 @@ export function createPersaiAdminMcpServer(
   );
 
   server.registerTool(
-    "assistant_skills_assign",
-    {
-      description:
-        "Assign Skills to the operator actor's active assistant. Merges skillIds into current assignments.",
-      inputSchema: z.object({
-        skillIds: z.array(z.string().uuid()).min(1)
-      })
-    },
-    async ({ skillIds }) => {
-      try {
-        const current = await client.requestJson({
-          method: "GET",
-          path: "/api/v1/assistant/skills"
-        });
-        const currentRow = asRecord(current);
-        const existing = Array.isArray(currentRow?.assignedSkillIds)
-          ? currentRow.assignedSkillIds.map(String)
-          : [];
-        const merged = [...new Set([...existing, ...skillIds])];
-        const payload = await client.requestJson({
-          method: "PUT",
-          path: "/api/v1/assistant/skills",
-          body: { skillIds: merged }
-        });
-        return toolText(payload);
-      } catch (error) {
-        return toolError(error);
-      }
-    }
-  );
-
-  server.registerTool(
     "role_list",
     {
       description: "List admin Assistant Roles via GET /api/v1/admin/roles.",

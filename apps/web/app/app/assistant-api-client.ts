@@ -21,11 +21,9 @@ import {
   type AdminSkillUpsertRequest,
   type AssistantRoleSelectionResponse,
   type AssistantRoleState,
-  type GetAssistantSkillsResponse,
   type GetAssistantRolesResponse,
   type KnowledgeIndexingJobState,
   type PutAssistantRoleRequest,
-  type PutAssistantSkillAssignmentsRequest,
   type SkillDocumentState,
   type AdminPlanCreateRequest,
   type AdminDangerousActionCode,
@@ -147,7 +145,6 @@ import {
   deleteAdminRole as deleteAdminRoleContract,
   putAdminRoleSkills as putAdminRoleSkillsContract,
   postAdminRolePreview as postAdminRolePreviewContract,
-  getAssistantSkills as getAssistantSkillsContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   getAdminAbuseControlsAssistants as getAdminAbuseControlsAssistantsContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
@@ -160,7 +157,6 @@ import {
   putAdminSafetyPolicyHeuristicRules as putAdminSafetyPolicyHeuristicRulesContract,
   putAdminSafetyPolicySettings as putAdminSafetyPolicySettingsContract,
   putAssistantRole as putAssistantRoleContract,
-  putAssistantSkillAssignments as putAssistantSkillAssignmentsContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract,
   postAssistantTelegramRevoke as postAssistantTelegramRevokeContract,
   putAdminRuntimeProviderSettings as putAdminRuntimeProviderSettingsContract,
@@ -5746,41 +5742,6 @@ export async function reindexAdminProductKnowledgeTextEntry(
     throw new Error("Product KB text entry reindex returned an unexpected response.");
   }
   return { entry: data.entry, indexingJob: data.indexingJob ?? null };
-}
-
-export async function getAssistantSkills(token: string): Promise<GetAssistantSkillsResponse> {
-  const response = await getAssistantSkillsContract({
-    headers: getAuthHeaders(token)
-  });
-  if (
-    !isSuccessStatus(response.status) ||
-    typeof response.data !== "object" ||
-    response.data === null ||
-    !("skills" in response.data) ||
-    !("assignedSkillIds" in response.data)
-  ) {
-    throw new Error("Unexpected non-success response for GET /assistant/skills.");
-  }
-  return response.data;
-}
-
-export async function updateAssistantSkillAssignments(
-  token: string,
-  payload: PutAssistantSkillAssignmentsRequest
-): Promise<GetAssistantSkillsResponse> {
-  const response = await putAssistantSkillAssignmentsContract(payload, {
-    headers: getAuthHeaders(token)
-  });
-  if (
-    !isSuccessStatus(response.status) ||
-    typeof response.data !== "object" ||
-    response.data === null ||
-    !("skills" in response.data) ||
-    !("assignedSkillIds" in response.data)
-  ) {
-    throw new Error("Unexpected non-success response for PUT /assistant/skills.");
-  }
-  return response.data;
 }
 
 export async function getAssistantRoles(

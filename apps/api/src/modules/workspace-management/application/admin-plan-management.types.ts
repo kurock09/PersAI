@@ -177,9 +177,6 @@ export type AdminPlanInput = {
     knowledgeStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;
   };
-  skillPolicy: {
-    maxEnabledSkills: number | null;
-  };
   assistantPolicy: AdminPlanAssistantPolicy;
   contextPolicy: AdminPlanContextPolicy;
   retrievalPolicy: AdminPlanRetrievalPolicy;
@@ -289,9 +286,6 @@ export type AdminPlanState = {
     knowledgeStorageBytesLimit: number | null;
     workspaceStorageBytesLimit: number | null;
   };
-  skillPolicy: {
-    maxEnabledSkills: number | null;
-  };
   assistantPolicy: AdminPlanAssistantPolicy;
   contextPolicy: AdminPlanContextPolicy;
   retrievalPolicy: AdminPlanRetrievalPolicy;
@@ -342,7 +336,6 @@ export type PublicPricingPlanState = {
   enabledToolCodes: string[];
   entitlements: AdminPlanEntitlementControls;
   quotaLimits: AdminPlanState["quotaLimits"];
-  skillPolicy: AdminPlanState["skillPolicy"];
   assistantPolicy: AdminPlanState["assistantPolicy"];
   presentation: AdminPlanPresentation;
   /** ADR-108 Slice 6a — monthly Vcoin grant credited at subscription period rollover. 0 means no monthly grant. */

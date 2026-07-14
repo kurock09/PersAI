@@ -139,9 +139,6 @@ export function derivePlanFacts(
         : t("factVideosVc", { vc: plan.videoVcoinMonthlyGrant })
     );
   }
-  if (plan.skillPolicy.maxEnabledSkills != null && plan.skillPolicy.maxEnabledSkills > 0) {
-    facts.push(t("factSkills", { count: plan.skillPolicy.maxEnabledSkills }));
-  }
   return facts.slice(0, 4);
 }
 

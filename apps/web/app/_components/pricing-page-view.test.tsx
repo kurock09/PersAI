@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PublicPricingPlanState } from "@persai/contracts";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../messages/en.json";
+import ruMessages from "../../messages/ru.json";
 import { PricingPageView, derivePlanFacts } from "./pricing-page-view";
 
 const billingRecurringMigrationIdle = {
@@ -84,9 +85,6 @@ function makePlan(overrides: Partial<PublicPricingPlanState> = {}): PublicPricin
       imageGenerateMonthlyUnitsLimit: 30,
       imageEditMonthlyUnitsLimit: 10
     },
-    skillPolicy: {
-      maxEnabledSkills: 12
-    },
     assistantPolicy: {
       maxAssistants: 1
     },
@@ -117,6 +115,13 @@ function renderView(node: ReactNode) {
 }
 
 describe("PricingPageView", () => {
+  it("keeps settings.failed copy and drops pricing factSkills after S5a", () => {
+    expect(enMessages.settings.failed).toBe("Failed");
+    expect(ruMessages.settings.failed).toBe("Ошибка");
+    expect("factSkills" in enMessages.pricing).toBe(false);
+    expect("factSkills" in ruMessages.pricing).toBe(false);
+  });
+
   it("renders guest pricing cards with sign-up CTA", () => {
     renderView(<PricingPageView plans={[makePlan()]} signedIn={false} />);
 
@@ -844,8 +849,6 @@ describe("PricingPageView", () => {
           return `${values?.vc} VC / month`;
         case "factVideosVcWithApprox":
           return `${values?.vc} VC / month ≈ ${values?.count} videos`;
-        case "factSkills":
-          return `${values?.count} skills`;
         default:
           return key;
       }
@@ -859,7 +862,7 @@ describe("PricingPageView", () => {
         makePlan({ videoVcoinMonthlyGrant: 1000, videoVcoinApproxVideosPerMonth: 8 }),
         t
       )
-    ).toEqual(["20,000 tokens", "30 images / month", "1000 VC / month ≈ 8 videos", "12 skills"]);
+    ).toEqual(["20,000 tokens", "30 images / month", "1000 VC / month ≈ 8 videos"]);
   });
 
   it("hides disabled or zero-value facts", () => {
@@ -871,8 +874,6 @@ describe("PricingPageView", () => {
           return `${values?.count} images / month`;
         case "factVideos":
           return `${values?.count} videos / month`;
-        case "factSkills":
-          return `${values?.count} skills`;
         default:
           return key;
       }
@@ -889,9 +890,6 @@ describe("PricingPageView", () => {
             knowledgeStorageBytesLimit: 1000000,
             imageGenerateMonthlyUnitsLimit: 30,
             imageEditMonthlyUnitsLimit: 10
-          },
-          skillPolicy: {
-            maxEnabledSkills: 0
           }
         }),
         t
@@ -912,8 +910,6 @@ describe("PricingPageView", () => {
           return `${values?.vc} VC / month`;
         case "factVideos":
           return `${values?.count} videos / month`;
-        case "factSkills":
-          return `${values?.count} skills`;
         default:
           return key;
       }
@@ -932,8 +928,7 @@ describe("PricingPageView", () => {
             knowledgeStorageBytesLimit: 1000000,
             imageGenerateMonthlyUnitsLimit: null,
             imageEditMonthlyUnitsLimit: null
-          },
-          skillPolicy: { maxEnabledSkills: 0 }
+          }
         }),
         t
       )
@@ -966,8 +961,7 @@ describe("PricingPageView", () => {
             knowledgeStorageBytesLimit: 1000000,
             imageGenerateMonthlyUnitsLimit: null,
             imageEditMonthlyUnitsLimit: null
-          },
-          skillPolicy: { maxEnabledSkills: 0 }
+          }
         }),
         t
       )
@@ -1000,8 +994,7 @@ describe("PricingPageView", () => {
             knowledgeStorageBytesLimit: 1000000,
             imageGenerateMonthlyUnitsLimit: null,
             imageEditMonthlyUnitsLimit: null
-          },
-          skillPolicy: { maxEnabledSkills: 0 }
+          }
         }),
         t
       )

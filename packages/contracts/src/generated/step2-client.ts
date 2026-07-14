@@ -115,7 +115,6 @@ import type {
   GetAssistantResponse,
   GetAssistantRolesResponse,
   GetAssistantRuntimePreflightResponse,
-  GetAssistantSkillsResponse,
   GetAssistantTaskItemsResponse,
   GetAssistantTelegramIntegrationResponse,
   GetAssistantWebChatCompactionResponse,
@@ -212,7 +211,6 @@ import type {
   PutAdminSitePageResponse,
   PutAdminToolPathPricingCatalogResponse,
   PutAssistantRoleRequest,
-  PutAssistantSkillAssignmentsRequest,
   ReplayNotificationDeadLetter200,
   SkillAuthoringDraftRequest,
   SkillKnowledgeCardInput,
@@ -5729,124 +5727,6 @@ export const deleteAdminSkillScenario = async (
       method: "DELETE"
     }
   );
-};
-
-/**
- * @summary List physically retained direct Skill assignments for the current assistant
- */
-export type getAssistantSkillsResponse200 = {
-  data: GetAssistantSkillsResponse;
-  status: 200;
-};
-
-export type getAssistantSkillsResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
-
-export type getAssistantSkillsResponse404 = {
-  data: ErrorEnvelope;
-  status: 404;
-};
-
-export type getAssistantSkillsResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type getAssistantSkillsResponseSuccess = getAssistantSkillsResponse200 & {
-  headers: Headers;
-};
-export type getAssistantSkillsResponseError = (
-  | getAssistantSkillsResponse401
-  | getAssistantSkillsResponse404
-  | getAssistantSkillsResponse500
-) & {
-  headers: Headers;
-};
-
-export type getAssistantSkillsResponse =
-  | getAssistantSkillsResponseSuccess
-  | getAssistantSkillsResponseError;
-
-export const getGetAssistantSkillsUrl = () => {
-  return `/assistant/skills`;
-};
-
-export const getAssistantSkills = async (
-  options?: RequestInit
-): Promise<getAssistantSkillsResponse> => {
-  return customFetch<getAssistantSkillsResponse>(getGetAssistantSkillsUrl(), {
-    ...options,
-    method: "GET"
-  });
-};
-
-/**
- * @summary Replace physically retained direct Skill assignments for the current assistant
- */
-export type putAssistantSkillAssignmentsResponse200 = {
-  data: GetAssistantSkillsResponse;
-  status: 200;
-};
-
-export type putAssistantSkillAssignmentsResponse400 = {
-  data: ErrorEnvelope;
-  status: 400;
-};
-
-export type putAssistantSkillAssignmentsResponse401 = {
-  data: ErrorEnvelope;
-  status: 401;
-};
-
-export type putAssistantSkillAssignmentsResponse404 = {
-  data: ErrorEnvelope;
-  status: 404;
-};
-
-export type putAssistantSkillAssignmentsResponse409 = {
-  data: ErrorEnvelope;
-  status: 409;
-};
-
-export type putAssistantSkillAssignmentsResponse500 = {
-  data: ErrorEnvelope;
-  status: 500;
-};
-
-export type putAssistantSkillAssignmentsResponseSuccess =
-  putAssistantSkillAssignmentsResponse200 & {
-    headers: Headers;
-  };
-export type putAssistantSkillAssignmentsResponseError = (
-  | putAssistantSkillAssignmentsResponse400
-  | putAssistantSkillAssignmentsResponse401
-  | putAssistantSkillAssignmentsResponse404
-  | putAssistantSkillAssignmentsResponse409
-  | putAssistantSkillAssignmentsResponse500
-) & {
-  headers: Headers;
-};
-
-export type putAssistantSkillAssignmentsResponse =
-  | putAssistantSkillAssignmentsResponseSuccess
-  | putAssistantSkillAssignmentsResponseError;
-
-export const getPutAssistantSkillAssignmentsUrl = () => {
-  return `/assistant/skills`;
-};
-
-export const putAssistantSkillAssignments = async (
-  putAssistantSkillAssignmentsRequest: PutAssistantSkillAssignmentsRequest,
-  options?: RequestInit
-): Promise<putAssistantSkillAssignmentsResponse> => {
-  return customFetch<putAssistantSkillAssignmentsResponse>(getPutAssistantSkillAssignmentsUrl(), {
-    ...options,
-    method: "PUT",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(putAssistantSkillAssignmentsRequest)
-  });
 };
 
 /**

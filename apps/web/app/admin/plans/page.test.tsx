@@ -86,9 +86,6 @@ function createPlanState(): AdminPlanState {
       knowledgeStorageBytesLimit: 128 * 1024 * 1024,
       workspaceStorageBytesLimit: null
     },
-    skillPolicy: {
-      maxEnabledSkills: 2
-    },
     assistantPolicy: {
       maxAssistants: 3
     },
@@ -234,9 +231,6 @@ describe("admin plans page helpers", () => {
     expect(draftToPayload(draft).toolActivations?.at(0)?.dailyCallLimit).toBeNull();
     expect(draft.toolActivations.at(0)?.fullProjection).toBe(false);
     expect(draftToPayload(draft).toolActivations?.at(0)?.fullProjection).toBe(false);
-    expect(draftToPayload({ ...draft, maxEnabledSkills: "0" }).skillPolicy?.maxEnabledSkills).toBe(
-      0
-    );
     expect(draftToPayload(draft).assistantPolicy?.maxAssistants).toBe(3);
     expect(draftToPayload({ ...draft, maxAssistants: "1" }).assistantPolicy?.maxAssistants).toBe(1);
     expect(() => draftToPayload({ ...draft, maxAssistants: "0" })).toThrow(/Max assistants/);

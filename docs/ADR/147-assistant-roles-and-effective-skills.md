@@ -3,9 +3,11 @@
 ## Status
 
 In progress — S0 accepted; S1 schema/expand, S2 role-only API/runtime/prompt,
-S3 user Role UX, and S4 Admin Role constructor/MCP are implemented locally.
-S1–S4 are parent-audited CLEAN. S5 is next. No ADR-147 code has been pushed or
-deployed.
+S3 user Role UX, S4 Admin Role constructor/MCP, and S5a Release-B contract
+cutover are implemented locally. S1–S5a are parent-audited CLEAN. S5a was
+accepted after two rejected audits and final fail-closed gate hardening.
+S5b (physical drop) waits for Release B old-revision proof. No ADR-147 code has
+been pushed or deployed.
 
 ## Date
 
@@ -815,6 +817,23 @@ S5 has two ordered operational phases, not additional product slices:
 2. S5b runs only after Release B old-revision proof and drops the table/enum plus
    persisted plan-limit JSON.
 
+**Local status update (2026-07-14): S5a landed locally against committed S4
+baseline `c39a8481`; not committed/pushed/deployed.** Active direct-assignment
+controller/service/OpenAPI/web wrappers/MCP tool and plan Skill-count limit
+read/write behavior are removed. Persisted plan Skill-limit JSON is ignored on
+read and generically preserved on ordinary Admin Plan updates (unowned
+`billingProviderHints` fields and unowned `limitsPermissions` entries) without
+naming removed Skill-limit keys in production; create does not invent them.
+Prisma model/enum/relations and historical migrations remain for S5b Release C.
+Admin user delete relies on Assistant FK cascade for residual assignment rows
+(no explicit `assistant_skill_assignments` DELETE) and the delete regression
+pins schema `onDelete: Cascade`. Active-vocabulary zero gate is fail-closed on
+the true repository root with full active roots, exact path+term+exactCount
+allowances only, and concatenation detection. Two parent audits rejected S5a
+(first product/docs soft-gate findings; second soft zero-gate / missing Cascade
+pin); final repairs landed in the same uncommitted tree. This is not the S6
+full-repository gate.
+
 Primary files/modules:
 
 - old assistant Skills controller/service/types;
@@ -822,7 +841,7 @@ Primary files/modules:
 - old web selection component and API wrappers;
 - Admin Plans and pricing Skill-limit fields/copy;
 - MCP `assistant_skills_assign`;
-- Prisma contract migration;
+- Prisma contract migration (S5b only);
 - active-vocabulary audit test.
 
 ### S6 — final audit, gates, deploy, and live acceptance

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   adminRoleMcpInputSchemas,
@@ -200,5 +201,32 @@ void test("registered Role schemas enforce exact authoring parity", () => {
   assert.equal(duplicate.success, false);
   if (!duplicate.success) {
     assert.match(duplicate.error.message, /must not contain duplicates/);
+  }
+});
+
+void test("S5a removes legacy direct Skill-assign MCP tool while keeping five Role tools", async () => {
+  const serverSource = await readFile(new URL("../src/server.ts", import.meta.url), "utf8");
+  const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+  const removedTool = ["assistant", "skills", "assign"].join("_");
+
+  assert.equal(
+    serverSource.includes(removedTool),
+    false,
+    "production MCP registration must not expose the removed direct Skill-assign tool after S5a"
+  );
+  assert.equal(readme.includes(removedTool), false);
+
+  for (const toolName of [
+    "role_upsert",
+    "role_get",
+    "role_list",
+    "role_skills_replace",
+    "assistant_role_assign"
+  ]) {
+    assert.match(
+      serverSource,
+      new RegExp(String.raw`registerTool\(\s*"${toolName}"`),
+      `${toolName} must remain registered`
+    );
   }
 });

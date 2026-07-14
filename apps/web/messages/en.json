@@ -1662,7 +1662,6 @@
     "factVideos": "{count} videos / month",
     "factVideosVc": "{vc} VC / month",
     "factVideosVcWithApprox": "{vc} VC / month ≈ {count} videos",
-    "factSkills": "{count} skills",
     "factChats": "{count} active chats",
     "emptyTitle": "Plans are not published yet",
     "emptyBody": "Plans will appear here as soon as they become available."
@@ -1835,7 +1834,11 @@
     "skillsSaved": "Role Skills updated.",
     "selectRole": "Select a role or create a new one.",
     "untitled": "Untitled",
-    "statuses": { "draft": "Draft", "active": "Active", "archived": "Archived" },
+    "statuses": {
+      "draft": "Draft",
+      "active": "Active",
+      "archived": "Archived"
+    },
     "validation": {
       "invalidKey": "Use a lowercase machine key with letters, digits, or underscores.",
       "localizedName": "Name requires EN and RU.",

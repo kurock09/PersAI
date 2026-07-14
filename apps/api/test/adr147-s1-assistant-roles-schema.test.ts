@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_ASSISTANT_ROLE_CREATE } from "../prisma/assistant-role-seed-data";
 
@@ -7,10 +7,6 @@ const root = process.cwd();
 const schema = readFileSync(join(root, "prisma/schema.prisma"), "utf8");
 const migration = readFileSync(
   join(root, "prisma/migrations/20260714001000_adr147_s1_assistant_roles_expand/migration.sql"),
-  "utf8"
-);
-const manageSkillsSource = readFileSync(
-  join(root, "src/modules/workspace-management/application/manage-assistant-skills.service.ts"),
   "utf8"
 );
 const materializeSource = readFileSync(
@@ -122,9 +118,24 @@ assert.deepEqual(
   }
 );
 
-assert.match(manageSkillsSource, /assistantSkillAssignment\.findMany/);
-assert.match(materializeSource, /assistantRoleSkill\.findMany/);
+assert.match(materializeSource, /resolveAssistantRoleEffectiveSkillsPrompt/);
 assert.doesNotMatch(materializeSource, /assistantSkillAssignment/);
 assert.match(readKnowledgeSource, /skillLinks:/);
 assert.doesNotMatch(readKnowledgeSource, /assistantSkillAssignment/);
 assert.doesNotMatch(runtimeBootstrapSource, /assistant-role-bootstrap|assistantRole/);
+
+assert.equal(
+  existsSync(
+    join(root, "src/modules/workspace-management/application/manage-assistant-skills.service.ts")
+  ),
+  false,
+  "S5a deletes the active direct-assignment writer"
+);
+assert.equal(
+  existsSync(
+    join(root, "src/modules/workspace-management/interface/http/assistant-skills.controller.ts")
+  ),
+  false,
+  "S5a deletes the active direct-assignment controller"
+);
+assert.match(schema, /model AssistantSkillAssignment \{/);

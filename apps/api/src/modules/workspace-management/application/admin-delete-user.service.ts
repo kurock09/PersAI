@@ -98,7 +98,7 @@ export class AdminDeleteUserService {
           await this.deleteByAssistantId(tx, "assistant_background_tasks", aid);
           await this.deleteByAssistantId(tx, "assistant_web_chat_turn_attempts", aid);
           await this.deleteByAssistantId(tx, "assistant_media_jobs", aid);
-          await this.deleteByAssistantId(tx, "assistant_skill_assignments", aid);
+          // Residual assignment rows cascade from Assistant FK (S5a: no explicit delete).
           await this.deleteByAssistantId(tx, "assistant_workspace_leases", aid);
           await this.deleteByAssistantId(tx, "sandbox_jobs", aid);
 

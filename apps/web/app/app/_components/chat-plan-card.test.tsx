@@ -167,6 +167,8 @@ describe("ChatPlanCard", () => {
     expand(container);
     expect(within(container).queryByTestId("chat-plan-mobile-circle")).toBeNull();
     expect(within(container).queryByTestId("chat-plan-collapsed-chip")).toBeNull();
+    expect(container.firstChild).toHaveClass("ml-auto", "w-full");
+    expect(container.firstChild).not.toHaveClass("md:ml-0");
     expect(container.querySelector("button[aria-expanded]")).toHaveAttribute(
       "aria-expanded",
       "true"

@@ -1,5 +1,4 @@
 import type {
-  AssistantSkillAssignment,
   KnowledgeIndexingJob,
   Skill,
   SkillDocument,
@@ -75,30 +74,6 @@ export type AdminSkillState = {
   knowledgeCards: SkillKnowledgeCardState[];
 };
 
-export type AssistantSkillAssignmentState = {
-  id: string;
-  skillId: string;
-  status: "active" | "disabled" | "archived" | "plan_disabled";
-  disabledReason: string | null;
-  enabledAt: string | null;
-  disabledAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type AssistantSkillCatalogItemState = {
-  skill: AdminSkillState;
-  assignment: AssistantSkillAssignmentState | null;
-  selectable: boolean;
-  disabledReason: string | null;
-};
-
-export type AssistantSkillsState = {
-  skills: AssistantSkillCatalogItemState[];
-  assignedSkillIds: string[];
-  limit: number | null;
-};
-
 export type KnowledgeIndexingJobState = {
   id: string;
   sourceType:
@@ -156,21 +131,6 @@ export function parseSkillDocumentUploadInput(body: unknown): SkillDocumentUploa
   };
 }
 
-export function parseAssistantSkillAssignmentsInput(body: unknown): { skillIds: string[] } {
-  const row = asObject(body, "Request body");
-  if (!Array.isArray(row.skillIds)) {
-    throw new Error("skillIds must be an array.");
-  }
-  const deduped = new Set<string>();
-  for (const value of row.skillIds) {
-    if (typeof value !== "string" || value.trim().length === 0) {
-      throw new Error("skillIds must contain non-empty strings.");
-    }
-    deduped.add(value.trim());
-  }
-  return { skillIds: [...deduped] };
-}
-
 export function toAdminSkillState(
   skill: Skill & { documents?: SkillDocument[]; knowledgeCards?: SkillKnowledgeCard[] }
 ): AdminSkillState {
@@ -214,21 +174,6 @@ export function toSkillDocumentState(document: SkillDocument): SkillDocumentStat
     lastErrorMessage: document.lastErrorMessage,
     createdAt: document.createdAt.toISOString(),
     updatedAt: document.updatedAt.toISOString()
-  };
-}
-
-export function toAssistantSkillAssignmentState(
-  assignment: AssistantSkillAssignment
-): AssistantSkillAssignmentState {
-  return {
-    id: assignment.id,
-    skillId: assignment.skillId,
-    status: assignment.status,
-    disabledReason: assignment.disabledReason,
-    enabledAt: assignment.enabledAt?.toISOString() ?? null,
-    disabledAt: assignment.disabledAt?.toISOString() ?? null,
-    createdAt: assignment.createdAt.toISOString(),
-    updatedAt: assignment.updatedAt.toISOString()
   };
 }
 

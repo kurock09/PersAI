@@ -1662,7 +1662,6 @@
     "factVideos": "{count} видео / месяц",
     "factVideosVc": "{vc} VC / месяц",
     "factVideosVcWithApprox": "{vc} VC / месяц ≈ {count} видео",
-    "factSkills": "{count} навыков",
     "factChats": "{count} активных чатов",
     "emptyTitle": "Тарифы пока не опубликованы",
     "emptyBody": "Тарифы появятся здесь, как только станут доступны."
@@ -1835,7 +1834,11 @@
     "skillsSaved": "Skills роли обновлены.",
     "selectRole": "Выберите роль или создайте новую.",
     "untitled": "Без названия",
-    "statuses": { "draft": "Черновик", "active": "Активна", "archived": "В архиве" },
+    "statuses": {
+      "draft": "Черновик",
+      "active": "Активна",
+      "archived": "В архиве"
+    },
     "validation": {
       "invalidKey": "Используйте системный ключ из строчных букв, цифр и подчёркиваний.",
       "localizedName": "Название обязательно на EN и RU.",

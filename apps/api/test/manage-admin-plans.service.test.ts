@@ -128,9 +128,6 @@ async function run(): Promise<void> {
       imageEditMonthlyUnitsLimit: 10,
       knowledgeStorageBytesLimit: 4096
     },
-    skillPolicy: {
-      maxEnabledSkills: 2
-    },
     assistantPolicy: {
       maxAssistants: 1
     },
@@ -246,9 +243,7 @@ async function run(): Promise<void> {
     imageEditMonthlyUnitsLimit: 10,
     knowledgeStorageBytesLimit: 4096
   });
-  assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).skillPolicy, {
-    maxEnabledSkills: 2
-  });
+  assert.equal((writeInput.billingProviderHints as Record<string, unknown>).skillPolicy, undefined);
   assert.deepEqual((writeInput.billingProviderHints as Record<string, unknown>).assistantPolicy, {
     schema: "persai.assistantPolicy.v1",
     maxAssistants: 1
@@ -284,7 +279,6 @@ async function run(): Promise<void> {
           imageEditMonthlyUnitsLimit: number | null;
           knowledgeStorageBytesLimit: number | null;
         };
-        skillPolicy: { maxEnabledSkills: number | null };
         assistantPolicy: { maxAssistants: number };
       };
     }
@@ -401,7 +395,6 @@ async function run(): Promise<void> {
   assert.equal(state.quotaLimits.imageGenerateMonthlyUnitsLimit, 20);
   assert.equal(state.quotaLimits.imageEditMonthlyUnitsLimit, 10);
   assert.equal(state.quotaLimits.knowledgeStorageBytesLimit, 4096);
-  assert.equal(state.skillPolicy.maxEnabledSkills, 2);
   assert.equal(state.assistantPolicy.maxAssistants, 1);
 
   const businessAssistantPolicyParsed = service.parseUpdateInput({
@@ -472,46 +465,264 @@ async function run(): Promise<void> {
     1
   );
 
-  const zeroSkillLimitParsed = service.parseUpdateInput({
+  const ignoredLegacySkillPolicyParsed = service.parseUpdateInput({
     ...parsed,
     skillPolicy: {
       maxEnabledSkills: 0
     }
   });
-  const zeroSkillLimitWriteInput = (
+  const ignoredLegacySkillPolicyWriteInput = (
     service as unknown as {
-      toWriteInput(input: typeof zeroSkillLimitParsed): { billingProviderHints: unknown };
+      toWriteInput(input: typeof ignoredLegacySkillPolicyParsed): { billingProviderHints: unknown };
     }
-  ).toWriteInput(zeroSkillLimitParsed);
-  assert.deepEqual(
-    (zeroSkillLimitWriteInput.billingProviderHints as Record<string, unknown>).skillPolicy,
-    {
-      maxEnabledSkills: 0
-    }
-  );
+  ).toWriteInput(ignoredLegacySkillPolicyParsed);
   assert.equal(
-    (
-      service as unknown as {
-        toAdminPlanState(plan: AssistantPlanCatalog): {
-          skillPolicy: { maxEnabledSkills: number | null };
+    (ignoredLegacySkillPolicyWriteInput.billingProviderHints as Record<string, unknown>)
+      .skillPolicy,
+    undefined,
+    "S5a ignores request skillPolicy and does not rewrite persisted Skill-limit JSON keys"
+  );
+
+  // Create must not invent unowned residual plan JSON fields.
+  const createWriteWithoutExisting = (
+    service as unknown as {
+      toWriteInput(input: typeof parsed): {
+        billingProviderHints: Record<string, unknown>;
+        entitlementModel: { limitsPermissions: unknown[] };
+      };
+    }
+  ).toWriteInput(parsed);
+  assert.equal(createWriteWithoutExisting.billingProviderHints.skillPolicy, undefined);
+  assert.deepEqual(createWriteWithoutExisting.entitlementModel.limitsPermissions, []);
+
+  // Update round-trip: preserve unowned residual Skill-limit JSON without Admin/Public exposure.
+  let legacyPreserveWriteInput: {
+    billingProviderHints: Record<string, unknown>;
+    entitlementModel: { limitsPermissions: unknown[] };
+  } | null = null;
+  const legacyPreserveService = createService({
+    planCatalogRepository: {
+      async findByCode(code: string) {
+        assert.equal(code, "starter");
+        return {
+          id: "plan-legacy-preserve",
+          code: "starter",
+          displayName: "Starter",
+          description: "Existing starter plan",
+          status: "active",
+          billingProviderHints: {
+            schema: "persai.billingHints.v1",
+            providerAgnostic: true,
+            notes: "keep me",
+            skillPolicy: { maxEnabledSkills: 7 },
+            contextPolicy: {
+              schema: "persai.planContextHydration.v1",
+              ...contextPolicy
+            },
+            retrievalPolicy: {
+              ...retrievalPolicyForTest
+            },
+            sandboxPolicy: {
+              schema: "persai.planSandboxPolicy.v1",
+              enabled: true,
+              maxSingleFileWriteBytes: 4096,
+              maxWorkspaceBytesPerJob: 8192,
+              maxPersistedArtifactsPerJob: 4,
+              maxFileCountPerJob: 32,
+              maxDirectoryCountPerJob: 16,
+              maxProcessRuntimeMs: 15000,
+              maxCpuMsPerJob: 15000,
+              maxMemoryBytesPerJob: 268435456,
+              maxConcurrentProcesses: 4,
+              maxStdoutBytes: 131072,
+              maxStderrBytes: 131072,
+              artifactMimeAllowlist: ["text/plain"],
+              webMaxOutboundBytes: 26214400,
+              telegramMaxOutboundBytes: 52428800,
+              sandboxJobsPerDay: null,
+              maxArtifactSendCountPerTurn: 4
+            }
+          },
+          entitlementModel: {
+            schemaVersion: 1,
+            capabilities: [],
+            toolClasses: [
+              { key: "cost_driving", allowed: false, quotaGoverned: true },
+              { key: "utility", allowed: true, quotaGoverned: true }
+            ],
+            channelsAndSurfaces: [
+              { key: "web_chat", allowed: true },
+              { key: "telegram", allowed: true },
+              { key: "whatsapp", allowed: false },
+              { key: "max", allowed: false }
+            ],
+            limitsPermissions: [
+              { key: "enabled_skills_limit", value: 7 },
+              { key: "max_enabled_skills", value: 7 },
+              { key: "skill_assignments_limit", value: 7 }
+            ]
+          },
+          toolActivations: [],
+          isDefaultFirstRegistrationPlan: false,
+          isTrialPlan: false,
+          trialDurationDays: null,
+          createdAt: new Date("2026-04-14T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-14T12:00:00.000Z")
+        } satisfies AssistantPlanCatalog;
+      },
+      async updateByCode(
+        _code: string,
+        input: {
+          billingProviderHints: Record<string, unknown>;
+          entitlementModel: { limitsPermissions: unknown[] };
+        }
+      ) {
+        legacyPreserveWriteInput = input;
+        return {
+          id: "plan-legacy-preserve",
+          code: "starter",
+          displayName: "Starter patched",
+          description: "Existing starter plan",
+          status: "active",
+          billingProviderHints: input.billingProviderHints,
+          entitlementModel: input.entitlementModel,
+          toolActivations: [],
+          isDefaultFirstRegistrationPlan: false,
+          isTrialPlan: false,
+          trialDurationDays: null,
+          createdAt: new Date("2026-04-14T12:00:00.000Z"),
+          updatedAt: new Date("2026-04-14T12:00:00.000Z")
+        } satisfies AssistantPlanCatalog;
+      }
+    },
+    appendAssistantAuditEventService: {
+      async execute() {
+        return undefined;
+      }
+    },
+    adminAuthorizationService: {
+      async assertCanPerformDangerousAdminAction() {
+        return {
+          workspaceId: "ws-1",
+          roles: ["business_admin"]
         };
       }
-    ).toAdminPlanState({
-      id: "plan-zero-skills",
-      code: "zero-skills",
-      displayName: "Zero Skills",
-      description: null,
-      status: "active",
-      billingProviderHints: zeroSkillLimitWriteInput.billingProviderHints,
-      entitlementModel: null,
-      toolActivations: [],
-      isDefaultFirstRegistrationPlan: false,
-      isTrialPlan: false,
-      trialDurationDays: null,
-      createdAt: new Date("2026-04-14T12:00:00.000Z"),
-      updatedAt: new Date("2026-04-14T12:00:00.000Z")
-    }).skillPolicy.maxEnabledSkills,
-    0
+    },
+    bumpConfigGenerationService: {
+      async execute() {
+        return undefined;
+      }
+    },
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          availableModelsByProvider: {
+            openai: [],
+            anthropic: []
+          },
+          availableModelCatalogByProvider: {
+            openai: { models: [] },
+            anthropic: { models: [] }
+          }
+        };
+      }
+    }
+  });
+  const legacyPreserveAdminState = await legacyPreserveService.updatePlan(
+    "admin-user",
+    "starter",
+    {
+      displayName: "Starter patched",
+      metadata: {
+        notes: "patched notes"
+      }
+    },
+    "step-up"
+  );
+  assert.ok(legacyPreserveWriteInput !== null);
+  assert.deepEqual(
+    (legacyPreserveWriteInput as NonNullable<typeof legacyPreserveWriteInput>).billingProviderHints
+      .skillPolicy,
+    { maxEnabledSkills: 7 },
+    "update must preserve unowned residual billingProviderHints fields"
+  );
+  assert.deepEqual(
+    (legacyPreserveWriteInput as NonNullable<typeof legacyPreserveWriteInput>).entitlementModel
+      .limitsPermissions,
+    [
+      { key: "enabled_skills_limit", value: 7 },
+      { key: "max_enabled_skills", value: 7 },
+      { key: "skill_assignments_limit", value: 7 }
+    ],
+    "update must preserve unowned residual limitsPermissions entries"
+  );
+  assert.equal(
+    (legacyPreserveWriteInput as NonNullable<typeof legacyPreserveWriteInput>).billingProviderHints
+      .notes,
+    "patched notes"
+  );
+  assert.equal(
+    "skillPolicy" in legacyPreserveAdminState,
+    false,
+    "Admin plan state must not expose removed Skill-limit fields"
+  );
+  const legacyPreservePublic = await createService({
+    planCatalogRepository: {
+      async listAll() {
+        return [
+          {
+            id: "plan-legacy-preserve",
+            code: "starter",
+            displayName: "Starter patched",
+            description: "Existing starter plan",
+            status: "active",
+            billingProviderHints: {
+              ...(legacyPreserveWriteInput as NonNullable<typeof legacyPreserveWriteInput>)
+                .billingProviderHints,
+              presentation: {
+                schema: "persai.planPresentation.v1",
+                showOnPricingPage: true,
+                displayOrder: 1,
+                highlighted: false,
+                title: { ru: "Старт", en: "Starter" },
+                subtitle: { ru: null, en: null },
+                notes: { ru: null, en: null },
+                badge: { ru: null, en: null },
+                ctaLabel: { ru: null, en: null },
+                price: { amount: 0, currency: "RUB", billingPeriod: "month" },
+                highlightItems: { ru: [], en: [] }
+              }
+            },
+            entitlementModel: (
+              legacyPreserveWriteInput as NonNullable<typeof legacyPreserveWriteInput>
+            ).entitlementModel,
+            toolActivations: [],
+            isDefaultFirstRegistrationPlan: true,
+            isTrialPlan: false,
+            trialDurationDays: null,
+            createdAt: new Date("2026-04-14T12:00:00.000Z"),
+            updatedAt: new Date("2026-04-14T12:00:00.000Z")
+          } satisfies AssistantPlanCatalog
+        ];
+      }
+    },
+    resolvePlatformRuntimeProviderSettingsService: {
+      async execute() {
+        return {
+          vcoinExchangeRate: 100,
+          availableModelCatalogByProvider: {
+            openai: { models: [] },
+            anthropic: { models: [] }
+          }
+        };
+      }
+    }
+  }).listPublicPricingPlans();
+  assert.equal(legacyPreservePublic.length, 1);
+  assert.equal(
+    "skillPolicy" in (legacyPreservePublic[0] as object),
+    false,
+    "Public pricing state must not expose removed Skill-limit fields"
   );
   const normalizedState = (
     service as unknown as {
@@ -1747,7 +1958,6 @@ async function run(): Promise<void> {
           quotaAccounting: {
             imageGenerateMonthlyUnitsLimit: 30
           },
-          skillPolicy: { maxEnabledSkills: 10 },
           assistantPolicy: { maxAssistants: 3 },
           ...(overrides.proVcoinGrant !== undefined
             ? { videoVcoinMonthlyGrant: overrides.proVcoinGrant }
@@ -1863,7 +2073,6 @@ async function run(): Promise<void> {
   );
   assert.equal(publicPlans[0]?.defaultOnRegistration, true);
   assert.equal(publicPlans[1]?.presentation.price.amount, 4900);
-  assert.equal(publicPlans[1]?.skillPolicy.maxEnabledSkills, 10);
   assert.equal(publicPlans[1]?.assistantPolicy.maxAssistants, 3);
   assert.deepEqual(publicPlans[1]?.enabledToolCodes, ["image_generate"]);
 
@@ -2380,7 +2589,6 @@ async function run(): Promise<void> {
       }
     },
     quotaLimits: {},
-    skillPolicy: {},
     assistantPolicy: { maxAssistants: 1 },
     contextPolicy,
     retrievalPolicy: retrievalPolicyForTest,
