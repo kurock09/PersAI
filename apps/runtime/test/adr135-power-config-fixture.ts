@@ -80,6 +80,7 @@ export function buildAdr135PowerConfigBundle(
   exposureMode: "platform_default" | "all_full"
 ): AssistantRuntimeBundle {
   const artifact = compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "assistant-adr135-power",
       assistantHandle: "adr135-power",

@@ -34,6 +34,7 @@ ADR-144 splits ownership cleanly:
 `apps/api` owns:
 
 - assistants, publish/apply lifecycle, and runtime bundle materialization
+- ADR-147 Slice S2 local truth: every assistant has exactly one required `Assistant.roleId`; owner-facing role reads/writes are `GET /api/v1/assistant/roles`, `GET /api/v1/assistant/{assistantId}/role`, and `PUT /api/v1/assistant/{assistantId}/role` with strict UUID path validation; effective runtime Skill truth now resolves only through `Assistant.roleId -> AssistantRoleSkill -> active Skill` (legacy `AssistantSkillAssignment` rows remain physical only for later cleanup). Production and preview materializers share algorithm v2; new code treats every older spec as stale independently of generation/dirty timestamps.
 - Voice DNA archetype seed/edit flows, prompt-template defaults, and published Voice DNA snapshot materialization
 - canonical chat/message persistence
 - unified user-visible Files over canonical workspace paths, `workspace_file_metadata`, and attachment/document projections
@@ -62,6 +63,7 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
 
 - runtime bundle warm/use
 - request-time turn execution
+- ADR-147 Slice S2 local truth: runtime bundles now carry non-model `effectiveRoleId`; `skill.engage` / `skill.release` persistence validates internal UUIDs before raw casts, sends `expectedRoleId`, and returns honest `stale_assistant_role_snapshot` results instead of claiming durable state after a role change or role-skill drift. Skill-related mutations share the absent-link-safe order `Skill -> AssistantRole -> Assistant -> AssistantChat -> AssistantRoleSkill` (sorted ids for every multi-row class). Scenario mutation locks its parent Skill before discovering/revalidating linked Roles and taking its Assistant snapshot; release uses an unlocked Skill candidate only to enter that order, then revalidates locked chat state before writing. Future Role-Skill replacement must lock every involved Skill before any Role. Role PUT touches no Skill/link and remains a valid Role→Assistant subsequence with bounded Assistant revalidation retry.
 - runtime session and turn state
 - native execution health/readiness
 
@@ -340,7 +342,7 @@ ADR-081 plus ADR-133 define the active Files target state. ADR-126/127/128 remai
 
 The runtime composes assistant prompts as three zones:
 
-1. **AOT cached system prefix** (BP1 + BP2 + BP3): identity, persona (`<voice>` + `<character_notes>`), protocol declarations (`<reminders_protocol>`, `<memory_protocol>`), `<response_contract>`, `<tool_usage_policy>` (with `<priority_order>` enumerating Skills #1), `<enabled_skills>` catalog. Stable across turns; provider clients mark with `cache_control: ephemeral` (Anthropic) or exact-prefix caching (OpenAI). Three system-prefix breakpoints: BP1 (identity/voice/character_notes), BP2 (protocols/response_contract/tool_policy), BP3 (enabled_skills catalog). A fourth breakpoint is reserved for rolling-window conversation history.
+1. **AOT cached system prefix** (BP1 + BP2 + BP3): identity, persona (`<voice>` + `<character_notes>`), the ADR-147 `<assistant_role><mission>…</mission></assistant_role>` block immediately after assistant identity and before `<enabled_skills>`, protocol declarations (`<reminders_protocol>`, `<memory_protocol>`), `<response_contract>`, `<tool_usage_policy>` (with `<priority_order>` enumerating Skills #1), and the `<enabled_skills>` catalog. Stable across turns; provider clients mark with `cache_control: ephemeral` (Anthropic) or exact-prefix caching (OpenAI). Three system-prefix breakpoints: BP1 (identity/voice/character_notes), BP2 (protocols/response_contract/tool_policy), BP3 (enabled_skills catalog). A fourth breakpoint is reserved for rolling-window conversation history.
 2. **JIT volatile context**: active scenario (`<persai_active_scenario>`), `<system-reminder>` blocks, sense-of-time (`<persai_environment>`). Marked `cacheRole: volatile_context`; provider clients reposition outside the cached prefix so per-turn rotation does not invalidate stable breakpoints. ADR-120 Slice 1 retired the always-on pushed memory block (`<persai_memory>`); durable identity/core memory stays in the AOT prefix, and cross-chat recall + retrieved knowledge are obtained on demand via the `knowledge_search` / `knowledge_fetch` tool channel rather than pushed into this zone.
 3. **Conversation tail**: chat history + current user message. Anthropic: 4th `cache_control` breakpoint moves with the rolling window. OpenAI: implicit exact-prefix caching applies to the stable head.
 

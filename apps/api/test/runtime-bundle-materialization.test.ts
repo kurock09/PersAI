@@ -23,6 +23,7 @@ function createInput(order: "alpha" | "beta") {
         };
 
   return {
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "assistant-1",
       workspaceId: "workspace-1",

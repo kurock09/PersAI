@@ -8,6 +8,7 @@ import type { AssistantPublishedVersionRepository } from "../src/modules/workspa
 import type { MaterializeAssistantPublishedVersionService } from "../src/modules/workspace-management/application/materialize-assistant-published-version.service";
 import type { BumpConfigGenerationService } from "../src/modules/workspace-management/application/bump-config-generation.service";
 import type { WorkspaceManagementPrismaService } from "../src/modules/workspace-management/infrastructure/persistence/workspace-management-prisma.service";
+import { CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION } from "../src/modules/workspace-management/application/assistant-materialization-version";
 
 function createAssistant(overrides?: Partial<Assistant>): Assistant {
   return {
@@ -58,6 +59,7 @@ function createMaterializedSpec(
     assistantId: "assistant-1",
     publishedVersionId: "version-1",
     sourceAction: "publish",
+    algorithmVersion: CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION,
     createdAt: new Date("2026-04-18T10:00:00.000Z"),
     materializedAtConfigGeneration: 5,
     layers: null,
@@ -129,13 +131,64 @@ export async function runEnsureAssistantMaterializedSpecCurrentServiceTest(): Pr
   assert.equal(freshResult.materializedSpec?.id, latestSpec.id);
   assert.equal(materializeCalls, 1);
 
+  latestSpec = createMaterializedSpec({
+    algorithmVersion: 1,
+    materializedAtConfigGeneration: 6
+  });
+  const v1Result = await service.resolveFreshness(createAssistant(), latestPublished);
+  assert.equal(v1Result.refreshed, true, "algorithm v1 must rematerialize under v2 code");
+  assert.equal(materializeCalls, 2);
+  assert.equal(
+    v1Result.materializedSpec?.algorithmVersion,
+    CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION
+  );
+
+  latestSpec = createMaterializedSpec({
+    algorithmVersion: CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION,
+    materializedAtConfigGeneration: 6
+  });
+  const v2Result = await service.resolveFreshness(createAssistant(), latestPublished);
+  assert.equal(v2Result.refreshed, false, "algorithm v2 is current without another stale signal");
+  assert.equal(materializeCalls, 2);
+
+  latestSpec = createMaterializedSpec({
+    algorithmVersion: 1,
+    materializedAtConfigGeneration: 6
+  });
+  const orphanedV1Result = await service.resolveFreshness(createAssistant(), null);
+  assert.equal(orphanedV1Result.stale, true);
+  assert.equal(
+    orphanedV1Result.materializedSpec,
+    null,
+    "a v1 spec is never returned as current even when no published version can rematerialize it"
+  );
+  assert.equal(materializeCalls, 2);
+
+  latestSpec = createMaterializedSpec({
+    algorithmVersion: CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION,
+    materializedAtConfigGeneration: 6
+  });
   const dirtyAssistant = createAssistant({
     configDirtyAt: new Date("2026-04-18T10:20:00.000Z")
   });
   const dirtyResult = await service.resolveFreshness(dirtyAssistant, latestPublished);
   assert.equal(dirtyResult.refreshed, true);
-  assert.equal(materializeCalls, 2);
+  assert.equal(materializeCalls, 3);
   assert.equal(dirtyResult.materializedSpec?.publishedVersionId, latestPublished.id);
+
+  const equalTimestampAssistant = createAssistant({
+    configDirtyAt: latestSpec.createdAt
+  });
+  const equalTimestampResult = await service.resolveFreshness(
+    equalTimestampAssistant,
+    latestPublished
+  );
+  assert.equal(
+    equalTimestampResult.refreshed,
+    true,
+    "configDirtyAt equal to materialized createdAt must be treated as stale"
+  );
+  assert.equal(materializeCalls, 4);
 
   const rolloutAwareService = new EnsureAssistantMaterializedSpecCurrentService(
     {

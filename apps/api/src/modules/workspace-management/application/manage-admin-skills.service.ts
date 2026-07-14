@@ -7,6 +7,11 @@ import {
 import { Prisma } from "@prisma/client";
 import { AdminAuthorizationService } from "./admin-authorization.service";
 import { createInactiveSkillDecisionState } from "./auto-skill-routing-state.service";
+import {
+  lockAssistantRoleRows,
+  lockRoleSkillRowsForSkill,
+  lockSkillRow
+} from "./assistant-skill-mutation-locks";
 import { validatePersaiMediaFile } from "./media/media-security-policy";
 import { PersaiKnowledgeObjectStorageService } from "./persai-knowledge-object-storage.service";
 import {
@@ -136,68 +141,70 @@ export class ManageAdminSkillsService {
     input: AdminSkillUpsertInput
   ): Promise<AdminSkillState> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
-    const existing = await this.prisma.skill.findFirst({
-      where: { id: skillId }
-    });
-    if (existing === null) {
-      throw new NotFoundException("Skill not found.");
-    }
-    const nextStatus = input.status ?? existing.status;
-    const skill = await this.prisma.skill.update({
-      where: { id: existing.id },
-      data: {
-        updatedByUserId: access.userId,
-        status: nextStatus,
-        name: input.name as Prisma.InputJsonValue,
-        description: input.description as Prisma.InputJsonValue,
-        category: input.category,
-        tags: input.tags as Prisma.InputJsonValue,
-        instructionCard: input.instructionCard as Prisma.InputJsonValue,
-        iconEmoji: input.iconEmoji,
-        color: input.color,
-        displayOrder: input.displayOrder ?? existing.displayOrder,
-        archivedAt:
-          nextStatus === "archived"
-            ? (existing.archivedAt ?? new Date())
-            : nextStatus === "active" || nextStatus === "draft"
-              ? null
-              : existing.archivedAt
-      },
-      include: {
-        documents: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
-        knowledgeCards: {
-          where: { lifecycleStatus: { not: "archived" } },
-          orderBy: [{ createdAt: "desc" }, { id: "desc" }]
-        }
+    const skill = await this.prisma.$transaction(async (tx) => {
+      if (input.status === "archived") {
+        await this.lockSkillArchiveScope(tx, skillId);
+      } else {
+        await lockSkillRow(tx, skillId);
       }
+      const existing = await tx.skill.findUnique({ where: { id: skillId } });
+      if (existing === null) {
+        throw new NotFoundException("Skill not found.");
+      }
+      const nextStatus = input.status ?? existing.status;
+      return tx.skill.update({
+        where: { id: existing.id },
+        data: {
+          updatedByUserId: access.userId,
+          status: nextStatus,
+          name: input.name as Prisma.InputJsonValue,
+          description: input.description as Prisma.InputJsonValue,
+          category: input.category,
+          tags: input.tags as Prisma.InputJsonValue,
+          instructionCard: input.instructionCard as Prisma.InputJsonValue,
+          iconEmoji: input.iconEmoji,
+          color: input.color,
+          displayOrder: input.displayOrder ?? existing.displayOrder,
+          archivedAt:
+            nextStatus === "archived"
+              ? (existing.archivedAt ?? new Date())
+              : nextStatus === "active" || nextStatus === "draft"
+                ? null
+                : existing.archivedAt
+        },
+        include: {
+          documents: { orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
+          knowledgeCards: {
+            where: { lifecycleStatus: { not: "archived" } },
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }]
+          }
+        }
+      });
     });
-    if (nextStatus === "archived") {
-      await this.disableAssignmentsForArchivedSkill(existing.id);
-    }
-    await this.markAssignedAssistantsDirty(existing.id);
-    await this.resetAssignedChatState(existing.id, "routing_and_retrieval");
+    await this.markAssignedAssistantsDirty(skill.id);
+    await this.resetAssignedChatState(skill.id, "routing_and_retrieval");
     return toAdminSkillState(skill);
   }
 
   async archive(userId: string, skillId: string): Promise<void> {
     const access = await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
-    const existing = await this.prisma.skill.findFirst({
-      where: { id: skillId }
-    });
-    if (existing === null) {
-      throw new NotFoundException("Skill not found.");
-    }
-    await this.prisma.skill.update({
-      where: { id: existing.id },
-      data: {
-        status: "archived",
-        archivedAt: existing.archivedAt ?? new Date(),
-        updatedByUserId: access.userId
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockSkillArchiveScope(tx, skillId);
+      const existing = await tx.skill.findUnique({ where: { id: skillId } });
+      if (existing === null) {
+        throw new NotFoundException("Skill not found.");
       }
+      await tx.skill.update({
+        where: { id: existing.id },
+        data: {
+          status: "archived",
+          archivedAt: existing.archivedAt ?? new Date(),
+          updatedByUserId: access.userId
+        }
+      });
     });
-    await this.disableAssignmentsForArchivedSkill(existing.id);
-    await this.markAssignedAssistantsDirty(existing.id);
-    await this.resetAssignedChatState(existing.id, "routing_and_retrieval");
+    await this.markAssignedAssistantsDirty(skillId);
+    await this.resetAssignedChatState(skillId, "routing_and_retrieval");
   }
 
   async uploadDocument(params: {
@@ -566,17 +573,6 @@ export class ManageAdminSkillsService {
     };
   }
 
-  private async disableAssignmentsForArchivedSkill(skillId: string): Promise<void> {
-    await this.prisma.assistantSkillAssignment.updateMany({
-      where: { skillId, status: "active" },
-      data: {
-        status: "archived",
-        disabledReason: "skill_archived",
-        disabledAt: new Date()
-      }
-    });
-  }
-
   private async requireSkill(skillId: string) {
     const skill = await this.prisma.skill.findFirst({
       where: { id: skillId }
@@ -619,8 +615,10 @@ export class ManageAdminSkillsService {
   private async markAssignedAssistantsDirty(skillId: string): Promise<void> {
     await this.prisma.assistant.updateMany({
       where: {
-        skillAssignments: {
-          some: { skillId }
+        role: {
+          skillLinks: {
+            some: { skillId }
+          }
         }
       },
       data: { configDirtyAt: new Date() }
@@ -631,11 +629,17 @@ export class ManageAdminSkillsService {
     skillId: string,
     scope: "routing_and_retrieval" | "retrieval_only"
   ): Promise<void> {
-    const assignments = await this.prisma.assistantSkillAssignment.findMany({
-      where: { skillId },
-      select: { assistantId: true }
+    const assistants = await this.prisma.assistant.findMany({
+      where: {
+        role: {
+          skillLinks: {
+            some: { skillId }
+          }
+        }
+      },
+      select: { id: true }
     });
-    const assistantIds = [...new Set(assignments.map((assignment) => assignment.assistantId))];
+    const assistantIds = assistants.map((assistant) => assistant.id);
     if (assistantIds.length === 0) {
       return;
     }
@@ -646,22 +650,24 @@ export class ManageAdminSkillsService {
       });
       return;
     }
-    const activeAssignmentCounts = await this.prisma.assistantSkillAssignment.groupBy({
-      by: ["assistantId"],
+    const assistantsWithActiveSkillsRows = await this.prisma.assistant.findMany({
       where: {
-        assistantId: { in: assistantIds },
-        status: "active",
-        skill: {
-          status: "active",
-          archivedAt: null
+        id: { in: assistantIds },
+        role: {
+          skillLinks: {
+            some: {
+              skill: {
+                status: "active",
+                archivedAt: null
+              }
+            }
+          }
         }
       },
-      _count: { assistantId: true }
+      select: { id: true }
     });
     const assistantsWithActiveSkills = new Set(
-      activeAssignmentCounts
-        .filter((row) => row._count.assistantId > 0)
-        .map((row) => row.assistantId)
+      assistantsWithActiveSkillsRows.map((assistant) => assistant.id)
     );
     const assistantsWithoutActiveSkills = assistantIds.filter(
       (assistantId) => !assistantsWithActiveSkills.has(assistantId)
@@ -684,6 +690,43 @@ export class ManageAdminSkillsService {
           skillRetrievalState: Prisma.DbNull
         }
       });
+    }
+  }
+
+  private async lockSkillArchiveScope(
+    tx: Prisma.TransactionClient,
+    skillId: string
+  ): Promise<void> {
+    await lockSkillRow(tx, skillId);
+    const candidateRoles = await tx.assistantRole.findMany({
+      where: {
+        status: "active",
+        skillLinks: { some: { skillId } }
+      },
+      select: { id: true },
+      orderBy: { id: "asc" }
+    });
+    const lockedRoles = await lockAssistantRoleRows(
+      tx,
+      candidateRoles.map((role) => role.id)
+    );
+    const activeLinkedRoles =
+      lockedRoles.length === 0
+        ? []
+        : await tx.assistantRole.findMany({
+            where: {
+              id: { in: lockedRoles.map((role) => role.id) },
+              status: "active",
+              skillLinks: { some: { skillId } }
+            },
+            select: { id: true },
+            orderBy: { id: "asc" }
+          });
+    await lockRoleSkillRowsForSkill(tx, skillId);
+    if (activeLinkedRoles.length > 0) {
+      throw new ConflictException(
+        "Skill cannot be archived while it is linked to an active Assistant Role."
+      );
     }
   }
 

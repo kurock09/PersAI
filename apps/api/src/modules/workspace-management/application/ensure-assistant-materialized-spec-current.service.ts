@@ -17,6 +17,7 @@ import type { Assistant } from "../domain/assistant.entity";
 import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import { BumpConfigGenerationService } from "./bump-config-generation.service";
+import { CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION } from "./assistant-materialization-version";
 
 type FreshnessResolveMode = "inline_refresh" | "rollout_aware";
 
@@ -78,12 +79,13 @@ export class EnsureAssistantMaterializedSpecCurrentService {
     ]);
 
     if (resolvedPublishedVersion === null) {
+      const algorithmStale = this.isAlgorithmStale(existingSpec);
       return {
         currentGeneration,
         latestPublishedVersion: null,
-        materializedSpec: existingSpec,
+        materializedSpec: algorithmStale ? null : existingSpec,
         refreshed: false,
-        stale: false,
+        stale: algorithmStale,
         specGeneration: existingSpec?.materializedAtConfigGeneration ?? 0,
         activationBlock: null
       };
@@ -195,10 +197,18 @@ export class EnsureAssistantMaterializedSpecCurrentService {
   }): boolean {
     const specGeneration = input.materializedSpec?.materializedAtConfigGeneration ?? 0;
     const globalStale = specGeneration < input.currentGeneration;
+    const algorithmStale = this.isAlgorithmStale(input.materializedSpec);
     const perUserStale =
       input.assistant.configDirtyAt !== null &&
       (input.materializedSpec === null ||
-        input.assistant.configDirtyAt.getTime() > input.materializedSpec.createdAt.getTime());
-    return input.materializedSpec === null || globalStale || perUserStale;
+        input.assistant.configDirtyAt.getTime() >= input.materializedSpec.createdAt.getTime());
+    return input.materializedSpec === null || algorithmStale || globalStale || perUserStale;
+  }
+
+  private isAlgorithmStale(materializedSpec: AssistantMaterializedSpec | null): boolean {
+    return (
+      materializedSpec !== null &&
+      materializedSpec.algorithmVersion < CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION
+    );
   }
 }

@@ -1954,9 +1954,14 @@ export class PersaiInternalApiClientService {
     channel: string;
     surfaceThreadKey: string;
     action: "engage" | "release";
+    expectedRoleId: string;
     skillId: string | null;
     scenarioKey: string | null;
   }): Promise<{
+    applied: boolean;
+    action: "engaged" | "released" | "stale";
+    code: string | null;
+    message: string | null;
     skillId: string;
     skillDisplayName: string;
     previousSkillId: string | null;
@@ -1976,8 +1981,18 @@ export class PersaiInternalApiClientService {
 
     if (response.ok) {
       const payload = this.asObject(response.body);
-      if (payload?.ok === true) {
+      if (
+        payload?.ok === true &&
+        typeof payload.applied === "boolean" &&
+        (payload.action === "engaged" ||
+          payload.action === "released" ||
+          payload.action === "stale")
+      ) {
         return {
+          applied: payload.applied,
+          action: payload.action,
+          code: typeof payload.code === "string" ? payload.code : null,
+          message: typeof payload.message === "string" ? payload.message : null,
           skillId: typeof payload.skillId === "string" ? payload.skillId : "",
           skillDisplayName:
             typeof payload.skillDisplayName === "string" ? payload.skillDisplayName : "",

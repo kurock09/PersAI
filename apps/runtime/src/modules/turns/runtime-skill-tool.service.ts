@@ -106,6 +106,10 @@ export type RuntimeSkillToolResult =
       previousSkillId: string | null;
     }
   | {
+      error: "stale_assistant_role_snapshot";
+      reason: string;
+    }
+  | {
       error: "skill_not_enabled";
       skillId: string;
     }
@@ -382,9 +386,21 @@ export class RuntimeSkillToolService {
         channel: params.conversation.channel,
         surfaceThreadKey: params.conversation.externalThreadKey,
         action: "engage",
+        expectedRoleId: params.bundle.effectiveRoleId,
         skillId: request.skillId,
         scenarioKey: null
       });
+      if (!outcome.applied || outcome.action === "stale") {
+        return {
+          payload: {
+            error: "stale_assistant_role_snapshot",
+            reason:
+              outcome.message ??
+              "Assistant role changed while this turn was running. Durable skill state was not persisted."
+          },
+          isError: false
+        };
+      }
 
       return {
         payload: {
@@ -438,9 +454,21 @@ export class RuntimeSkillToolService {
         channel: params.conversation.channel,
         surfaceThreadKey: params.conversation.externalThreadKey,
         action: "engage",
+        expectedRoleId: params.bundle.effectiveRoleId,
         skillId: request.skillId,
         scenarioKey
       });
+      if (!outcome.applied || outcome.action === "stale") {
+        return {
+          payload: {
+            error: "stale_assistant_role_snapshot",
+            reason:
+              outcome.message ??
+              "Assistant role changed while this turn was running. Durable skill state was not persisted."
+          },
+          isError: false
+        };
+      }
 
       // ADR-125 follow-up — the model now owns scenario intake: the
       // `skill.engage` tool response below carries `scenario.steps` with
@@ -500,9 +528,21 @@ export class RuntimeSkillToolService {
         channel: params.conversation.channel,
         surfaceThreadKey: params.conversation.externalThreadKey,
         action: "release",
+        expectedRoleId: params.bundle.effectiveRoleId,
         skillId: null,
         scenarioKey: null
       });
+      if (!outcome.applied || outcome.action === "stale") {
+        return {
+          payload: {
+            error: "stale_assistant_role_snapshot",
+            reason:
+              outcome.message ??
+              "Assistant role changed while this turn was running. Durable skill state was not persisted."
+          },
+          isError: false
+        };
+      }
 
       return {
         payload: {

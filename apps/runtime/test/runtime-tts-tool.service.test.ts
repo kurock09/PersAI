@@ -61,6 +61,7 @@ function createBundle(options?: {
   const fallbackProviderId: PersaiRuntimeTtsProviderId =
     options?.fallbackProviderId ?? (primaryProviderId === "openai" ? "yandex" : "openai");
   return compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "assistant-1",
       assistantHandle: "a-test",

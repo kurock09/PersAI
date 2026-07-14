@@ -4417,18 +4417,26 @@ export class ReadAssistantKnowledgeService {
    * authority on which Skills this assistant may read.
    */
   private async resolveEnabledSkillIds(assistantId: string): Promise<string[]> {
-    const assignments = await this.prisma.assistantSkillAssignment.findMany({
-      where: {
-        assistantId,
-        status: "active",
-        skill: {
-          status: "active",
-          archivedAt: null
+    const assistant = await this.prisma.assistant.findUnique({
+      where: { id: assistantId },
+      select: {
+        role: {
+          select: {
+            skillLinks: {
+              where: {
+                skill: {
+                  status: "active",
+                  archivedAt: null
+                }
+              },
+              orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+              select: { skillId: true }
+            }
+          }
         }
-      },
-      select: { skillId: true }
+      }
     });
-    return [...new Set(assignments.map((assignment) => assignment.skillId))];
+    return [...new Set(assistant?.role?.skillLinks.map((link) => link.skillId) ?? [])];
   }
 
   private async loadSkillLexicalRows(

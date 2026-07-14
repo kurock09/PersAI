@@ -258,6 +258,7 @@ function createCompactionMessages(
 
 function createBundleEntry(input?: { sharedCompactionSummaryBudgetTokens?: number }) {
   const artifact = compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "assistant-1",
       assistantHandle: "a-test",

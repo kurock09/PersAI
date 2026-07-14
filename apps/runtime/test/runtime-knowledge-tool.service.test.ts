@@ -80,6 +80,7 @@ const BROWSER_CONFIG = {
 
 function createBundle(knowledgeAccess: RuntimeKnowledgeAccessConfig) {
   return compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "assistant-1",
       assistantHandle: "a-test",

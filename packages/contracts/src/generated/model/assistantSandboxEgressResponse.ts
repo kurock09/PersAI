@@ -11,7 +11,7 @@ export interface AssistantSandboxEgressResponse {
   requestId: string | null;
   assistantId: string;
   mode: AssistantSandboxEgressMode;
-  /** Whether warm execution pods were recycled. Slice 1 always reports false; synchronous eviction lands in Slice 3.
+  /** Whether this PUT UID+resourceVersion delete-requested at least one idle missing/malformed/mismatched-mode execution-pod snapshot and confirmed each targeted UID gone. Active exact-lease jobs and post-commit correct-mode admissions are skipped; a same-name replacement may remain. GET always reports false. A successful mode persist with failed eviction returns 503 instead of recycled false after a claimed recycle.
    */
   recycled: boolean;
 }

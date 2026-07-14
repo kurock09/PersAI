@@ -24,6 +24,7 @@ Primary public API surface:
 - guest trust-page reads under `/api/v1/public/site-pages/*`
 - guest country hints under `/api/v1/public/geo-hint`
 - authenticated assistant routes under `/api/v1/assistant/*`
+- ADR-147 Slice S2 local-only role boundary: `GET /api/v1/assistant/roles` lists the active system role catalog; `GET /api/v1/assistant/{assistantId}/role` and `PUT /api/v1/assistant/{assistantId}/role` require a strict UUID path and are exact owner-only role read/write endpoints; malformed ids return stable `400 assistant_role_invalid_assistant_id` before persistence. Changed PUTs read the database clock only after acquiring the Assistant lock. The older assistant Skill assignment UI/API is no longer the effective runtime/knowledge authority even though legacy storage remains physically present for later cleanup.
 - Voice DNA assistant read route: `GET /api/v1/assistant/persona-archetypes`
 - admin routes under `/api/v1/admin/*`
 - ADR-115 admin inbound-safety policy routes under `/api/v1/admin/safety-policy/*` (`heuristic-rules`, `settings`); ops restriction controls remain `/api/v1/admin/safety-controls/*` (slice 115.4)
@@ -247,27 +248,31 @@ Active boundary rules:
 
 - Skills are an admin-managed platform catalog, not admin global knowledge `scope=skill`; Skill rows, documents, cards, chunks, indexing jobs, and vectors are not tenant workspace-owned
 - `Skill.category` is the current group key shown in admin/user UI (`work`, `engineering`, `personal`, `education`)
-- delete archives a Skill and disables active assignments rather than hard-deleting the product concept
+- delete archives a Skill rather than hard-deleting the product concept; ADR-147 S2 performs the active-Role-link guard and archive update transactionally and does not mutate residual direct assignments
 - Skill document upload/reindex creates pending DB indexing jobs; the API indexing worker processes Skill documents through the same normalized source/chunk/vector boundary as assistant and Product knowledge
 - ADR-080 Skill knowledge cards and assistant-assisted Skill drafts belong to the admin Skill surface; generated proposals must not become active runtime knowledge without explicit admin save/activation
 - assistant-assisted Skill draft/enrichment is API/control-plane authoring that calls provider-gateway using the admin Knowledge `authoringModelKey`; it is not a runtime chat turn and does not mutate saved Skill or Knowledge rows unless the admin saves the proposal
 - `/admin/skills` is the admin UI owner for Skill list/create/edit/archive and Skill document upload/delete/reindex/status management; `/admin/knowledge` remains Product KB and must not expose the old Skill library scope
 
-### Assistant Skills
+### Assistant Roles and retained direct-Skill management
 
-Current assistant Skill routes are served by `apps/api`:
+ADR-147 S2 adds the owner-only role authority:
+
+- `GET /api/v1/assistant/roles`
+- `GET /api/v1/assistant/{assistantId}/role`
+- `PUT /api/v1/assistant/{assistantId}/role`
+
+The pre-S3 management routes remain served through S2:
 
 - `GET /api/v1/assistant/skills`
 - `PUT /api/v1/assistant/skills`
 
 Active boundary rules:
 
-- only the user can replace enabled Skill assignments for their assistant
-- assignment accepts active platform-catalog Skills only
-- configured plan limits cap enabled Skill count
-- the web setup/recreate flow and `Assistant Settings -> Skills` are the current user-facing clients for these routes
-- enabling Skills now changes prompt materialization through the Prompt Constructor-managed `Enabled Skills` block and contributes compact summaries to the runtime router's `retrievalPlan`; orchestrated retrieval/context injection and calm source-aware activity are active on the runtime web path
-- Skill retrieval revalidates active assistant assignments, then searches selected Skill ids and Skill source types without filtering Skill sources by the consuming assistant workspace. User-private knowledge remains assistant/workspace-scoped.
+- Role GET/PUT requires the exact Assistant owner (`Assistant.id`, workspace, and `Assistant.userId`), not workspace membership alone. PUT accepts exactly `{roleKey}`, locks current+target Role ids in sorted order before the Assistant/chat rows, revalidates the current `roleId`, and bounded-retries from a fresh snapshot on a concurrent assignment before applying its own dirty/reset/audit.
+- Effective prompt cards, compact summaries, scenarios, Skill Knowledge authorization, and invalidation resolve only through `Assistant.roleId -> AssistantRoleSkill -> active Skill`; direct assignments and plan Skill limits do not participate.
+- `GET/PUT /assistant/skills` remains only for the unchanged S3 UI's physical assignment management. Its generated contracts/controller/auth routes stay present, but its rows are non-authoritative for effective runtime behavior.
+- Internal engage/release requests require the materialized bundle's `expectedRoleId`. API validates `assistantId`, `expectedRoleId`, and engage `skillId` as UUIDs before raw casts; malformed values return stable typed 400 validation. Skill-related persistence locks `Skill -> AssistantRole -> Assistant -> AssistantChat -> AssistantRoleSkill`. Release first reads an unlocked chat candidate to identify the Skill, then revalidates locked chat state under canonical locks and bounded-retries a changed candidate without writing. Missing/stale Role identity or missing/inactive linkage returns `applied:false`, `stale_assistant_role_snapshot`; runtime does not retry or claim persistence.
 
 ### Internal runtime
 

@@ -217,6 +217,7 @@ export function createRuntimeTurnRequest(): RuntimeTurnRequest {
 
 function createBundleEntry(): RuntimeBundleCacheEntry {
   const artifact = compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "assistant-1",
       assistantHandle: "a-test",
@@ -1584,17 +1585,31 @@ class FakePersaiInternalApiClientService {
   // ADR-118 / ADR-125 — skill engage/release internal call.
   updateSkillStateCalls: Array<Record<string, unknown>> = [];
   updateSkillStateOutcome: {
+    applied: boolean;
+    action: "engaged" | "released" | "stale";
+    code: string | null;
+    message: string | null;
     skillId: string;
     skillDisplayName: string;
     previousSkillId: string | null;
   } = {
+    applied: true,
+    action: "engaged",
+    code: null,
+    message: null,
     skillId: "",
     skillDisplayName: "",
     previousSkillId: null
   };
-  async updateSkillState(
-    input: Record<string, unknown>
-  ): Promise<{ skillId: string; skillDisplayName: string; previousSkillId: string | null }> {
+  async updateSkillState(input: Record<string, unknown>): Promise<{
+    applied: boolean;
+    action: "engaged" | "released" | "stale";
+    code: string | null;
+    message: string | null;
+    skillId: string;
+    skillDisplayName: string;
+    previousSkillId: string | null;
+  }> {
     this.updateSkillStateCalls.push(input);
     return this.updateSkillStateOutcome;
   }
@@ -8153,6 +8168,10 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       midLoopRequest.bundle.bundleHash = request.bundle.bundleHash;
       midLoopRequest.skillStateContext = { decision: null };
       persaiInternalApiClientService.updateSkillStateOutcome = {
+        applied: true,
+        action: "engaged",
+        code: null,
+        message: null,
         skillId: "skill-marketer",
         skillDisplayName: "Marketer",
         previousSkillId: null

@@ -122,8 +122,9 @@ assert.deepEqual(
   }
 );
 
-for (const source of [manageSkillsSource, materializeSource, readKnowledgeSource]) {
-  assert.match(source, /assistantSkillAssignment\.findMany/);
-  assert.doesNotMatch(source, /assistantRole|roleLinks|skillLinks/);
-}
+assert.match(manageSkillsSource, /assistantSkillAssignment\.findMany/);
+assert.match(materializeSource, /assistantRoleSkill\.findMany/);
+assert.doesNotMatch(materializeSource, /assistantSkillAssignment/);
+assert.match(readKnowledgeSource, /skillLinks:/);
+assert.doesNotMatch(readKnowledgeSource, /assistantSkillAssignment/);
 assert.doesNotMatch(runtimeBootstrapSource, /assistant-role-bootstrap|assistantRole/);

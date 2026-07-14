@@ -525,6 +525,19 @@ async function runCatalogProjectionAdr135S4(): Promise<void> {
   );
 }
 
+async function runAssistantRolePromptOrderAdr147S2(): Promise<void> {
+  const system = VISIBLE_PROMPT_TEMPLATE_DEFAULTS.system ?? "";
+  const identity = "{{identity_block}}";
+  const role = "{{assistant_role_block}}";
+  const skills = "{{enabled_skills_block}}";
+  assert.equal(countOccurrences(system, role), 1);
+  assert.equal(
+    system.includes(`${identity}\n\n${role}\n\n${skills}`),
+    true,
+    "production system template must place Assistant Role after identity and before Skills"
+  );
+}
+
 async function run(): Promise<void> {
   await runXmlBalance();
   await runOuterTagPresence();
@@ -537,6 +550,7 @@ async function run(): Promise<void> {
   await runToolsWorkspaceCategoryAdr123Slice7();
   await runToolsSingleOwnerRoutingAdr130D1();
   await runCatalogProjectionAdr135S4();
+  await runAssistantRolePromptOrderAdr147S2();
 }
 
 void run();

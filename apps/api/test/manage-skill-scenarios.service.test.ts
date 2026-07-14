@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { ManageSkillScenariosService } from "../src/modules/workspace-management/application/manage-skill-scenarios.service";
 
 const ADMIN_USER = "user-admin";
@@ -49,6 +50,9 @@ function buildMockScenario(overrides: Record<string, unknown> = {}) {
 function buildHarness(skillExists = true) {
   const scenarios = new Map<string, ReturnType<typeof buildMockScenario>>();
   const assistantDirtyUpdates: string[] = [];
+  const chatStateResets: Array<Record<string, unknown>> = [];
+  const operations: string[] = [];
+  let roleReads = 0;
   let nextId = 1;
 
   const adminAuth = {
@@ -61,8 +65,19 @@ function buildHarness(skillExists = true) {
   };
 
   const prisma = {
+    assistantRole: {
+      async findMany() {
+        roleReads += 1;
+        operations.push(roleReads % 2 === 1 ? "role:discover" : "role:revalidate");
+        return [{ id: "role-2" }, { id: "role-1" }];
+      }
+    },
     skill: {
       async findFirst({ where }: { where: { id: string } }) {
+        return skillExists ? { id: where.id } : null;
+      },
+      async findUnique({ where }: { where: { id: string } }) {
+        operations.push("skill:read");
         return skillExists ? { id: where.id } : null;
       }
     },
@@ -92,6 +107,7 @@ function buildHarness(skillExists = true) {
         });
       },
       async findFirst({ where }: { where: { skillId?: string; key?: string } }) {
+        operations.push("scenario:read");
         for (const s of scenarios.values()) {
           if (where.skillId !== undefined && s.skillId !== where.skillId) continue;
           if (where.key !== undefined && s.key !== where.key) continue;
@@ -100,6 +116,7 @@ function buildHarness(skillExists = true) {
         return null;
       },
       async create({ data }: { data: Record<string, unknown> }) {
+        operations.push("scenario:create");
         const id = `scenario-${nextId++}`;
         const now = new Date();
         const row = buildMockScenario({
@@ -112,6 +129,7 @@ function buildHarness(skillExists = true) {
         return row;
       },
       async update({ where, data }: { where: { id: string }; data: Record<string, unknown> }) {
+        operations.push("scenario:update");
         const existing = scenarios.get(where.id);
         if (!existing) throw new Error(`Scenario ${where.id} not found`);
         const updated = { ...existing, ...data, updatedAt: new Date() };
@@ -120,22 +138,89 @@ function buildHarness(skillExists = true) {
       }
     },
     assistant: {
+      async findMany() {
+        operations.push("assistant:discover");
+        return [{ id: "assistant-2" }, { id: "assistant-1" }];
+      },
       async updateMany({ where, data }: { where: unknown; data: { configDirtyAt: Date } }) {
         void where;
+        operations.push("assistant:update");
         assistantDirtyUpdates.push(data.configDirtyAt.toISOString());
       }
+    },
+    assistantChat: {
+      async updateMany({
+        where,
+        data
+      }: {
+        where: Record<string, unknown>;
+        data: Record<string, unknown>;
+      }) {
+        operations.push("chat:update");
+        chatStateResets.push({ where, data });
+      }
+    },
+    async $queryRaw<T>(query: {
+      strings?: readonly string[];
+      values?: readonly unknown[];
+    }): Promise<T> {
+      const sql = (query.strings ?? []).join("?").replace(/\s+/g, " ").trim();
+      if (sql.includes("clock_timestamp()")) {
+        operations.push("database:clock");
+        return [{ dirtyAt: new Date("2026-07-14T00:00:30.000Z") }] as T;
+      }
+      if (sql.includes('FROM "assistant_roles"')) {
+        operations.push("role:lock");
+        assert.match(sql, /ORDER BY "id" FOR UPDATE$/);
+        assert.deepEqual(query.values, ["role-1", "role-2"]);
+        return [
+          { id: "role-1", key: "role-1", status: "active" },
+          { id: "role-2", key: "role-2", status: "active" }
+        ] as T;
+      }
+      if (sql.includes('FROM "assistants"')) {
+        operations.push("assistant:lock");
+        assert.match(sql, /ORDER BY "id" FOR UPDATE$/);
+        assert.deepEqual(query.values, ["assistant-1", "assistant-2"]);
+        return [] as T;
+      }
+      if (sql.includes('FROM "assistant_chats"')) {
+        operations.push("chat:lock");
+        assert.match(sql, /ORDER BY "assistant_id", "id" FOR UPDATE$/);
+        assert.deepEqual(query.values, ["assistant-1", "assistant-2"]);
+        return [] as T;
+      }
+      if (sql.includes('FROM "skills"')) {
+        operations.push("skill:lock");
+        assert.match(sql, /FOR UPDATE$/);
+        return [] as T;
+      }
+      if (sql.includes('FROM "assistant_role_skills"')) {
+        operations.push("role-skill:lock");
+        assert.match(sql, /ORDER BY "role_id", "skill_id" FOR UPDATE$/);
+        return [] as T;
+      }
+      assert.match(sql, /FROM "skill_scenarios"/);
+      operations.push("scenario:lock");
+      return [] as T;
+    },
+    async $transaction<T>(callback: (tx: never) => Promise<T>): Promise<T> {
+      operations.push("transaction:begin");
+      const result = await callback(prisma as never);
+      operations.push("transaction:commit");
+      return result;
     }
   };
 
   const svc = new ManageSkillScenariosService(adminAuth as never, prisma as never);
 
-  return { svc, scenarios, assistantDirtyUpdates };
+  return { svc, scenarios, assistantDirtyUpdates, chatStateResets, operations };
 }
 
 async function run(): Promise<void> {
   // --- happy path: create draft scenario ---
   {
-    const { svc, scenarios, assistantDirtyUpdates } = buildHarness();
+    const { svc, scenarios, assistantDirtyUpdates, chatStateResets, operations } = buildHarness();
     const result = await svc.createScenario(ADMIN_USER, "skill-1", VALID_CREATE_INPUT);
     assert.equal(result.key, "instagram_carousel");
     assert.equal(result.status, "draft");
@@ -143,6 +228,29 @@ async function run(): Promise<void> {
     assert.equal(result.steps.length, 1);
     assert.equal(scenarios.size, 1);
     assert.equal(assistantDirtyUpdates.length, 1, "dirty marker called on create");
+    assert.equal(chatStateResets.length, 1);
+    assert.deepEqual(chatStateResets[0]?.data, {
+      skillDecisionState: Prisma.DbNull,
+      skillRetrievalState: Prisma.DbNull
+    });
+    assert.deepEqual(operations, [
+      "transaction:begin",
+      "skill:lock",
+      "skill:read",
+      "role:discover",
+      "role:lock",
+      "role:revalidate",
+      "assistant:discover",
+      "assistant:lock",
+      "chat:lock",
+      "role-skill:lock",
+      "scenario:read",
+      "scenario:create",
+      "database:clock",
+      "assistant:update",
+      "chat:update",
+      "transaction:commit"
+    ]);
   }
 
   // --- create with explicit status = active ---
@@ -207,6 +315,69 @@ async function run(): Promise<void> {
     await svc.archiveScenario(ADMIN_USER, "skill-1", created.key);
     const archivedAgain = await svc.archiveScenario(ADMIN_USER, "skill-1", created.key);
     assert.equal(archivedAgain.status, "archived");
+  }
+
+  // --- scenario edit/archive serialize with runtime engage locks and clear both states ---
+  {
+    const harness = buildHarness();
+    const created = await harness.svc.createScenario(ADMIN_USER, "skill-1", VALID_CREATE_INPUT);
+    await harness.svc.updateScenario(ADMIN_USER, "skill-1", created.key, { status: "active" });
+
+    harness.operations.length = 0;
+    harness.chatStateResets.length = 0;
+    await harness.svc.updateScenario(ADMIN_USER, "skill-1", created.key, {
+      description: { en: "Edited", ru: "Изменено" }
+    });
+    assert.deepEqual(harness.operations, [
+      "transaction:begin",
+      "skill:lock",
+      "skill:read",
+      "role:discover",
+      "role:lock",
+      "role:revalidate",
+      "assistant:discover",
+      "assistant:lock",
+      "chat:lock",
+      "role-skill:lock",
+      "scenario:read",
+      "scenario:lock",
+      "scenario:update",
+      "database:clock",
+      "assistant:update",
+      "chat:update",
+      "transaction:commit"
+    ]);
+    assert.deepEqual(harness.chatStateResets[0]?.data, {
+      skillDecisionState: Prisma.DbNull,
+      skillRetrievalState: Prisma.DbNull
+    });
+
+    harness.operations.length = 0;
+    harness.chatStateResets.length = 0;
+    await harness.svc.archiveScenario(ADMIN_USER, "skill-1", created.key);
+    assert.deepEqual(harness.operations, [
+      "transaction:begin",
+      "skill:lock",
+      "skill:read",
+      "role:discover",
+      "role:lock",
+      "role:revalidate",
+      "assistant:discover",
+      "assistant:lock",
+      "chat:lock",
+      "role-skill:lock",
+      "scenario:read",
+      "scenario:lock",
+      "scenario:update",
+      "database:clock",
+      "assistant:update",
+      "chat:update",
+      "transaction:commit"
+    ]);
+    assert.deepEqual(harness.chatStateResets[0]?.data, {
+      skillDecisionState: Prisma.DbNull,
+      skillRetrievalState: Prisma.DbNull
+    });
   }
 
   // --- re-activate: archived → active ---

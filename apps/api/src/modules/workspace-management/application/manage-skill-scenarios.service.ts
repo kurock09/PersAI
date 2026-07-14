@@ -16,6 +16,13 @@ import {
   type SkillScenarioStatus,
   type UpdateSkillScenarioInput
 } from "./skill-scenario.types";
+import {
+  lockAssistantChatRows,
+  lockAssistantRoleRows,
+  lockAssistantRows,
+  lockRoleSkillRowsForSkill,
+  lockSkillRow
+} from "./assistant-skill-mutation-locks";
 
 const ALLOWED_STATUS_TRANSITIONS: Record<SkillScenarioStatus, SkillScenarioStatus[]> = {
   draft: ["active"],
@@ -88,36 +95,37 @@ export class ManageSkillScenariosService {
     input: CreateSkillScenarioInput
   ): Promise<AdminSkillScenarioState> {
     await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
-    await this.requireSkill(skillId);
-
-    const existing = await this.prisma.skillScenario.findFirst({
-      where: { skillId, key: input.key }
-    });
-    if (existing !== null) {
-      throw new ConflictException(
-        `Skill scenario with key "${input.key}" already exists for this Skill.`
-      );
-    }
-
-    const status = input.status ?? "draft";
-    const row = await this.prisma.skillScenario.create({
-      data: {
-        skillId,
-        key: input.key,
-        displayName: input.displayName as Prisma.InputJsonValue,
-        description: input.description as Prisma.InputJsonValue,
-        iconEmoji: input.iconEmoji,
-        intentExamples: input.intentExamples as Prisma.InputJsonValue,
-        steps: input.steps as Prisma.InputJsonValue,
-        recommendedTools: input.recommendedTools as Prisma.InputJsonValue,
-        exitCondition: input.exitCondition,
-        firstStepPreview: input.firstStepPreview ?? null,
-        status,
-        displayOrder: input.displayOrder ?? 100
+    const row = await this.prisma.$transaction(async (tx) => {
+      const assistantIds = await this.lockMutationScope(tx, skillId);
+      const existing = await tx.skillScenario.findFirst({
+        where: { skillId, key: input.key }
+      });
+      if (existing !== null) {
+        throw new ConflictException(
+          `Skill scenario with key "${input.key}" already exists for this Skill.`
+        );
       }
-    });
 
-    await this.markAssignedAssistantsDirty(skillId);
+      const status = input.status ?? "draft";
+      const created = await tx.skillScenario.create({
+        data: {
+          skillId,
+          key: input.key,
+          displayName: input.displayName as Prisma.InputJsonValue,
+          description: input.description as Prisma.InputJsonValue,
+          iconEmoji: input.iconEmoji,
+          intentExamples: input.intentExamples as Prisma.InputJsonValue,
+          steps: input.steps as Prisma.InputJsonValue,
+          recommendedTools: input.recommendedTools as Prisma.InputJsonValue,
+          exitCondition: input.exitCondition,
+          firstStepPreview: input.firstStepPreview ?? null,
+          status,
+          displayOrder: input.displayOrder ?? 100
+        }
+      });
+      await this.invalidateAssistants(tx, assistantIds);
+      return created;
+    });
     return toAdminSkillScenarioState(row);
   }
 
@@ -128,51 +136,54 @@ export class ManageSkillScenariosService {
     input: UpdateSkillScenarioInput
   ): Promise<AdminSkillScenarioState> {
     await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
-
-    const existing = await this.prisma.skillScenario.findFirst({
-      where: { skillId, key }
-    });
-    if (existing === null) {
-      throw new NotFoundException("Skill scenario not found.");
-    }
-
-    if (input.status !== undefined && input.status !== existing.status) {
-      const allowed = ALLOWED_STATUS_TRANSITIONS[existing.status as SkillScenarioStatus];
-      if (!allowed.includes(input.status)) {
-        throw new BadRequestException(
-          `Status transition from "${existing.status}" to "${input.status}" is not allowed. ` +
-            `Allowed transitions from "${existing.status}": ${allowed.join(", ") || "none"}.`
-        );
+    const row = await this.prisma.$transaction(async (tx) => {
+      const assistantIds = await this.lockMutationScope(tx, skillId);
+      const existing = await tx.skillScenario.findFirst({
+        where: { skillId, key }
+      });
+      if (existing === null) {
+        throw new NotFoundException("Skill scenario not found.");
       }
-    }
+      await this.lockScenarioRow(tx, existing.id);
 
-    const row = await this.prisma.skillScenario.update({
-      where: { id: existing.id },
-      data: {
-        ...(input.displayName !== undefined
-          ? { displayName: input.displayName as Prisma.InputJsonValue }
-          : {}),
-        ...(input.description !== undefined
-          ? { description: input.description as Prisma.InputJsonValue }
-          : {}),
-        ...(input.iconEmoji !== undefined ? { iconEmoji: input.iconEmoji } : {}),
-        ...(input.intentExamples !== undefined
-          ? { intentExamples: input.intentExamples as Prisma.InputJsonValue }
-          : {}),
-        ...(input.steps !== undefined ? { steps: input.steps as Prisma.InputJsonValue } : {}),
-        ...(input.recommendedTools !== undefined
-          ? { recommendedTools: input.recommendedTools as Prisma.InputJsonValue }
-          : {}),
-        ...(input.exitCondition !== undefined ? { exitCondition: input.exitCondition } : {}),
-        ...(input.firstStepPreview !== undefined
-          ? { firstStepPreview: input.firstStepPreview }
-          : {}),
-        ...(input.status !== undefined ? { status: input.status } : {}),
-        ...(input.displayOrder !== undefined ? { displayOrder: input.displayOrder } : {})
+      if (input.status !== undefined && input.status !== existing.status) {
+        const allowed = ALLOWED_STATUS_TRANSITIONS[existing.status as SkillScenarioStatus];
+        if (!allowed.includes(input.status)) {
+          throw new BadRequestException(
+            `Status transition from "${existing.status}" to "${input.status}" is not allowed. ` +
+              `Allowed transitions from "${existing.status}": ${allowed.join(", ") || "none"}.`
+          );
+        }
       }
-    });
 
-    await this.markAssignedAssistantsDirty(skillId);
+      const updated = await tx.skillScenario.update({
+        where: { id: existing.id },
+        data: {
+          ...(input.displayName !== undefined
+            ? { displayName: input.displayName as Prisma.InputJsonValue }
+            : {}),
+          ...(input.description !== undefined
+            ? { description: input.description as Prisma.InputJsonValue }
+            : {}),
+          ...(input.iconEmoji !== undefined ? { iconEmoji: input.iconEmoji } : {}),
+          ...(input.intentExamples !== undefined
+            ? { intentExamples: input.intentExamples as Prisma.InputJsonValue }
+            : {}),
+          ...(input.steps !== undefined ? { steps: input.steps as Prisma.InputJsonValue } : {}),
+          ...(input.recommendedTools !== undefined
+            ? { recommendedTools: input.recommendedTools as Prisma.InputJsonValue }
+            : {}),
+          ...(input.exitCondition !== undefined ? { exitCondition: input.exitCondition } : {}),
+          ...(input.firstStepPreview !== undefined
+            ? { firstStepPreview: input.firstStepPreview }
+            : {}),
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          ...(input.displayOrder !== undefined ? { displayOrder: input.displayOrder } : {})
+        }
+      });
+      await this.invalidateAssistants(tx, assistantIds);
+      return updated;
+    });
     return toAdminSkillScenarioState(row);
   }
 
@@ -182,24 +193,25 @@ export class ManageSkillScenariosService {
     key: string
   ): Promise<AdminSkillScenarioState> {
     await this.adminAuthorizationService.assertCanWriteGlobalKnowledge(userId);
-
-    const existing = await this.prisma.skillScenario.findFirst({
-      where: { skillId, key }
+    const row = await this.prisma.$transaction(async (tx) => {
+      const assistantIds = await this.lockMutationScope(tx, skillId);
+      const existing = await tx.skillScenario.findFirst({
+        where: { skillId, key }
+      });
+      if (existing === null) {
+        throw new NotFoundException("Skill scenario not found.");
+      }
+      await this.lockScenarioRow(tx, existing.id);
+      if (existing.status === "archived") {
+        return existing;
+      }
+      const archived = await tx.skillScenario.update({
+        where: { id: existing.id },
+        data: { status: "archived" }
+      });
+      await this.invalidateAssistants(tx, assistantIds);
+      return archived;
     });
-    if (existing === null) {
-      throw new NotFoundException("Skill scenario not found.");
-    }
-
-    if (existing.status === "archived") {
-      return toAdminSkillScenarioState(existing);
-    }
-
-    const row = await this.prisma.skillScenario.update({
-      where: { id: existing.id },
-      data: { status: "archived" }
-    });
-
-    await this.markAssignedAssistantsDirty(skillId);
     return toAdminSkillScenarioState(row);
   }
 
@@ -210,14 +222,87 @@ export class ManageSkillScenariosService {
     }
   }
 
-  private async markAssignedAssistantsDirty(skillId: string): Promise<void> {
-    await this.prisma.assistant.updateMany({
+  private async lockMutationScope(
+    tx: Prisma.TransactionClient,
+    skillId: string
+  ): Promise<string[]> {
+    await lockSkillRow(tx, skillId);
+    const skill = await tx.skill.findUnique({
+      where: { id: skillId },
+      select: { id: true }
+    });
+    if (skill === null) {
+      throw new NotFoundException("Skill not found.");
+    }
+    const candidateRoles = await tx.assistantRole.findMany({
       where: {
-        skillAssignments: {
-          some: { skillId }
-        }
+        status: "active",
+        skillLinks: { some: { skillId } }
       },
-      data: { configDirtyAt: new Date() }
+      select: { id: true },
+      orderBy: { id: "asc" }
+    });
+    const lockedRoles = await lockAssistantRoleRows(
+      tx,
+      candidateRoles.map((role) => role.id)
+    );
+    const activeLinkedRoles =
+      lockedRoles.length === 0
+        ? []
+        : await tx.assistantRole.findMany({
+            where: {
+              id: { in: lockedRoles.map((role) => role.id) },
+              status: "active",
+              skillLinks: { some: { skillId } }
+            },
+            select: { id: true },
+            orderBy: { id: "asc" }
+          });
+    const affected = await tx.assistant.findMany({
+      where: { roleId: { in: activeLinkedRoles.map((role) => role.id) } },
+      select: { id: true },
+      orderBy: { id: "asc" }
+    });
+    const assistantIds = affected.map((assistant) => assistant.id);
+    await lockAssistantRows(tx, assistantIds);
+    await lockAssistantChatRows(tx, assistantIds);
+    await lockRoleSkillRowsForSkill(tx, skillId);
+    return assistantIds;
+  }
+
+  private async lockScenarioRow(tx: Prisma.TransactionClient, scenarioId: string): Promise<void> {
+    await tx.$queryRaw(Prisma.sql`
+      SELECT "id"
+      FROM "skill_scenarios"
+      WHERE "id" = ${scenarioId}::uuid
+      FOR UPDATE
+    `);
+  }
+
+  private async invalidateAssistants(
+    tx: Prisma.TransactionClient,
+    assistantIds: string[]
+  ): Promise<void> {
+    if (assistantIds.length === 0) {
+      return;
+    }
+    const clockRows = await tx.$queryRaw<Array<{ dirtyAt: Date }>>(Prisma.sql`
+      SELECT clock_timestamp() AS "dirtyAt"
+    `);
+    const dirtyAt = clockRows[0]?.dirtyAt;
+    if (dirtyAt === undefined) {
+      throw new Error("Database clock did not return a Skill scenario invalidation timestamp.");
+    }
+    await tx.assistant.updateMany({
+      where: { id: { in: assistantIds } },
+      data: { configDirtyAt: dirtyAt }
+    });
+    await tx.assistantChat.updateMany({
+      where: { assistantId: { in: assistantIds } },
+      data: {
+        skillDecisionState: Prisma.DbNull,
+        skillRetrievalState: Prisma.DbNull
+      }
     });
   }
 }

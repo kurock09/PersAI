@@ -98,6 +98,7 @@ function createBundle(
   }>
 ) {
   return compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "assistant-1",
       assistantHandle: "a-test",

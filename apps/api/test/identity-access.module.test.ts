@@ -135,6 +135,19 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
     }),
     true
   );
+  for (const route of [
+    { path: "api/v1/assistant/skills", method: RequestMethod.GET },
+    { path: "api/v1/assistant/skills", method: RequestMethod.PUT },
+    { path: "api/v1/assistant/roles", method: RequestMethod.GET },
+    { path: "api/v1/assistant/:assistantId/role", method: RequestMethod.GET },
+    { path: "api/v1/assistant/:assistantId/role", method: RequestMethod.PUT }
+  ]) {
+    assert.equal(
+      hasRoute(consumer.routes, route),
+      true,
+      `${RequestMethod[route.method]} /${route.path} must be guarded by ClerkAuthMiddleware`
+    );
+  }
   assert.equal(
     hasRoute(consumer.routes, {
       path: "api/v1/admin/knowledge-sources",

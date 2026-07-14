@@ -10,7 +10,7 @@ type MockRow = Record<string, unknown> & {
   documents?: MockRow[];
 };
 
-function createHarness() {
+function createHarness(activeRoleLink = false) {
   const now = new Date("2026-05-01T12:00:00.000Z");
   const skills = new Map<string, MockRow>();
   const documents = new Map<string, MockRow>();
@@ -35,6 +35,32 @@ function createHarness() {
   let nextJob = 1;
 
   const tx = {
+    $queryRaw: async <T>(query: { strings?: readonly string[] }): Promise<T> => {
+      const sql = (query.strings ?? []).join("?").replace(/\s+/g, " ");
+      if (sql.includes('FROM "assistant_roles"') && activeRoleLink) {
+        return [{ id: "role-active", key: "active", status: "active" }] as T;
+      }
+      return [] as T;
+    },
+    assistantRole: {
+      findMany: async () => (activeRoleLink ? [{ id: "role-active" }] : [])
+    },
+    skill: {
+      findUnique: async ({ where }: { where: { id: string } }) => skills.get(where.id) ?? null,
+      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const skill = skills.get(where.id);
+        const next = { ...skill, ...data, updatedAt: now };
+        skills.set(where.id, next);
+        return {
+          ...next,
+          documents: [...documents.values()].filter((doc) => doc.skillId === where.id),
+          knowledgeCards: [...cards.values()].filter((card) => card.skillId === where.id)
+        };
+      }
+    },
+    assistantRoleSkill: {
+      findFirst: async () => (activeRoleLink ? { roleId: "role-active" } : null)
+    },
     skillDocument: {
       create: async ({ data }: { data: Record<string, unknown> }) => {
         const document = {
@@ -237,7 +263,25 @@ function createHarness() {
           .filter((row) => row._count.assistantId > 0)
     },
     assistant: {
-      updateMany: async () => ({ count: 0 })
+      updateMany: async () => ({ count: 0 }),
+      findMany: async ({ where }: { where: Record<string, unknown> }) => {
+        const idFilter = where.id as { in?: string[] } | undefined;
+        if (idFilter?.in !== undefined) {
+          return assignments
+            .filter(
+              (assignment) =>
+                idFilter.in?.includes(assignment.assistantId) === true &&
+                assignment.skillStatus === "active" &&
+                assignment.archivedAt === null
+            )
+            .map((assignment) => ({ id: assignment.assistantId }));
+        }
+        const role = where.role as { skillLinks?: { some?: { skillId?: string } } } | undefined;
+        const skillId = role?.skillLinks?.some?.skillId;
+        return assignments
+          .filter((assignment) => assignment.skillId === skillId)
+          .map((assignment) => ({ id: assignment.assistantId }));
+      }
     },
     assistantChat: {
       updateMany: async ({
@@ -418,6 +462,13 @@ async function run(): Promise<void> {
     { sourceType: "skill_knowledge_card", sourceId: draftCard.card.id },
     { sourceType: "skill_document", sourceId: upload.document.id }
   ]);
+
+  const linkedHarness = createHarness(true);
+  const linkedSkill = await linkedHarness.service.create("admin-1", skillInput);
+  await assert.rejects(
+    () => linkedHarness.service.archive("admin-1", linkedSkill.id),
+    /linked to an active Assistant Role/
+  );
 }
 
 void run();

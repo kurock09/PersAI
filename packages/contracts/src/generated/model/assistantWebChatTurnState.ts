@@ -8,8 +8,8 @@ import type { AssistantWebChatState } from "./assistantWebChatState";
 import type { AssistantWebChatMessageState } from "./assistantWebChatMessageState";
 import type { AssistantWebChatActiveMediaJobState } from "./assistantWebChatActiveMediaJobState";
 import type { AssistantWebChatActiveDocumentJobState } from "./assistantWebChatActiveDocumentJobState";
+import type { AssistantWebChatTurnStatePendingBrowserLogin } from "./assistantWebChatTurnStatePendingBrowserLogin";
 import type { AssistantWebChatRuntimeState } from "./assistantWebChatRuntimeState";
-import type { PendingBrowserLoginState } from "./pendingBrowserLoginState";
 
 export interface AssistantWebChatTurnState {
   chat: AssistantWebChatState;
@@ -18,6 +18,6 @@ export interface AssistantWebChatTurnState {
   activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
   activeDocumentJobs?: AssistantWebChatActiveDocumentJobState[];
   /** @nullable */
-  pendingBrowserLogin?: PendingBrowserLoginState | null;
+  pendingBrowserLogin?: AssistantWebChatTurnStatePendingBrowserLogin;
   runtime: AssistantWebChatRuntimeState;
 }

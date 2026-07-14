@@ -2197,7 +2197,7 @@ async function runSkillPull(): Promise<void> {
       skill: { name: { en: "Dietitian" }, category: "health" }
     }
   ];
-  const assignmentsByAssistant: Record<string, Array<{ skillId: string }>> = {
+  const roleSkillLinksByAssistant: Record<string, Array<{ skillId: string }>> = {
     "assistant-skill": [{ skillId: "skill-diet" }],
     "assistant-none": []
   };
@@ -2221,12 +2221,9 @@ async function runSkillPull(): Promise<void> {
         userId: "user-skill",
         workspaceId: "workspace-skill",
         applyAppliedVersionId: null,
-        governance: { assistantPlanOverrideCode: null, quotaPlanCode: null }
+        governance: { assistantPlanOverrideCode: null, quotaPlanCode: null },
+        role: { skillLinks: roleSkillLinksByAssistant[where.id] ?? [] }
       })
-    },
-    assistantSkillAssignment: {
-      findMany: async ({ where }: { where: Record<string, unknown> }) =>
-        assignmentsByAssistant[where.assistantId as string] ?? []
     },
     skillDocumentChunk: {
       findMany: async ({ where }: { where: Record<string, unknown> }) =>

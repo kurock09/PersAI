@@ -34,6 +34,7 @@ import { AdminMemoryMaintenanceController } from "./interface/http/admin-memory-
 import { AdminSkillsController } from "./interface/http/admin-skills.controller";
 import { AssistantKnowledgeSourcesController } from "./interface/http/assistant-knowledge-sources.controller";
 import { AssistantBillingController } from "./interface/http/assistant-billing.controller";
+import { AssistantRolesController } from "./interface/http/assistant-roles.controller";
 import { AssistantSkillsController } from "./interface/http/assistant-skills.controller";
 import { CloudpaymentsWebhookController } from "./interface/http/cloudpayments-webhook.controller";
 import { KnowledgeIndexingJobsController } from "./interface/http/knowledge-indexing-jobs.controller";
@@ -158,9 +159,11 @@ import { WorkspaceFileMetadataService } from "./application/workspace-file-metad
 import { WorkspaceFileMicroDescriptionService } from "./application/workspace-file-micro-description.service";
 import { WorkspaceFileMicroDescriptionJobService } from "./application/workspace-file-micro-description-job.service";
 import { WorkspaceFileMicroDescriptionJobSchedulerService } from "./application/workspace-file-micro-description-job-scheduler.service";
+import { ASSISTANT_ROLE_REPOSITORY } from "./domain/assistant-role.repository";
 import { WORKSPACE_FILE_METADATA_REPOSITORY } from "./domain/workspace-file-metadata.repository";
 import { ASSISTANT_BROWSER_PROFILE_REPOSITORY } from "./domain/assistant-browser-profile.repository";
 import { PrismaAssistantBrowserProfileRepository } from "./infrastructure/persistence/prisma-assistant-browser-profile.repository";
+import { PrismaAssistantRoleRepository } from "./infrastructure/persistence/prisma-assistant-role.repository";
 import { AssistantBrowserProfileService } from "./application/assistant-browser-profile.service";
 import { ExpireAssistantBrowserProfilesService } from "./application/expire-assistant-browser-profiles.service";
 import { AssistantBrowserProfileExpirySchedulerService } from "./application/assistant-browser-profile-expiry-scheduler.service";
@@ -228,6 +231,7 @@ import { CancelAssistantTaskRegistryItemService } from "./application/cancel-ass
 import { GetAssistantAppBootstrapService } from "./application/get-assistant-app-bootstrap.service";
 import { ResolveUserSafetyStandingService } from "./application/resolve-user-safety-standing.service";
 import { ManageAssistantKnowledgeSourcesService } from "./application/manage-assistant-knowledge-sources.service";
+import { ManageAssistantRolesService } from "./application/manage-assistant-roles.service";
 import { ManageAssistantSkillsService } from "./application/manage-assistant-skills.service";
 import { ManageAssistantAvatarService } from "./application/manage-assistant-avatar.service";
 import { ManageAssistantWorkspaceMemoryService } from "./application/manage-assistant-workspace-memory.service";
@@ -461,6 +465,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AdminSkillsController,
     KnowledgeIndexingJobsController,
     AssistantSkillsController,
+    AssistantRolesController,
     CloudpaymentsWebhookController,
     InternalCronFireController,
     InternalRuntimeProviderSecretsController,
@@ -671,6 +676,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ResolveUserSafetyStandingService,
     ManageAssistantAvatarService,
     ManageAssistantKnowledgeSourcesService,
+    ManageAssistantRolesService,
     ManageAssistantSkillsService,
     ManageAssistantWorkspaceMemoryService,
     ReadAssistantKnowledgeService,
@@ -864,6 +870,10 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     {
       provide: PERSONA_ARCHETYPE_REPOSITORY,
       useClass: PrismaPersonaArchetypeRepository
+    },
+    {
+      provide: ASSISTANT_ROLE_REPOSITORY,
+      useClass: PrismaAssistantRoleRepository
     },
     {
       provide: WORKSPACE_FILE_METADATA_REPOSITORY,

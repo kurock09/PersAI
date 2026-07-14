@@ -62,6 +62,7 @@ async function runTemplatedCompile(): Promise<void> {
   const service = new CompilePromptConstructorService();
   const compiled = service.compile({
     ...baseInput(),
+    assistantRoleMission: "Help with everyday questions and tasks using the core model abilities.",
     enabledSkillCards: [
       {
         id: "skill-1",
@@ -80,6 +81,8 @@ async function runTemplatedCompile(): Promise<void> {
     ],
     promptTemplates: {
       system: `{{assistant_identity_block}}
+
+{{assistant_role_block}}
 
 {{enabled_skills_block}}
 
@@ -113,6 +116,11 @@ When you need multiple independent tool results, return them in a single respons
   const systemPrompt = compiled.promptConstructor.ordinary.systemPrompt ?? "";
 
   assert.match(systemPrompt, /Core Persona/);
+  assert.match(systemPrompt, /<assistant_role>/);
+  assert.match(
+    systemPrompt,
+    /<mission>Help with everyday questions and tasks using the core model abilities\.<\/mission>/
+  );
   // ADR-119 Slice 3: Skills block is now XML; "Enabled Skills" appears in the XML comment
   assert.match(systemPrompt, /Enabled Skills/);
   // ADR-119 Slice 3: card renders <display_name>Accountant</display_name>, not the old "title" heading
@@ -143,6 +151,10 @@ When you need multiple independent tool results, return them in a single respons
     compiled.promptConstructor.ordinary.stablePrefix?.text,
     compiled.promptConstructor.ordinary.systemPrompt
   );
+  assert.equal(
+    compiled.promptDocuments.assistantRole,
+    "<assistant_role>\n<mission>Help with everyday questions and tasks using the core model abilities.</mission>\n</assistant_role>"
+  );
   assert.match(compiled.promptConstructor.ordinary.stablePrefix?.hash ?? "", /^[a-f0-9]{64}$/);
   assert.doesNotMatch(systemPrompt, /# User Context/);
 
@@ -158,6 +170,43 @@ When you need multiple independent tool results, return them in a single respons
     compiled.promptConstructor.onboarding.firstTurnPrompt,
     "# First Conversation\n\nYour name is Nova. Say hello to Alex."
   );
+}
+
+async function runProductionAssistantRoleStablePrefix(): Promise<void> {
+  const compiled = new CompilePromptConstructorService().compile({
+    ...baseInput(),
+    assistantRoleMission: "Own the current mission without exposing Role metadata.",
+    enabledSkillCards: [],
+    promptTemplates: PROMPT_TEMPLATE_DEFAULTS
+  });
+  const stablePrefix = compiled.promptConstructor.ordinary.stablePrefix?.text ?? "";
+  const identityIndex = stablePrefix.indexOf("<identity>");
+  const roleIndex = stablePrefix.indexOf("<assistant_role>");
+  const enabledSkillsIndex = stablePrefix.indexOf("<enabled_skills>");
+  assert.ok(identityIndex >= 0 && roleIndex > identityIndex);
+  assert.ok(enabledSkillsIndex > roleIndex);
+  assert.match(
+    stablePrefix,
+    /<assistant_role>\n<mission>Own the current mission without exposing Role metadata\.<\/mission>\n<\/assistant_role>/
+  );
+  assert.equal(compiled.promptConstructor.ordinary.systemPrompt, stablePrefix);
+}
+
+async function runAssistantRoleMissionXmlEscaping(): Promise<void> {
+  const compiled = new CompilePromptConstructorService().compile({
+    ...baseInput(),
+    assistantRoleMission: `Use <care> & "clarity" with 'trust'; never </mission><injected>true</injected>.`,
+    enabledSkillCards: [],
+    promptTemplates: PROMPT_TEMPLATE_DEFAULTS
+  });
+  const roleBlock = compiled.promptDocuments.assistantRole ?? "";
+  assert.equal(
+    roleBlock,
+    "<assistant_role>\n<mission>Use &lt;care&gt; &amp; &quot;clarity&quot; with &apos;trust&apos;; never &lt;/mission&gt;&lt;injected&gt;true&lt;/injected&gt;.</mission>\n</assistant_role>"
+  );
+  assert.equal((roleBlock.match(/<assistant_role>/g) ?? []).length, 1);
+  assert.equal((roleBlock.match(/<mission>/g) ?? []).length, 1);
+  assert.doesNotMatch(roleBlock, /<injected>/);
 }
 
 async function runCachedPrefixInvariant(): Promise<void> {
@@ -857,6 +906,8 @@ async function runAdr119GoldenTest5PersonaDedup(): Promise<void> {
 
 async function run(): Promise<void> {
   await runTemplatedCompile();
+  await runProductionAssistantRoleStablePrefix();
+  await runAssistantRoleMissionXmlEscaping();
   await runCachedPrefixInvariant();
   await runPresenceCachedPrefixInvariant();
   await runFallbackCompile();

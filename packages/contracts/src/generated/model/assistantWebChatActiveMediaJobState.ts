@@ -20,7 +20,7 @@ export interface AssistantWebChatActiveMediaJobState {
    */
   displayKind?: AssistantWebChatActiveMediaJobStateDisplayKind;
   /**
-   * Total image outputs requested for this job when known from persisted request metadata. Omitted or null for single-image jobs, unknown legacy rows, and non-image operations.
+   * Total image outputs requested for this job when known from persisted request metadata (`count` or `seriesItems` length for image_generate and image_edit). Omitted or null for single-image jobs, unknown legacy rows, and non-image operations.
 
    * @minimum 1
    * @nullable

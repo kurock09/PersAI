@@ -51,6 +51,8 @@ export const VISIBLE_PROMPT_TEMPLATE_DEFAULTS: Record<string, string> = {
 
 {{identity_block}}
 
+{{assistant_role_block}}
+
 {{enabled_skills_block}}
 
 {{reminders_protocol_block}}

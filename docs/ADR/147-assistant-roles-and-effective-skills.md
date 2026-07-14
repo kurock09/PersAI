@@ -2,8 +2,9 @@
 
 ## Status
 
-In progress — S0 accepted and S1 schema/expand implemented locally; S2 is next.
-No ADR-147 code has been pushed or deployed.
+In progress — S0 accepted; S1 schema/expand and S2 role-only
+API/runtime/prompt cutover are implemented locally and parent-audited CLEAN. S3
+is next. No ADR-147 code has been pushed or deployed.
 
 ## Date
 
@@ -337,18 +338,24 @@ request from mutating another B2B member's Assistant.
 
 ### Atomic change
 
-A changed Role assignment performs one database transaction:
+A changed Role assignment performs a bounded retry around one database
+transaction:
 
-1. lock and validate the exact assistant and target active Role;
-2. enforce the exact owner predicate above;
-3. update `Assistant.roleId`;
-4. set `Assistant.configDirtyAt`;
-5. reset every chat of that assistant:
+1. from the unlocked current-role snapshot, lock current plus target Role rows
+   in sorted id order;
+2. lock the exact owner-constrained Assistant and revalidate `roleId`;
+3. if `roleId` changed while waiting, commit no writes and retry from that fresh
+   Role id (at most three attempts);
+4. lock the Assistant's chats in sorted id order;
+5. read `clock_timestamp()` only after acquiring the Assistant lock;
+6. update `Assistant.roleId` and set `Assistant.configDirtyAt` from that database
+   timestamp;
+7. reset every chat of that assistant:
    - `skillDecisionState = NULL`;
    - `skillRetrievalState = NULL`;
-6. append `assistant.role_updated` audit truth with previous and selected Role
+8. append `assistant.role_updated` audit truth with previous and selected Role
    keys;
-7. commit.
+9. commit.
 
 A same-Role retry is idempotent and does not reset state or duplicate audit.
 
@@ -381,6 +388,29 @@ This is an authority/race guard at the internal persistence boundary, not a new
 model-facing Skill action. It also protects Role Skill replacement while an old
 turn is in flight.
 
+All mutations that overlap durable Skill state use this global row-lock order,
+skipping row classes they do not need:
+
+1. `Skill` rows, sorted by id;
+2. `AssistantRole` rows, sorted by id;
+3. `Assistant` rows, sorted by id;
+4. `AssistantChat` rows, sorted by assistant id then chat id;
+5. `AssistantRoleSkill`, sorted by role id then Skill id.
+
+Runtime engage/release, Skill archive, Skill-scenario mutation, and S4
+Role-Skill replacement must not acquire a later class and then return to an
+earlier class. Scenario mutation first locks the parent Skill, then discovers
+and locks/revalidates active linked Roles, snapshots and locks affected
+Assistants/chats, and finally locks link rows. Owning the Skill before discovery
+makes an absent link safe: S4 must lock every involved Skill (sorted) before any
+Role, so no link can appear or disappear during scenario scope discovery. A
+release performs an unlocked candidate chat read only to identify the Skill,
+then acquires canonical locks and revalidates the locked chat/state; a changed
+candidate causes a bounded fresh-candidate retry with no write. Role PUT does
+not touch Skill/link rows and remains the valid sorted `Role -> Assistant ->
+Chat` subsequence. Its `SkillScenario` row is locked only after the shared
+authority hierarchy.
+
 Generic `AssistantChatTodo` rows are not cleared on Role change. They have no
 scenario provenance and are model-authored chat plans; deleting them would
 destroy unrelated user work. Clearing `skillDecisionState` removes active
@@ -388,9 +418,9 @@ scenario authority, while the existing plan remains ordinary chat-plan truth.
 
 ### Materialization race safety
 
-Current materialization clears `configDirtyAt` unconditionally. ADR-147 must
-make that clear conditional on the dirty value observed by the materialization
-attempt. A concurrent newer Role/Skill edit must leave the assistant dirty.
+Materialization clears `configDirtyAt` conditionally on the dirty value observed
+by the materialization attempt. A concurrent newer Role/Skill edit therefore
+leaves the assistant dirty.
 
 Freshness comparison must fail safe when dirty and materialized timestamps are
 equal at persisted precision. S2 must change both owners:
@@ -398,7 +428,13 @@ equal at persisted precision. S2 must change both owners:
 - `MaterializeAssistantPublishedVersionService` uses conditional
   compare-and-clear rather than unconditional `configDirtyAt = NULL`;
 - `EnsureAssistantMaterializedSpecCurrentService` treats equal dirty and
-  materialized timestamps as stale (`>=`, not only `>`).
+  materialized timestamps as stale (`>=`, not only `>`);
+- one shared `CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION` is `2` for
+  role-only bundles and is used by production and preview materializers;
+- freshness treats every existing spec with `algorithmVersion < 2` as stale
+  independently of generation and dirty timestamps. Old pods may still write
+  v1 during a rolling deploy, but new code will always reject/rematerialize it,
+  so a v1 rewrite cannot defeat the cutover.
 
 ## Role catalog UX
 
@@ -508,12 +544,14 @@ Skill
 
 Rules:
 
-- Skill core/instruction/scenario changes mark all assistants whose Role links
-  that Skill dirty;
+- Skill core/instruction changes mark all assistants whose Role links that
+  Skill dirty;
 - retrieval-only Skill KB changes clear affected chats'
   `skillRetrievalState`;
-- routing/scenario-affecting Skill changes clear both decision and retrieval
-  state according to existing semantics;
+- every Skill-scenario create/update/archive locks and mutates in one
+  transaction, marks every Role-linked Assistant dirty from the database clock,
+  and clears both `skillDecisionState` and `skillRetrievalState` for all of
+  their chats;
 - Role mission/presentation/status edits mark assistants using that Role dirty;
 - Role Skill replacement marks those assistants dirty and clears decision and
   retrieval state;
@@ -664,6 +702,30 @@ Primary files/modules:
 - internal runtime Skill-state service/controller;
 - runtime-bundle schema and runtime internal API client;
 - prompt/cache/golden and focused runtime tests.
+
+Local status update (2026-07-14): landed locally, not deployed. Effective runtime
+Skill reads now resolve only through `Assistant.roleId -> AssistantRoleSkill ->
+active Skill`; malformed Role path ids fail with stable 400 validation; the
+localized role mission is XML-text escaped inside exactly one stable-prefix
+block. Runtime bundle/preview materialization share algorithm v2, reject every
+older algorithm independently of other freshness signals, and use conditional
+`configDirtyAt` compare-and-clear. Runtime Skill-state persistence rejects stale role snapshots with
+`stale_assistant_role_snapshot`. Persistence serializes the exact
+`Skill -> AssistantRole -> Assistant -> AssistantChat -> AssistantRoleSkill`
+rows; S4 Role-Skill replacement must lock all involved Skills first and use
+that same remaining order (sorted ids for every multi-row class) before mutating
+links or invalidating chats. Role assignment
+locks current plus target Roles first and retries after Assistant revalidation
+detects a concurrent change because it is a Skill/link-free valid subsequence.
+Skill archive locks its Skill before discovering/revalidating active linked
+Roles. Scenario create/update/archive locks the parent Skill before Role
+discovery and the affected-Assistant snapshot, then atomically resets both chat
+Skill-state fields and writes
+post-lock database dirty timestamps for every affected Assistant. Internal
+Assistant/expected-Role/engage-Skill UUIDs are validated before raw casts. The existing
+`GET/PUT /api/v1/assistant/skills` management endpoint and
+`AssistantSkillAssignment` storage remain physically available for the
+unchanged S3 UI through S2, but neither contributes effective runtime truth.
 
 ### S3 — user Role UX
 

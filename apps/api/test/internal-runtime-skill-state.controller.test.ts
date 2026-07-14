@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { BadRequestException, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { InternalRuntimeSkillStateController } from "../src/modules/workspace-management/interface/http/internal-runtime-skill-state.controller";
 import type { InternalRuntimeSkillStateService } from "../src/modules/workspace-management/application/internal-runtime-skill-state.service";
 
@@ -15,28 +16,31 @@ const AUTH_HEADER = { headers: { authorization: "Bearer internal-token" } };
 const BAD_AUTH = { headers: { authorization: "Bearer wrong-token" } };
 
 const ENGAGE_BODY = {
-  assistantId: "assistant-1",
+  assistantId: "00000000-0000-4000-8000-000000000001",
   channel: "web",
   surfaceThreadKey: "thread-1",
   action: "engage",
-  skillId: "skill-finance",
+  expectedRoleId: "00000000-0000-4000-8000-000000000101",
+  skillId: "00000000-0000-4000-8000-000000000201",
   scenarioKey: null
 };
 
 const ENGAGE_WITH_SCENARIO_BODY = {
-  assistantId: "assistant-1",
+  assistantId: "00000000-0000-4000-8000-000000000001",
   channel: "web",
   surfaceThreadKey: "thread-1",
   action: "engage",
-  skillId: "skill-finance",
+  expectedRoleId: "00000000-0000-4000-8000-000000000101",
+  skillId: "00000000-0000-4000-8000-000000000201",
   scenarioKey: "tax-advisory"
 };
 
 const RELEASE_BODY = {
-  assistantId: "assistant-1",
+  assistantId: "00000000-0000-4000-8000-000000000001",
   channel: "web",
   surfaceThreadKey: "thread-1",
-  action: "release"
+  action: "release",
+  expectedRoleId: "00000000-0000-4000-8000-000000000101"
 };
 
 async function run(): Promise<void> {
@@ -60,7 +64,10 @@ async function run(): Promise<void> {
     const result = await controller.updateState(AUTH_HEADER, ENGAGE_BODY);
     assert.deepEqual(result, {
       ok: true,
+      applied: true,
       action: "engaged",
+      code: null,
+      message: null,
       skillId: "skill-finance",
       skillDisplayName: "Finance",
       scenarioKey: null,
@@ -87,7 +94,10 @@ async function run(): Promise<void> {
     const result = await controller.updateState(AUTH_HEADER, ENGAGE_WITH_SCENARIO_BODY);
     assert.deepEqual(result, {
       ok: true,
+      applied: true,
       action: "engaged",
+      code: null,
+      message: null,
       skillId: "skill-finance",
       skillDisplayName: "Finance",
       scenarioKey: "tax-advisory",
@@ -111,7 +121,10 @@ async function run(): Promise<void> {
     const result = await controller.updateState(AUTH_HEADER, RELEASE_BODY);
     assert.deepEqual(result, {
       ok: true,
+      applied: true,
       action: "released",
+      code: null,
+      message: null,
       skillId: null,
       skillDisplayName: null,
       scenarioKey: null,
@@ -201,6 +214,32 @@ async function run(): Promise<void> {
       () => controller.updateState(AUTH_HEADER, { ...RELEASE_BODY, action: "delete" }),
       (err) => err instanceof BadRequestException
     );
+  }
+
+  // --- malformed UUID inputs fail with stable typed validation before service execution ---
+  {
+    let applyCalls = 0;
+    const svc = {
+      async apply() {
+        applyCalls += 1;
+        throw new Error("must not execute");
+      }
+    } as unknown as InternalRuntimeSkillStateService;
+    const controller = new InternalRuntimeSkillStateController(svc);
+    for (const [body, code] of [
+      [{ ...RELEASE_BODY, assistantId: "bad" }, "runtime_skill_state_invalid_assistant_id"],
+      [{ ...RELEASE_BODY, expectedRoleId: "bad" }, "runtime_skill_state_invalid_expected_role_id"],
+      [{ ...ENGAGE_BODY, skillId: "bad" }, "runtime_skill_state_invalid_skill_id"]
+    ] as const) {
+      await assert.rejects(
+        () => controller.updateState(AUTH_HEADER, body),
+        (error: unknown) =>
+          error instanceof ApiErrorHttpException &&
+          error.getStatus() === 400 &&
+          error.errorObject.code === code
+      );
+    }
+    assert.equal(applyCalls, 0);
   }
 }
 

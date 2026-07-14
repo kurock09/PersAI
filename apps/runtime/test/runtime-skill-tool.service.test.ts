@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { compileAssistantRuntimeBundle } from "@persai/runtime-bundle";
 import type { ProviderGatewayToolCall, RuntimeBundleSkillScenario } from "@persai/runtime-contract";
 import type { PersaiInternalApiClientService } from "../src/modules/turns/persai-internal-api.client.service";
@@ -31,6 +33,7 @@ const INSTAGRAM_CAROUSEL_SCENARIO: RuntimeBundleSkillScenario = {
 };
 
 function createBundle(opts?: {
+  effectiveRoleId?: string;
   enabledSkills?: Array<{
     id: string;
     name: string;
@@ -206,6 +209,7 @@ function createBundle(opts?: {
       preview: "",
       welcome: ""
     },
+    effectiveRoleId: opts?.effectiveRoleId ?? "role-test",
     ...(enabledSkills.length > 0 ? { skills: { enabled: enabledSkills } } : {})
   }).bundle;
 }
@@ -227,10 +231,18 @@ class FakeInternalApi {
   callOrder: string[] = [];
   skillStateCalls: Array<Record<string, unknown>> = [];
   skillStateResult: {
+    applied: boolean;
+    action: "engaged" | "released" | "stale";
+    code: string | null;
+    message: string | null;
     skillId: string;
     skillDisplayName: string;
     previousSkillId: string | null;
   } = {
+    applied: true,
+    action: "engaged",
+    code: null,
+    message: null,
     skillId: "skill-finance",
     skillDisplayName: "Finance",
     previousSkillId: null
@@ -243,12 +255,22 @@ class FakeInternalApi {
     if (this.skillStateError !== null) {
       throw this.skillStateError;
     }
+    if (input.action === "release" && this.skillStateResult.action === "engaged") {
+      return { ...this.skillStateResult, action: "released" as const };
+    }
     return this.skillStateResult;
   }
 }
 
 export async function runRuntimeSkillToolServiceTest(): Promise<void> {
+  const internalClientSource = readFileSync(
+    join(process.cwd(), "src/modules/turns/persai-internal-api.client.service.ts"),
+    "utf8"
+  );
+  assert.match(internalClientSource, /typeof payload\.applied === "boolean"/);
+  assert.doesNotMatch(internalClientSource, /payload\.applied !== false/);
   const bundleWithSkill = createBundle({
+    effectiveRoleId: "role-1",
     enabledSkills: [
       {
         id: "skill-finance",
@@ -260,6 +282,7 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
     ]
   });
   const bundleWithSkillAndScenarios = createBundle({
+    effectiveRoleId: "role-2",
     enabledSkills: [
       {
         id: "skill-marketer",
@@ -465,6 +488,7 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
       channel: "web",
       surfaceThreadKey: "thread-1",
       action: "engage",
+      expectedRoleId: "role-1",
       skillId: "skill-finance",
       scenarioKey: null
     });
@@ -473,7 +497,15 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
   // (b) Happy path: release
   {
     const api = new FakeInternalApi();
-    api.skillStateResult = { skillId: "", skillDisplayName: "", previousSkillId: "skill-finance" };
+    api.skillStateResult = {
+      applied: true,
+      action: "released",
+      code: null,
+      message: null,
+      skillId: "",
+      skillDisplayName: "",
+      previousSkillId: "skill-finance"
+    };
     const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
     const result = await svc.executeToolCall({
       bundle: bundleWithSkill,
@@ -487,6 +519,32 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
     assert.equal(result.isError, false);
     assert.equal(api.skillStateCalls.length, 1);
     assert.equal(api.skillStateCalls[0]?.action, "release");
+    assert.equal(api.skillStateCalls[0]?.expectedRoleId, "role-1");
+  }
+
+  {
+    const api = new FakeInternalApi();
+    api.skillStateResult = {
+      applied: false,
+      action: "stale",
+      code: "stale_assistant_role_snapshot",
+      message: "Assistant role changed while this turn was running.",
+      skillId: "",
+      skillDisplayName: "",
+      previousSkillId: null
+    };
+    const svc = new RuntimeSkillToolService(api as unknown as PersaiInternalApiClientService);
+    const result = await svc.executeToolCall({
+      bundle: bundleWithSkill,
+      toolCall: createToolCall({ action: "engage", skillId: "skill-finance" }),
+      conversation: webConversation,
+      requestId: "req-stale"
+    });
+    assert.deepEqual(result.payload, {
+      error: "stale_assistant_role_snapshot",
+      reason: "Assistant role changed while this turn was running."
+    });
+    assert.equal(result.isError, false);
   }
 
   // (c) Error: skill_not_enabled — skillId not in bundle.skills.enabled
@@ -569,6 +627,10 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
   {
     const api = new FakeInternalApi();
     api.skillStateResult = {
+      applied: true,
+      action: "engaged",
+      code: null,
+      message: null,
       skillId: "skill-marketer",
       skillDisplayName: "Marketer",
       previousSkillId: null
@@ -633,6 +695,7 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
       channel: "web",
       surfaceThreadKey: "thread-1",
       action: "engage",
+      expectedRoleId: "role-2",
       skillId: "skill-marketer",
       scenarioKey: "instagram_carousel"
     });
@@ -659,6 +722,10 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
     });
     const api = new FakeInternalApi();
     api.skillStateResult = {
+      applied: true,
+      action: "engaged",
+      code: null,
+      message: null,
       skillId: "skill-rich",
       skillDisplayName: "Rich Skill",
       previousSkillId: null
@@ -772,6 +839,10 @@ export async function runRuntimeSkillToolServiceTest(): Promise<void> {
   {
     const api = new FakeInternalApi();
     api.skillStateResult = {
+      applied: true,
+      action: "engaged",
+      code: null,
+      message: null,
       skillId: "skill-marketer",
       skillDisplayName: "Marketer",
       previousSkillId: null

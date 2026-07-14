@@ -103,8 +103,8 @@ import type { PersonaArchetype } from "../domain/persona-archetype.entity";
 import type { AssistantPublishedVersionSnapshotVoiceDna } from "../domain/assistant-published-version.entity";
 import { buildSyntheticPromptToolOverrideMap } from "./prompt-constructor-tool-metadata";
 import { type PersaiRuntimeTtsProviderId } from "@persai/runtime-contract";
+import { CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION } from "./assistant-materialization-version";
 
-const MATERIALIZATION_ALGORITHM_VERSION = 1;
 const MATERIALIZATION_SCHEMA = "persai.materialization.v1";
 const ASSISTANT_CONFIG_SCHEMA = "persai.assistantConfig.v1";
 const ASSISTANT_WORKSPACE_SCHEMA = "persai.assistantWorkspace.v1";
@@ -468,6 +468,7 @@ export class MaterializeAssistantPublishedVersionService {
     publishedVersion: AssistantPublishedVersion,
     sourceAction: AssistantMaterializationSourceAction
   ): Promise<void> {
+    const observedConfigDirtyAt = assistant.configDirtyAt ?? null;
     const existingSpec = await this.assistantMaterializedSpecRepository.findByPublishedVersionId(
       publishedVersion.id
     );
@@ -477,7 +478,7 @@ export class MaterializeAssistantPublishedVersionService {
       assistantId: assistant.id,
       publishedVersionId: publishedVersion.id,
       sourceAction: existingSpec?.sourceAction ?? sourceAction,
-      algorithmVersion: MATERIALIZATION_ALGORITHM_VERSION,
+      algorithmVersion: CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION,
       materializedAtConfigGeneration: artifacts.currentConfigGeneration,
       layers: artifacts.layers,
       runtimeBundle: artifacts.runtimeBundle,
@@ -491,8 +492,13 @@ export class MaterializeAssistantPublishedVersionService {
       contentHash: artifacts.contentHash
     });
 
-    await this.prisma.assistant.update({
-      where: { id: assistant.id },
+    await this.prisma.assistant.updateMany({
+      where: {
+        id: assistant.id,
+        ...(observedConfigDirtyAt === null
+          ? { configDirtyAt: null }
+          : { configDirtyAt: observedConfigDirtyAt })
+      },
       data: { configDirtyAt: null }
     });
   }
@@ -750,7 +756,7 @@ export class MaterializeAssistantPublishedVersionService {
 
     const layers = {
       schema: MATERIALIZATION_SCHEMA,
-      algorithmVersion: MATERIALIZATION_ALGORITHM_VERSION,
+      algorithmVersion: CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION,
       layers: {
         ownership: {
           assistantId: assistant.id,
@@ -897,11 +903,16 @@ export class MaterializeAssistantPublishedVersionService {
       publishedVersion,
       userContext.locale
     );
-    const enabledSkillCards = await this.resolveEnabledSkillPromptCards({
-      assistant,
-      effectivePlanCode,
-      locale: userContext.locale
-    });
+    const [assistantRole, enabledSkillCards] = await Promise.all([
+      this.prisma.assistantRole.findUnique({
+        where: { id: assistant.roleId },
+        select: { mission: true }
+      }),
+      this.resolveEnabledSkillPromptCards({
+        assistant,
+        locale: userContext.locale
+      })
+    ]);
     const enabledSkillScenarios = await this.resolveEnabledSkillScenariosForBundle({
       skillIds: enabledSkillCards.map((card) => card.id),
       locale: userContext.locale
@@ -915,6 +926,7 @@ export class MaterializeAssistantPublishedVersionService {
       publishedVersion,
       userContext,
       toolPolicies,
+      assistantRoleMission: localizeTextRecord(assistantRole?.mission ?? null, userContext.locale),
       enabledSkillCards: enabledSkillCardsWithScenarios,
       promptTemplates,
       voiceDna
@@ -980,7 +992,7 @@ export class MaterializeAssistantPublishedVersionService {
         workspaceId: assistant.workspaceId,
         publishedVersionId: publishedVersion.id,
         publishedVersion: publishedVersion.version,
-        algorithmVersion: MATERIALIZATION_ALGORITHM_VERSION,
+        algorithmVersion: CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION,
         configGeneration: currentConfigGeneration
       },
       persona: {
@@ -1077,10 +1089,12 @@ export class MaterializeAssistantPublishedVersionService {
           scenarios: enabledSkillScenarios.get(card.id) ?? []
         }))
       },
+      effectiveRoleId: assistant.roleId,
       promptDocuments: {
         soul: onboardingDocuments.soulDocument,
         user: onboardingDocuments.userDocument,
         identity: onboardingDocuments.identityDocument,
+        assistantRole: compiledPromptConstructor.promptDocuments.assistantRole ?? "",
         enabledSkills: onboardingDocuments.enabledSkillsDocument,
         tools: onboardingDocuments.toolsDocument,
         agents: onboardingDocuments.agentsDocument,
@@ -1919,44 +1933,37 @@ export class MaterializeAssistantPublishedVersionService {
     }));
   }
 
-  private async resolveEnabledSkillPromptCards(params: {
-    assistant: Assistant;
-    effectivePlanCode: string | null;
-    locale: string;
-  }) {
-    const [assignments, limit] = await Promise.all([
-      this.prisma.assistantSkillAssignment.findMany({
-        where: {
-          assistantId: params.assistant.id,
-          userId: params.assistant.userId,
+  private async resolveEnabledSkillPromptCards(params: { assistant: Assistant; locale: string }) {
+    const links = await this.prisma.assistantRoleSkill.findMany({
+      where: {
+        roleId: params.assistant.roleId,
+        skill: {
           status: "active",
-          skill: {
-            status: "active"
-          }
-        },
-        include: {
-          skill: true
+          archivedAt: null
         }
-      }),
-      this.resolveEnabledSkillLimitForPlan(params.effectivePlanCode)
-    ]);
-    const candidates: EnabledSkillPromptCandidate[] = assignments.map((assignment) => ({
-      id: assignment.skill.id,
-      name: normalizeStringRecord(assignment.skill.name),
-      description: normalizeStringRecord(assignment.skill.description),
-      category: assignment.skill.category,
-      tags: normalizeStringArray(assignment.skill.tags),
-      displayOrder: assignment.skill.displayOrder,
-      status: assignment.skill.status,
-      instructionCard: normalizeInstructionCard(assignment.skill.instructionCard),
-      iconEmoji: assignment.skill.iconEmoji,
-      assignmentStatus: assignment.status,
-      assignmentEnabledAt: assignment.enabledAt
+      },
+      include: {
+        skill: true
+      },
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }, { skillId: "asc" }]
+    });
+    const candidates: EnabledSkillPromptCandidate[] = links.map((link) => ({
+      id: link.skill.id,
+      name: normalizeStringRecord(link.skill.name),
+      description: normalizeStringRecord(link.skill.description),
+      category: link.skill.category,
+      tags: normalizeStringArray(link.skill.tags),
+      displayOrder: link.displayOrder,
+      status: link.skill.status,
+      instructionCard: normalizeInstructionCard(link.skill.instructionCard),
+      iconEmoji: link.skill.iconEmoji,
+      assignmentStatus: "active",
+      assignmentEnabledAt: link.createdAt
     }));
     return resolveEnabledSkillPromptCards({
       candidates,
       locale: params.locale,
-      limit
+      limit: null
     });
   }
 
@@ -1992,27 +1999,6 @@ export class MaterializeAssistantPublishedVersionService {
       candidates: scenarioCandidates,
       locale: params.locale
     });
-  }
-
-  private async resolveEnabledSkillLimitForPlan(planCode: string | null): Promise<number | null> {
-    if (planCode === null) {
-      return null;
-    }
-    const plan = await this.prisma.planCatalogPlan.findUnique({
-      where: { code: planCode },
-      select: {
-        billingProviderHints: true,
-        entitlement: {
-          select: {
-            limitsPermissions: true
-          }
-        }
-      }
-    });
-    return (
-      readEnabledSkillLimitFromBillingHints(plan?.billingProviderHints ?? null) ??
-      readEnabledSkillLimitFromLimitsPermissions(plan?.entitlement?.limitsPermissions ?? null)
-    );
   }
 
   private async resolveUserContext(
@@ -2280,6 +2266,25 @@ function normalizeStringArray(value: unknown): string[] {
     : [];
 }
 
+function localizeTextRecord(value: unknown, locale: string): string | null {
+  const normalized = normalizeStringRecord(value);
+  const normalizedLocale = locale.trim().toLowerCase();
+  if (normalizedLocale.length > 0 && typeof normalized[normalizedLocale] === "string") {
+    return normalized[normalizedLocale] ?? null;
+  }
+  const baseLocale = normalizedLocale.split("-")[0] ?? normalizedLocale;
+  if (baseLocale.length > 0 && typeof normalized[baseLocale] === "string") {
+    return normalized[baseLocale] ?? null;
+  }
+  if (typeof normalized.en === "string") {
+    return normalized.en;
+  }
+  if (typeof normalized.ru === "string") {
+    return normalized.ru;
+  }
+  return Object.values(normalized).find((text) => text.trim().length > 0) ?? null;
+}
+
 export function normalizeSkillScenarioSteps(
   value: unknown
 ): import("@persai/runtime-contract").RuntimeBundleSkillScenarioStep[] {
@@ -2317,43 +2322,4 @@ function normalizeInstructionCard(value: unknown): EnabledSkillPromptInstruction
     examples: normalizeStringArray(row.examples),
     whenToUse: typeof row.whenToUse === "string" ? row.whenToUse : ""
   };
-}
-
-function readEnabledSkillLimitFromBillingHints(value: unknown): number | null {
-  const row = asRecord(value);
-  const skillPolicy = asRecord(row?.skillPolicy ?? null);
-  return (
-    asNonNegativeInteger(skillPolicy?.maxEnabledSkills) ??
-    asNonNegativeInteger(row?.maxEnabledSkills)
-  );
-}
-
-function readEnabledSkillLimitFromLimitsPermissions(value: unknown): number | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  for (const item of value) {
-    const row = asRecord(item);
-    if (
-      row?.key === "enabled_skills_limit" ||
-      row?.key === "max_enabled_skills" ||
-      row?.key === "skill_assignments_limit"
-    ) {
-      const limit = asNonNegativeInteger(row.limit) ?? asNonNegativeInteger(row.value);
-      if (limit !== null) {
-        return limit;
-      }
-    }
-  }
-  return null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function asNonNegativeInteger(value: unknown): number | null {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }

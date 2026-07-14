@@ -40,6 +40,7 @@ const BROWSER_CONFIG = {
 function createBundle(options?: { todoWritePolicyEnabled?: boolean }) {
   const todoWritePolicyEnabled = options?.todoWritePolicyEnabled ?? true;
   return compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "assistant-1",
       assistantHandle: "a-test",

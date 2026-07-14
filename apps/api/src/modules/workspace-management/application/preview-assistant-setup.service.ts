@@ -22,6 +22,7 @@ import {
   applyAssistantGenderVoiceDefaults,
   normalizeAssistantVoiceProfile
 } from "./assistant-voice-profile";
+import { CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION } from "./assistant-materialization-version";
 import { normalizeAssistantGender } from "./assistant-gender";
 import {
   AssistantRuntimeError,
@@ -66,8 +67,6 @@ function resolvePreviewTurnPrompt(runtimeBundle: {
     "Native runtime setup preview prompt is missing from the materialized bundle."
   );
 }
-
-const PREVIEW_MATERIALIZATION_ALGORITHM_VERSION = 1;
 
 @Injectable()
 export class PreviewAssistantSetupService {
@@ -275,7 +274,7 @@ export class PreviewAssistantSetupService {
         assistantId: input.assistantId,
         publishedVersionId: input.previewVersion.id,
         sourceAction: "publish",
-        algorithmVersion: PREVIEW_MATERIALIZATION_ALGORITHM_VERSION,
+        algorithmVersion: CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION,
         materializedAtConfigGeneration: input.artifacts.currentConfigGeneration,
         layers: input.artifacts.layers as Prisma.InputJsonValue,
         runtimeBundle: input.artifacts.runtimeBundle as unknown as Prisma.InputJsonValue,
@@ -291,7 +290,7 @@ export class PreviewAssistantSetupService {
       update: {
         assistantId: input.assistantId,
         sourceAction: "publish",
-        algorithmVersion: PREVIEW_MATERIALIZATION_ALGORITHM_VERSION,
+        algorithmVersion: CURRENT_ASSISTANT_MATERIALIZATION_ALGORITHM_VERSION,
         materializedAtConfigGeneration: input.artifacts.currentConfigGeneration,
         layers: input.artifacts.layers as Prisma.InputJsonValue,
         runtimeBundle: input.artifacts.runtimeBundle as unknown as Prisma.InputJsonValue,

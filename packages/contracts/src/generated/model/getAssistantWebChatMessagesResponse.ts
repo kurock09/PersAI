@@ -8,7 +8,7 @@ import type { AssistantWebChatMessageState } from "./assistantWebChatMessageStat
 import type { AssistantWebChatActiveTurnState } from "./assistantWebChatActiveTurnState";
 import type { AssistantWebChatActiveMediaJobState } from "./assistantWebChatActiveMediaJobState";
 import type { AssistantWebChatActiveDocumentJobState } from "./assistantWebChatActiveDocumentJobState";
-import type { PendingBrowserLoginState } from "./pendingBrowserLoginState";
+import type { GetAssistantWebChatMessagesResponsePendingBrowserLogin } from "./getAssistantWebChatMessagesResponsePendingBrowserLogin";
 
 export interface GetAssistantWebChatMessagesResponse {
   /** @nullable */
@@ -21,5 +21,5 @@ export interface GetAssistantWebChatMessagesResponse {
   activeMediaJobs?: AssistantWebChatActiveMediaJobState[];
   activeDocumentJobs?: AssistantWebChatActiveDocumentJobState[];
   /** @nullable */
-  pendingBrowserLogin?: PendingBrowserLoginState | null;
+  pendingBrowserLogin?: GetAssistantWebChatMessagesResponsePendingBrowserLogin;
 }

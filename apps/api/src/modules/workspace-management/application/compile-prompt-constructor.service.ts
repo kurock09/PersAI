@@ -62,6 +62,7 @@ export class CompilePromptConstructorService {
       timezone: string;
     };
     toolPolicies: RuntimeToolPolicy[];
+    assistantRoleMission?: string | null;
     enabledSkillCards?: EnabledSkillPromptCard[];
     promptTemplates: PromptTemplateMap;
     /**
@@ -86,6 +87,7 @@ export class CompilePromptConstructorService {
         params.publishedVersion,
         params.promptTemplates.identity ?? null
       ),
+      assistantRole: this.generateAssistantRolePrompt(params.assistantRoleMission ?? null),
       enabledSkills: this.generateEnabledSkillsPrompt(
         params.enabledSkillCards ?? [],
         params.promptTemplates.enabled_skills ?? null
@@ -121,6 +123,7 @@ export class CompilePromptConstructorService {
       soul: promptDocuments.soul,
       user: promptDocuments.user,
       identity: promptDocuments.identity,
+      assistantRole: promptDocuments.assistantRole ?? "",
       enabledSkills: promptDocuments.enabledSkills ?? "",
       remindersProtocol: this.generateRemindersProtocolPrompt(
         params.promptTemplates.reminders_protocol ?? null
@@ -414,6 +417,23 @@ export class CompilePromptConstructorService {
     return skillCardsBlock;
   }
 
+  private generateAssistantRolePrompt(mission: string | null): string {
+    const normalizedMission = this.normalizeOptionalText(mission);
+    if (normalizedMission === null) {
+      return "";
+    }
+    return `<assistant_role>\n<mission>${this.escapeXmlText(normalizedMission)}</mission>\n</assistant_role>`;
+  }
+
+  private escapeXmlText(value: string): string {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&apos;");
+  }
+
   private generateToolsPrompt(_toolPolicies: RuntimeToolPolicy[], template: string | null): string {
     // ADR-074 P1 / ADR-117 Slice 4: native provider tool definitions already carry the tool
     // descriptor surface, and the DB `tools` prompt template is the single selection-guide owner.
@@ -525,6 +545,7 @@ export class CompilePromptConstructorService {
         soul_block: ordinarySections.soul,
         user_block: ordinarySections.user,
         identity_block: ordinarySections.identity,
+        assistant_role_block: ordinarySections.assistantRole ?? null,
         enabled_skills_block: ordinarySections.enabledSkills,
         reminders_protocol_block: ordinarySections.remindersProtocol ?? null,
         memory_protocol_block: ordinarySections.memoryProtocol ?? null,
@@ -544,6 +565,7 @@ export class CompilePromptConstructorService {
       this.normalizeOptionalText(ordinarySections.soul),
       this.normalizeOptionalText(ordinarySections.user),
       this.normalizeOptionalText(ordinarySections.identity),
+      this.normalizeOptionalText(ordinarySections.assistantRole),
       this.normalizeOptionalText(ordinarySections.enabledSkills),
       this.normalizeOptionalText(ordinarySections.remindersProtocol),
       this.normalizeOptionalText(ordinarySections.memoryProtocol),

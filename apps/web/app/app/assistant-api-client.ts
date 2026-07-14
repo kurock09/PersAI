@@ -14,8 +14,12 @@ import {
   type PostAdminPlatformRolloutRetryFailedResponse,
   type AdminSkillState,
   type AdminSkillUpsertRequest,
+  type AssistantRoleSelectionResponse,
+  type AssistantRoleState,
   type GetAssistantSkillsResponse,
+  type GetAssistantRolesResponse,
   type KnowledgeIndexingJobState,
+  type PutAssistantRoleRequest,
   type PutAssistantSkillAssignmentsRequest,
   type SkillDocumentState,
   type AdminPlanCreateRequest,
@@ -129,6 +133,8 @@ import {
   getAssistantBillingPaymentIntent as getAssistantBillingPaymentIntentContract,
   getAssistantBillingSubscription as getAssistantBillingSubscriptionContract,
   getAssistantPlanVisibility as getAssistantPlanVisibilityContract,
+  getAssistantRole as getAssistantRoleContract,
+  getAssistantRoles as getAssistantRolesContract,
   getAssistantSkills as getAssistantSkillsContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   getAdminAbuseControlsAssistants as getAdminAbuseControlsAssistantsContract,
@@ -141,6 +147,7 @@ import {
   getAdminSafetyPolicySettings as getAdminSafetyPolicySettingsContract,
   putAdminSafetyPolicyHeuristicRules as putAdminSafetyPolicyHeuristicRulesContract,
   putAdminSafetyPolicySettings as putAdminSafetyPolicySettingsContract,
+  putAssistantRole as putAssistantRoleContract,
   putAssistantSkillAssignments as putAssistantSkillAssignmentsContract,
   postAssistantTelegramConnect as postAssistantTelegramConnectContract,
   postAssistantTelegramRevoke as postAssistantTelegramRevokeContract,
@@ -5574,9 +5581,12 @@ export async function reindexAdminKnowledgeSource(
 }
 
 export type {
+  AssistantRoleState,
   AssistantSkillCatalogItemState,
   AdminSkillState,
   AdminSkillUpsertRequest,
+  AssistantRoleSelectionResponse as AssistantRoleSelectionState,
+  GetAssistantRolesResponse as AssistantRolesState,
   GetAssistantSkillsResponse as AssistantSkillsState,
   KnowledgeIndexingJobState,
   ProductKnowledgeTextEntryInput,
@@ -5738,6 +5748,60 @@ export async function updateAssistantSkillAssignments(
     !("assignedSkillIds" in response.data)
   ) {
     throw new Error("Unexpected non-success response for PUT /assistant/skills.");
+  }
+  return response.data;
+}
+
+export async function getAssistantRoles(token: string): Promise<GetAssistantRolesResponse> {
+  const response = await getAssistantRolesContract({
+    headers: getAuthHeaders(token)
+  });
+  if (
+    !isSuccessStatus(response.status) ||
+    typeof response.data !== "object" ||
+    response.data === null ||
+    !("roles" in response.data)
+  ) {
+    throw new Error("Unexpected non-success response for GET /assistant/roles.");
+  }
+  return response.data;
+}
+
+export async function getAssistantRole(
+  token: string,
+  assistantId: string
+): Promise<AssistantRoleSelectionResponse> {
+  const response = await getAssistantRoleContract(assistantId, {
+    headers: getAuthHeaders(token)
+  });
+  if (
+    !isSuccessStatus(response.status) ||
+    typeof response.data !== "object" ||
+    response.data === null ||
+    !("assistantId" in response.data) ||
+    !("role" in response.data)
+  ) {
+    throw new Error("Unexpected non-success response for GET /assistant/{assistantId}/role.");
+  }
+  return response.data;
+}
+
+export async function updateAssistantRole(
+  token: string,
+  assistantId: string,
+  payload: PutAssistantRoleRequest
+): Promise<AssistantRoleSelectionResponse> {
+  const response = await putAssistantRoleContract(assistantId, payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (
+    !isSuccessStatus(response.status) ||
+    typeof response.data !== "object" ||
+    response.data === null ||
+    !("assistantId" in response.data) ||
+    !("role" in response.data)
+  ) {
+    throw new Error("Unexpected non-success response for PUT /assistant/{assistantId}/role.");
   }
   return response.data;
 }

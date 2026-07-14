@@ -196,6 +196,8 @@ async function runAdr119GoldenPromptSnapshotTest(): Promise<void> {
     publishedVersion: FIXTURE_PUBLISHED_VERSION,
     userContext: FIXTURE_USER_CONTEXT,
     toolPolicies: [],
+    assistantRoleMission:
+      "Помогай пользователю доводить повседневные и рабочие задачи до полезного результата.",
     enabledSkillCards: [FIXTURE_MARKETER_SKILL],
     promptTemplates: { ...PROMPT_TEMPLATE_DEFAULTS },
     voiceDna: FIXTURE_VOICE_DNA
@@ -211,6 +213,7 @@ async function runAdr119GoldenPromptSnapshotTest(): Promise<void> {
     "rendered prompt must contain <character_notes>"
   );
   assert.ok(rendered.includes("<enabled_skills>"), "rendered prompt must contain <enabled_skills>");
+  assert.ok(rendered.includes("<assistant_role>"), "rendered prompt must contain Assistant Role");
   assert.ok(
     rendered.includes("instagram_carousel"),
     "rendered prompt must contain instagram_carousel scenario key"

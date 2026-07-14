@@ -1,5 +1,78 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-147 S2 role-only API/runtime/prompt cutover
+
+Status: **implemented locally, independently re-audited CLEAN after iterative
+parent rejection/repair, and full local gate green; uncommitted, unpushed,
+undeployed.** Founder-owned
+`chat-plan-card.tsx` / `.test.tsx` edits remain untouched and excluded.
+Local S2 worktree baseline remains `e33b656004ecc56e4722d192b988ef1e5f1e9f2d`.
+
+**Landed S2 truth:** owner-only assistant role APIs now exist at
+`GET /api/v1/assistant/roles`, `GET /api/v1/assistant/{assistantId}/role`, and
+`PUT /api/v1/assistant/{assistantId}/role` with strict UUID paths, exact
+`{ roleKey }` input, and transactional role change semantics (sorted
+current+target Role locks, owner-constrained Assistant revalidation with
+three-attempt fresh-snapshot retry, sorted chat locks, post-lock database
+`clock_timestamp()` dirty value, `roleId` update, chat skill decision/retrieval
+reset, `assistant.role_updated` audit, same-role idempotency).
+Effective runtime Skill reads now resolve only through
+`Assistant.roleId -> AssistantRoleSkill -> active Skill`; prompt materialization
+adds one XML-escaped localized Role mission stable-prefix block. Production and
+preview materializers share algorithm v2, and new code treats every older spec
+as stale independently of generation/dirty timestamps. Runtime bundles carry
+non-model `effectiveRoleId`; internal skill-state persistence requires
+`expectedRoleId` and rejects stale role snapshots with
+`stale_assistant_role_snapshot`. Runtime persistence, Skill archive, scenario
+mutation, and future S4 Role-Skill replacement share the sorted lock order
+`Skill -> AssistantRole -> Assistant -> AssistantChat -> AssistantRoleSkill`.
+Scenario create/update/archive locks the parent Skill before discovering linked
+Roles or taking its Assistant snapshot, then atomically marks affected
+Assistants dirty and clears both chat Skill-state fields. Release identifies an
+unlocked candidate Skill, acquires canonical locks, and revalidates locked chat
+state with bounded fresh-candidate retry. S4 must lock every involved Skill
+before Role so absent links cannot enter a discovered scope. Role PUT remains
+the Skill/link-free Role→Assistant subsequence. Internal
+Assistant/expected-Role/engage-Skill ids
+are typed-validated before raw UUID casts. Production bootstrap/migration truth
+places the Role block after identity and before enabled Skills. The legacy
+`/assistant/skills` controller, Clerk routes, OpenAPI, generated client, and web
+wrapper are restored through S2.
+
+**Verification PASS:** `corepack pnpm test` in `apps/api` and `apps/runtime`;
+recursive workspace lint; repository format check; API, web, runtime,
+runtime-bundle, and contracts typechecks; `git diff --check`; focused Role,
+prompt/migration/golden, Knowledge, archive-race, materialization, and
+stale-state tests. Contracts were generated twice through the deterministic
+canonical OpenAPI + Orval + ordinary Prettier path; the second run preserved the
+complete tracked+untracked contracts tree hash
+(`67d94adb418d470fa8a9f3d354d6fe2e8eac5a25`).
+OpenAPI's legitimate nullable-alias/import output is accepted as generated
+truth; the generic Windows write retry contains no field/type/import
+transformations and does not retry access-denied failures. No shared/dev DB
+migration was run.
+
+**Residuals / out of scope:** no S3 user Role UI conversion, no S4 Admin/MCP
+Role constructor, no S5 physical legacy deletion, no push/deploy/live
+acceptance. Legacy `AssistantSkillAssignment` storage and its generated
+management API/web client remain physically present for the unchanged UI; they
+are no longer effective runtime truth. A real two-connection Postgres race
+remains isolated-DB S6 evidence; S2 service outcomes and SQL/order contracts are
+covered without touching the shared database.
+
+**Parent audit:** repeated independent reviews rejected missing production
+prompt wiring, optional stale authority, TOCTOU writes, premature legacy API
+removal, rolling bundle freshness, dirty timestamp ordering, scenario
+invalidation, Role enrollment, and absent RoleSkill insertion gaps. The final
+Skill-first authority design closes each finding; acceptance re-audit returned
+**CLEAN** with no blocker/high. Real multi-connection proof remains S6 evidence.
+
+**Next:** commit only audited S2 files, excluding founder ChatPlanCard edits.
+Then delegate S3 localized premium user Role UX. Keep S1-S5 local; no
+push/deploy.
+
+---
+
 ## 2026-07-14 — ADR-147 S1 Role schema and safe expand
 
 Status: **implemented locally and parent-audited CLEAN; uncommitted, unpushed,

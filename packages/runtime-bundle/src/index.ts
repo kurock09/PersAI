@@ -174,6 +174,7 @@ export interface AssistantRuntimePromptDocuments {
   soul: string;
   user: string;
   identity: string;
+  assistantRole?: string;
   enabledSkills?: string;
   tools: string;
   agents: string;
@@ -212,6 +213,7 @@ export interface AssistantRuntimeCompiledOrdinaryPromptSections {
   soul: string;
   user: string;
   identity: string;
+  assistantRole?: string;
   enabledSkills: string;
   /** ADR-119 Slice 5 — reminders protocol declaration block for the stable cache prefix. */
   remindersProtocol?: string;
@@ -273,6 +275,7 @@ export interface AssistantRuntimeBundle {
   runtime: AssistantRuntimeBundleRuntimeConfig;
   governance: AssistantRuntimeBundleGovernance;
   channels: AssistantRuntimeBundleChannels;
+  effectiveRoleId: string;
   skills?: AssistantRuntimeBundleSkills;
   promptDocuments: AssistantRuntimePromptDocuments;
   promptConstructor: AssistantRuntimePromptConstructor;
@@ -285,6 +288,7 @@ export interface CreateAssistantRuntimeBundleInput {
   runtime: AssistantRuntimeBundleRuntimeConfig;
   governance: AssistantRuntimeBundleGovernance;
   channels: AssistantRuntimeBundleChannels;
+  effectiveRoleId: string;
   skills?: AssistantRuntimeBundleSkills;
   promptDocuments: AssistantRuntimePromptDocuments;
   promptConstructor?: AssistantRuntimePromptConstructor;
@@ -327,6 +331,9 @@ function sortKeysDeep(value: unknown): unknown {
 export function createAssistantRuntimeBundle(
   input: CreateAssistantRuntimeBundleInput
 ): AssistantRuntimeBundle {
+  if (input.effectiveRoleId.trim().length === 0) {
+    throw new Error("effectiveRoleId is required.");
+  }
   const promptConstructor: AssistantRuntimePromptConstructor = input.promptConstructor ?? {
     ordinary: {
       // ADR-119 Slice 1 — the fallback synthesizer is the legacy concatenation
@@ -342,6 +349,7 @@ export function createAssistantRuntimeBundle(
         soul: input.promptDocuments.soul,
         user: input.promptDocuments.user,
         identity: input.promptDocuments.identity,
+        assistantRole: input.promptDocuments.assistantRole ?? "",
         enabledSkills: input.promptDocuments.enabledSkills ?? "",
         tools: input.promptDocuments.tools,
         agents: input.promptDocuments.agents,
@@ -357,6 +365,7 @@ export function createAssistantRuntimeBundle(
         input.promptDocuments.soul,
         input.promptDocuments.user,
         input.promptDocuments.identity,
+        input.promptDocuments.assistantRole,
         input.promptDocuments.enabledSkills,
         input.promptDocuments.tools,
         input.promptDocuments.agents
@@ -370,6 +379,7 @@ export function createAssistantRuntimeBundle(
           input.promptDocuments.soul,
           input.promptDocuments.user,
           input.promptDocuments.identity,
+          input.promptDocuments.assistantRole,
           input.promptDocuments.enabledSkills,
           input.promptDocuments.tools,
           input.promptDocuments.agents
@@ -395,6 +405,7 @@ export function createAssistantRuntimeBundle(
     runtime: input.runtime,
     governance: input.governance,
     channels: input.channels,
+    effectiveRoleId: input.effectiveRoleId,
     ...(input.skills === undefined ? {} : { skills: input.skills }),
     promptDocuments: {
       ...input.promptDocuments,

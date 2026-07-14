@@ -29,6 +29,7 @@ import type {
   ArchiveWorkspaceVideoPersona200,
   AssistantDraftUpdateRequest,
   AssistantMemoryDoNotRememberRequest,
+  AssistantRoleSelectionResponse,
   AssistantRollbackRequest,
   AssistantSandboxEgressRequest,
   AssistantSandboxEgressResponse,
@@ -105,6 +106,7 @@ import type {
   GetAssistantPersonaArchetypesResponse,
   GetAssistantPlanVisibilityResponse,
   GetAssistantResponse,
+  GetAssistantRolesResponse,
   GetAssistantRuntimePreflightResponse,
   GetAssistantSkillsResponse,
   GetAssistantTaskItemsResponse,
@@ -200,6 +202,7 @@ import type {
   PutAdminSitePageRequest,
   PutAdminSitePageResponse,
   PutAdminToolPathPricingCatalogResponse,
+  PutAssistantRoleRequest,
   PutAssistantSkillAssignmentsRequest,
   ReplayNotificationDeadLetter200,
   SkillAuthoringDraftRequest,
@@ -463,6 +466,11 @@ export type putAssistantSandboxEgressResponse500 = {
   status: 500;
 };
 
+export type putAssistantSandboxEgressResponse503 = {
+  data: ErrorEnvelope;
+  status: 503;
+};
+
 export type putAssistantSandboxEgressResponseSuccess = putAssistantSandboxEgressResponse200 & {
   headers: Headers;
 };
@@ -473,6 +481,7 @@ export type putAssistantSandboxEgressResponseError = (
   | putAssistantSandboxEgressResponse404
   | putAssistantSandboxEgressResponse409
   | putAssistantSandboxEgressResponse500
+  | putAssistantSandboxEgressResponse503
 ) & {
   headers: Headers;
 };
@@ -5711,7 +5720,7 @@ export const deleteAdminSkillScenario = async (
 };
 
 /**
- * @summary List Skills available to and assigned for the current assistant
+ * @summary List physically retained direct Skill assignments for the current assistant
  */
 export type getAssistantSkillsResponse200 = {
   data: GetAssistantSkillsResponse;
@@ -5762,7 +5771,7 @@ export const getAssistantSkills = async (
 };
 
 /**
- * @summary Replace user-controlled Skill assignments for the current assistant
+ * @summary Replace physically retained direct Skill assignments for the current assistant
  */
 export type putAssistantSkillAssignmentsResponse200 = {
   data: GetAssistantSkillsResponse;
@@ -5825,6 +5834,176 @@ export const putAssistantSkillAssignments = async (
     method: "PUT",
     headers: { "Content-Type": "application/json", ...options?.headers },
     body: JSON.stringify(putAssistantSkillAssignmentsRequest)
+  });
+};
+
+/**
+ * @summary List active Assistant Roles available to the current member
+ */
+export type getAssistantRolesResponse200 = {
+  data: GetAssistantRolesResponse;
+  status: 200;
+};
+
+export type getAssistantRolesResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantRolesResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantRolesResponseSuccess = getAssistantRolesResponse200 & {
+  headers: Headers;
+};
+export type getAssistantRolesResponseError = (
+  | getAssistantRolesResponse401
+  | getAssistantRolesResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantRolesResponse =
+  | getAssistantRolesResponseSuccess
+  | getAssistantRolesResponseError;
+
+export const getGetAssistantRolesUrl = () => {
+  return `/assistant/roles`;
+};
+
+export const getAssistantRoles = async (
+  options?: RequestInit
+): Promise<getAssistantRolesResponse> => {
+  return customFetch<getAssistantRolesResponse>(getGetAssistantRolesUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Read the owner-controlled Assistant Role for a specific assistant
+ */
+export type getAssistantRoleResponse200 = {
+  data: AssistantRoleSelectionResponse;
+  status: 200;
+};
+
+export type getAssistantRoleResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAssistantRoleResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAssistantRoleResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAssistantRoleResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type getAssistantRoleResponseSuccess = getAssistantRoleResponse200 & {
+  headers: Headers;
+};
+export type getAssistantRoleResponseError = (
+  | getAssistantRoleResponse401
+  | getAssistantRoleResponse403
+  | getAssistantRoleResponse404
+  | getAssistantRoleResponse500
+) & {
+  headers: Headers;
+};
+
+export type getAssistantRoleResponse =
+  | getAssistantRoleResponseSuccess
+  | getAssistantRoleResponseError;
+
+export const getGetAssistantRoleUrl = (assistantId: string) => {
+  return `/assistant/${assistantId}/role`;
+};
+
+export const getAssistantRole = async (
+  assistantId: string,
+  options?: RequestInit
+): Promise<getAssistantRoleResponse> => {
+  return customFetch<getAssistantRoleResponse>(getGetAssistantRoleUrl(assistantId), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Update the owner-controlled Assistant Role for a specific assistant
+ */
+export type putAssistantRoleResponse200 = {
+  data: AssistantRoleSelectionResponse;
+  status: 200;
+};
+
+export type putAssistantRoleResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAssistantRoleResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type putAssistantRoleResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type putAssistantRoleResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type putAssistantRoleResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type putAssistantRoleResponseSuccess = putAssistantRoleResponse200 & {
+  headers: Headers;
+};
+export type putAssistantRoleResponseError = (
+  | putAssistantRoleResponse400
+  | putAssistantRoleResponse401
+  | putAssistantRoleResponse403
+  | putAssistantRoleResponse404
+  | putAssistantRoleResponse500
+) & {
+  headers: Headers;
+};
+
+export type putAssistantRoleResponse =
+  | putAssistantRoleResponseSuccess
+  | putAssistantRoleResponseError;
+
+export const getPutAssistantRoleUrl = (assistantId: string) => {
+  return `/assistant/${assistantId}/role`;
+};
+
+export const putAssistantRole = async (
+  assistantId: string,
+  putAssistantRoleRequest: PutAssistantRoleRequest,
+  options?: RequestInit
+): Promise<putAssistantRoleResponse> => {
+  return customFetch<putAssistantRoleResponse>(getPutAssistantRoleUrl(assistantId), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(putAssistantRoleRequest)
   });
 };
 

@@ -196,6 +196,7 @@ const BASE_TOOL_POLICIES = [
 
 function createWarmInput(bundleId: string, assistantId: string, publishedVersionId: string) {
   const artifact = compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId,
       assistantHandle: "a-test",
@@ -333,6 +334,7 @@ function createWarmInput(bundleId: string, assistantId: string, publishedVersion
 
 function createWarmInputMissingToolPolicy() {
   const artifact = compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "assistant-missing-policy",
       assistantHandle: "a-test",

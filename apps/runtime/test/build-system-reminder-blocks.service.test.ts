@@ -58,6 +58,7 @@ function createBundle(
   skills?: Array<{ id: string; name: string; scenarios?: RuntimeBundleSkillScenario[] }>
 ) {
   return compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "assistant-1",
       assistantHandle: "a-test",

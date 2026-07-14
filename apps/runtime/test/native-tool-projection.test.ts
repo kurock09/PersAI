@@ -97,6 +97,7 @@ function assertImportsRuntimeContractSymbols(params: {
 
 export async function runNativeToolProjectionTest(): Promise<void> {
   const artifact = compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "assistant-1",
       assistantHandle: "a-test",
@@ -1810,6 +1811,7 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   // When bundle has skills.enabled + a matching policy, the skill tool IS projected.
   {
     const bundleWithSkills = compileAssistantRuntimeBundle({
+      effectiveRoleId: "role-test",
       metadata: artifact.bundle.metadata,
       persona: artifact.bundle.persona,
       userContext: artifact.bundle.userContext,
@@ -2291,6 +2293,7 @@ export async function runMediaPromptFragmentsSanityTest(): Promise<void> {
   // Rule A must NOT appear inline in the model-facing image tool descriptions.
   // (The projection test fixture produces tools via the real projection pipeline.)
   const artifact = compileAssistantRuntimeBundle({
+    effectiveRoleId: "role-test",
     metadata: {
       assistantId: "sanity-1",
       assistantHandle: "a-test",
@@ -2531,6 +2534,7 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
       `WHEN TO USE: Use ${toolName} here.\nWHEN NOT TO USE: Skip ${toolName} here.\nEXAMPLES:\n- ${toolName}({}) — example.\nGOTCHAS:\n- Watch out when using ${toolName}.`;
 
     const knowledgeBundle = compileAssistantRuntimeBundle({
+      effectiveRoleId: "role-test",
       metadata: {
         assistantId: "slice7-1",
         assistantHandle: "a-test",
@@ -2938,6 +2942,7 @@ export async function runAdr119Slice7DescriptorTests(): Promise<void> {
     const longGuidance = `${longGuidancePrefix}${longGuidancePadding}\nWHEN NOT TO USE: Never.\nEXAMPLES:\n- ex.\nGOTCHAS:\n- g.`;
 
     const truncationBundle = compileAssistantRuntimeBundle({
+      effectiveRoleId: "role-test",
       metadata: {
         assistantId: "slice7-trunc",
         assistantHandle: "a-test",
