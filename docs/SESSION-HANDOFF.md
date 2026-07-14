@@ -2,9 +2,10 @@
 
 ## 2026-07-15 — ADR-148 cleanup false-positive remaining_pids repair
 
-Status: **implemented in worktree `adr148-cleanup-remaining-pids`; sandbox
-`108/108` PASS; sandbox typecheck/lint/prettier PASS. Ready to commit/push
-sandbox image rebuild so live warmth can hold.**
+Status: **pushed to `origin/main` as `2342c2ae`; sandbox `108/108` PASS;
+sandbox typecheck/lint/prettier PASS. Await Dev Image Publish sandbox pin, then
+live-prove `exec_job_pod_clean` (not `cleanup_retired`) across two shell commands
+and `pip install --user` persistence.**
 
 Root cause (gVisor exec image, live-proved):
 
