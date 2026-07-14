@@ -28,15 +28,16 @@ import { useAppDataContext } from "../_components/app-shell";
 import {
   getAssistant,
   getAssistantPersonaArchetypes,
-  getAssistantSkills,
+  getAssistantRole,
+  getAssistantRoles,
   getAssistantVoiceSettings,
   patchAssistantDraft,
   postAssistantCreate,
   postAssistantPublish,
   postAssistantSetupPreview,
-  updateAssistantSkillAssignments,
   uploadAssistantAvatar,
-  type AssistantSkillsState,
+  type AssistantRoleSelectionState,
+  type AssistantRolesState,
   type AssistantPersonaArchetypeState,
   type AssistantVoiceSettingsState
 } from "../assistant-api-client";
@@ -57,7 +58,7 @@ import {
   resolveDefaultYandexVoiceOption,
   YANDEX_VOICE_OPTIONS
 } from "../_components/assistant-voice-options";
-import { AssistantSkillsManager } from "../_components/assistant-skills-manager";
+import { AssistantRoleSelector } from "../_components/assistant-role-selector";
 import {
   ASSISTANT_AVATAR_PRESETS,
   findAssistantAvatarPresetByUrl
@@ -290,16 +291,22 @@ export default function SetupWizardPage() {
   const [runtimePreview, setRuntimePreview] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
-  const [skillsState, setSkillsState] = useState<AssistantSkillsState | null>(null);
-  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
-  const [skillsLoading, setSkillsLoading] = useState(false);
-  const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [rolesState, setRolesState] = useState<AssistantRolesState | null>(null);
+  const [currentRoleState, setCurrentRoleState] = useState<AssistantRoleSelectionState | null>(
+    null
+  );
+  const [selectedRoleKey, setSelectedRoleKey] = useState<string | null>(null);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [rolesError, setRolesError] = useState<string | null>(null);
   const previewDraftPersistedRef = useRef(false);
   const autoPreviewStepRef = useRef<number | null>(null);
-  const skillsLoadAttemptedRef = useRef(false);
+  const rolesLoadAttemptedRef = useRef(false);
+  const rolesGenerationRef = useRef(0);
+  const rolesAbortRef = useRef<AbortController | null>(null);
   const setupPrerequisitesRef = useRef({ onboarding: false, assistant: false });
   const setupPrerequisitesPromiseRef = useRef<Promise<void> | null>(null);
   const [existingAssistant, setExistingAssistant] = useState<AssistantLifecycleState | null>(null);
+  const existingAssistantRef = useRef<AssistantLifecycleState | null>(null);
   const [voiceSettings, setVoiceSettings] = useState<AssistantVoiceSettingsState | null>(null);
   const [setupMode, setSetupMode] = useState<SetupMode>("create");
   const [hasCompletedOnboardingProfile, setHasCompletedOnboardingProfile] = useState<
@@ -337,6 +344,10 @@ export default function SetupWizardPage() {
   }, [appData.reload]);
 
   useEffect(() => {
+    existingAssistantRef.current = existingAssistant;
+  }, [existingAssistant]);
+
+  useEffect(() => {
     if (!isLoaded || !isSignedIn) {
       return;
     }
@@ -365,6 +376,7 @@ export default function SetupWizardPage() {
             return;
           }
           setExistingAssistant(existing);
+          existingAssistantRef.current = existing;
           if (existing !== null) {
             setupPrerequisitesRef.current.assistant = true;
           }
@@ -514,6 +526,15 @@ export default function SetupWizardPage() {
         assistantName.trim().length >= 2 &&
         (selectedAvatarPresetId !== null || currentAvatarPreviewUrl !== null)
       );
+    if (step === 2) {
+      return (
+        selectedRoleKey !== null &&
+        currentRoleState !== null &&
+        rolesState?.roles.some(
+          (role) => role.id === currentRoleState.role.id && role.key === currentRoleState.role.key
+        ) === true
+      );
+    }
     return true;
   }, [
     step,
@@ -523,7 +544,10 @@ export default function SetupWizardPage() {
     timezone,
     assistantName,
     selectedAvatarPresetId,
-    currentAvatarPreviewUrl
+    currentAvatarPreviewUrl,
+    selectedRoleKey,
+    currentRoleState,
+    rolesState
   ]);
 
   const handleFileUpload = useCallback(
@@ -636,6 +660,7 @@ export default function SetupWizardPage() {
         const createdAssistant = await postAssistantCreate(await resolveSetupToken(true));
         setupPrerequisitesRef.current.assistant = true;
         setExistingAssistant(createdAssistant);
+        existingAssistantRef.current = createdAssistant;
       }
     })();
 
@@ -683,26 +708,71 @@ export default function SetupWizardPage() {
     previewDraftPersistedRef.current = true;
   }, [ensureSetupDraftReady]);
 
-  const loadSkills = useCallback(async () => {
-    setSkillsLoading(true);
-    setSkillsError(null);
-    try {
-      await ensureSetupPrerequisites();
-      const nextState = await getAssistantSkills(await resolveSetupToken(true));
-      setSkillsState(nextState);
-      setSelectedSkillIds(nextState.assignedSkillIds);
-    } catch (error) {
-      setSkillsError(error instanceof Error ? error.message : t("skillsLoadFailed"));
-    } finally {
-      setSkillsLoading(false);
+  const ensureSetupAssistantReady = useCallback(async () => {
+    await ensureSetupPrerequisites();
+    const assistant = existingAssistantRef.current;
+    if (assistant === null) {
+      throw new Error(t("roleLoadFailed"));
     }
-  }, [ensureSetupPrerequisites, resolveSetupToken, t]);
+    return assistant;
+  }, [ensureSetupPrerequisites, t]);
 
-  const retryLoadSkills = useCallback(() => {
-    skillsLoadAttemptedRef.current = true;
-    setSkillsError(null);
-    void loadSkills();
-  }, [loadSkills]);
+  const loadRoles = useCallback(async () => {
+    rolesGenerationRef.current += 1;
+    const generation = rolesGenerationRef.current;
+    rolesAbortRef.current?.abort();
+    const controller = new AbortController();
+    rolesAbortRef.current = controller;
+    setRolesLoading(true);
+    setRolesError(null);
+    setRolesState(null);
+    setCurrentRoleState(null);
+    setSelectedRoleKey(null);
+    try {
+      const assistant = await ensureSetupAssistantReady();
+      if (generation !== rolesGenerationRef.current) {
+        return;
+      }
+      const token = await resolveSetupToken(true);
+      const [catalog, currentRole] = await Promise.all([
+        getAssistantRoles(token, controller.signal),
+        getAssistantRole(token, assistant.id, controller.signal)
+      ]);
+      if (generation !== rolesGenerationRef.current) {
+        return;
+      }
+      const canonicalRole = catalog.roles.find(
+        (role) => role.id === currentRole.role.id && role.key === currentRole.role.key
+      );
+      if (currentRole.assistantId !== assistant.id || canonicalRole === undefined) {
+        throw new Error(t("roleLoadFailed"));
+      }
+      setRolesState(catalog);
+      setCurrentRoleState({ ...currentRole, role: canonicalRole });
+      setSelectedRoleKey(canonicalRole.key);
+    } catch (error) {
+      if (generation !== rolesGenerationRef.current || controller.signal.aborted) {
+        return;
+      }
+      setRolesState(null);
+      setCurrentRoleState(null);
+      setSelectedRoleKey(null);
+      setRolesError(error instanceof Error ? error.message : t("roleLoadFailed"));
+    } finally {
+      if (generation === rolesGenerationRef.current) {
+        setRolesLoading(false);
+        if (rolesAbortRef.current === controller) {
+          rolesAbortRef.current = null;
+        }
+      }
+    }
+  }, [ensureSetupAssistantReady, resolveSetupToken, t]);
+
+  const retryLoadRoles = useCallback(() => {
+    rolesLoadAttemptedRef.current = true;
+    setRolesError(null);
+    void loadRoles();
+  }, [loadRoles]);
 
   const loadRuntimePreview = useCallback(async () => {
     setPreviewLoading(true);
@@ -721,15 +791,27 @@ export default function SetupWizardPage() {
 
   useEffect(() => {
     if (step !== 2) {
-      skillsLoadAttemptedRef.current = false;
+      rolesLoadAttemptedRef.current = false;
+      rolesGenerationRef.current += 1;
+      rolesAbortRef.current?.abort();
+      rolesAbortRef.current = null;
       return;
     }
-    if (skillsState !== null || skillsLoading || skillsLoadAttemptedRef.current) {
+    if (rolesState !== null || rolesLoading || rolesLoadAttemptedRef.current) {
       return;
     }
-    skillsLoadAttemptedRef.current = true;
-    void loadSkills();
-  }, [loadSkills, skillsLoading, skillsState, step]);
+    rolesLoadAttemptedRef.current = true;
+    void loadRoles();
+  }, [loadRoles, rolesLoading, rolesState, step]);
+
+  useEffect(
+    () => () => {
+      rolesGenerationRef.current += 1;
+      rolesAbortRef.current?.abort();
+      rolesAbortRef.current = null;
+    },
+    []
+  );
 
   useEffect(() => {
     if (step !== 3) {
@@ -760,12 +842,27 @@ export default function SetupWizardPage() {
           avatarUrl: uploaded.avatarUrl
         });
       }
-
-      await updateAssistantSkillAssignments(await resolveSetupToken(true), {
-        skillIds: selectedSkillIds
+      const assistant = await ensureSetupAssistantReady();
+      const canonicalCurrentRole =
+        currentRoleState?.assistantId === assistant.id ? currentRoleState.role : null;
+      const selectedRole =
+        selectedRoleKey === null
+          ? null
+          : (rolesState?.roles.find((role) => role.key === selectedRoleKey) ?? null);
+      if (
+        canonicalCurrentRole === null ||
+        selectedRole === null ||
+        !rolesState?.roles.some(
+          (role) => role.id === canonicalCurrentRole.id && role.key === canonicalCurrentRole.key
+        )
+      ) {
+        throw new Error(t("roleRequired"));
+      }
+      await postAssistantPublish(await resolveSetupToken(true), {
+        assistantId: assistant.id,
+        expectedRoleKey: canonicalCurrentRole.key,
+        roleKey: selectedRole.key
       });
-
-      await postAssistantPublish(await resolveSetupToken(true));
       await appData.reload();
       await appData.reloadChats();
       const assistantDisplayName = assistantName.trim() || t("assistantFallbackName");
@@ -788,11 +885,14 @@ export default function SetupWizardPage() {
   }, [
     appData,
     assistantName,
+    currentRoleState,
     customAvatarFile,
+    ensureSetupAssistantReady,
     persistDraftForPreview,
     resolveSetupToken,
+    rolesState,
     router,
-    selectedSkillIds,
+    selectedRoleKey,
     setupMode,
     t
   ]);
@@ -1235,28 +1335,20 @@ export default function SetupWizardPage() {
                     </div>
                   </div>
 
-                  <div className="mt-6 rounded-[28px] border border-border/70 bg-background/88 p-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_1px_2px_rgba(0,0,0,0.03)] sm:p-5">
-                    <AssistantSkillsManager
-                      state={skillsState}
-                      selectedSkillIds={selectedSkillIds}
-                      onChange={setSelectedSkillIds}
-                      loading={skillsLoading}
-                      error={skillsError}
-                      mode="setup"
+                  <div className="mt-6 text-left">
+                    <AssistantRoleSelector
+                      roles={rolesState?.roles ?? null}
+                      selectedRoleKey={selectedRoleKey}
+                      currentRoleKey={currentRoleState?.role.key ?? null}
+                      onSelect={setSelectedRoleKey}
+                      title={t("roleTitle")}
+                      description={t("roleSubtitle")}
+                      loading={rolesLoading}
+                      error={rolesError}
+                      onRetry={retryLoadRoles}
                       disabled={creating}
-                      collapsible
-                      initialVisibleCount={4}
+                      embedded
                     />
-                    {skillsError && !skillsLoading ? (
-                      <button
-                        type="button"
-                        onClick={retryLoadSkills}
-                        className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-border bg-surface-raised px-3 py-1.5 text-xs font-medium text-text transition-colors hover:bg-surface-hover"
-                      >
-                        <RefreshCcw className="h-3.5 w-3.5" />
-                        {t("retrySkillsLoad")}
-                      </button>
-                    ) : null}
                   </div>
                 </div>
               </StepContainer>

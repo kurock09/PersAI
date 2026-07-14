@@ -2035,7 +2035,7 @@ corepack pnpm --filter @persai/runtime exec tsx test/turn-routing.service.test.t
 corepack pnpm --filter @persai/runtime exec tsx test/turn-execution.service.test.ts
 corepack pnpm --filter @persai/web exec vitest run app/admin/skills/page.test.tsx
 corepack pnpm --filter @persai/web exec vitest run app/app/_components/activity-badge.test.tsx
-corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-skills-manager.test.ts app/app/setup/page.test.tsx
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-role-selector.test.tsx app/app/_components/assistant-role-settings.test.tsx app/app/setup/page.test.tsx
 ```
 
 For shared admin-managed KB ownership changes, also verify:
@@ -2365,7 +2365,7 @@ corepack pnpm --filter @persai/web exec vitest run app/admin/plans/page.test.tsx
 - `identity-access.module.test.ts` and generated-contract checks keep both the new Role routes and retained `/assistant/skills` routes registered through S2.
 - `manage-assistant-skills.service.test.ts` remains the explicit physical direct-assignment management regression only; those rows are not effective-Skill authority.
 - `assistant-role-bootstrap.test.ts` guards the dev seed primitive: deterministic-id insert-only upsert semantics preserve admin-editable copy and fail closed on id/key mismatch. Production API startup does not bootstrap or mutate Roles.
-- Contract generation is canonical OpenAPI 3.0 + Orval + Prettier only. Nullable `$ref` fields use `nullable: true` with `allOf`; generated nullable alias files/imports are accepted generator truth. The generic formatter wrapper only retries bounded transient Windows `EBUSY`/`EPERM`/`UNKNOWN` replacement failures; access-denied failures are immediate, and no field/type/import transformation exists. Two consecutive generation runs must leave the same diff hash.
+- Contract generation is canonical OpenAPI 3.0 + Orval + Prettier only. Nullable `$ref` fields use `nullable: true` with `allOf`; generated nullable alias files/imports are accepted generator truth. `packages/contracts/scripts/orval-generate-retry.mjs` launches the resolved Orval CLI and retries only when captured output proves transient Windows `UNKNOWN … open` / `EBUSY` / `EPERM` replacement failures; `EACCES`/access-denied, schema/generator errors, and arbitrary nonzero exits are not retried. The generic formatter wrapper then applies ordinary Prettier with the same bounded transient-write retry; access-denied failures are immediate, and no field/type/import transformation exists. Two consecutive generation runs must leave the same diff hash. Focused classifier/runner coverage: `packages/contracts/scripts/orval-generate-retry.test.mjs`.
 
 The API package's ordinary TypeScript and lint globs do not include every Prisma helper. Run the focused helper gate explicitly:
 
@@ -2373,6 +2373,30 @@ The API package's ordinary TypeScript and lint globs do not include every Prisma
 corepack pnpm --filter @persai/api exec tsc --noEmit --strict --skipLibCheck --module NodeNext --moduleResolution NodeNext --target ES2022 prisma/assistant-role-seed-data.ts prisma/assistant-role-bootstrap.ts
 corepack pnpm --filter @persai/api exec eslint --max-warnings=0 prisma/assistant-role-seed-data.ts prisma/assistant-role-bootstrap.ts
 corepack pnpm exec prettier --check apps/api/prisma/assistant-role-seed-data.ts apps/api/prisma/assistant-role-bootstrap.ts
+```
+
+## ADR-147 Slice 3 — user Role UX and atomic publish/recreate
+
+- `app/app/_components/assistant-role-selector.test.tsx` covers RU/EN safe copy, loading/empty/error/retry, native button/focus semantics, current-versus-selected state, localized categories, and concise mission detail.
+- `app/app/_components/assistant-role-settings.test.tsx` covers canonical PUT-response validation followed by GET confirmation, assistantId mismatch, ambiguous failure refetch, abort/unmount, active-assistant switch, and stale out-of-order rejection.
+- `app/app/setup/page.test.tsx` covers the shared Role-first setup/recreate flow, exact `{ assistantId, expectedRoleKey, roleKey }` publish, missing-current-catalog fail-closed behavior, and AbortSignal cancellation without a first-catalog-row fallback or separate web-side mutation.
+- `app/app/assistant-api-client.test.ts` covers production Role wrapper AbortSignal propagation and exact publish payload forwarding.
+- `publish-assistant-draft.service.test.ts` uses production `updated | retry` outcomes and asserts exact outer transaction identity plus assistant/workspace/owner/actor/expected/desired Role values, owner denial, invalid active role, rollback, stable conflict, and same-Role idempotency. `manage-assistant-roles.service.test.ts` retains real retry success/exhaustion and assignment rollback coverage.
+- `packages/persai-admin-mcp/test/assistant-publish.test.ts` covers canonical assistant/current-Role reads and expected-equals-desired preservation for the existing tool without adding S4 Role tools.
+- The shared Role selector/settings surface must remain RU/EN-only, premium/minimal, and free of user-facing Skill configuration vocabulary. When touching the Role UX, manually verify setup, recreate, and Settings all render only safe Role presentation fields (`name`, `description`, `mission`, `category`, `iconEmoji`, `color`) and no Skill counts/limits/add-ons.
+
+Focused S3 commands:
+
+```powershell
+corepack pnpm --filter @persai/contracts run generate
+corepack pnpm --filter @persai/contracts run typecheck
+corepack pnpm --filter @persai/web exec vitest run app/app/_components/assistant-role-selector.test.tsx app/app/_components/assistant-role-settings.test.tsx app/app/setup/page.test.tsx app/app/_components/assistant-settings.test.tsx app/app/assistant-api-client.test.ts
+corepack pnpm --filter @persai/web run typecheck
+corepack pnpm --filter @persai/api exec tsx test/manage-assistant-roles.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/publish-assistant-draft.service.test.ts
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/admin-mcp test
+corepack pnpm --filter @persai/admin-mcp run typecheck
 ```
 
 ## ADR-119 golden tests

@@ -5,7 +5,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "generate": "orval --config ./orval.config.cjs && node scripts/prettier-write-retry.mjs src/generated",
+    "generate": "node scripts/orval-generate-retry.mjs && node scripts/prettier-write-retry.mjs src/generated",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

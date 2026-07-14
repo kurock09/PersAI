@@ -2,9 +2,9 @@
 
 ## Status
 
-In progress — S0 accepted; S1 schema/expand and S2 role-only
-API/runtime/prompt cutover are implemented locally and parent-audited CLEAN. S3
-is next. No ADR-147 code has been pushed or deployed.
+In progress — S0 accepted; S1 schema/expand, S2 role-only API/runtime/prompt,
+and S3 user Role UX are implemented locally and parent-audited CLEAN. S4 is
+next. No ADR-147 code has been pushed or deployed.
 
 ## Date
 
@@ -21,9 +21,10 @@ ADR-147 is a parent-orchestrated program.
 
 - The parent owns architecture, slice boundaries, subagent dispatch, diff review,
   verification, documentation truth, deploy sequencing, and live acceptance.
-- Implementation is delegated one bounded slice at a time to the founder-
-  approved pool: GPT-5.4, Cursor Grok 4.5, or Composer. The parent selects the
-  model per slice according to implementation risk and audit reliability.
+- Implementation is delegated one bounded slice at a time. Cursor Grok 4.5 is
+  the default implementation/audit model; GPT-5.4 is used only when the slice
+  demonstrably needs stronger reasoning or Grok fails. The parent avoids
+  unnecessary expensive-model usage.
 - The parent writes the slice contract, audits every resulting diff, requires
   focused evidence, and rejects compatibility hacks, dead code, stale
   vocabulary, generated drift, or unowned abstractions.
@@ -451,9 +452,13 @@ Users configure Role, not Skills.
 - Setup and recreate use one shared active Role catalog.
 - The existing Skill checkbox block is replaced in the same setup stage; Role
   does not absorb or replace character/archetype controls.
-- Setup/recreate submit `assistantId` plus `roleKey` in their canonical
-  publish/recreate command. That application service calls the same Role
-  assignment transaction primitive inside the publish/recreate transaction; the
+- Setup/recreate submit exact
+  `{ assistantId, expectedRoleKey, roleKey }` in their canonical
+  publish/recreate command. `expectedRoleKey` is the canonical current Role from
+  the paired catalog/current GET; `roleKey` is the desired Role. The application
+  service locks and revalidates the expected Role before calling the same Role
+  assignment primitive inside the publish/recreate transaction. Drift returns
+  stable `409 assistant_publish_role_conflict` before version/apply mutation; the
   web client never performs a racy `PUT role` followed by a separate publish.
 - Full Assistant reset preserves the current `roleId`, because Role is
   independent Assistant configuration. A subsequent recreate command may
@@ -463,8 +468,10 @@ Users configure Role, not Skills.
   name/description/mission, category/icon presentation, and `Change role`.
 - `Change role` opens the shared single-select catalog.
 - Cancel makes no mutation.
-- Confirm performs one Role assignment request and shows success only from the
-  canonical response.
+- Confirm performs one Role assignment request, validates its `assistantId`,
+  then refetches catalog/current. Success is shown only after that GET confirms
+  the selected Role as displayed canonical state; an ambiguous write failure
+  also refetches before presenting the error.
 - Role changes apply immediately to the assistant and from the next turn.
 - Each assistant in a B2B account displays and changes its own Role.
 
@@ -729,13 +736,30 @@ unchanged S3 UI through S2, but neither contributes effective runtime truth.
 
 ### S3 — user Role UX
 
-- Delete `AssistantSkillsManager` and Skill-selection tests/types.
-- Replace setup/recreate Skill cards with shared single-select Role catalog and
-  one canonical publish/recreate command carrying `assistantId + roleKey`.
-- Rename Settings Skills section to Assistant Role.
-- Add current Role card and confirmed Change Role flow.
-- Preserve character/name/memory/files independence.
-- Cover single- and multi-assistant switching races.
+- **Local status update (2026-07-14): landed locally, not deployed.**
+- Deleted `AssistantSkillsManager` and direct user Skill-selection tests/types.
+- Replaced setup/recreate Skill cards with one shared single-select Role catalog.
+  Selection fails closed unless the exact canonical current Role exists in the
+  active catalog; there is no first-row fallback. Canonical publish/recreate
+  carries `{ assistantId, expectedRoleKey, roleKey }`.
+- Renamed the user Settings section from Skills to Role and added the current
+  Role card plus confirmed Change Role flow.
+- Preserved character/name/memory/files independence.
+- Added assistant/generation guards, AbortSignal propagation, response
+  `assistantId` validation, and refetch-after-ambiguity handling for
+  multi-assistant switching/out-of-order role reads/writes.
+- Repaired global publish callers: setup sends canonical-current expected plus
+  desired Role; ordinary Settings Save and existing MCP `assistant_publish`
+  preserve Role with expected equal to desired, so a concurrent Role change
+  conflicts instead of being silently overwritten. No S4 Role tools were added.
+- Role categories resolve from RU/EN message maps; setup uses embedded selector
+  chrome without duplicate Current+Selected badges; mission detail stays on
+  current/selected cards only.
+- Focused local verification covers selector/settings/setup/API-wrapper vitest,
+  honest publish transaction outcomes/rollback/ownership/idempotency/conflict,
+  Role service retry/exhaustion, and the existing MCP package suite. Full
+  repository lint/format/build/contracts-twice/diff gate is green before parent
+  re-audit.
 
 Primary files/modules:
 

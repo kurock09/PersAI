@@ -181,6 +181,7 @@ import type {
   PostAssistantMemoryDoNotRememberResponse,
   PostAssistantMemoryItemCloseOpenLoopResponse,
   PostAssistantMemoryItemForgetResponse,
+  PostAssistantPublishRequest,
   PostAssistantSetupPreviewResponse,
   PostAssistantTaskItemCancelResponse,
   PostAssistantTaskItemDisableResponse,
@@ -832,11 +833,14 @@ export const getPostAssistantPublishUrl = () => {
 };
 
 export const postAssistantPublish = async (
+  postAssistantPublishRequest: PostAssistantPublishRequest,
   options?: RequestInit
 ): Promise<postAssistantPublishResponse> => {
   return customFetch<postAssistantPublishResponse>(getPostAssistantPublishUrl(), {
     ...options,
-    method: "POST"
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(postAssistantPublishRequest)
   });
 };
 

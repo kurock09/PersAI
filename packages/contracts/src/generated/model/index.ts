@@ -623,6 +623,7 @@ export * from "./postAssistantMemoryDoNotRememberResponse";
 export * from "./postAssistantMemoryItemCloseOpenLoopResponse";
 export * from "./postAssistantMemoryItemCloseOpenLoopResponseReason";
 export * from "./postAssistantMemoryItemForgetResponse";
+export * from "./postAssistantPublishRequest";
 export * from "./postAssistantSetupPreviewResponse";
 export * from "./postAssistantTaskItemCancelResponse";
 export * from "./postAssistantTaskItemDisableResponse";

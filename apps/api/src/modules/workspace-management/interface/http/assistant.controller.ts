@@ -154,7 +154,7 @@ export class AssistantController {
   ): Promise<AssistantContractResponse> {
     const userId = this.resolveRequestUserId(req);
     await this.createAssistantService.execute(userId);
-    return this.buildAssistantResponse(
+    return this.buildActiveAssistantResponse(
       userId,
       req.requestId ?? null,
       "Assistant not found after creation."
@@ -163,7 +163,7 @@ export class AssistantController {
 
   @Get("assistant")
   async getAssistant(@Req() req: RequestWithPlatformContext): Promise<AssistantContractResponse> {
-    return this.buildAssistantResponse(
+    return this.buildActiveAssistantResponse(
       this.resolveRequestUserId(req),
       req.requestId ?? null,
       "Assistant does not exist for this workspace."
@@ -195,7 +195,7 @@ export class AssistantController {
       userId,
       assistantId: input.assistantId
     });
-    return this.buildAssistantResponse(
+    return this.buildActiveAssistantResponse(
       userId,
       req.requestId ?? null,
       "Assistant not found after switch."
@@ -287,7 +287,7 @@ export class AssistantController {
     const userId = this.resolveRequestUserId(req);
     const input = this.updateAssistantDraftService.parseInput(body);
     await this.updateAssistantDraftService.execute(userId, input);
-    return this.buildAssistantResponse(
+    return this.buildActiveAssistantResponse(
       userId,
       req.requestId ?? null,
       "Assistant does not exist for this workspace."
@@ -591,14 +591,19 @@ export class AssistantController {
   @Post("assistant/publish")
   @HttpCode(200)
   async publishAssistant(
-    @Req() req: RequestWithPlatformContext
+    @Req() req: RequestWithPlatformContext,
+    @Body() body: unknown
   ): Promise<AssistantContractResponse> {
     const userId = this.resolveRequestUserId(req);
-    await this.publishAssistantDraftService.execute(userId);
+    const input = this.publishAssistantDraftService.parseInput(body);
+    const assistant = await this.publishAssistantDraftService.execute(userId, input);
+    const state = await this.resolveAssistantLifecycleViewService.execute(userId);
     return this.buildAssistantResponse(
-      userId,
       req.requestId ?? null,
-      "Assistant does not exist for this workspace."
+      assistant,
+      state.assistants,
+      state.activeAssistantId,
+      state.assistantLimit
     );
   }
 
@@ -610,7 +615,7 @@ export class AssistantController {
     const userId = this.resolveRequestUserId(req);
     const input = this.rollbackAssistantService.parseInput(body);
     await this.rollbackAssistantService.execute(userId, input);
-    return this.buildAssistantResponse(
+    return this.buildActiveAssistantResponse(
       userId,
       req.requestId ?? null,
       "Assistant does not exist for this workspace."
@@ -621,7 +626,7 @@ export class AssistantController {
   async resetAssistant(@Req() req: RequestWithPlatformContext): Promise<AssistantContractResponse> {
     const userId = this.resolveRequestUserId(req);
     await this.resetAssistantService.execute(userId);
-    return this.buildAssistantResponse(
+    return this.buildActiveAssistantResponse(
       userId,
       req.requestId ?? null,
       "Assistant not found after reset."
@@ -635,7 +640,7 @@ export class AssistantController {
   ): Promise<AssistantContractResponse> {
     const userId = this.resolveRequestUserId(req);
     await this.reapplyAssistantService.execute(userId);
-    return this.buildAssistantResponse(
+    return this.buildActiveAssistantResponse(
       userId,
       req.requestId ?? null,
       "Assistant does not exist for this workspace."
@@ -1554,7 +1559,23 @@ export class AssistantController {
     });
   }
 
-  private async buildAssistantResponse(
+  private buildAssistantResponse(
+    requestId: string | null,
+    assistant: AssistantLifecycleState,
+    assistants: AssistantLifecycleView["assistants"],
+    activeAssistantId: string | null,
+    assistantLimit: AssistantLifecycleView["assistantLimit"]
+  ): AssistantContractResponse {
+    return {
+      requestId,
+      assistant,
+      assistants,
+      activeAssistantId,
+      assistantLimit
+    };
+  }
+
+  private async buildActiveAssistantResponse(
     userId: string,
     requestId: string | null,
     notFoundMessage: string

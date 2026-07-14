@@ -44,6 +44,7 @@ const assistantApiMocks = vi.hoisted(() => ({
   getAssistantMemoryItems: vi.fn(),
   getAssistantTaskItems: vi.fn(),
   getAssistantBackgroundTaskItems: vi.fn(),
+  getAssistantRole: vi.fn(),
   getAssistantVoiceSettings: vi.fn(),
   patchAssistantElevenLabsVoiceCuration: vi.fn(),
   postAssistantElevenLabsVoiceCatalogRefresh: vi.fn(),
@@ -118,6 +119,7 @@ vi.mock("../assistant-api-client", async () => {
     getAssistantMemoryItems: assistantApiMocks.getAssistantMemoryItems,
     getAssistantTaskItems: assistantApiMocks.getAssistantTaskItems,
     getAssistantBackgroundTaskItems: assistantApiMocks.getAssistantBackgroundTaskItems,
+    getAssistantRole: assistantApiMocks.getAssistantRole,
     getAssistantVoiceSettings: assistantApiMocks.getAssistantVoiceSettings,
     patchAssistantElevenLabsVoiceCuration: assistantApiMocks.patchAssistantElevenLabsVoiceCuration,
     postAssistantElevenLabsVoiceCatalogRefresh:
@@ -528,6 +530,30 @@ beforeEach(() => {
   assistantApiMocks.getAssistantMemoryItems.mockResolvedValue([]);
   assistantApiMocks.getAssistantTaskItems.mockResolvedValue([]);
   assistantApiMocks.getAssistantBackgroundTaskItems.mockResolvedValue([]);
+  assistantApiMocks.getAssistantRole.mockResolvedValue({
+    requestId: "req-role",
+    assistantId: "assistant-1",
+    role: {
+      id: "role-default",
+      key: "persai_default",
+      name: { en: "Personal assistant", ru: "Личный ассистент" },
+      description: {
+        en: "Keeps everyday tasks clear and calm.",
+        ru: "Помогает с повседневными задачами спокойно и ясно."
+      },
+      mission: {
+        en: "Organize, plan, and follow through.",
+        ru: "Помогает организовать, спланировать и довести до результата."
+      },
+      category: "personal",
+      iconEmoji: "P",
+      color: "#6D7CFF",
+      displayOrder: 1,
+      archivedAt: null,
+      createdAt: "2026-04-01T10:00:00.000Z",
+      updatedAt: "2026-04-01T10:00:00.000Z"
+    }
+  });
   assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
     schema: "persai.assistantVoiceSettings.v1",
     primaryProviderId: "openai",
@@ -3081,6 +3107,115 @@ describe("test harness sanity", () => {
   });
 });
 
+describe("AssistantSettings character save and publish", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+      resolve = resolvePromise;
+    });
+    return { promise, resolve };
+  }
+
+  beforeEach(() => {
+    assistantApiMocks.patchAssistantDraft.mockResolvedValue(undefined);
+    assistantApiMocks.postAssistantPublish.mockResolvedValue(makeAssistantState());
+  });
+
+  it("rejects a mismatched getAssistantRole assistantId without publishing", async () => {
+    assistantApiMocks.getAssistantRole.mockResolvedValue({
+      requestId: "req-role",
+      assistantId: "assistant-other",
+      role: {
+        id: "role-default",
+        key: "persai_default",
+        name: { en: "Personal assistant", ru: "Личный ассистент" },
+        description: { en: "Keeps everyday tasks clear and calm.", ru: "Помогает." },
+        mission: { en: "Organize.", ru: "Организует." },
+        category: "personal",
+        iconEmoji: "P",
+        color: "#6D7CFF",
+        displayOrder: 1
+      }
+    });
+
+    const reload = vi.fn();
+    renderSettings(makeAppData({ reload }), "character");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.getAssistantRole).toHaveBeenCalledWith(
+        "token-1",
+        "assistant-1",
+        expect.any(AbortSignal)
+      );
+    });
+    expect(assistantApiMocks.postAssistantPublish).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+    expect(screen.queryByText("Saved.")).not.toBeInTheDocument();
+  });
+
+  it("rejects stale save+publish responses after the active assistant switches", async () => {
+    const patchDeferred = deferred<void>();
+    assistantApiMocks.patchAssistantDraft.mockReturnValue(patchDeferred.promise);
+
+    const reload = vi.fn();
+    const assistantOne = makeAssistantState();
+    const assistantTwo = {
+      ...makeAssistantState(),
+      id: "assistant-2",
+      draft: {
+        ...makeAssistantState().draft,
+        displayName: "Luma"
+      }
+    };
+
+    const { rerender } = render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <AssistantSettings
+          data={makeAppData({ assistant: assistantOne, reload })}
+          initialSection="character"
+        />
+      </NextIntlClientProvider>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalled());
+
+    rerender(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <AssistantSettings
+          data={makeAppData({ assistant: assistantTwo, reload })}
+          initialSection="character"
+        />
+      </NextIntlClientProvider>
+    );
+
+    patchDeferred.resolve(undefined);
+    await Promise.resolve();
+
+    expect(assistantApiMocks.getAssistantRole).not.toHaveBeenCalled();
+    expect(assistantApiMocks.postAssistantPublish).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+    expect(screen.queryByText("Saved.")).not.toBeInTheDocument();
+  });
+
+  it("maps assistant_publish_role_conflict to concise localized copy", async () => {
+    assistantApiMocks.postAssistantPublish.mockRejectedValue(
+      new ApiStructuredError(
+        "Assistant role changed before publish. Reload and try again.",
+        "assistant_publish_role_conflict"
+      )
+    );
+
+    renderSettings(makeAppData(), "character");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(screen.getByText(enMessages.settings.publishRoleConflict)).toBeInTheDocument();
+    });
+  });
+});
+
 describe("AssistantSettings voice picker", () => {
   it("saves the selected ElevenLabs voice id", async () => {
     assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue({
@@ -3120,7 +3255,11 @@ describe("AssistantSettings voice picker", () => {
         })
       );
     });
-    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-1");
+    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith("token-1", {
+      assistantId: "assistant-1",
+      expectedRoleKey: "persai_default",
+      roleKey: "persai_default"
+    });
   });
 
   it("keeps the admin top picker on public voices and updates it after approval", async () => {

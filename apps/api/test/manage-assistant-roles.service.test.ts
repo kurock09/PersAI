@@ -169,15 +169,31 @@ class FakePrismaTransaction {
   }
 
   assistantRole = {
+    findFirst: async ({
+      where,
+      select
+    }: {
+      where: { key: string; status: "active" };
+      select: { id: true };
+    }): Promise<{ id: string } | null> => {
+      void select;
+      const row = Array.from(this.prisma.roles.values()).find(
+        (candidate) => candidate.key === where.key && candidate.status === where.status
+      );
+      return row === undefined ? null : { id: row.id };
+    },
     findUnique: async ({
       where,
       select
     }: {
-      where: { id: string };
+      where: { id?: string; key?: string };
       select: { id: true; key: true };
     }): Promise<{ id: string; key: string } | null> => {
       void select;
-      const row = this.prisma.roles.get(where.id);
+      const row =
+        where.id !== undefined
+          ? this.prisma.roles.get(where.id)
+          : Array.from(this.prisma.roles.values()).find((candidate) => candidate.key === where.key);
       return row === undefined ? null : { id: row.id, key: row.key };
     }
   };

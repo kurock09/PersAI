@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename, extname, resolve } from "node:path";
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { HttpStatus, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { DEFAULT_ARCHETYPE_KEY } from "../../../../prisma/persona-archetype-data";
 import { ManagePersonaArchetypesService } from "./manage-persona-archetypes.service";
 import type { AssistantPublishedVersionSnapshotVoiceDna } from "../domain/assistant-published-version.entity";
@@ -13,10 +13,6 @@ import {
   ASSISTANT_MATERIALIZED_SPEC_REPOSITORY,
   type AssistantMaterializedSpecRepository
 } from "../domain/assistant-materialized-spec.repository";
-import {
-  ASSISTANT_PUBLISHED_VERSION_REPOSITORY,
-  type AssistantPublishedVersionRepository
-} from "../domain/assistant-published-version.repository";
 import { ASSISTANT_REPOSITORY, type AssistantRepository } from "../domain/assistant.repository";
 import {
   ASSISTANT_CHANNEL_SURFACE_BINDING_REPOSITORY,
@@ -26,7 +22,6 @@ import { ApplyAssistantPublishedVersionService } from "./apply-assistant-publish
 import { MaterializeAssistantPublishedVersionService } from "./materialize-assistant-published-version.service";
 import type { AssistantLifecycleState } from "./assistant-lifecycle.types";
 import { toAssistantLifecycleState } from "./assistant-lifecycle.mapper";
-import { AppendAssistantAuditEventService } from "./append-assistant-audit-event.service";
 import { ResolveTelegramChannelRuntimeConfigService } from "./resolve-telegram-channel-runtime-config.service";
 import { TelegramBotClientService } from "./telegram-bot.client.service";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
@@ -36,14 +31,27 @@ import {
 } from "./assistant-voice-profile";
 import { normalizeAssistantGender } from "./assistant-gender";
 import { ResolveActiveAssistantService } from "./resolve-active-assistant.service";
+import { ManageAssistantRolesService } from "./manage-assistant-roles.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
+import { createAssistantInboundValidationError } from "./assistant-inbound-error";
+import { ApiErrorHttpException } from "../../platform-core/interface/http/api-error";
+import {
+  createAssistantPublishedVersionInClient,
+  mapAssistantPublishedVersionToDomain
+} from "../infrastructure/persistence/prisma-assistant-published-version.repository";
+
+export type PublishAssistantDraftRequest = {
+  assistantId: string;
+  expectedRoleKey: string;
+  roleKey: string;
+};
 
 @Injectable()
 export class PublishAssistantDraftService {
   constructor(
+    private readonly prisma: WorkspaceManagementPrismaService,
     @Inject(ASSISTANT_REPOSITORY)
     private readonly assistantRepository: AssistantRepository,
-    @Inject(ASSISTANT_PUBLISHED_VERSION_REPOSITORY)
-    private readonly assistantPublishedVersionRepository: AssistantPublishedVersionRepository,
     @Inject(ASSISTANT_GOVERNANCE_REPOSITORY)
     private readonly assistantGovernanceRepository: AssistantGovernanceRepository,
     @Inject(ASSISTANT_MATERIALIZED_SPEC_REPOSITORY)
@@ -52,16 +60,55 @@ export class PublishAssistantDraftService {
     private readonly assistantChannelSurfaceBindingRepository: AssistantChannelSurfaceBindingRepository,
     private readonly materializeAssistantPublishedVersionService: MaterializeAssistantPublishedVersionService,
     private readonly applyAssistantPublishedVersionService: ApplyAssistantPublishedVersionService,
-    private readonly appendAssistantAuditEventService: AppendAssistantAuditEventService,
     private readonly resolveTelegramChannelRuntimeConfigService: ResolveTelegramChannelRuntimeConfigService,
     private readonly telegramBotClientService: TelegramBotClientService,
     private readonly mediaObjectStorage: PersaiMediaObjectStorageService,
     private readonly managePersonaArchetypesService: ManagePersonaArchetypesService,
-    private readonly resolveActiveAssistantService: ResolveActiveAssistantService
+    private readonly resolveActiveAssistantService: ResolveActiveAssistantService,
+    private readonly manageAssistantRolesService: ManageAssistantRolesService
   ) {}
 
-  async execute(userId: string): Promise<AssistantLifecycleState> {
-    const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
+  parseInput(payload: unknown): PublishAssistantDraftRequest {
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+      throw createAssistantInboundValidationError(
+        "assistant_publish_invalid_body",
+        'Assistant publish payload must be exactly { "assistantId": "<uuid>", "expectedRoleKey": "<immutable key>", "roleKey": "<immutable key>" }.'
+      );
+    }
+    const body = payload as Record<string, unknown>;
+    const keys = Object.keys(body).sort();
+    if (
+      keys.length !== 3 ||
+      keys[0] !== "assistantId" ||
+      keys[1] !== "expectedRoleKey" ||
+      keys[2] !== "roleKey"
+    ) {
+      throw createAssistantInboundValidationError(
+        "assistant_publish_invalid_body",
+        'Assistant publish payload must be exactly { "assistantId": "<uuid>", "expectedRoleKey": "<immutable key>", "roleKey": "<immutable key>" }.'
+      );
+    }
+    return {
+      assistantId: this.manageAssistantRolesService.parseAssistantId(body.assistantId),
+      expectedRoleKey: this.manageAssistantRolesService.parseUpdateInput({
+        roleKey: body.expectedRoleKey
+      }).roleKey,
+      roleKey: this.manageAssistantRolesService.parseUpdateInput({ roleKey: body.roleKey }).roleKey
+    };
+  }
+
+  async execute(
+    userId: string,
+    input: PublishAssistantDraftRequest
+  ): Promise<AssistantLifecycleState> {
+    const resolved = await this.resolveActiveAssistantService.execute({
+      userId,
+      assistantId: input.assistantId
+    });
+    if (resolved.assistant.userId !== userId) {
+      throw this.createOwnerForbiddenError();
+    }
+    const assistant = resolved.assistant;
 
     const assistantGender = normalizeAssistantGender(assistant.draftAssistantGender);
     const draftVoiceProfile = applyAssistantGenderVoiceDefaults({
@@ -73,36 +120,82 @@ export class PublishAssistantDraftService {
     const liveArchetype = await this.managePersonaArchetypesService.findByKey(archetypeKey);
     const snapshotVoiceDna = liveArchetype ? this.toSnapshotVoiceDna(liveArchetype) : null;
 
-    const publishedVersion = await this.assistantPublishedVersionRepository.create({
-      assistantId: assistant.id,
-      publishedByUserId: userId,
-      snapshotDisplayName: assistant.draftDisplayName,
-      snapshotInstructions: assistant.draftInstructions,
-      snapshotTraits: assistant.draftTraits,
-      snapshotAvatarEmoji: assistant.draftAvatarEmoji,
-      snapshotAvatarUrl: assistant.draftAvatarUrl,
-      snapshotAssistantGender: assistantGender,
-      snapshotVoiceProfile: draftVoiceProfile,
-      snapshotArchetypeKey: liveArchetype ? archetypeKey : null,
-      snapshotVoiceDna
-    });
-    await this.appendAssistantAuditEventService.execute({
-      workspaceId: assistant.workspaceId,
-      assistantId: assistant.id,
-      actorUserId: userId,
-      eventCategory: "assistant_lifecycle",
-      eventCode: "assistant.published",
-      summary: "Assistant draft published.",
-      details: {
-        publishedVersionId: publishedVersion.id,
-        publishedVersionNumber: publishedVersion.version
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const roleOutcome = await this.manageAssistantRolesService.applyRoleSelectionInTransaction(
+        tx,
+        {
+          assistantId: assistant.id,
+          workspaceId: assistant.workspaceId,
+          ownerUserId: userId,
+          actorUserId: userId,
+          expectedCurrentRoleId: assistant.roleId,
+          expectedRoleKey: input.expectedRoleKey,
+          roleKey: input.roleKey
+        }
+      );
+      if (roleOutcome.kind === "retry") {
+        return roleOutcome;
       }
-    });
 
-    const assistantWithPendingApply = await this.assistantRepository.markApplyPendingByAssistantId(
-      assistant.id,
-      publishedVersion.id
-    );
+      const createdVersion = await createAssistantPublishedVersionInClient(tx, {
+        assistantId: assistant.id,
+        publishedByUserId: userId,
+        snapshotDisplayName: assistant.draftDisplayName,
+        snapshotInstructions: assistant.draftInstructions,
+        snapshotTraits: assistant.draftTraits,
+        snapshotAvatarEmoji: assistant.draftAvatarEmoji,
+        snapshotAvatarUrl: assistant.draftAvatarUrl,
+        snapshotAssistantGender: assistantGender,
+        snapshotVoiceProfile: draftVoiceProfile,
+        snapshotArchetypeKey: liveArchetype ? archetypeKey : null,
+        snapshotVoiceDna
+      });
+
+      await tx.assistantAuditEvent.create({
+        data: {
+          workspaceId: assistant.workspaceId,
+          assistantId: assistant.id,
+          actorUserId: userId,
+          eventCategory: "assistant_lifecycle",
+          eventCode: "assistant.published",
+          summary: "Assistant draft published.",
+          outcome: "succeeded",
+          details: {
+            publishedVersionId: createdVersion.id,
+            publishedVersionNumber: createdVersion.version
+          }
+        }
+      });
+
+      await tx.assistant.update({
+        where: { id: assistant.id },
+        data: {
+          applyStatus: "pending",
+          applyTargetVersionId: createdVersion.id,
+          applyAppliedVersionId: null,
+          applyRequestedAt: new Date(),
+          applyStartedAt: null,
+          applyFinishedAt: null,
+          applyErrorCode: null,
+          applyErrorMessage: null
+        }
+      });
+
+      return {
+        kind: "published" as const,
+        publishedVersion: mapAssistantPublishedVersionToDomain(createdVersion)
+      };
+    });
+    if (outcome.kind === "retry") {
+      throw new ApiErrorHttpException(HttpStatus.CONFLICT, {
+        code: "assistant_publish_role_conflict",
+        category: "conflict",
+        message: "Assistant role changed before publish. Reload and try again."
+      });
+    }
+    const publishedVersion = outcome.publishedVersion;
+
+    const assistantWithPendingApply = await this.assistantRepository.findById(assistant.id);
     if (assistantWithPendingApply === null) {
       throw new NotFoundException("Assistant does not exist for this workspace.");
     }
@@ -266,5 +359,13 @@ export class PublishAssistantDraftService {
       return "assistant-avatar.gif";
     }
     return "assistant-avatar.jpg";
+  }
+
+  private createOwnerForbiddenError(): ApiErrorHttpException {
+    return new ApiErrorHttpException(HttpStatus.FORBIDDEN, {
+      code: "assistant_role_forbidden",
+      category: "forbidden",
+      message: "Only the assistant owner may publish this assistant."
+    });
   }
 }

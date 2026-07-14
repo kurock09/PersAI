@@ -88,6 +88,38 @@ const scenarioStepSchema = z.object({
   firstStepPreview: z.string().min(1).max(200).nullable().optional()
 });
 
+export async function resolveAssistantPublishBody(
+  client: Pick<PersaiOperatorClient, "requestJson">
+): Promise<{ assistantId: string; expectedRoleKey: string; roleKey: string }> {
+  const assistantPayload = asRecord(
+    await client.requestJson({
+      method: "GET",
+      path: "/api/v1/assistant"
+    })
+  );
+  const assistant = asRecord(assistantPayload?.assistant);
+  const assistantId = typeof assistant?.id === "string" ? assistant.id : null;
+  if (assistantId === null) {
+    throw new Error("Active assistant id is unavailable.");
+  }
+  const rolePayload = asRecord(
+    await client.requestJson({
+      method: "GET",
+      path: `/api/v1/assistant/${encodeURIComponent(assistantId)}/role`
+    })
+  );
+  const role = asRecord(rolePayload?.role);
+  const roleKey = typeof role?.key === "string" ? role.key : null;
+  if (roleKey === null) {
+    throw new Error("Active assistant role is unavailable.");
+  }
+  return {
+    assistantId,
+    expectedRoleKey: roleKey,
+    roleKey
+  };
+}
+
 /**
  * Body shape for POST (create, no top-level scenarioKey arg — `key` required here) and
  * PATCH (update, top-level scenarioKey supplied separately — `key` ignored/not required).
@@ -499,10 +531,11 @@ export function createPersaiAdminMcpServer(
     },
     async () => {
       try {
+        const body = await resolveAssistantPublishBody(client);
         const payload = await client.requestJson({
           method: "POST",
           path: "/api/v1/assistant/publish",
-          body: {}
+          body
         });
         return toolText(payload);
       } catch (error) {

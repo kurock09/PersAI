@@ -7,7 +7,6 @@ import {
   type AdminBillingLifecycleSettingsState,
   type GetAdminPlatformRolloutFailedItemsResponse,
   type PutAdminBillingLifecycleSettingsResponse,
-  type AssistantSkillCatalogItemState,
   type MaterializationRolloutItemView,
   type MaterializationRolloutView,
   type PostAdminPlatformRolloutCancelPendingResponse,
@@ -1877,9 +1876,18 @@ export async function postAssistantSetupPreview(
   }
 }
 
-export async function postAssistantPublish(token: string): Promise<AssistantLifecycleState> {
+export type AssistantPublishRequest = {
+  assistantId: string;
+  expectedRoleKey: string;
+  roleKey: string;
+};
+
+export async function postAssistantPublish(
+  token: string,
+  payload: AssistantPublishRequest
+): Promise<AssistantLifecycleState> {
   try {
-    const response = await postAssistantPublishContract({
+    const response = await postAssistantPublishContract(payload, {
       headers: getAuthHeaders(token)
     });
 
@@ -1894,6 +1902,12 @@ export async function postAssistantPublish(token: string): Promise<AssistantLife
 
     return response.data.assistant;
   } catch (error) {
+    if (error instanceof ContractsApiError) {
+      const code = error.code;
+      if (typeof code === "string" && code.length > 0) {
+        throw new ApiStructuredError(error.message, code);
+      }
+    }
     throw new Error(toErrorMessage(error));
   }
 }
@@ -5582,12 +5596,10 @@ export async function reindexAdminKnowledgeSource(
 
 export type {
   AssistantRoleState,
-  AssistantSkillCatalogItemState,
   AdminSkillState,
   AdminSkillUpsertRequest,
   AssistantRoleSelectionResponse as AssistantRoleSelectionState,
   GetAssistantRolesResponse as AssistantRolesState,
-  GetAssistantSkillsResponse as AssistantSkillsState,
   KnowledgeIndexingJobState,
   ProductKnowledgeTextEntryInput,
   ProductKnowledgeTextEntryState,
@@ -5752,9 +5764,13 @@ export async function updateAssistantSkillAssignments(
   return response.data;
 }
 
-export async function getAssistantRoles(token: string): Promise<GetAssistantRolesResponse> {
+export async function getAssistantRoles(
+  token: string,
+  signal?: AbortSignal
+): Promise<GetAssistantRolesResponse> {
   const response = await getAssistantRolesContract({
-    headers: getAuthHeaders(token)
+    headers: getAuthHeaders(token),
+    signal: signal ?? null
   });
   if (
     !isSuccessStatus(response.status) ||
@@ -5769,10 +5785,12 @@ export async function getAssistantRoles(token: string): Promise<GetAssistantRole
 
 export async function getAssistantRole(
   token: string,
-  assistantId: string
+  assistantId: string,
+  signal?: AbortSignal
 ): Promise<AssistantRoleSelectionResponse> {
   const response = await getAssistantRoleContract(assistantId, {
-    headers: getAuthHeaders(token)
+    headers: getAuthHeaders(token),
+    signal: signal ?? null
   });
   if (
     !isSuccessStatus(response.status) ||
@@ -5789,10 +5807,12 @@ export async function getAssistantRole(
 export async function updateAssistantRole(
   token: string,
   assistantId: string,
-  payload: PutAssistantRoleRequest
+  payload: PutAssistantRoleRequest,
+  signal?: AbortSignal
 ): Promise<AssistantRoleSelectionResponse> {
   const response = await putAssistantRoleContract(assistantId, payload, {
-    headers: getAuthHeaders(token)
+    headers: getAuthHeaders(token),
+    signal: signal ?? null
   });
   if (
     !isSuccessStatus(response.status) ||

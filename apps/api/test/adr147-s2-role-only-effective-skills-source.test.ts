@@ -101,7 +101,7 @@ async function run(): Promise<void> {
   assert.match(scenarios, /skillRetrievalState: Prisma\.DbNull/);
   assert.match(
     roleManagement,
-    /lockAssistantRoleRows\([\s\S]*FROM "assistants"[\s\S]*assistant\.roleId !== expectedCurrentRoleId[\s\S]*kind: "retry"/
+    /expectedRoleKey[\s\S]*lockAssistantRoleRows\([\s\S]*FROM "assistants"[\s\S]*assistant\.roleId !== input\.expectedCurrentRoleId[\s\S]*kind: "retry"/
   );
   assert.match(roleManagement, /MAX_ROLE_ASSIGNMENT_ATTEMPTS = 3/);
   assert.match(
@@ -113,7 +113,11 @@ async function run(): Promise<void> {
     /candidateChat[\s\S]*lockedSkillId !== params\.targetSkillId[\s\S]*RELEASE_CANDIDATE_CHANGED/
   );
   assert.doesNotMatch(contractPackage, /format-generated\.mjs/);
-  assert.match(contractPackage, /prettier-write-retry\.mjs src\/generated/);
+  assert.match(
+    contractPackage,
+    /node scripts\/orval-generate-retry\.mjs && node scripts\/prettier-write-retry\.mjs src\/generated/
+  );
+  assert.doesNotMatch(contractPackage, /\borval --config/);
   assert.equal(
     (contractOpenApi.match(/pendingBrowserLogin:\s+nullable: true\s+allOf:/g) ?? []).length,
     3
@@ -122,6 +126,16 @@ async function run(): Promise<void> {
   assert.match(contractFormatter, /process\.argv\[2\]/);
   assert.doesNotMatch(contractFormatter, /pendingBrowserLogin|AssistantWebChat|\.replace\(/);
   assert.doesNotMatch(contractFormatter, /EACCES/);
+  const contractOrvalRetry = await readFile(
+    fileURLToPath(new URL("packages/contracts/scripts/orval-generate-retry.mjs", repositoryRoot)),
+    "utf8"
+  );
+  assert.match(contractOrvalRetry, /isRetryableOrvalOutput/);
+  assert.ok(contractOrvalRetry.includes(String.raw`UNKNOWN:[^\n]*\bopen\b`));
+  assert.ok(contractOrvalRetry.includes(String.raw`\bEBUSY\b`));
+  assert.ok(contractOrvalRetry.includes(String.raw`\bEPERM\b`));
+  assert.ok(contractOrvalRetry.includes(String.raw`\bEACCES\b|access denied`));
+  assert.doesNotMatch(contractOrvalRetry, /pendingBrowserLogin|AssistantWebChat|\.replace\(/);
   assert.match(
     legacyManagement,
     /assistantSkillAssignment/,

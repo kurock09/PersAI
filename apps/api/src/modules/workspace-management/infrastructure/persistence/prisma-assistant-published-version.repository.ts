@@ -12,6 +12,75 @@ import type {
 } from "../../domain/assistant-published-version.entity";
 import { WorkspaceManagementPrismaService } from "./workspace-management-prisma.service";
 
+type AssistantPublishedVersionClient = Pick<Prisma.TransactionClient, "assistantPublishedVersion">;
+
+export async function createAssistantPublishedVersionInClient(
+  client: AssistantPublishedVersionClient,
+  input: CreateAssistantPublishedVersionInput
+): Promise<PrismaAssistantPublishedVersion> {
+  const latestVersion = await client.assistantPublishedVersion.findFirst({
+    where: { assistantId: input.assistantId },
+    orderBy: [{ version: "desc" }],
+    select: { version: true }
+  });
+
+  return client.assistantPublishedVersion.create({
+    data: {
+      assistantId: input.assistantId,
+      version: (latestVersion?.version ?? 0) + 1,
+      snapshotDisplayName: input.snapshotDisplayName,
+      snapshotInstructions: input.snapshotInstructions,
+      ...(input.snapshotTraits != null
+        ? { snapshotTraits: input.snapshotTraits as Prisma.InputJsonValue }
+        : {}),
+      ...(input.snapshotAvatarEmoji != null
+        ? { snapshotAvatarEmoji: input.snapshotAvatarEmoji }
+        : {}),
+      ...(input.snapshotAvatarUrl != null ? { snapshotAvatarUrl: input.snapshotAvatarUrl } : {}),
+      ...(input.snapshotAssistantGender != null
+        ? { snapshotAssistantGender: input.snapshotAssistantGender }
+        : {}),
+      ...(input.snapshotVoiceProfile != null
+        ? {
+            snapshotVoiceProfile: input.snapshotVoiceProfile as unknown as Prisma.InputJsonValue
+          }
+        : {}),
+      ...(input.snapshotArchetypeKey != null
+        ? { snapshotArchetypeKey: input.snapshotArchetypeKey }
+        : {}),
+      ...(input.snapshotVoiceDna != null
+        ? {
+            snapshotVoiceDna: input.snapshotVoiceDna as unknown as Prisma.InputJsonValue
+          }
+        : {}),
+      publishedByUserId: input.publishedByUserId
+    }
+  });
+}
+
+export function mapAssistantPublishedVersionToDomain(
+  publishedVersion: PrismaAssistantPublishedVersion
+): AssistantPublishedVersion {
+  return {
+    id: publishedVersion.id,
+    assistantId: publishedVersion.assistantId,
+    version: publishedVersion.version,
+    snapshotDisplayName: publishedVersion.snapshotDisplayName,
+    snapshotInstructions: publishedVersion.snapshotInstructions,
+    snapshotTraits: publishedVersion.snapshotTraits as Record<string, number> | null,
+    snapshotAvatarEmoji: publishedVersion.snapshotAvatarEmoji,
+    snapshotAvatarUrl: publishedVersion.snapshotAvatarUrl,
+    snapshotAssistantGender: publishedVersion.snapshotAssistantGender,
+    snapshotVoiceProfile:
+      publishedVersion.snapshotVoiceProfile as RuntimeAssistantVoiceProfile | null,
+    snapshotArchetypeKey: publishedVersion.snapshotArchetypeKey,
+    snapshotVoiceDna:
+      publishedVersion.snapshotVoiceDna as AssistantPublishedVersionSnapshotVoiceDna | null,
+    publishedByUserId: publishedVersion.publishedByUserId,
+    createdAt: publishedVersion.createdAt
+  };
+}
+
 @Injectable()
 export class PrismaAssistantPublishedVersionRepository implements AssistantPublishedVersionRepository {
   constructor(private readonly prisma: WorkspaceManagementPrismaService) {}
@@ -44,50 +113,10 @@ export class PrismaAssistantPublishedVersionRepository implements AssistantPubli
   async create(input: CreateAssistantPublishedVersionInput): Promise<AssistantPublishedVersion> {
     try {
       const publishedVersion = await this.prisma.$transaction(async (tx) => {
-        const latestVersion = await tx.assistantPublishedVersion.findFirst({
-          where: { assistantId: input.assistantId },
-          orderBy: [{ version: "desc" }],
-          select: { version: true }
-        });
-
-        return tx.assistantPublishedVersion.create({
-          data: {
-            assistantId: input.assistantId,
-            version: (latestVersion?.version ?? 0) + 1,
-            snapshotDisplayName: input.snapshotDisplayName,
-            snapshotInstructions: input.snapshotInstructions,
-            ...(input.snapshotTraits != null
-              ? { snapshotTraits: input.snapshotTraits as Prisma.InputJsonValue }
-              : {}),
-            ...(input.snapshotAvatarEmoji != null
-              ? { snapshotAvatarEmoji: input.snapshotAvatarEmoji }
-              : {}),
-            ...(input.snapshotAvatarUrl != null
-              ? { snapshotAvatarUrl: input.snapshotAvatarUrl }
-              : {}),
-            ...(input.snapshotAssistantGender != null
-              ? { snapshotAssistantGender: input.snapshotAssistantGender }
-              : {}),
-            ...(input.snapshotVoiceProfile != null
-              ? {
-                  snapshotVoiceProfile:
-                    input.snapshotVoiceProfile as unknown as Prisma.InputJsonValue
-                }
-              : {}),
-            ...(input.snapshotArchetypeKey != null
-              ? { snapshotArchetypeKey: input.snapshotArchetypeKey }
-              : {}),
-            ...(input.snapshotVoiceDna != null
-              ? {
-                  snapshotVoiceDna: input.snapshotVoiceDna as unknown as Prisma.InputJsonValue
-                }
-              : {}),
-            publishedByUserId: input.publishedByUserId
-          }
-        });
+        return createAssistantPublishedVersionInClient(tx, input);
       });
 
-      return this.mapToDomain(publishedVersion);
+      return mapAssistantPublishedVersionToDomain(publishedVersion);
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         throw new ConflictException("Concurrent publish conflict. Retry publish.");
@@ -100,23 +129,6 @@ export class PrismaAssistantPublishedVersionRepository implements AssistantPubli
   private mapToDomain(
     publishedVersion: PrismaAssistantPublishedVersion
   ): AssistantPublishedVersion {
-    return {
-      id: publishedVersion.id,
-      assistantId: publishedVersion.assistantId,
-      version: publishedVersion.version,
-      snapshotDisplayName: publishedVersion.snapshotDisplayName,
-      snapshotInstructions: publishedVersion.snapshotInstructions,
-      snapshotTraits: publishedVersion.snapshotTraits as Record<string, number> | null,
-      snapshotAvatarEmoji: publishedVersion.snapshotAvatarEmoji,
-      snapshotAvatarUrl: publishedVersion.snapshotAvatarUrl,
-      snapshotAssistantGender: publishedVersion.snapshotAssistantGender,
-      snapshotVoiceProfile:
-        publishedVersion.snapshotVoiceProfile as RuntimeAssistantVoiceProfile | null,
-      snapshotArchetypeKey: publishedVersion.snapshotArchetypeKey,
-      snapshotVoiceDna:
-        publishedVersion.snapshotVoiceDna as AssistantPublishedVersionSnapshotVoiceDna | null,
-      publishedByUserId: publishedVersion.publishedByUserId,
-      createdAt: publishedVersion.createdAt
-    };
+    return mapAssistantPublishedVersionToDomain(publishedVersion);
   }
 }

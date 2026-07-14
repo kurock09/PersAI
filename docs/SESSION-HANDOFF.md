@@ -1,5 +1,69 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — contracts Orval Windows open-retry wrapper
+
+Status: **local tooling repair only; uncommitted, unpushed, undeployed.**
+Bounded generator reliability fix after intermittent Orval
+`UNKNOWN … open …/step2-client.ts` failures on Windows. Adds
+`packages/contracts/scripts/orval-generate-retry.mjs` with finite retries only
+for proven transient `UNKNOWN … open` / `EBUSY` / `EPERM` output; never retries
+`EACCES`/access denied, schema/generator errors, or arbitrary nonzero exits.
+Package `generate` is wrapper → existing `prettier-write-retry`. Focused
+`orval-generate-retry.test.mjs` + S2 source-contract wiring updated. No S3
+product code, founder ChatPlanCard files, S4/S5, commit, push, or deploy.
+
+**Next recommended step:** commit the parent-audited S3 slice while excluding
+founder ChatPlanCard edits, then begin S4 Admin Roles and MCP authoring.
+
+---
+
+## 2026-07-14 — ADR-147 S3 user Role UX and atomic publish/recreate
+
+Status: **parent-audited CLEAN after repairs; final local gate green;
+uncommitted, unpushed, undeployed.** Founder-owned
+`chat-plan-card.tsx` / `.test.tsx` edits remain untouched and excluded. Recovery
+baseline for this bounded slice was user-specified clean committed HEAD
+`eee57c2c`.
+
+**Landed S3 truth:** user-facing assistant configuration is now Role-first.
+Setup/recreate and Assistant Settings use one shared localized Role card/catalog
+surface built only from safe Role presentation fields (`name`, `description`,
+`mission`, `category`, `iconEmoji`, `color`). The old user `AssistantSkillsManager`
+component/tests are removed. Settings renames the section/key/navigation from
+Skills to Role and applies canonical GET catalog/current plus exact PUT with
+AbortSignal + monotonic assistant/generation guards, assistantId response
+validation, and post-write refetch on ambiguous outcomes. Success appears only
+after the validated PUT is followed by a GET confirming displayed canonical
+state. Setup/recreate fail closed unless current Role matches the active catalog
+and carry one canonical publish command
+`{ assistantId, expectedRoleKey, roleKey }`; the web client
+never performs a separate Role PUT before publish. API publish composes the same
+transactional Role assignment primitive inside the existing publish transaction,
+locks/revalidates `expectedRoleKey`, and returns stable
+`409 assistant_publish_role_conflict` on drift before version/apply mutation.
+Ordinary Settings Save and existing MCP `assistant_publish` preserve canonical
+Role with expected equal to desired. Full reset
+still preserves `roleId` until confirmed recreate. Legacy
+`AssistantSkillAssignment` storage and `/assistant/skills` contracts remain
+physical through S3 but no user Role UI exposes direct Skill selection.
+
+**Focused verification PASS:** 181 focused web tests across Role selector,
+Role Settings, setup/recreate, Assistant Settings, and production API wrappers;
+API publish 8/8 honest transaction tests plus manage-assistant-roles retry/
+exhaustion coverage; existing MCP package 8/8; API/web/contracts/MCP typechecks;
+recursive lint; format check; web production build; contracts generated twice
+with zero additional drift; `git diff --check` clean.
+
+**Residuals / out of scope:** no S4 Admin Role constructor/MCP, no S5 physical
+legacy backend deletion, no commit/push/deploy/live acceptance, and no edits to
+founder-owned ChatPlanCard files.
+
+**Next recommended step:** commit only audited S3/tooling files, excluding
+founder ChatPlanCard edits, then implement S4 sequentially with Cursor Grok 4.5
+by default and GPT-5.4 only if Grok is insufficient.
+
+---
+
 ## 2026-07-14 — ADR-147 S2 role-only API/runtime/prompt cutover
 
 Status: **implemented locally, independently re-audited CLEAN after iterative

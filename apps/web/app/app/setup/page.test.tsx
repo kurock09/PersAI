@@ -33,11 +33,11 @@ const assistantApiMocks = vi.hoisted(() => ({
   getAssistant: vi.fn(),
   getAssistantPersonaArchetypes: vi.fn(),
   getAssistantVoiceSettings: vi.fn(),
-  getAssistantSkills: vi.fn(),
+  getAssistantRoles: vi.fn(),
+  getAssistantRole: vi.fn(),
   postAssistantCreate: vi.fn(),
   patchAssistantDraft: vi.fn(),
   postAssistantSetupPreview: vi.fn(),
-  updateAssistantSkillAssignments: vi.fn(),
   uploadAssistantAvatar: vi.fn(),
   postAssistantPublish: vi.fn()
 }));
@@ -85,11 +85,11 @@ vi.mock("../assistant-api-client", async () => {
     getAssistant: assistantApiMocks.getAssistant,
     getAssistantPersonaArchetypes: assistantApiMocks.getAssistantPersonaArchetypes,
     getAssistantVoiceSettings: assistantApiMocks.getAssistantVoiceSettings,
-    getAssistantSkills: assistantApiMocks.getAssistantSkills,
+    getAssistantRoles: assistantApiMocks.getAssistantRoles,
+    getAssistantRole: assistantApiMocks.getAssistantRole,
     postAssistantCreate: assistantApiMocks.postAssistantCreate,
     patchAssistantDraft: assistantApiMocks.patchAssistantDraft,
     postAssistantSetupPreview: assistantApiMocks.postAssistantSetupPreview,
-    updateAssistantSkillAssignments: assistantApiMocks.updateAssistantSkillAssignments,
     uploadAssistantAvatar: assistantApiMocks.uploadAssistantAvatar,
     postAssistantPublish: assistantApiMocks.postAssistantPublish
   };
@@ -332,63 +332,69 @@ function makePersonaArchetypes() {
   ];
 }
 
-function makeAssistantSkillsResponse() {
-  const now = "2026-04-01T10:00:00.000Z";
+function makeAssistantRolesResponse() {
   return {
-    requestId: "req-skills",
-    assignedSkillIds: [],
-    limit: 1,
-    skills: [
+    requestId: "req-roles",
+    roles: [
       {
-        skill: {
-          id: "skill-1",
-          status: "active" as const,
-          name: { en: "Legal drafting", ru: "Юридические документы" },
-          description: { en: "Draft and review legal text." },
-          category: "legal",
-          tags: ["legal"],
-          instructionCard: {
-            title: "Legal drafting",
-            body: "Use legal drafting sources carefully.",
-            guardrails: [],
-            examples: []
-          },
-          iconEmoji: null,
-          color: null,
-          displayOrder: 10,
-          archivedAt: null,
-          createdAt: now,
-          updatedAt: now,
-          documents: [
-            {
-              id: "doc-1",
-              skillId: "skill-1",
-              displayName: "Policy",
-              description: null,
-              originalFilename: "policy.pdf",
-              mimeType: "application/pdf",
-              sizeBytes: 1000,
-              status: "ready" as const,
-              currentVersion: 1,
-              chunkCount: 5,
-              processorProviderKey: "local",
-              processorMode: "local" as const,
-              processingQuality: null,
-              lastIndexedAt: now,
-              lastReindexRequestedAt: null,
-              lastErrorCode: null,
-              lastErrorMessage: null,
-              createdAt: now,
-              updatedAt: now
-            }
-          ]
+        id: "role-default",
+        key: "persai_default",
+        name: { en: "Personal assistant", ru: "Личный ассистент" },
+        description: {
+          en: "Keeps everyday tasks clear and calm.",
+          ru: "Помогает с повседневными задачами спокойно и ясно."
         },
-        assignment: null,
-        selectable: true,
-        disabledReason: null
+        mission: {
+          en: "Organize, plan, and follow through.",
+          ru: "Помогает организовать, спланировать и довести до результата."
+        },
+        category: "personal",
+        iconEmoji: "P",
+        color: "#6D7CFF",
+        displayOrder: 1,
+        archivedAt: null,
+        createdAt: "2026-04-01T10:00:00.000Z",
+        updatedAt: "2026-04-01T10:00:00.000Z"
+      },
+      {
+        id: "role-legal",
+        key: "legal_drafting",
+        name: { en: "Legal drafting", ru: "Юридические документы" },
+        description: {
+          en: "Draft and review legal text.",
+          ru: "Помогает составлять и проверять юридические тексты."
+        },
+        mission: {
+          en: "Keep language precise and grounded.",
+          ru: "Следит за точностью и ясностью формулировок."
+        },
+        category: "work",
+        iconEmoji: "L",
+        color: "#7B61FF",
+        displayOrder: 2,
+        archivedAt: null,
+        createdAt: "2026-04-01T10:00:00.000Z",
+        updatedAt: "2026-04-01T10:00:00.000Z"
       }
     ]
   };
+}
+
+function makeAssistantRoleSelection(roleKey = "persai_default") {
+  const role = makeAssistantRolesResponse().roles.find((entry) => entry.key === roleKey)!;
+  return {
+    requestId: "req-role-current",
+    assistantId: "assistant-1",
+    role
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 describe("SetupWizardPage", () => {
@@ -404,7 +410,8 @@ describe("SetupWizardPage", () => {
     assistantApiMocks.getAssistant.mockResolvedValue(null);
     assistantApiMocks.getAssistantPersonaArchetypes.mockResolvedValue(makePersonaArchetypes());
     assistantApiMocks.getAssistantVoiceSettings.mockResolvedValue(makeVoiceSettings());
-    assistantApiMocks.getAssistantSkills.mockResolvedValue(makeAssistantSkillsResponse());
+    assistantApiMocks.getAssistantRoles.mockResolvedValue(makeAssistantRolesResponse());
+    assistantApiMocks.getAssistantRole.mockResolvedValue(makeAssistantRoleSelection());
     meApiMocks.getMe.mockResolvedValue(makeMeResponse());
     meApiMocks.postOnboarding.mockResolvedValue(makeMeResponse());
     assistantApiMocks.postAssistantCreate.mockResolvedValue(makeAssistantState());
@@ -417,12 +424,6 @@ describe("SetupWizardPage", () => {
       avatarUrl: "https://example.com/avatar.png"
     });
     assistantApiMocks.postAssistantPublish.mockResolvedValue(makeAssistantState());
-    assistantApiMocks.updateAssistantSkillAssignments.mockImplementation(
-      async (_token, payload) => ({
-        ...makeAssistantSkillsResponse(),
-        assignedSkillIds: payload.skillIds
-      })
-    );
     appDataMocks.reload.mockResolvedValue(undefined);
     appDataMocks.reloadChats.mockResolvedValue(undefined);
   });
@@ -469,14 +470,13 @@ describe("SetupWizardPage", () => {
   it("loads runtime preview from persisted draft and publishes with uploaded avatar", async () => {
     clerkMocks.getToken
       .mockResolvedValueOnce("token-prefill")
-      .mockResolvedValueOnce("token-load-skills")
+      .mockResolvedValueOnce("token-load-roles")
       .mockResolvedValueOnce("token-onboarding-preview")
       .mockResolvedValueOnce("token-create-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
       .mockResolvedValueOnce("token-avatar")
       .mockResolvedValueOnce("token-final-patch")
-      .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
 
     const { container } = renderWithIntl(<SetupWizardPage />);
@@ -541,7 +541,6 @@ describe("SetupWizardPage", () => {
 
     await waitFor(() => {
       expect(assistantApiMocks.uploadAssistantAvatar).toHaveBeenCalledTimes(1);
-      expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledTimes(1);
       expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledTimes(1);
     });
     expect(meApiMocks.postOnboarding).toHaveBeenCalledTimes(1);
@@ -558,13 +557,11 @@ describe("SetupWizardPage", () => {
         avatarUrl: "https://example.com/avatar.png"
       })
     );
-    expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledWith(
-      expect.any(String),
-      {
-        skillIds: ["skill-1"]
-      }
-    );
-    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith(expect.any(String));
+    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith(expect.any(String), {
+      assistantId: "assistant-1",
+      expectedRoleKey: "persai_default",
+      roleKey: "legal_drafting"
+    });
     expect(appDataMocks.reload).toHaveBeenCalledTimes(1);
     expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
@@ -573,12 +570,11 @@ describe("SetupWizardPage", () => {
   it("publishes from the persisted preview draft without repeating setup writes", async () => {
     clerkMocks.getToken
       .mockResolvedValueOnce("token-prefill")
-      .mockResolvedValueOnce("token-load-skills")
+      .mockResolvedValueOnce("token-load-roles")
       .mockResolvedValueOnce("token-onboarding-preview")
       .mockResolvedValueOnce("token-create-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
-      .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
 
     renderWithIntl(<SetupWizardPage />);
@@ -592,6 +588,7 @@ describe("SetupWizardPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Theo" }));
 
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    expect(await screen.findByText("Personal assistant")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
 
     expect(
@@ -608,13 +605,11 @@ describe("SetupWizardPage", () => {
     expect(assistantApiMocks.postAssistantCreate).toHaveBeenCalledTimes(1);
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
     expect(assistantApiMocks.uploadAssistantAvatar).not.toHaveBeenCalled();
-    expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledWith(
-      expect.any(String),
-      {
-        skillIds: []
-      }
-    );
-    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith(expect.any(String));
+    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith(expect.any(String), {
+      assistantId: "assistant-1",
+      expectedRoleKey: "persai_default",
+      roleKey: "persai_default"
+    });
     expect(appDataMocks.reload).toHaveBeenCalledTimes(1);
     expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
@@ -623,11 +618,10 @@ describe("SetupWizardPage", () => {
   it("recovers an existing draft explicitly without retrying assistant creation", async () => {
     clerkMocks.getToken
       .mockResolvedValueOnce("token-prefill")
-      .mockResolvedValueOnce("token-load-skills")
+      .mockResolvedValueOnce("token-load-roles")
       .mockResolvedValueOnce("token-onboarding-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
-      .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
     assistantApiMocks.getAssistant.mockResolvedValue(makeRecoverableAssistantState());
 
@@ -638,6 +632,7 @@ describe("SetupWizardPage", () => {
 
     expect(await screen.findByDisplayValue("Recovered Nova")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    expect(await screen.findByText("Personal assistant")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
 
     expect(
@@ -653,12 +648,11 @@ describe("SetupWizardPage", () => {
     expect(assistantApiMocks.postAssistantCreate).not.toHaveBeenCalled();
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
     expect(assistantApiMocks.uploadAssistantAvatar).not.toHaveBeenCalled();
-    expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledWith(
-      expect.any(String),
-      {
-        skillIds: []
-      }
-    );
+    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith(expect.any(String), {
+      assistantId: "assistant-1",
+      expectedRoleKey: "persai_default",
+      roleKey: "persai_default"
+    });
     expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
   });
@@ -666,11 +660,10 @@ describe("SetupWizardPage", () => {
   it("uses an explicit recreate path after reset without relying on a 409 fallback", async () => {
     clerkMocks.getToken
       .mockResolvedValueOnce("token-prefill")
-      .mockResolvedValueOnce("token-load-skills")
+      .mockResolvedValueOnce("token-load-roles")
       .mockResolvedValueOnce("token-onboarding-preview")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
-      .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
     assistantApiMocks.getAssistant.mockResolvedValue(makeResetAssistantState());
 
@@ -687,6 +680,7 @@ describe("SetupWizardPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Vera" }));
 
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    expect(await screen.findByText("Personal assistant")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
 
     expect(
@@ -702,12 +696,11 @@ describe("SetupWizardPage", () => {
     expect(assistantApiMocks.postAssistantCreate).not.toHaveBeenCalled();
     expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalledTimes(1);
     expect(assistantApiMocks.uploadAssistantAvatar).not.toHaveBeenCalled();
-    expect(assistantApiMocks.updateAssistantSkillAssignments).toHaveBeenCalledWith(
-      expect.any(String),
-      {
-        skillIds: []
-      }
-    );
+    expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalledWith(expect.any(String), {
+      assistantId: "assistant-1",
+      expectedRoleKey: "persai_default",
+      roleKey: "persai_default"
+    });
     expect(appDataMocks.reloadChats).toHaveBeenCalledTimes(1);
     expect(routerMocks.replace).toHaveBeenCalledWith("/app/chat?thread=welcome&welcome=1");
   });
@@ -716,10 +709,9 @@ describe("SetupWizardPage", () => {
     navigationMocks.searchParams = new URLSearchParams("entry=assistant-only&intent=create");
     clerkMocks.getToken
       .mockResolvedValueOnce("token-prefill")
-      .mockResolvedValueOnce("token-load-skills")
+      .mockResolvedValueOnce("token-load-roles")
       .mockResolvedValueOnce("token-patch-preview")
       .mockResolvedValueOnce("token-runtime-preview")
-      .mockResolvedValueOnce("token-skills")
       .mockResolvedValueOnce("token-publish");
     assistantApiMocks.getAssistant.mockResolvedValue(makeResetAssistantState());
 
@@ -737,6 +729,7 @@ describe("SetupWizardPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Luma" }));
 
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    expect(await screen.findByText("Personal assistant")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
 
     expect(
@@ -771,6 +764,7 @@ describe("SetupWizardPage", () => {
     expect(await screen.findByDisplayValue("PERSAI")).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    expect(await screen.findByText("Personal assistant")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
 
     expect(
@@ -790,6 +784,47 @@ describe("SetupWizardPage", () => {
         avatarUrl: "/avatar-presets/persai.png"
       })
     );
+  });
+
+  it("fails closed when canonical current role is absent from the active catalog", async () => {
+    assistantApiMocks.getAssistantRoles.mockResolvedValue({
+      ...makeAssistantRolesResponse(),
+      roles: makeAssistantRolesResponse().roles.filter((role) => role.key !== "persai_default")
+    });
+    renderWithIntl(<SetupWizardPage />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+
+    expect(await screen.findByText(enMessages.setup.roleLoadFailed)).toBeInTheDocument();
+    const continueButton = screen.getAllByRole("button", { name: /continue/i }).at(-1)!;
+    expect(continueButton).toBeDisabled();
+    expect(assistantApiMocks.postAssistantPublish).not.toHaveBeenCalled();
+  });
+
+  it("passes AbortSignal and aborts stale setup role requests when leaving the role step", async () => {
+    const pendingCatalog = deferred<ReturnType<typeof makeAssistantRolesResponse>>();
+    const pendingRole = deferred<ReturnType<typeof makeAssistantRoleSelection>>();
+    assistantApiMocks.getAssistantRoles.mockReturnValue(pendingCatalog.promise);
+    assistantApiMocks.getAssistantRole.mockReturnValue(pendingRole.promise);
+    renderWithIntl(<SetupWizardPage />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /continue/i })).at(-1)!);
+    fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
+    await waitFor(() => expect(assistantApiMocks.getAssistantRole).toHaveBeenCalledTimes(1));
+
+    const catalogSignal = assistantApiMocks.getAssistantRoles.mock.calls[0]?.[1] as AbortSignal;
+    const roleSignal = assistantApiMocks.getAssistantRole.mock.calls[0]?.[2] as AbortSignal;
+    expect(catalogSignal).toBe(roleSignal);
+    expect(roleSignal.aborted).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /back/i }));
+    expect(roleSignal.aborted).toBe(true);
+
+    pendingCatalog.resolve(makeAssistantRolesResponse());
+    pendingRole.resolve(makeAssistantRoleSelection());
+    await Promise.resolve();
+    expect(screen.queryByText("Personal assistant")).not.toBeInTheDocument();
   });
 });
 

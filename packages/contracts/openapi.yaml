@@ -394,6 +394,12 @@ paths:
       summary: Publish current authenticated user assistant draft to immutable version
       security:
         - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostAssistantPublishRequest"
       responses:
         "200":
           description: Assistant state with latest published version
@@ -9717,6 +9723,21 @@ components:
       required:
         - roleKey
       properties:
+        roleKey:
+          type: string
+    PostAssistantPublishRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - assistantId
+        - expectedRoleKey
+        - roleKey
+      properties:
+        assistantId:
+          type: string
+          format: uuid
+        expectedRoleKey:
+          type: string
         roleKey:
           type: string
     KnowledgeIndexingJobState:

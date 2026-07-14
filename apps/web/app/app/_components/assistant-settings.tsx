@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -20,12 +20,12 @@ import {
   AlertTriangle,
   Upload,
   Files,
-  GraduationCap,
   SlidersHorizontal,
   ChevronRight,
   CreditCard,
   ExternalLink,
   X,
+  BriefcaseBusiness,
   UserCircle2,
   Plus,
   Mic,
@@ -50,14 +50,13 @@ import {
   type AssistantGender
 } from "./assistant-persona";
 import {
+  getAssistantRole,
   patchAssistantDraft,
   postAssistantPublish,
   postAssistantReset,
   getAssistantVoiceSettings,
   patchAssistantElevenLabsVoiceCuration,
   postAssistantElevenLabsVoiceCatalogRefresh,
-  getAssistantSkills,
-  updateAssistantSkillAssignments,
   patchAssistantNotificationPreference,
   getAssistantMemoryItems,
   type AssistantVoiceSettingsState,
@@ -85,7 +84,6 @@ import {
   type AssistantBillingSubscriptionActionResult,
   type AssistantBillingSubscriptionManagementState,
   type WorkspaceMemoryItem,
-  type AssistantSkillsState,
   getAssistantSupportTickets,
   getWorkspaceVideoPersonas,
   getWorkspaceVideoClonedVoices,
@@ -140,7 +138,7 @@ import {
 } from "./assistant-avatar-presets";
 import { AssistantKnowledgeManager } from "./assistant-knowledge-manager";
 import { WorkspaceFilesGallery } from "./workspace-files-gallery";
-import { AssistantSkillsManager } from "./assistant-skills-manager";
+import { AssistantRoleSettings } from "./assistant-role-settings";
 import { AssistantSandboxEgressSettings } from "./assistant-sandbox-egress-settings";
 
 interface AssistantSettingsProps {
@@ -526,7 +524,7 @@ type SettingsSectionId =
   | "characters"
   | "knowledge"
   | "files"
-  | "skills"
+  | "role"
   | "memory"
   | "tasks"
   | "channels"
@@ -537,7 +535,7 @@ function normalizeInitialSection(value: string | undefined): SettingsSectionId {
   switch (value) {
     case "knowledge":
     case "files":
-    case "skills":
+    case "role":
     case "tasks":
     case "channels":
     case "support":
@@ -828,6 +826,16 @@ function Section({
 // not get them anywhere.
 function isSessionExpiredText(text: string): boolean {
   return text.includes("Session expired") || text.includes("Сессия истекла");
+}
+
+function resolveCharacterSaveErrorMessage(
+  error: unknown,
+  t: ReturnType<typeof useTranslations>
+): string {
+  if (error instanceof ApiStructuredError && error.code === "assistant_publish_role_conflict") {
+    return t("publishRoleConflict");
+  }
+  return error instanceof Error ? error.message : t("saveFailed");
 }
 
 function resolveBillingManagementErrorMessage(
@@ -1619,6 +1627,34 @@ export function AssistantSettings({
   const [saveFb, setSaveFb] = useState<ActionFeedback>(null);
   const [saveButtonState, setSaveButtonState] = useState<"idle" | "saved">("idle");
   const saveButtonResetTimerRef = useRef<number | null>(null);
+  const publishAssistantRef = useRef<string | null>(assistant?.id ?? null);
+  const publishGenerationRef = useRef(0);
+  const publishAbortRef = useRef<AbortController | null>(null);
+
+  const isPublishCurrent = useCallback((expectedAssistantId: string, generation: number) => {
+    return (
+      publishAssistantRef.current === expectedAssistantId &&
+      publishGenerationRef.current === generation
+    );
+  }, []);
+
+  const startPublishGeneration = useCallback(() => {
+    publishGenerationRef.current += 1;
+    publishAbortRef.current?.abort();
+    const controller = new AbortController();
+    publishAbortRef.current = controller;
+    return { generation: publishGenerationRef.current, controller };
+  }, []);
+
+  useLayoutEffect(() => {
+    const nextAssistantId = assistant?.id ?? null;
+    if (publishAssistantRef.current !== nextAssistantId) {
+      publishAssistantRef.current = nextAssistantId;
+      publishGenerationRef.current += 1;
+      publishAbortRef.current?.abort();
+      publishAbortRef.current = null;
+    }
+  }, [assistant?.id]);
 
   const [draftTraits, setDraftTraits] = useState<Record<string, number>>(
     (assistant?.draft.traits as Record<string, number> | null) ?? DEFAULT_TRAITS
@@ -1642,12 +1678,6 @@ export function AssistantSettings({
   const [resetting, setResetting] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetFb, setResetFb] = useState<ActionFeedback>(null);
-  const [skillsState, setSkillsState] = useState<AssistantSkillsState | null>(null);
-  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
-  const [skillsLoading, setSkillsLoading] = useState(false);
-  const [skillsSaving, setSkillsSaving] = useState(false);
-  const [skillsFb, setSkillsFb] = useState<ActionFeedback>(null);
-
   const [memoryItems, setMemoryItems] = useState<AssistantMemoryRegistryItemState[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [forgettingId, setForgettingId] = useState<string | null>(null);
@@ -2522,48 +2552,6 @@ export function AssistantSettings({
     void loadBillingSubscription("blocking");
   }, [data.plan, isLoaded, loadBillingSubscription]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    if (assistant === null) {
-      setSkillsState(null);
-      setSelectedSkillIds([]);
-      setSkillsLoading(false);
-      return;
-    }
-
-    void (async () => {
-      const token = await getToken({ skipCache: true });
-      if (!token || cancelled) {
-        return;
-      }
-      setSkillsLoading(true);
-      setSkillsFb(null);
-      try {
-        const nextState = await getAssistantSkills(token);
-        if (!cancelled) {
-          setSkillsState(nextState);
-          setSelectedSkillIds(nextState.assignedSkillIds);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setSkillsFb({
-            type: "err",
-            text: error instanceof Error ? error.message : t("skillsLoadFailed")
-          });
-        }
-      } finally {
-        if (!cancelled) {
-          setSkillsLoading(false);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [assistant, getToken, t]);
-
   const primaryVoiceProviderId = voiceSettings?.primaryProviderId ?? null;
   const yandexVoiceOptions = useMemo(
     () => filterVoiceOptions(YANDEX_VOICE_OPTIONS, draftAssistantGender),
@@ -3387,12 +3375,23 @@ export function AssistantSettings({
   }, [data, router, t]);
 
   const handleSaveAndApply = useCallback(async () => {
+    const expectedAssistantId = publishAssistantRef.current;
+    if (!expectedAssistantId) {
+      setSaveFb({ type: "err", text: t("roleRequiredForPublish") });
+      return;
+    }
     const token = await getToken({ skipCache: true });
-    if (!token) return;
+    if (!token || !isPublishCurrent(expectedAssistantId, publishGenerationRef.current)) {
+      return;
+    }
+    const { generation, controller } = startPublishGeneration();
     setSaving(true);
     setSaveFb(null);
     setSaveButtonState("idle");
     try {
+      if (!isPublishCurrent(expectedAssistantId, generation)) {
+        return;
+      }
       await patchAssistantDraft(token, {
         displayName: draftName || null,
         instructions: draftInstructions || null,
@@ -3412,7 +3411,24 @@ export function AssistantSettings({
         },
         archetypeKey: assistant?.draft.archetypeKey ?? null
       });
-      await postAssistantPublish(token);
+      if (!isPublishCurrent(expectedAssistantId, generation)) {
+        return;
+      }
+      const currentRole = await getAssistantRole(token, expectedAssistantId, controller.signal);
+      if (
+        !isPublishCurrent(expectedAssistantId, generation) ||
+        currentRole.assistantId !== expectedAssistantId
+      ) {
+        return;
+      }
+      await postAssistantPublish(token, {
+        assistantId: expectedAssistantId,
+        expectedRoleKey: currentRole.role.key,
+        roleKey: currentRole.role.key
+      });
+      if (!isPublishCurrent(expectedAssistantId, generation)) {
+        return;
+      }
       setSaveButtonState("saved");
       if (saveButtonResetTimerRef.current !== null) {
         window.clearTimeout(saveButtonResetTimerRef.current);
@@ -3423,9 +3439,15 @@ export function AssistantSettings({
       }, 1800);
       data.reload();
     } catch (e) {
-      setSaveFb({ type: "err", text: e instanceof Error ? e.message : t("saveFailed") });
+      if (!isPublishCurrent(expectedAssistantId, generation)) {
+        return;
+      }
+      setSaveFb({ type: "err", text: resolveCharacterSaveErrorMessage(e, t) });
+    } finally {
+      if (isPublishCurrent(expectedAssistantId, generation)) {
+        setSaving(false);
+      }
     }
-    setSaving(false);
   }, [
     getToken,
     draftName,
@@ -3434,7 +3456,11 @@ export function AssistantSettings({
     draftAvatarUrl,
     draftAssistantGender,
     draftVoiceProfile,
-    data
+    assistant?.draft.archetypeKey,
+    data,
+    isPublishCurrent,
+    startPublishGeneration,
+    t
   ]);
 
   const handleElevenLabsCurationChange = useCallback(
@@ -3483,30 +3509,6 @@ export function AssistantSettings({
       setVoiceCatalogRefreshing(false);
     }
   }, [getToken]);
-
-  const handleSkillsChange = useCallback(
-    async (nextSkillIds: string[]) => {
-      setSelectedSkillIds(nextSkillIds);
-      const token = await getToken({ skipCache: true });
-      if (!token) return;
-      setSkillsSaving(true);
-      setSkillsFb(null);
-      try {
-        const nextState = await updateAssistantSkillAssignments(token, { skillIds: nextSkillIds });
-        setSkillsState(nextState);
-        setSelectedSkillIds(nextState.assignedSkillIds);
-        setSkillsFb({ type: "ok", text: t("skillsSaved") });
-      } catch (error) {
-        setSkillsFb({
-          type: "err",
-          text: error instanceof Error ? error.message : t("skillsSaveFailed")
-        });
-      } finally {
-        setSkillsSaving(false);
-      }
-    },
-    [getToken, t]
-  );
 
   const handleReset = useCallback(async () => {
     const token = await getToken({ skipCache: true });
@@ -4367,25 +4369,20 @@ export function AssistantSettings({
           />
         </Section>
 
-        {/* 5. Skills */}
+        {/* 5. Role */}
         <Section
-          icon={<GraduationCap className="h-4 w-4" />}
-          title={t("skills")}
-          open={openSection === "skills"}
-          onToggle={() => setOpenSection((current) => (current === "skills" ? null : "skills"))}
+          icon={<BriefcaseBusiness className="h-4 w-4" />}
+          title={t("role")}
+          open={openSection === "role"}
+          onToggle={() => setOpenSection((current) => (current === "role" ? null : "role"))}
           className="order-4"
         >
-          <AssistantSkillsManager
-            state={skillsState}
-            selectedSkillIds={selectedSkillIds}
-            onChange={(nextSkillIds) => void handleSkillsChange(nextSkillIds)}
-            loading={skillsLoading}
-            saving={skillsSaving}
-            error={skillsFb?.type === "err" ? skillsFb.text : null}
-            collapsible
-            initialVisibleCount={4}
-          />
-          {skillsFb?.type === "ok" ? <FeedbackLine fb={skillsFb} /> : null}
+          {assistant ? (
+            <AssistantRoleSettings
+              assistantId={assistant.id}
+              resolveAuthToken={() => getToken({ skipCache: true })}
+            />
+          ) : null}
         </Section>
 
         {memoryDrawerOpen && typeof document !== "undefined"

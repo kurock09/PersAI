@@ -27,6 +27,10 @@ import {
   getWorkspaceVideoPersonas,
   getWorkspaceVoiceCatalog,
   getWorkspaceVideoClonedVoices,
+  getAssistantRole,
+  getAssistantRoles,
+  updateAssistantRole,
+  postAssistantPublish,
   createWorkspaceVideoClonedVoice,
   createWorkspaceVideoPersona,
   updateWorkspaceVideoPersona,
@@ -51,7 +55,11 @@ const contractMocks = vi.hoisted(() => {
     postAssistantMemoryItemCloseOpenLoop: vi.fn(),
     postAssistantWebChatCompact: vi.fn(),
     putAdminRuntimeProviderSettings: vi.fn(),
-    postAssistantTelegramRevoke: vi.fn()
+    postAssistantTelegramRevoke: vi.fn(),
+    getAssistantRoles: vi.fn(),
+    getAssistantRole: vi.fn(),
+    putAssistantRole: vi.fn(),
+    postAssistantPublish: vi.fn()
   };
 });
 
@@ -71,7 +79,11 @@ vi.mock("@persai/contracts", async () => {
     postAssistantMemoryItemCloseOpenLoop: contractMocks.postAssistantMemoryItemCloseOpenLoop,
     postAssistantWebChatCompact: contractMocks.postAssistantWebChatCompact,
     putAdminRuntimeProviderSettings: contractMocks.putAdminRuntimeProviderSettings,
-    postAssistantTelegramRevoke: contractMocks.postAssistantTelegramRevoke
+    postAssistantTelegramRevoke: contractMocks.postAssistantTelegramRevoke,
+    getAssistantRoles: contractMocks.getAssistantRoles,
+    getAssistantRole: contractMocks.getAssistantRole,
+    putAssistantRole: contractMocks.putAssistantRole,
+    postAssistantPublish: contractMocks.postAssistantPublish
   };
 });
 
@@ -100,6 +112,102 @@ afterEach(() => {
   vi.restoreAllMocks();
   global.fetch = ORIGINAL_FETCH;
   delete process.env.NEXT_PUBLIC_API_BASE_URL;
+});
+
+describe("assistant Role API wrappers", () => {
+  const role = {
+    id: "role-1",
+    key: "persai_default",
+    name: { en: "Personal assistant", ru: "Личный ассистент" },
+    description: { en: "Daily help.", ru: "Помощь на каждый день." },
+    mission: { en: "Plan and follow through.", ru: "Планировать и доводить дела." },
+    category: "personal",
+    iconEmoji: null,
+    color: null,
+    displayOrder: 1
+  };
+
+  it("passes AbortSignal through catalog, current Role, and PUT wrappers", async () => {
+    const controller = new AbortController();
+    contractMocks.getAssistantRoles.mockResolvedValue({
+      status: 200,
+      data: { requestId: "roles", roles: [role] }
+    });
+    contractMocks.getAssistantRole.mockResolvedValue({
+      status: 200,
+      data: { requestId: "role", assistantId: "assistant-1", role }
+    });
+    contractMocks.putAssistantRole.mockResolvedValue({
+      status: 200,
+      data: { requestId: "put", assistantId: "assistant-1", role }
+    });
+
+    await getAssistantRoles("token", controller.signal);
+    await getAssistantRole("token", "assistant-1", controller.signal);
+    await updateAssistantRole(
+      "token",
+      "assistant-1",
+      { roleKey: "persai_default" },
+      controller.signal
+    );
+
+    expect(contractMocks.getAssistantRoles).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal })
+    );
+    expect(contractMocks.getAssistantRole).toHaveBeenCalledWith(
+      "assistant-1",
+      expect.objectContaining({ signal: controller.signal })
+    );
+    expect(contractMocks.putAssistantRole).toHaveBeenCalledWith(
+      "assistant-1",
+      { roleKey: "persai_default" },
+      expect.objectContaining({ signal: controller.signal })
+    );
+  });
+
+  it("forwards the exact expected-role publish command", async () => {
+    contractMocks.postAssistantPublish.mockResolvedValue({
+      status: 200,
+      data: { assistant: { id: "assistant-1" } }
+    });
+    const payload = {
+      assistantId: "assistant-1",
+      expectedRoleKey: "persai_default",
+      roleKey: "engineer"
+    };
+
+    await postAssistantPublish("token", payload);
+    expect(contractMocks.postAssistantPublish).toHaveBeenCalledWith(
+      payload,
+      expect.objectContaining({ headers: expect.any(Object) })
+    );
+  });
+
+  it("preserves structured publish conflict codes", async () => {
+    contractMocks.postAssistantPublish.mockRejectedValue(
+      new ContractsApiError(
+        "Assistant role changed before publish. Reload and try again.",
+        409,
+        {
+          error: {
+            code: "assistant_publish_role_conflict",
+            message: "Assistant role changed before publish. Reload and try again."
+          }
+        },
+        "assistant_publish_role_conflict"
+      )
+    );
+
+    await expect(
+      postAssistantPublish("token", {
+        assistantId: "assistant-1",
+        expectedRoleKey: "persai_default",
+        roleKey: "engineer"
+      })
+    ).rejects.toMatchObject({
+      code: "assistant_publish_role_conflict"
+    });
+  });
 });
 
 describe("admin rollout client", () => {
