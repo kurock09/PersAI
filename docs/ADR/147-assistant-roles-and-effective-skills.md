@@ -9,8 +9,9 @@ accepted after two rejected audits and final fail-closed gate hardening.
 S5b (physical drop) waits for Release B old-revision proof. S6 clean isolated
 Postgres migrate exposed a real S2 `system` preset gap; local undeployed repair
 landed and parent-audited CLEAN 2026-07-14. A fresh pgvector database then
-applied all 188 migrations successfully; the complete S6 repository gate still
-must rerun from the repaired tree. No ADR-147 code has been pushed or deployed.
+applied all 188 migrations successfully. The complete S6 Release B pre-push
+repository gate passed on committed tree `01690e37`, including generated
+contracts twice with zero diff. No ADR-147 code has been pushed or deployed.
 
 ## Date
 

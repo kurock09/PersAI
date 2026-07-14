@@ -1,5 +1,42 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-147 S6 Release B pre-push gate
+
+Status: **full local pre-release gate PASS; committed through `01690e37`;
+unpushed, undeployed.**
+
+**Repository gate PASS on exact committed tree `01690e37`:** recursive lint and
+format; Prisma generate plus all workspace typechecks; complete recursive test
+suite; Step2 API/web suite; affected-path detector; ADR-146 foundation,
+release-gate, active-code, cross-layer, and Slice 5 safety suites; all workspace
+production builds; web production build with 34/34 static pages; final tracked
+tree clean. The only build warning is the existing Next.js middleware-convention
+deprecation.
+
+**Migration and generated truth PASS:** a fresh isolated pgvector Postgres
+database applied all 188 migrations and reported current status. Database
+invariants confirmed active zero-Skill `persai_default`, exactly one system Role
+placeholder, and canonical identity → Role → enabled-Skills ordering. The
+isolated proof container was removed. OpenAPI/Orval generation ran twice from
+the committed tree with zero diff both times.
+
+**Gate findings repaired before acceptance:** clean migration-only databases
+were missing the historical application-seeded system preset; repaired and
+parent-audited at `620d3ae5`. The complete suite then exposed one hardcoded
+locale fixture in Admin Roles tests; repaired at `01690e37` without weakening
+the localization guard. The complete gate was rerun from the beginning after
+both fixes and passed.
+
+**Out of scope / residuals:** no push, Release B deploy, live acceptance, or
+S5b physical drop yet. S5b remains blocked until deployed Release B inventory
+proves no old revision remains.
+
+**Next recommended step:** fetch and verify remote freshness, push the eight
+local ADR-147 commits once, then supervise CI/migration approval/GitOps Release B
+and execute the written live acceptance matrix.
+
+---
+
 ## 2026-07-14 — ADR-147 S6 clean-DB migration repair (system preset bootstrap)
 
 Status: **implemented locally and parent-audited CLEAN; unpushed,
