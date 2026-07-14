@@ -320,7 +320,7 @@ web:
       maxSurge: 1
   image:
     name: web
-    tag: a11c8b6bb03ce03ed6240579d472ebfeb7a2e4df
+    tag: 9e26f145ba09bcb156c3e3b18fbb4bf3ac02f8b4
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
@@ -559,7 +559,7 @@ sandbox:
       name: sandbox-exec-egress-mode-contract
   image:
     name: sandbox
-    tag: a11c8b6bb03ce03ed6240579d472ebfeb7a2e4df
+    tag: 9e26f145ba09bcb156c3e3b18fbb4bf3ac02f8b4
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -675,7 +675,7 @@ sandboxExec:
     # Exec image name in GAR (matches the service name in detect-affected + pin script).
     name: sandbox-exec
     # Initial tag; CI pins this to the SHA of the most recent successful build.
-    tag: fa440e027b6c36653efd39567c16172d04c02256
+    tag: 9e26f145ba09bcb156c3e3b18fbb4bf3ac02f8b4
   # ADR-123 Slice 3 warm-pool follow-up: a DaemonSet that keeps the exec image pulled on
   # every sandbox node so cold-start exec pods skip the multi-GB image pull. Pairs with a
   # >=1 minimum node on the sandbox pool (set via node-pool autoscaling — see RUNBOOK).
