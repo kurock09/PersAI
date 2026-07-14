@@ -21,6 +21,7 @@ const api = vi.hoisted(() => ({
   previewAdminRole: vi.fn()
 }));
 const clerk = vi.hoisted(() => ({ getToken: vi.fn() }));
+const RU_LOCALE = "ru" as const;
 
 vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({ getToken: clerk.getToken })
@@ -90,7 +91,7 @@ beforeEach(() => {
     createRole({ skillIds: payload.skillIds })
   );
   api.previewAdminRole.mockResolvedValue({
-    locale: "ru",
+    locale: RU_LOCALE,
     missionBlock: "<assistant_role>точно</assistant_role>",
     enabledSkillsBlock: "<enabled_skills>точно</enabled_skills>",
     skillIds: [skillOne.id, skillTwo.id]
@@ -212,7 +213,7 @@ describe("AdminRolesPage integration", () => {
 
     await waitFor(() =>
       expect(api.previewAdminRole).toHaveBeenCalledWith("token", {
-        locale: "ru",
+        locale: RU_LOCALE,
         mission: { en: "Analyze carefully.", ru: "Анализируй внимательно." },
         skillIds: [skillOne.id, skillTwo.id]
       })
