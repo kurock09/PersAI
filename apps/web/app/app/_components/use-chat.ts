@@ -3384,8 +3384,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           // ADR-125 follow-up — drive the chat-level subtitle from the SSE
           // payload. When the engagement summary is `null` the server is
           // telling us the chat is now in "no active skill" — apply that
-          // verbatim instead of leaving stale state.
-          {
+          // verbatim instead of leaving stale state. Only mutate visible
+          // chrome when this completion belongs to the currently viewed
+          // thread (prevents cross-thread / B2B bleed). Omitted field = no-op.
+          if (currentThreadKeyRef.current === sendThreadKey) {
             const raw = t?.engagementSummary;
             if (raw === null) {
               setCurrentEngagement(null);

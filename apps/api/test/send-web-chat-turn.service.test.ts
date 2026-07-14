@@ -258,6 +258,8 @@ describe("SendWebChatTurnService", () => {
     assert.equal(result.userMessage.id, "user-msg-1");
     assert.equal(result.assistantMessage.id, "assistant-msg-1");
     assert.equal(result.assistantMessage.content, "hi back");
+    assert.equal(Object.hasOwn(result, "engagementSummary"), true);
+    assert.equal(result.engagementSummary, null);
     assert.deepEqual(result.runtime.turnRouting, {
       mode: "shadow",
       executionMode: "reasoning",
@@ -451,6 +453,8 @@ describe("SendWebChatTurnService", () => {
       }
     ]);
     assert.equal(result.assistantMessage.content, "native");
+    assert.equal(Object.hasOwn(result, "engagementSummary"), true);
+    assert.equal(result.engagementSummary, null);
     assert.deepEqual(result.runtime.turnRouting, {
       mode: "shadow",
       executionMode: "premium",

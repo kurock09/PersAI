@@ -13,9 +13,13 @@ applied all 188 migrations successfully. The complete S6 Release B pre-push
 repository gate passed on committed tree `01690e37`, including generated
 contracts twice with zero diff. Release B `a225143e` is deployed through bot
 pin `4c28dd52`; CI, migration, Argo health, exact-revision inventory, and
-operator-accessible Role/runtime/MCP acceptance are green. Authenticated
-setup/recreate/Settings/Admin visuals and real B2B independence still require
-manual Clerk sessions, so S5b remains blocked.
+operator-accessible Role/runtime/MCP acceptance are green. Authenticated B2B
+acceptance now proves three independently addressed Assistants and a real
+Role-linked Skill/scenario subtitle. It also exposed local undeployed repairs
+for the Settings Role-loading loop, Admin preview HTTP 201/200 mismatch, and
+engagement subtitle release/cross-thread correctness. The complete local repair
+gate passes; changes remain uncommitted, unpushed, and undeployed. Deployed
+Settings/Admin visual recheck remains; S5b stays blocked.
 
 ## Date
 
@@ -882,6 +886,20 @@ Primary files/modules:
 - B2C and B2B live Role acceptance.
 - Admin/MCP authoring and invalidation acceptance.
 - Founder closure only after evidence.
+
+Authenticated acceptance follow-up (2026-07-14, local repair undeployed):
+production Clerk/B2B evidence confirmed three Assistants have independently
+addressable required Roles, all ADR-147 routes are middleware-registered, and a
+real Marketer `instagram_carousel` engage renders
+`Маркетолог · Instagram-карусель` under the chat title. The audit repaired four
+bounded issues without changing Role/Skill architecture: unstable auth callback
+identity could self-abort Settings Role loading; Admin preview returned Nest's
+default 201 instead of contract 200; inactive completion omitted explicit
+`engagementSummary: null`; and a background completion lacked a visible-thread
+guard. Focused regressions pin resolver stability, HTTP status, nullable
+normal/replay send+stream transport, SSE set/clear, cross-thread/B2B isolation,
+and publish middleware coverage. S5b remains blocked until the repair passes
+the full gate, deploys, and Settings/Admin visuals pass on the new revision.
 
 ## Exact S0 conflict ledger
 

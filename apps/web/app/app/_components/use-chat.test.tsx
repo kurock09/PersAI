@@ -7167,6 +7167,156 @@ describe("useChat", () => {
     });
   });
 
+  describe("currentEngagement from turn completion", () => {
+    it("sets and clears currentEngagement from SSE engagementSummary on the visible thread", async () => {
+      assistantApiMocks.streamAssistantWebChatTurn
+        .mockImplementationOnce(
+          async (
+            _token: string,
+            _payload: unknown,
+            handlers: {
+              onCompleted?: (payload: { transport: unknown }) => void;
+            }
+          ) => {
+            handlers.onCompleted?.({
+              transport: {
+                assistantMessage: { id: "assistant-engage-1", content: "Engaged." },
+                engagementSummary: {
+                  skillDisplayName: "Маркетолог",
+                  scenarioDisplayName: "Instagram-карусель"
+                }
+              }
+            });
+          }
+        )
+        .mockImplementationOnce(
+          async (
+            _token: string,
+            _payload: unknown,
+            handlers: {
+              onCompleted?: (payload: { transport: unknown }) => void;
+            }
+          ) => {
+            handlers.onCompleted?.({
+              transport: {
+                assistantMessage: { id: "assistant-release-1", content: "Released." },
+                engagementSummary: null
+              }
+            });
+          }
+        );
+
+      const { result } = renderHook(() => useChat("thread-engage"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await act(async () => {
+        await result.current.send("engage skill");
+      });
+      expect(result.current.currentEngagement).toEqual({
+        skillDisplayName: "Маркетолог",
+        scenarioDisplayName: "Instagram-карусель"
+      });
+
+      await act(async () => {
+        await result.current.send("release skill");
+      });
+      expect(result.current.currentEngagement).toBeNull();
+    });
+
+    it("does not mutate visible engagement when a non-visible thread completes", async () => {
+      let releaseBackground: (() => void) | null = null;
+      assistantApiMocks.getChatMessages.mockResolvedValueOnce({
+        messages: [],
+        nextCursor: null,
+        activeTurn: null,
+        activeMediaJobs: [],
+        activeDocumentJobs: [],
+        currentEngagement: {
+          skillDisplayName: "Visible skill",
+          scenarioDisplayName: null
+        }
+      });
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-background" },
+            userMessage: { id: "server-user-bg", chatId: "chat-background", attachments: [] }
+          });
+          await new Promise<void>((resolve) => {
+            releaseBackground = () => {
+              handlers.onCompleted?.({
+                transport: {
+                  userMessage: {
+                    id: "server-user-bg",
+                    chatId: "chat-background",
+                    attachments: []
+                  },
+                  assistantMessage: {
+                    id: "server-assistant-bg",
+                    content: "Background done.",
+                    attachments: []
+                  },
+                  engagementSummary: {
+                    skillDisplayName: "Background skill",
+                    scenarioDisplayName: "Should not leak"
+                  }
+                }
+              });
+              resolve();
+            };
+          });
+        }
+      );
+
+      const { result, rerender } = renderHook(({ threadKey }) => useChat(threadKey), {
+        initialProps: { threadKey: "thread-background" },
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("background turn");
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(result.current.isStreaming).toBe(true);
+      });
+
+      rerender({ threadKey: "thread-visible" });
+      await act(async () => {
+        await result.current.loadHistory("chat-visible");
+      });
+      await waitFor(() => {
+        expect(result.current.currentEngagement).toEqual({
+          skillDisplayName: "Visible skill",
+          scenarioDisplayName: null
+        });
+      });
+
+      await act(async () => {
+        releaseBackground?.();
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
+
+      expect(result.current.currentEngagement).toEqual({
+        skillDisplayName: "Visible skill",
+        scenarioDisplayName: null
+      });
+    });
+  });
+
   describe("chat plan integration", () => {
     it("clears the previous chat plan and skill engagement on a thread switch", async () => {
       const planTodo = {

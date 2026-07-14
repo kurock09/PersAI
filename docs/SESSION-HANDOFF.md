@@ -1,5 +1,73 @@
 # SESSION-HANDOFF
 
+## 2026-07-14 — ADR-147 authenticated UI/B2B acceptance repair
+
+Status: **authenticated diagnosis and B2B Role/indicator acceptance PASS; four
+bounded local repairs implemented and full local repair gate PASS; uncommitted,
+unpushed, and undeployed. S5b remains blocked.**
+
+Baseline was clean local `dfcd96f4`, one docs checkpoint ahead of
+`origin/main`. The authenticated `alex@agse.ru` B2B session exposes three
+Assistants (Luma, Nica, Lyra); each owner-scoped Role GET returned its own
+Assistant id and active `persai_default`. Live production Role catalog/current
+Role GETs returned 200, proving the Settings spinner was not an API/auth
+failure. Root cause was the unstable inline auth-resolver identity repeatedly
+recreating `loadCanonical`, aborting its own requests, and returning the Role
+surface to loading. `AssistantRoleSettings` now reads the latest resolver from
+a ref without making canonical-load identity depend on that prop; a rerender
+regression proves no reload loop.
+
+Admin preview live returned a correct preview body with HTTP 201. OpenAPI and
+the generated web wrapper require 200, so the wrapper rejected the successful
+response and the RU catch showed «Не удалось построить превью.». The controller
+now declares `@HttpCode(HttpStatus.OK)` and metadata coverage pins the contract.
+
+Clerk/operator route audit is CLEAN: all eleven ADR-147 user/admin/publish
+method+path pairs are registered in `IdentityAccessModule`, controllers and
+OpenAPI agree, the Next BFF forwards Clerk bearer auth, and a production
+anonymous matrix returned 401 for every route. The previously unpinned
+`POST /api/v1/assistant/publish` route is now included in the middleware
+regression.
+
+Live Skill/scenario UI acceptance PASS: a temporary active Role linked only to
+the existing Marketer Skill was assigned to B2B Luma, a real web turn engaged
+`instagram_carousel`, and the subtitle under the chat title rendered
+`Маркетолог · Instagram-карусель`. The test chat was hard-deleted, Luma was
+restored to `persai_default`, and both exact archived probe Roles
+(`adr147_release_b_probe`, `adr147_ui_indicator_probe`) were later physically
+deleted at founder request under a serializable `archived + zero Assistants`
+guard; their two RoleSkill links cascaded and live Admin catalog now contains
+zero probe Roles. This also removes the second probe's PowerShell-stdin-mangled
+RU copy (`?` characters). Audit found two pre-existing correctness gaps: inactive
+completion omitted the nullable engagement field, leaving stale subtitle
+chrome, and background completion could update a different visible
+thread/Assistant. API normal/replay send+stream transports now always emit
+`engagementSummary` including explicit `null`; web applies it only when the
+completion thread is still visible. Focused API/web set/clear/cross-thread tests
+pass.
+
+Fresh stdio process `16436` runs the rebuilt local MCP dist, which registers
+exactly `role_upsert`, `role_get`, `role_list`, `role_skills_replace`, and
+`assistant_role_assign`; the package catalog suite passes and the removed
+direct-assignment tool is absent from dist. Cursor Desktop keeps the MCP schema
+snapshot attached when this existing Agent chat was initialized, so reloading
+the stdio connection does not reliably rehydrate this chat. After server reload,
+open a new Agent chat; restart Cursor only if Customize → MCP itself still shows
+the old list.
+
+**Local repair gate PASS:** recursive lint; repository format; API and web
+typecheck; focused API controller/middleware/send/stream tests (34 service tests
+plus controller/middleware); focused web Role/use-chat/header suites 133/133;
+complete Admin MCP 13/13; active-vocabulary zero gate; API and web production
+builds (34/34 static pages). `git diff --check` and IDE diagnostics are clean.
+The only build warning is the existing Next middleware-convention deprecation.
+
+**Next recommended step:** request founder authorization to commit and push this
+repair. After deploy, repeat Settings current-Role and Admin preview visual
+checks on the new revision. Do not start S5b until those deployed repairs pass.
+
+---
+
 ## 2026-07-14 — ADR-147 Release B deployed; live acceptance partial
 
 Status: **Release B deployed healthy; automated/operator-accessible acceptance

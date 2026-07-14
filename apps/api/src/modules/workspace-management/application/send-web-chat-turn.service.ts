@@ -610,7 +610,7 @@ export class SendWebChatTurnService {
           : { followUpAssistantMessage: postRuntime.followUpAssistantMessage }),
         activeMediaJobs: postRuntime.activeMediaJobs,
         activeDocumentJobs: postRuntime.activeDocumentJobs,
-        ...(engagementSummary !== null ? { engagementSummary } : {}),
+        engagementSummary,
         pendingBrowserLogin,
         runtime: {
           respondedAt: runtimeResponse.respondedAt,
@@ -842,7 +842,7 @@ export class SendWebChatTurnService {
           }),
       activeMediaJobs,
       activeDocumentJobs,
-      ...(replayEngagementSummary !== null ? { engagementSummary: replayEngagementSummary } : {}),
+      engagementSummary: replayEngagementSummary,
       pendingBrowserLogin,
       runtime: {
         respondedAt: state.respondedAt,

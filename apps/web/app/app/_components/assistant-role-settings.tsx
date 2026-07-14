@@ -31,6 +31,7 @@ export function AssistantRoleSettings({
   const generationRef = useRef(0);
   const mountedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  const resolveAuthTokenRef = useRef(resolveAuthToken);
 
   const [roles, setRoles] = useState<AssistantRoleState[] | null>(null);
   const [currentRole, setCurrentRole] = useState<AssistantRoleSelectionState | null>(null);
@@ -83,7 +84,7 @@ export function AssistantRoleSettings({
         setSaveError(null);
       }
       try {
-        const token = await resolveAuthToken();
+        const token = await resolveAuthTokenRef.current();
         if (!token || !isCurrent(expectedAssistantId, generation)) {
           if (isCurrent(expectedAssistantId, generation)) {
             setLoadError(t("roleLoadFailed"));
@@ -130,8 +131,12 @@ export function AssistantRoleSettings({
         }
       }
     },
-    [isCurrent, resolveAuthToken, t]
+    [isCurrent, t]
   );
+
+  useLayoutEffect(() => {
+    resolveAuthTokenRef.current = resolveAuthToken;
+  }, [resolveAuthToken]);
 
   useLayoutEffect(() => {
     if (assistantRef.current !== assistantId) {
@@ -209,7 +214,7 @@ export function AssistantRoleSettings({
     setSaveError(null);
     setSaveFeedback(null);
     try {
-      const token = await resolveAuthToken();
+      const token = await resolveAuthTokenRef.current();
       if (!token || !isCurrent(expectedAssistantId, generation)) {
         if (isCurrent(expectedAssistantId, generation)) {
           setSaveError(t("roleSaveFailed"));
@@ -279,7 +284,7 @@ export function AssistantRoleSettings({
         setSaveBusy(false);
       }
     }
-  }, [currentRole, draftRoleKey, isCurrent, loadCanonical, resolveAuthToken, startGeneration, t]);
+  }, [currentRole, draftRoleKey, isCurrent, loadCanonical, startGeneration, t]);
 
   if (loading && currentRole === null && roles === null) {
     return (

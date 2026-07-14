@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { UnauthorizedException } from "@nestjs/common";
+import { HTTP_CODE_METADATA } from "@nestjs/common/constants";
 import { ApiErrorHttpException } from "../src/modules/platform-core/interface/http/api-error";
 import { AdminRolesController } from "../src/modules/workspace-management/interface/http/admin-roles.controller";
 
@@ -105,5 +106,12 @@ void test("AdminRolesController rejects missing authenticated app-user context",
   await assert.rejects(
     () => controller.list({ requestId: "request-147" } as never),
     UnauthorizedException
+  );
+});
+
+void test("AdminRolesController preview returns the OpenAPI-declared 200", () => {
+  assert.equal(
+    Reflect.getMetadata(HTTP_CODE_METADATA, AdminRolesController.prototype.preview),
+    200
   );
 });

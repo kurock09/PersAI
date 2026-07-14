@@ -161,6 +161,32 @@ describe("AssistantRoleSettings", () => {
     expect(signal.aborted).toBe(true);
   });
 
+  it("does not restart canonical loading when only the auth resolver identity changes", async () => {
+    const firstResolver = vi.fn(async () => "token-a");
+    const secondResolver = vi.fn(async () => "token-b");
+    const { rerender } = render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <AssistantRoleSettings assistantId="assistant-a" resolveAuthToken={firstResolver} />
+      </NextIntlClientProvider>
+    );
+
+    expect(await screen.findByText("Plan and follow through.")).toBeInTheDocument();
+    expect(api.getAssistantRoles).toHaveBeenCalledTimes(1);
+    expect(api.getAssistantRole).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <AssistantRoleSettings assistantId="assistant-a" resolveAuthToken={secondResolver} />
+      </NextIntlClientProvider>
+    );
+    await Promise.resolve();
+
+    expect(firstResolver).toHaveBeenCalledTimes(1);
+    expect(secondResolver).not.toHaveBeenCalled();
+    expect(api.getAssistantRoles).toHaveBeenCalledTimes(1);
+    expect(api.getAssistantRole).toHaveBeenCalledTimes(1);
+  });
+
   it("aborts and rejects stale out-of-order responses when the active assistant switches", async () => {
     const catalogA = deferred<ReturnType<typeof catalog>>();
     const roleA = deferred<ReturnType<typeof selection>>();

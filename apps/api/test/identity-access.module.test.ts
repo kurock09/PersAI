@@ -138,7 +138,8 @@ export async function runIdentityAccessModuleTest(): Promise<void> {
   for (const route of [
     { path: "api/v1/assistant/roles", method: RequestMethod.GET },
     { path: "api/v1/assistant/:assistantId/role", method: RequestMethod.GET },
-    { path: "api/v1/assistant/:assistantId/role", method: RequestMethod.PUT }
+    { path: "api/v1/assistant/:assistantId/role", method: RequestMethod.PUT },
+    { path: "api/v1/assistant/publish", method: RequestMethod.POST }
   ]) {
     assert.equal(
       hasRoute(consumer.routes, route),

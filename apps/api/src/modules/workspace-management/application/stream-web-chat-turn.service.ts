@@ -905,9 +905,7 @@ export class StreamWebChatTurnService {
             : { followUpAssistantMessage: postRuntime.followUpAssistantMessage }),
           activeMediaJobs: postRuntime.activeMediaJobs,
           activeDocumentJobs: postRuntime.activeDocumentJobs,
-          ...(streamEngagementSummary !== null
-            ? { engagementSummary: streamEngagementSummary }
-            : {}),
+          engagementSummary: streamEngagementSummary,
           pendingBrowserLogin,
           runtime: {
             respondedAt: respondedAt ?? new Date().toISOString(),
@@ -1789,12 +1787,9 @@ export class StreamWebChatTurnService {
           }),
       activeMediaJobs,
       activeDocumentJobs,
-      ...(() => {
-        const s = deriveEngagementSummary(
-          chat.skillDecisionState as Parameters<typeof deriveEngagementSummary>[0]
-        );
-        return s !== null ? { engagementSummary: s } : {};
-      })(),
+      engagementSummary: deriveEngagementSummary(
+        chat.skillDecisionState as Parameters<typeof deriveEngagementSummary>[0]
+      ),
       pendingBrowserLogin,
       runtime: {
         respondedAt: state.respondedAt,

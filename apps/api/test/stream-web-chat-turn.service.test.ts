@@ -336,16 +336,29 @@ describe("StreamWebChatTurnService", () => {
     assert.equal(quotaWrites.length, 1);
     assert.equal(quotaWrites[0]?.assistantContent, "Media sent.");
     const transport = (
-      outcome as { transport: { assistantMessage: { content: string; attachments: unknown[] } } }
-    ).transport.assistantMessage;
-    assert.equal(transport.content, "Media sent.");
-    assert.ok(Array.isArray(transport.attachments));
-    assert.equal((transport.attachments[0] as Record<string, unknown>)?.id, "att-1");
-    assert.equal((transport.attachments[0] as Record<string, unknown>)?.attachmentType, "audio");
+      outcome as {
+        transport: {
+          assistantMessage: { content: string; attachments: unknown[] };
+          engagementSummary: unknown;
+        };
+      }
+    ).transport;
+    assert.equal(transport.assistantMessage.content, "Media sent.");
+    assert.ok(Array.isArray(transport.assistantMessage.attachments));
     assert.equal(
-      (transport.attachments[0] as Record<string, unknown>)?.originalFilename,
+      (transport.assistantMessage.attachments[0] as Record<string, unknown>)?.id,
+      "att-1"
+    );
+    assert.equal(
+      (transport.assistantMessage.attachments[0] as Record<string, unknown>)?.attachmentType,
+      "audio"
+    );
+    assert.equal(
+      (transport.assistantMessage.attachments[0] as Record<string, unknown>)?.originalFilename,
       "reply.ogg"
     );
+    assert.equal(Object.hasOwn(transport, "engagementSummary"), true);
+    assert.equal(transport.engagementSummary, null);
   });
 
   test("persists final answer from done chunk and preamble in metadata", async () => {
@@ -2260,6 +2273,8 @@ describe("StreamWebChatTurnService", () => {
       assert.equal(preparation.transport.userMessage.id, "user-msg-1");
       assert.equal(preparation.transport.assistantMessage.id, "assistant-msg-1");
       assert.equal(preparation.transport.assistantMessage.content, "hi back");
+      assert.equal(Object.hasOwn(preparation.transport, "engagementSummary"), true);
+      assert.equal(preparation.transport.engagementSummary, null);
     }
   });
 

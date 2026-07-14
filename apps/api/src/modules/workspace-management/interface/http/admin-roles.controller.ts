@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -51,6 +52,7 @@ export class AdminRolesController {
    * Static path must be registered before `/:roleId` so "preview" is never captured as an id.
    */
   @Post("preview")
+  @HttpCode(HttpStatus.OK)
   async preview(
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown
