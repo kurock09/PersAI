@@ -1,5 +1,37 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — Role catalog + pill chrome + extension WS (gate PASS → commit/push)
+
+Status: **full local gate PASS (migrate check skipped — no Prisma/migration in diff).** Wave:
+
+1. **Role UX:** Change Role modal + setup/recreate step 2 hide mission prompt only;
+   Connected Skills stay; step 2 uses modal-like list+detail catalog (mobile list→detail).
+2. **Pill chrome:** title-pill pencil coaxial left end with permanent `bg-bg` + 3px inset;
+   plan-pill trash coaxial right end with hover fill only + 3px inset; title/subtitle gap.
+3. **Chrome extension:** bridge WS Errors silence + rebuild.
+
+Gate: lint+format, typecheck, helm lint/template, ADR-146 slice5, recursive test,
+test:step2, build. `prisma:migrate:check` skipped (dirty local DB; no schema/migration
+in this diff). Setup tests updated for dual list+detail role title.
+
+**Next recommended step:** after push, await web pin; visual-check Role catalog +
+title/plan pills; reload unpacked extension.
+
+---
+
+## 2026-07-15 — Chrome extension WS Errors silence for Web Store
+
+Status: **local, uncommitted.** Bridge WebSocket dials no longer spam
+`chrome://extensions` Errors on offline/unreachable (`ERR_ADDRESS_UNREACHABLE` /
+`ERR_CONNECTION_RESET`): online gate, URL allowlist, sync `onerror` handlers,
+5-failure budget until online/register. Extension lint/typecheck/26 tests/build
+PASS. Rebuild/reload the unpacked extension to verify Errors stay clear.
+
+**Next recommended step:** commit/push when asked; clear existing Errors in
+chrome://extensions and reload extension for review packaging.
+
+---
+
 ## 2026-07-15 — Honesty + UX + CI fixes pushed
 
 Status: **pushed to `origin/main` as `bdd03007`.** Combined wave:

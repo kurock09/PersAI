@@ -128,12 +128,13 @@ describe("clampRoleListColumnWidthPx", () => {
 });
 
 describe("AssistantChangeRoleModal", () => {
-  it("shows split catalog detail with read-only connected skills", async () => {
+  it("shows split catalog detail with skills and hides the mission prompt", async () => {
     renderModal();
 
     expect(await screen.findByRole("dialog", { name: "Choose a new role" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Personal assistant/ })).toBeInTheDocument();
-    expect(screen.getByText("Plan and follow through.")).toBeInTheDocument();
+    expect(screen.getByText("Keeps daily work clear.")).toBeInTheDocument();
+    expect(screen.queryByText("Plan and follow through.")).not.toBeInTheDocument();
     expect(screen.getByText("Connected skills")).toBeInTheDocument();
     expect(screen.getByText("Daily planner")).toBeInTheDocument();
     expect(screen.getByTestId("change-role-list-resize-handle")).toBeInTheDocument();
@@ -163,7 +164,7 @@ describe("AssistantChangeRoleModal", () => {
       .mockResolvedValueOnce(selection("assistant-a", engineer));
     renderModal("assistant-a", onClose);
 
-    expect(await screen.findByText("Plan and follow through.")).toBeInTheDocument();
+    expect(await screen.findByText("Keeps daily work clear.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("option", { name: /Engineer/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save role" }));
 
@@ -195,7 +196,8 @@ describe("AssistantChangeRoleModal", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(await screen.findByText("Could not update the role.")).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Personal assistant/ })).toBeInTheDocument();
-    expect(screen.getByText("Turn requirements into working software.")).toBeInTheDocument();
+    expect(screen.getByText("Builds reliable systems.")).toBeInTheDocument();
+    expect(screen.queryByText("Turn requirements into working software.")).not.toBeInTheDocument();
   });
 
   it("refetches canonical state after an ambiguous PUT failure", async () => {
@@ -212,7 +214,8 @@ describe("AssistantChangeRoleModal", () => {
     await waitFor(() => expect(api.getAssistantRole).toHaveBeenCalledTimes(2));
     expect(await screen.findByText("network interrupted")).toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByText("Turn requirements into working software.")).toBeInTheDocument();
+    expect(screen.getByText("Builds reliable systems.")).toBeInTheDocument();
+    expect(screen.queryByText("Turn requirements into working software.")).not.toBeInTheDocument();
   });
 
   it("aborts in-flight role requests on unmount", async () => {
@@ -243,7 +246,7 @@ describe("AssistantChangeRoleModal", () => {
       </NextIntlClientProvider>
     );
 
-    expect(await screen.findByText("Plan and follow through.")).toBeInTheDocument();
+    expect(await screen.findByText("Keeps daily work clear.")).toBeInTheDocument();
     expect(api.getAssistantRoles).toHaveBeenCalledTimes(1);
     expect(api.getAssistantRole).toHaveBeenCalledTimes(1);
 
@@ -288,13 +291,14 @@ describe("AssistantChangeRoleModal", () => {
       </NextIntlClientProvider>
     );
     expect(signalA.aborted).toBe(true);
-    expect(await screen.findByText("Turn requirements into working software.")).toBeInTheDocument();
+    expect(await screen.findByText("Builds reliable systems.")).toBeInTheDocument();
 
     catalogA.resolve(catalog());
     roleA.resolve(selection("assistant-a", personal));
     await Promise.resolve();
-    expect(screen.queryByText("Plan and follow through.")).not.toBeInTheDocument();
-    expect(screen.getByText("Turn requirements into working software.")).toBeInTheDocument();
+    expect(screen.queryByText("Keeps daily work clear.")).not.toBeInTheDocument();
+    expect(screen.getByText("Builds reliable systems.")).toBeInTheDocument();
+    expect(screen.queryByText("Turn requirements into working software.")).not.toBeInTheDocument();
   });
 
   it("fails closed when current role is absent from the active catalog", async () => {

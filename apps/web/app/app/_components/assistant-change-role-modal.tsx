@@ -20,8 +20,8 @@ import {
   type AssistantRoleState
 } from "../assistant-api-client";
 import {
+  AssistantRoleDetailPane,
   resolveLocalizedRoleText,
-  resolveRoleCategoryLabel,
   resolveRoleIconFallback
 } from "./assistant-role-selector";
 import { AssistantSettingsDialogShell } from "./assistant-settings-dialog-shell";
@@ -536,7 +536,7 @@ export function AssistantChangeRoleModal({
             )}
           >
             {selectedRole ? (
-              <RoleDetailPane
+              <AssistantRoleDetailPane
                 role={selectedRole}
                 locale={locale}
                 categoryLabels={messages.assistantRole?.categories}
@@ -551,72 +551,5 @@ export function AssistantChangeRoleModal({
         </div>
       )}
     </AssistantSettingsDialogShell>
-  );
-}
-
-function RoleDetailPane({
-  role,
-  locale,
-  categoryLabels,
-  skillsTitle,
-  skillsEmpty,
-  detailFallbackTitle
-}: {
-  role: AssistantRoleState;
-  locale: string;
-  categoryLabels: Record<string, string> | undefined;
-  skillsTitle: string;
-  skillsEmpty: string;
-  detailFallbackTitle: string;
-}) {
-  const title = resolveLocalizedRoleText(role.name, locale, detailFallbackTitle);
-  const description = resolveLocalizedRoleText(role.description, locale);
-  const mission = resolveLocalizedRoleText(role.mission, locale);
-  const categoryLabel = resolveRoleCategoryLabel(role.category, categoryLabels);
-
-  return (
-    <div className="space-y-5">
-      <div>
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-lg font-semibold tracking-[-0.02em] text-text">{title}</h3>
-          <span className="rounded-md border border-border/60 px-2 py-0.5 text-[11px] text-text-subtle">
-            {categoryLabel}
-          </span>
-        </div>
-        {description ? (
-          <p className="mt-2 text-sm leading-relaxed text-text-muted">{description}</p>
-        ) : null}
-        {mission ? <p className="mt-3 text-sm leading-relaxed text-text">{mission}</p> : null}
-      </div>
-
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-subtle">
-          {skillsTitle}
-        </p>
-        {role.skills.length === 0 ? (
-          <p className="mt-2 text-sm text-text-muted">{skillsEmpty}</p>
-        ) : (
-          <ul className="mt-2.5 space-y-1.5">
-            {role.skills.map((skill) => {
-              const skillName = resolveLocalizedRoleText(skill.name, locale, "Skill");
-              return (
-                <li
-                  key={skill.skillId}
-                  className="flex items-center gap-2.5 rounded-xl border border-border/50 px-3 py-2"
-                >
-                  <span
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/50 bg-surface text-xs"
-                    aria-hidden="true"
-                  >
-                    {skill.iconEmoji ?? resolveRoleIconFallback(skillName)}
-                  </span>
-                  <span className="min-w-0 truncate text-sm text-text">{skillName}</span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-    </div>
   );
 }

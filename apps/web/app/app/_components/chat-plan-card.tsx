@@ -447,7 +447,7 @@ function ChatPlanCardBody({
         </>
       ) : null}
       {countsCollapsed ? null : (
-        <div className="flex h-12 items-center gap-1.5 pl-3 pr-[3px]">
+        <div className="flex h-12 items-center gap-1.5 p-[3px] pl-3">
           {confirmingClear ? (
             <>
               <span className="min-w-0 flex-1 truncate px-0.5 text-xs text-text-muted">
@@ -534,10 +534,11 @@ function ChatPlanCardBody({
               <button
                 type="button"
                 className={cn(
-                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-40",
+                  // Same coaxial end-cap geometry as the title-pill pencil; no permanent fill — hover only.
+                  "flex aspect-square h-full shrink-0 items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-40",
                   allDone
                     ? "text-success/80 hover:bg-success/10 hover:text-success"
-                    : "text-text-muted/50 hover:bg-surface-hover hover:text-text-muted"
+                    : "text-text-muted hover:bg-surface-hover hover:text-text"
                 )}
                 onClick={handleTrashClick}
                 disabled={clearing}

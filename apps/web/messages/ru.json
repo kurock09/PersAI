@@ -953,6 +953,9 @@
     "emptyBody": "Когда роли будут готовы, они появятся здесь.",
     "current": "Текущая",
     "selected": "Выбрана",
+    "backToList": "К списку ролей",
+    "connectedSkills": "Подключённые Skills",
+    "connectedSkillsEmpty": "К этой роли пока не подключены Skills.",
     "categories": {
       "general": "Общее",
       "personal": "Личное",

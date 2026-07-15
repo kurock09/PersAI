@@ -584,7 +584,7 @@ describe("SetupWizardPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Theo" }));
 
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
-    expect(await screen.findByText("Personal assistant")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Personal assistant" })).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
 
     expect(
@@ -628,7 +628,7 @@ describe("SetupWizardPage", () => {
 
     expect(await screen.findByDisplayValue("Recovered Nova")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
-    expect(await screen.findByText("Personal assistant")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Personal assistant" })).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
 
     expect(
@@ -676,7 +676,7 @@ describe("SetupWizardPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Vera" }));
 
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
-    expect(await screen.findByText("Personal assistant")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Personal assistant" })).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
 
     expect(
@@ -725,7 +725,7 @@ describe("SetupWizardPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Luma" }));
 
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
-    expect(await screen.findByText("Personal assistant")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Personal assistant" })).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
 
     expect(
@@ -760,7 +760,7 @@ describe("SetupWizardPage", () => {
     expect(await screen.findByDisplayValue("PERSAI")).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
-    expect(await screen.findByText("Personal assistant")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Personal assistant" })).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /continue/i }).at(-1)!);
 
     expect(

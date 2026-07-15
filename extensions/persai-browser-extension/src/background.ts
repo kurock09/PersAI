@@ -11,13 +11,18 @@ import {
   DEFAULT_MUTATION_SETTLE_MS,
   EXECUTOR_ERROR_REASON,
   EXTENSION_DEVICE_KIND,
+  MAX_CONSECUTIVE_BRIDGE_CONNECT_FAILURES,
   MAX_DOM_READY_WAIT_MS,
   MAX_EXTRACT_ITEMS,
   MAX_INTERACTIVE_ELEMENTS,
   MAX_OPERATION_COUNT,
   SOCKET_IDLE_CLOSE_REASON
 } from "./constants.js";
-import { shouldKeepBridgeConnection } from "./connection-policy.js";
+import {
+  isAllowedBridgeWebSocketUrl,
+  shouldAttemptBridgeDial,
+  shouldKeepBridgeConnection
+} from "./connection-policy.js";
 import {
   buildExecutorFailureResult,
   buildPermissionDeniedResult,
@@ -73,6 +78,8 @@ let socket: WebSocket | null = null;
 let socketDeviceId: string | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
+/** Consecutive failed dials; paused until online / fresh registration / open. */
+let consecutiveConnectFailures = 0;
 let desiredConnection = false;
 let keepalivePortCount = 0;
 let activeCommandCount = 0;
@@ -82,6 +89,17 @@ const permissionGrantInFlight = new Map<string, Promise<boolean>>();
 const assistantOwnedProfileKeys = new Set<string>();
 const observerLockedProfileKeys = new Set<string>();
 
+function isEnvironmentOnline(): boolean {
+  return typeof navigator === "undefined" ? true : navigator.onLine !== false;
+}
+
+function resetConnectFailureBudget(): void {
+  consecutiveConnectFailures = 0;
+}
+
+function noteConnectFailure(): void {
+  consecutiveConnectFailures += 1;
+}
 function isProfileObserverLocked(profileKey: string): boolean {
   return assistantOwnedProfileKeys.has(profileKey) || observerLockedProfileKeys.has(profileKey);
 }
@@ -99,6 +117,16 @@ function clearReconnectTimer(): void {
 
 function scheduleReconnect(): void {
   if (!desiredConnection) {
+    return;
+  }
+  if (
+    !shouldAttemptBridgeDial({
+      desiredConnection,
+      online: isEnvironmentOnline(),
+      consecutiveFailures: consecutiveConnectFailures,
+      maxConsecutiveFailures: MAX_CONSECUTIVE_BRIDGE_CONNECT_FAILURES
+    })
+  ) {
     return;
   }
   clearReconnectTimer();
@@ -149,6 +177,16 @@ async function connectSocketIfNeeded(): Promise<void> {
   if (!desiredConnection || hasLiveSocket()) {
     return;
   }
+  if (
+    !shouldAttemptBridgeDial({
+      desiredConnection,
+      online: isEnvironmentOnline(),
+      consecutiveFailures: consecutiveConnectFailures,
+      maxConsecutiveFailures: MAX_CONSECUTIVE_BRIDGE_CONNECT_FAILURES
+    })
+  ) {
+    return;
+  }
   const state = await readState();
   const registration = state.registration;
   if (registration === null || registration === undefined) {
@@ -162,10 +200,37 @@ async function connectSocketIfNeeded(): Promise<void> {
   if (Date.now() - registration.updatedAt > REGISTRATION_TOKEN_SAFE_AGE_MS) {
     return;
   }
-  const nextSocket = new WebSocket(registration.websocketUrl);
-  socket = nextSocket;
-  socketDeviceId = registration.bridgeDeviceId;
-  nextSocket.addEventListener("open", () => {
+  if (!isAllowedBridgeWebSocketUrl(registration.websocketUrl)) {
+    return;
+  }
+  // Re-check after await: SW may have gone offline or another dial started.
+  if (
+    !desiredConnection ||
+    hasLiveSocket() ||
+    !shouldAttemptBridgeDial({
+      desiredConnection,
+      online: isEnvironmentOnline(),
+      consecutiveFailures: consecutiveConnectFailures,
+      maxConsecutiveFailures: MAX_CONSECUTIVE_BRIDGE_CONNECT_FAILURES
+    })
+  ) {
+    return;
+  }
+
+  let nextSocket: WebSocket;
+  try {
+    nextSocket = new WebSocket(registration.websocketUrl);
+  } catch {
+    // Invalid URL / constructor throw — never surface as an uncaught exception.
+    noteConnectFailure();
+    scheduleReconnect();
+    return;
+  }
+
+  // Attach handlers in the same synchronous turn as construction so Chromium
+  // never treats a failed dial as an unhandled socket error path.
+  nextSocket.onopen = () => {
+    resetConnectFailureBudget();
     reconnectAttempts = 0;
     const payload: LocalBrowserBridgeWebSocketConnectRequest = {
       assistantId: registration.assistantId,
@@ -174,10 +239,19 @@ async function connectSocketIfNeeded(): Promise<void> {
       deviceKind: registration.deviceKind,
       deviceToken: registration.deviceToken
     };
-    nextSocket.send(JSON.stringify(payload));
-  });
-  nextSocket.addEventListener("message", (event) => {
-    const parsed = JSON.parse(String(event.data)) as LocalBrowserCommand;
+    try {
+      nextSocket.send(JSON.stringify(payload));
+    } catch {
+      // Ignore send races on a socket that closed between open and send.
+    }
+  };
+  nextSocket.onmessage = (event) => {
+    let parsed: LocalBrowserCommand;
+    try {
+      parsed = JSON.parse(String(event.data)) as LocalBrowserCommand;
+    } catch {
+      return;
+    }
     if (
       parsed.action === "open_view" ||
       parsed.action === "close_view" ||
@@ -188,14 +262,18 @@ async function connectSocketIfNeeded(): Promise<void> {
         .catch((error) => {
           const message = error instanceof Error ? error.message : "Unknown view command failure.";
           if (hasLiveSocket()) {
-            socket?.send(
-              JSON.stringify({
-                commandId: parsed.commandId,
-                ok: false,
-                errorReason: EXECUTOR_ERROR_REASON,
-                warning: message
-              } satisfies LocalBrowserResult)
-            );
+            try {
+              socket?.send(
+                JSON.stringify({
+                  commandId: parsed.commandId,
+                  ok: false,
+                  errorReason: EXECUTOR_ERROR_REASON,
+                  warning: message
+                } satisfies LocalBrowserResult)
+              );
+            } catch {
+              // Ignore.
+            }
           }
         });
       return;
@@ -205,18 +283,33 @@ async function connectSocketIfNeeded(): Promise<void> {
       .catch((error) => {
         const message = error instanceof Error ? error.message : "Unknown command failure.";
         if (hasLiveSocket()) {
-          socket?.send(
-            JSON.stringify({
-              commandId: parsed.commandId,
-              ok: false,
-              errorReason: EXECUTOR_ERROR_REASON,
-              warning: message
-            } satisfies LocalBrowserResult)
-          );
+          try {
+            socket?.send(
+              JSON.stringify({
+                commandId: parsed.commandId,
+                ok: false,
+                errorReason: EXECUTOR_ERROR_REASON,
+                warning: message
+              } satisfies LocalBrowserResult)
+            );
+          } catch {
+            // Ignore.
+          }
         }
       });
-  });
-  nextSocket.addEventListener("close", () => {
+  };
+  nextSocket.onerror = () => {
+    // Chromium may still list a single net::ERR_* on the Errors page for a
+    // failed dial; handling here + failure budget prevents reconnect spam that
+    // fails Web Store review.
+    noteConnectFailure();
+    try {
+      nextSocket.close();
+    } catch {
+      // Ignore.
+    }
+  };
+  nextSocket.onclose = () => {
     if (socket === nextSocket) {
       socket = null;
       socketDeviceId = null;
@@ -224,14 +317,10 @@ async function connectSocketIfNeeded(): Promise<void> {
     if (desiredConnection) {
       scheduleReconnect();
     }
-  });
-  nextSocket.addEventListener("error", () => {
-    try {
-      nextSocket.close();
-    } catch {
-      // Ignore.
-    }
-  });
+  };
+
+  socket = nextSocket;
+  socketDeviceId = registration.bridgeDeviceId;
 }
 
 async function saveRegistration(
@@ -243,6 +332,9 @@ async function saveRegistration(
     clientVersion?: string | null;
   }
 ): Promise<ExtensionStorageState> {
+  // Fresh credentials deserve a clean dial budget (also clears a prior offline pause).
+  resetConnectFailureBudget();
+  reconnectAttempts = 0;
   return updateState((state) =>
     storeRegistration(state, {
       assistantId: input.assistantId,
@@ -1338,4 +1430,19 @@ async function handleIncomingCommand(command: LocalBrowserCommand): Promise<void
     activeCommandCount = Math.max(0, activeCommandCount - 1);
     await syncDesiredConnection();
   }
+}
+
+function onEnvironmentOnline(): void {
+  resetConnectFailureBudget();
+  reconnectAttempts = 0;
+  void syncDesiredConnection();
+}
+
+function onEnvironmentOffline(): void {
+  clearReconnectTimer();
+}
+
+if (typeof self !== "undefined" && typeof self.addEventListener === "function") {
+  self.addEventListener("online", onEnvironmentOnline);
+  self.addEventListener("offline", onEnvironmentOffline);
 }

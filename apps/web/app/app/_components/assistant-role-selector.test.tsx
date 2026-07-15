@@ -21,7 +21,16 @@ const roles: AssistantRoleState[] = [
     iconEmoji: "P",
     color: "#6D7CFF",
     displayOrder: 1,
-    skills: []
+    skills: [
+      {
+        skillId: "skill-1",
+        displayOrder: 1,
+        name: { en: "Daily planner", ru: "Планировщик" },
+        category: "productivity",
+        iconEmoji: "📅",
+        color: null
+      }
+    ]
   },
   {
     id: "role-engineer",
@@ -51,15 +60,17 @@ function renderLocalized(locale: "en" | "ru", node: React.ReactNode) {
 afterEach(cleanup);
 
 describe("AssistantRoleSelector", () => {
-  it("renders concise localized EN and RU role copy from the safe catalog", () => {
+  it("renders a catalog with description and skills, never the mission prompt", () => {
     const { unmount } = renderLocalized(
       "en",
       <AssistantRoleSelector roles={roles} selectedRoleKey="engineer" onSelect={() => undefined} />
     );
-    expect(screen.getByText("Engineer")).toBeInTheDocument();
-    expect(screen.getByText("Engineering")).toBeInTheDocument();
+    expect(screen.getByTestId("assistant-role-catalog")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Engineer/ })).toBeInTheDocument();
     expect(screen.getByText("Builds reliable systems.")).toBeInTheDocument();
-    expect(screen.getByText("Turn requirements into working software.")).toBeInTheDocument();
+    expect(screen.getByText("Connected skills")).toBeInTheDocument();
+    expect(screen.getByText("No skills are linked to this role.")).toBeInTheDocument();
+    expect(screen.queryByText("Turn requirements into working software.")).not.toBeInTheDocument();
     expect(screen.queryByText("Plan and follow through.")).not.toBeInTheDocument();
     unmount();
 
@@ -67,10 +78,26 @@ describe("AssistantRoleSelector", () => {
       "ru",
       <AssistantRoleSelector roles={roles} selectedRoleKey="engineer" onSelect={() => undefined} />
     );
-    expect(screen.getByText("Инженер")).toBeInTheDocument();
-    expect(screen.getByText("Инженерия")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Инженер/ })).toBeInTheDocument();
     expect(screen.getByText("Создаёт надёжные системы.")).toBeInTheDocument();
-    expect(screen.getByText("Превращает требования в работающий продукт.")).toBeInTheDocument();
+    expect(screen.getByText("Подключённые Skills")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Превращает требования в работающий продукт.")
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows connected skills for the selected role without mission copy", () => {
+    renderLocalized(
+      "en",
+      <AssistantRoleSelector
+        roles={roles}
+        selectedRoleKey="persai_default"
+        onSelect={() => undefined}
+      />
+    );
+    expect(screen.getByText("Keeps daily work clear.")).toBeInTheDocument();
+    expect(screen.getByText("Daily planner")).toBeInTheDocument();
+    expect(screen.queryByText("Plan and follow through.")).not.toBeInTheDocument();
   });
 
   it("covers loading, empty, error, and retry states", () => {
@@ -108,7 +135,7 @@ describe("AssistantRoleSelector", () => {
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
-  it("uses native keyboard button semantics and one meaningful current state", () => {
+  it("uses listbox option semantics and one meaningful current state", () => {
     const onSelect = vi.fn();
     renderLocalized(
       "en",
@@ -120,21 +147,19 @@ describe("AssistantRoleSelector", () => {
       />
     );
 
-    const engineer = screen.getByRole("button", { name: /Engineer/ });
-    engineer.focus();
-    fireEvent.keyDown(engineer, { key: "Enter" });
+    const engineer = screen.getByRole("option", { name: /Engineer/ });
     fireEvent.click(engineer);
     expect(onSelect).toHaveBeenCalledWith("engineer");
-    expect(engineer).toHaveAttribute("aria-pressed", "false");
+    expect(engineer).toHaveAttribute("aria-selected", "false");
     expect(screen.getAllByText("Current")).toHaveLength(1);
-    expect(screen.queryByText("Selected")).not.toBeInTheDocument();
   });
 
-  it("shows mission on a standalone current card without a duplicate selected badge", () => {
+  it("shows current badge on a standalone card without mission prompt", () => {
     renderLocalized("en", <AssistantRoleCard role={roles[0]!} selected={false} current />);
     expect(screen.getByText("Current")).toBeInTheDocument();
     expect(screen.queryByText("Selected")).not.toBeInTheDocument();
-    expect(screen.getByText("Plan and follow through.")).toBeInTheDocument();
+    expect(screen.queryByText("Plan and follow through.")).not.toBeInTheDocument();
+    expect(screen.getByText("Keeps daily work clear.")).toBeInTheDocument();
   });
 
   it("resolves category labels from localized messages without a hardcoded dictionary", () => {

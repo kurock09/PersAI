@@ -27,3 +27,5 @@ export const EXECUTOR_ERROR_REASON = "bridge_executor_error";
 export const BRIDGE_MESSAGE_SOURCE = "persai-browser-extension";
 
 export const RECONNECT_BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
+/** Stop dialing after this many consecutive WS connect failures until online/register. */
+export const MAX_CONSECUTIVE_BRIDGE_CONNECT_FAILURES = 5;

@@ -750,7 +750,8 @@ export function ChatArea({
               <div
                 className={cn(
                   // Opaque pill — edge dissolve lives on the message scroll mask, not behind chrome.
-                  "flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/45 bg-surface-raised py-0 pr-3.5 pl-[3px] transition-colors",
+                  // p-[3px] keeps the left icon circle coaxial with the rounded cap (same inset as composer).
+                  "flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/45 bg-surface-raised p-[3px] pr-3.5 transition-colors",
                   editing && "border-accent/45"
                 )}
               >
@@ -758,7 +759,7 @@ export function ChatArea({
                   <>
                     <span
                       aria-hidden="true"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bg text-accent"
+                      className="flex aspect-square h-full shrink-0 items-center justify-center rounded-full bg-bg text-accent"
                     >
                       <Pencil className="h-3.5 w-3.5" strokeWidth={1.15} />
                     </span>
@@ -792,14 +793,14 @@ export function ChatArea({
                         type="button"
                         onClick={startEdit}
                         aria-label="Rename chat"
-                        className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-bg text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
+                        className="flex aspect-square h-full shrink-0 cursor-pointer items-center justify-center rounded-full bg-bg text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
                       >
                         <Pencil className="h-3.5 w-3.5" strokeWidth={1.15} />
                       </button>
                     ) : (
                       <span
                         aria-hidden="true"
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bg text-text-subtle"
+                        className="flex aspect-square h-full shrink-0 items-center justify-center rounded-full bg-bg text-text-subtle"
                       >
                         <Pencil className="h-3.5 w-3.5" strokeWidth={1.15} />
                       </span>
@@ -807,15 +808,10 @@ export function ChatArea({
                     <div
                       className={cn(
                         "flex min-w-0 flex-1 flex-col justify-center",
-                        activeSkillEngagement ? "gap-0" : null
+                        activeSkillEngagement ? "gap-1" : null
                       )}
                     >
-                      <h1
-                        className={cn(
-                          "truncate text-sm font-semibold tracking-tight text-text",
-                          activeSkillEngagement ? "leading-[1.1]" : "leading-none"
-                        )}
-                      >
+                      <h1 className="truncate text-sm font-semibold leading-none tracking-tight text-text">
                         {displayTitle}
                       </h1>
                       <ChatHeaderSubtitle engagement={activeSkillEngagement} />
@@ -1349,7 +1345,7 @@ function ChatHeaderSubtitle({
 
   return (
     <span
-      className="inline-flex min-w-0 items-center gap-1 text-[10px] font-medium leading-[1.1] tracking-wide text-text-subtle"
+      className="inline-flex min-w-0 items-center gap-1 text-[10px] font-medium leading-none tracking-wide text-text-subtle"
       title={fullSkillText}
     >
       <span className="truncate max-w-[10rem] md:max-w-[22rem]">

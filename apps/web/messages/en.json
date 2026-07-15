@@ -953,6 +953,9 @@
     "emptyBody": "Roles will appear here when they are ready.",
     "current": "Current",
     "selected": "Selected",
+    "backToList": "Back to roles",
+    "connectedSkills": "Connected skills",
+    "connectedSkillsEmpty": "No skills are linked to this role.",
     "categories": {
       "general": "General",
       "personal": "Personal",
