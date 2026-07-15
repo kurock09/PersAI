@@ -1334,8 +1334,9 @@ function ChatContextMeter({
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - progress);
+  // Small gray center label, e.g. "45%" — only when session reports real token usage.
   const percentLabel =
-    meter.percent === null ? "–" : meter.percent > 99 ? "99+" : String(meter.percent);
+    meter.percent === null ? "–" : meter.percent > 99 ? "99+%" : `${String(meter.percent)}%`;
   const ariaPercent =
     meter.percent === null
       ? t("contextMeterAriaUnknown")
@@ -1383,18 +1384,11 @@ function ChatContextMeter({
           width={size}
           height={size}
           viewBox={`0 0 ${size} ${size}`}
-          className="absolute inset-0 h-full w-full -rotate-90"
+          className="absolute inset-0 h-full w-full"
           aria-hidden="true"
         >
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            className="text-border-strong/70"
-          />
+          {/* Solid disk only — no empty progress track underneath. */}
+          <circle cx={size / 2} cy={size / 2} r={size / 2} className="fill-border/55" />
           <circle
             cx={size / 2}
             cy={size / 2}
@@ -1405,24 +1399,24 @@ function ChatContextMeter({
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={dashOffset}
+            transform={`rotate(-90 ${String(size / 2)} ${String(size / 2)})`}
             className={cn(
               "transition-[stroke-dashoffset] duration-500 ease-out",
               meter.ratio === null
-                ? "text-text-subtle/35"
+                ? "text-transparent"
                 : overThreshold
                   ? "text-accent"
-                  : "text-accent/70"
+                  : "text-accent/80"
             )}
           />
         </svg>
         <span
           className={cn(
-            "relative z-[1] text-[9px] font-medium tabular-nums leading-none tracking-tight",
-            meter.ratio === null ? "text-text-subtle/35" : "text-text-subtle/45"
+            "relative z-[1] max-w-[2.1rem] truncate text-center text-[9px] font-medium tabular-nums leading-none tracking-tight",
+            meter.ratio === null ? "text-text-muted/55" : "text-text-muted"
           )}
         >
           {percentLabel}
-          {meter.percent !== null ? <span className="text-[7px] opacity-80">%</span> : null}
         </span>
       </button>
       {menuOpen ? (

@@ -305,6 +305,15 @@ export async function runDeepSeekProviderClientTest(): Promise<void> {
                   }
                 ]
               };
+              yield {
+                choices: [],
+                usage: {
+                  prompt_tokens: 12,
+                  completion_tokens: 4,
+                  total_tokens: 16,
+                  prompt_tokens_details: { cached_tokens: 2 }
+                }
+              };
             }
           };
         }
@@ -315,11 +324,23 @@ export async function runDeepSeekProviderClientTest(): Promise<void> {
   const streamEvents = await collectStream(await client.streamText(createRequest()));
   assert.equal(capturedStreamPayload?.["model"], "deepseek-v4-flash");
   assert.equal(capturedStreamPayload?.["stream"], true);
+  assert.deepEqual(capturedStreamPayload?.["stream_options"], { include_usage: true });
   assert.equal(capturedStreamPayload?.["prompt_cache_retention"], undefined);
   assert.deepEqual(
     streamEvents.map((event) => event.type),
     ["keepalive", "text_delta", "text_delta", "completed"]
   );
+  const completed = streamEvents.find((event) => event.type === "completed");
+  assert.ok(completed && completed.type === "completed");
+  assert.deepEqual(completed.result.usage, {
+    providerKey: "deepseek",
+    modelKey: "deepseek-v4-flash",
+    inputTokens: 12,
+    cacheCreationInputTokens: null,
+    cachedInputTokens: 2,
+    outputTokens: 4,
+    totalTokens: 16
+  });
 
   await runDeepSeekReasoningContentRoundTripTest(client);
 }

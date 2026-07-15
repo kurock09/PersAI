@@ -138,8 +138,22 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
       yield keepaliveEvent;
       reset();
       let finishReason: string | null = null;
+      let streamUsage:
+        | {
+            prompt_tokens?: number | null;
+            completion_tokens?: number | null;
+            total_tokens?: number | null;
+            prompt_tokens_details?: { cached_tokens?: number | null } | null;
+          }
+        | null
+        | undefined = undefined;
       for await (const chunk of stream) {
         reset();
+        // OpenAI-compatible streams emit usage on a trailing chunk when
+        // stream_options.include_usage=true (often with empty choices).
+        if (chunk?.usage !== undefined && chunk.usage !== null) {
+          streamUsage = chunk.usage;
+        }
         const choice = chunk?.choices?.[0];
         const delta = choice?.delta;
         const reasoningDelta = this.readReasoningContentDelta(delta);
@@ -163,6 +177,7 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
         }
       }
 
+      const usage = this.toUsageSnapshot(input.model, streamUsage);
       const finalizedToolCalls = this.finalizeStreamToolCalls(streamedToolCalls);
       if (finalizedToolCalls.length > 0) {
         const toolCallsEvent: ProviderGatewayTextToolCallsEvent = {
@@ -172,7 +187,7 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
             model: input.model,
             text: this.normalizeOptionalText(accumulatedText),
             respondedAt: new Date().toISOString(),
-            usage: null,
+            usage,
             stopReason: "tool_calls",
             reasoningContent: this.normalizeOptionalText(accumulatedReasoning),
             toolCalls: finalizedToolCalls
@@ -189,7 +204,7 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
           model: input.model,
           text: this.normalizeOptionalText(accumulatedText),
           respondedAt: new Date().toISOString(),
-          usage: null,
+          usage,
           stopReason: "completed",
           truncated: finishReason === "length",
           toolCalls: []
@@ -228,6 +243,11 @@ export class DeepSeekProviderClient implements ProviderWarmableClient {
       messages: this.buildMessages(input),
       stream
     };
+    if (stream) {
+      // Required for Chat Completions streaming: otherwise DeepSeek never
+      // emits a usage chunk and PersAI session currentTokens stays null.
+      payload.stream_options = { include_usage: true };
+    }
     if (input.maxOutputTokens !== undefined) {
       payload.max_tokens = input.maxOutputTokens;
     }

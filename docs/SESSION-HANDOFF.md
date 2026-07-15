@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — DeepSeek stream usage + context meter disk UI (push)
+
+Status: **gate + commit + push.**
+
+**Bug:** Web/premium turns via DeepSeek left session `currentTokens` null because `streamText` hard-coded `usage: null` and omitted `stream_options.include_usage`. Title-pill context meter stayed on `–` after messages; auto-compaction token threshold also had no fresh signal.
+
+**Fix:** DeepSeek stream requests include_usage, captures trailing chunk usage; context meter is a solid gray disk (no track) with progress stroke on top + muted `%` when measured.
+
+**Files:** `apps/provider-gateway/.../deepseek-provider.client.ts` (+ test), `apps/web/.../chat-area.tsx` (+ test), CHANGELOG.
+
+**Next after deploy:** send one DeepSeek turn → meter shows `%`; confirm receipt `usage.totalTokens` non-null.
+
+---
+
 ## 2026-07-15 — Stop AbortError hotfix + Cursor-like shell command activity (push)
 
 Status: **gate green; committing + pushing.**

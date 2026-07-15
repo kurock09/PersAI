@@ -805,6 +805,7 @@ describe("ChatArea", () => {
     expect(screen.queryByLabelText("Rename chat")).toBeNull();
     const meter = screen.getByTestId("chat-context-meter");
     expect(meter).toHaveAttribute("aria-label", "contextMeterAria");
+    expect(meter).toHaveTextContent("50%");
     fireEvent.click(meter);
 
     const menu = await screen.findByTestId("chat-context-meter-menu");
