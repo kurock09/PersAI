@@ -2,13 +2,15 @@
 
 ## 2026-07-15 — DeepSeek stream usage + context meter disk UI (push)
 
-Status: **gate + commit + push.**
+Status: **pushed `1e7934a3`.**
 
 **Bug:** Web/premium turns via DeepSeek left session `currentTokens` null because `streamText` hard-coded `usage: null` and omitted `stream_options.include_usage`. Title-pill context meter stayed on `–` after messages; auto-compaction token threshold also had no fresh signal.
 
 **Fix:** DeepSeek stream requests include_usage, captures trailing chunk usage; context meter is a solid gray disk (no track) with progress stroke on top + muted `%` when measured.
 
 **Files:** `apps/provider-gateway/.../deepseek-provider.client.ts` (+ test), `apps/web/.../chat-area.tsx` (+ test), CHANGELOG.
+
+**Gate:** lint ✅ format ✅ api/web/provider-gateway typecheck ✅ DeepSeek + chat-area focused ✅. Full recursive `pnpm -r test` had 3 unrelated `assistant-settings` persona failures (not in this diff).
 
 **Next after deploy:** send one DeepSeek turn → meter shows `%`; confirm receipt `usage.totalTokens` non-null.
 
