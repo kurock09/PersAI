@@ -1,14 +1,14 @@
 # SESSION-HANDOFF
 
-## 2026-07-16 — ADR-150 + context-meter pressure signal (gate green → commit/push)
+## 2026-07-16 — ADR-150 + context-meter pressure signal (pushed)
 
-Status: **local gate green** (`pnpm lint` incl. format ✅, `pnpm typecheck` ✅, `pnpm test` ✅). Committing + pushing to `main`.
+Status: **pushed `314ee37a`.** Gate: `pnpm lint` (incl. format) ✅, `pnpm typecheck` ✅, `pnpm test` ✅.
 
 **ADR-150:** session install-layer ephemeral (warm-pod only); session-anchored pull/push excludes; path-aware purge; no Files/grep/glob/mirror/hydrate/upsert; `files.write` refuse; snapshot basename excludes; `httpx` in exec image.
 
 **Meter:** `currentTokens` from first `main_turn` `inputTokens` (not final tool-loop total). Context meter stroke 2px.
 
-**Baseline before commit:** `5563875f` (behind origin by bot pin `49ef4f16` — rebase on push).
+**Next after deploy:** `pip install` must not grow snapshot/hydrate/Files; shared `node_modules` must survive; DeepSeek multi-tool turn → meter stays near first-step prompt size.
 
 ---
 
