@@ -41,7 +41,11 @@ import { cn } from "@/app/lib/utils";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
 import { AssistantAvatar } from "./assistant-avatar";
-import { getActivityDisplayParts, type ActivityEvent } from "./activity-badge";
+import {
+  ActivityCommandPreview,
+  getActivityDisplayParts,
+  type ActivityEvent
+} from "./activity-badge";
 import {
   buildStreamingMarkdownTailPreview,
   splitStreamingMarkdownContent
@@ -392,21 +396,27 @@ function InlineStreamingStatus({
       : {
           label: t("preResponseThinking"),
           detail: undefined,
+          shellCommand: undefined,
           shellProgressLines: undefined
         };
 
   return (
-    <span className="animate-fade-in-inline-status inline-flex items-center gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none">
-      <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/65 align-middle" />
-      <span className="inline-flex flex-col items-start gap-0.5">
-        <span className="inline-flex items-baseline gap-1.5">
-          <span>{statusParts.label}</span>
-          {statusParts.detail ? (
+    <span className="animate-fade-in-inline-status inline-flex max-w-full items-start gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none">
+      <span className="mt-[0.2em] inline-block h-4 w-1.5 shrink-0 animate-pulse rounded-sm bg-accent/65" />
+      <span className="inline-flex min-w-0 flex-col items-start gap-0.5">
+        <span className="inline-flex max-w-full items-baseline gap-1.5 leading-5">
+          <span className="shrink-0">{statusParts.label}</span>
+          {statusParts.shellCommand ? (
+            <>
+              <span className="shrink-0 text-text-subtle/45 not-italic">—</span>
+              <ActivityCommandPreview command={statusParts.shellCommand} />
+            </>
+          ) : statusParts.detail ? (
             <span className="text-text-subtle/62 not-italic">{statusParts.detail}</span>
           ) : null}
         </span>
         {statusParts.shellProgressLines && statusParts.shellProgressLines.length > 0 ? (
-          <span className="text-text-subtle/62 not-italic">
+          <span className="font-mono text-xs leading-4 text-text-subtle/55 not-italic tracking-tight">
             {statusParts.shellProgressLines.map((line, index) => (
               <span key={`inline-shell-${String(index)}`} className="block max-w-[28rem] truncate">
                 {line}

@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — Stop AbortError hotfix + Cursor-like shell command activity (push)
+
+Status: **gate green; committing + pushing.**
+
+1. **ADR-149 Stop crash hotfix:** `void reader.cancel().catch(...)` so Stop no longer kills owning API pod.
+2. **Shell activity UX:** `toolInputPreview` for shell/exec → `Выполняю команду — <fade+shimmer command>`; stdout lines mono one size smaller; green pulse cursor stays top-aligned with the status line (`items-start`), not vertically centered on the whole group.
+3. Founder UX `c1540bd7` (context meter / desktop chat-row) included on the branch.
+
+Gate: recursive lint ✅ format ✅ api/web/runtime typecheck ✅ `pnpm test` ✅
+
+**Next after deploy:** live Stop mid-shell + verify command line + cursor alignment.
+
+---
+
 ## 2026-07-15 — Desktop chat-row slide-out + context meter align (local)
 
 Status: **implemented locally** on top of the title-pill context meter work.

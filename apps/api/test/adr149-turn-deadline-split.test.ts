@@ -193,6 +193,99 @@ describe("ADR-149 turn deadline split", () => {
     globalThis.fetch = originalFetch;
   });
 
+  test("external Stop abort mid-body does not leave unhandled AbortError rejection", async () => {
+    setApiEnv({
+      PERSAI_RUNTIME_TURN_WALL_CLOCK_MS: "600000",
+      PERSAI_RUNTIME_TURN_IDLE_STALL_MS: "600000"
+    });
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+
+    const originalFetch = globalThis.fetch;
+    const external = new AbortController();
+
+    globalThis.fetch = (async () => {
+      // Undici Response bodies reject reader.cancel() with AbortError when the
+      // same fetch AbortSignal fires. void cancel() without .catch() turns that
+      // into an unhandled rejection that crashes the API process (live evidence:
+      // api-54b8f755c-pwsxt exitCode=1 on Stop for turn 89676e9b).
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            encodeNdjsonLines([
+              JSON.stringify({
+                type: "started",
+                requestId: "runtime-request-1",
+                sessionId: "runtime-session-1"
+              }),
+              JSON.stringify({
+                type: "tool_started",
+                requestId: "runtime-request-1",
+                sessionId: "runtime-session-1",
+                toolCallId: "tool-1",
+                toolName: "shell"
+              })
+            ])
+          );
+          // Leave the body open so the next reader.read() hangs until Stop cancel.
+        },
+        cancel(reason) {
+          return Promise.reject(
+            reason instanceof Error
+              ? reason
+              : new DOMException("This operation was aborted.", "AbortError")
+          );
+        }
+      });
+      return new Response(stream, { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      const service = createStreamService();
+      await (async () => {
+        for await (const chunk of service.execute(
+          {
+            assistantId: "assistant-1",
+            publishedVersionId: "version-1",
+            runtimeTier: RUNTIME_TIER,
+            surfaceThreadKey: "thread-1",
+            userId: "user-1",
+            workspaceId: "workspace-1",
+            userMessageId: "message-1",
+            userMessage: "shell hang",
+            attachments: [],
+            chatId: "chat-1"
+          },
+          { signal: external.signal }
+        )) {
+          if (chunk.type === "tool" && chunk.toolPhase === "start") {
+            external.abort();
+          }
+        }
+      })();
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      assert.equal(
+        unhandled.length,
+        0,
+        `unexpected unhandled rejections: ${unhandled
+          .map((reason) =>
+            reason instanceof Error ? (reason.stack ?? reason.message) : String(reason)
+          )
+          .join(" | ")}`
+      );
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("wall clock exceeded maps to runtime_timeout, not turn_idle_stall", async () => {
     setApiEnv({
       PERSAI_RUNTIME_TURN_WALL_CLOCK_MS: "100",

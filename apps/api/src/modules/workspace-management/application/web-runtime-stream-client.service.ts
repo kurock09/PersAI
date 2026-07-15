@@ -252,7 +252,10 @@ export class WebRuntimeStreamClientService {
               type: "tool",
               toolPhase: "start",
               toolName: event.toolName,
-              toolCallId: event.toolCallId
+              toolCallId: event.toolCallId,
+              ...(typeof event.toolInputPreview === "string" && event.toolInputPreview.length > 0
+                ? { toolInputPreview: event.toolInputPreview }
+                : {})
             };
             continue;
           case "tool_finished":
@@ -528,7 +531,10 @@ export class WebRuntimeStreamClientService {
     const decoder = new TextDecoder();
     const onProgress = options?.onProgress;
     const abortListener = (): void => {
-      void reader.cancel();
+      // Cancel rejects with AbortError when the fetch body is already tearing
+      // down from the same abort. Leaving that rejection unhandled crashes the
+      // Node process (live ADR-149 Stop: owning API pod exitCode=1).
+      void reader.cancel().catch(() => undefined);
     };
     options?.abortSignal?.addEventListener("abort", abortListener);
     let buffer = "";

@@ -4234,6 +4234,8 @@ export interface RuntimeToolStartedEvent {
   sessionId: string;
   toolCallId: string;
   toolName: string;
+  /** Bounded single-line preview for UI (shell/exec command). */
+  toolInputPreview?: string;
 }
 
 export interface RuntimeToolFinishedEvent {

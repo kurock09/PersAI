@@ -11,6 +11,7 @@ export interface ActivityEvent {
   type: ActivityType;
   label: string;
   detail?: string;
+  shellCommand?: string;
   shellProgressLines?: string[];
   shadowRoutingLabel?: string;
   timestamp?: string;
@@ -21,6 +22,7 @@ export interface ActivityEvent {
 export interface ActivityDisplayParts {
   label: string;
   detail?: string;
+  shellCommand?: string;
   shellProgressLines?: string[];
 }
 
@@ -151,12 +153,17 @@ export function getActivityDisplayParts(
     ? undefined
     : resolveActivityDetail(buildActivityDetail(event, showShadowRoutingLabel), t);
 
+  const shellCommand =
+    typeof event.shellCommand === "string" && event.shellCommand.trim().length > 0
+      ? event.shellCommand.trim()
+      : undefined;
   const shellProgressLines =
     event.shellProgressLines?.filter((line) => line.trim().length > 0).slice(-3) ?? [];
 
   return {
     label: resolveActivityLabel(event, t),
     ...(detail ? { detail } : {}),
+    ...(shellCommand ? { shellCommand } : {}),
     ...(shellProgressLines.length > 0 ? { shellProgressLines } : {})
   };
 }
@@ -286,6 +293,16 @@ const ACTIVITY_DETAIL_KEYS: Record<string, string> = {
     "activityProjectDetailNoGroundedExcerpt"
 };
 
+export function ActivityCommandPreview({ command }: { command: string }) {
+  return (
+    <span className="activity-command-fade inline-flex min-w-0 max-w-[min(28rem,55vw)] items-center">
+      <span className="activity-command-shimmer truncate whitespace-nowrap font-mono text-[0.95em] not-italic">
+        {command}
+      </span>
+    </span>
+  );
+}
+
 export function ActivityBadge({
   event,
   showShadowRoutingLabel = false
@@ -297,7 +314,7 @@ export function ActivityBadge({
   const cfg = TYPE_CONFIG[event.type];
   const Icon = cfg.icon;
   const isStrong = event.emphasis === "strong";
-  const { label, detail, shellProgressLines } = getActivityDisplayParts(
+  const { label, detail, shellCommand, shellProgressLines } = getActivityDisplayParts(
     event,
     t,
     showShadowRoutingLabel
@@ -307,7 +324,7 @@ export function ActivityBadge({
     <div className="flex items-center justify-center py-0.5">
       <div
         className={cn(
-          "inline-flex items-center gap-1",
+          "inline-flex max-w-full flex-wrap items-center gap-1",
           isStrong
             ? "rounded-full border border-border/70 bg-surface-raised/85 px-2.5 py-1 text-[11px] font-medium text-text-subtle/85 shadow-sm"
             : "px-2 py-0.5 text-[10px] text-text-subtle/60"
@@ -316,10 +333,16 @@ export function ActivityBadge({
         <Icon
           className={cn(isStrong ? "h-3 w-3 opacity-70" : "h-2.5 w-2.5 opacity-40", cfg.color)}
         />
-        <span>{label}</span>
-        {detail && renderActivityDetail(detail)}
+        <span className="shrink-0">{label}</span>
+        {shellCommand ? (
+          <>
+            <span className="shrink-0 text-text-subtle/45">—</span>
+            <ActivityCommandPreview command={shellCommand} />
+          </>
+        ) : null}
+        {!shellCommand && detail ? renderActivityDetail(detail) : null}
         {shellProgressLines && shellProgressLines.length > 0 ? (
-          <span className="text-text-subtle/62 not-italic">
+          <span className="w-full basis-full font-mono text-[10px] leading-3.5 text-text-subtle/55 not-italic tracking-tight">
             {shellProgressLines.map((line, index) => (
               <span
                 key={`${event.id}-shell-${String(index)}`}

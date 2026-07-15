@@ -13115,6 +13115,9 @@ components:
         updatedAt:
           type: string
           format: date-time
+        toolInputPreview:
+          type: string
+          description: Bounded single-line shell/exec command preview for live activity UI.
     AssistantWebChatCompactActiveTurnState:
       type: object
       required:
@@ -13330,6 +13333,8 @@ components:
             updatedAt:
               type: string
               format: date-time
+            toolInputPreview:
+              type: string
         runtime:
           nullable: true
           $ref: "#/components/schemas/AssistantWebChatRuntimeState"

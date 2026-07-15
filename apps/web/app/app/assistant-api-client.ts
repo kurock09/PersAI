@@ -323,6 +323,7 @@ type WebChatStreamEvent =
         toolName: string;
         toolCallId: string;
         isError: boolean;
+        toolInputPreview?: string;
       };
     }
   | {
@@ -419,6 +420,7 @@ export interface AssistantWebChatStreamHandlers {
     toolName: string;
     toolCallId: string;
     isError: boolean;
+    toolInputPreview?: string;
   }) => void;
   onToolProgress?: (payload: {
     toolName: string;
@@ -1101,7 +1103,10 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
         phase: body.phase,
         toolName: body.toolName,
         toolCallId: body.toolCallId,
-        isError: body.isError
+        isError: body.isError,
+        ...(typeof body.toolInputPreview === "string" && body.toolInputPreview.trim().length > 0
+          ? { toolInputPreview: body.toolInputPreview.trim() }
+          : {})
       }
     };
   }
@@ -5096,6 +5101,7 @@ export type WebChatTurnCurrentActivityState = {
   phase: "start" | "end";
   isError: boolean;
   updatedAt: string;
+  toolInputPreview?: string;
 };
 
 export type UploadedKnowledgeSource = {

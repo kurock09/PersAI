@@ -5064,13 +5064,30 @@ export class TurnExecutionService {
     acceptedTurn: AcceptedRuntimeTurn,
     toolCall: ProviderGatewayToolCall
   ): RuntimeTurnStreamEvent {
+    const toolInputPreview = this.readToolInputPreview(toolCall);
     return {
       type: "tool_started",
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId,
       toolCallId: toolCall.id,
-      toolName: toolCall.name
+      toolName: toolCall.name,
+      ...(toolInputPreview === null ? {} : { toolInputPreview })
     };
+  }
+
+  private readToolInputPreview(toolCall: ProviderGatewayToolCall): string | null {
+    if (toolCall.name !== "shell" && toolCall.name !== "exec") {
+      return null;
+    }
+    const command = this.asNonEmptyString(toolCall.arguments.command);
+    if (command === null) {
+      return null;
+    }
+    const singleLine = command.replace(/\s+/g, " ").trim();
+    if (singleLine.length === 0) {
+      return null;
+    }
+    return singleLine.length > 240 ? `${singleLine.slice(0, 240)}…` : singleLine;
   }
 
   private async *collectToolProgressWhile<T>(

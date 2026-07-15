@@ -32,12 +32,24 @@ function createOverviewLatencyTraceServiceMock() {
   };
 }
 
-describe("ADR-149 tool_progress markCurrentActivity", () => {
-  test("tool_progress SSE chunk refreshes attempt current activity", async () => {
-    const markCurrentActivityCalls: Array<Record<string, unknown>> = [];
+describe("ADR-149 tool_progress touchRunningAttempt", () => {
+  test("tool_progress SSE chunk heartbeats the running attempt without rewriting activity", async () => {
+    const touchRunningAttemptCalls: Array<Record<string, unknown>> = [];
     const webChatTurnAttemptService = {
-      async markCurrentActivity(input: Record<string, unknown>) {
-        markCurrentActivityCalls.push(input);
+      async markCurrentActivity() {
+        throw new Error("tool_progress must not clobber currentActivity via markCurrentActivity");
+      },
+      async touchRunningAttempt(input: Record<string, unknown>) {
+        touchRunningAttemptCalls.push(input);
+      },
+      async markCompleted() {
+        return undefined;
+      },
+      async markInterrupted() {
+        return undefined;
+      },
+      async markFailed() {
+        return undefined;
       }
     };
 
@@ -203,16 +215,12 @@ describe("ADR-149 tool_progress markCurrentActivity", () => {
     );
 
     assert.equal(outcome.status, "completed");
-    assert.equal(markCurrentActivityCalls.length, 1);
-    assert.deepEqual(markCurrentActivityCalls[0], {
+    assert.equal(touchRunningAttemptCalls.length, 1);
+    assert.deepEqual(touchRunningAttemptCalls[0], {
       assistantId: "assistant-1",
       userId: "user-1",
       surfaceThreadKey: "thread-1",
-      clientTurnId: "turn-shell-progress-1",
-      toolName: "shell",
-      toolCallId: "tool-shell-1",
-      phase: "start",
-      isError: false
+      clientTurnId: "turn-shell-progress-1"
     });
   });
 });

@@ -193,6 +193,7 @@ export interface AssistantWebChatTurnCurrentActivityState {
   phase: "start" | "end";
   isError: boolean;
   updatedAt: string;
+  toolInputPreview?: string;
 }
 
 export type AssistantWebChatActiveTurnStatus = "accepted" | "running";

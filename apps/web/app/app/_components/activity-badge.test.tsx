@@ -78,6 +78,25 @@ describe("ActivityBadge", () => {
     expect(screen.queryByText("shell_started")).toBeNull();
   });
 
+  it("renders shell command preview with shimmer classes", () => {
+    const { container } = render(
+      <ActivityBadge
+        event={{
+          id: "activity-shell-cmd",
+          type: "tool_use",
+          label: "shell_started",
+          shellCommand: "python3 -c \"print('hello')\" && sleep 30",
+          emphasis: "strong"
+        }}
+      />
+    );
+
+    expect(screen.getAllByText("activityShellStart").length).toBeGreaterThan(0);
+    expect(screen.getByText("python3 -c \"print('hello')\" && sleep 30")).toBeInTheDocument();
+    expect(container.querySelector(".activity-command-shimmer")).not.toBeNull();
+    expect(container.querySelector(".activity-command-fade")).not.toBeNull();
+  });
+
   it("humanizes retrieval activity labels", () => {
     render(
       <ActivityBadge

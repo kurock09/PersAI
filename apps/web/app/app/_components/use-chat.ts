@@ -428,6 +428,7 @@ function buildToolLiveActivity(params: {
   phase: "start" | "end";
   isError: boolean;
   toolCallId?: string;
+  toolInputPreview?: string;
 }): LiveActivityEvent {
   if (shouldSuppressLegacyMediaActivity(params.toolName)) {
     return {
@@ -454,6 +455,12 @@ function buildToolLiveActivity(params: {
         : params.isError
           ? copy.failure
           : copy.end;
+  const shellCommand =
+    params.phase === "start" &&
+    typeof params.toolInputPreview === "string" &&
+    params.toolInputPreview.trim().length > 0
+      ? params.toolInputPreview.trim()
+      : undefined;
   return {
     id: `activity-live-tool-${Date.now()}-${params.phase}-${params.toolName}`,
     type: "tool_use",
@@ -462,7 +469,8 @@ function buildToolLiveActivity(params: {
     emphasis: "strong",
     source: "tool",
     toolName: params.toolName,
-    ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId })
+    ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId }),
+    ...(shellCommand === undefined ? {} : { shellCommand })
   };
 }
 function buildCompactionLiveActivity(params: {
@@ -601,7 +609,22 @@ function mergeLiveActivity(
       ...(currentActivity.shellProgressLines === undefined
         ? {}
         : { shellProgressLines: currentActivity.shellProgressLines }),
+      ...(currentActivity.shellCommand === undefined
+        ? {}
+        : { shellCommand: currentActivity.shellCommand }),
       ...(detail === undefined ? {} : { detail }),
+      emphasis: "strong"
+    };
+  }
+  if (
+    preserveProgressDetail &&
+    typeof currentActivity.shellCommand === "string" &&
+    currentActivity.shellCommand.length > 0 &&
+    (nextActivity.shellCommand === undefined || nextActivity.shellCommand.length === 0)
+  ) {
+    return {
+      ...merged,
+      shellCommand: currentActivity.shellCommand,
       emphasis: "strong"
     };
   }
@@ -614,6 +637,9 @@ function mergeLiveActivity(
     return {
       ...merged,
       detail: currentActivity.detail,
+      ...(currentActivity.shellCommand === undefined
+        ? {}
+        : { shellCommand: currentActivity.shellCommand }),
       emphasis: "strong"
     };
   }
@@ -670,13 +696,19 @@ function applyToolProgressToLiveActivity(
       toolName: params.toolName,
       ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId }),
       shellProgressLines: nextLines,
+      ...(sameInFlightToolCall && runningActivity.shellCommand !== undefined
+        ? { shellCommand: runningActivity.shellCommand }
+        : {}),
       emphasis: "strong"
     };
   }
   return {
     ...runningActivity,
     toolName: params.toolName,
-    ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId })
+    ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId }),
+    ...(sameInFlightToolCall && runningActivity.shellCommand !== undefined
+      ? { shellCommand: runningActivity.shellCommand }
+      : {})
   };
 }
 export function formatTurnRoutingBadgeLabel(
@@ -2144,7 +2176,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                       toolName: currentActivity.toolName,
                       phase: currentActivity.phase,
                       isError: currentActivity.isError,
-                      toolCallId: currentActivity.toolCallId
+                      toolCallId: currentActivity.toolCallId,
+                      ...(currentActivity.toolInputPreview === undefined
+                        ? {}
+                        : { toolInputPreview: currentActivity.toolInputPreview })
                     })
                   )
                 };
@@ -2406,7 +2441,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   )
                 );
               },
-              onTool: ({ phase, toolName, toolCallId, isError }) => {
+              onTool: ({ phase, toolName, toolCallId, isError, toolInputPreview }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
                 const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
                 if (assistantMessageId === null) {
@@ -2424,7 +2459,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                       toolName,
                       phase,
                       isError,
-                      toolCallId
+                      toolCallId,
+                      ...(toolInputPreview === undefined ? {} : { toolInputPreview })
                     })
                   )
                 }));
@@ -3383,12 +3419,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           phase,
           toolName,
           toolCallId,
-          isError
+          isError,
+          toolInputPreview
         }: {
           phase: "start" | "end";
           toolName: string;
           toolCallId: string;
           isError: boolean;
+          toolInputPreview?: string;
         }) => {
           flushBufferedAssistantState(true);
           markAssistantActivityBoundary();
@@ -3402,7 +3440,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   toolName,
                   phase,
                   isError,
-                  toolCallId
+                  toolCallId,
+                  ...(toolInputPreview === undefined ? {} : { toolInputPreview })
                 })
               )
             }));

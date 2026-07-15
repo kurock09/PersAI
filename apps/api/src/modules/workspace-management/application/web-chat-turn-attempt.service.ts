@@ -158,7 +158,10 @@ function readCurrentActivityPayload(
     toolCallId: row.toolCallId,
     phase: row.phase,
     isError: row.isError,
-    updatedAt: row.updatedAt
+    updatedAt: row.updatedAt,
+    ...(typeof row.toolInputPreview === "string" && row.toolInputPreview.trim().length > 0
+      ? { toolInputPreview: row.toolInputPreview.trim() }
+      : {})
   };
 }
 
@@ -347,6 +350,7 @@ export class WebChatTurnAttemptService {
     toolCallId: string;
     phase: "start" | "end";
     isError: boolean;
+    toolInputPreview?: string;
     updatedAt?: Date;
   }): Promise<void> {
     const updatedAt = input.updatedAt ?? new Date();
@@ -365,8 +369,32 @@ export class WebChatTurnAttemptService {
           toolCallId: input.toolCallId,
           phase: input.phase,
           isError: input.isError,
-          updatedAt: updatedAt.toISOString()
+          updatedAt: updatedAt.toISOString(),
+          ...(typeof input.toolInputPreview === "string" && input.toolInputPreview.trim().length > 0
+            ? { toolInputPreview: input.toolInputPreview.trim() }
+            : {})
         } satisfies WebChatTurnCurrentActivityState
+      }
+    });
+  }
+
+  /** ADR-149 H3 — progress-only heartbeat without clobbering currentActivity payload. */
+  async touchRunningAttempt(input: {
+    assistantId: string;
+    userId: string;
+    surfaceThreadKey: string;
+    clientTurnId: string;
+  }): Promise<void> {
+    await this.prisma.assistantWebChatTurnAttempt.updateMany({
+      where: {
+        assistantId: input.assistantId,
+        userId: input.userId,
+        surfaceThreadKey: input.surfaceThreadKey,
+        clientTurnId: input.clientTurnId,
+        status: { in: ["accepted", "running"] }
+      },
+      data: {
+        updatedAt: new Date()
       }
     });
   }

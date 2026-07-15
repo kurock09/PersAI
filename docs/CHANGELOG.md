@@ -5,6 +5,8 @@
 
 ## 2026-07-15
 
+- **UX (Cursor-like shell command activity; local).** Shell/exec `tool_started` carries bounded `toolInputPreview`; web shows `Running command — <mono command>` on one line with right fade + color shimmer. Preview persists in turn `currentActivity` for soft-detach status; `tool_progress` heartbeat no longer clobbers it.
+- **Fix (ADR-149 Stop crashes owning API pod; local hotfix).** Live `persai-dev`: Stop during shell aborted `api-54b8f755c-pwsxt` with uncaught `AbortError` (`exitCode=1`), left the attempt `running`, and cascaded into stuck «Выполняю команду» + broken follow-on sandbox hydrate. Root cause: `readRuntimeStream` used `void reader.cancel()`; undici body cancel rejects with the deadline AbortError as an unhandled rejection. Fix catches cancel; regression test pins the path.
 - **UX (desktop chat-row actions + context meter align; local).** Desktop chat `...` drops the portal dropdown and uses the same left slide-out as mobile: Archive (+ label), rename pencil, trash with two-step «Удалить?». Mobile only swaps order to Rename → Delete. Context-meter popover left edge aligns with the title pill (`left-[-3px]`), mirroring the mode menu’s right alignment.
 - **UX (chat title pill context meter; local).** Replaces the name-pill pencil/rename with an inward 3px circular context ring (sage/gray) vs the plan auto-compaction trigger (`reserveTokens − keepRecentTokens`). Weak center %; click opens a mode-menu-style popover with short copy + Compact now (`compactNow`). Rename stays in the chat list only.
 - **Change (ADR-149 S4 orphan reconcilers; local, committed `7b14f8df`).** API + runtime schedulers reconcile stale attempts/receipts after 20m grace with active-owner guards.

@@ -17,4 +17,5 @@ export type AssistantWebChatTurnStatusStateCurrentActivity = {
   phase: AssistantWebChatTurnStatusStateCurrentActivityPhase;
   isError: boolean;
   updatedAt: string;
+  toolInputPreview?: string;
 } | null;

@@ -201,6 +201,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   toolPhase?: "start" | "end";
   toolName?: string;
   toolCallId?: string;
+  toolInputPreview?: string;
   toolProgressKind?: "stdout_line" | "stderr_line" | "browser_step";
   toolProgressLine?: string;
   toolProgressStep?: string;

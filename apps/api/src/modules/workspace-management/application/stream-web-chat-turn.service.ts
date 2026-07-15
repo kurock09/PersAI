@@ -344,6 +344,7 @@ export class StreamWebChatTurnService {
         toolName: string;
         toolCallId: string;
         isError: boolean;
+        toolInputPreview?: string;
       }) => void;
       onToolProgress?: (payload: {
         toolName: string;
@@ -1129,6 +1130,7 @@ export class StreamWebChatTurnService {
         toolName: string;
         toolCallId: string;
         isError: boolean;
+        toolInputPreview?: string;
       }) => void;
       onToolProgress?: (payload: {
         toolName: string;
@@ -1309,14 +1311,20 @@ export class StreamWebChatTurnService {
               toolName: chunk.toolName,
               toolCallId: chunk.toolCallId,
               phase: chunk.toolPhase,
-              isError: chunk.isError === true
+              isError: chunk.isError === true,
+              ...(typeof chunk.toolInputPreview === "string" && chunk.toolInputPreview.length > 0
+                ? { toolInputPreview: chunk.toolInputPreview }
+                : {})
             });
           }
           input.callbacks.onTool?.({
             phase: chunk.toolPhase,
             toolName: chunk.toolName,
             toolCallId: chunk.toolCallId,
-            isError: chunk.isError === true
+            isError: chunk.isError === true,
+            ...(typeof chunk.toolInputPreview === "string" && chunk.toolInputPreview.length > 0
+              ? { toolInputPreview: chunk.toolInputPreview }
+              : {})
           });
           if (
             chunk.toolPhase === "end" &&
@@ -1351,17 +1359,14 @@ export class StreamWebChatTurnService {
           watchdog.recordActivity();
           // ADR-149 H3 — long shell/exec with only tool_progress must keep the
           // attempt heartbeat fresh so the 20min orphan reconciler does not
-          // false-terminalize a still-productive turn.
+          // false-terminalize a still-productive turn. Touch updatedAt only —
+          // do not rewrite currentActivity (preserves toolInputPreview).
           if (input.prepared.clientTurnId !== undefined && this.webChatTurnAttemptService) {
-            await this.webChatTurnAttemptService.markCurrentActivity({
+            await this.webChatTurnAttemptService.touchRunningAttempt({
               assistantId: input.prepared.assistantId,
               userId: input.prepared.userId,
               surfaceThreadKey: input.prepared.chat.surfaceThreadKey,
-              clientTurnId: input.prepared.clientTurnId,
-              toolName: chunk.toolName,
-              toolCallId: chunk.toolCallId,
-              phase: "start",
-              isError: false
+              clientTurnId: input.prepared.clientTurnId
             });
           }
           input.callbacks.onToolProgress?.({

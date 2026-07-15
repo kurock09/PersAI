@@ -1398,8 +1398,16 @@ export class AssistantController {
         onThinking: (delta, accumulated) => {
           sendSse("thinking", { delta, accumulated });
         },
-        onTool: ({ phase, toolName, toolCallId, isError }) => {
-          sendSse("tool", { phase, toolName, toolCallId, isError });
+        onTool: ({ phase, toolName, toolCallId, isError, toolInputPreview }) => {
+          sendSse("tool", {
+            phase,
+            toolName,
+            toolCallId,
+            isError,
+            ...(typeof toolInputPreview === "string" && toolInputPreview.length > 0
+              ? { toolInputPreview }
+              : {})
+          });
         },
         onToolProgress: ({ toolName, toolCallId, kind, line, step, seq }) => {
           sendSse("tool_progress", {

@@ -465,6 +465,37 @@ textarea::-webkit-resizer {
   }
 }
 
+/* Cursor-like shell command preview: single-line truncate with right fade + color wave. */
+@keyframes activity-command-shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
+.activity-command-fade {
+  mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 1.75rem), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 1.75rem), transparent 100%);
+}
+
+.activity-command-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--text-subtle) 55%, transparent) 0%,
+    color-mix(in srgb, var(--text-subtle) 55%, transparent) 36%,
+    color-mix(in srgb, var(--text-muted) 92%, transparent) 50%,
+    color-mix(in srgb, var(--text-subtle) 55%, transparent) 64%,
+    color-mix(in srgb, var(--text-subtle) 55%, transparent) 100%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: activity-command-shimmer 2.1s ease-in-out infinite;
+}
+
 @keyframes pulse-slow {
   0%,
   100% {
@@ -546,6 +577,13 @@ textarea::-webkit-resizer {
   }
   .animate-fade-in-inline-status {
     animation: none;
+  }
+  .activity-command-shimmer {
+    animation: none;
+    background-image: none;
+    color: color-mix(in srgb, var(--text-subtle) 70%, transparent);
+    -webkit-background-clip: unset;
+    background-clip: unset;
   }
   .scroll-cue-dot {
     animation: none !important;

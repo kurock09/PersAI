@@ -14,4 +14,6 @@ export interface AssistantWebChatTurnCurrentActivityState {
   phase: AssistantWebChatTurnCurrentActivityStatePhase;
   isError: boolean;
   updatedAt: string;
+  /** Bounded single-line shell/exec command preview for live activity UI. */
+  toolInputPreview?: string;
 }
