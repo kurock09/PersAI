@@ -2,12 +2,12 @@
 
 ## 2026-07-16 — ADR-149 + ADR-150 closed (founder)
 
-Status: **closing docs.** Founder directed both programs closed.
+Status: **pushed** `f846a022` (+ TEST-PLAN `cf86d588`). Founder directed both closed.
 
 - **ADR-149:** durable Stop, split deadlines, `tool_progress`, orphan reconciliation — closed; do not reopen.
 - **ADR-150:** ephemeral session install-layer (`314ee37a`) — closed; do not reopen.
 
-**Next:** await next founder priority (no active numbered ADR from 149/150).
+**Next:** await next founder priority (no active ADR-149/150).
 
 ---
 
