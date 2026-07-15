@@ -28,6 +28,7 @@ import {
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
+import { createRuntimeTurnWallClockDeadline } from "./runtime-turn-deadline";
 import { resolveMaterializedNativeRuntimeBundle } from "./native-runtime-bundle-hash";
 import type { RuntimeTier } from "./runtime-assignment";
 
@@ -156,19 +157,19 @@ export class SendNativeTelegramTurnService {
       ...(input.providerOverride === undefined ? {} : { providerOverride: input.providerOverride }),
       ...(input.modelOverride === undefined ? {} : { modelOverride: input.modelOverride })
     };
-    const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
+    const wallClockMs = resolveNativeRuntimeTurnTimeoutMs(
       materializedSpec.runtimeBundle,
-      config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS
+      config.PERSAI_RUNTIME_TURN_WALL_CLOCK_MS
     );
 
     const streamUrl = new URL("/api/v1/turns/stream", baseUrl).toString();
     const streamState = { accepted: false };
-    const { signal, dispose } = this.createTimedSignal(timeoutMs);
+    const deadline = createRuntimeTurnWallClockDeadline({ wallClockMs });
     try {
       return await this.executeRuntimeStreamOnce({
         url: streamUrl,
         request,
-        signal,
+        signal: deadline.signal,
         callbacks,
         streamState
       });
@@ -176,7 +177,7 @@ export class SendNativeTelegramTurnService {
       if (this.isAbortError(error)) {
         throw new AssistantRuntimeError(
           "timeout",
-          `Native runtime Telegram stream timed out after ${config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS}ms.`
+          `Native runtime Telegram stream timed out after ${wallClockMs}ms.`
         );
       }
       if (streamState.accepted && this.shouldReplayAcceptedTurnAfterStreamError(error)) {
@@ -186,9 +187,9 @@ export class SendNativeTelegramTurnService {
         return await this.replayAcceptedTurnUntilTerminal({
           url: streamUrl,
           request,
-          signal,
+          signal: deadline.signal,
           callbacks,
-          timeoutMs,
+          timeoutMs: wallClockMs,
           originalError: error
         });
       }
@@ -197,7 +198,7 @@ export class SendNativeTelegramTurnService {
       }
       throw error;
     } finally {
-      dispose();
+      deadline.dispose();
     }
   }
 
@@ -729,15 +730,6 @@ export class SendNativeTelegramTurnService {
       return `${error.name}: ${error.message}`;
     }
     return String(error);
-  }
-
-  private createTimedSignal(timeoutMs: number): { signal: AbortSignal; dispose: () => void } {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    return {
-      signal: controller.signal,
-      dispose: () => clearTimeout(timeoutId)
-    };
   }
 
   private isAbortError(error: unknown): boolean {

@@ -24,6 +24,7 @@ import {
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
+import { createRuntimeTurnWallClockDeadline } from "./runtime-turn-deadline";
 import { resolveMaterializedNativeRuntimeBundle } from "./native-runtime-bundle-hash";
 import type { RuntimeTier } from "./runtime-assignment";
 
@@ -153,15 +154,15 @@ export class WebRuntimeTurnClientService {
         }
       }
     };
-    const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
+    const wallClockMs = resolveNativeRuntimeTurnTimeoutMs(
       materializedSpec.runtimeBundle,
-      config.PERSAI_RUNTIME_TURN_TIMEOUT_MS
+      config.PERSAI_RUNTIME_TURN_WALL_CLOCK_MS
     );
 
     const response = await this.postJson(
       new URL("/api/v1/turns/create", baseUrl).toString(),
       request,
-      timeoutMs
+      wallClockMs
     );
     if (!response.ok) {
       this.throwForFailedResponse(response);
@@ -276,9 +277,8 @@ export class WebRuntimeTurnClientService {
     };
   }
 
-  private async postJson(url: string, body: unknown, timeoutMs: number): Promise<JsonResponse> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  private async postJson(url: string, body: unknown, wallClockMs: number): Promise<JsonResponse> {
+    const deadline = createRuntimeTurnWallClockDeadline({ wallClockMs });
 
     try {
       const response = await fetch(url, {
@@ -287,7 +287,7 @@ export class WebRuntimeTurnClientService {
           "content-type": "application/json"
         },
         body: JSON.stringify(body),
-        signal: controller.signal
+        signal: deadline.signal
       });
       const contentType = response.headers.get("content-type") ?? "";
       let responseBody: unknown = null;
@@ -308,7 +308,7 @@ export class WebRuntimeTurnClientService {
       if (error instanceof Error && error.name === "AbortError") {
         throw new AssistantRuntimeError(
           "timeout",
-          `Web runtime sync turn timed out after ${timeoutMs}ms.`
+          `Web runtime sync turn timed out after ${wallClockMs}ms.`
         );
       }
       const message = error instanceof Error ? error.message : "Unknown web runtime sync failure.";
@@ -317,7 +317,7 @@ export class WebRuntimeTurnClientService {
         `Web runtime sync turn failed: ${message}`
       );
     } finally {
-      clearTimeout(timeoutId);
+      deadline.dispose();
     }
   }
 

@@ -28,6 +28,10 @@ import {
   createAssistantInboundValidationError
 } from "./assistant-inbound-error";
 import { resolveNativeRuntimeTurnTimeoutMs } from "./native-runtime-turn-timeout";
+import {
+  createRuntimeStreamTurnDeadline,
+  resolveRuntimeTurnStreamDeadlineConfig
+} from "./runtime-turn-deadline";
 import { resolveMaterializedNativeRuntimeBundle } from "./native-runtime-bundle-hash";
 import type { RuntimeTier } from "./runtime-assignment";
 
@@ -164,17 +168,22 @@ export class WebRuntimeStreamClientService {
         }
       }
     };
-    const timeoutMs = resolveNativeRuntimeTurnTimeoutMs(
+    const deadlineConfig = resolveRuntimeTurnStreamDeadlineConfig(config);
+    const wallClockMs = resolveNativeRuntimeTurnTimeoutMs(
       materializedSpec.runtimeBundle,
-      config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS
+      deadlineConfig.wallClockMs
     );
+    const deadline = createRuntimeStreamTurnDeadline({
+      wallClockMs,
+      idleStallMs: deadlineConfig.idleStallMs,
+      ...(options?.signal === undefined ? {} : { externalSignal: options.signal })
+    });
 
-    const { signal, dispose } = this.createTimedSignal(timeoutMs, options?.signal);
     try {
       const response = await this.fetchStreamResponse(
         new URL("/api/v1/turns/stream", baseUrl).toString(),
         request,
-        signal,
+        deadline.signal,
         options?.traceEnabled === true
       );
       if (!response.ok) {
@@ -215,11 +224,15 @@ export class WebRuntimeStreamClientService {
           };
         }
       };
-      for await (const event of this.readRuntimeStream(response)) {
+      for await (const event of this.readRuntimeStream(response, {
+        onProgress: deadline.recordProgress,
+        abortSignal: deadline.signal
+      })) {
         switch (event.type) {
           case "started":
             continue;
           case "text_delta":
+            deadline.recordProgress();
             if (event.delta.length === 0) {
               continue;
             }
@@ -231,6 +244,7 @@ export class WebRuntimeStreamClientService {
             };
             continue;
           case "tool_started":
+            deadline.recordProgress();
             if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
               continue;
             }
@@ -242,6 +256,7 @@ export class WebRuntimeStreamClientService {
             };
             continue;
           case "tool_finished":
+            deadline.recordProgress();
             if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
               continue;
             }
@@ -397,18 +412,44 @@ export class WebRuntimeStreamClientService {
       if (options?.signal?.aborted) {
         return;
       }
+      const completedAbortReason = deadline.getAbortReason();
+      if (completedAbortReason === "idle_stall") {
+        throw new AssistantRuntimeError(
+          "idle_stall",
+          `Web runtime stream stalled with no progress for ${deadlineConfig.idleStallMs}ms.`
+        );
+      }
+      if (completedAbortReason === "wall_clock") {
+        throw new AssistantRuntimeError(
+          "timeout",
+          `Web runtime stream timed out after ${wallClockMs}ms.`
+        );
+      }
       throw new AssistantRuntimeError(
         "invalid_response",
         "Web runtime stream completed without a terminal done event."
       );
     } catch (error) {
-      if (this.isAbortError(error) && options?.signal?.aborted) {
-        return;
-      }
       if (this.isAbortError(error)) {
+        const abortReason = deadline.getAbortReason();
+        if (abortReason === "idle_stall") {
+          throw new AssistantRuntimeError(
+            "idle_stall",
+            `Web runtime stream stalled with no progress for ${deadlineConfig.idleStallMs}ms.`
+          );
+        }
+        if (abortReason === "wall_clock") {
+          throw new AssistantRuntimeError(
+            "timeout",
+            `Web runtime stream timed out after ${wallClockMs}ms.`
+          );
+        }
+        if (options?.signal?.aborted) {
+          return;
+        }
         throw new AssistantRuntimeError(
           "timeout",
-          `Web runtime stream timed out after ${config.PERSAI_RUNTIME_STREAM_TIMEOUT_MS}ms.`
+          `Web runtime stream timed out after ${wallClockMs}ms.`
         );
       }
       if (error instanceof AssistantRuntimeError) {
@@ -416,7 +457,7 @@ export class WebRuntimeStreamClientService {
       }
       throw error;
     } finally {
-      dispose();
+      deadline.dispose();
     }
   }
 
@@ -461,16 +502,33 @@ export class WebRuntimeStreamClientService {
     return text.length > 0 ? text : null;
   }
 
-  private async *readRuntimeStream(response: Response): AsyncGenerator<RuntimeTurnStreamEvent> {
+  private async *readRuntimeStream(
+    response: Response,
+    options?: {
+      onProgress?: () => void;
+      abortSignal?: AbortSignal;
+    }
+  ): AsyncGenerator<RuntimeTurnStreamEvent> {
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
+    const onProgress = options?.onProgress;
+    const abortListener = (): void => {
+      void reader.cancel();
+    };
+    options?.abortSignal?.addEventListener("abort", abortListener);
     let buffer = "";
 
     try {
       while (true) {
+        if (options?.abortSignal?.aborted) {
+          throw new DOMException("The operation was aborted.", "AbortError");
+        }
         const { done, value } = await reader.read();
         if (done) {
           break;
+        }
+        if (value !== undefined && value.byteLength > 0) {
+          onProgress?.();
         }
         buffer += decoder.decode(value, { stream: true });
 
@@ -482,8 +540,10 @@ export class WebRuntimeStreamClientService {
           const line = buffer.slice(0, newlineIndex).trim();
           buffer = buffer.slice(newlineIndex + 1);
           if (line.length === 0) {
+            onProgress?.();
             continue;
           }
+          onProgress?.();
           yield this.parseRuntimeStreamEvent(line);
         }
       }
@@ -494,6 +554,7 @@ export class WebRuntimeStreamClientService {
         yield this.parseRuntimeStreamEvent(tail);
       }
     } finally {
+      options?.abortSignal?.removeEventListener("abort", abortListener);
       reader.releaseLock();
     }
   }
@@ -763,25 +824,6 @@ export class WebRuntimeStreamClientService {
         row.executionMode === "reasoning") &&
       (row.source === "precheck" || row.source === "llm" || row.source === "fallback")
     );
-  }
-
-  private createTimedSignal(
-    timeoutMs: number,
-    externalSignal?: AbortSignal
-  ): { signal: AbortSignal; dispose: () => void } {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    if (externalSignal) {
-      if (externalSignal.aborted) {
-        controller.abort();
-      } else {
-        externalSignal.addEventListener("abort", () => controller.abort(), { once: true });
-      }
-    }
-    return {
-      signal: controller.signal,
-      dispose: () => clearTimeout(timeoutId)
-    };
   }
 
   private isAbortError(error: unknown): boolean {

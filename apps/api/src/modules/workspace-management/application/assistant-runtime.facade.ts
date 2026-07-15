@@ -14,6 +14,7 @@ export type AssistantRuntimeErrorCode =
   | "runtime_unreachable"
   | "auth_failure"
   | "timeout"
+  | "idle_stall"
   | "invalid_response"
   | "runtime_degraded"
   | "runtime_context_window_exceeded"

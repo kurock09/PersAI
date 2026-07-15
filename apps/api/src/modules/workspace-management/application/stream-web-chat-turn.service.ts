@@ -61,6 +61,7 @@ import {
   DEFAULT_CADENCE_THRESHOLDS,
   type CadenceWatchdogStallReport
 } from "./cadence-watchdog";
+import { resolveRuntimeTurnStreamDeadlineConfig } from "./runtime-turn-deadline";
 import { AssistantMediaJobService } from "./workspace-media-job.service";
 import { AssistantDocumentJobReadService } from "./assistant-document-job-read.service";
 import { RecordModelCostLedgerService } from "./record-model-cost-ledger.service";
@@ -139,6 +140,8 @@ const WEB_TURN_REPLAY_POLL_MS = 250;
  */
 const WEB_TURN_MAX_STREAM_ATTEMPTS = 2;
 
+export { resolveRuntimeTurnStreamDeadlineConfig };
+
 export function resolveWebStreamCadenceWatchdogOptions(
   chatMode?: AssistantChatMode
 ): CadenceThresholds & { silentEnabled: boolean; slowAvgEnabled: boolean } {
@@ -155,8 +158,10 @@ export function resolveWebStreamCadenceWatchdogOptions(
     // slow_avg disabled: reasoning-tier models (ADR-121 deep level) legitimately
     // stream visible text below the per-token cadence threshold, which tripped
     // slow_avg and aborted the runtime fetch mid-answer (truncated reply, no
-    // clean stream-end). Real mid-stream hangs remain guarded by the
-    // provider/runtime stream timeout (PERSAI_RUNTIME_STREAM_TIMEOUT_MS).
+    // clean stream-end). Real mid-stream hangs are guarded by ADR-149 turn
+    // deadlines: wall-clock ceiling (PERSAI_RUNTIME_TURN_WALL_CLOCK_MS) plus
+    // progress-only idle stall (PERSAI_RUNTIME_TURN_IDLE_STALL_MS) in the
+    // web runtime stream client — not cadence slow_avg/silent.
     slowAvgEnabled: false
   };
 }

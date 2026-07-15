@@ -92,6 +92,15 @@ function normalizeRuntimeError(error: AssistantRuntimeError): {
           message: "The runtime timed out before completing this turn."
         }
       };
+    case "idle_stall":
+      return {
+        status: HttpStatus.GATEWAY_TIMEOUT,
+        error: {
+          code: "turn_idle_stall",
+          category: "infra",
+          message: "The runtime stopped making progress before completing this turn."
+        }
+      };
     case "runtime_degraded":
       return {
         status: HttpStatus.SERVICE_UNAVAILABLE,

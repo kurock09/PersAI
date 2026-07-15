@@ -53,6 +53,10 @@ const baseApiConfigSchema = z.object({
   PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   PERSAI_RUNTIME_TURN_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
   PERSAI_RUNTIME_STREAM_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  /** ADR-149: whole-turn hard wall-clock ceiling for API runtime fetch (stream + sync). */
+  PERSAI_RUNTIME_TURN_WALL_CLOCK_MS: z.coerce.number().int().positive().default(1_800_000),
+  /** ADR-149: progress-only idle stall window for streaming turns (no progress resets timer). */
+  PERSAI_RUNTIME_TURN_IDLE_STALL_MS: z.coerce.number().int().positive().default(300_000),
   // ADR-140 cross-pod browser-bridge relay. When set, the local browser-bridge WebSocket
   // relay coordinates connections/commands across api replicas via Redis pub/sub so a device
   // socket held by one pod is reachable from dispatch/result HTTP handled by any other pod.

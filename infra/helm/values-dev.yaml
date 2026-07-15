@@ -170,6 +170,9 @@ api:
     PERSAI_RUNTIME_BASE_URL: "http://runtime:3012"
     PERSAI_RUNTIME_BUNDLE_SYNC_TIMEOUT_MS: "10000"
     PERSAI_RUNTIME_TURN_TIMEOUT_MS: "300000"
+    # ADR-149: whole-turn wall-clock ceiling (default 30 min) and progress-only idle stall (default 5 min).
+    PERSAI_RUNTIME_TURN_WALL_CLOCK_MS: "1800000"
+    PERSAI_RUNTIME_TURN_IDLE_STALL_MS: "300000"
     PERSAI_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
     PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "10000"
     PERSAI_WEB_BASE_URL: "https://persai.dev"

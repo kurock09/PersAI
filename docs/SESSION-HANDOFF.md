@@ -1,5 +1,14 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — ADR-149 S2 landed locally (parent audit CLEAN)
+
+Status: **S2 implemented** — wall-clock 30m + idle stall 5m; no more 615s video
+inflation; `turn_idle_stall` vs `runtime_timeout`. Gate green. **Not pushed.**
+
+**Next:** commit S2; delegate S3 (tool_progress + activity fixes).
+
+---
+
 ## 2026-07-15 — ADR-149 S1 landed locally (parent audit CLEAN)
 
 Status: **S1 implemented by Composer subagent; parent gate green after format

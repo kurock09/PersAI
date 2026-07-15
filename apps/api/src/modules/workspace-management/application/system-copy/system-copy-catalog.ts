@@ -180,6 +180,10 @@ const RUNTIME_INBOUND_ERRORS: Record<string, LocalizedCopy> = {
     "Runtime не успел завершить этот ход.",
     "The runtime timed out before completing this turn."
   ),
+  turn_idle_stall: copy(
+    "Ассистент перестал присылать обновления до завершения ответа. Попробуйте ещё раз.",
+    "The assistant stopped making progress before finishing. Please try again."
+  ),
   runtime_degraded: copy(
     "Runtime временно работает в деградированном режиме.",
     "Runtime is temporarily degraded."
