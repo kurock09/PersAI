@@ -305,12 +305,18 @@ describe("detect-affected: ADR-146 foundation markers", () => {
     assert.equal(valuesDevContentTriggersFoundation(baseNested, headNested), true);
 
     // Indentation trick under sandboxExec (unique tag value): not pin-script shape.
+    const sandboxExecBlockMatch = REAL_VALUES_DEV.match(
+      /sandboxExec:\n  image:\n    # Exec image name in GAR \(matches the service name in detect-affected \+ pin script\)\.\n    name: sandbox-exec\n    # Initial tag; CI pins this to the SHA of the most recent successful build\.\n    tag: ([0-9a-f]{40})\n/
+    );
+    assert.ok(sandboxExecBlockMatch, "values-dev.yaml must contain the sandboxExec image tag block");
+    const sandboxExecTag = sandboxExecBlockMatch[1];
+    const sandboxExecBlock = sandboxExecBlockMatch[0];
     const baseIndent = REAL_VALUES_DEV.replace(
-      "sandboxExec:\n  image:\n    # Exec image name in GAR (matches the service name in detect-affected + pin script).\n    name: sandbox-exec\n    # Initial tag; CI pins this to the SHA of the most recent successful build.\n    tag: fa440e027b6c36653efd39567c16172d04c02256\n",
-      "sandboxExec:\n  image:\n    # Exec image name in GAR (matches the service name in detect-affected + pin script).\n    name: sandbox-exec\n    # Initial tag; CI pins this to the SHA of the most recent successful build.\n   tag: fa440e027b6c36653efd39567c16172d04c02256\n"
+      sandboxExecBlock,
+      sandboxExecBlock.replace(`    tag: ${sandboxExecTag}\n`, `   tag: ${sandboxExecTag}\n`)
     );
     const headIndent = baseIndent.replace(
-      "   tag: fa440e027b6c36653efd39567c16172d04c02256\n",
+      `   tag: ${sandboxExecTag}\n`,
       "   tag: indentedtrick11111111111111111111111111111\n"
     );
     assert.notEqual(baseIndent, REAL_VALUES_DEV);

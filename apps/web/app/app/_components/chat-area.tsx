@@ -745,12 +745,12 @@ export function ChatArea({
                 className="flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised text-text-muted transition-colors active:bg-surface-hover hover:bg-surface-hover hover:text-text md:hidden"
                 aria-label="Open sidebar"
               >
-                <Menu className="h-5 w-5" strokeWidth={1.75} />
+                <Menu className="h-5 w-5" strokeWidth={1.15} />
               </button>
               <div
                 className={cn(
                   // Opaque pill — edge dissolve lives on the message scroll mask, not behind chrome.
-                  "flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/45 bg-surface-raised py-0 pr-3.5 pl-1.5 transition-colors",
+                  "flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/45 bg-surface-raised py-0 pr-3.5 pl-[3px] transition-colors",
                   editing && "border-accent/45"
                 )}
               >
@@ -760,7 +760,7 @@ export function ChatArea({
                       aria-hidden="true"
                       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bg text-accent"
                     >
-                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} />
+                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.15} />
                     </span>
                     <div className="flex min-w-0 flex-1 items-center gap-1.5">
                       <input
@@ -781,7 +781,7 @@ export function ChatArea({
                         onClick={() => void commitEdit()}
                         className="cursor-pointer rounded-full p-1.5 text-accent transition-colors hover:bg-surface-hover"
                       >
-                        <Check className="h-3.5 w-3.5" />
+                        <Check className="h-3.5 w-3.5" strokeWidth={1.15} />
                       </button>
                     </div>
                   </>
@@ -794,14 +794,14 @@ export function ChatArea({
                         aria-label="Rename chat"
                         className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-bg text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
                       >
-                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} />
+                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.15} />
                       </button>
                     ) : (
                       <span
                         aria-hidden="true"
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-bg text-text-subtle"
                       >
-                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.6} />
+                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.15} />
                       </span>
                     )}
                     <div
@@ -1279,7 +1279,7 @@ export function ChatArea({
                 aria-label={t("scrollToBottom")}
                 title={t("scrollToBottom")}
               >
-                <ArrowDown className="h-5 w-5" strokeWidth={1.75} />
+                <ArrowDown className="h-5 w-5" strokeWidth={1.15} />
               </button>
             </div>
           </div>

@@ -8,6 +8,12 @@ export const ADMIN_SYSTEM_EVENT_DEFINITIONS = [
     notificationClass: NotificationClass.administrative
   },
   {
+    code: "assistant_created",
+    label: "Assistant created",
+    description: "An existing workspace user created an additional assistant.",
+    notificationClass: NotificationClass.administrative
+  },
+  {
     code: "trial_ending",
     label: "Trial ending",
     description: "A workspace trial is approaching its end.",
@@ -115,6 +121,7 @@ export const VALID_ADMIN_SYSTEM_EVENT_CODES = new Set<AdminSystemEventCode>(
 
 export const DEFAULT_ADMIN_SYSTEM_EVENT_CODES: AdminSystemEventCode[] = [
   "new_user_registered",
+  "assistant_created",
   "payment_activated",
   "renewal_failed",
   "payment_recovered",
@@ -220,6 +227,7 @@ export function getAdminSystemEventDefinition(code: AdminSystemEventCode) {
 /** Admin realtime events that describe a specific end-user workspace action. */
 export const USER_SCOPED_ADMIN_SYSTEM_EVENT_CODES = new Set<AdminSystemEventCode>([
   "new_user_registered",
+  "assistant_created",
   "trial_ending",
   "trial_expired",
   "payment_activated",
@@ -234,6 +242,20 @@ export const USER_SCOPED_ADMIN_SYSTEM_EVENT_CODES = new Set<AdminSystemEventCode
   "runtime_apply_degraded",
   "runtime_apply_failed"
 ]);
+
+/**
+ * `assistant_created` inherits enablement from `new_user_registered` until the
+ * stored policy explicitly lists it, so existing admin policies keep working.
+ */
+export function isAdminSystemEventEnabled(
+  eventCode: AdminSystemEventCode,
+  config: AdminSystemPolicyConfig
+): boolean {
+  if (config.eventCodes.includes(eventCode)) {
+    return true;
+  }
+  return eventCode === "assistant_created" && config.eventCodes.includes("new_user_registered");
+}
 
 export function resolveAdminSystemUserLabel(details: Record<string, unknown>): string | null {
   for (const key of ["recipientEmail", "userEmail", "email"] as const) {

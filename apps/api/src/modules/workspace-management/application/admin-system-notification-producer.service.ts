@@ -12,6 +12,7 @@ import {
   type AdminSystemEventCode,
   type AdminSystemPolicyConfig,
   getAdminSystemEventDefinition,
+  isAdminSystemEventEnabled,
   parseAdminSystemPolicyConfig,
   enrichAdminSystemSummaryWithUser
 } from "./notifications/admin-system-config";
@@ -65,7 +66,7 @@ export class AdminSystemNotificationProducerService {
     if (!policy.enabled) {
       return 0;
     }
-    if (!policy.config.eventCodes.includes(input.eventCode)) {
+    if (!isAdminSystemEventEnabled(input.eventCode, policy.config)) {
       return 0;
     }
 

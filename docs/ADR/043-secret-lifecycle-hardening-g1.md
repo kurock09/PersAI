@@ -50,6 +50,12 @@ Step 10 G1 requires hardening without redesigning the model from scratch and wit
    - `assistant.secret_ref_emergency_revoked`
    - existing Telegram token-fingerprint audit remains intact
 
+6. **Follow-up (2026-07-15):** governance `expiresAt` is a rotation/TTL reminder, not
+   Telegram bot-token death. Healthy active bindings auto-renew SecretRef TTL on
+   Telegram integration state resolve (lead window before expiry). Connection /
+   configured projections treat computed `expired` as still connected until revoke
+   or `invalid_token`; Settings no longer falsely shows disconnected when the bot
+   still works.
 ## Consequences
 
 ### Positive

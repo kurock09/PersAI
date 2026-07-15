@@ -116,8 +116,8 @@ describe("SlideOver", () => {
     const handle = screen.getByTestId("slide-over-resize-handle");
     expect(handle).toHaveAttribute("aria-valuemin", "500");
     expect(handle).toHaveAttribute("aria-valuemax", "800");
-    expect(handle).toHaveClass("-translate-x-1/2");
-    expect(handle).toHaveClass("opacity-35");
+    expect(handle).toHaveClass("-translate-x-2.5");
+    expect(handle).toHaveClass("opacity-60");
 
     fireEvent.pointerDown(handle, { button: 0, clientX: 400, pointerId: 1 });
     fireEvent.pointerMove(handle, { clientX: 100, pointerId: 1 });

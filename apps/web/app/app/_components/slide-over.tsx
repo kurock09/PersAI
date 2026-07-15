@@ -167,9 +167,9 @@ export function SlideOver({
               tabIndex={0}
               data-testid="slide-over-resize-handle"
               className={cn(
-                "absolute top-1/2 left-0 z-20 hidden -translate-x-1/2 -translate-y-1/2 cursor-col-resize flex-col items-center gap-0.5 rounded-full px-0.5 py-2 md:flex",
+                "absolute top-1/2 left-0 z-20 hidden -translate-x-2.5 -translate-y-1/2 cursor-col-resize flex-col items-center gap-0.5 rounded-full px-0.5 py-2 md:flex",
                 "touch-none select-none",
-                resizeActive ? "opacity-70" : "opacity-35 hover:opacity-70"
+                resizeActive ? "opacity-80" : "opacity-60 hover:opacity-80"
               )}
               onPointerDown={handleResizePointerDown}
               onPointerMove={handleResizePointerMove}
@@ -177,10 +177,10 @@ export function SlideOver({
               onPointerCancel={handleResizePointerUp}
               onKeyDown={handleResizeKeyDown}
             >
-              <span className="h-1 w-1 rounded-full bg-text-subtle/28" aria-hidden="true" />
-              <span className="h-1 w-1 rounded-full bg-text-subtle/28" aria-hidden="true" />
-              <span className="h-1 w-1 rounded-full bg-text-subtle/28" aria-hidden="true" />
-              <span className="h-1 w-1 rounded-full bg-text-subtle/28" aria-hidden="true" />
+              <span className="h-1 w-1 rounded-full bg-white/55" aria-hidden="true" />
+              <span className="h-1 w-1 rounded-full bg-white/55" aria-hidden="true" />
+              <span className="h-1 w-1 rounded-full bg-white/55" aria-hidden="true" />
+              <span className="h-1 w-1 rounded-full bg-white/55" aria-hidden="true" />
             </div>
             <header className="flex items-center justify-between border-b border-border px-5 py-4">
               <h2 className="text-sm font-semibold text-text">{title}</h2>

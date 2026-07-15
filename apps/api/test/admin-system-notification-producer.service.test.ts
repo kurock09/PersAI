@@ -134,6 +134,30 @@ async function run(): Promise<void> {
 
   {
     const { service, calls } = makeRealtimeService({
+      eventCodes: ["new_user_registered"],
+      recipientAssistantIds: ["assistant-1"]
+    });
+    const emitted = await service.emitEvent({
+      eventCode: "assistant_created",
+      summary: "User alex@agse.ru created a new assistant",
+      details: {
+        sourceUserId: "user-src-1",
+        email: "alex@agse.ru",
+        isFirstAssistantInWorkspace: false
+      },
+      traceId: "assistant-created:2"
+    });
+
+    assert.equal(emitted, 1);
+    assert.equal(
+      (calls[0]?.["factPayload"] as Record<string, unknown>)?.["message"],
+      "User alex@agse.ru created a new assistant"
+    );
+    console.log("✓ assistant_created inherits enablement from new_user_registered");
+  }
+
+  {
+    const { service, calls } = makeRealtimeService({
       eventCodes: ["runtime_apply_failed"],
       recipientAssistantIds: ["assistant-1"]
     });

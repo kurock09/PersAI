@@ -9,7 +9,12 @@ import {
 } from "../domain/assistant-governance.repository";
 import { ResolveEffectiveCapabilityStateService } from "./resolve-effective-capability-state.service";
 import type { TelegramIntegrationState } from "./telegram-integration.types";
-import { resolveTelegramSecretLifecycleState } from "./assistant-secret-refs-lifecycle";
+import {
+  isTelegramSecretConnectedLifecycle,
+  renewTelegramBotSecretRefTtl,
+  resolveTelegramSecretLifecycleState,
+  shouldRenewTelegramBotSecretRefTtl
+} from "./assistant-secret-refs-lifecycle";
 import {
   isTelegramOwnerClaimExpired,
   refreshTelegramOwnerClaimMetadata,
@@ -42,7 +47,7 @@ export class ResolveTelegramIntegrationStateService {
 
   async execute(userId: string): Promise<TelegramIntegrationState> {
     const assistant = (await this.resolveActiveAssistantService.execute({ userId })).assistant;
-    const governance =
+    let governance =
       (await this.assistantGovernanceRepository.findByAssistantId(assistant.id)) ??
       (await this.assistantGovernanceRepository.createBaseline(assistant.id));
     const effectiveCapabilities = await this.resolveEffectiveCapabilityStateService.execute({
@@ -82,7 +87,24 @@ export class ResolveTelegramIntegrationStateService {
     const inboundUserMessagesEnabled = policy?.inboundUserMessages === true;
     const outboundAssistantMessagesEnabled = policy?.outboundAssistantMessages !== false;
 
-    const secretLifecycle = resolveTelegramSecretLifecycleState(governance.secretRefs, {
+    const bindingEligibleForTtlRenew =
+      binding !== null &&
+      binding.bindingState === "active" &&
+      binding.connectedAt !== null &&
+      binding.disconnectedAt === null &&
+      telegramMetadata.telegramRuntimeHealth !== "invalid_token";
+
+    let secretRefs = governance.secretRefs;
+    if (bindingEligibleForTtlRenew && shouldRenewTelegramBotSecretRefTtl(secretRefs)) {
+      const renewedSecretRefs = renewTelegramBotSecretRefTtl(secretRefs);
+      governance = await this.assistantGovernanceRepository.updateSecretRefs(
+        assistant.id,
+        renewedSecretRefs as Record<string, unknown>
+      );
+      secretRefs = governance.secretRefs;
+    }
+
+    const secretLifecycle = resolveTelegramSecretLifecycleState(secretRefs, {
       legacyFallbackWhenMissing: binding !== null && binding.bindingState === "active"
     });
     const hasConnectedBinding =
@@ -90,7 +112,7 @@ export class ResolveTelegramIntegrationStateService {
       binding.bindingState === "active" &&
       binding.connectedAt !== null &&
       binding.disconnectedAt === null &&
-      (secretLifecycle.status === "active" || secretLifecycle.status === "legacy_unmanaged");
+      isTelegramSecretConnectedLifecycle(secretLifecycle.status);
     const connectionStatus = resolveTelegramConnectionStatus({
       hasConnectedBinding,
       runtimeHealth: telegramMetadata.telegramRuntimeHealth,

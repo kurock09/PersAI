@@ -1,5 +1,73 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — Honesty + UX + CI fixes ready to push
+
+Status: **local gate PASS, committing/pushing.** Combined wave:
+
+- Telegram TTL auto-renew + `expired` still connected; `assistant_created` notify
+- Settings status-on-avatar, avatar auto-save, Character label
+- Pill icon inset / stroke unify / left+right resize dots
+- Root `yaml` for ADR-146 cross-layer; detect-affected sandboxExec fixture live-tag
+
+AGENTS lint + format:check + api/web typecheck PASS. Recursive `pnpm -r test`
+PASS; `test:adr146-slice5` PASS; `test:ci-detect-affected` PASS after fixture fix.
+
+**Next recommended step:** after push, await Dev Image Publish for api+web (and
+any other affected), then live-check TG indicator + Settings avatar/status chrome.
+
+---
+
+## 2026-07-15 — CI fix: declare root `yaml` for ADR-146 cross-layer
+
+Status: **local, uncommitted.** Full Verification `test:adr146-slice5` failed on
+GitHub with `ERR_MODULE_NOT_FOUND: Cannot find package 'yaml'` from
+`scripts/ci/adr146-cross-layer-contract.mjs`. Root `package.json` now declares
+`yaml@^2.8.3`; lockfile updated. Cross-layer contract test + audit PASS locally.
+
+**Next recommended step:** include this with the next push so Full Verification
+stops failing; still stacked with Settings UX + TG/notify local waves.
+
+---
+
+## 2026-07-15 — Settings status-on-avatar + avatar auto-save + Character label
+
+Status: **local, uncommitted (stacked on prior TG/notify slice).** Settings hero and
+sidebar assistant card move the status dot onto the avatar bottom-right so the
+text column stays flush. Avatar preset select / upload auto-patches draft and
+publishes. Personalization action copy is now `Характер` / `Character`. Focused
+settings/sidebar vitest slices PASS; web typecheck PASS.
+
+**Next recommended step:** commit both local waves (TG TTL + notify, then this
+UX) when asked; after web pin, visual-check Settings hero + Personalization.
+
+---
+
+## 2026-07-15 — Telegram TTL false disconnect + assistant_created notify
+
+Status: **local, uncommitted; AGENTS lint + format:check + api/web typecheck PASS;
+focused secret-lifecycle / create-assistant / admin-system-producer tests PASS.**
+Two founder-directed honesty fixes:
+
+1. **Telegram Settings indicator:** governance SecretRef `expiresAt` no longer
+   forces `connectionStatus=not_connected` while the bot still works. Healthy
+   active bindings auto-renew TTL on `ResolveTelegramIntegrationState` (default
+   90d, renew lead 7d); computed `expired` remains connected until revoke or
+   `invalid_token`. Channel-surface “configured” projection matches.
+2. **Admin system notify on create assistant:** first assistant in a workspace
+   still emits `new_user_registered`; additional assistants emit
+   `assistant_created` with summary `User {email} created a new assistant`.
+   Existing policies that enable `new_user_registered` also accept
+   `assistant_created` without a manual policy edit.
+
+Docs: ADR-043 follow-up, API-BOUNDARY Telegram note, CHANGELOG.
+
+**Next recommended step:** commit/push when asked; after api(+web) pin, open
+Settings → Telegram on PERSAI (and ВОЛНА if switched active) to confirm the
+indicator shows connected and TTL renews. kurock09 active **Theo** still has no
+TG binding by design — switch to ВОЛНА to see that bot’s connected state.
+
+---
+
 ## 2026-07-15 — Desktop slide-over chrome + quieter resize dots
 
 Status: **pushed to `origin/main` as `321b8c27`.** AGENTS lint + `format:check` +

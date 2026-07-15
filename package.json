@@ -25,6 +25,7 @@
     "test:adr146-slice5": "node scripts/ci/adr146-active-code-audit.mjs && node scripts/ci/adr146-cross-layer-contract.mjs && node --test scripts/ci/adr146-active-code-audit.test.mjs scripts/ci/adr146-cross-layer-contract.test.mjs infra/bootstrap/adr146-s6-live-acceptance.test.mjs"
   },
   "devDependencies": {
-    "prettier": "^3.8.1"
+    "prettier": "^3.8.1",
+    "yaml": "^2.8.3"
   }
 }

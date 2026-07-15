@@ -65,7 +65,7 @@ const VOICE_HOLD_MIN_MS = 280;
  */
 const COMPOSER_SINGLE_LINE_HEIGHT_PX = 38;
 
-/** Circular 36px targets nested inside the pill with ~4px inset (TG-like). */
+/** Circular targets nested inside the pill with ~3px inset (half prior pencil gap). */
 const composerIconButtonClass = (opts: { disabled?: boolean; active?: boolean }) =>
   cn(
     "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors select-none",
@@ -78,8 +78,8 @@ const composerIconButtonClass = (opts: { disabled?: boolean; active?: boolean })
         )
   );
 
-/** Thin stroke + higher contrast; same optical box for attach + mic. */
-const COMPOSER_ICON_STROKE = 1.65;
+/** Thin outline stroke; shared optical weight for attach + mic (+ related chrome). */
+const COMPOSER_ICON_STROKE = 1.15;
 const composerControlIconClass = "h-5 w-5";
 
 const composerActionSlotClass =
@@ -1348,7 +1348,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             ref={composerShellRef}
             data-testid="chat-composer-shell"
             className={cn(
-              "relative flex min-h-11 gap-0.5 border border-border/45 bg-surface-raised p-1 transition-[border-color] focus-within:border-border-strong",
+              "relative flex min-h-11 gap-0.5 border border-border/45 bg-surface-raised p-[3px] transition-[border-color] focus-within:border-border-strong",
               isComposerMultiline ? "items-end rounded-[22px]" : "items-center rounded-full",
               dragActive && "border-accent bg-accent/5",
               sendBlockedByFailedSlot && "opacity-90",
@@ -1502,7 +1502,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
                         transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
                       />
                     ) : null}
-                    <Trash2 className="relative h-4 w-4" aria-hidden="true" />
+                    <Trash2
+                      className="relative h-4 w-4"
+                      strokeWidth={COMPOSER_ICON_STROKE}
+                      aria-hidden="true"
+                    />
                   </div>
                 </motion.div>
               )}

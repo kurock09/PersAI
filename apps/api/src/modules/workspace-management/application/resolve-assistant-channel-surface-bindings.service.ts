@@ -14,7 +14,10 @@ import {
   ASSISTANT_GOVERNANCE_REPOSITORY,
   type AssistantGovernanceRepository
 } from "../domain/assistant-governance.repository";
-import { resolveTelegramSecretLifecycleState } from "./assistant-secret-refs-lifecycle";
+import {
+  isTelegramSecretConnectedLifecycle,
+  resolveTelegramSecretLifecycleState
+} from "./assistant-secret-refs-lifecycle";
 
 type SurfaceSeed = {
   provider: AssistantChannelProviderKey;
@@ -124,9 +127,7 @@ export class ResolveAssistantChannelSurfaceBindingsService {
         legacyFallbackWhenMissing: telegramConfiguredRaw
       }
     );
-    const telegramSecretUsable =
-      telegramSecretLifecycle.status === "active" ||
-      telegramSecretLifecycle.status === "legacy_unmanaged";
+    const telegramSecretUsable = isTelegramSecretConnectedLifecycle(telegramSecretLifecycle.status);
     const telegramConfigured = telegramConfiguredRaw && telegramSecretUsable;
 
     const providerConfigured: Record<AssistantChannelProviderKey, boolean> = {

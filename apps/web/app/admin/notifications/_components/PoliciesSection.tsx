@@ -77,6 +77,7 @@ const BILLING_EVENT_CODES = [
 
 const ADMIN_SYSTEM_EVENT_OPTIONS = [
   { code: "new_user_registered", label: "New user registered" },
+  { code: "assistant_created", label: "Assistant created" },
   { code: "trial_ending", label: "Trial ending" },
   { code: "trial_expired", label: "Trial expired" },
   { code: "payment_activated", label: "Payment activated" },

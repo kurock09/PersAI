@@ -3489,6 +3489,68 @@ export function AssistantSettings({
     t
   ]);
 
+  const persistAvatarUrl = useCallback(
+    async (nextAvatarUrl: string) => {
+      const expectedAssistantId = publishAssistantRef.current;
+      if (!expectedAssistantId) {
+        setSaveFb({ type: "err", text: t("roleRequiredForPublish") });
+        return;
+      }
+      setDraftAvatarUrl(nextAvatarUrl);
+      setAvatarPreviewBlobUrl(null);
+      setAvatarPickerOpen(false);
+      setAvatarUploading(true);
+      setSaveFb(null);
+      try {
+        const token = await getToken({ skipCache: true });
+        if (!token) {
+          return;
+        }
+        await patchAssistantDraft(token, {
+          displayName: draftName || null,
+          instructions: draftInstructions || null,
+          traits: draftTraits,
+          avatarEmoji: null,
+          avatarUrl: nextAvatarUrl,
+          assistantGender: draftAssistantGender,
+          voiceProfile: {
+            ...draftVoiceProfile,
+            elevenlabs: {
+              voiceId: trimToNull(draftVoiceProfile.elevenlabs.voiceId)
+            },
+            yandex: {
+              voice: draftVoiceProfile.yandex.voice,
+              role: null
+            }
+          },
+          archetypeKey: assistant?.draft.archetypeKey ?? null
+        });
+        const currentRole = await getAssistantRole(token, expectedAssistantId);
+        await postAssistantPublish(token, {
+          assistantId: expectedAssistantId,
+          expectedRoleKey: currentRole.role.key,
+          roleKey: currentRole.role.key
+        });
+        data.reload();
+      } catch (e) {
+        setSaveFb({ type: "err", text: resolveCharacterSaveErrorMessage(e, t) });
+      } finally {
+        setAvatarUploading(false);
+      }
+    },
+    [
+      getToken,
+      draftName,
+      draftInstructions,
+      draftTraits,
+      draftAssistantGender,
+      draftVoiceProfile,
+      assistant?.draft.archetypeKey,
+      data,
+      t
+    ]
+  );
+
   const handleElevenLabsCurationChange = useCallback(
     async (
       voice: Pick<AssistantAdminVoiceCatalogEntry, "voiceId" | "approved" | "hidden" | "previewOk">,
@@ -3912,38 +3974,46 @@ export function AssistantSettings({
             <div className="px-1 py-1">
               <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_14rem] lg:items-center">
                 <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setAvatarPickerOpen((o) => !o)}
-                    className="flex h-20 w-20 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl transition-colors hover:bg-accent/25"
-                    title={t("changeAvatar")}
-                  >
-                    {avatarUploading ? (
-                      <Loader2 className="h-7 w-7 animate-spin text-accent" />
-                    ) : avatarPreviewBlobUrl ? (
-                      <img
-                        src={avatarPreviewBlobUrl}
-                        alt="Avatar"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : draftAvatarUrl ? (
-                      <AssistantAvatar
-                        avatarUrl={draftAvatarUrl}
-                        size="md"
-                        className="h-full w-full rounded-2xl"
-                      />
-                    ) : (
-                      <Sparkles className="h-8 w-8 text-accent" />
-                    )}
-                  </button>
+                  <div className="relative h-20 w-20 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setAvatarPickerOpen((o) => !o)}
+                      className="flex h-full w-full cursor-pointer items-center justify-center overflow-hidden rounded-2xl bg-accent/15 text-3xl transition-colors hover:bg-accent/25"
+                      title={t("changeAvatar")}
+                    >
+                      {avatarUploading ? (
+                        <Loader2 className="h-7 w-7 animate-spin text-accent" />
+                      ) : avatarPreviewBlobUrl ? (
+                        <img
+                          src={avatarPreviewBlobUrl}
+                          alt="Avatar"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : draftAvatarUrl ? (
+                        <AssistantAvatar
+                          avatarUrl={draftAvatarUrl}
+                          size="md"
+                          className="h-full w-full rounded-2xl"
+                        />
+                      ) : (
+                        <Sparkles className="h-8 w-8 text-accent" />
+                      )}
+                    </button>
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "pointer-events-none absolute bottom-0.5 right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface",
+                        statusDot
+                      )}
+                    />
+                  </div>
                   <div className="flex min-w-0 flex-col justify-center gap-1.5 self-stretch py-0.5">
                     <p className="truncate text-base font-semibold tracking-[-0.02em] text-text md:text-sm">
                       {draftName.trim().length > 0 ? draftName : t("assistantNamePlaceholder")}
                     </p>
-                    <div className="inline-flex w-fit items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] text-text-muted">
-                      <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
-                      <span>{statusLineLabel}</span>
-                    </div>
+                    <p className="truncate text-[11px] leading-tight text-text-muted">
+                      {statusLineLabel}
+                    </p>
                     {hasAssistantSwitcher ? (
                       <button
                         type="button"
@@ -3992,8 +4062,7 @@ export function AssistantSettings({
                         key={preset.id}
                         type="button"
                         onClick={() => {
-                          setDraftAvatarUrl(preset.imagePath);
-                          setAvatarPickerOpen(false);
+                          void persistAvatarUrl(preset.imagePath);
                         }}
                         className={cn(
                           "animate-fade-in flex h-[68px] w-[68px] shrink-0 cursor-pointer items-center justify-center rounded-[18px] border-[0.5px] bg-surface-raised/72 p-[3px] transition-all duration-200",
@@ -4055,14 +4124,19 @@ export function AssistantSettings({
               void (async () => {
                 try {
                   const token = await getToken({ skipCache: true });
-                  if (!token) return;
+                  if (!token) {
+                    setAvatarUploading(false);
+                    setAvatarPreviewBlobUrl(null);
+                    return;
+                  }
                   const result = await uploadAssistantAvatar(token, file);
-                  setDraftAvatarUrl(result.avatarUrl);
+                  await persistAvatarUrl(result.avatarUrl);
                 } catch {
                   setSaveFb({ type: "err", text: t("avatarUploadFailed") });
                   setAvatarPreviewBlobUrl(null);
-                } finally {
                   setAvatarUploading(false);
+                } finally {
+                  e.target.value = "";
                 }
               })();
             }}

@@ -447,7 +447,7 @@ function ChatPlanCardBody({
         </>
       ) : null}
       {countsCollapsed ? null : (
-        <div className="flex h-12 items-center gap-1.5 pl-3 pr-1.5">
+        <div className="flex h-12 items-center gap-1.5 pl-3 pr-[3px]">
           {confirmingClear ? (
             <>
               <span className="min-w-0 flex-1 truncate px-0.5 text-xs text-text-muted">
@@ -547,7 +547,7 @@ function ChatPlanCardBody({
                 {clearing ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Trash2 className="h-3.5 w-3.5" />
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.15} />
                 )}
               </button>
             </>

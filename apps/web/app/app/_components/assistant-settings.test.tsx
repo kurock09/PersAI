@@ -810,7 +810,7 @@ describe("AssistantSettings character CTA", () => {
     expect(await screen.findByRole("dialog", { name: "Personalization" })).toBeInTheDocument();
     expect(screen.getByText("Quick actions")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Memory" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Character tuning" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Character" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Recreate" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
 
@@ -834,6 +834,25 @@ describe("AssistantSettings character CTA", () => {
     expect(screen.queryByText("PersAI")).toBeNull();
     expect(screen.queryByText("Luma")).toBeNull();
     expect(screen.queryByText("Theo")).toBeNull();
+  });
+
+  it("auto-saves and publishes when an avatar preset is selected", async () => {
+    assistantApiMocks.patchAssistantDraft.mockResolvedValue({});
+    assistantApiMocks.postAssistantPublish.mockResolvedValue({});
+    const reload = vi.fn();
+    renderSettings(makeAppData({ reload }), "character");
+
+    fireEvent.click(screen.getByRole("button", { name: /change avatar/i }));
+    fireEvent.click(screen.getByRole("button", { name: "PersAI" }));
+
+    await waitFor(() => {
+      expect(assistantApiMocks.patchAssistantDraft).toHaveBeenCalled();
+      expect(assistantApiMocks.postAssistantPublish).toHaveBeenCalled();
+      expect(reload).toHaveBeenCalled();
+    });
+    expect(assistantApiMocks.patchAssistantDraft.mock.calls[0]?.[1]).toMatchObject({
+      avatarUrl: "/avatar-presets/persai.png"
+    });
   });
 
   it("keeps the assistant name read-only on the character hero", () => {

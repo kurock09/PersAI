@@ -328,11 +328,22 @@ export function Sidebar({
             title={t("assistantSettingsHint")}
             className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 bg-transparent text-left"
           >
-            <AssistantAvatar
-              avatarUrl={data.assistant?.draft.avatarUrl ?? undefined}
-              avatarEmoji={data.assistant?.draft.avatarEmoji ?? undefined}
-              size="md"
-            />
+            <div className="relative shrink-0">
+              <AssistantAvatar
+                avatarUrl={data.assistant?.draft.avatarUrl ?? undefined}
+                avatarEmoji={data.assistant?.draft.avatarEmoji ?? undefined}
+                size="md"
+              />
+              {!hasUnreadSupport ? (
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "pointer-events-none absolute bottom-0 right-0 h-2 w-2 rounded-full ring-2 ring-surface-raised",
+                    statusCfg.dot
+                  )}
+                />
+              ) : null}
+            </div>
             <div className="min-w-0 flex-1 text-left">
               <p className="truncate text-base font-semibold text-text md:text-sm">
                 {assistantName}
@@ -345,13 +356,8 @@ export function Sidebar({
                   </span>
                 </span>
               ) : (
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span
-                    className={cn("inline-block h-2 w-2 shrink-0 rounded-full", statusCfg.dot)}
-                  />
-                  <span className="truncate text-[11px] leading-tight text-text-muted">
-                    {statusLineLabel}
-                  </span>
+                <span className="truncate text-[11px] leading-tight text-text-muted">
+                  {statusLineLabel}
                 </span>
               )}
             </div>

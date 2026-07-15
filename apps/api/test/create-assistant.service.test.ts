@@ -19,7 +19,7 @@ async function run(): Promise<void> {
   const auditEvents: Array<{ workspaceId: string; assistantId: string; actorUserId: string }> = [];
   const adminSystemEvents: Array<Record<string, unknown>> = [];
 
-  const makeService = () =>
+  const makeService = (usedAssistants: number) =>
     new CreateAssistantService(
       {
         async create(userId: string, workspaceId: string) {
@@ -114,7 +114,7 @@ async function run(): Promise<void> {
             plan: null,
             workspaceId: "ws-1",
             workspaceMemberId: "membership-1",
-            usedAssistants: 0,
+            usedAssistants,
             maxAssistants: 3
           };
         }
@@ -124,9 +124,9 @@ async function run(): Promise<void> {
       > as EnforceAssistantCreationLimitService
     );
 
-  const service = makeService();
-  const assistant = await service.execute("user-1");
-  assert.equal(assistant.id, "assistant-1");
+  const firstService = makeService(0);
+  const firstAssistant = await firstService.execute("user-1");
+  assert.equal(firstAssistant.id, "assistant-1");
   assert.deepEqual(callOrder, ["limit.check", "assistant.create"]);
   assert.deepEqual(limitChecks, ["user-1"]);
   assert.deepEqual(createdAssistants, [{ userId: "user-1", workspaceId: "ws-1" }]);
@@ -151,7 +151,35 @@ async function run(): Promise<void> {
         sourceWorkspaceId: "ws-1",
         sourceAssistantId: "assistant-1",
         sourceUserId: "user-1",
-        email: "user@example.com"
+        email: "user@example.com",
+        assistantDisplayName: null,
+        isFirstAssistantInWorkspace: true
+      },
+      traceId: "assistant-created:assistant-1"
+    }
+  ]);
+
+  callOrder.length = 0;
+  createdAssistants.length = 0;
+  limitChecks.length = 0;
+  workspaceMemberUpdates.length = 0;
+  auditEvents.length = 0;
+  adminSystemEvents.length = 0;
+
+  const additionalService = makeService(1);
+  const additionalAssistant = await additionalService.execute("user-1");
+  assert.equal(additionalAssistant.id, "assistant-1");
+  assert.deepEqual(adminSystemEvents, [
+    {
+      eventCode: "assistant_created",
+      summary: "User user@example.com created a new assistant",
+      details: {
+        sourceWorkspaceId: "ws-1",
+        sourceAssistantId: "assistant-1",
+        sourceUserId: "user-1",
+        email: "user@example.com",
+        assistantDisplayName: null,
+        isFirstAssistantInWorkspace: false
       },
       traceId: "assistant-created:assistant-1"
     }

@@ -60,15 +60,21 @@ export class CreateAssistantService {
         governanceBaselineCreated: true
       }
     });
+    const email = appUser?.email ?? userId;
+    const isFirstAssistantInWorkspace = assistantCreationLimit.usedAssistants === 0;
     void this.adminSystemNotificationProducerService
       .emitEvent({
-        eventCode: "new_user_registered",
-        summary: `New user registered: ${appUser?.email ?? userId}`,
+        eventCode: isFirstAssistantInWorkspace ? "new_user_registered" : "assistant_created",
+        summary: isFirstAssistantInWorkspace
+          ? `New user registered: ${email}`
+          : `User ${email} created a new assistant`,
         details: {
           sourceWorkspaceId: assistant.workspaceId,
           sourceAssistantId: assistant.id,
           sourceUserId: userId,
-          email: appUser?.email ?? null
+          email: appUser?.email ?? null,
+          assistantDisplayName: assistant.draftDisplayName,
+          isFirstAssistantInWorkspace
         },
         traceId: `assistant-created:${assistant.id}`
       })

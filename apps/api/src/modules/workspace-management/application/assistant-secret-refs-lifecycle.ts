@@ -45,6 +45,8 @@ export type TelegramSecretLifecycleState = {
 
 const DEFAULT_SECRET_TTL_DAYS = 90;
 const MAX_SECRET_TTL_DAYS = 365;
+/** Renew governance TTL this many days before expiresAt so Settings never flips to a false disconnect. */
+const DEFAULT_SECRET_TTL_RENEW_LEAD_DAYS = 7;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -196,6 +198,64 @@ export function rotateTelegramBotSecretRef(
   return envelope;
 }
 
+/**
+ * Governance `expiresAt` is a rotation/TTL reminder, not Telegram token death.
+ * Extend it without bumping secret version when an active binding is still healthy.
+ */
+export function shouldRenewTelegramBotSecretRefTtl(
+  raw: unknown,
+  params?: {
+    now?: Date;
+    renewLeadDays?: number;
+  }
+): boolean {
+  const now = params?.now ?? new Date();
+  const renewLeadDays =
+    params?.renewLeadDays === undefined ? DEFAULT_SECRET_TTL_RENEW_LEAD_DAYS : params.renewLeadDays;
+  if (
+    !Number.isInteger(renewLeadDays) ||
+    renewLeadDays < 0 ||
+    renewLeadDays > MAX_SECRET_TTL_DAYS
+  ) {
+    throw new Error(`renewLeadDays must be an integer between 0 and ${MAX_SECRET_TTL_DAYS}.`);
+  }
+  const envelope = resolveAssistantSecretRefsEnvelope(raw);
+  const current = envelope.refs.telegram_bot_token;
+  if (current === undefined || current.status !== "active" || current.expiresAt === null) {
+    return false;
+  }
+  const expiresAt = new Date(current.expiresAt);
+  if (Number.isNaN(expiresAt.getTime())) {
+    return false;
+  }
+  return expiresAt.getTime() <= now.getTime() + renewLeadDays * 24 * 60 * 60 * 1000;
+}
+
+export function renewTelegramBotSecretRefTtl(
+  raw: unknown,
+  params?: {
+    ttlDays?: number | null;
+    now?: Date;
+  }
+): AssistantSecretRefsEnvelope {
+  const now = params?.now ?? new Date();
+  const envelope = resolveAssistantSecretRefsEnvelope(raw);
+  const current = envelope.refs.telegram_bot_token;
+  if (current === undefined || current.status !== "active") {
+    return envelope;
+  }
+  const ttlDays = toTtlDays(params?.ttlDays ?? null);
+  envelope.refs.telegram_bot_token = {
+    ...current,
+    expiresAt: toExpiry(now, ttlDays)
+  };
+  return envelope;
+}
+
+export function isTelegramSecretConnectedLifecycle(status: SecretLifecycleComputedStatus): boolean {
+  return status === "active" || status === "legacy_unmanaged" || status === "expired";
+}
+
 export function revokeTelegramBotSecretRef(
   raw: unknown,
   params: {
@@ -282,5 +342,5 @@ export function isTelegramSecretUsable(raw: unknown, params?: { now?: Date }): b
           now: params.now
         }
   );
-  return lifecycle.status === "active";
+  return isTelegramSecretConnectedLifecycle(lifecycle.status);
 }
