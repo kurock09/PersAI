@@ -39,6 +39,8 @@ import {
   isToolContractDescribeCall
 } from "./runtime-tool-contract-describe";
 import { writeRuntimeOutboundArtifact } from "./write-runtime-outbound-artifact";
+import type { TurnToolProgressSink } from "./tool-progress-sink";
+import { TOOL_PROGRESS_STEP_MAX_CHARS, truncateToolProgressLine } from "./tool-progress-sink";
 
 export interface RuntimeBrowserToolExecutionResult {
   payload: RuntimeBrowserToolResult;
@@ -68,6 +70,7 @@ export class RuntimeBrowserToolService {
     sourceUserMessageText?: string | null;
     sourceUserMessageCreatedAt?: string | null;
     abortSignal?: AbortSignal;
+    toolProgressSink?: TurnToolProgressSink;
   }): Promise<RuntimeBrowserToolExecutionResult> {
     if (isToolContractDescribeCall(params.toolCall.arguments)) {
       const described = executeRuntimeToolContractDescribe({
@@ -159,6 +162,7 @@ export class RuntimeBrowserToolService {
       }
 
       if (usesLocalBridge) {
+        this.emitBrowserProgress(params, request);
         return await this.executeLocalBridgePageAction(params, request, providerId);
       }
 
@@ -200,6 +204,7 @@ export class RuntimeBrowserToolService {
         };
       }
 
+      this.emitBrowserProgress(params, request);
       return await this.executeHeadlessBrowserPageAction(
         params,
         request,
@@ -1503,6 +1508,46 @@ export class RuntimeBrowserToolService {
       return new Error("browser operation matchIndex must be null or a non-negative integer.");
     }
     return Number(value);
+  }
+
+  private emitBrowserProgress(
+    params: {
+      toolCall: ProviderGatewayToolCall;
+      toolProgressSink?: TurnToolProgressSink;
+    },
+    request: RuntimeBrowserRequest
+  ): void {
+    if (params.toolProgressSink === undefined) {
+      return;
+    }
+    const step = this.summarizeBrowserStep(request);
+    if (step.length === 0) {
+      return;
+    }
+    params.toolProgressSink.emit({
+      toolCallId: params.toolCall.id,
+      toolName: params.toolCall.name,
+      kind: "browser_step",
+      step: truncateToolProgressLine(step, TOOL_PROGRESS_STEP_MAX_CHARS)
+    });
+  }
+
+  private summarizeBrowserStep(request: RuntimeBrowserRequest): string {
+    const url = request.url?.trim() ?? "";
+    if (request.action === "snapshot") {
+      return url.length > 0 ? `snapshot ${url}` : "snapshot page";
+    }
+    const operation = request.operations[0];
+    if (operation === undefined) {
+      return url.length > 0 ? `${request.action} ${url}` : request.action;
+    }
+    const target =
+      "selector" in operation && typeof operation.selector === "string"
+        ? operation.selector.trim() || url || request.action
+        : "url" in operation && typeof operation.url === "string"
+          ? operation.url.trim() || url || request.action
+          : url || request.action;
+    return `${operation.kind} ${target}`.trim();
   }
 
   private resolveAllowedWorkerToolPolicy(

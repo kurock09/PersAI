@@ -326,6 +326,17 @@ type WebChatStreamEvent =
       };
     }
   | {
+      event: "tool_progress";
+      data: {
+        toolName: string;
+        toolCallId: string;
+        kind: "stdout_line" | "stderr_line" | "browser_step";
+        line?: string;
+        step?: string;
+        seq: number;
+      };
+    }
+  | {
       event: "activity";
       data: {
         source: "skill" | "user" | "product" | "web";
@@ -408,6 +419,14 @@ export interface AssistantWebChatStreamHandlers {
     toolName: string;
     toolCallId: string;
     isError: boolean;
+  }) => void;
+  onToolProgress?: (payload: {
+    toolName: string;
+    toolCallId: string;
+    kind: "stdout_line" | "stderr_line" | "browser_step";
+    line?: string;
+    step?: string;
+    seq: number;
   }) => void;
   onActivity?: (payload: {
     source: "skill" | "user" | "product" | "web";
@@ -1069,6 +1088,29 @@ function toStreamEvent(eventName: string, payload: unknown): WebChatStreamEvent 
       }
     };
   }
+  if (eventName === "tool_progress") {
+    if (
+      typeof body.toolName !== "string" ||
+      typeof body.toolCallId !== "string" ||
+      (body.kind !== "stdout_line" &&
+        body.kind !== "stderr_line" &&
+        body.kind !== "browser_step") ||
+      typeof body.seq !== "number"
+    ) {
+      return null;
+    }
+    return {
+      event: "tool_progress",
+      data: {
+        toolName: body.toolName,
+        toolCallId: body.toolCallId,
+        kind: body.kind,
+        ...(typeof body.line === "string" ? { line: body.line } : {}),
+        ...(typeof body.step === "string" ? { step: body.step } : {}),
+        seq: body.seq
+      }
+    };
+  }
   if (eventName === "activity") {
     if (
       (body.source !== "skill" &&
@@ -1336,6 +1378,8 @@ export async function streamAssistantWebChatTurn(
       handlers.onDelta?.(streamEvent.data);
     } else if (streamEvent.event === "tool") {
       handlers.onTool?.(streamEvent.data);
+    } else if (streamEvent.event === "tool_progress") {
+      handlers.onToolProgress?.(streamEvent.data);
     } else if (streamEvent.event === "activity") {
       handlers.onActivity?.(streamEvent.data);
     } else if (streamEvent.event === "project_activity") {
@@ -1476,6 +1520,7 @@ export async function reattachAssistantWebChatTurnStream(
     if (streamEvent.event === "delta") handlers.onDelta?.(streamEvent.data);
     else if (streamEvent.event === "thinking") handlers.onThinking?.(streamEvent.data);
     else if (streamEvent.event === "tool") handlers.onTool?.(streamEvent.data);
+    else if (streamEvent.event === "tool_progress") handlers.onToolProgress?.(streamEvent.data);
     else if (streamEvent.event === "activity") handlers.onActivity?.(streamEvent.data);
     else if (streamEvent.event === "project_activity")
       handlers.onProjectActivity?.(streamEvent.data);

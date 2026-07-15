@@ -4249,6 +4249,18 @@ export interface RuntimeToolFinishedEvent {
   pendingBrowserLogin?: PendingBrowserLoginState;
 }
 
+export interface RuntimeToolProgressEvent {
+  type: "tool_progress";
+  requestId: string;
+  sessionId: string;
+  toolCallId: string;
+  toolName: string;
+  kind: "stdout_line" | "stderr_line" | "browser_step";
+  line?: string;
+  step?: string;
+  seq: number;
+}
+
 export interface RuntimeCompletedEvent {
   type: "completed";
   result: RuntimeTurnResult;
@@ -4286,6 +4298,7 @@ export type RuntimeTurnStreamEvent =
   | RuntimeProjectReasoningSummaryEvent
   | RuntimeToolStartedEvent
   | RuntimeToolFinishedEvent
+  | RuntimeToolProgressEvent
   | RuntimeCompletedEvent
   | RuntimeInterruptedEvent
   | RuntimeFailedEvent;

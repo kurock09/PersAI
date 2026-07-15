@@ -274,6 +274,21 @@ export class WebRuntimeStreamClientService {
                 : {})
             };
             continue;
+          case "tool_progress":
+            deadline.recordProgress();
+            if (HIDDEN_RUNTIME_TOOL_NAMES.has(event.toolName)) {
+              continue;
+            }
+            yield {
+              type: "tool_progress",
+              toolName: event.toolName,
+              toolCallId: event.toolCallId,
+              toolProgressKind: event.kind,
+              ...(event.line === undefined ? {} : { toolProgressLine: event.line }),
+              ...(event.step === undefined ? {} : { toolProgressStep: event.step }),
+              toolProgressSeq: event.seq
+            };
+            continue;
           case "artifact":
             if (!emittedArtifactIds.has(event.artifact.artifactId)) {
               emittedArtifactIds.add(event.artifact.artifactId);
@@ -658,6 +673,20 @@ export class WebRuntimeStreamClientService {
           typeof row.toolCallId === "string" &&
           typeof row.toolName === "string" &&
           typeof row.isError === "boolean"
+        ) {
+          return parsed as RuntimeTurnStreamEvent;
+        }
+        break;
+      case "tool_progress":
+        if (
+          typeof row.requestId === "string" &&
+          typeof row.sessionId === "string" &&
+          typeof row.toolCallId === "string" &&
+          typeof row.toolName === "string" &&
+          (row.kind === "stdout_line" ||
+            row.kind === "stderr_line" ||
+            row.kind === "browser_step") &&
+          typeof row.seq === "number"
         ) {
           return parsed as RuntimeTurnStreamEvent;
         }

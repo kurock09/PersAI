@@ -12,6 +12,7 @@ import {
 import { PersaiInternalApiClientService } from "./persai-internal-api.client.service";
 import { PersaiMediaObjectStorageService } from "./persai-media-object-storage.service";
 import { SandboxClientService } from "./sandbox-client.service";
+import type { TurnToolProgressSink } from "./tool-progress-sink";
 
 export interface RuntimeSandboxToolExecutionResult {
   payload: RuntimeSandboxToolResult;
@@ -37,6 +38,7 @@ export class RuntimeSandboxToolService {
     sourceUserMessageText?: string | null;
     sourceUserMessageCreatedAt?: string | null;
     abortSignal?: AbortSignal;
+    toolProgressSink?: TurnToolProgressSink;
   }): Promise<RuntimeSandboxToolExecutionResult> {
     const policy = this.resolveAllowedSandboxToolPolicy(params.bundle, params.toolCall.name);
     if (policy === null) {
@@ -120,7 +122,20 @@ export class RuntimeSandboxToolService {
           },
           args: this.asObject(params.toolCall.arguments)
         } satisfies RuntimeSandboxJobRequest,
-        params.abortSignal === undefined ? {} : { signal: params.abortSignal }
+        {
+          ...(params.abortSignal === undefined ? {} : { signal: params.abortSignal }),
+          ...(params.toolProgressSink === undefined
+            ? {}
+            : {
+                onPoll: (polledJob) => {
+                  params.toolProgressSink?.trackSandboxPoll({
+                    toolCallId: params.toolCall.id,
+                    toolName: params.toolCall.name,
+                    job: polledJob
+                  });
+                }
+              })
+        }
       );
 
       if (job.status !== "completed") {

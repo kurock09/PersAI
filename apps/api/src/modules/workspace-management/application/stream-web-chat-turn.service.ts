@@ -345,6 +345,14 @@ export class StreamWebChatTurnService {
         toolCallId: string;
         isError: boolean;
       }) => void;
+      onToolProgress?: (payload: {
+        toolName: string;
+        toolCallId: string;
+        kind: "stdout_line" | "stderr_line" | "browser_step";
+        line?: string;
+        step?: string;
+        seq: number;
+      }) => void;
       onActivity?: (payload: {
         source: "skill" | "user" | "product" | "web";
         phase: "start";
@@ -1122,6 +1130,14 @@ export class StreamWebChatTurnService {
         toolCallId: string;
         isError: boolean;
       }) => void;
+      onToolProgress?: (payload: {
+        toolName: string;
+        toolCallId: string;
+        kind: "stdout_line" | "stderr_line" | "browser_step";
+        line?: string;
+        step?: string;
+        seq: number;
+      }) => void;
       onActivity?: (payload: {
         source: "skill" | "user" | "product" | "web";
         phase: "start";
@@ -1321,6 +1337,26 @@ export class StreamWebChatTurnService {
               }
             }
           }
+        }
+
+        if (
+          chunk.type === "tool_progress" &&
+          typeof chunk.toolName === "string" &&
+          typeof chunk.toolCallId === "string" &&
+          (chunk.toolProgressKind === "stdout_line" ||
+            chunk.toolProgressKind === "stderr_line" ||
+            chunk.toolProgressKind === "browser_step") &&
+          typeof chunk.toolProgressSeq === "number"
+        ) {
+          watchdog.recordActivity();
+          input.callbacks.onToolProgress?.({
+            toolName: chunk.toolName,
+            toolCallId: chunk.toolCallId,
+            kind: chunk.toolProgressKind,
+            ...(chunk.toolProgressLine === undefined ? {} : { line: chunk.toolProgressLine }),
+            ...(chunk.toolProgressStep === undefined ? {} : { step: chunk.toolProgressStep }),
+            seq: chunk.toolProgressSeq
+          });
         }
 
         if (chunk.type === "media" && Array.isArray(chunk.media)) {

@@ -567,7 +567,89 @@ function mergeLiveActivity(
   if (!shouldReplaceLiveActivity(currentActivity, nextActivity)) {
     return currentActivity ?? nextActivity;
   }
-  return applyPriorSkillDetail(nextActivity, currentActivity);
+  const merged = applyPriorSkillDetail(nextActivity, currentActivity);
+  if (currentActivity === undefined) {
+    return merged;
+  }
+  const preserveProgressDetail =
+    nextActivity.source === "tool" &&
+    !nextActivity.label.includes("finished") &&
+    !nextActivity.label.includes("failed");
+  if (
+    preserveProgressDetail &&
+    (currentActivity.shellProgressLines?.length ?? 0) > 0 &&
+    (nextActivity.shellProgressLines?.length ?? 0) === 0
+  ) {
+    const detail = currentActivity.detail ?? merged.detail;
+    return {
+      ...merged,
+      ...(currentActivity.shellProgressLines === undefined
+        ? {}
+        : { shellProgressLines: currentActivity.shellProgressLines }),
+      ...(detail === undefined ? {} : { detail }),
+      emphasis: "strong"
+    };
+  }
+  if (
+    preserveProgressDetail &&
+    currentActivity.detail &&
+    !merged.detail &&
+    (nextActivity.shellProgressLines?.length ?? 0) === 0
+  ) {
+    return {
+      ...merged,
+      detail: currentActivity.detail,
+      emphasis: "strong"
+    };
+  }
+  return merged;
+}
+const SHELL_PROGRESS_ROLLING_LINES = 3;
+function shouldDeferToolFinishedLiveActivity(toolName: string, phase: "start" | "end"): boolean {
+  return phase === "end" && (toolName === "shell" || toolName === "exec" || toolName === "browser");
+}
+function applyToolProgressToLiveActivity(
+  currentActivity: LiveActivityEvent | undefined,
+  params: {
+    assistantMessageId: string;
+    toolName: string;
+    kind: "stdout_line" | "stderr_line" | "browser_step";
+    line?: string;
+    step?: string;
+  }
+): LiveActivityEvent {
+  const runningActivity =
+    currentActivity !== undefined &&
+    currentActivity.source === "tool" &&
+    !currentActivity.label.includes("failed") &&
+    !currentActivity.label.includes("finished")
+      ? currentActivity
+      : buildToolLiveActivity({
+          assistantMessageId: params.assistantMessageId,
+          toolName: params.toolName,
+          phase: "start",
+          isError: false
+        });
+  if (params.kind === "browser_step" && params.step) {
+    return {
+      ...runningActivity,
+      detail: params.step,
+      emphasis: "strong"
+    };
+  }
+  if ((params.kind === "stdout_line" || params.kind === "stderr_line") && params.line) {
+    const prefixedLine = params.kind === "stderr_line" ? `stderr: ${params.line}` : params.line;
+    const nextLines = [...(runningActivity.shellProgressLines ?? []), prefixedLine].slice(
+      -SHELL_PROGRESS_ROLLING_LINES
+    );
+    return {
+      ...runningActivity,
+      shellProgressLines: nextLines,
+      detail: nextLines.join("\n"),
+      emphasis: "strong"
+    };
+  }
+  return runningActivity;
 }
 export function formatTurnRoutingBadgeLabel(
   turnRouting: NonNullable<RuntimeTransportMeta["turnRouting"]>
@@ -1252,15 +1334,24 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
       targetThreadKey: string,
       updater: (prev: Record<string, LiveActivityEvent>) => Record<string, LiveActivityEvent>
     ) => {
+      const commitLiveActivities = (prev: Record<string, LiveActivityEvent>) => {
+        const next = updater(prev);
+        const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+        if (snapshot !== undefined) {
+          activeTurnSnapshotsRef.current.set(targetThreadKey, {
+            ...snapshot,
+            liveActivitiesByMessageId: next
+          });
+        }
+        return next;
+      };
+      if (currentThreadKeyRef.current === targetThreadKey) {
+        setLiveActivitiesByMessageId(commitLiveActivities);
+        return;
+      }
       const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
       if (snapshot !== undefined) {
-        activeTurnSnapshotsRef.current.set(targetThreadKey, {
-          ...snapshot,
-          liveActivitiesByMessageId: updater(snapshot.liveActivitiesByMessageId)
-        });
-      }
-      if (currentThreadKeyRef.current === targetThreadKey) {
-        setLiveActivitiesByMessageId(updater);
+        commitLiveActivities(snapshot.liveActivitiesByMessageId);
       }
     },
     []
@@ -1983,12 +2074,16 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           currentActivity === null
             ? (existingSnapshot?.liveActivitiesByMessageId ?? {})
             : {
-                [liveAssistantMessage.id]: buildToolLiveActivity({
-                  assistantMessageId: liveAssistantMessage.id,
-                  toolName: currentActivity.toolName,
-                  phase: currentActivity.phase,
-                  isError: currentActivity.isError
-                })
+                ...(existingSnapshot?.liveActivitiesByMessageId ?? {}),
+                [liveAssistantMessage.id]: mergeLiveActivity(
+                  existingSnapshot?.liveActivitiesByMessageId?.[liveAssistantMessage.id],
+                  buildToolLiveActivity({
+                    assistantMessageId: liveAssistantMessage.id,
+                    toolName: currentActivity.toolName,
+                    phase: currentActivity.phase,
+                    isError: currentActivity.isError
+                  })
+                )
               };
         // PRESERVE EXISTING THREAD HISTORY when applying a running-status
         // refresh. The previous implementation replaced
@@ -2254,6 +2349,9 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 if (assistantMessageId === null) {
                   return;
                 }
+                if (shouldDeferToolFinishedLiveActivity(toolName, phase)) {
+                  return;
+                }
                 applyThreadLiveActivities(targetThreadKey, (prev) => ({
                   ...prev,
                   [assistantMessageId]: mergeLiveActivity(
@@ -2276,6 +2374,26 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                 if (toolName === "todo_write") {
                   void refreshChatPlan();
                 }
+              },
+              onToolProgress: ({ toolName, kind, line, step }) => {
+                const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
+                const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
+                if (assistantMessageId === null) {
+                  return;
+                }
+                applyThreadLiveActivities(targetThreadKey, (prev) => ({
+                  ...prev,
+                  [assistantMessageId]: mergeLiveActivity(
+                    prev[assistantMessageId],
+                    applyToolProgressToLiveActivity(prev[assistantMessageId], {
+                      assistantMessageId,
+                      toolName,
+                      kind,
+                      ...(line === undefined ? {} : { line }),
+                      ...(step === undefined ? {} : { step })
+                    })
+                  )
+                }));
               },
               onProjectActivity: ({ summary, detail }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
@@ -3207,21 +3325,50 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         }) => {
           flushBufferedAssistantState(true);
           markAssistantActivityBoundary();
+          if (!shouldDeferToolFinishedLiveActivity(toolName, phase)) {
+            applyThreadLiveActivities(sendThreadKey, (prev) => ({
+              ...prev,
+              [assistantMsgId]: mergeLiveActivity(
+                prev[assistantMsgId],
+                buildToolLiveActivity({
+                  assistantMessageId: assistantMsgId,
+                  toolName,
+                  phase,
+                  isError
+                })
+              )
+            }));
+          }
+          if (toolName === "todo_write") {
+            void refreshChatPlan();
+          }
+        },
+        onToolProgress: ({
+          toolName,
+          kind,
+          line,
+          step
+        }: {
+          toolName: string;
+          kind: "stdout_line" | "stderr_line" | "browser_step";
+          line?: string;
+          step?: string;
+        }) => {
+          flushBufferedAssistantState(true);
+          markAssistantActivityBoundary();
           applyThreadLiveActivities(sendThreadKey, (prev) => ({
             ...prev,
             [assistantMsgId]: mergeLiveActivity(
               prev[assistantMsgId],
-              buildToolLiveActivity({
+              applyToolProgressToLiveActivity(prev[assistantMsgId], {
                 assistantMessageId: assistantMsgId,
                 toolName,
-                phase,
-                isError
+                kind,
+                ...(line === undefined ? {} : { line }),
+                ...(step === undefined ? {} : { step })
               })
             )
           }));
-          if (toolName === "todo_write") {
-            void refreshChatPlan();
-          }
         },
         onProjectActivity: ({
           summary,
@@ -3358,6 +3505,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         onCompleted: ({ transport }: { transport: unknown }) => {
           acceptStartedStream();
           flushBufferedAssistantState(true);
+          clearThreadLiveActivity(sendThreadKey, assistantMsgId);
           const t = transport as {
             userMessage?: { id?: string; chatId?: string; attachments?: ChatAttachment[] };
             assistantMessage?: {
@@ -3525,18 +3673,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               return next;
             });
           }
-          applyThreadLiveActivities(sendThreadKey, (prev) => {
-            let next = prev;
-            if (newAssistantId) {
-              const current = prev[assistantMsgId];
-              if (current && newAssistantId !== assistantMsgId) {
-                next = { ...prev };
-                delete next[assistantMsgId];
-                next[newAssistantId] = { ...current, afterMessageId: newAssistantId };
-              }
-            }
-            return next;
-          });
+          applyThreadLiveActivities(sendThreadKey, () => ({}));
           if (t?.runtime?.turnRouting?.mode === "shadow") {
             const routingLabel = formatTurnRoutingBadgeLabel(t.runtime.turnRouting);
             const snapshot = activeTurnSnapshotsRef.current.get(sendThreadKey);

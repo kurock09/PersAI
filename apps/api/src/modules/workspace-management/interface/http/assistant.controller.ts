@@ -1401,6 +1401,16 @@ export class AssistantController {
         onTool: ({ phase, toolName, toolCallId, isError }) => {
           sendSse("tool", { phase, toolName, toolCallId, isError });
         },
+        onToolProgress: ({ toolName, toolCallId, kind, line, step, seq }) => {
+          sendSse("tool_progress", {
+            toolName,
+            toolCallId,
+            kind,
+            ...(line === undefined ? {} : { line }),
+            ...(step === undefined ? {} : { step }),
+            seq
+          });
+        },
         onActivity: ({ source, phase, resultCount, skillName, skillIconEmoji }) => {
           sendSse("activity", {
             source,

@@ -391,16 +391,28 @@ function InlineStreamingStatus({
       ? getActivityDisplayParts(preResponseStatus.event, t, showShadowRoutingLabel)
       : {
           label: t("preResponseThinking"),
-          detail: undefined
+          detail: undefined,
+          shellProgressLines: undefined
         };
 
   return (
     <span className="animate-fade-in-inline-status inline-flex items-center gap-2 text-sm text-text-muted/78 italic motion-reduce:animate-none">
       <span className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent/65 align-middle" />
-      <span className="inline-flex items-baseline gap-1.5">
-        <span>{statusParts.label}</span>
-        {statusParts.detail ? (
-          <span className="text-text-subtle/62 not-italic">{statusParts.detail}</span>
+      <span className="inline-flex flex-col items-start gap-0.5">
+        <span className="inline-flex items-baseline gap-1.5">
+          <span>{statusParts.label}</span>
+          {statusParts.detail ? (
+            <span className="text-text-subtle/62 not-italic">{statusParts.detail}</span>
+          ) : null}
+        </span>
+        {statusParts.shellProgressLines && statusParts.shellProgressLines.length > 0 ? (
+          <span className="text-text-subtle/62 not-italic">
+            {statusParts.shellProgressLines.map((line, index) => (
+              <span key={`inline-shell-${String(index)}`} className="block max-w-[28rem] truncate">
+                {line}
+              </span>
+            ))}
+          </span>
         ) : null}
       </span>
     </span>

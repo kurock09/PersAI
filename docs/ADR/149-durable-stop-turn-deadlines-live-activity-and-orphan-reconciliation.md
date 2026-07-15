@@ -2,8 +2,8 @@
 
 ## Status
 
-**Open 2026-07-15** — parent-orchestrated program. **S0–S2 landed locally** (S2 pending
-commit). S3–S5 not started.
+**Open 2026-07-15** — parent-orchestrated program. **S0–S3 landed locally**. S4–S5
+not started.
 
 ## Date
 

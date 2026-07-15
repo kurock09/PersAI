@@ -11,6 +11,7 @@ export interface ActivityEvent {
   type: ActivityType;
   label: string;
   detail?: string;
+  shellProgressLines?: string[];
   shadowRoutingLabel?: string;
   timestamp?: string;
   afterMessageId?: string;
@@ -20,6 +21,7 @@ export interface ActivityEvent {
 export interface ActivityDisplayParts {
   label: string;
   detail?: string;
+  shellProgressLines?: string[];
 }
 
 const TYPE_CONFIG: Record<ActivityType, { icon: typeof Cpu; color: string }> = {
@@ -149,9 +151,13 @@ export function getActivityDisplayParts(
     ? undefined
     : resolveActivityDetail(buildActivityDetail(event, showShadowRoutingLabel), t);
 
+  const shellProgressLines =
+    event.shellProgressLines?.filter((line) => line.trim().length > 0).slice(-3) ?? [];
+
   return {
     label: resolveActivityLabel(event, t),
-    ...(detail ? { detail } : {})
+    ...(detail ? { detail } : {}),
+    ...(shellProgressLines.length > 0 ? { shellProgressLines } : {})
   };
 }
 
@@ -291,7 +297,11 @@ export function ActivityBadge({
   const cfg = TYPE_CONFIG[event.type];
   const Icon = cfg.icon;
   const isStrong = event.emphasis === "strong";
-  const { label, detail } = getActivityDisplayParts(event, t, showShadowRoutingLabel);
+  const { label, detail, shellProgressLines } = getActivityDisplayParts(
+    event,
+    t,
+    showShadowRoutingLabel
+  );
 
   return (
     <div className="flex items-center justify-center py-0.5">
@@ -308,6 +318,18 @@ export function ActivityBadge({
         />
         <span>{label}</span>
         {detail && renderActivityDetail(detail)}
+        {shellProgressLines && shellProgressLines.length > 0 ? (
+          <span className="text-text-subtle/62 not-italic">
+            {shellProgressLines.map((line, index) => (
+              <span
+                key={`${event.id}-shell-${String(index)}`}
+                className="block max-w-[28rem] truncate"
+              >
+                {line}
+              </span>
+            ))}
+          </span>
+        ) : null}
       </div>
     </div>
   );

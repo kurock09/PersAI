@@ -52,7 +52,7 @@ export class SandboxClientService {
 
   async waitForCompletion(
     request: RuntimeSandboxJobRequest,
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; onPoll?: (job: RuntimeSandboxJobResult) => void }
   ): Promise<RuntimeSandboxJobResult> {
     const signal = options?.signal;
     const submitted = await this.submitJob(request);
@@ -79,6 +79,7 @@ export class SandboxClientService {
           );
         }
         current = await this.pollJob(current.jobId, Math.max(1, Math.min(remainingMs, 1_500)));
+        options?.onPoll?.(current);
         if (current.status === "cancelled") {
           throw new DOMException("Sandbox job cancelled.", "AbortError");
         }

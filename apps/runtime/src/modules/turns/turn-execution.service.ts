@@ -123,6 +123,7 @@ import { BuildSystemReminderBlocksService } from "./build-system-reminder-blocks
 import { RuntimeSkillToolService, type RuntimeSkillToolResult } from "./runtime-skill-tool.service";
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
+import { createTurnToolProgressSink, type TurnToolProgressSink } from "./tool-progress-sink";
 import { RuntimeGrepGlobToolService } from "./runtime-grep-glob-tool.service";
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
@@ -1063,6 +1064,10 @@ export class TurnExecutionService {
       }
     }
 
+    const toolProgressSink = createTurnToolProgressSink({
+      requestId: acceptedTurn.receipt.requestId,
+      sessionId: acceptedTurn.session.sessionId
+    });
     const toolBudgetPolicy = this.createToolBudgetPolicy(execution);
     const maxToolLoopIterations =
       toolBudgetPolicy.loopLimit() + NATIVE_TOOL_LOOP_WRAP_UP_ITERATIONS;
@@ -1280,17 +1285,24 @@ export class TurnExecutionService {
                     for (const entry of batch) {
                       yield this.createToolStartedStreamEvent(acceptedTurn, entry.toolCall);
                     }
-                    const batchResults = await this.executeParallelToolChunk({
-                      plannedToolExecutions: batch,
-                      execution,
-                      acceptedTurn,
-                      input,
-                      turnState,
-                      availableWorkingFileHandles: execution.availableWorkingFileHandles,
-                      trace,
-                      iteration,
-                      ...(activeAbortSignal === undefined ? {} : { abortSignal: activeAbortSignal })
-                    });
+                    const batchResults = yield* this.collectToolProgressWhile(
+                      toolProgressSink,
+                      () =>
+                        this.executeParallelToolChunk({
+                          plannedToolExecutions: batch,
+                          execution,
+                          acceptedTurn,
+                          input,
+                          turnState,
+                          availableWorkingFileHandles: execution.availableWorkingFileHandles,
+                          trace,
+                          iteration,
+                          toolProgressSink,
+                          ...(activeAbortSignal === undefined
+                            ? {}
+                            : { abortSignal: activeAbortSignal })
+                        })
+                    );
                     let firstError: unknown = null;
                     for (const result of batchResults) {
                       if (result.outcome !== undefined) {
@@ -1347,17 +1359,20 @@ export class TurnExecutionService {
                       });
                     } else {
                       try {
-                        outcome = await this.executeProjectedToolCall(
-                          execution,
-                          acceptedTurn,
-                          input,
-                          toolCall,
-                          input.idempotencyKey,
-                          turnState.artifacts,
-                          turnState.fileHandles,
-                          execution.availableWorkingFileHandles,
-                          turnState,
-                          activeAbortSignal
+                        outcome = yield* this.collectToolProgressWhile(toolProgressSink, () =>
+                          this.executeProjectedToolCall(
+                            execution,
+                            acceptedTurn,
+                            input,
+                            toolCall,
+                            input.idempotencyKey,
+                            turnState.artifacts,
+                            turnState.fileHandles,
+                            execution.availableWorkingFileHandles,
+                            turnState,
+                            activeAbortSignal,
+                            toolProgressSink
+                          )
                         );
                       } catch (error) {
                         yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
@@ -3263,6 +3278,7 @@ export class TurnExecutionService {
     trace: RuntimeStreamTraceCollector | undefined;
     iteration: number;
     abortSignal?: AbortSignal;
+    toolProgressSink?: TurnToolProgressSink;
   }): Promise<ExecutedToolCallResult[]> {
     const currentArtifacts = [...params.turnState.artifacts];
     const currentFileHandles = [...params.turnState.fileHandles];
@@ -3293,7 +3309,8 @@ export class TurnExecutionService {
               currentFileHandles,
               params.availableWorkingFileHandles,
               params.turnState,
-              params.abortSignal
+              params.abortSignal,
+              params.toolProgressSink
             )
           } satisfies ExecutedToolCallResult;
         } catch (error) {
@@ -3316,7 +3333,8 @@ export class TurnExecutionService {
     currentFileHandles: RuntimeFileHandle[],
     availableWorkingFileHandles: RuntimeFileHandle[],
     turnState: TurnExecutionState,
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    toolProgressSink?: TurnToolProgressSink
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
@@ -3512,7 +3530,8 @@ export class TurnExecutionService {
           chatId: currentChatId,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString(),
-          ...(abortSignal === undefined ? {} : { abortSignal })
+          ...(abortSignal === undefined ? {} : { abortSignal }),
+          ...(toolProgressSink === undefined ? {} : { toolProgressSink })
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
@@ -3549,7 +3568,8 @@ export class TurnExecutionService {
           bridgeDeviceKind: input.channelContext?.web?.localBrowserBridgeDeviceKind ?? null,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString(),
-          ...(abortSignal === undefined ? {} : { abortSignal })
+          ...(abortSignal === undefined ? {} : { abortSignal }),
+          ...(toolProgressSink === undefined ? {} : { toolProgressSink })
         });
         return this.createToolExecutionOutcome(
           toolCall,
@@ -5009,6 +5029,30 @@ export class TurnExecutionService {
       toolCallId: toolCall.id,
       toolName: toolCall.name
     };
+  }
+
+  private async *collectToolProgressWhile<T>(
+    toolProgressSink: TurnToolProgressSink,
+    operation: () => Promise<T>
+  ): AsyncGenerator<RuntimeTurnStreamEvent, T> {
+    const promise = operation();
+    while (true) {
+      for (const event of toolProgressSink.drain()) {
+        yield event;
+      }
+      const settled = await Promise.race([
+        promise.then((value) => ({ kind: "done" as const, value })),
+        new Promise<{ kind: "tick" }>((resolve) => {
+          setTimeout(() => resolve({ kind: "tick" }), 50);
+        })
+      ]);
+      if (settled.kind === "done") {
+        for (const event of toolProgressSink.drain()) {
+          yield event;
+        }
+        return settled.value;
+      }
+    }
   }
 
   /**

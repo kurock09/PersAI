@@ -172,6 +172,7 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
     | "media"
     | "compaction"
     | "tool"
+    | "tool_progress"
     | "activity"
     | "project_activity"
     | "project_reasoning_summary";
@@ -200,6 +201,10 @@ export interface AssistantRuntimeWebChatTurnStreamChunk {
   toolPhase?: "start" | "end";
   toolName?: string;
   toolCallId?: string;
+  toolProgressKind?: "stdout_line" | "stderr_line" | "browser_step";
+  toolProgressLine?: string;
+  toolProgressStep?: string;
+  toolProgressSeq?: number;
   toolRequestedAction?: string;
   pendingBrowserLogin?: PendingBrowserLoginState;
   isError?: boolean;

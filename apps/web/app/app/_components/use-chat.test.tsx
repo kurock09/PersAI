@@ -7544,5 +7544,193 @@ describe("useChat", () => {
         expect(assistantApiMocks.getAssistantWebChatPlan).toHaveBeenCalled();
       });
     });
+
+    it("shows rolling shell progress lines from tool_progress SSE", async () => {
+      const streamGate: { release: () => void } = {
+        release: () => undefined
+      };
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onTool?: (payload: {
+              phase: "start" | "end";
+              toolName: string;
+              toolCallId: string;
+              isError: boolean;
+            }) => void;
+            onToolProgress?: (payload: {
+              toolName: string;
+              toolCallId: string;
+              kind: "stdout_line" | "stderr_line" | "browser_step";
+              line?: string;
+              step?: string;
+              seq: number;
+            }) => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-shell" },
+            userMessage: { id: "user-shell" }
+          });
+          handlers.onTool?.({
+            phase: "start",
+            toolName: "shell",
+            toolCallId: "tool-shell-1",
+            isError: false
+          });
+          for (const [index, line] of ["line-1", "line-2", "line-3", "line-4"].entries()) {
+            handlers.onToolProgress?.({
+              toolName: "shell",
+              toolCallId: "tool-shell-1",
+              kind: "stdout_line",
+              line,
+              seq: index + 1
+            });
+            await Promise.resolve();
+          }
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+          handlers.onCompleted?.({ transport: null });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-shell"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("Run pip");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        const activityEntries = result.current.entries.filter(
+          (
+            entry
+          ): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+            entry.kind === "activity"
+        );
+        expect(activityEntries).toHaveLength(1);
+        expect(activityEntries[0]?.event.shellProgressLines).toEqual([
+          "line-2",
+          "line-3",
+          "line-4"
+        ]);
+      });
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
+    });
+
+    it("merges reattach turn_status activity without clobbering streamed shell progress", async () => {
+      window.sessionStorage.setItem("persai.active-web-turn.v1.thread-merge", "turn-merge");
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+        status: "running",
+        chat: { id: "chat-merge" },
+        userMessage: {
+          id: "server-user-merge",
+          chatId: "chat-merge",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "install",
+          attachments: [],
+          createdAt: "2026-04-25T17:45:35.000Z"
+        },
+        assistantMessage: {
+          id: "server-assistant-merge",
+          chatId: "chat-merge",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "",
+          attachments: [],
+          createdAt: "2026-04-25T17:45:36.000Z"
+        },
+        currentActivity: {
+          toolName: "shell",
+          toolCallId: "tool-shell-2",
+          phase: "start",
+          isError: false
+        },
+        runtime: null,
+        error: null
+      });
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+        async (
+          _token: string,
+          _clientTurnId: string,
+          handlers: {
+            onHeadersOk?: () => void;
+            onToolProgress?: (payload: {
+              toolName: string;
+              toolCallId: string;
+              kind: "stdout_line" | "stderr_line" | "browser_step";
+              line?: string;
+              seq: number;
+            }) => void;
+            onTurnStatus?: (payload: {
+              turn: {
+                status: string;
+                currentActivity: {
+                  toolName: string;
+                  toolCallId: string;
+                  phase: "start" | "end";
+                  isError: boolean;
+                } | null;
+              };
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onToolProgress?.({
+            toolName: "shell",
+            toolCallId: "tool-shell-2",
+            kind: "stdout_line",
+            line: "Collecting requests",
+            seq: 1
+          });
+          handlers.onTurnStatus?.({
+            turn: {
+              status: "running",
+              currentActivity: {
+                toolName: "shell",
+                toolCallId: "tool-shell-2",
+                phase: "start",
+                isError: false
+              }
+            }
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-merge"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await waitFor(() => expect(result.current.isStreaming).toBe(true));
+
+      await waitFor(() => {
+        const activityEntries = result.current.entries.filter(
+          (
+            entry
+          ): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+            entry.kind === "activity"
+        );
+        expect(activityEntries).toHaveLength(1);
+        expect(activityEntries[0]?.event.shellProgressLines).toEqual(["Collecting requests"]);
+        expect(activityEntries[0]?.event.label).toBe("shell_started");
+      });
+    });
   });
 });
