@@ -95,17 +95,19 @@ ADR-140 closes the persistent Browserless session era. The active browser archit
 - assistant-workspace pod materialization and session snapshot cache (not canonical bytes authority — ADR-137)
 - sandbox job health/readiness and job polling surfaces used by `apps/runtime`
 
-**ADR-148 local truth (not yet deployed/live-accepted):** healthy
+**ADR-148 closed (founder live-accepted 2026-07-15):** healthy
 session-scoped exec pods are warm reusable execution containers, not
-single-command throwaways. After a session job, `apps/sandbox` now persists
+single-command throwaways. After a session job, `apps/sandbox` persists
 workspace/output state first, then runs control-plane-owned descendant cleanup
 inside the pod, verifies the baseline process set, and only then releases the
 workspace lease. Cleanup-proof failure retires the exact UID fail-closed.
 Sessionless jobs remain disposable. Session package state (`HOME`,
-`PYTHONUSERBASE`, `NPM_CONFIG_PREFIX`, login-shell PATH) now lives under the
+`PYTHONUSERBASE`, `NPM_CONFIG_PREFIX`, login-shell PATH) lives under the
 canonical `/workspace/assistants/<assistantId>/sessions/<sessionId>` root, and
-dependency-tree quota is separated from ordinary user-file growth. ADR-146 stays
-closed; ADR-148 supersedes only the over-broad per-job retirement behavior.
+dependency-tree quota is separated from ordinary user-file growth. Idle TTL
+holds on the deployed sandbox control plane after the `2342c2ae` cleanup repair.
+ADR-146 stays closed; ADR-148 supersedes only the over-broad per-job retirement
+behavior and must not be reopened for new scope.
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 

@@ -4,9 +4,10 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
-## ADR-148 sandbox session warmth and fail-closed cleanup (local)
+## ADR-148 sandbox session warmth and fail-closed cleanup (closed)
 
-Current local evidence must cover:
+Founder live-accepted 2026-07-15 that warm idle TTL holds on deployed sandbox.
+Retained regression evidence covered:
 
 1. healthy session jobs keep the same pod UID reusable after completed,
    failed, and blocked terminal handling when cleanup proof succeeds;

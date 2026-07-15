@@ -2,14 +2,17 @@
 
 ## Status
 
-Implemented locally 2026-07-14 against clean baseline `5f6a7cb9` on isolated
-branch `sandbox-session-warmth-repair`. Deploy and live acceptance are still
-required. ADR-146 remains closed; ADR-148 only supersedes ADR-146 Slice 3's
-over-broad "retire every bound pod at terminal handling" behavior.
+**Closed 2026-07-15 — founder live-accepted.** Warm session TTL holds in
+`persai-dev`. Implementation landed as `9e26f145` (warmth + fail-closed
+cleanup) plus `2342c2ae` (cleanup false-positive `remaining_pids` repair).
+Live sandbox control-plane image includes the repair (`bdd03007` and later).
+ADR-146 remains closed; ADR-148 supersedes only ADR-146 Slice 3's over-broad
+"retire every bound pod at terminal handling" behavior. Do not reopen for new
+scope.
 
 ## Date
 
-2026-07-14
+2026-07-14 (opened) / 2026-07-15 (closed)
 
 ## Problem
 
@@ -46,6 +49,9 @@ restore warm reuse without weakening fail-closed cleanup.
   `TERM`, waits briefly, then sends `KILL` to any residual non-baseline
   processes, including daemonized descendants.
 - Cleanup succeeds only when no non-baseline processes remain.
+- Cleanup collects leftover PIDs in-shell (never via command substitution that
+  would count its own subshell), parses tab-separated gVisor `/proc/*/status`
+  with default IFS, and ignores threads, zombies, and cleanup-shell children.
 - If cleanup proof fails for any reason, the exact bound pod UID is retired
   before lease release.
 - Lease release still happens only after terminal persistence plus either:
@@ -115,29 +121,17 @@ warnings.
 
 ### Negative / residual
 
-- Cleanup now depends on `/proc` visibility and the pod process table staying
-  inspectable inside the gVisor exec environment.
-- When cleanup proof fails, the system retires the whole pod fail-closed and
-  loses warmth for that session until the next hydrate.
-- Live pin `9e26f145` initially still lost warmth on every job because cleanup
-  treated its own `$(target_pids)` subshell as a leftover (`remaining_pids=<n>`)
-  and because space-only `IFS` failed to parse tab-separated gVisor
-  `/proc/*/status`. The 2026-07-15 repair collects targets in-shell, parses
-  status with default IFS, and ignores threads/zombies/cleanup-shell children.
-- Full confidence still requires redeploy of that repair plus live acceptance
-  against a real cluster and real package-install workloads.
+- Cleanup still depends on `/proc` visibility inside the gVisor exec environment.
+- Real cleanup-proof failure still retires the exact UID fail-closed (correct
+  safety trade for warmth).
+- Product follow-ups outside this ADR (Stop/soft-detach side effects, richer
+  shell activity UI) remain separate work and must not reopen ADR-148.
 
-## Verification required
+## Verification
 
-Local focused regression evidence must cover:
+Local focused regressions covered warm reuse, cleanup-failure retirement,
+sessionless retirement, session-root package paths, dependency contour, no
+duplicate same-prefix hydrate, and honest cold-start probe logging.
 
-1. completed session job keeps the exact pod UID reusable;
-2. failed/blocked session job also reuses when cleanup proves clean;
-3. cleanup failure retires the exact pod UID before lease release;
-4. sessionless jobs still retire;
-5. runtime environment points pip/npm into the canonical session root;
-6. dependency contour permits realistic installs but rejects abusive growth;
-7. duplicate cold-start hydration of the same session prefix is absent;
-8. expected cold-start marker misses do not emit `stdinless_probe_failed`.
-
-Repository-level verification remains the AGENTS gate plus deploy/live acceptance.
+Live acceptance (founder, 2026-07-15): warm TTL holds after the
+`2342c2ae` cleanup repair on the deployed sandbox control plane.

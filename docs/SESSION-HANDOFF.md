@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — ADR-148 closed after founder live TTL acceptance
+
+Status: **docs closure against clean `origin/main` `07da8ed0`.** Founder
+confirmed warm session idle TTL holds on deployed `persai-dev`. ADR-148 is
+closed archive: warmth + fail-closed cleanup `9e26f145`, cleanup
+`remaining_pids` repair `2342c2ae` (in sandbox image lineage `bdd03007+`).
+Do not reopen for new scope. Soft-detach/Stop side effects and richer shell
+activity remain separate future work, not ADR-148.
+
+**Next recommended step:** commit/push this docs closure; then founder priority
+for the next wave (Stop/soft-detach side effects ADR or other).
+
+---
+
 ## 2026-07-15 — Role catalog + pill chrome + extension WS pushed
 
 Status: **pushed to `origin/main` as `5741c521`.** Wave:

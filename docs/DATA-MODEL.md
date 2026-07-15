@@ -97,7 +97,7 @@ Current active Step 20 persistence includes:
 - `assistant_workspace_leases` for multi-pod workspace ownership/serialization
 - `sandbox_jobs` for queued/running/completed/blocked sandbox execution telemetry and result state
 
-ADR-148 adds no new SQL tables. Its current local truth is operational:
+ADR-148 adds no new SQL tables. Its closed operational truth is:
 
 - session pod cleanliness is tracked by control-plane-owned pod annotations,
   including the captured baseline PID set and the bound job/lease identity;
