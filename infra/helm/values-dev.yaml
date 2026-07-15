@@ -173,6 +173,7 @@ api:
     # ADR-149: whole-turn wall-clock ceiling (default 30 min) and progress-only idle stall (default 5 min).
     PERSAI_RUNTIME_TURN_WALL_CLOCK_MS: "1800000"
     PERSAI_RUNTIME_TURN_IDLE_STALL_MS: "300000"
+    ORPHAN_ATTEMPT_GRACE_MS: "1200000"
     PERSAI_PROVIDER_GATEWAY_BASE_URL: "http://provider-gateway:3011"
     PERSAI_PROVIDER_GATEWAY_WARMUP_TIMEOUT_MS: "10000"
     PERSAI_WEB_BASE_URL: "https://persai.dev"
@@ -497,6 +498,7 @@ runtime:
     RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: "300000"
     RUNTIME_SANDBOX_BASE_URL: "http://sandbox:3013"
     RUNTIME_SANDBOX_TIMEOUT_MS: "20000"
+    ORPHAN_RECEIPT_GRACE_MS: "1200000"
     # End-to-end sandbox job budget must cover cold-start pod provisioning (node autoscale
     # + image pull, ~100s). Keep in sync with sandbox SANDBOX_EXEC_POD_PROVISION_BUDGET_MS.
     RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS: "240000"

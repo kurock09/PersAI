@@ -183,6 +183,14 @@ export class WebChatTurnStopDispatchService implements OnModuleDestroy {
     return this.localTurns.has(buildTurnKey(assistantId, clientTurnId));
   }
 
+  async hasActiveOwner(assistantId: string, clientTurnId: string): Promise<boolean> {
+    if (this.localTurns.has(buildTurnKey(assistantId, clientTurnId))) {
+      return true;
+    }
+    const owner = await this.readOwnerRecord(assistantId, clientTurnId);
+    return owner !== null;
+  }
+
   async onModuleDestroy(): Promise<void> {
     const clients = [this.subscriberClient, this.mainClient];
     this.subscriberClient = null;

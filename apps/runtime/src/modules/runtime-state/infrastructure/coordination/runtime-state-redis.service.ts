@@ -87,6 +87,13 @@ export class RuntimeStateRedisService implements OnModuleDestroy {
     return renewed === 1;
   }
 
+  async hasSessionLease(sessionId: string): Promise<boolean> {
+    const client = await this.getClient();
+    const leaseKey = this.keyspace.buildSessionLeaseKey(sessionId);
+    const raw = await client.get(leaseKey);
+    return raw !== null;
+  }
+
   async claimAcceptedTurnInFlight(input: {
     sessionId: string;
     ownerToken: string;

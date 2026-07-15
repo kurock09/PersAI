@@ -22,7 +22,8 @@ function createConfig(): RuntimeConfig {
     RUNTIME_SANDBOX_TIMEOUT_MS: 30_000,
     RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS: 240_000,
     PERSAI_INTERNAL_API_TOKEN: "sandbox-token",
-    PERSAI_MEDIA_OBJECT_PREFIX: "assistant-media"
+    PERSAI_MEDIA_OBJECT_PREFIX: "assistant-media",
+    ORPHAN_RECEIPT_GRACE_MS: 1_200_000
   };
 }
 

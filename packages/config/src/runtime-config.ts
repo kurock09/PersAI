@@ -53,7 +53,9 @@ const baseRuntimeConfigSchema = z.object({
   // not just lease wait + command runtime. Without this the runtime abandoned the job
   // (~40s) long before a cold pod was ready. Keep in sync with the control-plane
   // SANDBOX_EXEC_POD_PROVISION_BUDGET_MS. Default 4 min.
-  RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS: z.coerce.number().int().positive().default(240_000)
+  RUNTIME_SANDBOX_POD_PROVISION_BUDGET_MS: z.coerce.number().int().positive().default(240_000),
+  /** ADR-149 S4: grace before reconciling stale accepted turn receipts (default 20 min). */
+  ORPHAN_RECEIPT_GRACE_MS: z.coerce.number().int().positive().default(1_200_000)
 });
 
 const localRuntimeConfigSchema = baseRuntimeConfigSchema.extend({

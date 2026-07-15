@@ -57,6 +57,8 @@ const baseApiConfigSchema = z.object({
   PERSAI_RUNTIME_TURN_WALL_CLOCK_MS: z.coerce.number().int().positive().default(1_800_000),
   /** ADR-149: progress-only idle stall window for streaming turns (no progress resets timer). */
   PERSAI_RUNTIME_TURN_IDLE_STALL_MS: z.coerce.number().int().positive().default(300_000),
+  /** ADR-149 S4: grace before reconciling stale web turn attempts (default 20 min). */
+  ORPHAN_ATTEMPT_GRACE_MS: z.coerce.number().int().positive().default(1_200_000),
   // ADR-140 cross-pod browser-bridge relay. When set, the local browser-bridge WebSocket
   // relay coordinates connections/commands across api replicas via Redis pub/sub so a device
   // socket held by one pod is reachable from dispatch/result HTTP handled by any other pod.

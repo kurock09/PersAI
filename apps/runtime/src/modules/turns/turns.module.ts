@@ -46,6 +46,8 @@ import { RuntimeExecutionAdmissionService } from "./runtime-execution-admission.
 import { TurnExecutionService } from "./turn-execution.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
 import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
+import { ReconcileOrphanTurnReceiptsService } from "./reconcile-orphan-turn-receipts.service";
+import { OrphanTurnReceiptReconcileSchedulerService } from "./orphan-turn-receipt-reconcile-scheduler.service";
 import { BuildActiveScenarioBlockService } from "./build-active-scenario-block.service";
 import { BuildSystemReminderBlocksService } from "./build-system-reminder-blocks.service";
 import { TurnRoutingService } from "./turn-routing.service";
@@ -100,7 +102,9 @@ import { TurnRoutingService } from "./turn-routing.service";
     TurnRoutingService,
     TurnExecutionService,
     TurnFinalizationService,
-    TurnLeaseHeartbeatService
+    TurnLeaseHeartbeatService,
+    ReconcileOrphanTurnReceiptsService,
+    OrphanTurnReceiptReconcileSchedulerService
   ],
   exports: [
     PersaiInternalApiClientService,
@@ -143,7 +147,9 @@ import { TurnRoutingService } from "./turn-routing.service";
     TurnRoutingService,
     TurnExecutionService,
     TurnFinalizationService,
-    TurnLeaseHeartbeatService
+    TurnLeaseHeartbeatService,
+    ReconcileOrphanTurnReceiptsService,
+    OrphanTurnReceiptReconcileSchedulerService
   ]
 })
 export class TurnsModule {}

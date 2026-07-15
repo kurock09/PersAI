@@ -75,7 +75,11 @@ export class WebChatTurnStreamRegistry {
     }
   }
 
-  hasForTesting(assistantId: string, clientTurnId: string): boolean {
+  hasActiveStream(assistantId: string, clientTurnId: string): boolean {
     return this.streams.has(buildStreamKey(assistantId, clientTurnId));
+  }
+
+  hasForTesting(assistantId: string, clientTurnId: string): boolean {
+    return this.hasActiveStream(assistantId, clientTurnId);
   }
 }

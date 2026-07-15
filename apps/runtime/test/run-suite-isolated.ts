@@ -97,6 +97,7 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runSessionCompactionServiceTest"
   },
   { modulePath: "./idempotency.service.test.ts", exportName: "runIdempotencyServiceTest" },
+  { modulePath: "./adr149-receipt-reconcile.test.ts", exportName: "runAdr149ReceiptReconcileTest" },
   { modulePath: "./turn-acceptance.service.test.ts", exportName: "runTurnAcceptanceServiceTest" },
   {
     modulePath: "./prompt-cache-stable-blocks.test.ts",

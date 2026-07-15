@@ -30,6 +30,8 @@ export interface ClaimRuntimeTurnResult {
   receipt: RuntimeTurnReceiptSummary;
 }
 
+export const ORPHAN_RECEIPT_RECONCILE_ERROR_CODE = "orphan_reconciled";
+
 @Injectable()
 export class IdempotencyService {
   constructor(
@@ -57,7 +59,7 @@ export class IdempotencyService {
         conversationKey,
         input.idempotencyKey
       );
-    if (existingReceipt !== null) {
+    if (existingReceipt !== null && !this.isOrphanReconciledReceipt(existingReceipt)) {
       await this.tryWriteReceiptMarker(input, existingReceipt.requestId);
       return this.toClaimResult(conversationKey, existingReceipt, true);
     }
@@ -99,6 +101,30 @@ export class IdempotencyService {
       if (replayedReceipt === null) {
         throw error;
       }
+      if (this.isOrphanReconciledReceipt(replayedReceipt)) {
+        const reclaimed = await this.runtimeStatePostgresService.reclaimOrphanReconciledTurnReceipt(
+          {
+            conversationKey,
+            idempotencyKey: input.idempotencyKey,
+            requestId: input.requestId,
+            runtimeSessionId: input.sessionId ?? null,
+            publishedVersionId: input.bundle.publishedVersionId,
+            runtimeTier: input.runtimeTier,
+            bundleHash: input.bundle.bundleHash
+          }
+        );
+        if (reclaimed.count === 0) {
+          throw error;
+        }
+        const reclaimedReceipt = await this.runtimeStatePostgresService.findTurnReceiptByRequestId(
+          input.requestId
+        );
+        if (reclaimedReceipt === null) {
+          throw error;
+        }
+        await this.tryWriteReceiptMarker(input, reclaimedReceipt.requestId);
+        return this.toClaimResult(conversationKey, reclaimedReceipt, false);
+      }
 
       await this.tryWriteReceiptMarker(input, replayedReceipt.requestId);
       return this.toClaimResult(conversationKey, replayedReceipt, true);
@@ -130,7 +156,8 @@ export class IdempotencyService {
     if (
       receipt === null ||
       receipt.conversationKey !== conversationKey ||
-      receipt.idempotencyKey !== input.idempotencyKey
+      receipt.idempotencyKey !== input.idempotencyKey ||
+      this.isOrphanReconciledReceipt(receipt)
     ) {
       return null;
     }
@@ -194,6 +221,14 @@ export class IdempotencyService {
     } catch {
       // Postgres remains the durable turn-receipt authority.
     }
+  }
+
+  private isOrphanReconciledReceipt(
+    receipt: NonNullable<
+      Awaited<ReturnType<RuntimeStatePostgresService["findTurnReceiptByRequestId"]>>
+    >
+  ): boolean {
+    return receipt.errorCode === ORPHAN_RECEIPT_RECONCILE_ERROR_CODE;
   }
 
   private isUniqueConstraintError(error: unknown): boolean {

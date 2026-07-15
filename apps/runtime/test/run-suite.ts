@@ -10,6 +10,7 @@ import { runSessionLeaseServiceTest } from "./session-lease.service.test";
 import { runSessionCompactionServiceTest } from "./session-compaction.service.test";
 import { runSessionStoreServiceTest } from "./session-store.service.test";
 import { runIdempotencyServiceTest } from "./idempotency.service.test";
+import { runAdr149ReceiptReconcileTest } from "./adr149-receipt-reconcile.test";
 import { runTurnAcceptanceServiceTest } from "./turn-acceptance.service.test";
 import { runPromptCacheStableBlocksTest } from "./prompt-cache-stable-blocks.test";
 import { runPromptCacheStablePrefixGuardTest } from "./prompt-cache-stable-prefix-guard.test";
@@ -63,6 +64,7 @@ async function run(): Promise<void> {
   await runSessionLeaseServiceTest();
   await runSessionCompactionServiceTest();
   await runIdempotencyServiceTest();
+  await runAdr149ReceiptReconcileTest();
   await runTurnAcceptanceServiceTest();
   await runPromptCacheStableBlocksTest();
   await runPromptCacheStablePrefixGuardTest();

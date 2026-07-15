@@ -15,7 +15,8 @@ export const SCHEDULER_KEYS = [
   "telegram_album_finalizer",
   "assistant_file_cleanup_reaper",
   "assistant_file_media_derivative",
-  "browser_profile_expiry"
+  "browser_profile_expiry",
+  "orphan_web_turn_attempt"
 ] as const;
 
 export type SchedulerKey = (typeof SCHEDULER_KEYS)[number];

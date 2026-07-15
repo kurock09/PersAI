@@ -168,6 +168,8 @@ import { PrismaAssistantRoleRepository } from "./infrastructure/persistence/pris
 import { AssistantBrowserProfileService } from "./application/assistant-browser-profile.service";
 import { ExpireAssistantBrowserProfilesService } from "./application/expire-assistant-browser-profiles.service";
 import { AssistantBrowserProfileExpirySchedulerService } from "./application/assistant-browser-profile-expiry-scheduler.service";
+import { OrphanWebChatTurnReconcileSchedulerService } from "./application/orphan-web-chat-turn-reconcile-scheduler.service";
+import { ReconcileOrphanWebChatTurnAttemptsService } from "./application/reconcile-orphan-web-chat-turn-attempts.service";
 import { PrismaWorkspaceFileMetadataRepository } from "./infrastructure/persistence/prisma-workspace-file-metadata.repository";
 import { KnowledgeDocumentProcessorService } from "./application/knowledge-document-processor.service";
 import { KnowledgeEmbeddingService } from "./application/knowledge-embedding.service";
@@ -604,6 +606,8 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AssistantBrowserProfileService,
     ExpireAssistantBrowserProfilesService,
     AssistantBrowserProfileExpirySchedulerService,
+    ReconcileOrphanWebChatTurnAttemptsService,
+    OrphanWebChatTurnReconcileSchedulerService,
     KnowledgeDocumentProcessorService,
     KnowledgeEmbeddingService,
     KnowledgeIndexingService,

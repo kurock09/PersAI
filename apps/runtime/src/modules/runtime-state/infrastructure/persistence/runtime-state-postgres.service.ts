@@ -378,6 +378,72 @@ export class RuntimeStatePostgresService {
     });
   }
 
+  findStaleAcceptedTurnReceiptCandidates(input: { staleBefore: Date; limit: number }) {
+    return this.prisma.runtimeTurnReceipt.findMany({
+      where: {
+        status: "accepted",
+        updatedAt: { lt: input.staleBefore }
+      },
+      orderBy: { updatedAt: "asc" },
+      take: input.limit
+    });
+  }
+
+  reconcileOrphanAcceptedTurnReceipt(input: {
+    requestId: string;
+    reconciledAt: Date;
+    errorCode: string;
+    errorMessage: string;
+  }) {
+    return this.prisma.runtimeTurnReceipt.updateMany({
+      where: {
+        requestId: input.requestId,
+        status: "accepted"
+      },
+      data: {
+        status: "failed",
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+        completedAt: input.reconciledAt,
+        resultPayload: Prisma.DbNull
+      }
+    });
+  }
+
+  reclaimOrphanReconciledTurnReceipt(input: {
+    conversationKey: string;
+    idempotencyKey: string;
+    requestId: string;
+    runtimeSessionId?: string | null;
+    publishedVersionId?: string | null;
+    runtimeTier: CreateAcceptedRuntimeTurnReceiptInput["runtimeTier"];
+    bundleHash?: string | null;
+  }) {
+    return this.prisma.runtimeTurnReceipt.updateMany({
+      where: {
+        conversationKey: input.conversationKey,
+        idempotencyKey: input.idempotencyKey,
+        errorCode: "orphan_reconciled"
+      },
+      data: {
+        requestId: input.requestId,
+        status: "accepted",
+        errorCode: null,
+        errorMessage: null,
+        completedAt: null,
+        resultPayload: Prisma.DbNull,
+        ...(input.runtimeSessionId !== undefined
+          ? { runtimeSessionId: input.runtimeSessionId }
+          : {}),
+        ...(input.publishedVersionId !== undefined
+          ? { publishedVersionId: input.publishedVersionId }
+          : {}),
+        runtimeTier: input.runtimeTier,
+        ...(input.bundleHash !== undefined ? { bundleHash: input.bundleHash } : {})
+      }
+    });
+  }
+
   private toNullableJsonInput(
     value: unknown | null | undefined
   ): Prisma.InputJsonValue | Prisma.NullTypes.DbNull | undefined {
