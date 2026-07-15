@@ -1,8 +1,8 @@
 # SESSION-HANDOFF
 
-## 2026-07-15 — Honesty + UX + CI fixes ready to push
+## 2026-07-15 — Honesty + UX + CI fixes pushed
 
-Status: **local gate PASS, committing/pushing.** Combined wave:
+Status: **pushed to `origin/main` as `bdd03007`.** Combined wave:
 
 - Telegram TTL auto-renew + `expired` still connected; `assistant_created` notify
 - Settings status-on-avatar, avatar auto-save, Character label
@@ -12,8 +12,9 @@ Status: **local gate PASS, committing/pushing.** Combined wave:
 AGENTS lint + format:check + api/web typecheck PASS. Recursive `pnpm -r test`
 PASS; `test:adr146-slice5` PASS; `test:ci-detect-affected` PASS after fixture fix.
 
-**Next recommended step:** after push, await Dev Image Publish for api+web (and
-any other affected), then live-check TG indicator + Settings avatar/status chrome.
+**Next recommended step:** await Dev Image Publish for api+web (and any other
+affected), then live-check TG indicator + Settings avatar/status chrome + pill
+icon spacing.
 
 ---
 
