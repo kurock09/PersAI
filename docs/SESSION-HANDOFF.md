@@ -1,8 +1,8 @@
 # SESSION-HANDOFF
 
-## 2026-07-16 — Bridge reconnect + context-meter pill + sidebar card (local → push)
+## 2026-07-16 — Bridge reconnect + context-meter pill + sidebar card (pushed)
 
-Status: **gates green, committing/pushing.** Baseline was `f12f542b`.
+Status: **pushed `8c6fadbd`.** Baseline was `f12f542b`.
 
 **Bridge:** dial-failure budget only pre-OPEN; device-token TTL 15m→4h; maintainer renews live credentials after 3h; extension rebuild required after deploy.
 
@@ -10,7 +10,7 @@ Status: **gates green, committing/pushing.** Baseline was `f12f542b`.
 
 **Gate:** `pnpm -r lint` ✅, `format:check` ✅, api/web/extension typecheck ✅; extension test+build ✅; api browser-bridge relay+devices ✅; web bridge/maintainer/chat-area/sidebar ✅ (83).
 
-**Next after push:** deploy api+web; reload unpacked Chrome extension; live long browser turn + visual check of meter/sidebar.
+**Next after deploy:** reload unpacked Chrome extension; live long browser turn + visual check of meter/sidebar.
 
 ---
 
