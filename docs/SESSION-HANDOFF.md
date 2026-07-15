@@ -2,18 +2,16 @@
 
 ## 2026-07-15 — Desktop slide-over chrome + quieter resize dots
 
-Status: **local verified; committing/pushing.** Right Settings/Telegram/Knowledge
-slide-overs on desktop now match left-sidebar rounding + `md:p-4` insets; overlay
-dimming kept; mobile fullscreen unchanged. Width default stays prior lg ceilings
-(narrow 600 / default 680) with resize **500–800**. Left + right four-dot handles
-sit closer to the panel edge and are ~2× less visible.
+Status: **pushed to `origin/main` as `321b8c27`.** AGENTS lint + `format:check` +
+api/web typecheck PASS; recursive `pnpm -r test` PASS. Right Settings/Telegram/
+Knowledge slide-overs on desktop match left-sidebar rounding + `md:p-4` insets;
+overlay dimming kept; mobile fullscreen unchanged. Width default stays prior lg
+ceilings (narrow 600 / default 680) with resize **500–800**. Left + right
+four-dot handles sit closer to the panel edge and are ~2× less visible.
 
-Same local wave also includes: assistant switcher Role labels
-(`AssistantListItemState.role`), personalization action grid, sidebar status 11px
-truncate, change-role list column +15% / ±20% resize.
-
-**Verification:** AGENTS lint + `format:check` + api/web typecheck PASS; recursive
-`pnpm -r test` PASS (sandbox, web, api, runtime, provider-gateway, extension, MCP).
+Same wave: assistant switcher Role labels (`AssistantListItemState.role`),
+personalization action grid, sidebar status 11px truncate, change-role list
+column +15% / ±20% resize.
 
 **Next recommended step:** await Dev Image Publish api+web pin; visual acceptance
 on desktop Settings/Telegram slide-overs and B2B assistant switcher Role rows.
