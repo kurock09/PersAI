@@ -99,4 +99,29 @@ describe("SlideOver", () => {
     expect(ptrContainer.contains(footer)).toBe(false);
     expect(screen.getByTestId("body")).toBeInTheDocument();
   });
+
+  it("uses left-sidebar chrome on desktop and exposes a 500–800 resize handle", () => {
+    render(
+      <SlideOver open onClose={() => undefined} title="Settings" size="narrow">
+        <div>body</div>
+      </SlideOver>
+    );
+
+    const panel = screen.getByTestId("slide-over-panel");
+    expect(panel).toHaveClass("md:rounded-[1.375rem]");
+    expect(panel).toHaveClass("md:inset-y-4");
+    expect(panel).toHaveClass("md:right-4");
+    expect(panel).toHaveAttribute("data-slide-over-width", "600");
+
+    const handle = screen.getByTestId("slide-over-resize-handle");
+    expect(handle).toHaveAttribute("aria-valuemin", "500");
+    expect(handle).toHaveAttribute("aria-valuemax", "800");
+    expect(handle).toHaveClass("-translate-x-1/2");
+    expect(handle).toHaveClass("opacity-35");
+
+    fireEvent.pointerDown(handle, { button: 0, clientX: 400, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 100, pointerId: 1 });
+    fireEvent.pointerUp(handle, { pointerId: 1 });
+    expect(panel).toHaveAttribute("data-slide-over-width", "800");
+  });
 });

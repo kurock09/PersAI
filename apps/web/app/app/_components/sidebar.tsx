@@ -345,9 +345,13 @@ export function Sidebar({
                   </span>
                 </span>
               ) : (
-                <span className="flex items-center gap-1.5">
-                  <span className={cn("inline-block h-2 w-2 rounded-full", statusCfg.dot)} />
-                  <span className="text-xs text-text-muted">{statusLineLabel}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span
+                    className={cn("inline-block h-2 w-2 shrink-0 rounded-full", statusCfg.dot)}
+                  />
+                  <span className="truncate text-[11px] leading-tight text-text-muted">
+                    {statusLineLabel}
+                  </span>
                 </span>
               )}
             </div>

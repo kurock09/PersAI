@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent
+} from "react";
 import { ArrowLeft, Check, Loader2 } from "lucide-react";
 import { useLocale, useMessages, useTranslations } from "next-intl";
 import { cn } from "@/app/lib/utils";
@@ -19,6 +27,15 @@ import {
 import { AssistantSettingsDialogShell } from "./assistant-settings-dialog-shell";
 import { notifyAssistantRoleChanged } from "./use-assistant-live-role-name";
 
+/** Previous fixed list column was 220px; default is +15%. */
+export const ROLE_LIST_COLUMN_DEFAULT_PX = Math.round(220 * 1.15);
+export const ROLE_LIST_COLUMN_MIN_PX = Math.round(ROLE_LIST_COLUMN_DEFAULT_PX * 0.8);
+export const ROLE_LIST_COLUMN_MAX_PX = Math.round(ROLE_LIST_COLUMN_DEFAULT_PX * 1.2);
+
+export function clampRoleListColumnWidthPx(widthPx: number): number {
+  return Math.min(ROLE_LIST_COLUMN_MAX_PX, Math.max(ROLE_LIST_COLUMN_MIN_PX, Math.round(widthPx)));
+}
+
 function mapRoleError(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
@@ -32,12 +49,14 @@ export function AssistantChangeRoleModal({
   open,
   assistantId,
   resolveAuthToken,
-  onClose
+  onClose,
+  onRoleChanged
 }: {
   open: boolean;
   assistantId: string;
   resolveAuthToken: () => Promise<string | null>;
   onClose: () => void;
+  onRoleChanged?: (() => void) | undefined;
 }) {
   const t = useTranslations("settings");
   const locale = useLocale();
@@ -57,6 +76,69 @@ export function AssistantChangeRoleModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>("list");
+  const [listColumnWidthPx, setListColumnWidthPx] = useState(ROLE_LIST_COLUMN_DEFAULT_PX);
+  const [listResizeActive, setListResizeActive] = useState(false);
+  const listResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setListColumnWidthPx(ROLE_LIST_COLUMN_DEFAULT_PX);
+    setListResizeActive(false);
+    listResizeRef.current = null;
+  }, [open]);
+
+  useEffect(() => {
+    if (!listResizeActive) {
+      return;
+    }
+    const previousUserSelect = document.body.style.userSelect;
+    const previousCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    return () => {
+      document.body.style.userSelect = previousUserSelect;
+      document.body.style.cursor = previousCursor;
+    };
+  }, [listResizeActive]);
+
+  const handleListResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) {
+        return;
+      }
+      event.preventDefault();
+      listResizeRef.current = {
+        startX: event.clientX,
+        startWidth: listColumnWidthPx
+      };
+      setListResizeActive(true);
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    },
+    [listColumnWidthPx]
+  );
+
+  const handleListResizePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = listResizeRef.current;
+    if (start === null) {
+      return;
+    }
+    setListColumnWidthPx(
+      clampRoleListColumnWidthPx(start.startWidth + (event.clientX - start.startX))
+    );
+  }, []);
+
+  const handleListResizePointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (listResizeRef.current === null) {
+      return;
+    }
+    listResizeRef.current = null;
+    setListResizeActive(false);
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+  }, []);
 
   const isCurrent = useCallback((expectedAssistantId: string, generation: number) => {
     return (
@@ -253,6 +335,7 @@ export function AssistantChangeRoleModal({
       }
       setSaveFeedback(t("roleSaved"));
       notifyAssistantRoleChanged();
+      onRoleChanged?.();
       onClose();
     } catch (error) {
       if (!isCurrent(expectedAssistantId, generation)) {
@@ -281,6 +364,7 @@ export function AssistantChangeRoleModal({
     isCurrent,
     loadCanonical,
     onClose,
+    onRoleChanged,
     selectedRole,
     startGeneration,
     t
@@ -369,12 +453,14 @@ export function AssistantChangeRoleModal({
           </button>
         </div>
       ) : roles === null || currentRole === null ? null : (
-        <div className="grid h-full min-h-0 flex-1 md:grid-cols-[220px_minmax(0,1fr)] md:divide-x md:divide-border/50">
+        <div className="flex h-full min-h-0 flex-1 flex-col md:flex-row">
           <div
             className={cn(
-              "min-h-0 overflow-y-auto overscroll-contain py-2",
+              "min-h-0 w-full overflow-y-auto overscroll-contain py-2 md:w-[var(--role-list-col-width)] md:shrink-0",
               mobilePane === "detail" ? "hidden md:block" : "block"
             )}
+            style={{ ["--role-list-col-width" as string]: `${listColumnWidthPx}px` }}
+            data-role-list-width={listColumnWidthPx}
           >
             <ul className="space-y-0.5 px-2" role="listbox" aria-label={t("changeRoleTitle")}>
               {roles.map((role) => {
@@ -424,8 +510,28 @@ export function AssistantChangeRoleModal({
           </div>
 
           <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t("changeRoleResizeList")}
+            aria-valuemin={ROLE_LIST_COLUMN_MIN_PX}
+            aria-valuemax={ROLE_LIST_COLUMN_MAX_PX}
+            aria-valuenow={listColumnWidthPx}
+            data-testid="change-role-list-resize-handle"
             className={cn(
-              "min-h-0 overflow-y-auto overscroll-contain px-5 py-5",
+              "relative hidden w-px shrink-0 cursor-col-resize touch-none select-none bg-border/50 md:block",
+              listResizeActive ? "bg-border-strong" : "hover:bg-border-strong"
+            )}
+            onPointerDown={handleListResizePointerDown}
+            onPointerMove={handleListResizePointerMove}
+            onPointerUp={handleListResizePointerUp}
+            onPointerCancel={handleListResizePointerUp}
+          >
+            <span aria-hidden="true" className="absolute inset-y-0 -left-1.5 -right-1.5" />
+          </div>
+
+          <div
+            className={cn(
+              "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5",
               mobilePane === "list" ? "hidden md:block" : "block"
             )}
           >

@@ -5,7 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextIntlClientProvider } from "next-intl";
 import enMessages from "../../../messages/en.json";
 import type { AssistantRoleState } from "../assistant-api-client";
-import { AssistantChangeRoleModal } from "./assistant-change-role-modal";
+import {
+  AssistantChangeRoleModal,
+  clampRoleListColumnWidthPx,
+  ROLE_LIST_COLUMN_DEFAULT_PX,
+  ROLE_LIST_COLUMN_MAX_PX,
+  ROLE_LIST_COLUMN_MIN_PX
+} from "./assistant-change-role-modal";
 
 const api = vi.hoisted(() => ({
   getAssistantRoles: vi.fn(),
@@ -108,6 +114,19 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
+describe("clampRoleListColumnWidthPx", () => {
+  it("defaults to +15% of the previous 220px column and clamps ±20%", () => {
+    expect(ROLE_LIST_COLUMN_DEFAULT_PX).toBe(253);
+    expect(ROLE_LIST_COLUMN_MIN_PX).toBe(202);
+    expect(ROLE_LIST_COLUMN_MAX_PX).toBe(304);
+    expect(clampRoleListColumnWidthPx(100)).toBe(ROLE_LIST_COLUMN_MIN_PX);
+    expect(clampRoleListColumnWidthPx(500)).toBe(ROLE_LIST_COLUMN_MAX_PX);
+    expect(clampRoleListColumnWidthPx(ROLE_LIST_COLUMN_DEFAULT_PX)).toBe(
+      ROLE_LIST_COLUMN_DEFAULT_PX
+    );
+  });
+});
+
 describe("AssistantChangeRoleModal", () => {
   it("shows split catalog detail with read-only connected skills", async () => {
     renderModal();
@@ -117,6 +136,24 @@ describe("AssistantChangeRoleModal", () => {
     expect(screen.getByText("Plan and follow through.")).toBeInTheDocument();
     expect(screen.getByText("Connected skills")).toBeInTheDocument();
     expect(screen.getByText("Daily planner")).toBeInTheDocument();
+    expect(screen.getByTestId("change-role-list-resize-handle")).toBeInTheDocument();
+    expect(document.querySelector("[data-role-list-width]")).toHaveAttribute(
+      "data-role-list-width",
+      String(ROLE_LIST_COLUMN_DEFAULT_PX)
+    );
+  });
+
+  it("resizes the role list column within ±20% of the default", async () => {
+    renderModal();
+    expect(await screen.findByRole("dialog", { name: "Choose a new role" })).toBeInTheDocument();
+    const handle = screen.getByTestId("change-role-list-resize-handle");
+    fireEvent.pointerDown(handle, { button: 0, clientX: 300, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 500, pointerId: 1 });
+    fireEvent.pointerUp(handle, { pointerId: 1 });
+    expect(document.querySelector("[data-role-list-width]")).toHaveAttribute(
+      "data-role-list-width",
+      String(ROLE_LIST_COLUMN_MAX_PX)
+    );
   });
 
   it("validates PUT response, refetches canonical GET, then closes", async () => {

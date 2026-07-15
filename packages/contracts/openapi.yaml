@@ -13416,6 +13416,19 @@ components:
           nullable: true
         assistantLimit:
           $ref: "#/components/schemas/AssistantLimitState"
+    AssistantListItemRoleState:
+      type: object
+      description: >
+        Compact Role projection for assistant directory/switcher rows.
+        Display-only; not a Role selection contract.
+      required:
+        - key
+        - name
+      properties:
+        key:
+          type: string
+        name:
+          $ref: "#/components/schemas/AssistantRoleLocalizedText"
     AssistantListItemState:
       type: object
       required:
@@ -13423,6 +13436,7 @@ components:
         - displayName
         - avatarEmoji
         - avatarUrl
+        - role
         - createdAt
         - updatedAt
       properties:
@@ -13437,6 +13451,8 @@ components:
         avatarUrl:
           type: string
           nullable: true
+        role:
+          $ref: "#/components/schemas/AssistantListItemRoleState"
         createdAt:
           type: string
         updatedAt:

@@ -142,14 +142,36 @@ export function toAssistantListItemState(
   assistant: Pick<
     Assistant,
     "id" | "draftDisplayName" | "draftAvatarEmoji" | "draftAvatarUrl" | "createdAt" | "updatedAt"
-  >
+  > & {
+    role: {
+      key: string;
+      name: unknown;
+    };
+  }
 ): AssistantListItemState {
   return {
     id: assistant.id,
     displayName: assistant.draftDisplayName,
     avatarEmoji: assistant.draftAvatarEmoji,
     avatarUrl: sanitizeAvatarUrl(assistant.draftAvatarUrl),
+    role: {
+      key: assistant.role.key,
+      name: normalizeListRoleLocalizedText(assistant.role.name)
+    },
     createdAt: assistant.createdAt.toISOString(),
     updatedAt: assistant.updatedAt.toISOString()
   };
+}
+
+function normalizeListRoleLocalizedText(value: unknown): Record<string, string> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const [key, text] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof text === "string" && text.trim().length > 0) {
+      out[key] = text.trim();
+    }
+  }
+  return out;
 }

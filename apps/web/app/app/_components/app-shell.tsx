@@ -427,9 +427,9 @@ export function AppShell({
                     tabIndex={0}
                     data-testid="sidebar-resize-handle"
                     className={cn(
-                      "absolute top-1/2 right-0 z-20 flex -translate-y-1/2 translate-x-full cursor-col-resize flex-col items-center gap-1 rounded-full px-1.5 py-3",
+                      "absolute top-1/2 right-0 z-20 flex -translate-y-1/2 translate-x-1/2 cursor-col-resize flex-col items-center gap-0.5 rounded-full px-0.5 py-2",
                       "touch-none select-none",
-                      sidebarResizeActive ? "opacity-100" : "opacity-70 hover:opacity-100"
+                      sidebarResizeActive ? "opacity-70" : "opacity-35 hover:opacity-70"
                     )}
                     onPointerDown={handleSidebarResizePointerDown}
                     onPointerMove={handleSidebarResizePointerMove}
@@ -437,10 +437,10 @@ export function AppShell({
                     onPointerCancel={handleSidebarResizePointerUp}
                     onKeyDown={handleSidebarResizeKeyDown}
                   >
-                    <span className="h-1 w-1 rounded-full bg-text-subtle/55" aria-hidden="true" />
-                    <span className="h-1 w-1 rounded-full bg-text-subtle/55" aria-hidden="true" />
-                    <span className="h-1 w-1 rounded-full bg-text-subtle/55" aria-hidden="true" />
-                    <span className="h-1 w-1 rounded-full bg-text-subtle/55" aria-hidden="true" />
+                    <span className="h-1 w-1 rounded-full bg-text-subtle/28" aria-hidden="true" />
+                    <span className="h-1 w-1 rounded-full bg-text-subtle/28" aria-hidden="true" />
+                    <span className="h-1 w-1 rounded-full bg-text-subtle/28" aria-hidden="true" />
+                    <span className="h-1 w-1 rounded-full bg-text-subtle/28" aria-hidden="true" />
                   </div>
                 </div>
               </Suspense>

@@ -115,11 +115,17 @@ export interface AssistantLifecycleState {
   updatedAt: string;
 }
 
+export interface AssistantListItemRoleState {
+  key: string;
+  name: Record<string, string>;
+}
+
 export interface AssistantListItemState {
   id: string;
   displayName: string | null;
   avatarEmoji: string | null;
   avatarUrl: string | null;
+  role: AssistantListItemRoleState;
   createdAt: string;
   updatedAt: string;
 }

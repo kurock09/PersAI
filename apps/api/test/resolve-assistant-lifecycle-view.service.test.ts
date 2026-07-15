@@ -43,7 +43,11 @@ function createAssistant(row: AssistantRow) {
     configDirtyAt: null,
     sandboxEgressMode: "restricted",
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    role: {
+      key: "persai_default",
+      name: { en: "Personal assistant", ru: "Помощник" }
+    }
   };
 }
 
@@ -214,6 +218,10 @@ async function runReturnsActiveAssistantAndDirectoryState(): Promise<void> {
     result.assistants.map((assistant) => assistant.id),
     ["assistant-1", "assistant-2"]
   );
+  assert.deepEqual(result.assistants[0]?.role, {
+    key: "persai_default",
+    name: { en: "Personal assistant", ru: "Помощник" }
+  });
   assert.equal(result.assistantLimit.usedAssistants, 2);
   assert.equal(result.assistantLimit.maxAssistants, 3);
 }

@@ -72,6 +72,7 @@ describe("useAppData", () => {
           displayName: "Alpha",
           avatarEmoji: null,
           avatarUrl: null,
+          role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
           createdAt: "2026-05-26T14:00:00.000Z",
           updatedAt: "2026-05-26T14:00:00.000Z"
         },
@@ -80,6 +81,7 @@ describe("useAppData", () => {
           displayName: "Beta",
           avatarEmoji: null,
           avatarUrl: null,
+          role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
           createdAt: "2026-05-26T15:00:00.000Z",
           updatedAt: "2026-05-26T15:00:00.000Z"
         }
@@ -99,6 +101,7 @@ describe("useAppData", () => {
           displayName: "Alpha",
           avatarEmoji: null,
           avatarUrl: null,
+          role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
           createdAt: "2026-05-26T14:00:00.000Z",
           updatedAt: "2026-05-26T14:00:00.000Z"
         },
@@ -107,6 +110,7 @@ describe("useAppData", () => {
           displayName: "Beta",
           avatarEmoji: null,
           avatarUrl: null,
+          role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
           createdAt: "2026-05-26T15:00:00.000Z",
           updatedAt: "2026-05-26T15:00:00.000Z"
         }

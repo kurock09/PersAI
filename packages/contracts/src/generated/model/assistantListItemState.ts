@@ -4,6 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AssistantListItemRoleState } from "./assistantListItemRoleState";
 
 export interface AssistantListItemState {
   id: string;
@@ -13,6 +14,7 @@ export interface AssistantListItemState {
   avatarEmoji: string | null;
   /** @nullable */
   avatarUrl: string | null;
+  role: AssistantListItemRoleState;
   createdAt: string;
   updatedAt: string;
 }

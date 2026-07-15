@@ -1120,6 +1120,7 @@
     "changeRole": "Change role",
     "changeRoleTitle": "Choose a new role",
     "changeRoleDescription": "Select the role you want to use now.",
+    "changeRoleResizeList": "Resize role list",
     "saveRole": "Save role",
     "roleLoadFailed": "Could not load the role.",
     "roleSaveFailed": "Could not update the role.",

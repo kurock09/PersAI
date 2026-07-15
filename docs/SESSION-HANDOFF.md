@@ -1,5 +1,38 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — Desktop slide-over chrome + quieter resize dots
+
+Status: **local verified; committing/pushing.** Right Settings/Telegram/Knowledge
+slide-overs on desktop now match left-sidebar rounding + `md:p-4` insets; overlay
+dimming kept; mobile fullscreen unchanged. Width default stays prior lg ceilings
+(narrow 600 / default 680) with resize **500–800**. Left + right four-dot handles
+sit closer to the panel edge and are ~2× less visible.
+
+Same local wave also includes: assistant switcher Role labels
+(`AssistantListItemState.role`), personalization action grid, sidebar status 11px
+truncate, change-role list column +15% / ±20% resize.
+
+**Verification:** AGENTS lint + `format:check` + api/web typecheck PASS; recursive
+`pnpm -r test` PASS (sandbox, web, api, runtime, provider-gateway, extension, MCP).
+
+**Next recommended step:** await Dev Image Publish api+web pin; visual acceptance
+on desktop Settings/Telegram slide-overs and B2B assistant switcher Role rows.
+
+---
+
+## 2026-07-15 — Assistant switcher Role labels + Settings polish
+
+Status: **local, uncommitted.** Extends assistant directory `AssistantListItemState`
+with required compact `role: { key, name }`; switcher shows localized Role instead of
+“Specialty coming soon”. Change-role save reloads app data. Also: personalization
+actions full-width stack on mobile / equal desktop row; sidebar status line 11px +
+truncate; change-role list column default +15% with ±20% resize (no persist).
+
+**Next recommended step:** focused api/web verification, then commit/push when asked;
+await api+web pin for visual acceptance.
+
+---
+
 ## 2026-07-15 — Settings Assistant personalization + change-role modals
 
 Status: **pushed to `origin/main` as `af3ce0dc`; AGENTS lint/format + api/web

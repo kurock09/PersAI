@@ -1120,6 +1120,7 @@
     "changeRole": "Сменить роль",
     "changeRoleTitle": "Выбери новую роль",
     "changeRoleDescription": "Определи роль, которую хочешь использовать сейчас.",
+    "changeRoleResizeList": "Изменить ширину списка ролей",
     "saveRole": "Сохранить роль",
     "roleLoadFailed": "Не удалось загрузить роль.",
     "roleSaveFailed": "Не удалось обновить роль.",

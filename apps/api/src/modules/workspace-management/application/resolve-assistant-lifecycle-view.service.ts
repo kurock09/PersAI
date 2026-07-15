@@ -48,7 +48,15 @@ export class ResolveAssistantLifecycleViewService {
     const [assistants, plan] = await Promise.all([
       this.prisma.assistant.findMany({
         where: { workspaceId: membership.workspaceId },
-        orderBy: { createdAt: "asc" }
+        orderBy: { createdAt: "asc" },
+        include: {
+          role: {
+            select: {
+              key: true,
+              name: true
+            }
+          }
+        }
       }),
       this.resolveWorkspacePlan(membership.workspaceId)
     ]);

@@ -845,6 +845,45 @@ describe("AssistantSettings character CTA", () => {
     fireEvent.click(screen.getByRole("button", { name: "Personalization" }));
     expect(screen.getByPlaceholderText("Assistant name")).toBeInTheDocument();
   });
+
+  it("stacks name, status, and switch assistant in one left column", async () => {
+    renderSettings(
+      makeAppData({
+        assistants: [
+          {
+            id: "assistant-1",
+            displayName: "Nova",
+            avatarEmoji: null,
+            avatarUrl: null,
+            role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
+            createdAt: "2026-04-01T10:00:00.000Z",
+            updatedAt: "2026-04-01T10:00:00.000Z"
+          },
+          {
+            id: "assistant-2",
+            displayName: "Luma",
+            avatarEmoji: null,
+            avatarUrl: null,
+            role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
+            createdAt: "2026-04-02T10:00:00.000Z",
+            updatedAt: "2026-04-02T10:00:00.000Z"
+          }
+        ],
+        activeAssistantId: "assistant-1",
+        assistantLimit: { usedAssistants: 2, maxAssistants: 3 }
+      }),
+      "character"
+    );
+
+    const name = screen.getByText("Nova");
+    const status = await screen.findByText("Personal assistant");
+    const switchLink = screen.getByRole("button", { name: "Switch assistant →" });
+    expect(name.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      status.compareDocumentPosition(switchLink) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(switchLink.parentElement?.className).toContain("flex-col");
+  });
 });
 
 describe("AssistantSettings internet access (ADR-146 S4)", () => {
@@ -2934,6 +2973,7 @@ describe("AssistantSettings limits", () => {
             displayName: "Nova",
             avatarEmoji: null,
             avatarUrl: null,
+            role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
             createdAt: "2026-04-01T10:00:00.000Z",
             updatedAt: "2026-04-01T10:00:00.000Z"
           }
@@ -2956,6 +2996,7 @@ describe("AssistantSettings limits", () => {
             displayName: "Nova",
             avatarEmoji: null,
             avatarUrl: null,
+            role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
             createdAt: "2026-04-01T10:00:00.000Z",
             updatedAt: "2026-04-01T10:00:00.000Z"
           },
@@ -2964,6 +3005,7 @@ describe("AssistantSettings limits", () => {
             displayName: "Luma",
             avatarEmoji: null,
             avatarUrl: null,
+            role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
             createdAt: "2026-04-02T10:00:00.000Z",
             updatedAt: "2026-04-02T10:00:00.000Z"
           }
@@ -2979,6 +3021,47 @@ describe("AssistantSettings limits", () => {
     expect(screen.getByText("Switch →")).toBeInTheDocument();
   });
 
+  it("shows each assistant Role name in the switcher modal", async () => {
+    renderSettings(
+      makeAppData({
+        assistants: [
+          {
+            id: "assistant-1",
+            displayName: "Luma",
+            avatarEmoji: null,
+            avatarUrl: null,
+            role: {
+              key: "marketplace_operator",
+              name: { en: "Marketplace operator", ru: "Оператор маркетплейсов" }
+            },
+            createdAt: "2026-04-01T10:00:00.000Z",
+            updatedAt: "2026-04-01T10:00:00.000Z"
+          },
+          {
+            id: "assistant-2",
+            displayName: "Lyra",
+            avatarEmoji: null,
+            avatarUrl: null,
+            role: {
+              key: "sales_manager",
+              name: { en: "Sales manager", ru: "Менеджер продаж" }
+            },
+            createdAt: "2026-04-02T10:00:00.000Z",
+            updatedAt: "2026-04-02T10:00:00.000Z"
+          }
+        ],
+        activeAssistantId: "assistant-2",
+        assistantLimit: { usedAssistants: 2, maxAssistants: 3 }
+      }),
+      "character"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch assistant →" }));
+    expect(await screen.findByText("Marketplace operator")).toBeInTheDocument();
+    expect(screen.getByText("Sales manager")).toBeInTheDocument();
+    expect(screen.queryByText("Specialty coming soon")).not.toBeInTheDocument();
+  });
+
   it("opens the assistant switcher modal and switches assistants", async () => {
     const switchAssistant = vi.fn().mockResolvedValue(undefined);
 
@@ -2990,6 +3073,7 @@ describe("AssistantSettings limits", () => {
             displayName: "Nova",
             avatarEmoji: null,
             avatarUrl: null,
+            role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
             createdAt: "2026-04-01T10:00:00.000Z",
             updatedAt: "2026-04-01T10:00:00.000Z"
           },
@@ -2998,6 +3082,7 @@ describe("AssistantSettings limits", () => {
             displayName: "Luma",
             avatarEmoji: null,
             avatarUrl: null,
+            role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
             createdAt: "2026-04-02T10:00:00.000Z",
             updatedAt: "2026-04-02T10:00:00.000Z"
           }
@@ -3034,6 +3119,7 @@ describe("AssistantSettings limits", () => {
           displayName: "Nova",
           avatarEmoji: null,
           avatarUrl: null,
+          role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
           createdAt: "2026-04-01T10:00:00.000Z",
           updatedAt: "2026-04-01T10:00:00.000Z"
         },
@@ -3042,6 +3128,7 @@ describe("AssistantSettings limits", () => {
           displayName: "Luma",
           avatarEmoji: null,
           avatarUrl: null,
+          role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
           createdAt: "2026-04-02T10:00:00.000Z",
           updatedAt: "2026-04-02T10:00:00.000Z"
         }
@@ -3058,6 +3145,7 @@ describe("AssistantSettings limits", () => {
             displayName: "Nova",
             avatarEmoji: null,
             avatarUrl: null,
+            role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
             createdAt: "2026-04-01T10:00:00.000Z",
             updatedAt: "2026-04-01T10:00:00.000Z"
           }
@@ -3089,6 +3177,7 @@ describe("AssistantSettings limits", () => {
             displayName: "Nova",
             avatarEmoji: null,
             avatarUrl: null,
+            role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
             createdAt: "2026-04-01T10:00:00.000Z",
             updatedAt: "2026-04-01T10:00:00.000Z"
           },
@@ -3097,6 +3186,7 @@ describe("AssistantSettings limits", () => {
             displayName: "Luma",
             avatarEmoji: null,
             avatarUrl: null,
+            role: { key: "persai_default", name: { en: "Personal assistant", ru: "Помощник" } },
             createdAt: "2026-04-02T10:00:00.000Z",
             updatedAt: "2026-04-02T10:00:00.000Z"
           }

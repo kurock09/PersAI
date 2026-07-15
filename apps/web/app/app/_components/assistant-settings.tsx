@@ -140,6 +140,7 @@ import { WorkspaceFilesGallery } from "./workspace-files-gallery";
 import { AssistantChangeRoleModal } from "./assistant-change-role-modal";
 import { AssistantSettingsDialogShell } from "./assistant-settings-dialog-shell";
 import { AssistantSandboxEgressSettings } from "./assistant-sandbox-egress-settings";
+import { resolveLocalizedRoleText } from "./assistant-role-selector";
 import {
   resolveAssistantStatusLineText,
   useAssistantLiveRoleName
@@ -589,6 +590,7 @@ function AssistantSwitcherModal({
   onCreate: (() => Promise<void>) | null;
 }) {
   const t = useTranslations("settings");
+  const locale = useLocale();
 
   useEffect(() => {
     if (!open) {
@@ -675,7 +677,11 @@ function AssistantSwitcherModal({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-text">{label}</p>
                   <p className="mt-1 truncate text-[11px] text-text-subtle">
-                    {t("assistantSpecialtyPlaceholder")}
+                    {resolveLocalizedRoleText(
+                      assistant.role.name,
+                      locale,
+                      t("assistantSpecialtyPlaceholder")
+                    )}
                   </p>
                 </div>
                 <button
@@ -3905,7 +3911,7 @@ export function AssistantSettings({
           <div className="flex flex-col gap-3">
             <div className="px-1 py-1">
               <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_14rem] lg:items-center">
-                <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+                <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-3">
                   <button
                     type="button"
                     onClick={() => setAvatarPickerOpen((o) => !o)}
@@ -3930,34 +3936,32 @@ export function AssistantSettings({
                       <Sparkles className="h-8 w-8 text-accent" />
                     )}
                   </button>
-                  <div className="min-w-0">
+                  <div className="flex min-w-0 flex-col justify-center gap-1.5 self-stretch py-0.5">
                     <p className="truncate text-base font-semibold tracking-[-0.02em] text-text md:text-sm">
                       {draftName.trim().length > 0 ? draftName : t("assistantNamePlaceholder")}
                     </p>
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                      <div className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] text-text-muted">
-                        <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
-                        <span>{statusLineLabel}</span>
-                      </div>
-                      {hasAssistantSwitcher ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setAssistantSwitcherError(null);
-                            setAssistantSwitcherOpen(true);
-                          }}
-                          aria-label={t("switchAssistantDesktop")}
-                          className="inline-flex cursor-pointer items-center justify-center bg-transparent px-0 py-0 text-[11px] font-medium text-text-muted/90 transition-colors hover:text-accent hover:underline hover:underline-offset-4"
-                        >
-                          <span aria-hidden="true" className="hidden sm:inline">
-                            {t("switchAssistantDesktop")}
-                          </span>
-                          <span aria-hidden="true" className="sm:hidden">
-                            {t("switchAssistantMobile")}
-                          </span>
-                        </button>
-                      ) : null}
+                    <div className="inline-flex w-fit items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-[11px] text-text-muted">
+                      <span className={cn("inline-block h-2 w-2 rounded-full", statusDot)} />
+                      <span>{statusLineLabel}</span>
                     </div>
+                    {hasAssistantSwitcher ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAssistantSwitcherError(null);
+                          setAssistantSwitcherOpen(true);
+                        }}
+                        aria-label={t("switchAssistantDesktop")}
+                        className="inline-flex w-fit cursor-pointer items-center bg-transparent px-0 py-0 text-[11px] font-medium text-text-muted/90 transition-colors hover:text-accent hover:underline hover:underline-offset-4"
+                      >
+                        <span aria-hidden="true" className="hidden sm:inline">
+                          {t("switchAssistantDesktop")}
+                        </span>
+                        <span aria-hidden="true" className="sm:hidden">
+                          {t("switchAssistantMobile")}
+                        </span>
+                      </button>
+                    ) : null}
                   </div>
                 </div>
                 <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-1">
@@ -4364,20 +4368,20 @@ export function AssistantSettings({
 
               <div className="mt-5 border-t border-border/70 pt-5 pb-2">
                 <p className="mb-3 text-sm font-medium text-text">{t("quickActions")}</p>
-                <div className="flex flex-wrap items-center gap-2.5">
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
                   <ActionButton
                     icon={<Brain className="h-3.5 w-3.5" />}
                     label={t("memory")}
                     onClick={() => setPersonalizationView("memory")}
                     busy={false}
-                    className="min-w-[140px] justify-center"
+                    className="h-9 w-full min-w-0 justify-center"
                   />
                   <ActionButton
                     icon={<SlidersHorizontal className="h-3.5 w-3.5" />}
                     label={showTraitControls ? t("hideTraitControls") : t("showTraitControls")}
                     onClick={() => setShowTraitControls((open) => !open)}
                     busy={false}
-                    className="min-w-[170px] justify-center"
+                    className="h-9 w-full min-w-0 justify-center"
                   />
                   <ActionButton
                     icon={<Trash2 className="h-3.5 w-3.5" />}
@@ -4385,7 +4389,7 @@ export function AssistantSettings({
                     onClick={() => setResetConfirmOpen(true)}
                     busy={false}
                     variant="danger"
-                    className="min-w-[160px] justify-center"
+                    className="h-9 w-full min-w-0 justify-center"
                   />
                 </div>
 
@@ -4429,6 +4433,9 @@ export function AssistantSettings({
             assistantId={assistant.id}
             resolveAuthToken={() => getToken({ skipCache: true })}
             onClose={() => setChangeRoleOpen(false)}
+            onRoleChanged={() => {
+              void data.reload();
+            }}
           />
         ) : null}
 
