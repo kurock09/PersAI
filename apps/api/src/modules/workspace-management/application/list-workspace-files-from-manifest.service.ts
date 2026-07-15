@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import type { RuntimeFilesToolItem } from "@persai/runtime-contract";
+import { isSessionInstallLayerPath, type RuntimeFilesToolItem } from "@persai/runtime-contract";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 import { normalizeActiveWorkspaceDirectoryPath } from "./workspace-visible-paths";
 
@@ -74,6 +74,9 @@ export class ListWorkspaceFilesFromManifestService {
     const byChildName = new Map<string, ChildEntry>();
 
     for (const row of rows) {
+      if (isSessionInstallLayerPath(row.path)) {
+        continue;
+      }
       const rest = row.path.slice(searchPrefix.length);
       if (rest.length === 0) {
         continue;
@@ -91,6 +94,10 @@ export class ListWorkspaceFilesFromManifestService {
         continue;
       }
       const dirName = rest.slice(0, slashIdx);
+      const directoryPath = `${normalizedPrefix}/${dirName}`;
+      if (isSessionInstallLayerPath(directoryPath)) {
+        continue;
+      }
       if (byChildName.get(dirName)?.type === "directory") {
         continue;
       }
@@ -99,7 +106,7 @@ export class ListWorkspaceFilesFromManifestService {
       // even if a file at the exact path also exists.
       byChildName.set(dirName, {
         type: "directory",
-        filePath: `${normalizedPrefix}/${dirName}`,
+        filePath: directoryPath,
         mimeType: null,
         sizeBytes: 0,
         modifiedAt: null,

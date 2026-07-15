@@ -5,6 +5,7 @@ import {
   buildAssistantSessionRoot,
   buildAssistantWorkspaceRoot,
   classifyVisibleWorkspacePath,
+  isSessionInstallLayerPath,
   normalizeWorkspacePath
 } from "@persai/runtime-contract";
 import { buildGeneratedFileSemanticSummary } from "./generated-file-semantic-summary";
@@ -255,6 +256,14 @@ export class RuntimeStoragePlaneFilesService {
             ? "create_only_collision"
             : "invalid_arguments",
         warning: resolvedPath.message === "create_only_collision" ? null : resolvedPath.message
+      };
+    }
+    if (isSessionInstallLayerPath(resolvedPath)) {
+      return {
+        ok: false,
+        reason: "invalid_arguments",
+        warning:
+          "Session install-layer paths (.local, .npm-global, node_modules) are warm-pod ephemeral and cannot be written via files.write."
       };
     }
 

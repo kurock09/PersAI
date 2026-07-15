@@ -17,6 +17,7 @@ import type { SandboxConfig } from "@persai/config";
 import {
   type RuntimeSandboxPolicy,
   DEFAULT_RUNTIME_SANDBOX_POLICY,
+  isSessionInstallLayerPath,
   normalizeWorkspacePath
 } from "@persai/runtime-contract";
 import { SANDBOX_CONFIG } from "./sandbox-config";
@@ -38,6 +39,10 @@ import {
   type AssistantSandboxEgressMode
 } from "./sandbox-egress-mode";
 import { buildSessionRuntimeEnvironmentPaths } from "./session-runtime-contour";
+import {
+  buildWorkspaceMountInstallLayerTarExcludeArgs,
+  purgeSessionInstallLayerInWorkspaceMount
+} from "./session-install-layer-tar";
 
 // Annotations carrying the assistant+workspace identity on the reusable exec pod.
 // The exec pod is keyed by (assistantId, workspaceId), NOT by chat session, so all
@@ -818,7 +823,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           : buildSessionRuntimeEnvironmentPaths(assistantId, options.runtimeSessionId),
       ...(options.signal === undefined ? {} : { signal: options.signal })
     });
-    await this.pullWorkspace(podName, namespace, options.workspaceRoot);
+    await this.pullWorkspace(podName, namespace, options.workspaceRoot, {
+      assistantId,
+      runtimeSessionId: options.runtimeSessionId
+    });
 
     return {
       ...result,
@@ -894,7 +902,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       options.siblingHandles,
       "none"
     );
-    await this.pushWorkspace(podName, namespace, options.workspaceRoot);
+    await this.pushWorkspace(podName, namespace, options.workspaceRoot, {
+      assistantId: options.assistantId,
+      runtimeSessionId: null
+    });
     if (options.stagingFiles !== undefined) {
       for (const file of options.stagingFiles) {
         await this.writePodFileBytes(
@@ -930,7 +941,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       runtimeEnvironment: null,
       ...(options.signal === undefined ? {} : { signal: options.signal })
     });
-    await this.pullWorkspace(podName, namespace, options.workspaceRoot);
+    await this.pullWorkspace(podName, namespace, options.workspaceRoot, {
+      assistantId: options.assistantId,
+      runtimeSessionId: null
+    });
     return {
       ...result,
       durationMs: Date.now() - options.startedAt,
@@ -2263,6 +2277,9 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     const workspaceVisiblePath = normalizeWorkspacePath(`/workspace/${gcsSubPath}`);
+    if (isSessionInstallLayerPath(workspaceVisiblePath)) {
+      return;
+    }
     const objectKey = this.objectStorage.buildWorkspaceObjectKey({
       workspaceId,
       workspaceRelPath: workspaceVisiblePath
@@ -2350,7 +2367,14 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         const relPath = key.slice(workspacePrefix.length);
         return { key, relPath };
       })
-      .filter(({ relPath }) => relPath.length > 0 && !relPath.endsWith("/"));
+      .filter(({ relPath }) => {
+        if (relPath.length === 0 || relPath.endsWith("/")) {
+          return false;
+        }
+        const absolutePath = `${workspaceRoot}${gcsSubPath}/${relPath}`.replace(/\/+/g, "/");
+        // ADR-150 — never hydrate install-layer blobs (including legacy GCS residue).
+        return !isSessionInstallLayerPath(absolutePath);
+      });
     if (hydrateTargets.length === 0) {
       this.logger.log(
         `workspace_mount_hydrate_done workspace=${workspaceId} scope=${scope} sub_path=${gcsSubPath} objects=0 elapsed_ms=${Date.now() - startedAt} concurrency=0`
@@ -2462,7 +2486,11 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   private async pushWorkspace(
     podName: string,
     namespace: string,
-    workspaceRoot: string
+    workspaceRoot: string,
+    installLayerScope?: {
+      assistantId?: string | null;
+      runtimeSessionId?: string | null;
+    }
   ): Promise<void> {
     // Archive top-level entries by name (never "."). This preserves the full
     // local subtree while avoiding a remote tar attempt to restore mode/utime on
@@ -2477,7 +2505,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     // child-process stdout pipe to the WebSocket races the stdin-EOF signal and
     // intermittently truncates the archive (remote "tar: Unexpected EOF") or hangs;
     // a fully materialized Readable streams deterministically.
-    const tarball = await this.createLocalTarball(workspaceRoot, entries);
+    const tarball = await this.createLocalTarball(workspaceRoot, entries, installLayerScope);
 
     // Success is NOT read from the push exec's own return channels:
     // @kubernetes/client-node drops the exec stdout channel and races the status
@@ -2663,11 +2691,29 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
    * Spawn local `tar` over explicit entry names and buffer the full archive in memory.
    * Rejects on a non-zero tar exit so a partial archive is never streamed to the pod.
    */
-  private async createLocalTarball(workspaceRoot: string, entries: string[]): Promise<Buffer> {
+  private async createLocalTarball(
+    workspaceRoot: string,
+    entries: string[],
+    installLayerScope?: {
+      assistantId?: string | null;
+      runtimeSessionId?: string | null;
+    }
+  ): Promise<Buffer> {
     return await new Promise<Buffer>((resolve, reject) => {
-      const tarChild = spawn("tar", ["-cf", "-", "-C", workspaceRoot, ...entries], {
-        stdio: ["ignore", "pipe", "pipe"]
-      });
+      const tarChild = spawn(
+        "tar",
+        [
+          "-cf",
+          "-",
+          ...buildWorkspaceMountInstallLayerTarExcludeArgs(installLayerScope),
+          "-C",
+          workspaceRoot,
+          ...entries
+        ],
+        {
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
       const chunks: Buffer[] = [];
       const errChunks: Buffer[] = [];
       tarChild.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -3060,13 +3106,26 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
   private async pullWorkspace(
     podName: string,
     namespace: string,
-    workspaceRoot: string
+    workspaceRoot: string,
+    installLayerScope?: {
+      assistantId?: string | null;
+      runtimeSessionId?: string | null;
+    }
   ): Promise<void> {
-    const tarBytes = await this.collectTarFromPod(podName, namespace);
+    const tarBytes = await this.collectTarFromPod(podName, namespace, installLayerScope);
     await this.extractTarToWorkspace(tarBytes, workspaceRoot);
+    // ADR-150 — drop session install-layer residue only (shared trees kept).
+    await purgeSessionInstallLayerInWorkspaceMount(workspaceRoot);
   }
 
-  private async collectTarFromPod(podName: string, namespace: string): Promise<Buffer> {
+  private async collectTarFromPod(
+    podName: string,
+    namespace: string,
+    installLayerScope?: {
+      assistantId?: string | null;
+      runtimeSessionId?: string | null;
+    }
+  ): Promise<Buffer> {
     await this.assertCanonicalPodModeImmediatelyBeforeExec(podName, namespace);
     return await new Promise<Buffer>((resolve, reject) => {
       const chunks: Buffer[] = [];
@@ -3083,7 +3142,15 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
           namespace,
           podName,
           "exec",
-          ["tar", "-cf", "-", "-C", "/workspace", "."],
+          [
+            "tar",
+            "-cf",
+            "-",
+            ...buildWorkspaceMountInstallLayerTarExcludeArgs(installLayerScope),
+            "-C",
+            "/workspace",
+            "."
+          ],
           stdoutCollector,
           null,
           null,

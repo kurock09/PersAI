@@ -13,7 +13,8 @@ import type {
 } from "@persai/runtime-contract";
 import {
   classifyVisibleWorkspacePath,
-  DEFAULT_RUNTIME_SANDBOX_POLICY
+  DEFAULT_RUNTIME_SANDBOX_POLICY,
+  isSessionInstallLayerPath
 } from "@persai/runtime-contract";
 import { Prisma } from "@prisma/client";
 import { SANDBOX_CONFIG } from "./sandbox-config";
@@ -30,6 +31,10 @@ import {
   type WorkspaceBridgeContext
 } from "./workspace-file-bridge.service";
 import { mirrorVisibleWorkspaceProducedFilesToGcs } from "./workspace-produced-gcs-mirror";
+import {
+  buildSessionInstallLayerTarExcludeArgs,
+  purgeSessionInstallLayerTrees
+} from "./session-install-layer-tar";
 import {
   buildShellProducedFilesFromDocumentDiff,
   collectWorkspaceDocumentOutputSnapshots
@@ -1234,6 +1239,7 @@ export class SandboxService {
       workspaceMountRoot: WORKSPACE_MOUNT_ROOT,
       isVisibleDocumentPath: (workspacePath) =>
         this.isVisibleWorkspaceProducedFilePath(workspacePath),
+      shouldSkipDirectory: (workspacePath) => isSessionInstallLayerPath(workspacePath),
       toVisibleWorkspaceAbsolutePath: (root, absolutePath) =>
         this.toVisibleWorkspaceAbsolutePath(root, absolutePath)
     });
@@ -2110,8 +2116,9 @@ export class SandboxService {
   }
 
   /**
-   * Persist the entire workspace directory as a tar to GCS under the session key.
-   * This snapshot is restored on pod recreate to bring back ephemeral files.
+   * Persist the session workspace directory as a tar to GCS under the session key.
+   * ADR-150 — install-layer trees are excluded from the archive.
+   * This snapshot is restored on pod recreate to bring back work artifacts only.
    * GCS creds stay control-plane-only; exec pods never see this key.
    */
   private async saveSessionWorkspaceSnapshot(
@@ -2186,13 +2193,18 @@ export class SandboxService {
   /**
    * Create a tar archive of a directory, returning it as a Buffer.
    * Uses the local `tar` binary (available on Linux prod and macOS/Windows dev).
+   * ADR-150 — excludes session install-layer basenames.
    */
   private createTarFromDirectory(directory: string): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
       const chunks: Buffer[] = [];
-      const tarChild = spawn("tar", ["-cf", "-", "-C", directory, "."], {
-        stdio: ["ignore", "pipe", "pipe"]
-      });
+      const tarChild = spawn(
+        "tar",
+        ["-cf", "-", ...buildSessionInstallLayerTarExcludeArgs(), "-C", directory, "."],
+        {
+          stdio: ["ignore", "pipe", "pipe"]
+        }
+      );
       tarChild.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
       const stderrChunks: Buffer[] = [];
       tarChild.stderr?.on("data", (chunk: Buffer) => stderrChunks.push(chunk));
@@ -2224,7 +2236,11 @@ export class SandboxService {
     const staging = await fs.mkdtemp(join(tmpdir(), "persai-session-overlay-"));
     try {
       await this.extractTarToDirectory(tarBytes, staging);
+      // ADR-150 — strip install-layer from legacy snapshots before overlay.
+      await purgeSessionInstallLayerTrees(staging);
       await fs.cp(staging, directory, { recursive: true, force: false, errorOnExist: false });
+      // Also clear leftovers already on the session destination (crash/upgrade residue).
+      await purgeSessionInstallLayerTrees(directory);
     } finally {
       await fs.rm(staging, { recursive: true, force: true });
     }
@@ -2488,6 +2504,9 @@ export class SandboxService {
   }
 
   private isVisibleWorkspaceProducedFilePath(workspacePath: string): boolean {
+    if (isSessionInstallLayerPath(workspacePath)) {
+      return false;
+    }
     const info = classifyVisibleWorkspacePath(workspacePath);
     return (
       info.kind === "sessionDescendant" ||

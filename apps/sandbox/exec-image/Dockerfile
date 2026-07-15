@@ -16,8 +16,10 @@
 #
 # HOME=/workspace: Python (matplotlib cache), pip user installs, and other home-dir
 # writers go to /workspace which is the session-scoped writable emptyDir.
-# Runtime `pip install ...` defaults to a user install under /workspace/.local;
-# the immutable preinstalled stack stays in /opt/venv.
+# Runtime session jobs override HOME/PYTHONUSERBASE/NPM_CONFIG_PREFIX to the
+# canonical session root (ADR-148). Session-time pip/npm installs stay warm-pod
+# ephemeral only (ADR-150) — they are not mirrored to GCS. The immutable
+# preinstalled stack stays in /opt/venv.
 # /tmp (second writable emptyDir) is used for Chromium profile and temp files.
 
 FROM debian:bookworm-slim

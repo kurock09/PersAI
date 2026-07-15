@@ -60,14 +60,18 @@ function createAcceptedTurn(): AcceptedRuntimeTurn {
   };
 }
 
-function createTurnResult(usage: RuntimeUsageSnapshot | null): RuntimeTurnResult {
+function createTurnResult(
+  usage: RuntimeUsageSnapshot | null,
+  usageAccounting?: RuntimeTurnResult["usageAccounting"]
+): RuntimeTurnResult {
   return {
     requestId: "request-1",
     sessionId: "session-1",
     assistantText: "hello",
     artifacts: [],
     respondedAt: "2026-04-11T12:05:00.000Z",
-    usage
+    usage,
+    ...(usageAccounting === undefined ? {} : { usageAccounting })
   };
 }
 
@@ -176,14 +180,67 @@ export async function runTurnFinalizationServiceTest(): Promise<void> {
     })
   );
   assert.equal(completed.receiptStatus, "completed");
-  assert.equal(completed.session.currentTokens, 30);
+  assert.equal(completed.session.currentTokens, 10);
   assert.equal(completed.session.providerKey, "openai");
   assert.equal(completed.leaseReleased, true);
   assert.deepEqual(sessionStore.updateCalls[0], {
     sessionId: "session-1",
     providerKey: "openai",
     modelKey: "gpt-5.4",
-    currentTokens: 30,
+    currentTokens: 10,
+    totalTokensFresh: true,
+    lastTurnAt: new Date("2026-04-11T12:05:00.000Z")
+  });
+
+  const completedAfterToolLoop = await service.completeAcceptedTurn(
+    createAcceptedTurn(),
+    createTurnResult(
+      {
+        providerKey: "deepseek",
+        modelKey: "deepseek-v4-pro",
+        inputTokens: 48_000,
+        outputTokens: 2_000,
+        totalTokens: 50_000
+      },
+      {
+        inputTokens: 60_000,
+        cacheCreationInputTokens: null,
+        cachedInputTokens: null,
+        outputTokens: 2_400,
+        totalTokens: 62_400,
+        entries: [
+          {
+            stepType: "main_turn",
+            modelRole: "premium_reply",
+            providerKey: "deepseek",
+            modelKey: "deepseek-v4-pro",
+            inputTokens: 12_000,
+            cacheCreationInputTokens: null,
+            cachedInputTokens: null,
+            outputTokens: 400,
+            totalTokens: 12_400
+          },
+          {
+            stepType: "tool_loop_followup",
+            modelRole: "premium_reply",
+            providerKey: "deepseek",
+            modelKey: "deepseek-v4-pro",
+            inputTokens: 48_000,
+            cacheCreationInputTokens: null,
+            cachedInputTokens: null,
+            outputTokens: 2_000,
+            totalTokens: 50_000
+          }
+        ]
+      }
+    )
+  );
+  assert.equal(completedAfterToolLoop.session.currentTokens, 12_000);
+  assert.deepEqual(sessionStore.updateCalls[1], {
+    sessionId: "session-1",
+    providerKey: "deepseek",
+    modelKey: "deepseek-v4-pro",
+    currentTokens: 12_000,
     totalTokensFresh: true,
     lastTurnAt: new Date("2026-04-11T12:05:00.000Z")
   });
@@ -196,7 +253,7 @@ export async function runTurnFinalizationServiceTest(): Promise<void> {
   assert.equal(interrupted.receiptStatus, "interrupted");
   assert.equal(interrupted.session.totalTokensFresh, false);
   assert.equal(interrupted.leaseReleased, true);
-  assert.deepEqual(sessionStore.updateCalls[1], {
+  assert.deepEqual(sessionStore.updateCalls[2], {
     sessionId: "session-1",
     totalTokensFresh: false,
     lastTurnAt: new Date("2026-04-11T12:06:00.000Z")
@@ -209,7 +266,7 @@ export async function runTurnFinalizationServiceTest(): Promise<void> {
   );
   assert.equal(failed.receiptStatus, "failed");
   assert.equal(failed.leaseReleased, true);
-  assert.equal(sessionStore.updateCalls.length, 2);
+  assert.equal(sessionStore.updateCalls.length, 3);
 
   postgres.throwOnFailedPayload = true;
   await assert.rejects(

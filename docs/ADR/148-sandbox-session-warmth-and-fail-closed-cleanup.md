@@ -10,6 +10,12 @@ ADR-146 remains closed; ADR-148 supersedes only ADR-146 Slice 3's over-broad
 "retire every bound pod at terminal handling" behavior. Do not reopen for new
 scope.
 
+**Supersession (ADR-150, 2026-07-15):** install-layer trees under the session
+root (`.local`, `.npm-global`, `node_modules`) remain warm-pod execution state
+and keep the ADR-148 dependency-quota contour, but they are **no longer**
+persisted or restored via the storage plane. See
+`docs/ADR/150-ephemeral-session-install-layer.md`.
+
 ## Date
 
 2026-07-14 (opened) / 2026-07-15 (closed)
@@ -112,8 +118,10 @@ warnings.
 ### Positive
 
 - Warm sessions actually remain warm for the configured idle TTL.
-- `pip install --user ...` and npm global tools persist across commands and after
-  legitimate pod recreation.
+- `pip install --user ...` and npm global tools persist across commands **inside
+  the warm pod** for the idle TTL (ADR-148 env paths).
+- **ADR-150:** those install trees do **not** persist across cold pod
+  recreation via GCS; curated packages belong in the exec image.
 - Normal dependency installs no longer poison later commands by tripping the
   ordinary user-file quota.
 - Cleanup proof is stronger than "always delete the pod", because safe reuse now

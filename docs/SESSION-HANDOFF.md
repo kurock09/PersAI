@@ -1,5 +1,63 @@
 # SESSION-HANDOFF
 
+## 2026-07-16 — ADR-150 + context-meter pressure signal (gate green → commit/push)
+
+Status: **local gate green** (`pnpm lint` incl. format ✅, `pnpm typecheck` ✅, `pnpm test` ✅). Committing + pushing to `main`.
+
+**ADR-150:** session install-layer ephemeral (warm-pod only); session-anchored pull/push excludes; path-aware purge; no Files/grep/glob/mirror/hydrate/upsert; `files.write` refuse; snapshot basename excludes; `httpx` in exec image.
+
+**Meter:** `currentTokens` from first `main_turn` `inputTokens` (not final tool-loop total). Context meter stroke 2px.
+
+**Baseline before commit:** `5563875f` (behind origin by bot pin `49ef4f16` — rebase on push).
+
+---
+
+## 2026-07-16 — ADR-150 session-scoped mount exclude/purge (local)
+
+Status: **repair on dirty tree.** Re-audit P1: full-workspace basename exclude/purge was over-broad (hit shared `node_modules`). Pull/push now use session-anchored tar excludes + `purgeSessionInstallLayerInWorkspaceMount` via `isSessionInstallLayerPath`. Session-root snapshot still uses basename excludes. Overlay also purges destination leftovers.
+
+**Next:** focused sandbox tar tests + lint/typecheck → re-audit or commit when founder asks.
+
+---
+
+## 2026-07-16 — ADR-150 audit repair (local, clean cutover)
+
+Status: **implemented locally** on dirty tree with prior ADR-150 + meter work. Not committed.
+
+Independent audit found DIRTY: session `workspace.tar` + `pullWorkspace` still persisted install-layer (P0), plus nested `node_modules` dir matcher hole, grep/glob/files.write/mirror tails.
+
+**Repair:** tar excludes on snapshot/pull/push; purge on restore + after pull; `endsWith("/node_modules")`; grep/glob/list filters; `files.write` refuse before GCS; mirror defense-in-depth; focused tests.
+
+**Next:** AGENTS gate → commit/push when founder asks → deploy sandbox+api+runtime(+exec image) → live: `pip install` must not grow snapshot/hydrate/Files.
+
+---
+
+## 2026-07-16 — Context meter uses first main_turn inputTokens (local)
+
+Status: **implemented locally** (alongside uncommitted ADR-150 work). Not committed.
+
+**Bug:** Session `currentTokens` (meter % + post-turn auto-compaction enqueue) was taken from final provider `usage.totalTokens`. In a tool loop that is the last step’s prompt+completion after all tool results were stuffed in — so % jumped with tool-call count.
+
+**Fix:** `resolveSessionContextPressureTokens` prefers `inputTokens` from the first `main_turn` usageAccounting entry (else usage.inputTokens). Billing/accounting totals unchanged.
+
+**Files:** `apps/runtime/.../session-context-pressure-tokens.ts`, `turn-finalization.service.ts` (+ tests).
+
+**Next:** focused runtime tests + typecheck; then one DeepSeek multi-tool turn → meter stays near first-step prompt size.
+
+---
+
+## 2026-07-15 — ADR-150 ephemeral session install layer (local)
+
+Status: **implemented locally** on `5563875f` + this slice. Not committed/pushed.
+
+**Contract:** Session install-layer (`.local`, `.npm-global`, `node_modules`) is warm-pod ephemeral only. Work artifacts still mirror/hydrate/Files. Curated packages stay in exec image (`httpx` added). ADR-148 warmth/env/quota unchanged; GCS persistence of install trees superseded.
+
+**Code:** `isSessionInstallLayerPath` in runtime-contract; sandbox scan skip + hydrate filter; runtime sync skip; API upsert refuse + gallery/list/search hide.
+
+**Next:** AGENTS gate → commit/push when founder asks → deploy sandbox+api+runtime (+ exec image for httpx) → live: `pip install` must not flood Files / cold hydrate.
+
+---
+
 ## 2026-07-15 — DeepSeek stream usage + context meter disk UI (push)
 
 Status: **pushed `1e7934a3`.**

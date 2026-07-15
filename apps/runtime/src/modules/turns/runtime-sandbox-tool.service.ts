@@ -2,6 +2,7 @@ import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common"
 import type { AssistantRuntimeBundle } from "@persai/runtime-bundle";
 import {
   classifyVisibleWorkspacePath,
+  isSessionInstallLayerPath,
   type ProviderGatewayToolCall,
   type RuntimeSandboxDocumentSyncOutcome,
   type RuntimeSandboxJobRequest,
@@ -321,6 +322,9 @@ export class RuntimeSandboxToolService {
 
   private isVisibleWorkspaceProducedFilePath(path: string): boolean {
     const normalizedPath = path.trim();
+    if (isSessionInstallLayerPath(normalizedPath)) {
+      return false;
+    }
     const info = classifyVisibleWorkspacePath(normalizedPath);
     return (
       info.kind === "sessionDescendant" ||

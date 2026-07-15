@@ -43,6 +43,8 @@ Additional orchestration program **closed 2026-07-14:** `docs/ADR/147-assistant-
 
 Additional orchestration program **closed 2026-07-15:** `docs/ADR/148-sandbox-session-warmth-and-fail-closed-cleanup.md` (warm session-pod reuse + fail-closed cleanup after ADR-146 S3 over-retired every bound pod; `9e26f145` + cleanup repair `2342c2ae`; founder live-accepted that idle TTL holds on deployed sandbox. ADR-146 remains closed; do not reopen ADR-148 for new scope).
 
+Additional active orchestration program: `docs/ADR/150-ephemeral-session-install-layer.md` (opened 2026-07-15 — session `.local` / `.npm-global` / `node_modules` are warm-pod ephemeral only; not GCS-mirrored, not hydrated, not Files/`files.*`; curated packages stay in exec image; supersedes ADR-148 storage-plane persistence of install trees only).
+
 Additional active orchestration program: `docs/ADR/149-durable-stop-turn-deadlines-live-activity-and-orphan-reconciliation.md` (opened 2026-07-15 — durable cross-replica Stop with mid-flight abort (shell/sandbox/browser), explicit `user_stopped` next-turn truth, split turn wall-clock vs worker-tool timeouts, progress-only idle stall watchdog with cadence `slow_avg`/`silent` frozen disabled, bounded `tool_progress` for shell/browser activity, conservative orphan reconciler; S0 audit lock → S1–S4 implementation → S5 gate/deploy/live acceptance; parent orchestrator/auditor, GPT-5.4/Sonnet subagents per slice; no legacy in-memory stop registry or dual paths).
 
 Additional orchestration program **superseded by ADR-140 (do not implement new scope):** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` and `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`.

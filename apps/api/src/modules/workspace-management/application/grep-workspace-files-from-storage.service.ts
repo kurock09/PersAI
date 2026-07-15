@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { isSessionInstallLayerPath } from "@persai/runtime-contract";
 import { PersaiMediaObjectStorageService } from "./media/persai-media-object-storage.service";
 import { WorkspaceFileMetadataService } from "./workspace-file-metadata.service";
 import { resolveWorkspaceStorageSearchScope } from "./resolve-workspace-storage-search-scope";
@@ -99,6 +100,7 @@ export class GrepWorkspaceFilesFromStorageService {
             })
             .then((row) => (row === null ? [] : [row]));
     const candidates = rows
+      .filter((row) => !isSessionInstallLayerPath(row.path))
       .filter((row) => Number(row.sizeBytes) <= MAX_FILE_BYTES)
       .filter((row) => this.isTextLikeMime(row.mimeType))
       .filter((row) =>

@@ -3,7 +3,11 @@
 // the model via files.write have no attachment row → chatId/messageId nullable.
 
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { buildAssistantSessionRoot, buildAssistantWorkspaceRoot } from "@persai/runtime-contract";
+import {
+  buildAssistantSessionRoot,
+  buildAssistantWorkspaceRoot,
+  isSessionInstallLayerPath
+} from "@persai/runtime-contract";
 import {
   ASSISTANT_CHAT_REPOSITORY,
   type AssistantChatRepository
@@ -224,6 +228,9 @@ export class ListChatWorkspaceFilesService {
     const tiles: ChatWorkspaceFileTile[] = [];
     for (const manifest of manifestRows) {
       if (normalizeActiveWorkspaceFilePath(manifest.path) === null) {
+        continue;
+      }
+      if (isSessionInstallLayerPath(manifest.path)) {
         continue;
       }
       if (manifest.path.startsWith(EXTERNAL_DOWNLOAD_STORAGE_PATH_PREFIX)) {

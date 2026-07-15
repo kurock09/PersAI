@@ -1,4 +1,5 @@
 import type { RuntimeSandboxProducedFile } from "@persai/runtime-contract";
+import { isSessionInstallLayerPath } from "@persai/runtime-contract";
 
 export type WorkspaceProducedGcsMirrorStorage = {
   buildWorkspaceObjectKey(input: { workspaceId: string; workspaceRelPath: string }): string;
@@ -8,6 +9,7 @@ export type WorkspaceProducedGcsMirrorStorage = {
 /**
  * ADR-137 — mirror shell/exec produced `/workspace/...` bytes to the workspace GCS
  * prefix so runtime manifest upsert + files.attach can resolve committed bytes.
+ * ADR-150 — never mirror session install-layer paths.
  */
 export async function mirrorVisibleWorkspaceProducedFilesToGcs(input: {
   workspaceId: string;
@@ -25,6 +27,9 @@ export async function mirrorVisibleWorkspaceProducedFilesToGcs(input: {
       (!visiblePath.startsWith(`${input.workspaceMountRoot}/`) &&
         visiblePath !== input.workspaceMountRoot)
     ) {
+      continue;
+    }
+    if (isSessionInstallLayerPath(visiblePath)) {
       continue;
     }
     const localAbsolute = input.resolveLocalAbsolutePath(input.workspaceRoot, visiblePath);

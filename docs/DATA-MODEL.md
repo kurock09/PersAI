@@ -103,11 +103,14 @@ ADR-148 adds no new SQL tables. Its closed operational truth is:
   including the captured baseline PID set and the bound job/lease identity;
 - workspace lease release is now coupled to either successful session cleanup or
   successful exact-UID retirement after cleanup-proof failure;
-- runtime package persistence is path-owned under the canonical session root
+- runtime package **env paths** are owned under the canonical session root
   rather than fixed `/workspace/.local` / `/workspace/.npm-global` aliases;
 - dependency-tree limits are execution-policy contour, not relational data-model
-  truth, and restored dependency baseline must not be re-counted as fresh
-  per-job creation.
+  truth, and in-pod dependency baseline must not be re-counted as fresh
+  per-job creation;
+- **ADR-150:** install-layer trees are not durable storage-plane / manifest
+  truth — they must not be upserted into `workspace_file_metadata` or surfaced
+  in Files gallery / `files.list` / `files.search`.
 
 `SandboxFileRef` is not active current-model truth anymore.
 

@@ -60,6 +60,8 @@ export async function collectWorkspaceDocumentOutputSnapshots(input: {
   workspaceMountRoot: string;
   isVisibleDocumentPath: (workspacePath: string) => boolean;
   toVisibleWorkspaceAbsolutePath: (workspaceRoot: string, absolutePath: string) => string;
+  /** ADR-150 — skip descending into install-layer trees during produced-file scan. */
+  shouldSkipDirectory?: (workspacePath: string) => boolean;
 }): Promise<Map<string, WorkspaceDocumentOutputSnapshot>> {
   const snapshots = new Map<string, WorkspaceDocumentOutputSnapshot>();
   const visit = async (currentDir: string): Promise<void> => {
@@ -72,6 +74,13 @@ export async function collectWorkspaceDocumentOutputSnapshots(input: {
     for (const entry of entries) {
       const absolutePath = join(currentDir, entry.name);
       if (entry.isDirectory()) {
+        const directoryWorkspacePath = input.toVisibleWorkspaceAbsolutePath(
+          input.workspaceRoot,
+          absolutePath
+        );
+        if (input.shouldSkipDirectory?.(directoryWorkspacePath) === true) {
+          continue;
+        }
         await visit(absolutePath);
         continue;
       }

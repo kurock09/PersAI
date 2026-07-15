@@ -400,6 +400,30 @@ describe("UpsertWorkspaceFileMetadataFromRuntimeService", () => {
     assert.equal(enqueueCalls[0]?.forceRefresh, true);
   });
 
+  test("rejects ADR-150 session install-layer paths", () => {
+    const { service } = buildService();
+    assert.throws(
+      () =>
+        service.parseInput({
+          workspaceId: "workspace-1",
+          path: `${sessionRoot}/.local/lib/python3.11/site-packages/x.py`,
+          mimeType: "text/x-python",
+          sizeBytes: 10
+        }),
+      BadRequestException
+    );
+    assert.throws(
+      () =>
+        service.parseInput({
+          workspaceId: "workspace-1",
+          path: `${sessionRoot}/node_modules/foo/index.js`,
+          mimeType: "application/javascript",
+          sizeBytes: 10
+        }),
+      BadRequestException
+    );
+  });
+
   test("rejects paths outside /workspace/ (e.g. /tmp/)", () => {
     const { service } = buildService();
     assert.throws(

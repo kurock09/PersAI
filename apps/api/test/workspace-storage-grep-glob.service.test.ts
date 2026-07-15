@@ -58,6 +58,37 @@ describe("GlobWorkspaceFilesFromManifestService", () => {
     assert.equal(outcome.truncated, false);
     assert.equal(outcome.reason, null);
   });
+
+  it("hides ADR-150 session install-layer paths from glob", async () => {
+    const metadata = {
+      async list() {
+        return [
+          {
+            path: "/workspace/assistants/a1/sessions/s1/notes.md",
+            mimeType: "text/markdown",
+            sizeBytes: 12n,
+            shortDescription: null,
+            updatedAt: new Date("2026-07-05T10:00:00.000Z")
+          },
+          {
+            path: "/workspace/assistants/a1/sessions/s1/node_modules/left-pad/index.js",
+            mimeType: "application/javascript",
+            sizeBytes: 8n,
+            shortDescription: null,
+            updatedAt: new Date("2026-07-05T10:00:00.000Z")
+          }
+        ];
+      }
+    };
+    const service = new GlobWorkspaceFilesFromManifestService(metadata as never);
+    const outcome = await service.execute({
+      workspaceId: "workspace-1",
+      assistantId: "a1",
+      sessionId: "s1",
+      pattern: "**/*"
+    });
+    assert.deepEqual(outcome.paths, ["/workspace/assistants/a1/sessions/s1/notes.md"]);
+  });
 });
 
 describe("GrepWorkspaceFilesFromStorageService", () => {
@@ -97,5 +128,43 @@ describe("GrepWorkspaceFilesFromStorageService", () => {
     assert.equal(outcome.matches[0]?.line, 2);
     assert.match(outcome.matches[0]?.text ?? "", /token/);
     assert.equal(outcome.reason, null);
+  });
+
+  it("skips ADR-150 session install-layer paths before download", async () => {
+    let downloads = 0;
+    const metadata = {
+      async list() {
+        return [
+          {
+            path: "/workspace/assistants/a1/sessions/s1/.local/lib/x.py",
+            mimeType: "text/x-python",
+            sizeBytes: 20n,
+            shortDescription: null,
+            updatedAt: new Date("2026-07-05T10:00:00.000Z")
+          }
+        ];
+      }
+    };
+    const storage = {
+      buildWorkspaceObjectKey() {
+        return "workspace/object";
+      },
+      async downloadObject() {
+        downloads += 1;
+        return {
+          buffer: Buffer.from("token\n", "utf8"),
+          contentType: "text/x-python"
+        };
+      }
+    };
+    const service = new GrepWorkspaceFilesFromStorageService(metadata as never, storage as never);
+    const outcome = await service.execute({
+      workspaceId: "workspace-1",
+      assistantId: "a1",
+      sessionId: "s1",
+      pattern: "token"
+    });
+    assert.equal(outcome.matches.length, 0);
+    assert.equal(downloads, 0);
   });
 });

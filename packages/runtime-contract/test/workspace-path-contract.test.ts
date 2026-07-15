@@ -10,6 +10,7 @@ import {
   buildAssistantWorkspaceRoot,
   classifyVisibleWorkspacePath,
   isRejectedRootFlatWorkspacePath,
+  isSessionInstallLayerPath,
   isStaleVisibleWorkspacePath,
   isValidVisibleWorkspacePath,
   isValidWorkspacePathSegment,
@@ -136,5 +137,26 @@ describe("workspace path contract", () => {
   test("rejects unsafe builder segments", () => {
     assert.throws(() => buildAssistantWorkspaceRoot("bad/name"), /assistantId/);
     assert.throws(() => buildAssistantSessionRoot("assistant-1", "../session"), /sessionId/);
+  });
+
+  test("ADR-150 marks session install-layer paths", () => {
+    const sessionRoot = buildAssistantSessionRoot("assistant-1", "session-1");
+    assert.equal(
+      isSessionInstallLayerPath(`${sessionRoot}/.local/lib/python3.11/site-packages/x.py`),
+      true
+    );
+    assert.equal(
+      isSessionInstallLayerPath(`${sessionRoot}/.npm-global/lib/node_modules/foo/index.js`),
+      true
+    );
+    assert.equal(isSessionInstallLayerPath(`${sessionRoot}/node_modules/left-pad/index.js`), true);
+    assert.equal(isSessionInstallLayerPath(`${sessionRoot}/pkg/node_modules/dep/index.js`), true);
+    assert.equal(isSessionInstallLayerPath(`${sessionRoot}/pkg/node_modules`), true);
+    assert.equal(isSessionInstallLayerPath(`${sessionRoot}/report.pdf`), false);
+    assert.equal(isSessionInstallLayerPath(`${sessionRoot}/scripts/run.py`), false);
+    assert.equal(
+      isSessionInstallLayerPath("/workspace/assistants/assistant-1/shared/node_modules/x"),
+      false
+    );
   });
 });

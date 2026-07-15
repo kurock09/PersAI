@@ -101,3 +101,38 @@ test("mirrorVisibleWorkspaceProducedFilesToGcs skips sandbox job object keys", a
   });
   assert.equal(saveCount, 0);
 });
+
+test("mirrorVisibleWorkspaceProducedFilesToGcs skips ADR-150 install-layer paths", async () => {
+  let saveCount = 0;
+  let readCount = 0;
+  await mirrorVisibleWorkspaceProducedFilesToGcs({
+    workspaceId: "ws-1",
+    workspaceRoot: "/tmp/ws",
+    workspaceMountRoot: "/workspace",
+    producedFiles: [
+      {
+        relativePath: "assistants/a/sessions/s/.local/lib/x.py",
+        displayName: "x.py",
+        mimeType: "text/x-python",
+        sizeBytes: 1,
+        logicalSizeBytes: 1,
+        storagePath: "/workspace/assistants/a/sessions/s/.local/lib/x.py"
+      }
+    ],
+    resolveLocalAbsolutePath: () => {
+      throw new Error("should not resolve install-layer paths");
+    },
+    objectStorage: {
+      buildWorkspaceObjectKey: () => "unused",
+      saveObject: async () => {
+        saveCount += 1;
+      }
+    },
+    readFile: async () => {
+      readCount += 1;
+      return Buffer.from("x");
+    }
+  });
+  assert.equal(saveCount, 0);
+  assert.equal(readCount, 0);
+});

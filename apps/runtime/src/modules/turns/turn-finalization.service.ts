@@ -10,6 +10,7 @@ import { SessionLeaseService } from "../sessions/session-lease.service";
 import { SessionStoreService } from "../sessions/session-store.service";
 import { RuntimeStatePostgresService } from "../runtime-state/infrastructure/persistence/runtime-state-postgres.service";
 import type { AcceptedRuntimeTurn } from "./turn-acceptance.service";
+import { resolveSessionContextPressureTokens } from "./session-context-pressure-tokens";
 
 export interface FinalizedRuntimeTurn {
   receiptStatus: "completed" | "interrupted" | "failed";
@@ -56,14 +57,18 @@ export class TurnFinalizationService {
         completedAt
       });
       terminalReceiptPersisted = true;
+      const contextPressureTokens = resolveSessionContextPressureTokens({
+        usage: result.usage,
+        usageAccounting: result.usageAccounting ?? null
+      });
       session = await this.sessionStoreService.updateSessionSummary({
         sessionId: acceptedTurn.session.sessionId,
         ...(result.usage !== null
           ? {
               providerKey: result.usage.providerKey,
               modelKey: result.usage.modelKey,
-              currentTokens: result.usage.totalTokens,
-              totalTokensFresh: result.usage.totalTokens !== null
+              currentTokens: contextPressureTokens,
+              totalTokensFresh: contextPressureTokens !== null
             }
           : { totalTokensFresh: false }),
         lastTurnAt: completedAt
@@ -104,6 +109,10 @@ export class TurnFinalizationService {
         completedAt
       });
       terminalReceiptPersisted = true;
+      const interruptPressureTokens =
+        input.usage === undefined || input.usage === null
+          ? null
+          : resolveSessionContextPressureTokens({ usage: input.usage });
       session = await this.sessionStoreService.updateSessionSummary({
         sessionId: input.acceptedTurn.session.sessionId,
         ...(input.usage === undefined
@@ -113,8 +122,8 @@ export class TurnFinalizationService {
             : {
                 providerKey: input.usage.providerKey,
                 modelKey: input.usage.modelKey,
-                currentTokens: input.usage.totalTokens,
-                totalTokensFresh: input.usage.totalTokens !== null
+                currentTokens: interruptPressureTokens,
+                totalTokensFresh: interruptPressureTokens !== null
               }),
         ...(completedAt === null ? {} : { lastTurnAt: completedAt })
       });

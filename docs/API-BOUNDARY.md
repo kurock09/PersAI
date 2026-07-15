@@ -140,6 +140,11 @@ sandbox control plane: after a session-scoped sandbox job reaches terminal
 persistence, the pod is now either (a) cleaned and kept warm for reuse or (b)
 retired fail-closed on cleanup-proof failure. Sessionless jobs still retire.
 
+**ADR-150:** no new public routes. Install-layer paths under the session root
+(`.local`, `.npm-global`, `node_modules`) are excluded from produced-file GCS
+mirror, hydrate, runtime manifest upsert, Files gallery, `files.list`, and
+`files.search`. Ordinary work-artifact persistence is unchanged.
+
 - The web client performs a best-effort latest-history refresh on `focus`, `visibilitychange` back to visible, and `pageshow`, so a passive disconnect that already committed server-side is reconciled without requiring a manual page reload.
 - the hard-stop route is idempotent with explicit outcomes. Terminal attempt `errorCode: "user_stopped"` on successful Stop; next-turn hydration includes explicit user-stop fact.
 - **ADR-149 S2:** web stream uses `PERSAI_RUNTIME_TURN_WALL_CLOCK_MS` (default 30 min) + progress-only idle stall `PERSAI_RUNTIME_TURN_IDLE_STALL_MS` (default 5 min). Stall → public `turn_idle_stall`; wall clock → `runtime_timeout`. `video_generate` worker timeout no longer inflates the whole turn ceiling. Cadence `slow_avg` / `silent` remain disabled.

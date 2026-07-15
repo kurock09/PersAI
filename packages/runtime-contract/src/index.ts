@@ -4797,6 +4797,35 @@ export function isStaleVisibleWorkspacePath(path: string): boolean {
   return kind === "staleChatsPath" || kind === "staleProjectsPath";
 }
 
+/**
+ * ADR-150 — session install-layer trees (warm-pod ephemeral only).
+ * Not mirrored to GCS, not hydrated, not shown in Files / files.list.
+ */
+export function isSessionInstallLayerPath(path: string): boolean {
+  const info = classifyVisibleWorkspacePath(path);
+  if (info.kind !== "sessionDescendant" || info.assistantId === null || info.sessionId === null) {
+    return false;
+  }
+  const sessionRoot = buildAssistantSessionRoot(info.assistantId, info.sessionId);
+  const normalized = info.normalizedPath;
+  if (normalized === `${sessionRoot}/.local` || normalized.startsWith(`${sessionRoot}/.local/`)) {
+    return true;
+  }
+  if (
+    normalized === `${sessionRoot}/.npm-global` ||
+    normalized.startsWith(`${sessionRoot}/.npm-global/`)
+  ) {
+    return true;
+  }
+  const sessionRelative = normalized.slice(sessionRoot.length + 1);
+  return (
+    sessionRelative === "node_modules" ||
+    sessionRelative.startsWith("node_modules/") ||
+    sessionRelative.endsWith("/node_modules") ||
+    sessionRelative.includes("/node_modules/")
+  );
+}
+
 export const DOCUMENT_WORKSPACE_PROJECT_SCHEMA = "persai.document.project.v1" as const;
 
 export const DOCUMENT_WORKSPACE_PROJECT_SOURCE_KINDS = [

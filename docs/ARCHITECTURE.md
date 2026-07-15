@@ -101,13 +101,16 @@ single-command throwaways. After a session job, `apps/sandbox` persists
 workspace/output state first, then runs control-plane-owned descendant cleanup
 inside the pod, verifies the baseline process set, and only then releases the
 workspace lease. Cleanup-proof failure retires the exact UID fail-closed.
-Sessionless jobs remain disposable. Session package state (`HOME`,
+Sessionless jobs remain disposable. Session package env (`HOME`,
 `PYTHONUSERBASE`, `NPM_CONFIG_PREFIX`, login-shell PATH) lives under the
 canonical `/workspace/assistants/<assistantId>/sessions/<sessionId>` root, and
 dependency-tree quota is separated from ordinary user-file growth. Idle TTL
 holds on the deployed sandbox control plane after the `2342c2ae` cleanup repair.
-ADR-146 stays closed; ADR-148 supersedes only the over-broad per-job retirement
-behavior and must not be reopened for new scope.
+**ADR-150:** session install-layer trees (`.local`, `.npm-global`,
+`node_modules`) are warm-pod ephemeral only — not mirrored to GCS, not hydrated,
+not shown in Files / `files.list`. Curated popular packages stay in the exec
+image (`/opt/venv`). ADR-146 stays closed; ADR-148 supersedes only the
+over-broad per-job retirement behavior and must not be reopened for new scope.
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 

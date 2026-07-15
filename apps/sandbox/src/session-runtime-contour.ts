@@ -1,4 +1,8 @@
-import { buildAssistantSessionRoot, normalizeWorkspacePath } from "@persai/runtime-contract";
+import {
+  buildAssistantSessionRoot,
+  isSessionInstallLayerPath,
+  normalizeWorkspacePath
+} from "@persai/runtime-contract";
 
 export const SESSION_DEPENDENCY_CONTOUR_LIMITS = {
   maxAddedFilesPerJob: 20_000,
@@ -36,33 +40,16 @@ export function buildSessionRuntimeEnvironmentPaths(
   };
 }
 
+/** ADR-148 quota contour — same trees as ADR-150 install-layer. */
 export function isSessionDependencyVisiblePath(
   visiblePath: string,
   assistantId: string,
   runtimeSessionId: string
 ): boolean {
-  const normalized = normalizeWorkspacePath(visiblePath);
-  const sessionRoot = buildAssistantSessionRoot(assistantId, runtimeSessionId);
-  if (normalized === `${sessionRoot}/.local` || normalized.startsWith(`${sessionRoot}/.local/`)) {
-    return true;
-  }
-  if (
-    normalized === `${sessionRoot}/.npm-global` ||
-    normalized.startsWith(`${sessionRoot}/.npm-global/`)
-  ) {
-    return true;
-  }
-  if (normalized === `${sessionRoot}/node_modules`) {
-    return true;
-  }
-  const sessionPrefix = `${sessionRoot}/`;
-  if (!normalized.startsWith(sessionPrefix)) {
+  if (!isSessionInstallLayerPath(visiblePath)) {
     return false;
   }
-  const sessionRelative = normalized.slice(sessionPrefix.length);
-  return (
-    sessionRelative === "node_modules" ||
-    sessionRelative.startsWith("node_modules/") ||
-    sessionRelative.includes("/node_modules/")
-  );
+  const sessionRoot = buildAssistantSessionRoot(assistantId, runtimeSessionId);
+  const normalized = normalizeWorkspacePath(visiblePath);
+  return normalized === sessionRoot || normalized.startsWith(`${sessionRoot}/`);
 }

@@ -276,6 +276,53 @@ describe("ListWorkspaceFilesFromManifestService", () => {
     assert.deepEqual(out.items, []);
   });
 
+  test("hides ADR-150 session install-layer children from files.list", async () => {
+    const { service } = buildService([
+      {
+        workspaceId: "workspace-1",
+        path: `${sessionRoot}/report.pdf`,
+        mimeType: "application/pdf",
+        sizeBytes: BigInt(100),
+        contentHash: null,
+        shortDescription: null,
+        createdAt: new Date("2026-07-15T10:00:00.000Z"),
+        updatedAt: new Date("2026-07-15T10:00:00.000Z")
+      },
+      {
+        workspaceId: "workspace-1",
+        path: `${sessionRoot}/.local/lib/python3.11/site-packages/pkg/__init__.py`,
+        mimeType: "text/x-python",
+        sizeBytes: BigInt(20),
+        contentHash: null,
+        shortDescription: null,
+        createdAt: new Date("2026-07-15T10:01:00.000Z"),
+        updatedAt: new Date("2026-07-15T10:01:00.000Z")
+      },
+      {
+        workspaceId: "workspace-1",
+        path: `${sessionRoot}/node_modules/left-pad/index.js`,
+        mimeType: "application/javascript",
+        sizeBytes: BigInt(30),
+        contentHash: null,
+        shortDescription: null,
+        createdAt: new Date("2026-07-15T10:02:00.000Z"),
+        updatedAt: new Date("2026-07-15T10:02:00.000Z")
+      }
+    ]);
+    const out = await service.execute({
+      workspaceId: "workspace-1",
+      pathPrefix: sessionRoot,
+      assistantId: "alice",
+      scope: "workspace",
+      currentChatId: null,
+      currentAssistantId: "assistant-1"
+    });
+    assert.deepEqual(
+      out.items.map((item) => item.path),
+      [`${sessionRoot}/report.pdf`]
+    );
+  });
+
   test("parses raw input and trims required fields", () => {
     const { service } = buildService();
     const parsed = service.parseInput({

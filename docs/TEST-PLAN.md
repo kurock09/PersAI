@@ -4,6 +4,30 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-150 ephemeral session install layer
+
+Verify:
+
+1. `isSessionInstallLayerPath` covers `.local`, `.npm-global`, top-level and nested
+   `node_modules` directories and files under the session root only;
+2. produced-file scan does not descend into / mirror install-layer trees;
+3. session snapshot + pod↔CP pull/push tar exclude install basenames; restore
+   overlay purges legacy install trees;
+4. session hydrate skips install-layer GCS keys (including legacy residue);
+5. runtime produced-file sync and API upsert refuse install-layer paths;
+6. Files gallery, `files.list`, `files.search`, `grep`, and `glob` hide
+   install-layer rows; `files.write` refuses before GCS upload;
+7. ADR-148 warm env paths + dependency quota contour still apply in-pod;
+8. curated exec-image `/opt/venv` remains the durable popular-package path.
+
+Focused local regression:
+
+```powershell
+corepack pnpm --filter @persai/runtime-contract exec tsx --test test/workspace-path-contract.test.ts
+corepack pnpm --filter @persai/api exec tsx test/list-workspace-files-from-manifest.service.test.ts
+corepack pnpm --filter @persai/api exec tsx test/upsert-workspace-file-metadata-from-runtime.service.test.ts
+```
+
 ## ADR-148 sandbox session warmth and fail-closed cleanup (closed)
 
 Founder live-accepted 2026-07-15 that warm idle TTL holds on deployed sandbox.
@@ -13,11 +37,12 @@ Retained regression evidence covered:
    failed, and blocked terminal handling when cleanup proof succeeds;
 2. cleanup-proof failure retires the exact bound UID before lease release;
 3. sessionless jobs still retire after terminal persistence;
-4. runtime package state persists under the canonical session root across
-   separate commands and legitimate pod recreation;
+4. runtime package **env** lives under the canonical session root across warm
+   commands; **ADR-150:** install trees are not restored from GCS after cold
+   pod recreation;
 5. large dependency installs stay within the dedicated dependency contour and do
    not poison later ordinary jobs;
-6. restored dependency baseline is not recounted as fresh per-job growth;
+6. in-pod dependency baseline is not recounted as fresh per-job growth;
 7. duplicate same-prefix session hydrate is absent;
 8. expected cold-start marker misses do not emit `stdinless_probe_failed`.
 
