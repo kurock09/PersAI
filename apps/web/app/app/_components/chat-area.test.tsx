@@ -114,6 +114,8 @@ function createChat(
     issue?: UseChatReturn["issue"];
     messages?: ChatMessage[];
     currentEngagement?: UseChatReturn["currentEngagement"];
+    compaction?: UseChatReturn["compaction"];
+    compactNow?: UseChatReturn["compactNow"];
   }
 ): UseChatReturn {
   const contents = Array.isArray(messageContent) ? messageContent : [messageContent];
@@ -145,7 +147,7 @@ function createChat(
     hasOlderMessages: options?.hasOlderMessages ?? false,
     olderMessagesLoading: options?.olderMessagesLoading ?? false,
     issue: options?.issue ?? null,
-    compaction: null,
+    compaction: options?.compaction ?? null,
     recentAutoCompaction: null,
     compactionRunning: false,
     chatPlan: [],
@@ -155,7 +157,7 @@ function createChat(
     clearChatPlan: vi.fn(async () => undefined),
     send: vi.fn(async () => undefined),
     sendWelcome: vi.fn(async () => undefined),
-    compactNow: vi.fn(async () => null),
+    compactNow: options?.compactNow ?? vi.fn(async () => null),
     stop: vi.fn(),
     clearIssue: vi.fn(),
     reportIssue: vi.fn(),
@@ -770,6 +772,47 @@ describe("ChatArea", () => {
     expect(title).toHaveClass("truncate", "text-sm", "font-semibold", "text-text");
     expect(title.className).not.toMatch(/md:text-text-muted/);
     expect(title.className).not.toMatch(/text-base/);
+  });
+
+  it("replaces the title-pill rename control with a context meter menu", async () => {
+    const compactNow = vi.fn(async () => null);
+    render(
+      <ChatArea
+        chat={createChat("Hello", {
+          isStreaming: false,
+          compactNow,
+          compaction: {
+            available: true,
+            suggested: false,
+            suggestionReason: null,
+            messageCount: 4,
+            assistantMessageCount: 2,
+            currentTokens: 4_000,
+            sessionKey: "sess-1",
+            compactionCount: 0,
+            lastCompactedAt: null,
+            reserveTokens: 10_000,
+            keepRecentTokens: 2_000,
+            autoCompactionEnabled: true,
+            exhaustedAtPlanLimit: false,
+            recentAutoCompactionStreak: 0
+          }
+        })}
+        title="Meter chat"
+      />
+    );
+
+    expect(screen.queryByLabelText("Rename chat")).toBeNull();
+    const meter = screen.getByTestId("chat-context-meter");
+    expect(meter).toHaveAttribute("aria-label", "contextMeterAria");
+    fireEvent.click(meter);
+
+    const menu = await screen.findByTestId("chat-context-meter-menu");
+    expect(menu).toHaveClass("left-[-3px]");
+    expect(within(menu).getByText("contextMeterMenuTitle")).toBeInTheDocument();
+    expect(within(menu).getByText("contextMeterMenuBody")).toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "compactionAction" }));
+    expect(compactNow).toHaveBeenCalledTimes(1);
   });
 
   it("fades message scroll at the edges with fully transparent header/footer chrome", () => {

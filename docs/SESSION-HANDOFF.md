@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — Desktop chat-row slide-out + context meter align (local)
+
+Status: **implemented locally** on top of the title-pill context meter work.
+
+**Chat list:** Desktop `...` no longer opens a portal dropdown. Same translateX slide-out as mobile: Archive (+ «В архив»), pencil rename, trash → «Удалить?» → delete. Mobile unchanged except Rename/Delete order swap.
+
+**Context meter:** popover `left-[-3px]` so its left edge matches the title pill (mirror of mode menu `right-0`).
+
+**Next:** focused sidebar + chat-area tests; commit when asked.
+
+---
+
+## 2026-07-15 — Chat title pill context meter (local)
+
+Status: **implemented locally** on top of `0f84518b` (ADR-149 work may also be present on the branch).
+
+**What:** Title-pill pencil/rename removed. Left circle is a 3px inward context ring vs auto-compaction trigger, weak center %, click menu (mode-toggle chrome) with short explanation + Compact now. Rename remains in the sidebar chat list.
+
+**Files:** `apps/web/app/app/_components/chat-area.tsx` (+ test), `apps/web/messages/en.json`, `apps/web/messages/ru.json`, CHANGELOG.
+
+**Next:** focused `chat-area` tests + web typecheck; commit when founder asks. ADR-149 push/live acceptance remains a separate track.
+
+---
+
 ## 2026-07-15 — ADR-149 S0–S4 complete; S5 local gate green (not pushed)
 
 Status: **all implementation slices on `main` at `7b14f8df`.** Push = deploy —

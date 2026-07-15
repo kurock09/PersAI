@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantWebChatListItemState } from "@persai/contracts";
 import { Sidebar, formatChatRowTimestamp } from "./sidebar";
@@ -375,7 +375,11 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     fireEvent.click(screen.getByRole("button", { name: "chatActions" }));
     const actions = screen.getByTestId("mobile-chat-actions-thread-a");
     expect(actions).toBeInTheDocument();
+    const renameBtn = screen.getByRole("button", { name: "rename" });
     const deleteBtn = screen.getByRole("button", { name: "delete" });
+    expect(renameBtn.compareDocumentPosition(deleteBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
     expect(deleteBtn).toHaveClass("font-semibold", "text-destructive");
     expect(deleteBtn.className).not.toMatch(/bg-destructive/);
     expect(actions.className).not.toMatch(/bg-surface-raised/);
@@ -387,6 +391,29 @@ describe("Sidebar — ADR-076 Slice 5 chat list skeleton", () => {
     expect(chatApiMocks.delete).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "confirmDelete" }));
+    await waitFor(() => {
+      expect(chatApiMocks.delete).toHaveBeenCalledWith("test-token", "thread-a", {
+        confirmText: "DELETE"
+      });
+    });
+  });
+
+  it("opens desktop inline slide-out actions with archive, rename icon, and two-step delete", async () => {
+    useFinePointerChatList();
+    render(<Sidebar data={makeAppData({ chats: [makeChat("thread-a")] })} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "chatActions" }));
+    const actions = screen.getByTestId("mobile-chat-actions-thread-a");
+    expect(actions).toBeInTheDocument();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(within(actions).getByRole("button", { name: "archive" })).toBeInTheDocument();
+    expect(within(actions).getByRole("button", { name: "rename" })).toBeInTheDocument();
+
+    const deleteBtn = within(actions).getByRole("button", { name: "delete" });
+    fireEvent.click(deleteBtn);
+    expect(within(actions).getByRole("button", { name: "confirmDelete" })).toBeInTheDocument();
+    expect(chatApiMocks.delete).not.toHaveBeenCalled();
+    fireEvent.click(within(actions).getByRole("button", { name: "confirmDelete" }));
     await waitFor(() => {
       expect(chatApiMocks.delete).toHaveBeenCalledWith("test-token", "thread-a", {
         confirmText: "DELETE"

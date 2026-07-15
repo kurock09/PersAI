@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type TouchEvent } from "react";
-import { createPortal } from "react-dom";
 import { useUser, useClerk } from "@clerk/nextjs";
 import { useAuth } from "@clerk/nextjs";
 import type { Route } from "next";
@@ -92,12 +91,13 @@ const STATUS_CONFIG: Record<AssistantStatus, { label: string; dot: string }> = {
   none: { label: "Not created", dot: "bg-text-subtle" }
 };
 
-/** Mouse/trackpad surfaces keep the compact portal menu; everything else is touch-first. */
+/** Mouse/trackpad uses the same inline slide-out row actions as touch; swipe archive stays touch-only. */
 const FINE_POINTER_CHAT_LIST_QUERY = "(hover: hover) and (pointer: fine)";
 const MOBILE_ROW_ACTIONS_IDLE_MS = 10_000;
 const MOBILE_SWIPE_ARCHIVE_WIDTH_PX = 96;
 const MOBILE_SWIPE_ARCHIVE_TRIGGER_PX = 68;
 const MOBILE_INLINE_ACTIONS_FALLBACK_WIDTH_PX = 176;
+const DESKTOP_INLINE_ACTIONS_FALLBACK_WIDTH_PX = 220;
 
 function usesTouchChatListActions(): boolean {
   return (
@@ -1036,24 +1036,21 @@ function ChatListItem({
     hasThreadActiveMediaJobs ||
     hasThreadActiveDocumentJobs ||
     (item.activeDocumentJobs?.length ?? 0) > 0;
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
-  const [mobileActionVersion, setMobileActionVersion] = useState(0);
+  const [inlineActionsOpen, setInlineActionsOpen] = useState(false);
+  const [inlineActionVersion, setInlineActionVersion] = useState(0);
   const [inlineActionsWidth, setInlineActionsWidth] = useState(
     MOBILE_INLINE_ACTIONS_FALLBACK_WIDTH_PX
   );
   const [swipeX, setSwipeX] = useState(0);
   const [swiping, setSwiping] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
-  const mobileActionsRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const inlineActionsRef = useRef<HTMLDivElement>(null);
   const kebabRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const swipeStartRef = useRef<{
@@ -1064,102 +1061,49 @@ function ChatListItem({
   const suppressNavigateRef = useRef(false);
   const isArchived = item.chat.archivedAt !== null;
 
-  // Compute fixed-position coords for the kebab dropdown so it can render
-  // through a portal and escape the sidebar's overflow-y-auto clip when the
-  // chat list scrolls. Auto-flips above the row when the row is too close to
-  // the viewport bottom.
-  const openMenu = useCallback(() => {
-    const rect = kebabRef.current?.getBoundingClientRect();
-    if (!rect) {
-      setMenuOpen(true);
-      return;
-    }
-    const MENU_W = 144; // w-36
-    const MENU_H_EST = 132; // ~3 items + divider; conservative so we flip early
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const flipUp = spaceBelow < MENU_H_EST + 16;
-    setMenuPos({
-      top: flipUp ? Math.max(8, rect.top - MENU_H_EST - 6) : rect.bottom + 6,
-      right: Math.max(8, window.innerWidth - rect.right)
-    });
-    void MENU_W; // reserved for future left-overflow handling on narrow viewports
-    setMenuOpen(true);
+  const closeInlineActions = useCallback(() => {
+    setInlineActionsOpen(false);
     setConfirmDelete(false);
   }, []);
 
-  const closeMenu = useCallback(() => {
-    setMenuOpen(false);
-    setConfirmDelete(false);
-  }, []);
-
-  const closeMobileActions = useCallback(() => {
-    setMobileActionsOpen(false);
-    setConfirmDelete(false);
-  }, []);
-
-  const touchMobileActions = useCallback(() => {
-    setMobileActionVersion((version) => version + 1);
+  const touchInlineActions = useCallback(() => {
+    setInlineActionVersion((version) => version + 1);
   }, []);
 
   useEffect(() => {
-    if (!menuOpen) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      // Don't close on clicks inside the menu itself, or on the kebab that
-      // toggles it (otherwise mousedown would close it before the click
-      // toggle re-opens it, leaving the menu in a confused state).
-      if (menuRef.current?.contains(target)) return;
-      if (kebabRef.current?.contains(target)) return;
-      closeMenu();
-    };
-    const onScrollOrResize = () => closeMenu();
-    document.addEventListener("mousedown", handler);
-    // capture: true so we catch scroll on any nested overflow container
-    // (the chat list itself is overflow-y-auto and won't bubble scroll).
-    window.addEventListener("scroll", onScrollOrResize, true);
-    window.addEventListener("resize", onScrollOrResize);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      window.removeEventListener("scroll", onScrollOrResize, true);
-      window.removeEventListener("resize", onScrollOrResize);
-    };
-  }, [menuOpen, closeMenu]);
-
-  useEffect(() => {
-    if (!mobileActionsOpen) return;
+    if (!inlineActionsOpen) return;
     const handleOutsidePointer = (event: PointerEvent) => {
       if (event.target instanceof Node && !rowRef.current?.contains(event.target)) {
-        closeMobileActions();
+        closeInlineActions();
       }
     };
     document.addEventListener("pointerdown", handleOutsidePointer);
-    const timer = window.setTimeout(closeMobileActions, MOBILE_ROW_ACTIONS_IDLE_MS);
+    const timer = window.setTimeout(closeInlineActions, MOBILE_ROW_ACTIONS_IDLE_MS);
     return () => {
       document.removeEventListener("pointerdown", handleOutsidePointer);
       window.clearTimeout(timer);
     };
-  }, [closeMobileActions, mobileActionVersion, mobileActionsOpen]);
+  }, [closeInlineActions, inlineActionVersion, inlineActionsOpen]);
 
   useLayoutEffect(() => {
-    if (!mobileActionsOpen) return;
-    const width = mobileActionsRef.current?.offsetWidth;
+    if (!inlineActionsOpen) return;
+    const width = inlineActionsRef.current?.offsetWidth;
     if (typeof width === "number" && width > 0) {
       setInlineActionsWidth(width);
     }
-  }, [confirmDelete, mobileActionsOpen]);
+  }, [confirmDelete, inlineActionsOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
     const media = window.matchMedia(FINE_POINTER_CHAT_LIST_QUERY);
     const handlePointerCapabilityChange = () => {
       if (media.matches) {
-        closeMobileActions();
         setSwipeX(0);
       }
     };
     media.addEventListener("change", handlePointerCapabilityChange);
     return () => media.removeEventListener("change", handlePointerCapabilityChange);
-  }, [closeMobileActions]);
+  }, []);
 
   useEffect(() => {
     if (renaming) {
@@ -1197,10 +1141,9 @@ function ChatListItem({
       return false;
     } finally {
       setArchiving(false);
-      setMenuOpen(false);
-      closeMobileActions();
+      closeInlineActions();
     }
-  }, [archiving, closeMobileActions, getToken, isArchived, item.chat.id, onChanged]);
+  }, [archiving, closeInlineActions, getToken, isArchived, item.chat.id, onChanged]);
 
   const handleRestore = useCallback(async (): Promise<boolean> => {
     if (!isArchived || restoring) return false;
@@ -1215,10 +1158,9 @@ function ChatListItem({
       return false;
     } finally {
       setRestoring(false);
-      setMenuOpen(false);
-      closeMobileActions();
+      closeInlineActions();
     }
-  }, [closeMobileActions, getToken, isArchived, item.chat.id, onChanged, restoring]);
+  }, [closeInlineActions, getToken, isArchived, item.chat.id, onChanged, restoring]);
 
   const handleDelete = useCallback(async () => {
     const token = await getToken();
@@ -1231,28 +1173,30 @@ function ChatListItem({
       /* non-critical */
     }
     setDeleting(false);
-    setMenuOpen(false);
-    closeMobileActions();
-  }, [closeMobileActions, getToken, item.chat.id, onChanged]);
+    closeInlineActions();
+  }, [closeInlineActions, getToken, item.chat.id, onChanged]);
 
   const toggleRowActions = useCallback(() => {
-    if (usesTouchChatListActions()) {
-      setSwipeX(0);
-      setMobileActionsOpen((open) => {
-        const next = !open;
-        if (next) touchMobileActions();
-        else setConfirmDelete(false);
-        return next;
-      });
-      return;
-    }
-    if (menuOpen) closeMenu();
-    else openMenu();
-  }, [closeMenu, menuOpen, openMenu, touchMobileActions]);
+    setSwipeX(0);
+    setInlineActionsOpen((open) => {
+      const next = !open;
+      if (next) {
+        touchInlineActions();
+        setInlineActionsWidth(
+          usesTouchChatListActions()
+            ? MOBILE_INLINE_ACTIONS_FALLBACK_WIDTH_PX
+            : DESKTOP_INLINE_ACTIONS_FALLBACK_WIDTH_PX
+        );
+      } else {
+        setConfirmDelete(false);
+      }
+      return next;
+    });
+  }, [touchInlineActions]);
 
   const handleTouchStart = useCallback(
     (event: TouchEvent<HTMLDivElement>) => {
-      if (archiving || restoring || mobileActionsOpen || !usesTouchChatListActions()) {
+      if (archiving || restoring || inlineActionsOpen || !usesTouchChatListActions()) {
         swipeStartRef.current = null;
         return;
       }
@@ -1265,7 +1209,7 @@ function ChatListItem({
       };
       suppressNavigateRef.current = false;
     },
-    [archiving, mobileActionsOpen, restoring]
+    [archiving, inlineActionsOpen, restoring]
   );
 
   const handleTouchMove = useCallback(
@@ -1342,11 +1286,11 @@ function ChatListItem({
   }
 
   const timestamp = formatChatRowTimestamp(item.chat.lastMessageAt ?? item.chat.createdAt, locale);
-  const rowOffset = mobileActionsOpen ? -inlineActionsWidth : swipeX;
+  const rowOffset = inlineActionsOpen ? -inlineActionsWidth : swipeX;
 
   return (
     <div ref={rowRef} data-testid={`chat-row-${item.chat.id}`} className="relative overflow-hidden">
-      {!isArchived && !mobileActionsOpen ? (
+      {!isArchived && !inlineActionsOpen ? (
         <div
           aria-hidden="true"
           className="absolute inset-y-0 right-0 flex w-24 items-center justify-center gap-1.5 rounded-r-lg bg-accent text-xs font-semibold text-white [@media(hover:hover)_and_(pointer:fine)]:hidden"
@@ -1355,7 +1299,7 @@ function ChatListItem({
           {archiving ? <Loader2 className="h-4 w-4 animate-spin" /> : t("archive")}
         </div>
       ) : null}
-      {isArchived && !mobileActionsOpen ? (
+      {isArchived && !inlineActionsOpen ? (
         <div
           aria-hidden="true"
           className="absolute inset-y-0 left-0 flex w-24 items-center justify-center gap-1.5 rounded-l-lg bg-success text-xs font-semibold text-white [@media(hover:hover)_and_(pointer:fine)]:hidden"
@@ -1365,25 +1309,83 @@ function ChatListItem({
         </div>
       ) : null}
 
-      {mobileActionsOpen ? (
+      {inlineActionsOpen ? (
         <div
-          ref={mobileActionsRef}
+          ref={inlineActionsRef}
           data-testid={`mobile-chat-actions-${item.chat.id}`}
-          className="absolute inset-y-0 right-0 flex items-stretch pr-1 [@media(hover:hover)_and_(pointer:fine)]:hidden"
-          onPointerDown={touchMobileActions}
+          className="absolute inset-y-0 right-0 flex items-stretch pr-1"
+          onPointerDown={touchInlineActions}
         >
           <div className="flex h-full items-stretch">
+            {!isArchived ? (
+              <button
+                type="button"
+                onClick={() => {
+                  touchInlineActions();
+                  void handleArchive();
+                }}
+                disabled={archiving || deleting}
+                className="hidden items-center gap-1.5 px-3 text-xs font-semibold text-text transition-colors hover:text-text disabled:opacity-50 [@media(hover:hover)_and_(pointer:fine)]:inline-flex"
+              >
+                {archiving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Archive className="h-4 w-4" strokeWidth={1.15} />
+                )}
+                {t("archive")}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  touchInlineActions();
+                  void handleRestore();
+                }}
+                disabled={restoring || deleting}
+                className="hidden items-center gap-1.5 px-3 text-xs font-semibold text-text transition-colors hover:text-text disabled:opacity-50 [@media(hover:hover)_and_(pointer:fine)]:inline-flex"
+              >
+                {restoring ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ArchiveRestore className="h-4 w-4" strokeWidth={1.15} />
+                )}
+                {t("restore")}
+              </button>
+            )}
+            <span
+              aria-hidden="true"
+              className="my-auto hidden h-3.5 w-px shrink-0 bg-border/70 [@media(hover:hover)_and_(pointer:fine)]:block"
+            />
             <button
               type="button"
+              aria-label={t("rename")}
               onClick={() => {
-                touchMobileActions();
+                setRenameValue(item.chat.title ?? "");
+                setRenaming(true);
+                closeInlineActions();
+              }}
+              disabled={deleting || archiving || restoring}
+              className="flex items-center px-3.5 text-xs font-medium text-text transition-colors hover:text-text disabled:opacity-50"
+            >
+              <Pencil
+                className="hidden h-4 w-4 [@media(hover:hover)_and_(pointer:fine)]:block"
+                strokeWidth={1.15}
+              />
+              <span className="[@media(hover:hover)_and_(pointer:fine)]:hidden">{t("rename")}</span>
+            </button>
+            <span aria-hidden="true" className="my-auto h-3.5 w-px shrink-0 bg-border/70" />
+            <button
+              type="button"
+              aria-label={confirmDelete ? t("confirmDelete") : t("delete")}
+              onClick={() => {
+                touchInlineActions();
                 if (confirmDelete) {
                   void handleDelete();
                 } else {
                   setConfirmDelete(true);
                 }
               }}
-              disabled={deleting}
+              disabled={deleting || archiving || restoring}
               className="flex items-center px-3.5 text-xs font-semibold text-destructive transition-colors hover:text-destructive disabled:opacity-50"
             >
               {deleting ? (
@@ -1391,21 +1393,16 @@ function ChatListItem({
               ) : confirmDelete ? (
                 t("confirmDelete")
               ) : (
-                t("delete")
+                <>
+                  <Trash2
+                    className="hidden h-4 w-4 [@media(hover:hover)_and_(pointer:fine)]:block"
+                    strokeWidth={1.15}
+                  />
+                  <span className="[@media(hover:hover)_and_(pointer:fine)]:hidden">
+                    {t("delete")}
+                  </span>
+                </>
               )}
-            </button>
-            <span aria-hidden="true" className="my-auto h-3.5 w-px shrink-0 bg-border/70" />
-            <button
-              type="button"
-              onClick={() => {
-                setRenameValue(item.chat.title ?? "");
-                setRenaming(true);
-                closeMobileActions();
-              }}
-              disabled={deleting}
-              className="flex items-center px-3.5 text-xs font-medium text-text transition-colors hover:text-text disabled:opacity-50"
-            >
-              {t("rename")}
             </button>
           </div>
         </div>
@@ -1433,8 +1430,8 @@ function ChatListItem({
               suppressNavigateRef.current = false;
               return;
             }
-            if (mobileActionsOpen) {
-              closeMobileActions();
+            if (inlineActionsOpen) {
+              closeInlineActions();
               return;
             }
             onNavigate();
@@ -1487,7 +1484,7 @@ function ChatListItem({
           ref={kebabRef}
           aria-label={t("chatActions")}
           aria-haspopup="menu"
-          aria-expanded={menuOpen || mobileActionsOpen}
+          aria-expanded={inlineActionsOpen}
           onClick={(e) => {
             e.stopPropagation();
             toggleRowActions();
@@ -1504,94 +1501,6 @@ function ChatListItem({
           <MoreHorizontal className="h-4 w-4 text-text-subtle md:h-3.5 md:w-3.5" />
         </button>
       </div>
-
-      {/*
-       * Dropdown rendered via portal + position: fixed so it escapes the
-       * sidebar's overflow-y-auto clip. Without this, opening the menu on a
-       * row near the bottom of a long chat list would visually cut the menu
-       * off inside the scroll container.
-       */}
-      {menuOpen &&
-        menuPos &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div
-            ref={menuRef}
-            style={{ position: "fixed", top: menuPos.top, right: menuPos.right }}
-            className="z-50 w-36 rounded-lg border border-border bg-surface py-1 shadow-xl"
-          >
-            <button
-              type="button"
-              onClick={() => {
-                if (deleting || archiving || restoring) return;
-                setRenameValue(item.chat.title ?? "");
-                setRenaming(true);
-                setMenuOpen(false);
-              }}
-              disabled={deleting || archiving || restoring}
-              className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-            >
-              <Pencil className="h-3 w-3" />
-              {t("rename")}
-            </button>
-            {!isArchived ? (
-              <button
-                type="button"
-                onClick={() => void handleArchive()}
-                disabled={deleting || archiving}
-                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-              >
-                {archiving ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Archive className="h-3 w-3" />
-                )}
-                {t("archive")}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => void handleRestore()}
-                disabled={deleting || restoring}
-                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-              >
-                {restoring ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <ArchiveRestore className="h-3 w-3" />
-                )}
-                {t("restore")}
-              </button>
-            )}
-            <div className="my-1 border-t border-border" />
-            {confirmDelete ? (
-              <button
-                type="button"
-                onClick={() => void handleDelete()}
-                disabled={deleting || archiving || restoring}
-                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
-              >
-                {deleting ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <Trash2 className="h-3 w-3" />
-                )}
-                {deleting ? t("deleting") : t("confirmDelete")}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(true)}
-                disabled={deleting || archiving || restoring}
-                className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-xs text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
-              >
-                <Trash2 className="h-3 w-3" />
-                {t("delete")}
-              </button>
-            )}
-          </div>,
-          document.body
-        )}
     </div>
   );
 }

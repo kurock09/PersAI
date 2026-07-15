@@ -5,6 +5,8 @@
 
 ## 2026-07-15
 
+- **UX (desktop chat-row actions + context meter align; local).** Desktop chat `...` drops the portal dropdown and uses the same left slide-out as mobile: Archive (+ label), rename pencil, trash with two-step «Удалить?». Mobile only swaps order to Rename → Delete. Context-meter popover left edge aligns with the title pill (`left-[-3px]`), mirroring the mode menu’s right alignment.
+- **UX (chat title pill context meter; local).** Replaces the name-pill pencil/rename with an inward 3px circular context ring (sage/gray) vs the plan auto-compaction trigger (`reserveTokens − keepRecentTokens`). Weak center %; click opens a mode-menu-style popover with short copy + Compact now (`compactNow`). Rename stays in the chat list only.
 - **Change (ADR-149 S4 orphan reconcilers; local, committed `7b14f8df`).** API + runtime schedulers reconcile stale attempts/receipts after 20m grace with active-owner guards.
 - **Change (ADR-149 S3 tool_progress activity; local, committed `d7da3e34`).** Bounded tool_progress runtime→SSE→web with rolling shell lines and reattach merge fixes.
 - **Change (ADR-149 S2 turn deadline split; local, committed `bc3d6ee8`).** Wall-clock 30m + idle stall 5m; `turn_idle_stall` vs `runtime_timeout`; no 615s video inflation.

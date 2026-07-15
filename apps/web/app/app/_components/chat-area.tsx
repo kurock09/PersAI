@@ -11,7 +11,6 @@ import {
   ChevronDown,
   FolderKanban,
   X,
-  Pencil,
   Check,
   Loader2,
   Menu,
@@ -31,6 +30,7 @@ import {
 } from "./chat-layout";
 import {
   type AssistantChatMode,
+  type ChatCompactionState,
   dismissAssistantBrowserProfileView,
   openAssistantBrowserProfileView,
   patchAssistantWebChat,
@@ -154,11 +154,8 @@ export function ChatArea({
   const scrollRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
   const [showAssistantAvatars, setShowAssistantAvatars] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [editValue, setEditValue] = useState("");
   const [chatMode, setChatMode] = useState<AssistantChatMode>(
     initialChatMode ?? (deepModeEnabled ? "smart" : "normal")
   );
@@ -369,7 +366,6 @@ export function ChatArea({
    */
   const isEmpty = !chat.historyLoading && chat.messages.length === 0;
   const displayTitle = title ?? t("newChat");
-  const canEdit = !!chat.chatId;
 
   // ADR-125 follow-up — read the chat-level engagement projection that the
   // API derives from `chat.skillDecisionState` and ships in (a) the history
@@ -378,27 +374,6 @@ export function ChatArea({
   // messages dropped `engagementSummary`, so the chip disappeared a few
   // seconds after every history reload.
   const activeSkillEngagement = chat.currentEngagement;
-
-  const startEdit = useCallback(() => {
-    if (!canEdit) return;
-    setEditValue(title ?? "");
-    setEditing(true);
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }, [canEdit, title]);
-
-  const commitEdit = useCallback(async () => {
-    setEditing(false);
-    const trimmed = editValue.trim();
-    if (!chat.chatId || trimmed.length === 0) return;
-    const token = await getToken();
-    if (!token) return;
-    try {
-      await patchAssistantWebChat(token, chat.chatId, { title: trimmed });
-      onTitleChanged?.();
-    } catch {
-      /* non-critical */
-    }
-  }, [chat.chatId, editValue, getToken, onTitleChanged]);
 
   const issueIsWarning =
     chat.issue?.classId === "input_validation" ||
@@ -748,76 +723,30 @@ export function ChatArea({
                 <Menu className="h-5 w-5" strokeWidth={1.15} />
               </button>
               <div
+                data-testid="chat-title-pill"
                 className={cn(
                   // Opaque pill — edge dissolve lives on the message scroll mask, not behind chrome.
-                  // p-[3px] keeps the left icon circle coaxial with the rounded cap (same inset as composer).
-                  "flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/45 bg-surface-raised p-[3px] pr-3.5 transition-colors",
-                  editing && "border-accent/45"
+                  // p-[3px] keeps the left meter circle coaxial with the rounded cap (same inset as composer).
+                  "relative flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/45 bg-surface-raised p-[3px] pr-3.5 transition-colors"
                 )}
               >
-                {editing ? (
-                  <>
-                    <span
-                      aria-hidden="true"
-                      className="flex aspect-square h-full shrink-0 items-center justify-center rounded-full bg-bg text-accent"
-                    >
-                      <Pencil className="h-3.5 w-3.5" strokeWidth={1.15} />
-                    </span>
-                    <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                      <input
-                        ref={inputRef}
-                        type="text"
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") void commitEdit();
-                          if (e.key === "Escape") setEditing(false);
-                        }}
-                        onBlur={() => void commitEdit()}
-                        maxLength={80}
-                        className="min-w-0 flex-1 bg-transparent text-sm font-semibold leading-none tracking-tight text-text outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void commitEdit()}
-                        className="cursor-pointer rounded-full p-1.5 text-accent transition-colors hover:bg-surface-hover"
-                      >
-                        <Check className="h-3.5 w-3.5" strokeWidth={1.15} />
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    {canEdit ? (
-                      <button
-                        type="button"
-                        onClick={startEdit}
-                        aria-label="Rename chat"
-                        className="flex aspect-square h-full shrink-0 cursor-pointer items-center justify-center rounded-full bg-bg text-text-muted transition-colors hover:bg-surface-hover hover:text-text"
-                      >
-                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.15} />
-                      </button>
-                    ) : (
-                      <span
-                        aria-hidden="true"
-                        className="flex aspect-square h-full shrink-0 items-center justify-center rounded-full bg-bg text-text-subtle"
-                      >
-                        <Pencil className="h-3.5 w-3.5" strokeWidth={1.15} />
-                      </span>
-                    )}
-                    <div
-                      className={cn(
-                        "flex min-w-0 flex-1 flex-col justify-center",
-                        activeSkillEngagement ? "gap-1" : null
-                      )}
-                    >
-                      <h1 className="truncate text-sm font-semibold leading-none tracking-tight text-text">
-                        {displayTitle}
-                      </h1>
-                      <ChatHeaderSubtitle engagement={activeSkillEngagement} />
-                    </div>
-                  </>
-                )}
+                <ChatContextMeter
+                  compaction={chat.compaction}
+                  compactionRunning={chat.compactionRunning}
+                  compactDisabled={!chat.chatId || chat.isStreaming}
+                  onCompact={() => void chat.compactNow()}
+                />
+                <div
+                  className={cn(
+                    "flex min-w-0 flex-1 flex-col justify-center",
+                    activeSkillEngagement ? "gap-1" : null
+                  )}
+                >
+                  <h1 className="truncate text-sm font-semibold leading-none tracking-tight text-text">
+                    {displayTitle}
+                  </h1>
+                  <ChatHeaderSubtitle engagement={activeSkillEngagement} />
+                </div>
               </div>
               <ChatModeToggle
                 mode={chatMode}
@@ -1360,6 +1289,190 @@ function ChatHeaderSubtitle({
         ) : null}
       </span>
     </span>
+  );
+}
+
+function resolveContextMeter(compaction: ChatCompactionState | null): {
+  ratio: number | null;
+  percent: number | null;
+  triggerTokens: number | null;
+  currentTokens: number | null;
+} {
+  if (!compaction) {
+    return { ratio: null, percent: null, triggerTokens: null, currentTokens: null };
+  }
+  const triggerTokens = Math.max(1, compaction.reserveTokens - compaction.keepRecentTokens);
+  const currentTokens = compaction.currentTokens;
+  if (typeof currentTokens !== "number") {
+    return { ratio: null, percent: null, triggerTokens, currentTokens: null };
+  }
+  const ratio = currentTokens / triggerTokens;
+  const percent = Math.round(Math.min(999, Math.max(0, ratio * 100)));
+  return { ratio, percent, triggerTokens, currentTokens };
+}
+
+function ChatContextMeter({
+  compaction,
+  compactionRunning,
+  compactDisabled,
+  onCompact
+}: {
+  compaction: ChatCompactionState | null;
+  compactionRunning: boolean;
+  compactDisabled: boolean;
+  onCompact: () => void;
+}) {
+  const t = useTranslations("chat");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const meter = resolveContextMeter(compaction);
+  const progress = meter.ratio === null ? 0 : Math.min(1, Math.max(0, meter.ratio));
+  const overThreshold = meter.ratio !== null && meter.ratio >= 1;
+  const size = 42;
+  const stroke = 3;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference * (1 - progress);
+  const percentLabel =
+    meter.percent === null ? "–" : meter.percent > 99 ? "99+" : String(meter.percent);
+  const ariaPercent =
+    meter.percent === null
+      ? t("contextMeterAriaUnknown")
+      : t("contextMeterAria", { percent: meter.percent });
+  const compactBlocked = compactDisabled || compactionRunning || !compaction;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (menuRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown, { passive: true });
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  return (
+    <div className="relative aspect-square h-full shrink-0">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        aria-label={ariaPercent}
+        data-testid="chat-context-meter"
+        onClick={() => setMenuOpen((open) => !open)}
+        className={cn(
+          "relative flex h-full w-full cursor-pointer items-center justify-center rounded-full bg-bg transition-colors",
+          menuOpen ? "bg-surface-hover" : "hover:bg-surface-hover"
+        )}
+      >
+        <svg
+          width={size}
+          height={size}
+          viewBox={`0 0 ${size} ${size}`}
+          className="absolute inset-0 h-full w-full -rotate-90"
+          aria-hidden="true"
+        >
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={stroke}
+            className="text-border-strong/70"
+          />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={dashOffset}
+            className={cn(
+              "transition-[stroke-dashoffset] duration-500 ease-out",
+              meter.ratio === null
+                ? "text-text-subtle/35"
+                : overThreshold
+                  ? "text-accent"
+                  : "text-accent/70"
+            )}
+          />
+        </svg>
+        <span
+          className={cn(
+            "relative z-[1] text-[9px] font-medium tabular-nums leading-none tracking-tight",
+            meter.ratio === null ? "text-text-subtle/35" : "text-text-subtle/45"
+          )}
+        >
+          {percentLabel}
+          {meter.percent !== null ? <span className="text-[7px] opacity-80">%</span> : null}
+        </span>
+      </button>
+      {menuOpen ? (
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label={t("contextMeterMenuAria")}
+          data-testid="chat-context-meter-menu"
+          className="absolute top-full left-[-3px] z-50 mt-2 flex w-[min(18rem,calc(100vw-1.5rem))] flex-col gap-2 rounded-[1.25rem] border border-border/45 bg-surface-raised p-3 shadow-[0_16px_40px_rgba(36,34,31,0.12)]"
+        >
+          <div className="px-0.5">
+            <p className="text-xs font-semibold text-text">{t("contextMeterMenuTitle")}</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
+              {t("contextMeterMenuBody")}
+            </p>
+            <p className="mt-2 text-[11px] tabular-nums text-text-subtle">
+              {meter.currentTokens === null || meter.triggerTokens === null
+                ? t("contextMeterDetailUnknown")
+                : t("contextMeterDetail", {
+                    current: meter.currentTokens,
+                    trigger: meter.triggerTokens,
+                    percent: meter.percent ?? 0
+                  })}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="menuitem"
+            disabled={compactBlocked}
+            onClick={() => {
+              setMenuOpen(false);
+              onCompact();
+            }}
+            className={cn(
+              "flex w-full items-center justify-center gap-2 rounded-2xl px-3 py-2.5 text-xs font-semibold transition-colors",
+              compactBlocked
+                ? "cursor-not-allowed bg-surface text-text-subtle"
+                : "cursor-pointer bg-accent text-white hover:bg-accent-hover"
+            )}
+          >
+            {compactionRunning ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.15} />
+            ) : (
+              <Scissors className="h-3.5 w-3.5" strokeWidth={1.15} />
+            )}
+            {compactionRunning ? t("compactionRunning") : t("compactionAction")}
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
