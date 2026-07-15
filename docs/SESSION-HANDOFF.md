@@ -1,5 +1,29 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — ADR-149 S0 audit lock complete; S1 delegated
+
+Status: **S0 committed locally on baseline `a753e77e`.** ADR-149 opened with
+cluster-log evidence (`runtime_timeout` ~615s ×2, tool-loop 35/34 iterations,
+no Stop, sandbox warmth OK). S0 reconciled ADR-149, `AGENTS.md`,
+`API-BOUNDARY.md` (current vs target), `TEST-PLAN.md`, handoff, changelog,
+continuity rule. **Push/deploy only after S5 gate.**
+
+Program slices:
+
+- **S1 (in progress):** durable Redis stop, mid-flight abort, lease heartbeat,
+  `user_stopped` hydration — delete in-memory hard-stop registry
+- **S2:** split turn wall-clock vs `video_generate`; progress-only idle stall;
+  **cadence `slow_avg`/`silent` frozen — do not touch**
+- **S3:** `tool_progress` shell/browser + client live-state fixes
+- **S4:** conservative orphan reconciler
+- **S5:** full gate + deploy + live acceptance
+
+Soft-detach (SSE ≠ stop) and ADR-148 warmth remain out of scope.
+
+**Next recommended step:** parent audit S1 diff; intermediate commit; delegate S2.
+
+---
+
 ## 2026-07-15 — ADR-148 closed after founder live TTL acceptance
 
 Status: **closed and pushed to `origin/main` as `57f92679` against baseline

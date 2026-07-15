@@ -2516,6 +2516,63 @@ Asserts `<character_notes>` appears exactly once when `snapshotInstructions` is 
 **GT6 — Memory provenance set on write paths** (`apps/api/test/write-assistant-memory.service.test.ts`)
 Verifies all four `AssistantMemoryProvenance` values (`user_explicit`, `system_inferred`, `auto_extracted`, `legacy`) are set correctly at write time by their respective services. ADR-120 Slice 1 retired the `<persai_memory>` contextual render (and `formatDurableMemoryContextualBlock`), so provenance is now a persisted column surfaced read-only in the Memory Center rather than an XML attribute in the prompt. Catches any regression that would drop or mis-tag provenance on the write path.
 
+## ADR-149 durable Stop, turn deadlines, live activity, orphan reconciliation
+
+Baseline: `a753e77ef66f98bab67e237b6aabe55b7f2f939b`. Parent-orchestrated S0–S5.
+Cadence `slow_avg` / `silent` must remain disabled — no tests re-enable them.
+
+### S1 — durable stop + mid-flight abort + lease heartbeat
+
+New/extended suites (names are contractual for S5 gate):
+
+- `apps/api/test/web-chat-turn-hard-stop-registry.test.ts` — replace with durable
+  Redis dispatch tests (delete in-memory-only path)
+- `apps/api/test/stream-web-chat-turn.service.test.ts` — `user_stopped` terminal,
+  explicit Stop vs soft-detach
+- `apps/api/test/adr149-durable-stop-dispatch.test.ts` — cross-replica hit/miss,
+  `200`/`404` responses
+- `apps/runtime/test/adr149-tool-abort-on-stop.test.ts` — sandbox cancel +
+  browser abort signal
+- `apps/runtime/test/turn-lease-heartbeat.service.test.ts` — wired renew on long
+  turn
+- `apps/sandbox/test/job-cancel.test.ts` — cancel endpoint idempotency
+- `apps/web/app/app/assistant-api-client.test.ts` — Stop non-204 handling
+- `apps/api/test/turn-context-hydration-user-stopped.test.ts` — next-turn marker
+
+Focused S1 commands:
+
+```powershell
+corepack pnpm --filter @persai/api exec tsx --test test/adr149-durable-stop-dispatch.test.ts test/web-chat-turn-hard-stop-registry.test.ts test/stream-web-chat-turn.service.test.ts test/turn-context-hydration-user-stopped.test.ts
+corepack pnpm --filter @persai/runtime exec tsx --test test/adr149-tool-abort-on-stop.test.ts test/turn-lease-heartbeat.service.test.ts
+corepack pnpm --filter @persai/sandbox exec tsx --test test/job-cancel.test.ts
+corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts -t stop
+corepack pnpm --filter @persai/api run typecheck
+corepack pnpm --filter @persai/runtime run typecheck
+corepack pnpm --filter @persai/web run typecheck
+```
+
+### S2 — turn deadline split + progress-only idle stall
+
+- `apps/api/test/adr149-turn-deadline-split.test.ts`
+- `apps/api/test/native-runtime-turn-timeout.test.ts` — stream ceiling no longer
+  `video_generate+15s`
+
+### S3 — tool progress activity
+
+- `apps/runtime/test/adr149-tool-progress.test.ts`
+- `apps/web/app/app/_components/use-chat.test.tsx` — shell lines, reattach merge
+
+### S4 — orphan reconciliation
+
+- `apps/api/test/adr149-orphan-reconcile.test.ts`
+- `apps/runtime/test/adr149-receipt-reconcile.test.ts`
+
+### S5 — full gate
+
+Run repository verification gate from `AGENTS.md` plus all ADR-149 focused suites
+above. OpenAPI/contracts regenerate with zero diff if stop contract changes.
+Live acceptance per ADR-149 S5.
+
 ## User-path smoke
 
 At minimum, prove:
