@@ -148,7 +148,7 @@ api:
     gcpServiceAccountEmail: api-runtime@project-44786b14-b7d7-4554-a8a.iam.gserviceaccount.com
   image:
     name: api
-    tag: fef33b57a0595e63a15bd84ab19487792eaa2f49
+    tag: 314ee37ada27b3b7c853b049b6d1898862f187c0
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -324,7 +324,7 @@ web:
       maxSurge: 1
   image:
     name: web
-    tag: 1e7934a37d44548f41315f833d25947e1d741a31
+    tag: 314ee37ada27b3b7c853b049b6d1898862f187c0
     pullPolicy: IfNotPresent
   env:
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_live_Y2xlcmsucGVyc2FpLmRldiQ
@@ -398,7 +398,7 @@ providerGateway:
       maxSurge: 1
   image:
     name: provider-gateway
-    tag: 1e7934a37d44548f41315f833d25947e1d741a31
+    tag: 314ee37ada27b3b7c853b049b6d1898862f187c0
     pullPolicy: IfNotPresent
   env:
     APP_ENV: dev
@@ -476,7 +476,7 @@ runtime:
     name: api-sa
   image:
     name: runtime
-    tag: fef33b57a0595e63a15bd84ab19487792eaa2f49
+    tag: 314ee37ada27b3b7c853b049b6d1898862f187c0
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -564,7 +564,7 @@ sandbox:
       name: sandbox-exec-egress-mode-contract
   image:
     name: sandbox
-    tag: fef33b57a0595e63a15bd84ab19487792eaa2f49
+    tag: 314ee37ada27b3b7c853b049b6d1898862f187c0
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
@@ -680,7 +680,7 @@ sandboxExec:
     # Exec image name in GAR (matches the service name in detect-affected + pin script).
     name: sandbox-exec
     # Initial tag; CI pins this to the SHA of the most recent successful build.
-    tag: 9e26f145ba09bcb156c3e3b18fbb4bf3ac02f8b4
+    tag: 314ee37ada27b3b7c853b049b6d1898862f187c0
   # ADR-123 Slice 3 warm-pool follow-up: a DaemonSet that keeps the exec image pulled on
   # every sandbox node so cold-start exec pods skip the multi-GB image pull. Pairs with a
   # >=1 minimum node on the sandbox pool (set via node-pool autoscaling — see RUNBOOK).
