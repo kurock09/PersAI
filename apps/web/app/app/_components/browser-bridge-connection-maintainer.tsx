@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
 import {
+  BRIDGE_REGISTRATION_RENEW_AFTER_MS,
   getExtensionBridgeStatus,
   isNativeBrowserBridgeShell,
   releaseLocalBrowserObserverLocks,
@@ -95,7 +96,16 @@ export function BrowserBridgeConnectionMaintainer({
             status.assistantId === assistantId &&
             status.workspaceId === workspaceId
           ) {
-            return;
+            const updatedAt = status.registrationUpdatedAt;
+            // Matching live socket: skip register churn unless credentials are
+            // aging toward the API token TTL (renew while still connected).
+            if (
+              typeof updatedAt !== "number" ||
+              !Number.isFinite(updatedAt) ||
+              Date.now() - updatedAt < BRIDGE_REGISTRATION_RENEW_AFTER_MS
+            ) {
+              return;
+            }
           }
         } catch {
           // Missing extension: stay silent so ordinary web use is unaffected.

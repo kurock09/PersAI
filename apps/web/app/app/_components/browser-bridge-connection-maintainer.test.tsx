@@ -17,6 +17,7 @@ vi.mock("@clerk/nextjs", () => ({
 }));
 
 vi.mock("../browser-bridge-client", () => ({
+  BRIDGE_REGISTRATION_RENEW_AFTER_MS: 3 * 60 * 60 * 1000,
   getExtensionBridgeStatus: (...args: unknown[]) => getExtensionBridgeStatus(...args),
   isNativeBrowserBridgeShell: () => false,
   releaseLocalBrowserObserverLocks: (...args: unknown[]) =>
@@ -123,7 +124,8 @@ describe("BrowserBridgeConnectionMaintainer", () => {
     getExtensionBridgeStatus.mockResolvedValue({
       connected: true,
       assistantId: "assistant-1",
-      workspaceId: "workspace-1"
+      workspaceId: "workspace-1",
+      registrationUpdatedAt: Date.now()
     });
 
     render(
@@ -134,5 +136,27 @@ describe("BrowserBridgeConnectionMaintainer", () => {
       expect(getExtensionBridgeStatus).toHaveBeenCalled();
     });
     expect(registerExtensionBridgeDevice).not.toHaveBeenCalled();
+  });
+
+  it("renews credentials for a live connection before the token safe-age wall", async () => {
+    getExtensionBridgeStatus.mockResolvedValue({
+      connected: true,
+      assistantId: "assistant-1",
+      workspaceId: "workspace-1",
+      registrationUpdatedAt: Date.now() - 3 * 60 * 60 * 1000 - 1_000
+    });
+    registerExtensionBridgeDevice.mockResolvedValue({ connected: true });
+
+    render(
+      <BrowserBridgeConnectionMaintainer assistantId="assistant-1" workspaceId="workspace-1" />
+    );
+
+    await waitFor(() => {
+      expect(registerExtensionBridgeDevice).toHaveBeenCalledWith({
+        token: "test-token",
+        assistantId: "assistant-1",
+        workspaceId: "workspace-1"
+      });
+    });
   });
 });

@@ -115,6 +115,7 @@ function createChat(
     messages?: ChatMessage[];
     currentEngagement?: UseChatReturn["currentEngagement"];
     compaction?: UseChatReturn["compaction"];
+    compactionRunning?: boolean;
     compactNow?: UseChatReturn["compactNow"];
   }
 ): UseChatReturn {
@@ -149,7 +150,7 @@ function createChat(
     issue: options?.issue ?? null,
     compaction: options?.compaction ?? null,
     recentAutoCompaction: null,
-    compactionRunning: false,
+    compactionRunning: options?.compactionRunning ?? false,
     chatPlan: [],
     chatPlanTotalCount: 0,
     chatPlanWindowed: false,
@@ -774,9 +775,9 @@ describe("ChatArea", () => {
     expect(title.className).not.toMatch(/text-base/);
   });
 
-  it("replaces the title-pill rename control with a context meter menu", async () => {
+  it("expands the context meter into an overlay pill and compacts from link or scissors", async () => {
     const compactNow = vi.fn(async () => null);
-    render(
+    const { rerender } = render(
       <ChatArea
         chat={createChat("Hello", {
           isStreaming: false,
@@ -806,14 +807,48 @@ describe("ChatArea", () => {
     const meter = screen.getByTestId("chat-context-meter");
     expect(meter).toHaveAttribute("aria-label", "contextMeterAria");
     expect(meter).toHaveTextContent("50%");
+    expect(screen.getByTestId("chat-context-meter-shell")).toHaveClass("w-full");
     fireEvent.click(meter);
 
-    const menu = await screen.findByTestId("chat-context-meter-menu");
-    expect(menu).toHaveClass("left-[-3px]");
-    expect(within(menu).getByText("contextMeterMenuTitle")).toBeInTheDocument();
-    expect(within(menu).getByText("contextMeterMenuBody")).toBeInTheDocument();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "compactionAction" }));
+    expect(screen.getByTestId("chat-context-meter-shell")).toHaveClass("w-[13.75rem]");
+    expect(screen.getByText("contextMeterMenuTitle")).toBeInTheDocument();
+    expect(screen.queryByText("contextMeterMenuBody")).toBeNull();
+    fireEvent.click(screen.getByTestId("chat-context-meter-compact-link"));
     expect(compactNow).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("chat-context-meter-shell")).toHaveClass("w-full");
+
+    fireEvent.click(meter);
+    fireEvent.click(screen.getByTestId("chat-context-meter-compact-scissors"));
+    expect(compactNow).toHaveBeenCalledTimes(2);
+
+    rerender(
+      <ChatArea
+        chat={createChat("Hello", {
+          isStreaming: false,
+          compactNow,
+          compactionRunning: true,
+          compaction: {
+            available: true,
+            suggested: false,
+            suggestionReason: null,
+            messageCount: 4,
+            assistantMessageCount: 2,
+            currentTokens: 4_000,
+            sessionKey: "sess-1",
+            compactionCount: 0,
+            lastCompactedAt: null,
+            reserveTokens: 10_000,
+            keepRecentTokens: 2_000,
+            autoCompactionEnabled: true,
+            exhaustedAtPlanLimit: false,
+            recentAutoCompactionStreak: 0
+          }
+        })}
+        title="Meter chat"
+      />
+    );
+    expect(screen.getByTestId("chat-context-meter-shell")).toHaveClass("w-full");
+    expect(screen.getByTestId("chat-context-meter")).toBeDisabled();
   });
 
   it("fades message scroll at the edges with fully transparent header/footer chrome", () => {

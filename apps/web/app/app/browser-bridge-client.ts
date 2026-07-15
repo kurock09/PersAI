@@ -21,7 +21,10 @@ const DEFAULT_MAX_CHARS = 12_000;
 const NATIVE_COMMAND_TRANSPORT_RESERVE_MS = 5_000;
 const MAX_NATIVE_COMMAND_WAIT_MS = 40_000;
 const DEFAULT_NATIVE_COMMAND_TIMEOUT_MS = 45_000;
-const NATIVE_REGISTRATION_SAFE_AGE_MS = 14 * 60 * 1000;
+/** Must stay slightly under API DEVICE_TOKEN_TTL_MS (4h). */
+const NATIVE_REGISTRATION_SAFE_AGE_MS = 4 * 60 * 60 * 1000 - 5 * 60 * 1000;
+/** Proactive credential renew while the socket is still up (before safe-age wall). */
+export const BRIDGE_REGISTRATION_RENEW_AFTER_MS = 3 * 60 * 60 * 1000;
 const NATIVE_RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
 
 export const PERSAI_BROWSER_BRIDGE_WEB_STORE_URL: string | null = null;
@@ -80,6 +83,8 @@ export type ExtensionBridgeStatus = {
   bridgeDeviceId: string | null;
   assistantId: string | null;
   workspaceId: string | null;
+  /** Extension/native local clock when the current device token was stored. */
+  registrationUpdatedAt?: number | null;
   profileCount: number;
   lastProfileKey: string | null;
   /**
@@ -199,6 +204,9 @@ function isExtensionBridgeStatus(value: unknown): value is ExtensionBridgeStatus
     (typeof row.bridgeDeviceId === "string" || row.bridgeDeviceId === null) &&
     (typeof row.assistantId === "string" || row.assistantId === null) &&
     (typeof row.workspaceId === "string" || row.workspaceId === null) &&
+    (row.registrationUpdatedAt === undefined ||
+      typeof row.registrationUpdatedAt === "number" ||
+      row.registrationUpdatedAt === null) &&
     typeof row.profileCount === "number" &&
     (typeof row.lastProfileKey === "string" || row.lastProfileKey === null)
   );
@@ -242,6 +250,7 @@ function toBridgeStatus(): ExtensionBridgeStatus {
     bridgeDeviceId: nativeBridgeState.registration?.bridgeDeviceId ?? null,
     assistantId: nativeBridgeState.assistantId,
     workspaceId: nativeBridgeState.workspaceId,
+    registrationUpdatedAt: nativeBridgeState.registrationAt,
     profileCount: 0,
     lastProfileKey: null
   });

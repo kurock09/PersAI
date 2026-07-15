@@ -27,5 +27,10 @@ export const EXECUTOR_ERROR_REASON = "bridge_executor_error";
 export const BRIDGE_MESSAGE_SOURCE = "persai-browser-extension";
 
 export const RECONNECT_BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
-/** Stop dialing after this many consecutive WS connect failures until online/register. */
+/** Stop dialing after this many consecutive *pre-open* WS dial failures until online/register. */
 export const MAX_CONSECUTIVE_BRIDGE_CONNECT_FAILURES = 5;
+/**
+ * Must stay slightly under API `DEVICE_TOKEN_TTL_MS` (4h). Dialing with an
+ * expired token only spams the relay; wait for web re-registration instead.
+ */
+export const REGISTRATION_TOKEN_SAFE_AGE_MS = 4 * 60 * 60 * 1000 - 5 * 60 * 1000;

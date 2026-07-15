@@ -560,6 +560,8 @@ corepack pnpm --filter @persai/runtime exec tsx test/native-tool-projection.test
 corepack pnpm --filter @persai/runtime exec tsx test/sanitize-tool-result-for-model.test.ts
 corepack pnpm --filter @persai/provider-gateway exec tsx test/provider-browser.service.test.ts
 corepack pnpm --filter @persai/web exec vitest run app/app/browser-bridge-client.test.ts app/app/browser-bridge-page-runner-source.test.ts app/app/_components/browser-login-modal.test.tsx app/app/_components/browser-bridge-connection-maintainer.test.tsx app/app/_components/assistant-settings.test.tsx app/app/_components/chat-area.test.tsx app/app/_components/use-chat.test.tsx --config vitest.config.ts
+corepack pnpm --filter @persai/browser-extension run test
+corepack pnpm --filter @persai/browser-extension run build
 corepack pnpm --filter @persai/api run typecheck
 corepack pnpm --filter @persai/runtime run typecheck
 corepack pnpm --filter @persai/provider-gateway run typecheck
@@ -568,6 +570,7 @@ corepack pnpm --filter @persai/web run typecheck
 
 Live acceptance (post-deploy):
 
+0. After api+web deploy and Chrome extension rebuild/reload: keep a desktop bridge connected through a multi-minute assistant browser turn; a transient `ERR_CONNECTION_RESET` must reconnect without requiring a manual extension refresh, and work past the old 15-minute token wall must still succeed while a PersAI tab remains open.
 1. Public `browser.snapshot` without `profile` still uses headless Browserless and returns text plus `page.elements`.
 2. Public `browser.snapshot` with `format:"png"|"pdf"` and no `profile` still returns attachable artifacts through the headless path.
 3. `browser.login` with `displayName` + login `url` on desktop web auto-opens the local-bridge modal and completes to `active`.

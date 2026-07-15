@@ -16,11 +16,13 @@ import {
   MAX_EXTRACT_ITEMS,
   MAX_INTERACTIVE_ELEMENTS,
   MAX_OPERATION_COUNT,
+  REGISTRATION_TOKEN_SAFE_AGE_MS,
   SOCKET_IDLE_CLOSE_REASON
 } from "./constants.js";
 import {
   isAllowedBridgeWebSocketUrl,
   shouldAttemptBridgeDial,
+  shouldCountBridgeConnectFailure,
   shouldKeepBridgeConnection
 } from "./connection-policy.js";
 import {
@@ -63,11 +65,6 @@ import { readState, reconcileProfileRecord, updateState, writeState } from "./st
 
 const KEEPALIVE_PORT_NAMES = new Set(["persai-page-keepalive", "persai-popup-keepalive"]);
 
-/**
- * Server bridge device tokens live 15 minutes; treat a stored registration
- * older than 14 minutes as unusable for dialing (see connectSocketIfNeeded).
- */
-const REGISTRATION_TOKEN_SAFE_AGE_MS = 14 * 60 * 1000;
 const PERMISSION_GRANT_TIMEOUT_MS = 90_000;
 const PERMISSION_GRANT_POLL_MS = 250;
 const SCREENSHOT_PERMISSION_PATTERN = "<all_urls>";
@@ -192,11 +189,11 @@ async function connectSocketIfNeeded(): Promise<void> {
   if (registration === null || registration === undefined) {
     return;
   }
-  // Server device tokens expire after 15 minutes and the extension cannot
-  // mint a new one (registration needs the user's Clerk session in the web
-  // tab). Dialing with a stale token just spams the relay with
-  // "Device token has expired" rejections forever — stop and wait for the
-  // web modal to push a fresh registration, which restarts the connection.
+  // Server device tokens expire after DEVICE_TOKEN_TTL_MS and the extension
+  // cannot mint a new one (registration needs the user's Clerk session in the
+  // web tab). Dialing with a stale token just spams the relay with
+  // "Device token has expired" rejections forever — stop and wait for the web
+  // maintainer/modal to push a fresh registration, which restarts the connection.
   if (Date.now() - registration.updatedAt > REGISTRATION_TOKEN_SAFE_AGE_MS) {
     return;
   }
@@ -218,6 +215,7 @@ async function connectSocketIfNeeded(): Promise<void> {
   }
 
   let nextSocket: WebSocket;
+  let dialReachedOpen = false;
   try {
     nextSocket = new WebSocket(registration.websocketUrl);
   } catch {
@@ -230,6 +228,7 @@ async function connectSocketIfNeeded(): Promise<void> {
   // Attach handlers in the same synchronous turn as construction so Chromium
   // never treats a failed dial as an unhandled socket error path.
   nextSocket.onopen = () => {
+    dialReachedOpen = true;
     resetConnectFailureBudget();
     reconnectAttempts = 0;
     const payload: LocalBrowserBridgeWebSocketConnectRequest = {
@@ -300,9 +299,12 @@ async function connectSocketIfNeeded(): Promise<void> {
   };
   nextSocket.onerror = () => {
     // Chromium may still list a single net::ERR_* on the Errors page for a
-    // failed dial; handling here + failure budget prevents reconnect spam that
-    // fails Web Store review.
-    noteConnectFailure();
+    // failed dial; handling here + pre-open failure budget prevents reconnect
+    // spam that fails Web Store review. Do not burn the budget after OPEN —
+    // LB resets during long work must reconnect freely.
+    if (shouldCountBridgeConnectFailure(dialReachedOpen)) {
+      noteConnectFailure();
+    }
     try {
       nextSocket.close();
     } catch {
@@ -315,6 +317,10 @@ async function connectSocketIfNeeded(): Promise<void> {
       socketDeviceId = null;
     }
     if (desiredConnection) {
+      if (dialReachedOpen) {
+        // Healthy session flap: prefer a fast redial over leftover backoff.
+        reconnectAttempts = 0;
+      }
       scheduleReconnect();
     }
   };
@@ -430,6 +436,7 @@ function buildStatus(state: ExtensionStorageState): Record<string, unknown> {
     bridgeDeviceId: state.registration?.bridgeDeviceId ?? null,
     assistantId: state.registration?.assistantId ?? null,
     workspaceId: state.registration?.workspaceId ?? null,
+    registrationUpdatedAt: state.registration?.updatedAt ?? null,
     profileCount: Object.keys(state.profiles).length,
     lastProfileKey: state.lastProfileKey ?? null
   };

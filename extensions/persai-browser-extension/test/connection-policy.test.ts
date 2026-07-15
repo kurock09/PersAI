@@ -3,11 +3,13 @@ import test from "node:test";
 import {
   isAllowedBridgeWebSocketUrl,
   shouldAttemptBridgeDial,
+  shouldCountBridgeConnectFailure,
   shouldKeepBridgeConnection
 } from "../src/connection-policy.js";
+import { REGISTRATION_TOKEN_SAFE_AGE_MS } from "../src/constants.js";
 
 const NOW = 1_000_000;
-const MAX_AGE_MS = 14 * 60 * 1_000;
+const MAX_AGE_MS = REGISTRATION_TOKEN_SAFE_AGE_MS;
 
 test("fresh registration keeps bridge connected without a page port", () => {
   assert.equal(
@@ -95,6 +97,16 @@ test("bridge dial requires online and stays under the failure budget", () => {
     }),
     false
   );
+});
+
+test("connect-failure budget counts only pre-open dials", () => {
+  assert.equal(shouldCountBridgeConnectFailure(false), true);
+  assert.equal(shouldCountBridgeConnectFailure(true), false);
+});
+
+test("registration safe age stays under a multi-hour device token TTL", () => {
+  assert.ok(MAX_AGE_MS >= 3 * 60 * 60 * 1000);
+  assert.ok(MAX_AGE_MS < 4 * 60 * 60 * 1000);
 });
 
 test("bridge websocket URL allowlist accepts PersAI and local only", () => {

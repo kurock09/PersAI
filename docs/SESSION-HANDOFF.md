@@ -1,5 +1,39 @@
 # SESSION-HANDOFF
 
+## 2026-07-16 — Bridge reconnect + context-meter pill + sidebar card (local → push)
+
+Status: **gates green, committing/pushing.** Baseline was `f12f542b`.
+
+**Bridge:** dial-failure budget only pre-OPEN; device-token TTL 15m→4h; maintainer renews live credentials after 3h; extension rebuild required after deploy.
+
+**UI:** context meter expands in-place over title (no modal); sidebar assistant icons align with nick + truncate.
+
+**Gate:** `pnpm -r lint` ✅, `format:check` ✅, api/web/extension typecheck ✅; extension test+build ✅; api browser-bridge relay+devices ✅; web bridge/maintainer/chat-area/sidebar ✅ (83).
+
+**Next after push:** deploy api+web; reload unpacked Chrome extension; live long browser turn + visual check of meter/sidebar.
+
+---
+
+## 2026-07-16 — Context meter expand-to-pill (local)
+
+Status: **folded into bridge+UI push above.**
+
+---
+
+## 2026-07-16 — Desktop bridge mid-work reconnect (local)
+
+Status: **implemented locally** on clean `f12f542b`. Not committed/pushed.
+
+Founder chrome://extensions showed `wss://api.persai.dev/.../browser-bridge/ws` `net::ERR_CONNECTION_RESET` while the bridge was in active use.
+
+**Fix:**
+- Extension dial-spam budget counts only pre-OPEN failures; post-OPEN LB flaps reset backoff and reconnect freely.
+- API device-token TTL 15m → 4h; extension/native safe-age ~3h55m; status exposes `registrationUpdatedAt`; app-shell maintainer renews a still-connected matching scope after 3h.
+
+**Next:** focused extension + maintainer tests + extension build → commit/push when founder asks → deploy api+web → reload unpacked extension → live long browser turn must survive LB flaps without permanent disconnect.
+
+---
+
 ## 2026-07-16 — ADR-149 + ADR-150 closed (founder)
 
 Status: **pushed** `f846a022` (+ TEST-PLAN `cf86d588`). Founder directed both closed.

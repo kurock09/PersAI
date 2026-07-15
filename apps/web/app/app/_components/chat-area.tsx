@@ -1323,9 +1323,8 @@ function ChatContextMeter({
   onCompact: () => void;
 }) {
   const t = useTranslations("chat");
-  const [menuOpen, setMenuOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const meter = resolveContextMeter(compaction);
   const progress = meter.ratio === null ? 0 : Math.min(1, Math.max(0, meter.ratio));
   const overThreshold = meter.ratio !== null && meter.ratio >= 1;
@@ -1334,7 +1333,6 @@ function ChatContextMeter({
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - progress);
-  // Small gray center label, e.g. "45%" — only when session reports real token usage.
   const percentLabel =
     meter.percent === null ? "–" : meter.percent > 99 ? "99+%" : `${String(meter.percent)}%`;
   const ariaPercent =
@@ -1342,18 +1340,25 @@ function ChatContextMeter({
       ? t("contextMeterAriaUnknown")
       : t("contextMeterAria", { percent: meter.percent });
   const compactBlocked = compactDisabled || compactionRunning || !compaction;
+  const showSpinner = compactionRunning;
+  const showProgress = !expanded && !showSpinner;
 
   useEffect(() => {
-    if (!menuOpen) return;
+    if (compactionRunning) {
+      setExpanded(false);
+    }
+  }, [compactionRunning]);
+
+  useEffect(() => {
+    if (!expanded) return;
     const onDown = (e: MouseEvent | TouchEvent) => {
       const target = e.target as Node | null;
       if (!target) return;
-      if (menuRef.current?.contains(target)) return;
-      if (triggerRef.current?.contains(target)) return;
-      setMenuOpen(false);
+      if (rootRef.current?.contains(target)) return;
+      setExpanded(false);
     };
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
+      if (e.key === "Escape") setExpanded(false);
     };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("touchstart", onDown, { passive: true });
@@ -1363,109 +1368,132 @@ function ChatContextMeter({
       document.removeEventListener("touchstart", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [menuOpen]);
+  }, [expanded]);
+
+  const runCompact = () => {
+    if (compactBlocked) return;
+    setExpanded(false);
+    onCompact();
+  };
 
   return (
-    <div className="relative aspect-square h-full shrink-0">
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
-        aria-label={ariaPercent}
-        data-testid="chat-context-meter"
-        onClick={() => setMenuOpen((open) => !open)}
+    <div ref={rootRef} className="relative aspect-square h-full shrink-0">
+      <div
+        data-testid="chat-context-meter-shell"
         className={cn(
-          "relative flex h-full w-full cursor-pointer items-center justify-center rounded-full bg-bg transition-colors",
-          menuOpen ? "bg-surface-hover" : "hover:bg-surface-hover"
+          // Expands right over the title without shifting layout (absolute overlay).
+          "absolute top-0 left-0 z-50 flex h-full overflow-hidden rounded-full bg-border/55 transition-[width] duration-300 ease-out",
+          expanded ? "w-[13.75rem]" : "w-full"
         )}
       >
-        <svg
-          width={size}
-          height={size}
-          viewBox={`0 0 ${size} ${size}`}
-          className="absolute inset-0 h-full w-full"
-          aria-hidden="true"
-        >
-          {/* Solid disk only — no empty progress track underneath. */}
-          <circle cx={size / 2} cy={size / 2} r={size / 2} className="fill-border/55" />
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={stroke}
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={dashOffset}
-            transform={`rotate(-90 ${String(size / 2)} ${String(size / 2)})`}
-            className={cn(
-              "transition-[stroke-dashoffset] duration-500 ease-out",
-              meter.ratio === null
-                ? "text-transparent"
-                : overThreshold
-                  ? "text-accent"
-                  : "text-accent/80"
-            )}
-          />
-        </svg>
-        <span
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={expanded}
+          aria-label={ariaPercent}
+          data-testid="chat-context-meter"
+          disabled={showSpinner}
+          onClick={() => {
+            if (showSpinner) return;
+            setExpanded((open) => !open);
+          }}
           className={cn(
-            "relative z-[1] max-w-[2.1rem] truncate text-center text-[9px] font-medium tabular-nums leading-none tracking-tight",
-            meter.ratio === null ? "text-text-muted/55" : "text-text-muted"
+            "relative flex aspect-square h-full shrink-0 items-center justify-center rounded-full transition-colors",
+            showSpinner ? "cursor-wait" : "cursor-pointer hover:bg-black/[0.04]"
           )}
         >
-          {percentLabel}
-        </span>
-      </button>
-      {menuOpen ? (
+          {showProgress ? (
+            <svg
+              width={size}
+              height={size}
+              viewBox={`0 0 ${size} ${size}`}
+              className="pointer-events-none absolute inset-0 h-full w-full"
+              aria-hidden="true"
+            >
+              <circle
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={stroke}
+                strokeLinecap="round"
+                strokeDasharray={circumference}
+                strokeDashoffset={dashOffset}
+                transform={`rotate(-90 ${String(size / 2)} ${String(size / 2)})`}
+                className={cn(
+                  "transition-[stroke-dashoffset] duration-500 ease-out",
+                  meter.ratio === null
+                    ? "text-transparent"
+                    : overThreshold
+                      ? "text-accent"
+                      : "text-accent/80"
+                )}
+              />
+            </svg>
+          ) : null}
+          {showSpinner ? (
+            <Loader2
+              className="relative z-[1] h-3.5 w-3.5 animate-spin text-text-muted"
+              strokeWidth={1.15}
+              aria-hidden="true"
+            />
+          ) : (
+            <span
+              className={cn(
+                "relative z-[1] max-w-[2.1rem] truncate text-center text-[9px] font-medium tabular-nums leading-none tracking-tight",
+                meter.ratio === null ? "text-text-muted/55" : "text-text-muted"
+              )}
+            >
+              {percentLabel}
+            </span>
+          )}
+        </button>
+
         <div
-          ref={menuRef}
-          role="menu"
-          aria-label={t("contextMeterMenuAria")}
-          data-testid="chat-context-meter-menu"
-          className="absolute top-full left-[-3px] z-50 mt-2 flex w-[min(18rem,calc(100vw-1.5rem))] flex-col gap-2 rounded-[1.25rem] border border-border/45 bg-surface-raised p-3 shadow-[0_16px_40px_rgba(36,34,31,0.12)]"
+          className={cn(
+            "flex h-full min-w-0 items-center gap-0.5 overflow-hidden transition-[max-width,opacity] duration-300 ease-out",
+            expanded ? "max-w-[10.5rem] flex-1 opacity-100" : "max-w-0 flex-none opacity-0"
+          )}
+          aria-hidden={!expanded}
         >
-          <div className="px-0.5">
-            <p className="text-xs font-semibold text-text">{t("contextMeterMenuTitle")}</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
-              {t("contextMeterMenuBody")}
+          <div className="min-w-0 flex-1 py-0.5 pl-0.5">
+            <p className="truncate text-sm font-semibold leading-none tracking-tight text-text">
+              {t("contextMeterMenuTitle")}
             </p>
-            <p className="mt-2 text-[11px] tabular-nums text-text-subtle">
-              {meter.currentTokens === null || meter.triggerTokens === null
-                ? t("contextMeterDetailUnknown")
-                : t("contextMeterDetail", {
-                    current: meter.currentTokens,
-                    trigger: meter.triggerTokens,
-                    percent: meter.percent ?? 0
-                  })}
-            </p>
+            <button
+              type="button"
+              tabIndex={expanded ? 0 : -1}
+              data-testid="chat-context-meter-compact-link"
+              disabled={compactBlocked}
+              onClick={runCompact}
+              className={cn(
+                "mt-1 block truncate text-left text-[11px] leading-none underline-offset-2 transition-colors",
+                compactBlocked
+                  ? "cursor-not-allowed text-text-subtle"
+                  : "cursor-pointer text-text-muted hover:text-text hover:underline"
+              )}
+            >
+              {t("compactionAction")}
+            </button>
           </div>
           <button
             type="button"
-            role="menuitem"
+            tabIndex={expanded ? 0 : -1}
+            data-testid="chat-context-meter-compact-scissors"
+            aria-label={t("compactionAction")}
             disabled={compactBlocked}
-            onClick={() => {
-              setMenuOpen(false);
-              onCompact();
-            }}
+            onClick={runCompact}
             className={cn(
-              "flex w-full items-center justify-center gap-2 rounded-2xl px-3 py-2.5 text-xs font-semibold transition-colors",
-              compactBlocked
-                ? "cursor-not-allowed bg-surface text-text-subtle"
-                : "cursor-pointer bg-accent text-white hover:bg-accent-hover"
+              // Coaxial with the right pill cap — same hover language as plan trash.
+              "flex aspect-square h-full shrink-0 items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-40",
+              "text-text-muted hover:bg-surface-hover hover:text-text"
             )}
           >
-            {compactionRunning ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.15} />
-            ) : (
-              <Scissors className="h-3.5 w-3.5" strokeWidth={1.15} />
-            )}
-            {compactionRunning ? t("compactionRunning") : t("compactionAction")}
+            <Scissors className="h-3.5 w-3.5" strokeWidth={1.15} />
           </button>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

@@ -16,6 +16,9 @@ export function shouldKeepBridgeConnection(input: {
  * dials on the extension Errors page even with `error` listeners; avoid dialing
  * while offline or after a short consecutive-failure budget so Web Store review
  * does not see a reconnect spam of net::ERR_* entries.
+ *
+ * The budget covers only dials that never reached OPEN. Mid-session drops
+ * (LB `ERR_CONNECTION_RESET` after a healthy open) must reconnect freely.
  */
 export function shouldAttemptBridgeDial(input: {
   desiredConnection: boolean;
@@ -36,6 +39,11 @@ export function shouldAttemptBridgeDial(input: {
     return false;
   }
   return input.consecutiveFailures < input.maxConsecutiveFailures;
+}
+
+/** Count toward the dial spam budget only when the socket never reached OPEN. */
+export function shouldCountBridgeConnectFailure(dialReachedOpen: boolean): boolean {
+  return dialReachedOpen !== true;
 }
 
 export function isAllowedBridgeWebSocketUrl(raw: string): boolean {

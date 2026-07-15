@@ -31,7 +31,8 @@ import {
 } from "./browser-bridge-coordinator.service";
 
 const DEVICE_TOKEN_VERSION = "v1";
-const DEVICE_TOKEN_TTL_MS = 15 * 60 * 1000;
+/** Long enough for multi-hour bridge work; clients renew well before expiry. */
+const DEVICE_TOKEN_TTL_MS = 4 * 60 * 60 * 1000;
 const COMMAND_RESULT_RETENTION_MS = 5 * 60 * 1000;
 const DISPATCH_RATE_WINDOW_MS = 60_000;
 const MAX_DISPATCHES_PER_WINDOW = 20;
