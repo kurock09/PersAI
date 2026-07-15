@@ -1,5 +1,31 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — ADR-149 S0–S4 complete; S5 local gate green (not pushed)
+
+Status: **all implementation slices on `main` at `7b14f8df`.** Push = deploy —
+**not pushed** pending founder live acceptance.
+
+| Slice | Commit | Summary |
+|-------|--------|---------|
+| S0 | `5949d696` | ADR-149 opened, baseline `a753e77e` |
+| S1 | `d0382151` | Durable Redis Stop, mid-flight abort, `user_stopped` |
+| S2 | `bc3d6ee8` | Wall-clock 30m + idle stall 5m; no 615s video inflation |
+| S3 | `d7da3e34` | `tool_progress` shell/browser live activity |
+| S4 | `7b14f8df` | Orphan attempt + receipt reconcilers (20m grace) |
+
+**S5 local gate:** lint ✅ format ✅ api/web/runtime/sandbox typecheck ✅ ADR-149
+focused tests **39/39** ✅
+
+**Residuals:** sandbox/browser cancel best-effort; runtime receipt scheduler
+idempotent without cross-replica lease; `slow_avg`/`silent` frozen disabled.
+
+**Live acceptance (post-deploy):** Stop ~2s + user_stopped; soft-detach; turn >10m
+with progress; orphan reconcile; browser stop best-effort.
+
+**Next recommended step:** founder says push → deploy → live acceptance → close ADR-149.
+
+---
+
 ## 2026-07-15 — ADR-149 S2 landed locally (parent audit CLEAN)
 
 Status: **S2 implemented** — wall-clock 30m + idle stall 5m; no more 615s video

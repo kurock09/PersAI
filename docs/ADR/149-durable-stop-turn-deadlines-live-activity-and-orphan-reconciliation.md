@@ -2,8 +2,8 @@
 
 ## Status
 
-**Open 2026-07-15** — parent-orchestrated program. **S0–S3 landed locally**. S4–S5
-not started.
+**Open 2026-07-15** — **S0–S4 implemented locally; S5 local gate green.** Deploy +
+live acceptance pending (push = deploy).
 
 ## Date
 
