@@ -3,8 +3,10 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -31,7 +33,7 @@ import { AssistantRuntimePreflightService } from "../../application/assistant-ru
 import { SendWebChatTurnService } from "../../application/send-web-chat-turn.service";
 import { ManageWebChatListService } from "../../application/manage-web-chat-list.service";
 import { StreamWebChatTurnService } from "../../application/stream-web-chat-turn.service";
-import { WebChatTurnHardStopRegistry } from "../../application/web-chat-turn-hard-stop-registry.service";
+import { WebChatTurnStopDispatchService } from "../../application/web-chat-turn-stop-dispatch.service";
 import { WebChatTurnStreamRegistry } from "../../application/web-chat-turn-stream-registry.service";
 import {
   WebChatTurnAttemptService,
@@ -114,7 +116,7 @@ export class AssistantController {
     private readonly sendWebChatTurnService: SendWebChatTurnService,
     private readonly manageWebChatListService: ManageWebChatListService,
     private readonly streamWebChatTurnService: StreamWebChatTurnService,
-    private readonly webChatTurnHardStopRegistry: WebChatTurnHardStopRegistry,
+    private readonly webChatTurnStopDispatchService: WebChatTurnStopDispatchService,
     private readonly webChatTurnStreamRegistry: WebChatTurnStreamRegistry,
     private readonly updateAssistantDraftService: UpdateAssistantDraftService,
     private readonly previewAssistantSetupService: PreviewAssistantSetupService,
@@ -1348,7 +1350,7 @@ export class AssistantController {
       if (clientTurnIdForRegistry !== undefined && preparation.mode === "prepared") {
         assistantIdForRegistry = preparation.prepared.assistantId;
         streamRegistryUserId = preparation.prepared.userId;
-        this.webChatTurnHardStopRegistry.register({
+        this.webChatTurnStopDispatchService.register({
           assistantId: preparation.prepared.assistantId,
           clientTurnId: clientTurnIdForRegistry,
           userId: preparation.prepared.userId,
@@ -1382,6 +1384,13 @@ export class AssistantController {
         // routes a soft-detached turn through the regular full-message
         // persistence path.
         isClientAborted: () => clientAbortController.signal.aborted,
+        isUserStopped: () =>
+          clientTurnIdForRegistry !== undefined && assistantIdForRegistry !== undefined
+            ? this.webChatTurnStopDispatchService.wasUserStopped(
+                assistantIdForRegistry,
+                clientTurnIdForRegistry
+              )
+            : false,
         clientAbortSignal: clientAbortController.signal,
         onDelta: (delta) => {
           sendSse("delta", { delta });
@@ -1452,7 +1461,7 @@ export class AssistantController {
     } finally {
       clearInterval(heartbeat);
       if (assistantIdForRegistry !== undefined && clientTurnIdForRegistry !== undefined) {
-        this.webChatTurnHardStopRegistry.release({
+        this.webChatTurnStopDispatchService.release({
           assistantId: assistantIdForRegistry,
           clientTurnId: clientTurnIdForRegistry,
           controller: clientAbortController
@@ -1469,26 +1478,17 @@ export class AssistantController {
   }
 
   /**
-   * Pre-prod polish 2026 / FIX 1, Slice 1.2 — explicit hard-stop endpoint.
+   * ADR-149 S1 — explicit hard-stop endpoint with durable cross-replica dispatch.
    *
-   * Web client calls this fire-and-forget right before locally aborting
-   * its EventSource when the user clicks Stop. The body carries the same
-   * `clientTurnId` already used by the streaming endpoint and persistence
-   * layer to identify the turn end-to-end. We respond 204 unconditionally
-   * (idempotent) — if no in-flight turn is registered (turn already
-   * finished, request hit the wrong replica, or a stale Stop click), the
-   * client falls back to its local socket abort, which preserves the
-   * pre-Slice-1.2 behavior. Authorization is enforced both at the
-   * controller boundary (via `resolveRequestUserId`) and inside the
-   * registry (refusing cross-user dispatch); the 204 does not leak
-   * existence.
+   * Web client calls this before locally aborting its EventSource when the user
+   * clicks Stop. Honest outcomes: `stopped`, `already_done`, `turn_not_found`.
    */
   @Post("assistant/chat/web/stop")
-  @HttpCode(204)
+  @HttpCode(200)
   async stopWebChatTurn(
     @Req() req: RequestWithPlatformContext,
     @Body() body: unknown
-  ): Promise<void> {
+  ): Promise<{ status: "stopped" | "already_done"; clientTurnId: string }> {
     const userId = this.resolveRequestUserId(req);
 
     if (typeof body !== "object" || body === null) {
@@ -1498,18 +1498,51 @@ export class AssistantController {
     if (typeof clientTurnId !== "string" || clientTurnId.trim().length === 0) {
       throw new BadRequestException("clientTurnId must be a non-empty string.");
     }
+    const trimmedClientTurnId = clientTurnId.trim();
+
     const resolvedAssistant = await this.resolveActiveAssistantService
       .executeOptional({ userId })
       .catch(() => null);
     if (resolvedAssistant === null) {
-      return;
+      throw new NotFoundException({
+        code: "turn_not_found",
+        message: "No in-flight web chat turn was found for this clientTurnId."
+      });
     }
 
-    this.webChatTurnHardStopRegistry.signalHardStop({
-      assistantId: resolvedAssistant.assistantId,
-      clientTurnId: clientTurnId.trim(),
-      userId
+    const attempt = await this.prisma.assistantWebChatTurnAttempt.findFirst({
+      where: {
+        assistantId: resolvedAssistant.assistantId,
+        userId,
+        clientTurnId: trimmedClientTurnId
+      },
+      select: { status: true }
     });
+
+    const outcome = await this.webChatTurnStopDispatchService.dispatchStop({
+      assistantId: resolvedAssistant.assistantId,
+      clientTurnId: trimmedClientTurnId,
+      userId,
+      attemptStatus: attempt?.status ?? null
+    });
+
+    if (outcome.status === "forbidden") {
+      throw new ForbiddenException({
+        code: "stop_forbidden",
+        message: "Stop is not allowed for this turn."
+      });
+    }
+    if (outcome.status === "turn_not_found") {
+      throw new NotFoundException({
+        code: "turn_not_found",
+        message: "No in-flight web chat turn was found for this clientTurnId."
+      });
+    }
+
+    return {
+      status: outcome.status,
+      clientTurnId: trimmedClientTurnId
+    };
   }
 
   private parseSwitchAssistantInput(payload: unknown): { assistantId: string } {

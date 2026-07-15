@@ -1679,13 +1679,24 @@ export class TurnContextHydrationService {
       return content;
     }
     const status = message.metadata?.status;
+    const stopReason =
+      message.metadata !== null &&
+      typeof message.metadata === "object" &&
+      !Array.isArray(message.metadata) &&
+      "stopReason" in message.metadata &&
+      message.metadata.stopReason === "user_stopped"
+        ? "user_stopped"
+        : null;
     if (status !== "partial" && status !== "truncated") {
       return content;
     }
     if (typeof content !== "string") {
       return content;
     }
-    const MARKER = "\n\n[Note: the previous answer was interrupted before completion.]";
+    const MARKER =
+      stopReason === "user_stopped"
+        ? "\n\n[Note: the user explicitly stopped the previous assistant turn before it finished.]"
+        : "\n\n[Note: the previous answer was interrupted before completion.]";
     if (content.includes(MARKER)) {
       return content;
     }

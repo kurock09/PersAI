@@ -1,5 +1,17 @@
 # SESSION-HANDOFF
 
+## 2026-07-15 — ADR-149 S1 landed locally (parent audit CLEAN)
+
+Status: **S1 implemented by Composer subagent; parent gate green after format
+fix.** Durable `WebChatTurnStopDispatchService` (Redis), honest Stop API
+200/404/403, sandbox job cancel, runtime abort + lease heartbeat, `user_stopped`
+hydration. In-memory hard-stop registry deleted. **Not pushed** (deploy = push
+at S5 only).
+
+**Next recommended step:** commit S1; delegate S2 (turn deadline split).
+
+---
+
 ## 2026-07-15 — ADR-149 S0 audit lock complete; S1 delegated
 
 Status: **S0 committed locally on baseline `a753e77e`.** ADR-149 opened with

@@ -159,6 +159,7 @@ import {
 } from "./runtime-text-only-multimodal-sanitizer";
 import { TurnAcceptanceService, type AcceptedRuntimeTurn } from "./turn-acceptance.service";
 import { TurnFinalizationService } from "./turn-finalization.service";
+import { TurnLeaseHeartbeatService } from "./turn-lease-heartbeat.service";
 import {
   buildRuntimeFileHandleFromDocumentConvert,
   buildRuntimeFileHandleFromDocumentRender,
@@ -525,6 +526,7 @@ export class TurnExecutionService {
     private readonly turnAcceptanceService: TurnAcceptanceService,
     private readonly turnRoutingService: TurnRoutingService,
     private readonly turnFinalizationService: TurnFinalizationService,
+    private readonly turnLeaseHeartbeatService: TurnLeaseHeartbeatService,
     private readonly sessionCompactionService: SessionCompactionService,
     private readonly runtimeBrowserToolService: RuntimeBrowserToolService,
     private readonly runtimeDocumentToolService: RuntimeDocumentToolService,
@@ -1033,6 +1035,19 @@ export class TurnExecutionService {
       sessionId: acceptedTurn.session.sessionId
     };
     trace?.stage("stream.started_emitted");
+    const leaseAbortController = new AbortController();
+    const activeAbortSignal = this.combineAbortSignals([signal, leaseAbortController.signal]);
+    const leaseHeartbeatIntervalMs = 15_000;
+    const leaseHeartbeat = setInterval(() => {
+      void this.turnLeaseHeartbeatService.heartbeatAcceptedTurn(acceptedTurn).then((result) => {
+        if (result.outcome === "lost") {
+          this.logger.warn(
+            `[turn-lease-heartbeat-lost] requestId=${acceptedTurn.receipt.requestId} sessionId=${acceptedTurn.session.sessionId}`
+          );
+          leaseAbortController.abort();
+        }
+      });
+    }, leaseHeartbeatIntervalMs);
     const projectStreamIdentity = {
       requestId: acceptedTurn.receipt.requestId,
       sessionId: acceptedTurn.session.sessionId
@@ -1114,7 +1129,7 @@ export class TurnExecutionService {
             try {
               providerStream = await this.providerGatewayClientService.streamText(
                 providerRequest,
-                this.buildProviderGatewayStreamOptions(signal, traceEnabled)
+                this.buildProviderGatewayStreamOptions(activeAbortSignal, traceEnabled)
               );
             } catch (error) {
               const fallbackSelection = resolveRuntimeTextFallbackSelection(execution.bundle);
@@ -1150,7 +1165,7 @@ export class TurnExecutionService {
 
             let restartProviderAttempt = false;
             for await (const event of providerStream) {
-              if (signal?.aborted) {
+              if (activeAbortSignal?.aborted) {
                 await this.interruptAcceptedTurnQuietly({
                   acceptedTurn,
                   event: this.toInterruptedEvent(
@@ -1273,7 +1288,8 @@ export class TurnExecutionService {
                       turnState,
                       availableWorkingFileHandles: execution.availableWorkingFileHandles,
                       trace,
-                      iteration
+                      iteration,
+                      ...(activeAbortSignal === undefined ? {} : { abortSignal: activeAbortSignal })
                     });
                     let firstError: unknown = null;
                     for (const result of batchResults) {
@@ -1340,7 +1356,8 @@ export class TurnExecutionService {
                           turnState.artifacts,
                           turnState.fileHandles,
                           execution.availableWorkingFileHandles,
-                          turnState
+                          turnState,
+                          activeAbortSignal
                         );
                       } catch (error) {
                         yield this.createToolFinishedStreamEvent(acceptedTurn, toolCall, true);
@@ -1694,7 +1711,7 @@ export class TurnExecutionService {
         const requestId = acceptedTurn.receipt.requestId;
         const providerLabel = `${execution.providerRequest.provider}:${execution.providerRequest.model}`;
 
-        if (signal?.aborted || this.isAbortError(error)) {
+        if (activeAbortSignal?.aborted || this.isAbortError(error)) {
           this.logger.warn(
             `[turn-stream-aborted] requestId=${requestId} provider=${providerLabel} deliveredTextLen=${String(deliveredText.length)} error=${errorDetail}`
           );
@@ -1742,6 +1759,7 @@ export class TurnExecutionService {
         yield failed;
       }
     } finally {
+      clearInterval(leaseHeartbeat);
       this.runtimeObservabilityService.endStreamTurn();
     }
   }
@@ -3244,6 +3262,7 @@ export class TurnExecutionService {
     availableWorkingFileHandles: RuntimeFileHandle[];
     trace: RuntimeStreamTraceCollector | undefined;
     iteration: number;
+    abortSignal?: AbortSignal;
   }): Promise<ExecutedToolCallResult[]> {
     const currentArtifacts = [...params.turnState.artifacts];
     const currentFileHandles = [...params.turnState.fileHandles];
@@ -3273,7 +3292,8 @@ export class TurnExecutionService {
               currentArtifacts,
               currentFileHandles,
               params.availableWorkingFileHandles,
-              params.turnState
+              params.turnState,
+              params.abortSignal
             )
           } satisfies ExecutedToolCallResult;
         } catch (error) {
@@ -3295,7 +3315,8 @@ export class TurnExecutionService {
     currentArtifacts: RuntimeOutputArtifact[],
     currentFileHandles: RuntimeFileHandle[],
     availableWorkingFileHandles: RuntimeFileHandle[],
-    turnState: TurnExecutionState
+    turnState: TurnExecutionState,
+    abortSignal?: AbortSignal
   ): Promise<ToolExecutionOutcome> {
     const allowedToolNames = new Set(
       execution.projectedTools.tools.map((toolDefinition) => toolDefinition.name)
@@ -3490,7 +3511,8 @@ export class TurnExecutionService {
           requestId: acceptedTurn.receipt.requestId,
           chatId: currentChatId,
           sourceUserMessageText: input.message.text,
-          sourceUserMessageCreatedAt: new Date().toISOString()
+          sourceUserMessageCreatedAt: new Date().toISOString(),
+          ...(abortSignal === undefined ? {} : { abortSignal })
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
@@ -3526,7 +3548,8 @@ export class TurnExecutionService {
           bridgeDeviceId: input.channelContext?.web?.localBrowserBridgeDeviceId ?? null,
           bridgeDeviceKind: input.channelContext?.web?.localBrowserBridgeDeviceKind ?? null,
           sourceUserMessageText: input.message.text,
-          sourceUserMessageCreatedAt: new Date().toISOString()
+          sourceUserMessageCreatedAt: new Date().toISOString(),
+          ...(abortSignal === undefined ? {} : { abortSignal })
         });
         return this.createToolExecutionOutcome(
           toolCall,
@@ -6063,6 +6086,30 @@ export class TurnExecutionService {
       return payload.job;
     }
     return null;
+  }
+
+  private combineAbortSignals(signals: Array<AbortSignal | undefined>): AbortSignal | undefined {
+    const active = signals.filter((entry): entry is AbortSignal => entry !== undefined);
+    if (active.length === 0) {
+      return undefined;
+    }
+    if (active.length === 1) {
+      return active[0];
+    }
+    const controller = new AbortController();
+    const abort = (): void => {
+      if (!controller.signal.aborted) {
+        controller.abort();
+      }
+    };
+    for (const entry of active) {
+      if (entry.aborted) {
+        abort();
+        break;
+      }
+      entry.addEventListener("abort", abort, { once: true });
+    }
+    return controller.signal;
   }
 
   private buildProviderGatewayStreamOptions(

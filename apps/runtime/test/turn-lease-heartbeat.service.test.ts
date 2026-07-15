@@ -73,4 +73,5 @@ export async function runTurnLeaseHeartbeatServiceTest(): Promise<void> {
   assert.deepEqual(lost, {
     outcome: "lost"
   });
+  assert.equal(sessionLeaseService.renewedLeases.length, 2);
 }

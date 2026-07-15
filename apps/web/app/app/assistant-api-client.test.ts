@@ -1692,12 +1692,12 @@ describe("assistant lifecycle client", () => {
   });
 });
 
-describe("stopAssistantWebChatTurn (FIX 1 / Slice 1.2)", () => {
+describe("stopAssistantWebChatTurn (ADR-149 S1)", () => {
   it("POSTs the clientTurnId to /assistant/chat/web/stop with the bearer token", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      status: 204,
-      json: async () => ({}),
+      status: 200,
+      json: async () => ({ status: "stopped", clientTurnId: "turn-42" }),
       text: async () => ""
     } as Response) as typeof fetch;
 
@@ -1716,15 +1716,31 @@ describe("stopAssistantWebChatTurn (FIX 1 / Slice 1.2)", () => {
     );
   });
 
-  it("resolves cleanly on a 204 No Content response", async () => {
+  it("resolves cleanly on a 200 stopped response", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      status: 204,
-      json: async () => ({}),
+      status: 200,
+      json: async () => ({ status: "stopped", clientTurnId: "turn-42" }),
       text: async () => ""
     } as Response) as typeof fetch;
 
-    await expect(stopAssistantWebChatTurn("token-1", "turn-42")).resolves.toBeUndefined();
+    await expect(stopAssistantWebChatTurn("token-1", "turn-42")).resolves.toEqual({
+      status: "stopped",
+      clientTurnId: "turn-42"
+    });
+  });
+
+  it("throws ContractsApiError on 404 turn_not_found", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ code: "turn_not_found" }),
+      text: async () => ""
+    } as Response) as typeof fetch;
+
+    await expect(stopAssistantWebChatTurn("token-1", "turn-42")).rejects.toThrow(
+      /Stop request failed with status 404/
+    );
   });
 
   it("throws ContractsApiError on a non-2xx response", async () => {

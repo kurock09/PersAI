@@ -31,6 +31,7 @@ export class LocalBrowserBridgeClient {
     bridgeDeviceId?: string | null;
     requireBridgeDeviceId?: boolean;
     command: LocalBrowserCommand;
+    abortSignal?: AbortSignal;
   }): Promise<LocalBrowserBridgeCommandOutcome> {
     const dispatched = await this.persaiInternalApiClientService.dispatchLocalBrowserCommand(input);
     if (dispatched.accepted !== true) {
@@ -45,11 +46,18 @@ export class LocalBrowserBridgeClient {
     }
 
     for (;;) {
+      if (input.abortSignal?.aborted) {
+        return {
+          ok: false,
+          code: "user_stopped",
+          message: "Browser command polling was cancelled because the turn was stopped."
+        };
+      }
       const polled = await this.persaiInternalApiClientService.getLocalBrowserCommandResult(
         dispatched.commandId
       );
       if (polled.status === "pending") {
-        await this.sleep(LOCAL_BROWSER_BRIDGE_POLL_INTERVAL_MS);
+        await this.sleep(LOCAL_BROWSER_BRIDGE_POLL_INTERVAL_MS, input.abortSignal);
         continue;
       }
       return {
@@ -67,7 +75,21 @@ export class LocalBrowserBridgeClient {
     }
   }
 
-  private async sleep(ms: number): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, ms));
+  private async sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+      const onAbort = (): void => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
   }
 }

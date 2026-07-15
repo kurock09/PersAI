@@ -67,6 +67,7 @@ export class RuntimeBrowserToolService {
     bridgeDeviceKind?: LocalBrowserBridgeDeviceKind | null;
     sourceUserMessageText?: string | null;
     sourceUserMessageCreatedAt?: string | null;
+    abortSignal?: AbortSignal;
   }): Promise<RuntimeBrowserToolExecutionResult> {
     if (isToolContractDescribeCall(params.toolCall.arguments)) {
       const described = executeRuntimeToolContractDescribe({
@@ -453,6 +454,7 @@ export class RuntimeBrowserToolService {
       transportSurface?: string | null;
       bridgeDeviceId?: string | null;
       bridgeDeviceKind?: LocalBrowserBridgeDeviceKind | null;
+      abortSignal?: AbortSignal;
     },
     request: RuntimeBrowserRequest,
     providerId: PersaiRuntimeBrowserProviderId,
@@ -543,6 +545,7 @@ export class RuntimeBrowserToolService {
       workspaceId: params.bundle.metadata.workspaceId,
       bridgeDeviceId: params.bridgeDeviceId ?? resolved.bridgeSessionRef,
       requireBridgeDeviceId: currentSurfaceTargeted,
+      ...(params.abortSignal === undefined ? {} : { abortSignal: params.abortSignal }),
       command: {
         commandId: randomUUID(),
         profileKey,
@@ -608,6 +611,7 @@ export class RuntimeBrowserToolService {
       transportSurface?: string | null;
       bridgeDeviceId?: string | null;
       bridgeDeviceKind?: LocalBrowserBridgeDeviceKind | null;
+      abortSignal?: AbortSignal;
     },
     request: RuntimeBrowserRequest,
     providerId: PersaiRuntimeBrowserProviderId
@@ -675,6 +679,7 @@ export class RuntimeBrowserToolService {
       workspaceId: params.bundle.metadata.workspaceId,
       bridgeDeviceId: targetBridgeDeviceId,
       requireBridgeDeviceId: currentSurfaceTargeted,
+      ...(params.abortSignal === undefined ? {} : { abortSignal: params.abortSignal }),
       command: {
         commandId: randomUUID(),
         profileKey,

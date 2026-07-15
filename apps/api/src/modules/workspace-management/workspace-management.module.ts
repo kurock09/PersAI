@@ -302,7 +302,7 @@ import { CheckpointMediaJobAcceptedProviderTaskService } from "./application/che
 import { InternalRuntimeDocumentJobClientService } from "./application/internal-runtime-document-job.client.service";
 import { InternalRuntimeMediaJobClientService } from "./application/internal-runtime-media-job.client.service";
 import { WebChatTurnAttemptService } from "./application/web-chat-turn-attempt.service";
-import { WebChatTurnHardStopRegistry } from "./application/web-chat-turn-hard-stop-registry.service";
+import { WebChatTurnStopDispatchService } from "./application/web-chat-turn-stop-dispatch.service";
 import { WebChatTurnStreamRegistry } from "./application/web-chat-turn-stream-registry.service";
 import { PrepareAssistantInboundTurnService } from "./application/prepare-assistant-inbound-turn.service";
 import { MergeStagedWebChatAttachmentsService } from "./application/merge-staged-web-chat-attachments.service";
@@ -769,7 +769,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeDocumentJobClientService,
     InternalRuntimeMediaJobClientService,
     WebChatTurnAttemptService,
-    WebChatTurnHardStopRegistry,
+    WebChatTurnStopDispatchService,
     WebChatTurnStreamRegistry,
     UpdateAssistantDraftService,
     SwitchActiveAssistantService,

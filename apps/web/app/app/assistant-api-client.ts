@@ -1558,19 +1558,21 @@ export async function reattachAssistantWebChatTurnStream(
 }
 
 /**
- * Pre-prod polish 2026 / FIX 1, Slice 1.2 — explicit hard-stop signal.
+ * ADR-149 S1 — explicit hard-stop signal with honest API outcomes.
  *
- * Pairs with `POST /assistant/chat/web/stop` on the API. Used by
- * `useChat.stop()` to tell the API "this Stop click is a hard abort, not
- * just a tab-switch" *before* tearing down the local SSE controller.
- * Best-effort: the call is fire-and-forget from the caller's POV, but we
- * still await the network round-trip so transient errors surface in the
- * console without blocking the local abort path. A failure here only
- * means the runtime keeps producing in the background — which is the
- * documented soft-detach behavior, strictly safer than the pre-Slice-1.2
- * "always abort on any disconnect" default.
+ * Pairs with `POST /assistant/chat/web/stop` on the API. Used by `useChat.stop()`
+ * before tearing down the local SSE controller. Returns typed stop outcomes;
+ * `404 turn_not_found` is surfaced to the caller instead of silent success.
  */
-export async function stopAssistantWebChatTurn(token: string, clientTurnId: string): Promise<void> {
+export type AssistantWebChatStopResult = {
+  status: "stopped" | "already_done";
+  clientTurnId: string;
+};
+
+export async function stopAssistantWebChatTurn(
+  token: string,
+  clientTurnId: string
+): Promise<AssistantWebChatStopResult> {
   const response = await fetch(`${getApiBaseUrl()}/assistant/chat/web/stop`, {
     method: "POST",
     headers: {
@@ -1580,19 +1582,54 @@ export async function stopAssistantWebChatTurn(token: string, clientTurnId: stri
     body: JSON.stringify({ clientTurnId })
   });
 
-  if (!response.ok && response.status !== 204) {
-    let errorPayload: unknown = null;
+  let errorPayload: unknown = null;
+  try {
+    errorPayload = await response.json();
+  } catch {
     try {
-      errorPayload = await response.json();
-    } catch {
       errorPayload = await response.text();
+    } catch {
+      errorPayload = null;
     }
+  }
+
+  if (!response.ok) {
     throw new ContractsApiError(
       `Stop request failed with status ${response.status}.`,
       response.status,
       errorPayload
     );
   }
+
+  if (
+    typeof errorPayload !== "object" ||
+    errorPayload === null ||
+    !("status" in errorPayload) ||
+    !("clientTurnId" in errorPayload)
+  ) {
+    throw new ContractsApiError(
+      "Stop request returned an invalid response body.",
+      response.status,
+      errorPayload
+    );
+  }
+
+  const body = errorPayload as { status?: unknown; clientTurnId?: unknown };
+  if (
+    (body.status !== "stopped" && body.status !== "already_done") ||
+    typeof body.clientTurnId !== "string"
+  ) {
+    throw new ContractsApiError(
+      "Stop request returned an invalid response body.",
+      response.status,
+      errorPayload
+    );
+  }
+
+  return {
+    status: body.status,
+    clientTurnId: body.clientTurnId
+  };
 }
 
 export interface AssistantDirectoryState {

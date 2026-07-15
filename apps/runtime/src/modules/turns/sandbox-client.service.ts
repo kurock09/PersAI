@@ -42,20 +42,51 @@ export class SandboxClientService {
     return this.parseJobResponse(response);
   }
 
-  async waitForCompletion(request: RuntimeSandboxJobRequest): Promise<RuntimeSandboxJobResult> {
+  async cancelJob(jobId: string): Promise<RuntimeSandboxJobResult> {
+    const response = await this.fetchJson(`/api/v1/jobs/${encodeURIComponent(jobId)}/cancel`, {
+      method: "POST",
+      headers: this.buildHeaders()
+    });
+    return this.parseJobResponse(response);
+  }
+
+  async waitForCompletion(
+    request: RuntimeSandboxJobRequest,
+    options?: { signal?: AbortSignal }
+  ): Promise<RuntimeSandboxJobResult> {
+    const signal = options?.signal;
     const submitted = await this.submitJob(request);
     const deadline = Date.now() + this.resolveCompletionTimeoutMs(request);
     let current = submitted;
-    while (current.status === "queued" || current.status === "running") {
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) {
-        throw new ServiceUnavailableException(
-          "Sandbox job timed out while waiting for completion."
-        );
-      }
-      current = await this.pollJob(current.jobId, Math.max(1, Math.min(remainingMs, 1_500)));
+    let cancelRequested = false;
+    const onAbort = (): void => {
+      cancelRequested = true;
+      void this.cancelJob(current.jobId).catch(() => undefined);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) {
+      onAbort();
     }
-    return current;
+    try {
+      while (current.status === "queued" || current.status === "running") {
+        if (signal?.aborted || cancelRequested) {
+          throw new DOMException("Sandbox job aborted.", "AbortError");
+        }
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+          throw new ServiceUnavailableException(
+            "Sandbox job timed out while waiting for completion."
+          );
+        }
+        current = await this.pollJob(current.jobId, Math.max(1, Math.min(remainingMs, 1_500)));
+        if (current.status === "cancelled") {
+          throw new DOMException("Sandbox job cancelled.", "AbortError");
+        }
+      }
+      return current;
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+    }
   }
 
   private resolveCompletionTimeoutMs(request: RuntimeSandboxJobRequest): number {

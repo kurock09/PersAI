@@ -330,6 +330,7 @@ export class StreamWebChatTurnService {
     prepared: StreamWebChatTurnPrepared,
     callbacks: {
       isClientAborted: () => boolean;
+      isUserStopped?: () => boolean;
       clientAbortSignal?: AbortSignal;
       onDelta: (delta: string, accumulated: string) => void;
       onThinking: (delta: string, accumulated: string) => void;
@@ -645,17 +646,22 @@ export class StreamWebChatTurnService {
         const interrupted = await this.persistInterruptedOutcome(
           prepared,
           accumulated.trim(),
-          respondedAt
+          respondedAt,
+          callbacks.isUserStopped?.() === true
         );
         if (prepared.clientTurnId !== undefined && this.webChatTurnAttemptService) {
+          const stopCode = callbacks.isUserStopped?.() === true ? "user_stopped" : "client_aborted";
           await this.webChatTurnAttemptService.markInterrupted({
             assistantId: prepared.assistantId,
             userId: prepared.userId,
             surfaceThreadKey: prepared.chat.surfaceThreadKey,
             clientTurnId: prepared.clientTurnId,
             assistantMessageId: interrupted.transport?.assistantMessage.id ?? null,
-            code: "client_aborted",
-            message: "The user stopped this web chat turn."
+            code: stopCode,
+            message:
+              stopCode === "user_stopped"
+                ? "The user explicitly stopped this web chat turn."
+                : "The user stopped this web chat turn."
           });
         }
         this.recordWebStreamHotPathMetrics({
@@ -1101,6 +1107,7 @@ export class StreamWebChatTurnService {
     accumulatedSoFar: string;
     callbacks: {
       isClientAborted: () => boolean;
+      isUserStopped?: () => boolean;
       clientAbortSignal?: AbortSignal;
       onDelta: (delta: string, accumulated: string) => void;
       onThinking: (delta: string, accumulated: string) => void;
@@ -1850,7 +1857,8 @@ export class StreamWebChatTurnService {
   private async persistInterruptedOutcome(
     prepared: StreamWebChatTurnPrepared,
     partialOutput: string,
-    respondedAt: string | null
+    respondedAt: string | null,
+    userStopped = false
   ): Promise<StreamWebChatTurnOutcomeInterrupted> {
     const cleanedPartial = partialOutput.trim();
     if (cleanedPartial.length === 0) {
@@ -1865,14 +1873,17 @@ export class StreamWebChatTurnService {
       assistantId: prepared.assistantId,
       author: "assistant",
       content: cleanedPartial,
-      metadata: { status: "partial" }
+      metadata: userStopped
+        ? { status: "partial", stopReason: "user_stopped" }
+        : { status: "partial" }
     });
     const systemMessage = await this.assistantChatRepository.createMessage({
       chatId: prepared.chat.id,
       assistantId: prepared.assistantId,
       author: "system",
-      content:
-        "Streaming ended before completion. Assistant partial output above is preserved as-is."
+      content: userStopped
+        ? "The user explicitly stopped the previous assistant turn before it finished."
+        : "Streaming ended before completion. Assistant partial output above is preserved as-is."
     });
     const refreshedChat = await this.assistantChatRepository.findChatById(prepared.chat.id);
     if (refreshedChat === null) {

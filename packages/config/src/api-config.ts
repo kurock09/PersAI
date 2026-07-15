@@ -58,6 +58,10 @@ const baseApiConfigSchema = z.object({
   // socket held by one pod is reachable from dispatch/result HTTP handled by any other pod.
   // When empty, the relay degrades to single-process in-memory behavior (local dev).
   BROWSER_BRIDGE_REDIS_URL: optionalUrl,
+  // ADR-149 durable web-chat Stop dispatch across api replicas. When empty, falls back to
+  // BROWSER_BRIDGE_REDIS_URL (same runtime Redis in prod). Stream-owning pod keeps the local
+  // AbortController; Redis records ownership and pub/sub delivers Stop to the owner pod.
+  PERSAI_TURN_COORDINATION_REDIS_URL: optionalUrl,
   PERSAI_PROVIDER_GATEWAY_BASE_URL: optionalUrl,
   PERSAI_PROVIDER_GATEWAY_DISCOVERY_DNS: optionalNonEmptyString,
   PERSAI_PROVIDER_GATEWAY_TARGET_REPLICAS: z.coerce.number().int().positive().optional(),

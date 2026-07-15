@@ -119,6 +119,7 @@ function sandboxPosixSingleQuote(value: string): string {
 export class SandboxService {
   private readonly logger = new Logger(SandboxService.name);
   private readonly workspaceExecutionQueues = new Map<string, Promise<void>>();
+  private readonly activeJobAbortControllers = new Map<string, AbortController>();
   private readonly sandboxInstanceHolderId = `${hostname()}:${process.pid}:${randomUUID()}`;
 
   constructor(
@@ -187,6 +188,52 @@ export class SandboxService {
       });
     }
     return this.pollJob(created.id);
+  }
+
+  async cancelJob(jobId: string): Promise<RuntimeSandboxJobResult> {
+    const job = await this.findJobRecord(jobId);
+    if (job === null) {
+      return {
+        jobId,
+        status: "failed",
+        toolCode: "unknown",
+        reason: "job_not_found",
+        warning: "Sandbox job not found.",
+        violationCode: "job_not_found",
+        violationMessage: "Sandbox job not found.",
+        exitCode: null,
+        stdout: null,
+        stderr: null,
+        content: null,
+        files: []
+      };
+    }
+    if (this.isTerminalJobStatus(job.status)) {
+      return this.pollJob(jobId);
+    }
+    this.activeJobAbortControllers.get(jobId)?.abort();
+    await this.prisma.sandboxJob.updateMany({
+      where: {
+        id: jobId,
+        status: { in: ["queued", "running"] },
+        completedAt: null
+      },
+      data: {
+        status: "cancelled",
+        completedAt: new Date(),
+        violationCode: "user_stopped",
+        violationMessage: "Sandbox job cancelled because the turn was stopped.",
+        resultPayload: {
+          reason: "user_stopped",
+          warning: "Sandbox job cancelled because the turn was stopped.",
+          exitCode: null,
+          stdout: null,
+          stderr: null,
+          content: null
+        }
+      }
+    });
+    return this.pollJob(jobId);
   }
 
   async pollJob(jobId: string, waitMs = 0): Promise<RuntimeSandboxJobResult> {
@@ -668,6 +715,8 @@ export class SandboxService {
   }
 
   private async executeQueuedJob(jobId: string, request: RuntimeSandboxJobRequest): Promise<void> {
+    const jobAbortController = new AbortController();
+    this.activeJobAbortControllers.set(jobId, jobAbortController);
     if (
       request.runtimeSessionId !== null &&
       this.config.SANDBOX_WARM_POOL_SIZE_PER_ASSISTANT >= 1
@@ -908,6 +957,7 @@ export class SandboxService {
       await this.stopWorkspaceLeaseHeartbeat(leaseGuard, {
         release: terminalWriteSucceeded && podFinalizationSucceeded
       });
+      this.activeJobAbortControllers.delete(jobId);
     }
   }
 

@@ -1559,6 +1559,10 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     setPendingSendStatusState(pendingForThread?.status ?? null);
     syncPendingBrowserLoginForThread(assistantScopedThreadKey);
   }
+  const clearIssue = useCallback(() => setIssue(null), []);
+  const reportIssue = useCallback((error: unknown) => {
+    setIssue(toWebChatUxIssue(error));
+  }, []);
   const stop = useCallback(() => {
     /* Per-thread stop: abort only the stream attached to the thread the */ /* user is currently looking at. Streams in other threads keep going so */ /* switching away from a generating image doesn't kill it. */ /*  */ /* Slice 1.2 ��� `stop()` is the *user-visible* hard-stop affordance */ /* (the Stop button on the composer). The API can no longer infer */ /* hard-stop from a dead SSE socket, because that signal also fires */ /* for soft-detach cases like locking the screen mid-image-generate. */ /* So before tearing down the local controller we send an explicit */ /* `POST /assistant/chat/web/stop` with the in-flight `clientTurnId`, */ /* which is the only path that flips the server-side abort signal. */ /* The POST is best-effort and intentionally not awaited: a failure */ /* here just means the runtime keeps generating in the background */ /* (the same fate as a soft-detach), which is strictly safer than */ /* the pre-Slice-1.2 "always kill on any disconnect" default. */ const entry =
       abortControllersByThreadRef.current.get(assistantScopedThreadKey);
@@ -1579,18 +1583,14 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           stopAssistantWebChatTurn(token, clientTurnId),
           delay(HARD_STOP_SERVER_ACK_TIMEOUT_MS)
         ]);
-      } catch {
-        /* Swallow; local abort below is the user-visible guarantee. */
+      } catch (error) {
+        reportIssue(error);
       } finally {
         entry?.controller.abort();
         abortControllersByThreadRef.current.delete(threadKey);
       }
     })();
-  }, [assistantScopedThreadKey, getToken]);
-  const clearIssue = useCallback(() => setIssue(null), []);
-  const reportIssue = useCallback((error: unknown) => {
-    setIssue(toWebChatUxIssue(error));
-  }, []);
+  }, [assistantScopedThreadKey, getToken, reportIssue, threadKey]);
   const refreshCompactionState = useCallback(
     async (
       targetChatId: string,

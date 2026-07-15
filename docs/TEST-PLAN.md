@@ -2525,12 +2525,9 @@ Cadence `slow_avg` / `silent` must remain disabled — no tests re-enable them.
 
 New/extended suites (names are contractual for S5 gate):
 
-- `apps/api/test/web-chat-turn-hard-stop-registry.test.ts` — replace with durable
-  Redis dispatch tests (delete in-memory-only path)
+- `apps/api/test/adr149-durable-stop-dispatch.test.ts` — durable Redis/local stop dispatch
 - `apps/api/test/stream-web-chat-turn.service.test.ts` — `user_stopped` terminal,
   explicit Stop vs soft-detach
-- `apps/api/test/adr149-durable-stop-dispatch.test.ts` — cross-replica hit/miss,
-  `200`/`404` responses
 - `apps/runtime/test/adr149-tool-abort-on-stop.test.ts` — sandbox cancel +
   browser abort signal
 - `apps/runtime/test/turn-lease-heartbeat.service.test.ts` — wired renew on long
@@ -2542,7 +2539,7 @@ New/extended suites (names are contractual for S5 gate):
 Focused S1 commands:
 
 ```powershell
-corepack pnpm --filter @persai/api exec tsx --test test/adr149-durable-stop-dispatch.test.ts test/web-chat-turn-hard-stop-registry.test.ts test/stream-web-chat-turn.service.test.ts test/turn-context-hydration-user-stopped.test.ts
+corepack pnpm --filter @persai/api exec tsx --test test/adr149-durable-stop-dispatch.test.ts test/stream-web-chat-turn.service.test.ts test/turn-context-hydration-user-stopped.test.ts
 corepack pnpm --filter @persai/runtime exec tsx --test test/adr149-tool-abort-on-stop.test.ts test/turn-lease-heartbeat.service.test.ts
 corepack pnpm --filter @persai/sandbox exec tsx --test test/job-cancel.test.ts
 corepack pnpm --filter @persai/web exec vitest run app/app/assistant-api-client.test.ts -t stop

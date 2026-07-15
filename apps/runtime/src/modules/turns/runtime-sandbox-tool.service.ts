@@ -36,6 +36,7 @@ export class RuntimeSandboxToolService {
     chatId?: string | null;
     sourceUserMessageText?: string | null;
     sourceUserMessageCreatedAt?: string | null;
+    abortSignal?: AbortSignal;
   }): Promise<RuntimeSandboxToolExecutionResult> {
     const policy = this.resolveAllowedSandboxToolPolicy(params.bundle, params.toolCall.name);
     if (policy === null) {
@@ -89,35 +90,38 @@ export class RuntimeSandboxToolService {
         };
       }
 
-      const job = await this.sandboxClientService.waitForCompletion({
-        assistantId: params.bundle.metadata.assistantId,
-        assistantHandle: params.bundle.metadata.assistantHandle,
-        siblingHandles: params.bundle.metadata.siblingAssistantHandles,
-        workspaceId: params.bundle.metadata.workspaceId,
-        runtimeRequestId: params.requestId,
-        runtimeSessionId: params.sessionId,
-        toolCode: params.toolCall.name,
-        policy: params.bundle.runtime.sandbox ?? {
-          enabled: false,
-          maxSingleFileWriteBytes: 0,
-          maxWorkspaceBytesPerJob: 0,
-          maxPersistedArtifactsPerJob: 0,
-          maxFileCountPerJob: 0,
-          maxDirectoryCountPerJob: 0,
-          maxProcessRuntimeMs: 0,
-          maxCpuMsPerJob: 0,
-          maxMemoryBytesPerJob: 0,
-          maxConcurrentProcesses: 0,
-          maxStdoutBytes: 0,
-          maxStderrBytes: 0,
-          artifactMimeAllowlist: [],
-          webMaxOutboundBytes: 0,
-          telegramMaxOutboundBytes: 0,
-          sandboxJobsPerDay: null,
-          maxArtifactSendCountPerTurn: 0
-        },
-        args: this.asObject(params.toolCall.arguments)
-      } satisfies RuntimeSandboxJobRequest);
+      const job = await this.sandboxClientService.waitForCompletion(
+        {
+          assistantId: params.bundle.metadata.assistantId,
+          assistantHandle: params.bundle.metadata.assistantHandle,
+          siblingHandles: params.bundle.metadata.siblingAssistantHandles,
+          workspaceId: params.bundle.metadata.workspaceId,
+          runtimeRequestId: params.requestId,
+          runtimeSessionId: params.sessionId,
+          toolCode: params.toolCall.name,
+          policy: params.bundle.runtime.sandbox ?? {
+            enabled: false,
+            maxSingleFileWriteBytes: 0,
+            maxWorkspaceBytesPerJob: 0,
+            maxPersistedArtifactsPerJob: 0,
+            maxFileCountPerJob: 0,
+            maxDirectoryCountPerJob: 0,
+            maxProcessRuntimeMs: 0,
+            maxCpuMsPerJob: 0,
+            maxMemoryBytesPerJob: 0,
+            maxConcurrentProcesses: 0,
+            maxStdoutBytes: 0,
+            maxStderrBytes: 0,
+            artifactMimeAllowlist: [],
+            webMaxOutboundBytes: 0,
+            telegramMaxOutboundBytes: 0,
+            sandboxJobsPerDay: null,
+            maxArtifactSendCountPerTurn: 0
+          },
+          args: this.asObject(params.toolCall.arguments)
+        } satisfies RuntimeSandboxJobRequest,
+        params.abortSignal === undefined ? {} : { signal: params.abortSignal }
+      );
 
       if (job.status !== "completed") {
         return {
@@ -178,6 +182,20 @@ export class RuntimeSandboxToolService {
         isError: job.reason === "process_failed"
       };
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return {
+          payload: {
+            toolCode: params.toolCall.name,
+            executionMode: "sandbox",
+            action: "skipped",
+            reason: "user_stopped",
+            warning: "Sandbox tool execution was cancelled because the turn was stopped.",
+            job: null,
+            paths: []
+          },
+          isError: true
+        };
+      }
       return {
         payload: {
           toolCode: params.toolCall.name,

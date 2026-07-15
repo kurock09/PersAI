@@ -2177,6 +2177,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnAcceptanceService as unknown as TurnAcceptanceService,
     turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
+    null as never, // turnLeaseHeartbeatService
     sessionCompactionService as never,
     runtimeBrowserToolService,
     runtimeDocumentToolService,
@@ -2389,6 +2390,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnAcceptanceService as unknown as TurnAcceptanceService,
     turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
+    null as never, // turnLeaseHeartbeatService
     sessionCompactionService as never,
     runtimeBrowserToolService,
     runtimeDocumentToolService,
@@ -2466,6 +2468,7 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     turnAcceptanceService as unknown as TurnAcceptanceService,
     turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
+    null as never, // turnLeaseHeartbeatService
     sessionCompactionService as never,
     runtimeBrowserToolService,
     runtimeDocumentToolService,
@@ -8719,6 +8722,7 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
     turnAcceptanceService as unknown as TurnAcceptanceService,
     turnRoutingService,
     turnFinalizationService as unknown as TurnFinalizationService,
+    null as never, // turnLeaseHeartbeatService
     sessionCompactionService as never,
     runtimeBrowserToolService,
     runtimeDocumentToolService,
@@ -8760,6 +8764,7 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
     null as never, // turnAcceptanceService
     null as never, // turnRoutingService
     null as never, // turnFinalizationService
+    null as never, // turnLeaseHeartbeatService
     null as never, // sessionCompactionService
     null as never, // runtimeBrowserToolService
     null as never, // runtimeDocumentToolService

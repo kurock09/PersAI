@@ -3,7 +3,8 @@
 ## Status
 
 **Open 2026-07-15** — parent-orchestrated program. **S0 audit lock complete**
-(baseline `a753e77e`). S1–S5 not started.
+(baseline `a753e77e`). **S1 landed locally** (pending parent commit). S2–S5 not
+started.
 
 ## Date
 

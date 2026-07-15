@@ -195,6 +195,15 @@ export class SandboxController {
     };
   }
 
+  @Post("/api/v1/jobs/:jobId/cancel")
+  async cancelJob(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("jobId") jobId: string
+  ) {
+    this.assertAuthorized(authorization);
+    return this.sandboxService.cancelJob(jobId);
+  }
+
   @Get("/api/v1/jobs/:jobId")
   async getJob(
     @Headers("authorization") authorization: string | undefined,
