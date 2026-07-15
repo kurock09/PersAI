@@ -106,11 +106,12 @@ Sessionless jobs remain disposable. Session package env (`HOME`,
 canonical `/workspace/assistants/<assistantId>/sessions/<sessionId>` root, and
 dependency-tree quota is separated from ordinary user-file growth. Idle TTL
 holds on the deployed sandbox control plane after the `2342c2ae` cleanup repair.
-**ADR-150:** session install-layer trees (`.local`, `.npm-global`,
-`node_modules`) are warm-pod ephemeral only — not mirrored to GCS, not hydrated,
-not shown in Files / `files.list`. Curated popular packages stay in the exec
-image (`/opt/venv`). ADR-146 stays closed; ADR-148 supersedes only the
-over-broad per-job retirement behavior and must not be reopened for new scope.
+**ADR-150 closed (founder-accepted 2026-07-16, push `314ee37a`):** session
+install-layer trees (`.local`, `.npm-global`, `node_modules`) are warm-pod
+ephemeral only — not mirrored to GCS, not hydrated, not shown in Files /
+`files.list`. Curated popular packages stay in the exec image (`/opt/venv`).
+ADR-146 stays closed; ADR-148 supersedes only the over-broad per-job retirement
+behavior and must not be reopened for new scope.
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 

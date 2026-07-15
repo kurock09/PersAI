@@ -2,8 +2,10 @@
 
 ## Status
 
-**Open 2026-07-15** — **S0–S4 implemented locally; S5 local gate green.** Deploy +
-live acceptance pending (push = deploy).
+**Closed 2026-07-16 — founder-accepted.** S0–S5 implemented and pushed; durable
+Stop, split turn deadlines, live `tool_progress`, and orphan reconciliation are
+product truth. Do not reopen for new scope. Open a new ADR for follow-ups
+(sandbox cancel residuals, richer activity UI, reconciler tuning).
 
 ## Date
 

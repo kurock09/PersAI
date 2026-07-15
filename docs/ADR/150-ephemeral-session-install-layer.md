@@ -2,13 +2,12 @@
 
 ## Status
 
-**Implemented locally 2026-07-16 — await commit/push/deploy + live acceptance.**
-Audit repair closed the session-snapshot / `pullWorkspace` persistence bypass and
-the remaining read/write tails. Supersedes ADR-148’s implication that runtime
-`pip` / `npm` trees persist across cold pod recreation via the storage plane.
-ADR-148 warmth, fail-closed cleanup, session-root env paths, and
-dependency-quota contour remain in force. Do not reopen ADR-146 or ADR-148 for
-new scope.
+**Closed 2026-07-16 — founder-accepted.** Implementation pushed as `314ee37a`
+(handoff `25a910eb`). Session install-layer is warm-pod ephemeral only;
+session-anchored pull/push excludes + path-aware purge; no GCS/Files/`files.*`
+persistence of `.local` / `.npm-global` / `node_modules`. Supersedes ADR-148’s
+storage-plane persistence of install trees only. ADR-148 warmth/env/quota remain
+in force. Do not reopen ADR-146, ADR-148, or ADR-150 for new scope.
 
 ## Date
 

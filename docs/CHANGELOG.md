@@ -3,6 +3,11 @@
 > Archive: detailed historical entries from 2026-06-05 and earlier moved to `docs/CHANGELOG.archive-2026-06-05-details-and-earlier.md`; entries from 2026-05-19 and earlier remain in `docs/CHANGELOG.archive-2026-05-19-and-earlier.md`.
 > Keep this file short: current entries plus concise recent summaries only.
 
+## 2026-07-16
+
+- **Closure (ADR-149 + ADR-150; founder-accepted).** ADR-149 durable Stop / turn deadlines / live activity / orphans closed — do not reopen. ADR-150 ephemeral session install layer closed after push `314ee37a` — session `.local` / `.npm-global` / `node_modules` remain warm-pod only; do not reopen.
+- **Change (ADR-150 + meter; pushed `314ee37a`, handoff `25a910eb`).** Session install-layer cutover (session-anchored pull/push excludes, path-aware purge, Files/grep/glob/mirror/hydrate/upsert/`files.write` gates, curated `httpx`). Context meter / compaction pressure uses first `main_turn` `inputTokens`; meter stroke 2px.
+
 ## 2026-07-15
 
 - **Fix (ADR-150 session-scoped mount exclude/purge; local).** Pull/push no longer basename-exclude/purge install trees across the whole `/workspace` mount (that wrongly hit assistant `shared/.../node_modules`). Mount tar excludes are anchored under `assistants/*/sessions/*/` (or the exact session when known); post-pull purge uses `isSessionInstallLayerPath`. Session-root snapshot basename excludes unchanged; overlay also purges destination leftovers.

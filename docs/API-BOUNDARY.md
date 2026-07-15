@@ -140,7 +140,7 @@ sandbox control plane: after a session-scoped sandbox job reaches terminal
 persistence, the pod is now either (a) cleaned and kept warm for reuse or (b)
 retired fail-closed on cleanup-proof failure. Sessionless jobs still retire.
 
-**ADR-150:** no new public routes. Install-layer paths under the session root
+**ADR-150 (closed):** no new public routes. Install-layer paths under the session root
 (`.local`, `.npm-global`, `node_modules`) are excluded from produced-file GCS
 mirror, hydrate, runtime manifest upsert, Files gallery, `files.list`, and
 `files.search`. Ordinary work-artifact persistence is unchanged.

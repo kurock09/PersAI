@@ -1,5 +1,16 @@
 # SESSION-HANDOFF
 
+## 2026-07-16 — ADR-149 + ADR-150 closed (founder)
+
+Status: **closing docs.** Founder directed both programs closed.
+
+- **ADR-149:** durable Stop, split deadlines, `tool_progress`, orphan reconciliation — closed; do not reopen.
+- **ADR-150:** ephemeral session install-layer (`314ee37a`) — closed; do not reopen.
+
+**Next:** await next founder priority (no active numbered ADR from 149/150).
+
+---
+
 ## 2026-07-16 — ADR-150 + context-meter pressure signal (pushed)
 
 Status: **pushed `314ee37a`.** Gate: `pnpm lint` (incl. format) ✅, `pnpm typecheck` ✅, `pnpm test` ✅.
