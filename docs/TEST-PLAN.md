@@ -2541,7 +2541,7 @@ Asserts `<character_notes>` appears exactly once when `snapshotInstructions` is 
 **GT6 — Memory provenance set on write paths** (`apps/api/test/write-assistant-memory.service.test.ts`)
 Verifies all four `AssistantMemoryProvenance` values (`user_explicit`, `system_inferred`, `auto_extracted`, `legacy`) are set correctly at write time by their respective services. ADR-120 Slice 1 retired the `<persai_memory>` contextual render (and `formatDurableMemoryContextualBlock`), so provenance is now a persisted column surfaced read-only in the Memory Center rather than an XML attribute in the prompt. Catches any regression that would drop or mis-tag provenance on the write path.
 
-## ADR-149 durable Stop, turn deadlines, live activity, orphan reconciliation
+## ADR-149 durable Stop, turn deadlines, live activity, orphan reconciliation (closed 2026-07-16)
 
 Baseline: `a753e77ef66f98bab67e237b6aabe55b7f2f939b`. Parent-orchestrated S0–S5.
 Cadence `slow_avg` / `silent` must remain disabled — no tests re-enable them.
