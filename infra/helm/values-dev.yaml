@@ -564,7 +564,7 @@ sandbox:
       name: sandbox-exec-egress-mode-contract
   image:
     name: sandbox
-    tag: bdd03007a835f01cb3741dd5be60e53a8419e9b6
+    tag: 0f84518b79283fe19f62349b0b91ae574ee9a901
     pullPolicy: IfNotPresent
   cloudSqlProxy:
     enabled: true
