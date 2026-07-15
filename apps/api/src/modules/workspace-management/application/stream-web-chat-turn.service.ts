@@ -1349,6 +1349,21 @@ export class StreamWebChatTurnService {
           typeof chunk.toolProgressSeq === "number"
         ) {
           watchdog.recordActivity();
+          // ADR-149 H3 — long shell/exec with only tool_progress must keep the
+          // attempt heartbeat fresh so the 20min orphan reconciler does not
+          // false-terminalize a still-productive turn.
+          if (input.prepared.clientTurnId !== undefined && this.webChatTurnAttemptService) {
+            await this.webChatTurnAttemptService.markCurrentActivity({
+              assistantId: input.prepared.assistantId,
+              userId: input.prepared.userId,
+              surfaceThreadKey: input.prepared.chat.surfaceThreadKey,
+              clientTurnId: input.prepared.clientTurnId,
+              toolName: chunk.toolName,
+              toolCallId: chunk.toolCallId,
+              phase: "start",
+              isError: false
+            });
+          }
           input.callbacks.onToolProgress?.({
             toolName: chunk.toolName,
             toolCallId: chunk.toolCallId,
@@ -1902,7 +1917,9 @@ export class StreamWebChatTurnService {
     userStopped = false
   ): Promise<StreamWebChatTurnOutcomeInterrupted> {
     const cleanedPartial = partialOutput.trim();
-    if (cleanedPartial.length === 0) {
+    // ADR-149 H5 — even with no partial assistant text, explicit Stop must leave
+    // a durable hydration marker so the next turn sees user_stopped truth.
+    if (cleanedPartial.length === 0 && !userStopped) {
       return {
         status: "interrupted",
         transport: null
@@ -1930,12 +1947,14 @@ export class StreamWebChatTurnService {
     if (refreshedChat === null) {
       throw new NotFoundException("Chat does not exist for this assistant.");
     }
-    await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
-      assistant: prepared.assistant,
-      userContent: prepared.userMessage.content,
-      assistantContent: cleanedPartial,
-      source: "web_chat_turn_stream_partial"
-    });
+    if (cleanedPartial.length > 0) {
+      await this.trackWorkspaceQuotaUsageService.recordWebChatTurnUsage({
+        assistant: prepared.assistant,
+        userContent: prepared.userMessage.content,
+        assistantContent: cleanedPartial,
+        source: "web_chat_turn_stream_partial"
+      });
+    }
 
     return {
       status: "interrupted",

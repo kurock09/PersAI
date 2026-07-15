@@ -318,6 +318,10 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     policy: RuntimeSandboxPolicy;
     stagingFiles?: ReadonlyArray<SessionPodStagingFile>;
     visibleWorkspacePaths?: readonly string[];
+    /** ADR-149 — abort closes the exec WebSocket so cancel can unblock quickly. */
+    signal?: AbortSignal;
+    /** Fired once the pod is bound to this job so cancel can TERM/KILL mid-flight. */
+    onBound?: (binding: ExecPodJobBinding) => void;
   }): Promise<PodExecResult> {
     const namespace = this.config.SANDBOX_EXEC_NAMESPACE;
     const startedAt = Date.now();
@@ -708,6 +712,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     policy: RuntimeSandboxPolicy;
     stagingFiles?: ReadonlyArray<SessionPodStagingFile>;
     visibleWorkspacePaths?: readonly string[];
+    signal?: AbortSignal;
+    onBound?: (binding: ExecPodJobBinding) => void;
     namespace: string;
     startedAt: number;
   }): Promise<PodExecResult> {
@@ -754,6 +760,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       leaseToken: options.leaseToken,
       leaseHolderId: options.leaseHolderId
     });
+    options.onBound?.(binding);
     await this.ensureWorkspaceMountBootstrapped(
       podName,
       namespace,
@@ -808,7 +815,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       runtimeEnvironment:
         options.runtimeSessionId === null
           ? null
-          : buildSessionRuntimeEnvironmentPaths(assistantId, options.runtimeSessionId)
+          : buildSessionRuntimeEnvironmentPaths(assistantId, options.runtimeSessionId),
+      ...(options.signal === undefined ? {} : { signal: options.signal })
     });
     await this.pullWorkspace(podName, namespace, options.workspaceRoot);
 
@@ -837,6 +845,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
     command: string;
     args: string[];
     policy: RuntimeSandboxPolicy;
+    signal?: AbortSignal;
+    onBound?: (binding: ExecPodJobBinding) => void;
     stagingFiles?: ReadonlyArray<SessionPodStagingFile>;
     namespace: string;
     startedAt: number;
@@ -873,6 +883,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       leaseToken: options.leaseToken,
       leaseHolderId: options.leaseHolderId
     });
+    options.onBound?.(binding);
     await this.ensureWorkspaceMountBootstrapped(
       podName,
       namespace,
@@ -916,7 +927,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       args: options.args,
       podCwd,
       policy: options.policy,
-      runtimeEnvironment: null
+      runtimeEnvironment: null,
+      ...(options.signal === undefined ? {} : { signal: options.signal })
     });
     await this.pullWorkspace(podName, namespace, options.workspaceRoot);
     return {
@@ -2694,10 +2706,18 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       stdin?: Buffer | null;
       shellPreamble?: readonly string[];
       skipIdentityAssertion?: boolean;
+      signal?: AbortSignal;
     }
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
     if (options.skipIdentityAssertion !== true) {
       await this.assertCanonicalPodModeImmediatelyBeforeExec(podName, namespace);
+    }
+    if (options.signal?.aborted) {
+      throw createBridgeError(
+        "user_stopped",
+        "Sandbox job cancelled because the turn was stopped.",
+        true
+      );
     }
     const shellLines = [
       `mkdir -p ${posixSingleQuote(options.podCwd)}`,
@@ -2821,11 +2841,47 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       }, options.policy.maxProcessRuntimeMs);
     });
 
+    let abortHandler: (() => void) | null = null;
+    const abortPromise =
+      options.signal === undefined
+        ? null
+        : new Promise<never>((_, reject) => {
+            abortHandler = () => {
+              try {
+                activeWebSocket?.close?.();
+              } catch {
+                // Best-effort; cancelJob TERM/KILL is authoritative for process death.
+              }
+              reject(
+                createBridgeError(
+                  "user_stopped",
+                  "Sandbox job cancelled because the turn was stopped.",
+                  true
+                )
+              );
+            };
+            if (options.signal!.aborted) {
+              abortHandler();
+              return;
+            }
+            options.signal!.addEventListener("abort", abortHandler, { once: true });
+          });
+
     try {
-      return await Promise.race([resultPromise, timeoutPromise]);
+      const racers: Array<Promise<{ exitCode: number | null; stdout: string; stderr: string }>> = [
+        resultPromise,
+        timeoutPromise
+      ];
+      if (abortPromise !== null) {
+        racers.push(abortPromise);
+      }
+      return await Promise.race(racers);
     } finally {
       if (timeoutHandle !== null) {
         clearTimeout(timeoutHandle);
+      }
+      if (abortHandler !== null && options.signal !== undefined) {
+        options.signal.removeEventListener("abort", abortHandler);
       }
     }
   }
@@ -3945,6 +4001,7 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       podCwd: string;
       policy: RuntimeSandboxPolicy;
       runtimeEnvironment: ReturnType<typeof buildSessionRuntimeEnvironmentPaths> | null;
+      signal?: AbortSignal;
     }
   ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
     this.logger.log(
@@ -3962,7 +4019,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
         command: options.command,
         args: options.args,
         podCwd: options.podCwd,
-        policy: options.policy
+        policy: options.policy,
+        ...(options.signal === undefined ? {} : { signal: options.signal })
       });
     }
     return this.execCommand(podName, namespace, {
@@ -3970,7 +4028,8 @@ export class ExecPodBridgeService implements OnModuleInit, OnModuleDestroy {
       args: options.args,
       podCwd: options.podCwd,
       policy: options.policy,
-      shellPreamble: this.buildRuntimeEnvironmentShellPreamble(options.runtimeEnvironment)
+      shellPreamble: this.buildRuntimeEnvironmentShellPreamble(options.runtimeEnvironment),
+      ...(options.signal === undefined ? {} : { signal: options.signal })
     });
   }
 

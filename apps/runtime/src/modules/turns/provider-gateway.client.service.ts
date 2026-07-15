@@ -511,7 +511,10 @@ export class ProviderGatewayClientService {
     return response.body;
   }
 
-  async webFetch(input: ProviderGatewayWebFetchRequest): Promise<ProviderGatewayWebFetchResult> {
+  async webFetch(
+    input: ProviderGatewayWebFetchRequest,
+    options?: { signal?: AbortSignal }
+  ): Promise<ProviderGatewayWebFetchResult> {
     if (!this.isConfigured()) {
       throw new ServiceUnavailableException("Runtime provider gateway base URL is not configured.");
     }
@@ -525,7 +528,8 @@ export class ProviderGatewayClientService {
         },
         body: JSON.stringify(input)
       },
-      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS
+      this.config.RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS,
+      options?.signal
     );
     if (!response.ok) {
       throw this.toGatewayException(response);

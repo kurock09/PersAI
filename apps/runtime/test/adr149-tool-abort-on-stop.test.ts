@@ -182,4 +182,42 @@ describe("ADR-149 tool abort on stop", () => {
       assert.equal(outcome.code, "user_stopped");
     }
   });
+
+  test("ProviderGatewayClientService.webFetch aborts when signal is already aborted", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.signal?.aborted) {
+        throw new DOMException("aborted", "AbortError");
+      }
+      throw new Error("fetch should not run without an aborted signal");
+    }) as typeof fetch;
+
+    try {
+      const { ProviderGatewayClientService } =
+        await import("../src/modules/turns/provider-gateway.client.service");
+      const service = new ProviderGatewayClientService({
+        RUNTIME_PROVIDER_GATEWAY_BASE_URL: "http://gateway.test",
+        RUNTIME_PROVIDER_GATEWAY_TIMEOUT_MS: 5_000
+      } as never);
+      await assert.rejects(
+        () =>
+          service.webFetch(
+            {
+              url: "https://example.com",
+              extractMode: "markdown",
+              maxChars: 1_000,
+              credential: {
+                toolCode: "web_fetch",
+                secretId: "secret-1",
+                providerId: null
+              }
+            },
+            { signal: AbortSignal.abort() }
+          ),
+        (error: unknown) => error instanceof DOMException && error.name === "AbortError"
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
 });

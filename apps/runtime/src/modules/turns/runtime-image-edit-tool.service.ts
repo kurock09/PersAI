@@ -118,6 +118,7 @@ export class RuntimeImageEditToolService {
       sourceUserMessageId: string;
       sourceUserMessageText: string;
     };
+    abortSignal?: AbortSignal;
   }): Promise<RuntimeImageEditToolExecutionResult> {
     const request = this.readImageEditArguments(params.toolCall.arguments);
     if (request instanceof Error) {
@@ -299,6 +300,32 @@ export class RuntimeImageEditToolService {
     }
 
     if (params.deferToAsyncMediaJob !== undefined) {
+      if (params.abortSignal?.aborted) {
+        return {
+          payload: {
+            toolCode: IMAGE_EDIT_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: this.resolveToolModelKey(credential),
+            prompt: request.prompt,
+            revisedPrompt: null,
+            requestedCount: request.count,
+            sourceImageAlias: request.sourceImageAlias,
+            referenceImageAliases: request.referenceImageAliases ?? null,
+            sourceFilename: null,
+            referenceFilenames: null,
+            size: request.size,
+            artifacts: [],
+            usage: null,
+            action: "skipped",
+            reason: "user_stopped",
+            warning: "Image edit was cancelled because the turn was stopped.",
+            jobId: null
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
       try {
         const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredMediaJob({
           assistantId: params.bundle.metadata.assistantId,

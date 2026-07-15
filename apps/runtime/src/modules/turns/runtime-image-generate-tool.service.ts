@@ -97,6 +97,7 @@ export class RuntimeImageGenerateToolService {
       sourceUserMessageId: string;
       sourceUserMessageText: string;
     };
+    abortSignal?: AbortSignal;
   }): Promise<RuntimeImageGenerateToolExecutionResult> {
     if (isToolContractDescribeCall(params.toolCall.arguments)) {
       return executeRuntimeToolContractDescribe({
@@ -244,6 +245,28 @@ export class RuntimeImageGenerateToolService {
     }
 
     if (params.deferToAsyncMediaJob !== undefined) {
+      if (params.abortSignal?.aborted) {
+        return {
+          payload: {
+            toolCode: IMAGE_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: this.resolveToolModelKey(credential),
+            prompt: request.prompt,
+            revisedPrompt: null,
+            requestedCount: request.count,
+            size: request.size,
+            artifacts: [],
+            usage: null,
+            action: "skipped",
+            reason: "user_stopped",
+            warning: "Image generation was cancelled because the turn was stopped.",
+            jobId: null
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
       try {
         const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredMediaJob({
           assistantId: params.bundle.metadata.assistantId,

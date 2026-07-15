@@ -215,6 +215,8 @@ type LiveActivitySource = "tool" | "compaction" | "retrieval" | "project";
 type LiveActivityEvent = ActivityEvent & {
   source: LiveActivitySource;
   skillDetail?: string | undefined;
+  toolName?: string | undefined;
+  toolCallId?: string | undefined;
 };
 type ActiveTurnSnapshot = {
   clientTurnId: string;
@@ -425,6 +427,7 @@ function buildToolLiveActivity(params: {
   toolName: string;
   phase: "start" | "end";
   isError: boolean;
+  toolCallId?: string;
 }): LiveActivityEvent {
   if (shouldSuppressLegacyMediaActivity(params.toolName)) {
     return {
@@ -433,7 +436,9 @@ function buildToolLiveActivity(params: {
       label: HIDDEN_MEDIA_ACTIVITY_LABEL,
       afterMessageId: params.assistantMessageId,
       emphasis: "default",
-      source: "tool"
+      source: "tool",
+      toolName: params.toolName,
+      ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId })
     };
   }
   const copy = TOOL_ACTIVITY_COPY[params.toolName];
@@ -455,7 +460,9 @@ function buildToolLiveActivity(params: {
     label,
     afterMessageId: params.assistantMessageId,
     emphasis: "strong",
-    source: "tool"
+    source: "tool",
+    toolName: params.toolName,
+    ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId })
   };
 }
 function buildCompactionLiveActivity(params: {
@@ -571,7 +578,15 @@ function mergeLiveActivity(
   if (currentActivity === undefined) {
     return merged;
   }
+  const sameInFlightToolCall =
+    currentActivity.toolName !== undefined &&
+    nextActivity.toolName !== undefined &&
+    currentActivity.toolName === nextActivity.toolName &&
+    currentActivity.toolCallId !== undefined &&
+    nextActivity.toolCallId !== undefined &&
+    currentActivity.toolCallId === nextActivity.toolCallId;
   const preserveProgressDetail =
+    sameInFlightToolCall &&
     nextActivity.source === "tool" &&
     !nextActivity.label.includes("finished") &&
     !nextActivity.label.includes("failed");
@@ -613,43 +628,56 @@ function applyToolProgressToLiveActivity(
   params: {
     assistantMessageId: string;
     toolName: string;
+    toolCallId?: string;
     kind: "stdout_line" | "stderr_line" | "browser_step";
     line?: string;
     step?: string;
   }
 ): LiveActivityEvent {
-  const runningActivity =
+  const sameInFlightToolCall =
     currentActivity !== undefined &&
     currentActivity.source === "tool" &&
+    currentActivity.toolName === params.toolName &&
+    (params.toolCallId === undefined ||
+      currentActivity.toolCallId === undefined ||
+      currentActivity.toolCallId === params.toolCallId) &&
     !currentActivity.label.includes("failed") &&
-    !currentActivity.label.includes("finished")
-      ? currentActivity
-      : buildToolLiveActivity({
-          assistantMessageId: params.assistantMessageId,
-          toolName: params.toolName,
-          phase: "start",
-          isError: false
-        });
+    !currentActivity.label.includes("finished");
+  const runningActivity = sameInFlightToolCall
+    ? currentActivity
+    : buildToolLiveActivity({
+        assistantMessageId: params.assistantMessageId,
+        toolName: params.toolName,
+        phase: "start",
+        isError: false,
+        ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId })
+      });
   if (params.kind === "browser_step" && params.step) {
     return {
       ...runningActivity,
+      toolName: params.toolName,
+      ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId }),
       detail: params.step,
       emphasis: "strong"
     };
   }
   if ((params.kind === "stdout_line" || params.kind === "stderr_line") && params.line) {
     const prefixedLine = params.kind === "stderr_line" ? `stderr: ${params.line}` : params.line;
-    const nextLines = [...(runningActivity.shellProgressLines ?? []), prefixedLine].slice(
-      -SHELL_PROGRESS_ROLLING_LINES
-    );
+    const baseLines = sameInFlightToolCall ? (runningActivity.shellProgressLines ?? []) : [];
+    const nextLines = [...baseLines, prefixedLine].slice(-SHELL_PROGRESS_ROLLING_LINES);
     return {
       ...runningActivity,
+      toolName: params.toolName,
+      ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId }),
       shellProgressLines: nextLines,
-      detail: nextLines.join("\n"),
       emphasis: "strong"
     };
   }
-  return runningActivity;
+  return {
+    ...runningActivity,
+    toolName: params.toolName,
+    ...(params.toolCallId === undefined ? {} : { toolCallId: params.toolCallId })
+  };
 }
 export function formatTurnRoutingBadgeLabel(
   turnRouting: NonNullable<RuntimeTransportMeta["turnRouting"]>
@@ -801,7 +829,8 @@ function toActiveTurnOverlayMessages(activeTurn: WebChatActiveTurnState | null |
             assistantMessageId: assistantOverlay.id,
             toolName: activeTurn.currentActivity.toolName,
             phase: activeTurn.currentActivity.phase,
-            isError: activeTurn.currentActivity.isError
+            isError: activeTurn.currentActivity.isError,
+            toolCallId: activeTurn.currentActivity.toolCallId
           })
         }
       : {};
@@ -1655,8 +1684,15 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     setIssue(toWebChatUxIssue(error));
   }, []);
   const stop = useCallback(() => {
-    /* Per-thread stop: abort only the stream attached to the thread the */ /* user is currently looking at. Streams in other threads keep going so */ /* switching away from a generating image doesn't kill it. */ /*  */ /* Slice 1.2 ��� `stop()` is the *user-visible* hard-stop affordance */ /* (the Stop button on the composer). The API can no longer infer */ /* hard-stop from a dead SSE socket, because that signal also fires */ /* for soft-detach cases like locking the screen mid-image-generate. */ /* So before tearing down the local controller we send an explicit */ /* `POST /assistant/chat/web/stop` with the in-flight `clientTurnId`, */ /* which is the only path that flips the server-side abort signal. */ /* The POST is best-effort and intentionally not awaited: a failure */ /* here just means the runtime keeps generating in the background */ /* (the same fate as a soft-detach), which is strictly safer than */ /* the pre-Slice-1.2 "always kill on any disconnect" default. */ const entry =
-      abortControllersByThreadRef.current.get(assistantScopedThreadKey);
+    /* Per-thread stop: abort only the stream attached to the thread the user is
+     * currently looking at. Streams in other threads keep going so switching
+     * away from a generating image doesn't kill it.
+     *
+     * ADR-149 / Slice 1.2 — `stop()` is the user-visible hard-stop affordance
+     * (Stop button). Soft-detach (SSE death) must not stop the server; only
+     * this explicit POST /assistant/chat/web/stop path does. Failures surface
+     * via reportIssue rather than silently pretending success. */
+    const entry = abortControllersByThreadRef.current.get(assistantScopedThreadKey);
     const snapshotClientTurnId =
       activeTurnSnapshotsRef.current.get(assistantScopedThreadKey)?.clientTurnId;
     const clientTurnId = entry?.clientTurnId ?? snapshotClientTurnId;
@@ -1665,23 +1701,46 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
     }
     hardStoppedClientTurnIdsRef.current.add(clientTurnId);
     void (async () => {
+      let stopServerAcknowledged = false;
+      let hardStopWaitExpired = false;
       try {
         const token = await getToken();
         if (token === null || token === undefined) {
           return;
         }
+        const stopPromise = stopAssistantWebChatTurn(token, clientTurnId)
+          .then(() => {
+            stopServerAcknowledged = true;
+          })
+          .catch((error: unknown) => {
+            if (hardStopWaitExpired) {
+              reportIssue(error);
+              return;
+            }
+            throw error;
+          });
         await Promise.race([
-          stopAssistantWebChatTurn(token, clientTurnId),
-          delay(HARD_STOP_SERVER_ACK_TIMEOUT_MS)
+          stopPromise,
+          delay(HARD_STOP_SERVER_ACK_TIMEOUT_MS).then(() => {
+            hardStopWaitExpired = true;
+          })
         ]);
+        if (!stopServerAcknowledged && hardStopWaitExpired) {
+          reportIssue(
+            toWebChatUxIssue({
+              message:
+                "Stop was not confirmed by the server within 750ms. The turn may still be running until you retry Stop or refresh."
+            })
+          );
+        }
       } catch (error) {
         reportIssue(error);
       } finally {
         entry?.controller.abort();
-        abortControllersByThreadRef.current.delete(threadKey);
+        abortControllersByThreadRef.current.delete(assistantScopedThreadKey);
       }
     })();
-  }, [assistantScopedThreadKey, getToken, reportIssue, threadKey]);
+  }, [assistantScopedThreadKey, getToken, reportIssue]);
   const refreshCompactionState = useCallback(
     async (
       targetChatId: string,
@@ -2070,21 +2129,25 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
           attachments: undefined
         };
         const currentActivity = status.currentActivity;
+        const existingLiveActivities = existingSnapshot?.liveActivitiesByMessageId ?? {};
         const nextLiveActivities =
           currentActivity === null
-            ? (existingSnapshot?.liveActivitiesByMessageId ?? {})
-            : {
-                ...(existingSnapshot?.liveActivitiesByMessageId ?? {}),
-                [liveAssistantMessage.id]: mergeLiveActivity(
-                  existingSnapshot?.liveActivitiesByMessageId?.[liveAssistantMessage.id],
-                  buildToolLiveActivity({
-                    assistantMessageId: liveAssistantMessage.id,
-                    toolName: currentActivity.toolName,
-                    phase: currentActivity.phase,
-                    isError: currentActivity.isError
-                  })
-                )
-              };
+            ? existingLiveActivities
+            : shouldDeferToolFinishedLiveActivity(currentActivity.toolName, currentActivity.phase)
+              ? existingLiveActivities
+              : {
+                  ...existingLiveActivities,
+                  [liveAssistantMessage.id]: mergeLiveActivity(
+                    existingLiveActivities[liveAssistantMessage.id],
+                    buildToolLiveActivity({
+                      assistantMessageId: liveAssistantMessage.id,
+                      toolName: currentActivity.toolName,
+                      phase: currentActivity.phase,
+                      isError: currentActivity.isError,
+                      toolCallId: currentActivity.toolCallId
+                    })
+                  )
+                };
         // PRESERVE EXISTING THREAD HISTORY when applying a running-status
         // refresh. The previous implementation replaced
         // `snapshot.messages` and the visible state with just
@@ -2343,7 +2406,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   )
                 );
               },
-              onTool: ({ phase, toolName, isError }) => {
+              onTool: ({ phase, toolName, toolCallId, isError }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
                 const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
                 if (assistantMessageId === null) {
@@ -2360,7 +2423,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                       assistantMessageId,
                       toolName,
                       phase,
-                      isError
+                      isError,
+                      toolCallId
                     })
                   )
                 }));
@@ -2375,7 +2439,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   void refreshChatPlan();
                 }
               },
-              onToolProgress: ({ toolName, kind, line, step }) => {
+              onToolProgress: ({ toolName, toolCallId, kind, line, step }) => {
                 const snapshot = activeTurnSnapshotsRef.current.get(targetThreadKey);
                 const assistantMessageId = snapshot?.liveAssistantMessageId ?? null;
                 if (assistantMessageId === null) {
@@ -2388,6 +2452,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                     applyToolProgressToLiveActivity(prev[assistantMessageId], {
                       assistantMessageId,
                       toolName,
+                      toolCallId,
                       kind,
                       ...(line === undefined ? {} : { line }),
                       ...(step === undefined ? {} : { step })
@@ -3317,10 +3382,12 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         onTool: ({
           phase,
           toolName,
+          toolCallId,
           isError
         }: {
           phase: "start" | "end";
           toolName: string;
+          toolCallId: string;
           isError: boolean;
         }) => {
           flushBufferedAssistantState(true);
@@ -3334,7 +3401,8 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
                   assistantMessageId: assistantMsgId,
                   toolName,
                   phase,
-                  isError
+                  isError,
+                  toolCallId
                 })
               )
             }));
@@ -3345,11 +3413,13 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
         },
         onToolProgress: ({
           toolName,
+          toolCallId,
           kind,
           line,
           step
         }: {
           toolName: string;
+          toolCallId: string;
           kind: "stdout_line" | "stderr_line" | "browser_step";
           line?: string;
           step?: string;
@@ -3363,6 +3433,7 @@ export function useChat(threadKey: string, options?: UseChatOptions): UseChatRet
               applyToolProgressToLiveActivity(prev[assistantMsgId], {
                 assistantMessageId: assistantMsgId,
                 toolName,
+                toolCallId,
                 kind,
                 ...(line === undefined ? {} : { line }),
                 ...(step === undefined ? {} : { step })

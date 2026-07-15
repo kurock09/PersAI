@@ -46,6 +46,8 @@ import type {
   AssistantWebChatDeleteRequest,
   AssistantWebChatRenameRequest,
   AssistantWebChatTurnRequest,
+  AssistantWebChatTurnStopRequest,
+  AssistantWebChatTurnStopResponse,
   CloudpaymentsWebhookAck,
   CloudpaymentsWebhookNotificationType,
   CreateWorkspaceVideoPersonaBody,
@@ -1898,6 +1900,76 @@ export const postAssistantWebChatTurnStream = async (
       body: JSON.stringify(assistantWebChatTurnRequest)
     }
   );
+};
+
+/**
+ * Stops only when abort is provably signaled to the owning stream (local AbortController
+or Redis pub/sub delivery). Soft-detach / SSE close must not call this endpoint.
+
+ * @summary Explicitly hard-stop an in-flight web chat turn (ADR-149 durable stop)
+ */
+export type postAssistantWebChatTurnStopResponse200 = {
+  data: AssistantWebChatTurnStopResponse;
+  status: 200;
+};
+
+export type postAssistantWebChatTurnStopResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAssistantWebChatTurnStopResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type postAssistantWebChatTurnStopResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type postAssistantWebChatTurnStopResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type postAssistantWebChatTurnStopResponse500 = {
+  data: ErrorEnvelope;
+  status: 500;
+};
+
+export type postAssistantWebChatTurnStopResponseSuccess =
+  postAssistantWebChatTurnStopResponse200 & {
+    headers: Headers;
+  };
+export type postAssistantWebChatTurnStopResponseError = (
+  | postAssistantWebChatTurnStopResponse400
+  | postAssistantWebChatTurnStopResponse401
+  | postAssistantWebChatTurnStopResponse403
+  | postAssistantWebChatTurnStopResponse404
+  | postAssistantWebChatTurnStopResponse500
+) & {
+  headers: Headers;
+};
+
+export type postAssistantWebChatTurnStopResponse =
+  | postAssistantWebChatTurnStopResponseSuccess
+  | postAssistantWebChatTurnStopResponseError;
+
+export const getPostAssistantWebChatTurnStopUrl = () => {
+  return `/assistant/chat/web/stop`;
+};
+
+export const postAssistantWebChatTurnStop = async (
+  assistantWebChatTurnStopRequest: AssistantWebChatTurnStopRequest,
+  options?: RequestInit
+): Promise<postAssistantWebChatTurnStopResponse> => {
+  return customFetch<postAssistantWebChatTurnStopResponse>(getPostAssistantWebChatTurnStopUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(assistantWebChatTurnStopRequest)
+  });
 };
 
 /**

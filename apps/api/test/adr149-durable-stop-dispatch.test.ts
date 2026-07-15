@@ -37,6 +37,18 @@ describe("ADR-149 durable stop dispatch", () => {
     assert.deepEqual(outcome, { status: "turn_not_found" });
   });
 
+  test("dispatchStop returns turn_not_found for inflight DB attempt without abortable owner", async () => {
+    const service = new WebChatTurnStopDispatchService();
+    const outcome = await service.dispatchStop({
+      assistantId: "assistant-1",
+      clientTurnId: "orphan-running",
+      userId: "user-1",
+      attemptStatus: "running"
+    });
+    assert.deepEqual(outcome, { status: "turn_not_found" });
+    assert.equal(service.wasUserStopped("assistant-1", "orphan-running"), false);
+  });
+
   test("dispatchStop returns already_done for terminal attempts", async () => {
     const service = new WebChatTurnStopDispatchService();
     const outcome = await service.dispatchStop({

@@ -1758,6 +1758,19 @@ describe("stopAssistantWebChatTurn (ADR-149 S1)", () => {
 });
 
 describe("toWebChatUxIssue", () => {
+  it("maps turn_idle_stall separately from runtime_timeout", () => {
+    expect(
+      toWebChatUxIssue({
+        code: "turn_idle_stall",
+        message: "The assistant stopped making progress before finishing. Please try again."
+      })
+    ).toEqual({
+      classId: "turn_idle_stall",
+      message: "The assistant stopped making progress before finishing. Please try again.",
+      guidance: "Retry the message. Partial output may already be preserved."
+    });
+  });
+
   it("maps tool daily limit errors to quota-style guidance", () => {
     expect(
       toWebChatUxIssue({

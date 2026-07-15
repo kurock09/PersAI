@@ -3556,7 +3556,7 @@ export class TurnExecutionService {
       case WEB_SEARCH_TOOL_CODE:
         return this.executeWebSearchTool(execution, toolCall);
       case WEB_FETCH_TOOL_CODE:
-        return this.executeWebFetchTool(execution, toolCall);
+        return this.executeWebFetchTool(execution, toolCall, abortSignal);
       case BROWSER_TOOL_CODE: {
         const result = await this.runtimeBrowserToolService.executeToolCall({
           bundle: execution.bundle,
@@ -3662,6 +3662,9 @@ export class TurnExecutionService {
           chatId: currentChatId,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString(),
+          ...(this.shouldDeferMediaToolExecution(input) && abortSignal !== undefined
+            ? { abortSignal }
+            : {}),
           ...(this.shouldDeferMediaToolExecution(input)
             ? {
                 deferToAsyncMediaJob: {
@@ -3695,6 +3698,9 @@ export class TurnExecutionService {
           chatId: currentChatId,
           sourceUserMessageText: input.message.text,
           sourceUserMessageCreatedAt: new Date().toISOString(),
+          ...(this.shouldDeferMediaToolExecution(input) && abortSignal !== undefined
+            ? { abortSignal }
+            : {}),
           ...(this.shouldDeferMediaToolExecution(input)
             ? {
                 deferToAsyncMediaJob: {
@@ -3738,6 +3744,9 @@ export class TurnExecutionService {
               chatId: currentChatId,
               sourceUserMessageText: input.message.text,
               sourceUserMessageCreatedAt: new Date().toISOString(),
+              ...(this.shouldDeferMediaToolExecution(input) && abortSignal !== undefined
+                ? { abortSignal }
+                : {}),
               ...(this.shouldDeferMediaToolExecution(input)
                 ? {
                     deferToAsyncMediaJob: {
@@ -4087,7 +4096,8 @@ export class TurnExecutionService {
 
   private async executeWebFetchTool(
     execution: PreparedTurnExecution,
-    toolCall: ProviderGatewayToolCall
+    toolCall: ProviderGatewayToolCall,
+    abortSignal?: AbortSignal
   ): Promise<ToolExecutionOutcome> {
     const request = this.readWebFetchArguments(toolCall.arguments);
     if (request instanceof Error) {
@@ -4129,6 +4139,21 @@ export class TurnExecutionService {
       });
     }
 
+    if (abortSignal?.aborted) {
+      return this.createToolExecutionOutcome(
+        toolCall,
+        {
+          toolCode: WEB_FETCH_TOOL_CODE,
+          executionMode: "inline",
+          document: null,
+          action: "skipped",
+          reason: "user_stopped",
+          warning: "Web fetch was cancelled because the turn was stopped."
+        },
+        true
+      );
+    }
+
     try {
       // ADR-074 L1.1 — always count for observability.
       const quotaOutcome = await this.persaiInternalApiClientService.consumeToolDailyLimit({
@@ -4147,16 +4172,19 @@ export class TurnExecutionService {
         });
       }
 
-      const providerResult = await this.providerGatewayClientService.webFetch({
-        url: request.url,
-        extractMode: request.extractMode,
-        maxChars: request.maxChars,
-        credential: {
-          toolCode: WEB_FETCH_TOOL_CODE,
-          secretId: credential.secretRef.id,
-          providerId: credential.providerId ?? null
-        }
-      });
+      const providerResult = await this.providerGatewayClientService.webFetch(
+        {
+          url: request.url,
+          extractMode: request.extractMode,
+          maxChars: request.maxChars,
+          credential: {
+            toolCode: WEB_FETCH_TOOL_CODE,
+            secretId: credential.secretRef.id,
+            providerId: credential.providerId ?? null
+          }
+        },
+        ...(abortSignal === undefined ? [] : [{ signal: abortSignal }])
+      );
       return this.createToolExecutionOutcome(toolCall, {
         toolCode: WEB_FETCH_TOOL_CODE,
         executionMode: "inline",
@@ -4181,6 +4209,20 @@ export class TurnExecutionService {
         billingFacts: providerResult.billingFacts ?? null
       });
     } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return this.createToolExecutionOutcome(
+          toolCall,
+          {
+            toolCode: WEB_FETCH_TOOL_CODE,
+            executionMode: "inline",
+            document: null,
+            action: "skipped",
+            reason: "user_stopped",
+            warning: "Web fetch was cancelled because the turn was stopped."
+          },
+          true
+        );
+      }
       if (error instanceof HttpException) {
         return this.createToolExecutionOutcome(
           toolCall,

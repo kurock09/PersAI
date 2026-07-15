@@ -1154,6 +1154,58 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /assistant/chat/web/stop:
+    post:
+      operationId: postAssistantWebChatTurnStop
+      summary: Explicitly hard-stop an in-flight web chat turn (ADR-149 durable stop)
+      description: |
+        Stops only when abort is provably signaled to the owning stream (local AbortController
+        or Redis pub/sub delivery). Soft-detach / SSE close must not call this endpoint.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantWebChatTurnStopRequest"
+      responses:
+        "200":
+          description: Stop accepted (`stopped`) or turn already terminal (`already_done`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantWebChatTurnStopResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Stop refused for this turn (auth / assistant ownership mismatch)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: No in-flight abortable turn found for this clientTurnId
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /assistant/chat/web/turns/{clientTurnId}:
     get:
       operationId: getAssistantWebChatTurnStatus
@@ -12622,6 +12674,31 @@ components:
             - project
         deepModeEnabled:
           type: boolean
+    AssistantWebChatTurnStopRequest:
+      type: object
+      required:
+        - clientTurnId
+      properties:
+        clientTurnId:
+          type: string
+          minLength: 1
+          description: Client-generated turn id of the in-flight web chat turn to stop
+    AssistantWebChatTurnStopResponse:
+      type: object
+      required:
+        - status
+        - clientTurnId
+      properties:
+        status:
+          type: string
+          enum:
+            - stopped
+            - already_done
+          description: |
+            `stopped` means abort was signaled to the owning stream.
+            `already_done` means the attempt was already terminal.
+        clientTurnId:
+          type: string
     AssistantWebChatState:
       type: object
       required:

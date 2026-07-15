@@ -148,8 +148,10 @@ Stop must cancel work, not merely abort the API fetch:
 | Layer | Requirement |
 |-------|-------------|
 | Runtime turn loop | honor `AbortSignal` between tool iterations and inside long tool calls |
-| `shell` / `exec` | cancel sandbox job; target ≤2s best-effort process termination |
+| `shell` / `exec` | cancel in-pod job process (pip/bash) via sandbox `POST /api/v1/jobs/:jobId/cancel` and `cleanupBoundSessionPod` TERM/KILL; **warm session pod is not retired** on Stop — pod lifecycle remains ADR-148 idle TTL reaper; only ephemeral model-job pods use `retireModelJobPod` on cancel |
 | `browser` | cancel in-flight bridge command / gateway wait |
+| `web_fetch` | honor `AbortSignal` on inline provider gateway fetch |
+| deferred `image_generate` / `image_edit` / `video_generate` | **do not** cancel already-enqueued background media jobs; Stop only skips enqueue when `abortSignal` is already set before `enqueueDeferredMediaJob` |
 | Provider stream | existing abort between chunks remains |
 | Sandbox service | add `POST /api/v1/jobs/:jobId/cancel` (or equivalent) with idempotent semantics; terminal states `cancelled` / `failed` / `completed` |
 
@@ -407,7 +409,7 @@ Parent-supervised.
 ## References
 
 - Cluster log audit 2026-07-15 (`runtime_timeout` ~615s, tool-loop iterations 35/34)
-- `apps/api/.../web-chat-turn-hard-stop-registry.service.ts` (to be removed)
+- `apps/api/.../web-chat-turn-hard-stop-registry.service.ts` (removed in S1 — replaced by `WebChatTurnStopDispatchService`)
 - `apps/api/.../native-runtime-turn-timeout.ts` (to be replaced for stream ceiling)
 - `apps/api/.../stream-web-chat-turn.service.ts` (`resolveWebStreamCadenceWatchdogOptions` — leave disabled)
 - `apps/runtime/.../turn-lease-heartbeat.service.ts` (to be wired)

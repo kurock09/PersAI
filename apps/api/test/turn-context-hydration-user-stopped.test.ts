@@ -10,6 +10,12 @@ type HydrationAccessor = {
       metadata?: { status?: string; stopReason?: string } | null;
     }
   ) => string;
+  isHydratableCanonicalMessage: (message: {
+    author: "user" | "assistant" | "system";
+    content: string;
+    attachments: unknown[];
+    metadata?: { status?: string; stopReason?: string } | null;
+  }) => boolean;
 };
 
 function createHydrationAccessor(): HydrationAccessor {
@@ -38,5 +44,34 @@ describe("turn-context-hydration user_stopped marker", () => {
     });
     assert.match(marked, /the previous answer was interrupted before completion/);
     assert.doesNotMatch(marked, /explicitly stopped/);
+  });
+
+  test("empty partial assistant row with user_stopped is hydratable and gets explicit marker", () => {
+    const service = createHydrationAccessor();
+    const message = {
+      author: "assistant" as const,
+      content: "",
+      attachments: [],
+      metadata: { status: "partial", stopReason: "user_stopped" }
+    };
+    assert.equal(service.isHydratableCanonicalMessage(message), true);
+    const marked = service.withTruncationMarker("", message);
+    assert.match(
+      marked,
+      /the user explicitly stopped the previous assistant turn before it finished/
+    );
+  });
+
+  test("empty assistant row without user_stopped remains non-hydratable", () => {
+    const service = createHydrationAccessor();
+    assert.equal(
+      service.isHydratableCanonicalMessage({
+        author: "assistant",
+        content: "",
+        attachments: [],
+        metadata: { status: "partial" }
+      }),
+      false
+    );
   });
 });

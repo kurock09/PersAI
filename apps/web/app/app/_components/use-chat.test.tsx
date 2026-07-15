@@ -1552,6 +1552,7 @@ describe("useChat", () => {
   });
 
   it("keeps the last real live activity instead of a synthetic response-ready badge", async () => {
+    let finishTurn: (() => void) | undefined;
     assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
       async (
         _token: string,
@@ -1582,40 +1583,63 @@ describe("useChat", () => {
           source: "product",
           resultCount: 1
         });
-        handlers.onRuntimeDone?.({
-          respondedAt: "2026-04-14T10:08:00.000Z"
-        });
-        handlers.onCompleted?.({
-          transport: {
-            assistantMessage: {
-              id: "assistant-msg-1",
-              attachments: []
-            },
-            userMessage: {
-              id: "user-msg-1",
-              attachments: []
-            },
-            runtime: null
-          }
+        await new Promise<void>((resolve) => {
+          finishTurn = () => {
+            handlers.onRuntimeDone?.({
+              respondedAt: "2026-04-14T10:08:00.000Z"
+            });
+            handlers.onCompleted?.({
+              transport: {
+                assistantMessage: {
+                  id: "assistant-msg-1",
+                  attachments: []
+                },
+                userMessage: {
+                  id: "user-msg-1",
+                  attachments: []
+                },
+                runtime: null
+              }
+            });
+            resolve();
+          };
         });
       }
     );
 
-    const { result } = renderHook(() => useChat("thread-1"));
-
-    await act(async () => {
-      await result.current.send("антисрыв-план на 3 строки");
+    const { result } = renderHook(() => useChat("thread-1"), {
+      wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
     });
 
-    const activityEntries = result.current.entries.filter(
+    let sendPromise: Promise<void> | undefined;
+    await act(async () => {
+      sendPromise = result.current.send("антисрыв-план на 3 строки");
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      const activityEntries = result.current.entries.filter(
+        (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+          entry.kind === "activity"
+      );
+      expect(activityEntries).toHaveLength(1);
+      expect(activityEntries[0]?.event.label).toBe("retrieval_product_started");
+      expect(activityEntries[0]?.event.detail).toContain("skillBadgePrefix - ✈️");
+      expect(activityEntries[0]?.event.detail).not.toContain("Диетолог");
+    });
+
+    await act(async () => {
+      finishTurn?.();
+      if (sendPromise !== undefined) {
+        await sendPromise.catch(() => undefined);
+      }
+    });
+
+    const activityAfterComplete = result.current.entries.filter(
       (entry): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
         entry.kind === "activity"
     );
-
-    expect(activityEntries).toHaveLength(1);
-    expect(activityEntries[0]?.event.label).toBe("retrieval_product_started");
-    expect(activityEntries[0]?.event.detail).toContain("skillBadgePrefix - ✈️");
-    expect(activityEntries[0]?.event.detail).not.toContain("Диетолог");
+    expect(activityAfterComplete).toHaveLength(0);
   });
 
   it("keeps only the latest project live status for project-mode streams", async () => {
@@ -4386,6 +4410,71 @@ describe("useChat", () => {
       rerender({ threadKey: "thread-A" });
       await act(async () => {
         result.current.stop();
+        if (sendA !== undefined) {
+          await sendA.catch(() => undefined);
+        }
+      });
+    });
+
+    it("stop() with assistantId scoped thread key aborts only the matching assistant stream", async () => {
+      const aborts: { key: string; aborted: boolean }[] = [];
+      let streamIndex = 0;
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: { surfaceThreadKey?: string },
+          _handlers: unknown,
+          signal?: AbortSignal
+        ) => {
+          const key =
+            streamIndex === 0 ? "assistant-1::shared-thread" : "assistant-2::shared-thread";
+          streamIndex += 1;
+          const entry = { key, aborted: false };
+          aborts.push(entry);
+          await new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => {
+              entry.aborted = true;
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        }
+      );
+
+      const wrapper = ({ children }: { children: React.ReactNode }) => (
+        <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      );
+      const { result: resultA } = renderHook(
+        () => useChat("shared-thread", { assistantId: "assistant-1" }),
+        { wrapper }
+      );
+      const { result: resultB } = renderHook(
+        () => useChat("shared-thread", { assistantId: "assistant-2" }),
+        { wrapper }
+      );
+
+      let sendA: Promise<void> | undefined;
+      let sendB: Promise<void> | undefined;
+      await act(async () => {
+        sendA = resultA.current.send("hi from A");
+        sendB = resultB.current.send("hi from B");
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(aborts).toHaveLength(2));
+
+      await act(async () => {
+        resultB.current.stop();
+        if (sendB !== undefined) {
+          await sendB.catch(() => undefined);
+        }
+      });
+
+      const aEntry = aborts.find((entry) => entry.key === "assistant-1::shared-thread");
+      const bEntry = aborts.find((entry) => entry.key === "assistant-2::shared-thread");
+      expect(aEntry?.aborted).toBe(false);
+      expect(bEntry?.aborted).toBe(true);
+
+      await act(async () => {
+        resultA.current.stop();
         if (sendA !== undefined) {
           await sendA.catch(() => undefined);
         }
@@ -7730,6 +7819,204 @@ describe("useChat", () => {
         expect(activityEntries).toHaveLength(1);
         expect(activityEntries[0]?.event.shellProgressLines).toEqual(["Collecting requests"]);
         expect(activityEntries[0]?.event.label).toBe("shell_started");
+      });
+    });
+
+    it("clears shell progress when toolCallId changes across tools", async () => {
+      const streamGate: { release: () => void } = {
+        release: () => undefined
+      };
+      assistantApiMocks.streamAssistantWebChatTurn.mockImplementation(
+        async (
+          _token: string,
+          _payload: unknown,
+          handlers: {
+            onHeadersOk?: () => void;
+            onStarted?: (payload: { chat: unknown; userMessage: unknown }) => void;
+            onTool?: (payload: {
+              phase: "start" | "end";
+              toolName: string;
+              toolCallId: string;
+              isError: boolean;
+            }) => void;
+            onToolProgress?: (payload: {
+              toolName: string;
+              toolCallId: string;
+              kind: "stdout_line" | "stderr_line" | "browser_step";
+              line?: string;
+              seq: number;
+            }) => void;
+            onCompleted?: (payload: { transport: unknown }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onStarted?.({
+            chat: { id: "chat-progress-bleed" },
+            userMessage: { id: "user-progress-bleed" }
+          });
+          handlers.onTool?.({
+            phase: "start",
+            toolName: "shell",
+            toolCallId: "tool-shell-a",
+            isError: false
+          });
+          handlers.onToolProgress?.({
+            toolName: "shell",
+            toolCallId: "tool-shell-a",
+            kind: "stdout_line",
+            line: "pip install old",
+            seq: 1
+          });
+          await Promise.resolve();
+          handlers.onTool?.({
+            phase: "start",
+            toolName: "shell",
+            toolCallId: "tool-shell-b",
+            isError: false
+          });
+          handlers.onToolProgress?.({
+            toolName: "shell",
+            toolCallId: "tool-shell-b",
+            kind: "stdout_line",
+            line: "pip install new",
+            seq: 1
+          });
+          await new Promise<void>((resolve) => {
+            streamGate.release = resolve;
+          });
+          handlers.onCompleted?.({ transport: null });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-progress-bleed"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      let sendPromise: Promise<void> | undefined;
+      await act(async () => {
+        sendPromise = result.current.send("run");
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        const activityEntries = result.current.entries.filter(
+          (
+            entry
+          ): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+            entry.kind === "activity"
+        );
+        expect(activityEntries).toHaveLength(1);
+        expect(activityEntries[0]?.event.shellProgressLines).toEqual(["pip install new"]);
+        expect(activityEntries[0]?.event.shellProgressLines).not.toContain("pip install old");
+      });
+
+      streamGate.release();
+      await act(async () => {
+        if (sendPromise !== undefined) {
+          await sendPromise;
+        }
+      });
+    });
+
+    it("does not apply deferred shell finished turn_status while turn is still running", async () => {
+      window.sessionStorage.setItem(
+        "persai.active-web-turn.v1.thread-defer-finished",
+        "turn-defer"
+      );
+      assistantApiMocks.getAssistantWebChatTurnStatus.mockResolvedValueOnce({
+        status: "running",
+        chat: { id: "chat-defer" },
+        userMessage: {
+          id: "server-user-defer",
+          chatId: "chat-defer",
+          assistantId: "assistant-1",
+          author: "user",
+          content: "install",
+          attachments: [],
+          createdAt: "2026-04-25T17:45:35.000Z"
+        },
+        assistantMessage: {
+          id: "server-assistant-defer",
+          chatId: "chat-defer",
+          assistantId: "assistant-1",
+          author: "assistant",
+          content: "",
+          attachments: [],
+          createdAt: "2026-04-25T17:45:36.000Z"
+        },
+        currentActivity: {
+          toolName: "shell",
+          toolCallId: "tool-shell-defer",
+          phase: "start",
+          isError: false
+        },
+        runtime: null,
+        error: null
+      });
+      assistantApiMocks.reattachAssistantWebChatTurnStream.mockImplementationOnce(
+        async (
+          _token: string,
+          _clientTurnId: string,
+          handlers: {
+            onHeadersOk?: () => void;
+            onToolProgress?: (payload: {
+              toolName: string;
+              toolCallId: string;
+              kind: "stdout_line" | "stderr_line" | "browser_step";
+              line?: string;
+              seq: number;
+            }) => void;
+            onTurnStatus?: (payload: {
+              turn: {
+                status: string;
+                currentActivity: {
+                  toolName: string;
+                  toolCallId: string;
+                  phase: "start" | "end";
+                  isError: boolean;
+                } | null;
+              };
+            }) => void;
+          }
+        ) => {
+          handlers.onHeadersOk?.();
+          handlers.onToolProgress?.({
+            toolName: "shell",
+            toolCallId: "tool-shell-defer",
+            kind: "stdout_line",
+            line: "Downloading package",
+            seq: 1
+          });
+          handlers.onTurnStatus?.({
+            turn: {
+              status: "running",
+              currentActivity: {
+                toolName: "shell",
+                toolCallId: "tool-shell-defer",
+                phase: "end",
+                isError: false
+              }
+            }
+          });
+        }
+      );
+
+      const { result } = renderHook(() => useChat("thread-defer-finished"), {
+        wrapper: ({ children }) => <StreamingThreadsProvider>{children}</StreamingThreadsProvider>
+      });
+
+      await waitFor(() => expect(result.current.isStreaming).toBe(true));
+
+      await waitFor(() => {
+        const activityEntries = result.current.entries.filter(
+          (
+            entry
+          ): entry is Extract<(typeof result.current.entries)[number], { kind: "activity" }> =>
+            entry.kind === "activity"
+        );
+        expect(activityEntries).toHaveLength(1);
+        expect(activityEntries[0]?.event.label).not.toBe("shell_finished");
+        expect(activityEntries[0]?.event.shellProgressLines).toEqual(["Downloading package"]);
       });
     });
   });

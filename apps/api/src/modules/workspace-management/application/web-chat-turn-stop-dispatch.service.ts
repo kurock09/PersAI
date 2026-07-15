@@ -151,6 +151,8 @@ export class WebChatTurnStopDispatchService implements OnModuleDestroy {
     if (!hasLocalOwner && !hasRemoteOwner && !inflightAttempt) {
       return { status: "turn_not_found" };
     }
+    // Note: inflightAttempt without a reachable owner falls through to turn_not_found
+    // after the remote publish attempt below — never return stopped without abort.
 
     if (hasLocalOwner && localEntry.userId !== input.userId) {
       return { status: "forbidden" };
@@ -172,10 +174,9 @@ export class WebChatTurnStopDispatchService implements OnModuleDestroy {
       }
     }
 
-    if (inflightAttempt) {
-      return { status: "stopped" };
-    }
-
+    // Inflight DB attempt without a live local owner or pub/sub delivery is not a
+    // proven abort. Returning stopped here previously lied to the client while the
+    // turn kept running on another replica (or after owner key expiry).
     return { status: "turn_not_found" };
   }
 

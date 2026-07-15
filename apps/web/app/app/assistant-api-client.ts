@@ -479,6 +479,7 @@ export type WebChatUxIssueClass =
   | "feature_unavailable"
   | "runtime_unreachable"
   | "runtime_timeout"
+  | "turn_idle_stall"
   | "runtime_degraded"
   | "runtime_auth"
   | "provider_failure"
@@ -815,6 +816,14 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
     };
   }
 
+  if (code === "turn_idle_stall") {
+    return {
+      classId: "turn_idle_stall",
+      message: "The assistant stopped making progress before finishing. Please try again.",
+      guidance: "Retry the message. Partial output may already be preserved."
+    };
+  }
+
   if (code === "runtime_degraded") {
     return {
       classId: "runtime_degraded",
@@ -980,6 +989,14 @@ export function toWebChatUxIssue(error: unknown): WebChatUxIssue {
     return {
       classId: "runtime_timeout",
       message: "The chat response timed out before completion.",
+      guidance: "Retry the message. Partial output may already be preserved."
+    };
+  }
+
+  if (normalized.includes("stopped making progress") || normalized.includes("idle stall")) {
+    return {
+      classId: "turn_idle_stall",
+      message: "The assistant stopped making progress before finishing. Please try again.",
       guidance: "Retry the message. Partial output may already be preserved."
     };
   }

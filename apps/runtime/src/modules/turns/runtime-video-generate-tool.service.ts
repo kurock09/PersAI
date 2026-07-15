@@ -238,6 +238,7 @@ export class RuntimeVideoGenerateToolService {
       sourceUserMessageId: string;
       sourceUserMessageText: string;
     };
+    abortSignal?: AbortSignal;
   }): Promise<RuntimeVideoGenerateToolExecutionResult> {
     if (isToolContractDescribeCall(params.toolCall.arguments)) {
       return executeRuntimeToolContractDescribe({
@@ -396,6 +397,32 @@ export class RuntimeVideoGenerateToolService {
       // blocked the LLM turn for the full HeyGen render time (~2 minutes) and
       // never created a media job: no chip, no async delivery.
       if (params.deferToAsyncMediaJob !== undefined) {
+        if (params.abortSignal?.aborted) {
+          return {
+            payload: {
+              toolCode: VIDEO_GENERATE_TOOL_CODE,
+              executionMode: "worker",
+              provider: talkingAvatarProviderId,
+              model: talkingAvatarModel,
+              prompt: request.prompt,
+              requestedSeconds: talkingAvatarNormalized.request.seconds,
+              requestedAudioMode: talkingAvatarNormalized.request.audioMode,
+              requestedInputMode: talkingAvatarNormalized.request.inputMode,
+              ...this.buildRequestedTalkingAvatarEchoes(request),
+              size: talkingAvatarNormalized.request.size,
+              referenceImageAlias: null,
+              referenceFilename: null,
+              artifact: null,
+              usage: null,
+              action: "skipped",
+              reason: "user_stopped",
+              warning: "Video generation was cancelled because the turn was stopped.",
+              jobId: null
+            },
+            artifacts: [],
+            isError: true
+          };
+        }
         const portraitImageAlias = request.portraitImageAlias ?? null;
         if (portraitImageAlias !== null) {
           const portraitAttachment = this.findAttachmentByAlias(
@@ -712,6 +739,31 @@ export class RuntimeVideoGenerateToolService {
     }
 
     if (params.deferToAsyncMediaJob !== undefined) {
+      if (params.abortSignal?.aborted) {
+        return {
+          payload: {
+            toolCode: VIDEO_GENERATE_TOOL_CODE,
+            executionMode: "worker",
+            provider: providerId,
+            model: primaryModel,
+            prompt: request.prompt,
+            requestedSeconds: normalizedRequest.request.seconds,
+            requestedAudioMode: normalizedRequest.request.audioMode,
+            requestedInputMode: normalizedRequest.request.inputMode,
+            size: normalizedRequest.request.size,
+            referenceImageAlias: null,
+            referenceFilename: null,
+            artifact: null,
+            usage: null,
+            action: "skipped",
+            reason: "user_stopped",
+            warning: "Video generation was cancelled because the turn was stopped.",
+            jobId: null
+          },
+          artifacts: [],
+          isError: true
+        };
+      }
       try {
         const enqueueOutcome = await this.persaiInternalApiClientService.enqueueDeferredMediaJob({
           assistantId: params.bundle.metadata.assistantId,

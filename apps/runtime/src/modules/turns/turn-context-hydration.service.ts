@@ -1450,7 +1450,16 @@ export class TurnContextHydrationService {
     if (message.author === "system") {
       return false;
     }
-    return !(message.content.trim().length === 0 && message.attachments.length === 0);
+    if (message.content.trim().length === 0 && message.attachments.length === 0) {
+      // ADR-149 — empty partial assistant rows after explicit Stop must hydrate so
+      // the next turn carries the user_stopped marker even when no text streamed.
+      return (
+        message.author === "assistant" &&
+        message.metadata?.status === "partial" &&
+        message.metadata?.stopReason === "user_stopped"
+      );
+    }
+    return true;
   }
 
   private async loadReusableCompactionSummary(

@@ -69,6 +69,20 @@ export class RuntimeSandboxToolService {
         isError: true
       };
     }
+    if (params.abortSignal?.aborted) {
+      return {
+        payload: {
+          toolCode: params.toolCall.name,
+          executionMode: "sandbox",
+          action: "skipped",
+          reason: "user_stopped",
+          warning: "Sandbox tool execution was cancelled because the turn was stopped.",
+          job: null,
+          paths: []
+        },
+        isError: true
+      };
+    }
     try {
       // ADR-074 L1.1 — always count for observability (sandbox CPU
       // minutes are billed by Daytona regardless of plan cap).
