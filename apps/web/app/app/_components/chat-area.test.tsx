@@ -815,6 +815,7 @@ describe("ChatArea", () => {
     expect(meter).toHaveAttribute("aria-label", "contextMeterAria");
     expect(meter).toHaveTextContent("50%");
     expect(screen.getByTestId("chat-context-meter-shell")).toHaveClass("w-full");
+    expect(screen.getByTestId("chat-context-meter-shell")).toHaveClass("bg-surface-hover");
     expect(screen.getByTestId("chat-context-meter-progress")).toBeInTheDocument();
     fireEvent.click(meter);
 

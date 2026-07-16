@@ -1428,9 +1428,8 @@ function ChatContextMeter({
       <div
         data-testid="chat-context-meter-shell"
         className={cn(
-          // Opaque mix of the old border/55 wash over surface-raised — same look, no see-through.
-          "absolute top-0 left-0 z-20 flex h-full overflow-hidden rounded-full transition-[width] duration-300 ease-out",
-          "bg-[color-mix(in_srgb,var(--border)_55%,var(--surface-raised))]",
+          // Solid opaque gray — never mix --border (it carries alpha and lets the title bleed through).
+          "absolute top-0 left-0 z-20 flex h-full overflow-hidden rounded-full bg-surface-hover transition-[width] duration-300 ease-out",
           expanded ? "w-[12.5rem]" : "w-full"
         )}
       >
@@ -1502,47 +1501,50 @@ function ChatContextMeter({
 
         <div
           className={cn(
-            "flex h-full min-w-0 items-stretch overflow-hidden transition-[max-width,opacity] duration-300 ease-out",
-            expanded ? "max-w-[9.5rem] flex-1 opacity-100" : "max-w-0 flex-none opacity-0"
+            "flex h-full min-w-0 flex-col items-center justify-center overflow-hidden px-1 text-center transition-[max-width,opacity] duration-300 ease-out",
+            // flex-1 (no max-width) so leftover width sits in the text slot — scissors stay flush on the right end-cap.
+            expanded ? "min-w-0 flex-1 opacity-100" : "max-w-0 flex-none opacity-0"
           )}
           aria-hidden={!expanded}
         >
-          <div className="flex min-w-0 flex-1 flex-col items-center justify-center px-1 text-center">
-            <p className="w-full truncate text-sm font-semibold leading-none tracking-tight text-text">
-              {t("contextMeterMenuTitle")}
-            </p>
-            <button
-              type="button"
-              tabIndex={expanded ? 0 : -1}
-              data-testid="chat-context-meter-compact-link"
-              disabled={compactBlocked}
-              onClick={runCompact}
-              className={cn(
-                "mt-1 block w-full truncate text-center text-[11px] leading-none underline-offset-2 transition-colors",
-                compactBlocked
-                  ? "cursor-not-allowed text-text-subtle"
-                  : "cursor-pointer text-text-muted hover:text-text hover:underline"
-              )}
-            >
-              {t("compactionAction")}
-            </button>
-          </div>
+          <p className="w-full truncate text-sm font-semibold leading-none tracking-tight text-text">
+            {t("contextMeterMenuTitle")}
+          </p>
           <button
             type="button"
             tabIndex={expanded ? 0 : -1}
-            data-testid="chat-context-meter-compact-scissors"
-            aria-label={t("compactionAction")}
+            data-testid="chat-context-meter-compact-link"
             disabled={compactBlocked}
             onClick={runCompact}
             className={cn(
-              // Flush to the right cap — same diameter as pill height (coaxial end circle).
-              "flex aspect-square h-full shrink-0 items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-40",
-              "text-text-muted hover:bg-black/[0.04] hover:text-text"
+              "mt-1 block w-full truncate text-center text-[11px] leading-none underline-offset-2 transition-colors",
+              compactBlocked
+                ? "cursor-not-allowed text-text-subtle"
+                : "cursor-pointer text-text-muted hover:text-text hover:underline"
             )}
           >
-            <Scissors className="h-3.5 w-3.5" strokeWidth={1.15} />
+            {t("compactionAction")}
           </button>
         </div>
+        <button
+          type="button"
+          tabIndex={expanded ? 0 : -1}
+          data-testid="chat-context-meter-compact-scissors"
+          aria-label={t("compactionAction")}
+          disabled={compactBlocked}
+          onClick={runCompact}
+          aria-hidden={!expanded}
+          className={cn(
+            // Flush to the pill's right end-cap (same diameter as height) so hover + icon share that circle's center.
+            "grid shrink-0 place-items-center rounded-full text-text-muted transition-[width,opacity,colors] duration-300 disabled:pointer-events-none disabled:opacity-40",
+            "hover:bg-black/[0.04] hover:text-text",
+            expanded
+              ? "aspect-square h-full opacity-100"
+              : "pointer-events-none h-full w-0 overflow-hidden opacity-0"
+          )}
+        >
+          <Scissors className="pointer-events-none block size-3.5 shrink-0" strokeWidth={1.15} />
+        </button>
       </div>
     </div>
   );

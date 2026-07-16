@@ -1,5 +1,18 @@
 # SESSION-HANDOFF
 
+## 2026-07-16 — Context-meter opaque gray + scissors flush-right (local → push)
+
+Status: **gates green; committing + pushing.** Baseline `40f1dba7`.
+
+- Transparency: `color-mix` with `--border` (alpha) → solid `bg-surface-hover`.
+- Scissors: uncapped `flex-1` text slot so scissors + hover stay flush on the right end-cap center.
+
+**Gate:** chat-area tests ✅; `pnpm -r lint` ✅; `format:check` ✅; api/web typecheck ✅.
+
+**Next after push:** hard-refresh web; expand meter — no title bleed, scissors coaxial on right end.
+
+---
+
 ## 2026-07-16 — Context meter polish + narrow-chat circles (pushed)
 
 Status: **pushed `43c8b672`.** Baseline was `cc125053` (+ remote pin `e6cfb2a0`).
