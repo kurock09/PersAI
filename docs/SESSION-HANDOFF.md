@@ -1,8 +1,8 @@
 # SESSION-HANDOFF
 
-## 2026-07-16 — Context meter polish + narrow-chat circles (local → push)
+## 2026-07-16 — Context meter polish + narrow-chat circles (pushed)
 
-Status: **gates green; committing + pushing.** Baseline `cc125053`.
+Status: **pushed `43c8b672`.** Baseline was `cc125053` (+ remote pin `e6cfb2a0`).
 
 - Context meter: opaque color-mix of old `border/55`; ring appears with one reveal spin only after pill→circle width ends; busy spin forced immediately when compaction runs (no Loader2).
 - Mode + plan collapsed UI: `@container` at **500px** chat width → circle like mobile; plan logic unchanged.
@@ -10,7 +10,7 @@ Status: **gates green; committing + pushing.** Baseline `cc125053`.
 
 **Gate:** web focused chat-area/plan-card/site-pages ✅; `pnpm -r lint` ✅; `format:check` ✅; api/web typecheck ✅.
 
-**Next after push:** visual check narrow desktop chat &lt;500px; reload if web pin.
+**Next after deploy:** visual check narrow desktop chat &lt;500px.
 
 ---
 
