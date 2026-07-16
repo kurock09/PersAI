@@ -506,6 +506,20 @@ textarea::-webkit-resizer {
   }
 }
 
+/* Context-meter progress ring: one turn after the expand-pill collapses to a circle. */
+@keyframes context-meter-ring-reveal {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.context-meter-ring-reveal {
+  animation: context-meter-ring-reveal 0.65s linear 1;
+}
+
 /* Project-mode onboarding — gentle accent pulse on the sidebar files panel.
    Uses --accent so light/dark themes stay in sync without separate palettes. */
 @keyframes project-files-hint-pulse {

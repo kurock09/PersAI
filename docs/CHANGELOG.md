@@ -5,8 +5,9 @@
 
 ## 2026-07-16
 
-- **UX (context meter expands in-place to pill; local).** Clicking the title-pill context circle no longer opens a dropdown modal. The gray disk expands right over the chat title (title stays put), keeps `%` centered in the left cap, shows «Контекст чата» + link «Сжать сейчас», and a right-cap scissors control with plan-trash hover. Compact collapses back to the circle with a spinner until compaction finishes.
+- **UX (narrow-chat mode/plan circles + context-meter polish; local → push).** Mode and plan collapsed chips switch circle↔pill by chat column `@container` at 500px (not viewport `md`). Context meter: opaque `border/55` mix (no see-through), ring reveal spins once after collapse; site-pages publish test drains async before teardown.
 - **Fix (desktop bridge drops mid-work; local).** `ERR_CONNECTION_RESET` on `browser-bridge/ws` during active use: dial-failure budget no longer counts post-OPEN flaps; API device-token TTL 15m → 4h with matching client safe-age; maintainer renews live credentials after 3h. Rebuild/reload Chrome extension after api+web deploy.
+- **UX (context meter expands in-place to pill; local).** Clicking the title-pill context circle no longer opens a dropdown modal. The gray disk expands right over the chat title (title stays put), keeps `%` centered in the left cap, shows «Контекст чата» + link «Сжать сейчас», and a right-cap scissors control with plan-trash hover. Compact collapses back to the circle with a spinner until compaction finishes.
 - **Closure (ADR-149 + ADR-150; founder-accepted).** ADR-149 durable Stop / turn deadlines / live activity / orphans closed — do not reopen. ADR-150 ephemeral session install layer closed after push `314ee37a` — session `.local` / `.npm-global` / `node_modules` remain warm-pod only; do not reopen.
 - **Change (ADR-150 + meter; pushed `314ee37a`, handoff `25a910eb`).** Session install-layer cutover (session-anchored pull/push excludes, path-aware purge, Files/grep/glob/mirror/hydrate/upsert/`files.write` gates, curated `httpx`). Context meter / compaction pressure uses first `main_turn` `inputTokens`; meter stroke 2px.
 

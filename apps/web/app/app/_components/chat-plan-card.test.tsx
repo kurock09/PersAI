@@ -144,12 +144,18 @@ describe("ChatPlanCard", () => {
     const circle = within(container).getByTestId("chat-plan-mobile-circle");
     const chip = within(container).getByTestId("chat-plan-collapsed-chip");
     expect(circle).toHaveTextContent("1/3");
-    expect(circle).toHaveClass("md:hidden");
+    expect(circle).toHaveClass("@[500px]:hidden");
     expect(circle).not.toHaveTextContent("planTitle");
     expect(chip).toHaveTextContent("planTitle");
     expect(chip).toHaveTextContent("1/3");
-    expect(chip).toHaveClass("hidden", "md:flex");
-    expect(container.firstChild).toHaveClass("ml-auto", "h-12", "w-12", "md:w-32", "rounded-full");
+    expect(chip).toHaveClass("hidden", "@[500px]:flex");
+    expect(container.firstChild).toHaveClass(
+      "ml-auto",
+      "h-12",
+      "w-12",
+      "@[500px]:w-32",
+      "rounded-full"
+    );
     expect(chip).toHaveClass("w-full", "justify-center");
     expect(within(container).queryByText("Currently working")).toBeNull();
     expect(container.querySelector("button[aria-expanded]")).toBeNull();

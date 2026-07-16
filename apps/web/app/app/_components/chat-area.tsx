@@ -711,8 +711,9 @@ export function ChatArea({
             hasChatPlan ? "pb-14 md:pb-16" : "pb-10 md:pb-12"
           )}
         >
-          {/* Same envelope as composer + messages: name/mode and plan share one column. */}
-          <div className="pointer-events-auto relative mx-auto flex w-full max-w-[50rem] flex-col gap-2">
+          {/* Same envelope as composer + messages: name/mode and plan share one column.
+              @container drives mode/plan circle↔pill at chat width 500px (not viewport md). */}
+          <div className="@container pointer-events-auto relative mx-auto flex w-full max-w-[50rem] flex-col gap-2">
             <div className="flex w-full items-center gap-2">
               <button
                 type="button"
@@ -727,7 +728,8 @@ export function ChatArea({
                 className={cn(
                   // Opaque pill — edge dissolve lives on the message scroll mask, not behind chrome.
                   // p-[3px] keeps the left meter circle coaxial with the rounded cap (same inset as composer).
-                  "relative flex h-12 min-w-0 flex-1 items-center gap-2 rounded-full border border-border/45 bg-surface-raised p-[3px] pr-3.5 transition-colors"
+                  // overflow-hidden clips the expanding context meter to this pill.
+                  "relative flex h-12 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-full border border-border/45 bg-surface-raised p-[3px] pr-3.5 transition-colors"
                 )}
               >
                 <ChatContextMeter
@@ -738,7 +740,8 @@ export function ChatArea({
                 />
                 <div
                   className={cn(
-                    "flex min-w-0 flex-1 flex-col justify-center",
+                    // Stay under the expanding meter (sibling paint order otherwise wins).
+                    "relative z-0 flex min-w-0 flex-1 flex-col justify-center",
                     activeSkillEngagement ? "gap-1" : null
                   )}
                 >
@@ -1311,6 +1314,9 @@ function resolveContextMeter(compaction: ChatCompactionState | null): {
   return { ratio, percent, triggerTokens, currentTokens };
 }
 
+const CONTEXT_METER_SHELL_MS = 300;
+const CONTEXT_METER_RING_REVEAL_MS = 650;
+
 function ChatContextMeter({
   compaction,
   compactionRunning,
@@ -1324,7 +1330,12 @@ function ChatContextMeter({
 }) {
   const t = useTranslations("chat");
   const [expanded, setExpanded] = useState(false);
+  /** Progress ring stays hidden until the pill→circle width transition finishes. */
+  const [ringReady, setRingReady] = useState(true);
+  /** One-shot spin when the ring first reappears after collapse. */
+  const [ringRevealSpin, setRingRevealSpin] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const wasExpandedRef = useRef(false);
   const meter = resolveContextMeter(compaction);
   const progress = meter.ratio === null ? 0 : Math.min(1, Math.max(0, meter.ratio));
   const overThreshold = meter.ratio !== null && meter.ratio >= 1;
@@ -1333,6 +1344,8 @@ function ChatContextMeter({
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const dashOffset = circumference * (1 - progress);
+  // Indeterminate busy arc (~28% of the ring) while compaction runs.
+  const busyDash = `${String(circumference * 0.28)} ${String(circumference * 0.72)}`;
   const percentLabel =
     meter.percent === null ? "–" : meter.percent > 99 ? "99+%" : `${String(meter.percent)}%`;
   const ariaPercent =
@@ -1340,14 +1353,48 @@ function ChatContextMeter({
       ? t("contextMeterAriaUnknown")
       : t("contextMeterAria", { percent: meter.percent });
   const compactBlocked = compactDisabled || compactionRunning || !compaction;
-  const showSpinner = compactionRunning;
-  const showProgress = !expanded && !showSpinner;
+  const showRing = !expanded && ringReady;
+  const ringBusy = showRing && compactionRunning && !ringRevealSpin;
 
   useEffect(() => {
     if (compactionRunning) {
       setExpanded(false);
+      // Skip the collapse-width delay — show the busy arc immediately.
+      setRingReady(true);
+      setRingRevealSpin(false);
     }
   }, [compactionRunning]);
+
+  useEffect(() => {
+    if (expanded) {
+      wasExpandedRef.current = true;
+      setRingReady(false);
+      setRingRevealSpin(false);
+      return;
+    }
+    // Compaction already forced the ring on; don't schedule a reveal delay.
+    if (compactionRunning) {
+      return;
+    }
+    // Initial mount: keep the static ring, no reveal spin.
+    if (!wasExpandedRef.current) {
+      setRingReady(true);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setRingReady(true);
+      setRingRevealSpin(true);
+    }, CONTEXT_METER_SHELL_MS);
+    return () => window.clearTimeout(timer);
+  }, [expanded, compactionRunning]);
+
+  useEffect(() => {
+    if (!ringRevealSpin) return;
+    const timer = window.setTimeout(() => {
+      setRingRevealSpin(false);
+    }, CONTEXT_METER_RING_REVEAL_MS);
+    return () => window.clearTimeout(timer);
+  }, [ringRevealSpin]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -1377,13 +1424,14 @@ function ChatContextMeter({
   };
 
   return (
-    <div ref={rootRef} className="relative aspect-square h-full shrink-0">
+    <div ref={rootRef} className="relative z-20 aspect-square h-full shrink-0">
       <div
         data-testid="chat-context-meter-shell"
         className={cn(
-          // Expands right over the title without shifting layout (absolute overlay).
-          "absolute top-0 left-0 z-50 flex h-full overflow-hidden rounded-full bg-border/55 transition-[width] duration-300 ease-out",
-          expanded ? "w-[13.75rem]" : "w-full"
+          // Opaque mix of the old border/55 wash over surface-raised — same look, no see-through.
+          "absolute top-0 left-0 z-20 flex h-full overflow-hidden rounded-full transition-[width] duration-300 ease-out",
+          "bg-[color-mix(in_srgb,var(--border)_55%,var(--surface-raised))]",
+          expanded ? "w-[12.5rem]" : "w-full"
         )}
       >
         <button
@@ -1392,22 +1440,27 @@ function ChatContextMeter({
           aria-expanded={expanded}
           aria-label={ariaPercent}
           data-testid="chat-context-meter"
-          disabled={showSpinner}
+          disabled={compactionRunning}
           onClick={() => {
-            if (showSpinner) return;
+            if (compactionRunning) return;
             setExpanded((open) => !open);
           }}
           className={cn(
             "relative flex aspect-square h-full shrink-0 items-center justify-center rounded-full transition-colors",
-            showSpinner ? "cursor-wait" : "cursor-pointer hover:bg-black/[0.04]"
+            compactionRunning ? "cursor-wait" : "cursor-pointer hover:bg-black/[0.04]"
           )}
         >
-          {showProgress ? (
+          {showRing ? (
             <svg
+              data-testid="chat-context-meter-progress"
               width={size}
               height={size}
               viewBox={`0 0 ${size} ${size}`}
-              className="pointer-events-none absolute inset-0 h-full w-full"
+              className={cn(
+                "pointer-events-none absolute inset-0 h-full w-full",
+                ringRevealSpin && "context-meter-ring-reveal",
+                ringBusy && "animate-spin"
+              )}
               aria-hidden="true"
             >
               <circle
@@ -1418,47 +1471,44 @@ function ChatContextMeter({
                 stroke="currentColor"
                 strokeWidth={stroke}
                 strokeLinecap="round"
-                strokeDasharray={circumference}
-                strokeDashoffset={dashOffset}
+                strokeDasharray={ringBusy || ringRevealSpin ? busyDash : circumference}
+                strokeDashoffset={ringBusy || ringRevealSpin ? 0 : dashOffset}
                 transform={`rotate(-90 ${String(size / 2)} ${String(size / 2)})`}
                 className={cn(
-                  "transition-[stroke-dashoffset] duration-500 ease-out",
-                  meter.ratio === null
+                  ringBusy || ringRevealSpin
+                    ? "text-accent"
+                    : "transition-[stroke-dashoffset] duration-500 ease-out",
+                  !ringBusy && !ringRevealSpin && meter.ratio === null
                     ? "text-transparent"
-                    : overThreshold
+                    : !ringBusy && !ringRevealSpin && overThreshold
                       ? "text-accent"
-                      : "text-accent/80"
+                      : !ringBusy && !ringRevealSpin
+                        ? "text-accent/80"
+                        : null
                 )}
               />
             </svg>
           ) : null}
-          {showSpinner ? (
-            <Loader2
-              className="relative z-[1] h-3.5 w-3.5 animate-spin text-text-muted"
-              strokeWidth={1.15}
-              aria-hidden="true"
-            />
-          ) : (
-            <span
-              className={cn(
-                "relative z-[1] max-w-[2.1rem] truncate text-center text-[9px] font-medium tabular-nums leading-none tracking-tight",
-                meter.ratio === null ? "text-text-muted/55" : "text-text-muted"
-              )}
-            >
-              {percentLabel}
-            </span>
-          )}
+          <span
+            className={cn(
+              "relative z-[1] max-w-[2.1rem] truncate text-center text-[9px] font-medium tabular-nums leading-none tracking-tight",
+              meter.ratio === null ? "text-text-muted/55" : "text-text-muted",
+              (ringBusy || ringRevealSpin) && "opacity-70"
+            )}
+          >
+            {percentLabel}
+          </span>
         </button>
 
         <div
           className={cn(
-            "flex h-full min-w-0 items-center gap-0.5 overflow-hidden transition-[max-width,opacity] duration-300 ease-out",
-            expanded ? "max-w-[10.5rem] flex-1 opacity-100" : "max-w-0 flex-none opacity-0"
+            "flex h-full min-w-0 items-stretch overflow-hidden transition-[max-width,opacity] duration-300 ease-out",
+            expanded ? "max-w-[9.5rem] flex-1 opacity-100" : "max-w-0 flex-none opacity-0"
           )}
           aria-hidden={!expanded}
         >
-          <div className="min-w-0 flex-1 py-0.5 pl-0.5">
-            <p className="truncate text-sm font-semibold leading-none tracking-tight text-text">
+          <div className="flex min-w-0 flex-1 flex-col items-center justify-center px-1 text-center">
+            <p className="w-full truncate text-sm font-semibold leading-none tracking-tight text-text">
               {t("contextMeterMenuTitle")}
             </p>
             <button
@@ -1468,7 +1518,7 @@ function ChatContextMeter({
               disabled={compactBlocked}
               onClick={runCompact}
               className={cn(
-                "mt-1 block truncate text-left text-[11px] leading-none underline-offset-2 transition-colors",
+                "mt-1 block w-full truncate text-center text-[11px] leading-none underline-offset-2 transition-colors",
                 compactBlocked
                   ? "cursor-not-allowed text-text-subtle"
                   : "cursor-pointer text-text-muted hover:text-text hover:underline"
@@ -1485,9 +1535,9 @@ function ChatContextMeter({
             disabled={compactBlocked}
             onClick={runCompact}
             className={cn(
-              // Coaxial with the right pill cap — same hover language as plan trash.
+              // Flush to the right cap — same diameter as pill height (coaxial end circle).
               "flex aspect-square h-full shrink-0 items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-40",
-              "text-text-muted hover:bg-surface-hover hover:text-text"
+              "text-text-muted hover:bg-black/[0.04] hover:text-text"
             )}
           >
             <Scissors className="h-3.5 w-3.5" strokeWidth={1.15} />
@@ -1578,9 +1628,9 @@ function ChatModeToggle({
           title={chatModeCaption(t, mode, paidLightModeActive)}
           onClick={() => setMenuOpen((open) => !open)}
           className={cn(
-            // Height matches composer/header pills (h-12). Mobile = icon circle; desktop = text pill.
+            // Height matches composer/header pills (h-12). Narrow chat (<500px) = icon circle; wider = text pill.
             "inline-flex h-12 cursor-pointer items-center justify-center rounded-full border border-border/45 bg-surface-raised transition-colors",
-            "w-12 md:w-32 md:gap-1.5 md:px-3.5",
+            "w-12 @[500px]:w-32 @[500px]:gap-1.5 @[500px]:px-3.5",
             mode !== "normal" && "border-accent-premium/25 text-accent-premium",
             mode === "normal" && "text-text-muted",
             menuOpen && "border-border-strong",
@@ -1590,14 +1640,16 @@ function ChatModeToggle({
           <ChatModeIcon
             mode={mode}
             className={cn(
-              "h-5 w-5 md:h-4 md:w-4",
+              "h-5 w-5 @[500px]:h-4 @[500px]:w-4",
               mode === "normal" ? "text-text-muted" : "text-accent-premium"
             )}
           />
-          <span className="hidden text-xs font-semibold md:inline">{chatModeLabel(t, mode)}</span>
+          <span className="hidden text-xs font-semibold @[500px]:inline">
+            {chatModeLabel(t, mode)}
+          </span>
           <ChevronDown
             className={cn(
-              "hidden h-3.5 w-3.5 text-text-subtle transition-transform md:block",
+              "hidden h-3.5 w-3.5 text-text-subtle transition-transform @[500px]:block",
               menuOpen && "rotate-180"
             )}
           />

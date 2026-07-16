@@ -91,6 +91,7 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   intersectionObserverCallback = null;
   chatMessageBubbleMock.mockClear();
   getTokenMock.mockClear();
@@ -211,7 +212,12 @@ describe("ChatArea", () => {
 
     const modePill = screen.getByRole("button", { name: /modeMenuAria/ });
     expect(modePill).toBeDisabled();
-    expect(modePill).toHaveClass("bg-surface-raised", "md:w-32", "brightness-95", "saturate-75");
+    expect(modePill).toHaveClass(
+      "bg-surface-raised",
+      "@[500px]:w-32",
+      "brightness-95",
+      "saturate-75"
+    );
     expect(modePill).not.toHaveClass("opacity-50");
   });
 
@@ -776,6 +782,7 @@ describe("ChatArea", () => {
   });
 
   it("expands the context meter into an overlay pill and compacts from link or scissors", async () => {
+    vi.useFakeTimers();
     const compactNow = vi.fn(async () => null);
     const { rerender } = render(
       <ChatArea
@@ -808,14 +815,23 @@ describe("ChatArea", () => {
     expect(meter).toHaveAttribute("aria-label", "contextMeterAria");
     expect(meter).toHaveTextContent("50%");
     expect(screen.getByTestId("chat-context-meter-shell")).toHaveClass("w-full");
+    expect(screen.getByTestId("chat-context-meter-progress")).toBeInTheDocument();
     fireEvent.click(meter);
 
-    expect(screen.getByTestId("chat-context-meter-shell")).toHaveClass("w-[13.75rem]");
+    expect(screen.getByTestId("chat-context-meter-shell")).toHaveClass("w-[12.5rem]");
+    expect(screen.queryByTestId("chat-context-meter-progress")).toBeNull();
     expect(screen.getByText("contextMeterMenuTitle")).toBeInTheDocument();
     expect(screen.queryByText("contextMeterMenuBody")).toBeNull();
     fireEvent.click(screen.getByTestId("chat-context-meter-compact-link"));
     expect(compactNow).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("chat-context-meter-shell")).toHaveClass("w-full");
+    // Ring waits for the pill→circle width transition before reappearing.
+    expect(screen.queryByTestId("chat-context-meter-progress")).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    const progress = screen.getByTestId("chat-context-meter-progress");
+    expect(progress).toHaveClass("context-meter-ring-reveal");
 
     fireEvent.click(meter);
     fireEvent.click(screen.getByTestId("chat-context-meter-compact-scissors"));
@@ -847,8 +863,11 @@ describe("ChatArea", () => {
         title="Meter chat"
       />
     );
+    // Compaction running forces the busy ring on immediately (no width delay).
     expect(screen.getByTestId("chat-context-meter-shell")).toHaveClass("w-full");
     expect(screen.getByTestId("chat-context-meter")).toBeDisabled();
+    expect(screen.getByTestId("chat-context-meter-progress")).toHaveClass("animate-spin");
+    expect(screen.getByTestId("chat-context-meter")).toHaveTextContent("50%");
   });
 
   it("fades message scroll at the edges with fully transparent header/footer chrome", () => {

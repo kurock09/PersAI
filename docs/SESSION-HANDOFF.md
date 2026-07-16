@@ -1,5 +1,19 @@
 # SESSION-HANDOFF
 
+## 2026-07-16 — Context meter polish + narrow-chat circles (local → push)
+
+Status: **gates green; committing + pushing.** Baseline `cc125053`.
+
+- Context meter: opaque color-mix of old `border/55`; ring appears with one reveal spin only after pill→circle width ends; busy spin forced immediately when compaction runs (no Loader2).
+- Mode + plan collapsed UI: `@container` at **500px** chat width → circle like mobile; plan logic unchanged.
+- CI flake: site-pages publish waits for Publish enabled after fetch drain; meter test uses fake timers + `act` + `useRealTimers` cleanup.
+
+**Gate:** web focused chat-area/plan-card/site-pages ✅; `pnpm -r lint` ✅; `format:check` ✅; api/web typecheck ✅.
+
+**Next after push:** visual check narrow desktop chat &lt;500px; reload if web pin.
+
+---
+
 ## 2026-07-16 — Bridge reconnect + context-meter pill + sidebar card (pushed)
 
 Status: **pushed `8c6fadbd`.** Baseline was `f12f542b`.

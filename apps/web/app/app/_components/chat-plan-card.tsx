@@ -397,7 +397,7 @@ function ChatPlanCardBody({
       className={cn(
         // Keep ml-auto always so width grows left from the right-edge pill.
         "overflow-hidden border bg-surface-raised transition-[width,border-color,background-color,box-shadow] duration-300 ease-out",
-        countsCollapsed ? "ml-auto h-12 w-12 md:w-32" : "ml-auto w-full",
+        countsCollapsed ? "ml-auto h-12 w-12 @[500px]:w-32" : "ml-auto w-full",
         // Instant radius snap — width may animate, but stadium corners must not lag.
         expanded ? "rounded-[1.375rem]" : "rounded-full",
         countsCollapsed && allDone
@@ -412,7 +412,7 @@ function ChatPlanCardBody({
           <button
             type="button"
             data-testid="chat-plan-mobile-circle"
-            className="flex h-12 w-12 items-center justify-center whitespace-nowrap text-[11px] font-semibold tabular-nums text-text md:hidden"
+            className="flex h-12 w-12 items-center justify-center whitespace-nowrap text-[11px] font-semibold tabular-nums text-text @[500px]:hidden"
             onClick={handleHeaderClick}
             aria-label={t("planCounts", { done: doneCount, total: totalCount })}
           >
@@ -424,7 +424,7 @@ function ChatPlanCardBody({
             type="button"
             data-testid="chat-plan-collapsed-chip"
             className={cn(
-              "hidden h-12 w-full items-center justify-center gap-1.5 whitespace-nowrap px-3.5 md:flex",
+              "hidden h-12 w-full items-center justify-center gap-1.5 whitespace-nowrap px-3.5 @[500px]:flex",
               allDone ? "text-success" : "text-text"
             )}
             onClick={handleHeaderClick}

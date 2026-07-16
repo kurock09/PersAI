@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AdminSitePagesPage from "./page";
 
 const clerkMocks = vi.hoisted(() => ({
@@ -35,6 +35,11 @@ describe("Admin site pages page", () => {
     vi.unstubAllGlobals();
     clerkMocks.getToken.mockReset();
     clerkMocks.getToken.mockResolvedValue("token");
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
   });
 
   it("saves current editor state before publishing", async () => {
@@ -75,8 +80,14 @@ describe("Admin site pages page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /publish/i }));
 
+    // Drain the full publish path (save + publish + setPublishing(false)) before
+    // teardown — otherwise React may flush setState after jsdom is gone and CI
+    // fails with an unhandled `window is not defined`.
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^Publish$/i })).toBeEnabled();
     });
 
     const saveCall = fetchMock.mock.calls[1];
