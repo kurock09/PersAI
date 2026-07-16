@@ -13,6 +13,7 @@ import {
   toAdminSkillScenarioState,
   type AdminSkillScenarioState,
   type CreateSkillScenarioInput,
+  type SkillScenarioStepState,
   type SkillScenarioStatus,
   type UpdateSkillScenarioInput
 } from "./skill-scenario.types";
@@ -105,6 +106,7 @@ export class ManageSkillScenariosService {
           `Skill scenario with key "${input.key}" already exists for this Skill.`
         );
       }
+      await this.assertScriptRefsAvailable(tx, skillId, input.steps);
 
       const status = input.status ?? "draft";
       const created = await tx.skillScenario.create({
@@ -145,6 +147,8 @@ export class ManageSkillScenariosService {
         throw new NotFoundException("Skill scenario not found.");
       }
       await this.lockScenarioRow(tx, existing.id);
+      const existingState = toAdminSkillScenarioState(existing);
+      await this.assertScriptRefsAvailable(tx, skillId, input.steps ?? existingState.steps);
 
       if (input.status !== undefined && input.status !== existing.status) {
         const allowed = ALLOWED_STATUS_TRANSITIONS[existing.status as SkillScenarioStatus];
@@ -219,6 +223,39 @@ export class ManageSkillScenariosService {
     const skill = await this.prisma.skill.findFirst({ where: { id: skillId } });
     if (skill === null) {
       throw new NotFoundException("Skill not found.");
+    }
+  }
+
+  private async assertScriptRefsAvailable(
+    tx: Prisma.TransactionClient,
+    skillId: string,
+    steps: SkillScenarioStepState[]
+  ): Promise<void> {
+    const scriptKeys = [
+      ...new Set(
+        steps
+          .map((step) => step.scriptRef?.scriptKey)
+          .filter((key): key is string => typeof key === "string")
+      )
+    ];
+    if (scriptKeys.length === 0) {
+      return;
+    }
+    const linked = await tx.script.findMany({
+      where: {
+        key: { in: scriptKeys },
+        status: "published",
+        currentPublishedVersionId: { not: null },
+        skillLinks: { some: { skillId } }
+      },
+      select: { key: true }
+    });
+    const available = new Set(linked.map((script) => script.key));
+    const unavailable = scriptKeys.filter((key) => !available.has(key));
+    if (unavailable.length > 0) {
+      throw new BadRequestException(
+        `Scenario Script reference must be linked to this Skill and currently published: ${unavailable.join(", ")}.`
+      );
     }
   }
 

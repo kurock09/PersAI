@@ -423,6 +423,27 @@ export class IdentityAccessModule implements NestModule {
       { path: "api/v1/admin/roles/:roleId", method: RequestMethod.PATCH },
       { path: "api/v1/admin/roles/:roleId", method: RequestMethod.DELETE },
       { path: "api/v1/admin/roles/:roleId/skills", method: RequestMethod.PUT },
+      { path: "api/v1/admin/scripts", method: RequestMethod.GET },
+      { path: "api/v1/admin/scripts", method: RequestMethod.POST },
+      { path: "api/v1/admin/scripts/:scriptId", method: RequestMethod.GET },
+      { path: "api/v1/admin/scripts/:scriptId", method: RequestMethod.PATCH },
+      { path: "api/v1/admin/scripts/:scriptId", method: RequestMethod.DELETE },
+      { path: "api/v1/admin/scripts/:scriptId/versions", method: RequestMethod.GET },
+      { path: "api/v1/admin/scripts/:scriptId/versions", method: RequestMethod.POST },
+      {
+        path: "api/v1/admin/scripts/:scriptId/versions/:versionId",
+        method: RequestMethod.PATCH
+      },
+      {
+        path: "api/v1/admin/scripts/:scriptId/versions/:versionId/validate",
+        method: RequestMethod.POST
+      },
+      {
+        path: "api/v1/admin/scripts/:scriptId/versions/:versionId/publish",
+        method: RequestMethod.POST
+      },
+      { path: "api/v1/admin/skills/:skillId/scripts", method: RequestMethod.GET },
+      { path: "api/v1/admin/skills/:skillId/scripts", method: RequestMethod.PUT },
       { path: "api/v1/admin/skills/:skillId/authoring/draft", method: RequestMethod.POST },
       { path: "api/v1/admin/skills/:skillId/documents", method: RequestMethod.POST },
       {

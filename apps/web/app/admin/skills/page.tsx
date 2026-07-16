@@ -647,7 +647,9 @@ export function scenarioDraftToCreatePayload(
       expectedUserResponse: step.expectedUserResponse.trim() || null,
       nextStepTrigger: step.nextStepTrigger.trim() || null,
       recoveryGuidance: step.recoveryGuidance.trim() || null,
-      firstStepPreview: index === 0 ? step.firstStepPreview.trim() || null : null
+      firstStepPreview: index === 0 ? step.firstStepPreview.trim() || null : null,
+      /** ADR-151 — this editor does not author Script references; always canonicalizes to null. */
+      scriptRef: null
     })),
     firstStepPreview: draft.steps[0]?.firstStepPreview.trim() || null,
     recommendedTools: draft.recommendedTools,
@@ -685,7 +687,9 @@ export function scenarioDraftToUpdatePayload(
       expectedUserResponse: step.expectedUserResponse.trim() || null,
       nextStepTrigger: step.nextStepTrigger.trim() || null,
       recoveryGuidance: step.recoveryGuidance.trim() || null,
-      firstStepPreview: index === 0 ? step.firstStepPreview.trim() || null : null
+      firstStepPreview: index === 0 ? step.firstStepPreview.trim() || null : null,
+      /** ADR-151 — this editor does not author Script references; always canonicalizes to null. */
+      scriptRef: null
     })),
     firstStepPreview: draft.steps[0]?.firstStepPreview.trim() || null,
     recommendedTools: draft.recommendedTools,

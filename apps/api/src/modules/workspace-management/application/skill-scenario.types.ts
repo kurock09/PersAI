@@ -4,6 +4,16 @@ export type SkillScenarioStatus = "draft" | "active" | "archived";
 
 export type SkillScenarioLocaleMap = Record<string, string>;
 
+export type SkillScenarioScriptInputSource =
+  | { source: "literal"; value: unknown }
+  | { source: "current_user_message" }
+  | { source: "tool_input"; name: string };
+
+export type SkillScenarioScriptRef = {
+  scriptKey: string;
+  inputMapping: Record<string, SkillScenarioScriptInputSource>;
+};
+
 export type SkillScenarioStepState = {
   number: number;
   directive: string;
@@ -18,6 +28,7 @@ export type SkillScenarioStepState = {
   recoveryGuidance: string | null;
   /** ADR-119 Slice 10 — step 1 only: overrides auto-derived catalog first_step_preview (≤200 chars). */
   firstStepPreview: string | null;
+  scriptRef: SkillScenarioScriptRef | null;
 };
 
 export type AdminSkillScenarioState = {
@@ -84,7 +95,11 @@ const MAX_EXPECTED_USER_RESPONSE_CHARS = 400;
 const MAX_NEXT_STEP_TRIGGER_CHARS = 400;
 const MAX_RECOVERY_GUIDANCE_CHARS = 400;
 const MAX_FIRST_STEP_PREVIEW_CHARS = 200;
+const MAX_SCRIPT_INPUT_MAPPING_ENTRIES = 32;
+const MAX_SCRIPT_INPUT_MAPPING_BYTES = 16_384;
+const MAX_SCRIPT_LITERAL_DEPTH = 8;
 const KEY_REGEX = /^[a-z][a-z0-9_]{1,63}$/;
+const INPUT_NAME_REGEX = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
 
 export function parseCreateSkillScenarioInput(body: unknown): CreateSkillScenarioInput {
   const row = asObject(body, "Request body");
@@ -312,6 +327,7 @@ function parseStep(value: unknown, idx: number): SkillScenarioStepState {
           1,
           MAX_FIRST_STEP_PREVIEW_CHARS
         );
+  const scriptRef = parseScriptRef(row.scriptRef, `${path}.scriptRef`);
   return {
     number,
     directive,
@@ -321,8 +337,83 @@ function parseStep(value: unknown, idx: number): SkillScenarioStepState {
     expectedUserResponse,
     nextStepTrigger,
     recoveryGuidance,
-    firstStepPreview
+    firstStepPreview,
+    scriptRef
   };
+}
+
+function parseScriptRef(value: unknown, path: string): SkillScenarioScriptRef | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const row = asObject(value, path);
+  assertExactKeys(row, ["scriptKey", "inputMapping"], path);
+  const scriptKey = parseKey(row.scriptKey);
+  const mappingRow = asObject(row.inputMapping, `${path}.inputMapping`);
+  const entries = Object.entries(mappingRow);
+  if (entries.length > MAX_SCRIPT_INPUT_MAPPING_ENTRIES) {
+    throw new Error(
+      `${path}.inputMapping must contain at most ${String(MAX_SCRIPT_INPUT_MAPPING_ENTRIES)} entries.`
+    );
+  }
+  const inputMapping: Record<string, SkillScenarioScriptInputSource> = {};
+  for (const [name, sourceValue] of entries) {
+    if (!INPUT_NAME_REGEX.test(name)) {
+      throw new Error(`${path}.inputMapping key "${name}" has an invalid format.`);
+    }
+    inputMapping[name] = parseScriptInputSource(sourceValue, `${path}.inputMapping.${name}`);
+  }
+  if (Buffer.byteLength(JSON.stringify(inputMapping), "utf8") > MAX_SCRIPT_INPUT_MAPPING_BYTES) {
+    throw new Error(`${path}.inputMapping exceeds the serialized byte limit.`);
+  }
+  return { scriptKey, inputMapping };
+}
+
+function parseScriptInputSource(value: unknown, path: string): SkillScenarioScriptInputSource {
+  const row = asObject(value, path);
+  if (row.source === "literal") {
+    assertExactKeys(row, ["source", "value"], path);
+    assertJsonValue(row.value, `${path}.value`, 0);
+    return { source: "literal", value: row.value };
+  }
+  if (row.source === "current_user_message") {
+    assertExactKeys(row, ["source"], path);
+    return { source: "current_user_message" };
+  }
+  if (row.source === "tool_input") {
+    assertExactKeys(row, ["source", "name"], path);
+    const name = parseBoundedString(row.name, `${path}.name`, 1, 128);
+    if (!INPUT_NAME_REGEX.test(name)) {
+      throw new Error(`${path}.name has an invalid format.`);
+    }
+    return { source: "tool_input", name };
+  }
+  throw new Error(`${path}.source must be literal, current_user_message, or tool_input.`);
+}
+
+function assertJsonValue(value: unknown, path: string, depth: number): void {
+  if (depth > MAX_SCRIPT_LITERAL_DEPTH) {
+    throw new Error(`${path} exceeds the maximum JSON depth.`);
+  }
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertJsonValue(item, `${path}[${String(index)}]`, depth + 1));
+    return;
+  }
+  if (typeof value === "object") {
+    Object.entries(value as Record<string, unknown>).forEach(([key, item]) =>
+      assertJsonValue(item, `${path}.${key}`, depth + 1)
+    );
+    return;
+  }
+  throw new Error(`${path} must be JSON.`);
 }
 
 function parseStringList(
@@ -409,6 +500,18 @@ function asObject(value: unknown, path: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function assertExactKeys(
+  row: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  path: string
+): void {
+  const allowed = new Set(allowedKeys);
+  const unknown = Object.keys(row).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) {
+    throw new Error(`${path} contains unknown field(s): ${unknown.sort().join(", ")}.`);
+  }
+}
+
 function normalizeLocaleMapState(value: unknown): SkillScenarioLocaleMap {
   const result: SkillScenarioLocaleMap = {};
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
@@ -440,9 +543,14 @@ function normalizeStepsState(value: unknown): SkillScenarioStepState[] {
           typeof row.expectedUserResponse === "string" ? row.expectedUserResponse : null,
         nextStepTrigger: typeof row.nextStepTrigger === "string" ? row.nextStepTrigger : null,
         recoveryGuidance: typeof row.recoveryGuidance === "string" ? row.recoveryGuidance : null,
-        firstStepPreview: typeof row.firstStepPreview === "string" ? row.firstStepPreview : null
+        firstStepPreview: typeof row.firstStepPreview === "string" ? row.firstStepPreview : null,
+        scriptRef: normalizeScriptRef(row.scriptRef)
       };
     });
+}
+
+function normalizeScriptRef(value: unknown): SkillScenarioScriptRef | null {
+  return parseScriptRef(value, "scriptRef");
 }
 
 function normalizeStringArray(value: unknown): string[] {

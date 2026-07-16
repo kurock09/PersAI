@@ -25,7 +25,13 @@ import type {
   AdminRuntimeProviderSettingsRequest,
   AdminSafetyRestrictRequest,
   AdminSafetyUnblockRequest,
+  AdminScriptCoreFields,
+  AdminScriptCreateRequest,
+  AdminScriptVersionExecutableFields,
+  AdminScriptVersionPublishRequest,
+  AdminScriptVersionUpdateRequest,
   AdminSkillScenarioResponse,
+  AdminSkillScriptsReplaceRequest,
   AdminSkillUpsertRequest,
   AdminStepUpChallengeRequest,
   AdminToolPathPricingCatalogRequest,
@@ -97,10 +103,15 @@ import type {
   GetAdminSafetyPolicyHeuristicRulesParams,
   GetAdminSafetyPolicyHeuristicRulesResponse,
   GetAdminSafetyPolicySettingsResponse,
+  GetAdminScriptResponse,
+  GetAdminScriptVersionResponse,
+  GetAdminScriptVersionsResponse,
+  GetAdminScriptsResponse,
   GetAdminSitePagesResponse,
   GetAdminSkillResponse,
   GetAdminSkillScenariosParams,
   GetAdminSkillScenariosResponse,
+  GetAdminSkillScriptsResponse,
   GetAdminSkillsParams,
   GetAdminSkillsResponse,
   GetAdminToolPathPricingCatalogResponse,
@@ -201,6 +212,7 @@ import type {
   PostProductKnowledgeTextEntryResponse,
   ProductKnowledgeTextEntryInput,
   PublicSitePageSlug,
+  PublishAdminScriptVersionResponse,
   PutAdminBillingLifecycleSettingsResponse,
   PutAdminBillingProviderCredentialsResponse,
   PutAdminDocumentProcessingSettingsResponse,
@@ -211,6 +223,7 @@ import type {
   PutAdminSafetyPolicySettingsResponse,
   PutAdminSitePageRequest,
   PutAdminSitePageResponse,
+  PutAdminSkillScriptsResponse,
   PutAdminToolPathPricingCatalogResponse,
   PutAssistantRoleRequest,
   ReplayNotificationDeadLetter200,
@@ -220,6 +233,7 @@ import type {
   SuccessResponse,
   TestSendNotificationChannelResponse,
   UpdateUserPreferencesRequest,
+  ValidateAdminScriptVersionResponse,
   WorkspaceHeygenVoiceCatalogState,
   WorkspaceVideoPersonaCreateResponse,
   WorkspaceVideoPersonaListState
@@ -10121,6 +10135,521 @@ export const archiveWorkspaceVideoPersona = async (
       method: "DELETE"
     }
   );
+};
+
+/**
+ * @summary List platform Scripts
+ */
+export type getAdminScriptsResponse200 = {
+  data: GetAdminScriptsResponse;
+  status: 200;
+};
+
+export type getAdminScriptsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminScriptsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminScriptsResponseSuccess = getAdminScriptsResponse200 & {
+  headers: Headers;
+};
+export type getAdminScriptsResponseError = (
+  | getAdminScriptsResponse401
+  | getAdminScriptsResponse403
+) & {
+  headers: Headers;
+};
+
+export type getAdminScriptsResponse = getAdminScriptsResponseSuccess | getAdminScriptsResponseError;
+
+export const getGetAdminScriptsUrl = () => {
+  return `/admin/scripts`;
+};
+
+export const getAdminScripts = async (options?: RequestInit): Promise<getAdminScriptsResponse> => {
+  return customFetch<getAdminScriptsResponse>(getGetAdminScriptsUrl(), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Create a platform Script
+ */
+export type postAdminScriptResponse201 = {
+  data: GetAdminScriptResponse;
+  status: 201;
+};
+
+export type postAdminScriptResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminScriptResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAdminScriptResponseSuccess = postAdminScriptResponse201 & {
+  headers: Headers;
+};
+export type postAdminScriptResponseError = (
+  | postAdminScriptResponse400
+  | postAdminScriptResponse409
+) & {
+  headers: Headers;
+};
+
+export type postAdminScriptResponse = postAdminScriptResponseSuccess | postAdminScriptResponseError;
+
+export const getPostAdminScriptUrl = () => {
+  return `/admin/scripts`;
+};
+
+export const postAdminScript = async (
+  adminScriptCreateRequest: AdminScriptCreateRequest,
+  options?: RequestInit
+): Promise<postAdminScriptResponse> => {
+  return customFetch<postAdminScriptResponse>(getPostAdminScriptUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminScriptCreateRequest)
+  });
+};
+
+/**
+ * @summary Get a platform Script
+ */
+export type getAdminScriptResponse200 = {
+  data: GetAdminScriptResponse;
+  status: 200;
+};
+
+export type getAdminScriptResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAdminScriptResponseSuccess = getAdminScriptResponse200 & {
+  headers: Headers;
+};
+export type getAdminScriptResponseError = getAdminScriptResponse404 & {
+  headers: Headers;
+};
+
+export type getAdminScriptResponse = getAdminScriptResponseSuccess | getAdminScriptResponseError;
+
+export const getGetAdminScriptUrl = (scriptId: string) => {
+  return `/admin/scripts/${scriptId}`;
+};
+
+export const getAdminScript = async (
+  scriptId: string,
+  options?: RequestInit
+): Promise<getAdminScriptResponse> => {
+  return customFetch<getAdminScriptResponse>(getGetAdminScriptUrl(scriptId), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Update mutable Script catalog metadata
+ */
+export type patchAdminScriptResponse200 = {
+  data: GetAdminScriptResponse;
+  status: 200;
+};
+
+export type patchAdminScriptResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type patchAdminScriptResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type patchAdminScriptResponseSuccess = patchAdminScriptResponse200 & {
+  headers: Headers;
+};
+export type patchAdminScriptResponseError = (
+  | patchAdminScriptResponse400
+  | patchAdminScriptResponse409
+) & {
+  headers: Headers;
+};
+
+export type patchAdminScriptResponse =
+  | patchAdminScriptResponseSuccess
+  | patchAdminScriptResponseError;
+
+export const getPatchAdminScriptUrl = (scriptId: string) => {
+  return `/admin/scripts/${scriptId}`;
+};
+
+export const patchAdminScript = async (
+  scriptId: string,
+  adminScriptCoreFields: AdminScriptCoreFields,
+  options?: RequestInit
+): Promise<patchAdminScriptResponse> => {
+  return customFetch<patchAdminScriptResponse>(getPatchAdminScriptUrl(scriptId), {
+    ...options,
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminScriptCoreFields)
+  });
+};
+
+/**
+ * @summary Archive a Script when no live references remain
+ */
+export type deleteAdminScriptResponse200 = {
+  data: GetAdminScriptResponse;
+  status: 200;
+};
+
+export type deleteAdminScriptResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type deleteAdminScriptResponseSuccess = deleteAdminScriptResponse200 & {
+  headers: Headers;
+};
+export type deleteAdminScriptResponseError = deleteAdminScriptResponse409 & {
+  headers: Headers;
+};
+
+export type deleteAdminScriptResponse =
+  | deleteAdminScriptResponseSuccess
+  | deleteAdminScriptResponseError;
+
+export const getDeleteAdminScriptUrl = (scriptId: string) => {
+  return `/admin/scripts/${scriptId}`;
+};
+
+export const deleteAdminScript = async (
+  scriptId: string,
+  options?: RequestInit
+): Promise<deleteAdminScriptResponse> => {
+  return customFetch<deleteAdminScriptResponse>(getDeleteAdminScriptUrl(scriptId), {
+    ...options,
+    method: "DELETE"
+  });
+};
+
+/**
+ * @summary List Script versions
+ */
+export type getAdminScriptVersionsResponse200 = {
+  data: GetAdminScriptVersionsResponse;
+  status: 200;
+};
+
+export type getAdminScriptVersionsResponseSuccess = getAdminScriptVersionsResponse200 & {
+  headers: Headers;
+};
+export type getAdminScriptVersionsResponse = getAdminScriptVersionsResponseSuccess;
+
+export const getGetAdminScriptVersionsUrl = (scriptId: string) => {
+  return `/admin/scripts/${scriptId}/versions`;
+};
+
+export const getAdminScriptVersions = async (
+  scriptId: string,
+  options?: RequestInit
+): Promise<getAdminScriptVersionsResponse> => {
+  return customFetch<getAdminScriptVersionsResponse>(getGetAdminScriptVersionsUrl(scriptId), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Create the next draft Script version
+ */
+export type postAdminScriptVersionResponse201 = {
+  data: GetAdminScriptVersionResponse;
+  status: 201;
+};
+
+export type postAdminScriptVersionResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminScriptVersionResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAdminScriptVersionResponseSuccess = postAdminScriptVersionResponse201 & {
+  headers: Headers;
+};
+export type postAdminScriptVersionResponseError = (
+  | postAdminScriptVersionResponse400
+  | postAdminScriptVersionResponse409
+) & {
+  headers: Headers;
+};
+
+export type postAdminScriptVersionResponse =
+  | postAdminScriptVersionResponseSuccess
+  | postAdminScriptVersionResponseError;
+
+export const getPostAdminScriptVersionUrl = (scriptId: string) => {
+  return `/admin/scripts/${scriptId}/versions`;
+};
+
+export const postAdminScriptVersion = async (
+  scriptId: string,
+  adminScriptVersionExecutableFields: AdminScriptVersionExecutableFields,
+  options?: RequestInit
+): Promise<postAdminScriptVersionResponse> => {
+  return customFetch<postAdminScriptVersionResponse>(getPostAdminScriptVersionUrl(scriptId), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminScriptVersionExecutableFields)
+  });
+};
+
+/**
+ * @summary Update a draft Script version with optimistic revision
+ */
+export type patchAdminScriptVersionResponse200 = {
+  data: GetAdminScriptVersionResponse;
+  status: 200;
+};
+
+export type patchAdminScriptVersionResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type patchAdminScriptVersionResponseSuccess = patchAdminScriptVersionResponse200 & {
+  headers: Headers;
+};
+export type patchAdminScriptVersionResponseError = patchAdminScriptVersionResponse409 & {
+  headers: Headers;
+};
+
+export type patchAdminScriptVersionResponse =
+  | patchAdminScriptVersionResponseSuccess
+  | patchAdminScriptVersionResponseError;
+
+export const getPatchAdminScriptVersionUrl = (scriptId: string, versionId: string) => {
+  return `/admin/scripts/${scriptId}/versions/${versionId}`;
+};
+
+export const patchAdminScriptVersion = async (
+  scriptId: string,
+  versionId: string,
+  adminScriptVersionUpdateRequest: AdminScriptVersionUpdateRequest,
+  options?: RequestInit
+): Promise<patchAdminScriptVersionResponse> => {
+  return customFetch<patchAdminScriptVersionResponse>(
+    getPatchAdminScriptVersionUrl(scriptId, versionId),
+    {
+      ...options,
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminScriptVersionUpdateRequest)
+    }
+  );
+};
+
+/**
+ * @summary Validate canonical persisted Script version state
+ */
+export type postAdminScriptVersionValidateResponse200 = {
+  data: ValidateAdminScriptVersionResponse;
+  status: 200;
+};
+
+export type postAdminScriptVersionValidateResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type postAdminScriptVersionValidateResponseSuccess =
+  postAdminScriptVersionValidateResponse200 & {
+    headers: Headers;
+  };
+export type postAdminScriptVersionValidateResponseError =
+  postAdminScriptVersionValidateResponse400 & {
+    headers: Headers;
+  };
+
+export type postAdminScriptVersionValidateResponse =
+  | postAdminScriptVersionValidateResponseSuccess
+  | postAdminScriptVersionValidateResponseError;
+
+export const getPostAdminScriptVersionValidateUrl = (scriptId: string, versionId: string) => {
+  return `/admin/scripts/${scriptId}/versions/${versionId}/validate`;
+};
+
+export const postAdminScriptVersionValidate = async (
+  scriptId: string,
+  versionId: string,
+  options?: RequestInit
+): Promise<postAdminScriptVersionValidateResponse> => {
+  return customFetch<postAdminScriptVersionValidateResponse>(
+    getPostAdminScriptVersionValidateUrl(scriptId, versionId),
+    {
+      ...options,
+      method: "POST"
+    }
+  );
+};
+
+/**
+ * @summary Publish and freeze a draft Script version
+ */
+export type postAdminScriptVersionPublishResponse200 = {
+  data: PublishAdminScriptVersionResponse;
+  status: 200;
+};
+
+export type postAdminScriptVersionPublishResponse409 = {
+  data: ErrorEnvelope;
+  status: 409;
+};
+
+export type postAdminScriptVersionPublishResponseSuccess =
+  postAdminScriptVersionPublishResponse200 & {
+    headers: Headers;
+  };
+export type postAdminScriptVersionPublishResponseError =
+  postAdminScriptVersionPublishResponse409 & {
+    headers: Headers;
+  };
+
+export type postAdminScriptVersionPublishResponse =
+  | postAdminScriptVersionPublishResponseSuccess
+  | postAdminScriptVersionPublishResponseError;
+
+export const getPostAdminScriptVersionPublishUrl = (scriptId: string, versionId: string) => {
+  return `/admin/scripts/${scriptId}/versions/${versionId}/publish`;
+};
+
+export const postAdminScriptVersionPublish = async (
+  scriptId: string,
+  versionId: string,
+  adminScriptVersionPublishRequest: AdminScriptVersionPublishRequest,
+  options?: RequestInit
+): Promise<postAdminScriptVersionPublishResponse> => {
+  return customFetch<postAdminScriptVersionPublishResponse>(
+    getPostAdminScriptVersionPublishUrl(scriptId, versionId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(adminScriptVersionPublishRequest)
+    }
+  );
+};
+
+/**
+ * @summary List ordered Scripts linked to a Skill
+ */
+export type getAdminSkillScriptsResponse200 = {
+  data: GetAdminSkillScriptsResponse;
+  status: 200;
+};
+
+export type getAdminSkillScriptsResponse401 = {
+  data: ErrorEnvelope;
+  status: 401;
+};
+
+export type getAdminSkillScriptsResponse403 = {
+  data: ErrorEnvelope;
+  status: 403;
+};
+
+export type getAdminSkillScriptsResponse404 = {
+  data: ErrorEnvelope;
+  status: 404;
+};
+
+export type getAdminSkillScriptsResponseSuccess = getAdminSkillScriptsResponse200 & {
+  headers: Headers;
+};
+export type getAdminSkillScriptsResponseError = (
+  | getAdminSkillScriptsResponse401
+  | getAdminSkillScriptsResponse403
+  | getAdminSkillScriptsResponse404
+) & {
+  headers: Headers;
+};
+
+export type getAdminSkillScriptsResponse =
+  | getAdminSkillScriptsResponseSuccess
+  | getAdminSkillScriptsResponseError;
+
+export const getGetAdminSkillScriptsUrl = (skillId: string) => {
+  return `/admin/skills/${skillId}/scripts`;
+};
+
+export const getAdminSkillScripts = async (
+  skillId: string,
+  options?: RequestInit
+): Promise<getAdminSkillScriptsResponse> => {
+  return customFetch<getAdminSkillScriptsResponse>(getGetAdminSkillScriptsUrl(skillId), {
+    ...options,
+    method: "GET"
+  });
+};
+
+/**
+ * @summary Full-replace ordered Scripts linked to a Skill
+ */
+export type putAdminSkillScriptsResponse200 = {
+  data: PutAdminSkillScriptsResponse;
+  status: 200;
+};
+
+export type putAdminSkillScriptsResponse400 = {
+  data: ErrorEnvelope;
+  status: 400;
+};
+
+export type putAdminSkillScriptsResponseSuccess = putAdminSkillScriptsResponse200 & {
+  headers: Headers;
+};
+export type putAdminSkillScriptsResponseError = putAdminSkillScriptsResponse400 & {
+  headers: Headers;
+};
+
+export type putAdminSkillScriptsResponse =
+  | putAdminSkillScriptsResponseSuccess
+  | putAdminSkillScriptsResponseError;
+
+export const getPutAdminSkillScriptsUrl = (skillId: string) => {
+  return `/admin/skills/${skillId}/scripts`;
+};
+
+export const putAdminSkillScripts = async (
+  skillId: string,
+  adminSkillScriptsReplaceRequest: AdminSkillScriptsReplaceRequest,
+  options?: RequestInit
+): Promise<putAdminSkillScriptsResponse> => {
+  return customFetch<putAdminSkillScriptsResponse>(getPutAdminSkillScriptsUrl(skillId), {
+    ...options,
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(adminSkillScriptsReplaceRequest)
+  });
 };
 
 /**

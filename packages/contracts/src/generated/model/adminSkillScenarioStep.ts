@@ -4,6 +4,7 @@
  * PersAI Step 2 API Contract
  * OpenAPI spec version: 0.1.0
  */
+import type { AdminSkillScenarioStepScriptRef } from "./adminSkillScenarioStepScriptRef";
 
 export interface AdminSkillScenarioStep {
   number: number;
@@ -19,4 +20,6 @@ export interface AdminSkillScenarioStep {
   nextStepTrigger?: string | null;
   /** @nullable */
   recoveryGuidance?: string | null;
+  /** @nullable */
+  scriptRef: AdminSkillScenarioStepScriptRef;
 }

@@ -6982,6 +6982,362 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/scripts:
+    get:
+      operationId: getAdminScripts
+      summary: List platform Scripts
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Script catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminScriptsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    post:
+      operationId: postAdminScript
+      summary: Create a platform Script
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminScriptCreateRequest"
+      responses:
+        "201":
+          description: Script created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminScriptResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Script key conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/scripts/{scriptId}:
+    parameters:
+      - name: scriptId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminScript
+      summary: Get a platform Script
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Script
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminScriptResponse"
+        "404":
+          description: Script not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    patch:
+      operationId: patchAdminScript
+      summary: Update mutable Script catalog metadata
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminScriptUpdateRequest"
+      responses:
+        "200":
+          description: Script updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminScriptResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Archived Script
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    delete:
+      operationId: deleteAdminScript
+      summary: Archive a Script when no live references remain
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Archived Script
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminScriptResponse"
+        "409":
+          description: Script remains referenced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/scripts/{scriptId}/versions:
+    parameters:
+      - name: scriptId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getAdminScriptVersions
+      summary: List Script versions
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Script versions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminScriptVersionsResponse"
+    post:
+      operationId: postAdminScriptVersion
+      summary: Create the next draft Script version
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminScriptVersionCreateRequest"
+      responses:
+        "201":
+          description: Draft version created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminScriptVersionResponse"
+        "400":
+          description: Invalid executable contract
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "409":
+          description: Draft already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/scripts/{scriptId}/versions/{versionId}:
+    parameters:
+      - name: scriptId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: versionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      operationId: patchAdminScriptVersion
+      summary: Update a draft Script version with optimistic revision
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminScriptVersionUpdateRequest"
+      responses:
+        "200":
+          description: Draft version updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminScriptVersionResponse"
+        "409":
+          description: Published immutable or revision conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/scripts/{scriptId}/versions/{versionId}/validate:
+    post:
+      operationId: postAdminScriptVersionValidate
+      summary: Validate canonical persisted Script version state
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: scriptId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: versionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Valid canonical version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidateAdminScriptVersionResponse"
+        "400":
+          description: Invalid persisted executable contract
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/scripts/{scriptId}/versions/{versionId}/publish:
+    post:
+      operationId: postAdminScriptVersionPublish
+      summary: Publish and freeze a draft Script version
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: scriptId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: versionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminScriptVersionPublishRequest"
+      responses:
+        "200":
+          description: Published Script and immutable version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishAdminScriptVersionResponse"
+        "409":
+          description: Revision or lifecycle conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /admin/skills/{skillId}/scripts:
+    get:
+      operationId: getAdminSkillScripts
+      summary: List ordered Scripts linked to a Skill
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Ordered Skill Script links
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetAdminSkillScriptsResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "404":
+          description: Skill not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+    put:
+      operationId: putAdminSkillScripts
+      summary: Full-replace ordered Scripts linked to a Skill
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminSkillScriptsReplaceRequest"
+      responses:
+        "200":
+          description: Ordered Skill Script links
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PutAdminSkillScriptsResponse"
+        "400":
+          description: Invalid, missing, archived, or unpublished Script
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
   /admin/roles:
     get:
       operationId: getAdminRoles
@@ -7327,6 +7683,428 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    ScriptStatus:
+      type: string
+      enum:
+        - draft
+        - published
+        - archived
+    ScriptVersionStatus:
+      type: string
+      enum:
+        - draft
+        - published
+    ScriptLocalizedText:
+      type: object
+      additionalProperties: false
+      required:
+        - ru
+        - en
+      properties:
+        ru:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        en:
+          type: string
+          minLength: 1
+          maxLength: 2000
+    AdminScriptCoreFields:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - description
+        - category
+        - icon
+        - color
+        - displayOrder
+      properties:
+        name:
+          $ref: "#/components/schemas/ScriptLocalizedText"
+        description:
+          $ref: "#/components/schemas/ScriptLocalizedText"
+        category:
+          type: string
+          minLength: 1
+          maxLength: 64
+        icon:
+          type: string
+          maxLength: 64
+          nullable: true
+        color:
+          type: string
+          maxLength: 32
+          nullable: true
+        displayOrder:
+          type: integer
+          minimum: -1000000
+          maximum: 1000000
+    AdminScriptCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/AdminScriptCoreFields"
+        - type: object
+          additionalProperties: false
+          required:
+            - key
+          properties:
+            key:
+              type: string
+              minLength: 2
+              maxLength: 64
+              pattern: "^[a-z][a-z0-9_]{1,63}$"
+    AdminScriptUpdateRequest:
+      $ref: "#/components/schemas/AdminScriptCoreFields"
+    ScriptManifest:
+      type: object
+      additionalProperties: false
+      required:
+        - schemaVersion
+        - workingDirectory
+        - environment
+      properties:
+        schemaVersion:
+          type: integer
+          enum:
+            - 1
+        workingDirectory:
+          type: string
+          maxLength: 512
+          nullable: true
+        environment:
+          type: object
+          maxProperties: 64
+          additionalProperties:
+            type: string
+            maxLength: 4096
+    ScriptLimits:
+      type: object
+      additionalProperties: false
+      required:
+        - timeoutMs
+        - maxMemoryMb
+        - maxCpuMillicores
+        - maxOutputBytes
+      properties:
+        timeoutMs:
+          type: integer
+          minimum: 100
+          maximum: 1800000
+        maxMemoryMb:
+          type: integer
+          minimum: 16
+          maximum: 32768
+        maxCpuMillicores:
+          type: integer
+          minimum: 10
+          maximum: 16000
+        maxOutputBytes:
+          type: integer
+          minimum: 1
+          maximum: 100000000
+    ScriptJsonSchema:
+      type: object
+      description: Strict bounded JSON Schema Draft 2020-12 document; remote references are rejected.
+      additionalProperties: true
+    AdminScriptVersionExecutableFields:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - manifest
+        - inputSchema
+        - outputSchema
+        - runtime
+        - entryCommand
+        - limits
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 1000000
+        manifest:
+          $ref: "#/components/schemas/ScriptManifest"
+        inputSchema:
+          $ref: "#/components/schemas/ScriptJsonSchema"
+        outputSchema:
+          $ref: "#/components/schemas/ScriptJsonSchema"
+        runtime:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^[a-z][a-z0-9_.-]{0,63}$"
+        entryCommand:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        limits:
+          $ref: "#/components/schemas/ScriptLimits"
+    AdminScriptVersionCreateRequest:
+      $ref: "#/components/schemas/AdminScriptVersionExecutableFields"
+    AdminScriptVersionUpdateRequest:
+      allOf:
+        - $ref: "#/components/schemas/AdminScriptVersionExecutableFields"
+        - type: object
+          additionalProperties: false
+          required:
+            - expectedRevision
+          properties:
+            expectedRevision:
+              type: integer
+              minimum: 1
+    AdminScriptVersionPublishRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - expectedRevision
+      properties:
+        expectedRevision:
+          type: integer
+          minimum: 1
+    AdminSkillScriptsReplaceRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - scriptIds
+      properties:
+        scriptIds:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    ScriptState:
+      type: object
+      required:
+        - id
+        - key
+        - name
+        - description
+        - status
+        - category
+        - icon
+        - color
+        - displayOrder
+        - currentPublishedVersionId
+        - createdByUserId
+        - updatedByUserId
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        name:
+          $ref: "#/components/schemas/ScriptLocalizedText"
+        description:
+          $ref: "#/components/schemas/ScriptLocalizedText"
+        status:
+          $ref: "#/components/schemas/ScriptStatus"
+        category:
+          type: string
+        icon:
+          type: string
+          nullable: true
+        color:
+          type: string
+          nullable: true
+        displayOrder:
+          type: integer
+        currentPublishedVersionId:
+          type: string
+          format: uuid
+          nullable: true
+        createdByUserId:
+          type: string
+          format: uuid
+        updatedByUserId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ScriptVersionState:
+      allOf:
+        - $ref: "#/components/schemas/AdminScriptVersionExecutableFields"
+        - type: object
+          required:
+            - id
+            - scriptId
+            - version
+            - status
+            - contentHash
+            - revision
+            - createdByUserId
+            - publishedByUserId
+            - createdAt
+            - updatedAt
+            - publishedAt
+          properties:
+            id:
+              type: string
+              format: uuid
+            scriptId:
+              type: string
+              format: uuid
+            version:
+              type: integer
+              minimum: 1
+            status:
+              $ref: "#/components/schemas/ScriptVersionStatus"
+            contentHash:
+              type: string
+              pattern: "^[0-9a-f]{64}$"
+              nullable: true
+            revision:
+              type: integer
+              minimum: 1
+            createdByUserId:
+              type: string
+              format: uuid
+            publishedByUserId:
+              type: string
+              format: uuid
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+            publishedAt:
+              type: string
+              format: date-time
+              nullable: true
+    SkillScriptLinkState:
+      type: object
+      required:
+        - scriptId
+        - displayOrder
+        - createdAt
+        - script
+      properties:
+        scriptId:
+          type: string
+          format: uuid
+        displayOrder:
+          type: integer
+          minimum: 0
+        createdAt:
+          type: string
+          format: date-time
+        script:
+          $ref: "#/components/schemas/ScriptState"
+    GetAdminScriptsResponse:
+      type: object
+      required:
+        - requestId
+        - scripts
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        scripts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScriptState"
+    GetAdminScriptResponse:
+      type: object
+      required:
+        - requestId
+        - script
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        script:
+          $ref: "#/components/schemas/ScriptState"
+    GetAdminScriptVersionsResponse:
+      type: object
+      required:
+        - requestId
+        - versions
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScriptVersionState"
+    GetAdminScriptVersionResponse:
+      type: object
+      required:
+        - requestId
+        - version
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        version:
+          $ref: "#/components/schemas/ScriptVersionState"
+    ValidateAdminScriptVersionResponse:
+      type: object
+      required:
+        - requestId
+        - valid
+        - version
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        valid:
+          type: boolean
+          enum:
+            - true
+        version:
+          $ref: "#/components/schemas/ScriptVersionState"
+    PublishAdminScriptVersionResponse:
+      type: object
+      required:
+        - requestId
+        - script
+        - version
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        script:
+          $ref: "#/components/schemas/ScriptState"
+        version:
+          $ref: "#/components/schemas/ScriptVersionState"
+    PutAdminSkillScriptsResponse:
+      type: object
+      required:
+        - requestId
+        - scripts
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        scripts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillScriptLinkState"
+    GetAdminSkillScriptsResponse:
+      type: object
+      required:
+        - requestId
+        - scripts
+      properties:
+        requestId:
+          type: string
+          nullable: true
+        scripts:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillScriptLinkState"
     AdminRoleStatus:
       type: string
       enum:
@@ -10035,6 +10813,61 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SkillKnowledgeCardState"
+    SkillScenarioScriptInputSource:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required:
+            - source
+            - value
+          properties:
+            source:
+              type: string
+              enum:
+                - literal
+            value:
+              nullable: true
+        - type: object
+          additionalProperties: false
+          required:
+            - source
+          properties:
+            source:
+              type: string
+              enum:
+                - current_user_message
+        - type: object
+          additionalProperties: false
+          required:
+            - source
+            - name
+          properties:
+            source:
+              type: string
+              enum:
+                - tool_input
+            name:
+              type: string
+              minLength: 1
+              maxLength: 128
+              pattern: "^[A-Za-z_][A-Za-z0-9_.-]{0,127}$"
+    SkillScenarioScriptRef:
+      type: object
+      additionalProperties: false
+      required:
+        - scriptKey
+        - inputMapping
+      properties:
+        scriptKey:
+          type: string
+          minLength: 2
+          maxLength: 64
+          pattern: "^[a-z][a-z0-9_]{1,63}$"
+        inputMapping:
+          type: object
+          maxProperties: 32
+          additionalProperties:
+            $ref: "#/components/schemas/SkillScenarioScriptInputSource"
     AdminSkillScenarioStep:
       type: object
       required:
@@ -10043,6 +10876,7 @@ components:
         - recommendedToolCall
         - mayBeSkippedIf
         - negativeGuards
+        - scriptRef
       properties:
         number:
           type: integer
@@ -10066,6 +10900,10 @@ components:
           nullable: true
         recoveryGuidance:
           type: string
+          nullable: true
+        scriptRef:
+          allOf:
+            - $ref: "#/components/schemas/SkillScenarioScriptRef"
           nullable: true
     AdminSkillScenario:
       type: object

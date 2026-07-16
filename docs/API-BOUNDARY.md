@@ -34,6 +34,12 @@ Primary public API surface:
 - admin memory backfill routes under `/api/v1/admin/memory-backfill*` (assistant-scoped dry-run preview + step-up confirmed apply for legacy durable-memory cleanup)
 - admin Skill routes under `/api/v1/admin/skills*`
 - ADR-147 S4 admin Role routes under `/api/v1/admin/roles*` (list/create, static `POST /preview`, get/patch/delete by `roleId`, full-replace `PUT /{roleId}/skills`)
+- ADR-151 Domain + Admin API is implemented locally: `/api/v1/admin/scripts*`
+  owns platform-global Script catalog/version lifecycle, validation, publish,
+  and archive; `GET`/`PUT /api/v1/admin/skills/{skillId}/scripts` read and
+  full-replace ordered Skill links; Scenario authoring accepts bounded structured
+  `scriptRef` input mapping. There is no execution endpoint. MCP Script wrappers,
+  Admin UI, and runtime `script.execute` remain pending.
 - future ADR-080 admin authoring routes for Skill knowledge cards, Skill draft enrichment, and Product KB text entries stay under `/api/v1/admin/skills*` and `/api/v1/admin/knowledge-sources*`
 - admin document-processing provider settings under `/api/v1/admin/tools/document-processing*`
 - admin billing-provider credential settings under `/api/v1/admin/tools/billing`
@@ -144,6 +150,16 @@ retired fail-closed on cleanup-proof failure. Sessionless jobs still retire.
 (`.local`, `.npm-global`, `node_modules`) are excluded from produced-file GCS
 mirror, hydrate, runtime manifest upsert, Files gallery, `files.list`, and
 `files.search`. Ordinary work-artifact persistence is unchanged.
+
+**ADR-151 (Accepted / Open; Domain + Admin API implemented locally):** the planned runtime
+boundary is one synchronous model-mediated `script.execute` only when the
+referencing Scenario step is active. It will resolve an exact immutable published
+version, validate the bounded mapped input/result, and use the existing
+`SandboxJob` lifecycle with stable idempotency/replay semantics. It creates no
+direct MCP execution boundary, no browser/Tool SDK/async `jobRef`/`wait`/
+`notify` boundary, and no managed-secret API. Those remain ADR-152/153 scope.
+Until ADR-153, code/input credentials are unmanaged values with no promised
+redaction, TTL, revoke, or log-history protection.
 
 - The web client performs a best-effort latest-history refresh on `focus`, `visibilitychange` back to visible, and `pageshow`, so a passive disconnect that already committed server-side is reconciled without requiring a manual page reload.
 - the hard-stop route is idempotent with explicit outcomes. Terminal attempt `errorCode: "user_stopped"` on successful Stop; next-turn hydration includes explicit user-stop fact.

@@ -272,7 +272,8 @@ function createScenario(
         negativeGuards: ["combine slides into one image"],
         expectedUserResponse: null,
         nextStepTrigger: null,
-        recoveryGuidance: null
+        recoveryGuidance: null,
+        scriptRef: null
       },
       {
         number: 2,
@@ -282,7 +283,8 @@ function createScenario(
         negativeGuards: [],
         expectedUserResponse: null,
         nextStepTrigger: null,
-        recoveryGuidance: null
+        recoveryGuidance: null,
+        scriptRef: null
       }
     ],
     firstStepPreview: null,

@@ -47,6 +47,7 @@
     "@persai/runtime-contract": "workspace:*",
     "@persai/types": "workspace:*",
     "@prisma/client": "^6.19.2",
+    "ajv": "^8.18.0",
     "croner": "^10.0.1",
     "file-type": "^21.3.2",
     "mammoth": "^1.12.0",

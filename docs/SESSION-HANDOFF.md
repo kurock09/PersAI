@@ -1,5 +1,58 @@
 # SESSION-HANDOFF
 
+## 2026-07-16 — ADR-151 Domain + Admin API implemented locally
+
+Status: **Accepted / Open — Domain + Admin API block implemented and
+independently audited locally.** Baseline
+`36947f7544918c0fddadae6ec17f75883b1b1365` on
+`adr-151-reusable-scripts`; reviewed documentation edits were preserved. No
+commit, push, deployment, runtime execution, Admin UI, MCP, or live acceptance.
+
+- **Decision:** platform-global reusable Script with immutable published
+  ScriptVersion; ordered full-replace Skill↔Script links; bounded Scenario step
+  `scriptRef` input mapping; synchronous active-step-only `script.execute`.
+- **Execution:** use the exact existing warm session sandbox (workspace,
+  `/opt/venv`, system/Python/Node/Bash, warm session install layer,
+  `restricted|full_public`, Stop/deadline/resource/cleanup). ADR-150 means
+  session installs survive only the current warm pod and never GCS/Files/
+  snapshot/hydrate.
+- **Durability:** no `ScriptRun`; every invocation is existing `SandboxJob` with
+  exact nullable `scriptVersionId`, stable invocation key, validated
+  request/result + policy snapshot, and nullable unique
+  `(assistantId, scriptInvocationKey)` idempotent admission/replay. Same key
+  with different version/input is `idempotency_conflict`; external effects are
+  not exactly-once.
+- **Boundaries:** ADR-147 Role-only effective Skills is unchanged. Scripts are
+  ordinary code, never nested PersAI. No Tool SDK, browser executor,
+  async/jobRef/wait/notify, or managed secrets; ADR-152/153 own those. Before
+  ADR-153, direct code/input credentials are unmanaged with no protection
+  promise.
+- **Authoring:** Admin Scripts must match Admin Roles quality. MCP remains thin
+  wrappers for catalog/lifecycle, ordered links, Scenario refs, and existing
+  real chat smoke—never direct execution/package factory.
+- **Local implementation:** Prisma models/migration for Script, ScriptVersion,
+  SkillScript, and nullable SandboxJob invocation identity; DB triggers for
+  immutable Script key/published versions and validated current pointer; strict
+  JSON Schema 2020-12 validation and canonical publish hash; Script/version
+  lifecycle and ordered Skill links; bounded Scenario `scriptRef`; explicit
+  Admin auth routes; OpenAPI + Orval contracts; focused tests.
+- **Parent-audit corrections applied:** published-version publisher deletion is
+  `RESTRICT`; ordered Skill bindings now have authenticated `GET` read parity;
+  full replacement returns stable 409 instead of detaching a Script referenced
+  by a live Scenario; persisted malformed non-null `scriptRef` fails closed; and
+  archive/reference checks use parameterized DB-side JSONB existence queries.
+- **Independent audit:** domain/schema/API logic CLEAN after isolated PostgreSQL
+  16 proof of all 189 migrations, Script constraints/triggers/FKs, nullable
+  idempotency uniqueness, and zero target-schema drift. The generated-contract
+  index empty-blob P1 was repaired by staging the real Orval output; Ajv now
+  reuses the repository's `^8.18.0` dependency range.
+
+**Next recommended step:** implement and independently audit the bounded
+Scenario + runtime block. Admin UI + MCP and deployment/live acceptance remain
+later final-gate work.
+
+---
+
 ## 2026-07-16 — Context-meter opaque gray + scissors flush-right (pushed)
 
 Status: **pushed `3367c9e8`.** Baseline was `40f1dba7` (+ remote pin `80a7bada`).
@@ -54,6 +107,7 @@ Status: **implemented locally** on clean `f12f542b`. Not committed/pushed.
 Founder chrome://extensions showed `wss://api.persai.dev/.../browser-bridge/ws` `net::ERR_CONNECTION_RESET` while the bridge was in active use.
 
 **Fix:**
+
 - Extension dial-spam budget counts only pre-OPEN failures; post-OPEN LB flaps reset backoff and reconnect freely.
 - API device-token TTL 15m → 4h; extension/native safe-age ~3h55m; status exposes `registrationUpdatedAt`; app-shell maintainer renews a still-connected matching scope after 3h.
 
@@ -189,13 +243,13 @@ Status: **implemented locally** on top of `0f84518b` (ADR-149 work may also be p
 Status: **all implementation slices on `main` at `7b14f8df`.** Push = deploy —
 **not pushed** pending founder live acceptance.
 
-| Slice | Commit | Summary |
-|-------|--------|---------|
-| S0 | `5949d696` | ADR-149 opened, baseline `a753e77e` |
-| S1 | `d0382151` | Durable Redis Stop, mid-flight abort, `user_stopped` |
-| S2 | `bc3d6ee8` | Wall-clock 30m + idle stall 5m; no 615s video inflation |
-| S3 | `d7da3e34` | `tool_progress` shell/browser live activity |
-| S4 | `7b14f8df` | Orphan attempt + receipt reconcilers (20m grace) |
+| Slice | Commit     | Summary                                                 |
+| ----- | ---------- | ------------------------------------------------------- |
+| S0    | `5949d696` | ADR-149 opened, baseline `a753e77e`                     |
+| S1    | `d0382151` | Durable Redis Stop, mid-flight abort, `user_stopped`    |
+| S2    | `bc3d6ee8` | Wall-clock 30m + idle stall 5m; no 615s video inflation |
+| S3    | `d7da3e34` | `tool_progress` shell/browser live activity             |
+| S4    | `7b14f8df` | Orphan attempt + receipt reconcilers (20m grace)        |
 
 **S5 local gate:** lint ✅ format ✅ api/web/runtime/sandbox typecheck ✅ ADR-149
 focused tests **39/39** ✅

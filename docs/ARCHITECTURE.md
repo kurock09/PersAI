@@ -113,6 +113,31 @@ ephemeral only — not mirrored to GCS, not hydrated, not shown in Files /
 ADR-146 stays closed; ADR-148 supersedes only the over-broad per-job retirement
 behavior and must not be reopened for new scope.
 
+**ADR-151 accepted/open (Domain + Admin API implemented locally; runtime
+pending):** platform-global reusable Scripts are immutable-versioned ordinary
+code, not nested PersAI agents. The local control plane now owns Script,
+immutable published ScriptVersion, ordered SkillScript, bounded Scenario
+`scriptRef`, and nullable SandboxJob invocation identity schema. A later
+synchronous `script.execute` resolves an exact published
+ScriptVersion and delegates to this same warm session sandbox path: Assistant
+workspace, `/opt/venv`, system/Python/Node/Bash tools, existing warm install
+layer, Assistant `restricted | full_public` egress choice, and existing
+Stop/deadline/resource/cleanup semantics. It adds no Script-specific pod,
+NetworkPolicy, image, package allowlist, stdlib-only contour, or staging
+filesystem. ADR-150 remains authoritative: session-installed packages do not
+survive cold pod recycle or GCS/Files/snapshot/hydrate.
+
+Scripts may be ordered full-replace links of existing Skills; they do not alter
+ADR-147's Role-only effective Skills derivation. An active Scenario step may
+carry a bounded structured Script reference/input mapping and model-mediate one
+synchronous execution, but no automatic workflow engine. Invocation truth will
+be existing `SandboxJob`, not `ScriptRun`, with exact nullable
+`scriptVersionId`, stable invocation key, policy snapshot, and idempotent
+admission/replay. Tool SDK, browser executor, async/jobRef/wait/notify, and
+managed secrets are explicitly outside ADR-151 (ADRs 152/153); before ADR-153,
+credentials placed in code/input are unmanaged and receive no redaction, TTL,
+revoke, or log-history promise.
+
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 
 **ADR-146 closed target (Slices 0–6 landed, deployed, and live-accepted

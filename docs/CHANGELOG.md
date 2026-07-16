@@ -5,6 +5,26 @@
 
 ## 2026-07-16
 
+- **ADR (ADR-151 reusable Scripts core; accepted/open).** Founder-approved
+  documentation checkpoint on clean baseline `36947f75`: platform-global
+  Script + immutable published ScriptVersion; ordered full-replace Skill links;
+  bounded active-Scenario-step `scriptRef` and synchronous `script.execute`
+  using the existing warm session sandbox; existing `SandboxJob` idempotent
+  admission/replay instead of `ScriptRun`; Admin/MCP authoring only. ADR-147
+  Role-only effective Skills and ADR-150 warm-pod-only install layer remain
+  unchanged. Tool SDK/browser/async and managed secrets are ADR-152/153 scope.
+  **Domain + Admin API implemented locally:** Prisma models/migration and DB
+  immutability/current-version guards; strict manifest/JSON Schema validation;
+  canonical publish hash and optimistic draft revisions; ordered Skill links
+  with assistant invalidation; bounded Scenario refs; explicit Admin auth,
+  OpenAPI/Orval contracts, and focused tests. Parent-audit corrections add
+  publisher `RESTRICT`, authenticated ordered-binding `GET` parity, stable-409
+  Scenario reference protection on link removal, strict persisted-ref
+  corruption handling, and DB-side JSONB reference existence checks.
+  Independent audit proved the full 189-migration history and Script constraints
+  on isolated PostgreSQL 16 with zero target-schema drift; generated-index and
+  Ajv dependency tails are closed. Runtime execution, Admin UI, MCP, deployment,
+  and live acceptance remain pending.
 - **Fix (context-meter opaque gray + scissors flush-right; pushed `3367c9e8`).** Expanded meter `color-mix` with `--border` (alpha) let the title bleed through → solid `bg-surface-hover`. Scissors/hover sat left of the right end-cap because a capped text slot left slack on the right; text is uncapped `flex-1` so the scissors button stays flush on the right circle.
 - **UX (narrow-chat mode/plan circles + context-meter polish; pushed `43c8b672`).** Mode and plan collapsed chips switch circle↔pill by chat column `@container` at 500px (not viewport `md`). Context meter: ring reveal spins once after collapse; busy ring immediate while compacting; site-pages publish test drains async before teardown.
 - **Fix (desktop bridge drops mid-work; local).** `ERR_CONNECTION_RESET` on `browser-bridge/ws` during active use: dial-failure budget no longer counts post-OPEN flaps; API device-token TTL 15m → 4h with matching client safe-age; maintainer renews live credentials after 3h. Rebuild/reload Chrome extension after api+web deploy.

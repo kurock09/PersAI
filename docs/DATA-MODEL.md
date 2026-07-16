@@ -221,6 +221,23 @@ Assistant-private uploaded knowledge-source rows now also expose the persisted e
 
 Enabled Skill prompt materialization is runtime-bundle state, not a separate persisted Skill prompt table. **ADR-147 closed truth**: the materializer reads `Assistant.roleId -> AssistantRoleSkill -> active Skill` and writes both the bounded `Enabled Skills` block and the `<assistant_role><mission>...</mission></assistant_role>` cache-prefix block into the materialized runtime bundle. The bundle also carries non-model `effectiveRoleId` so runtime Skill-state persistence can reject stale role snapshots honestly. Setup/recreate publish supplies exact `{assistantId, expectedRoleKey, roleKey}` and reuses the same transactional Role assignment primitive inside publish itself; expected Role drift returns stable 409 before any published-version/apply mutation. Removed direct assignment rows do not exist in deployed schema truth.
 
+**ADR-151 accepted/open (Domain + Admin API implemented locally):**
+platform-global `Script` records have immutable stable keys, localized metadata,
+lifecycle, and audit; immutable published `ScriptVersion` records carry code, strict
+manifest, validated input/output schemas, runtime/entry command, limits, and
+content hash. Ordered `SkillScript` links will be full-replace many-to-many
+availability only; they do not change the closed Role-only effective Skill
+derivation above. A `SkillScenarioStep` JSON value may carry structured
+`scriptRef` plus bounded input mapping.
+
+There is **no `ScriptRun` model**. `SandboxJob` has nullable exact
+`scriptVersionId` and nullable
+`scriptInvocationKey`, validated request/result and policy snapshot, plus the
+existing pod/resource/timestamp/cancel fields. A nullable
+`@@unique([assistantId, scriptInvocationKey])` will make same-key running polls
+and terminal replay idempotent; version/input mismatch is
+`idempotency_conflict`. It does not promise exactly-once external side effects.
+
 Runtime router Skill planning is also bundle-derived state. The materialized runtime bundle carries compact enabled Skill summaries (`id`, localized name, short description, category, up to two tags, and up to two instruction-card examples as semantic routing hints) for classifier input. The runtime `retrievalPlan` is per-turn transient output and is not persisted as a separate planning table; durable retrieval telemetry remains the later observability path.
 
 Retrieval context is transient runtime turn state; ADR-079 does not add a persisted retrieval-plan table. **ADR-120 Slice 5** removed the always-on server-side orchestration that previously read existing platform Skill chunks, assistant knowledge, memory/chat, and Product/subscription sources and **returned a bounded source-aware context block to the runtime** (pushed retrieval). Retrieval is now pull-first: the API serves the same sources on demand through the `knowledge_search` / `knowledge_fetch` tool path, returning honest ANN + reranked + floored results (or nothing) as tool results rather than a pushed block. Skill references are still derived from ready Skill documents/cards for currently active assistant Skill assignments and are constrained by selected Skill ids, not by the consuming assistant workspace. Product KB/global retrieval reads active/ready platform rows; assistant uploads, memory, chat, files, and telemetry remain assistant/workspace-scoped. Source-level orchestration observability reuses `KnowledgeRetrievalEvent` / `KnowledgeRetrievalRollup` for `skill`, `document`, `product`, and `web` plan classes, storing latency/result/empty/error signals rather than full prompts or chunks. The `KnowledgeRetrievalEventSource` enum carries `document`, `global`, `product`, `skill`, `memory`, `chat`, `subscription`, and `web`; the previous `preset` enum value was dropped in 2026-05-04 because prompt presets are not a model-facing knowledge source. The retrieval observability `policyState` field records whether each search ran under the active-Skill policy (`skill_only`, `escalated_to_user`, `escalated_to_web`, `escalated_to_product`) or under the ordinary-turn priority policy (`ordinary_personal_first`, `ordinary_product_first`, `ordinary_web_first`, `ordinary_mixed_ambiguous`).

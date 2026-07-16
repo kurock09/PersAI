@@ -33,6 +33,10 @@ import { AdminKnowledgeSourcesController } from "./interface/http/admin-knowledg
 import { AdminMemoryMaintenanceController } from "./interface/http/admin-memory-maintenance.controller";
 import { AdminSkillsController } from "./interface/http/admin-skills.controller";
 import { AdminRolesController } from "./interface/http/admin-roles.controller";
+import {
+  AdminScriptsController,
+  AdminSkillScriptsController
+} from "./interface/http/admin-scripts.controller";
 import { AssistantKnowledgeSourcesController } from "./interface/http/assistant-knowledge-sources.controller";
 import { AssistantBillingController } from "./interface/http/assistant-billing.controller";
 import { AssistantRolesController } from "./interface/http/assistant-roles.controller";
@@ -137,6 +141,7 @@ import { ManageAdminToolPromptMetadataService } from "./application/manage-admin
 import { ManageAdminKnowledgeSourcesService } from "./application/manage-admin-knowledge-sources.service";
 import { ManageAdminSkillsService } from "./application/manage-admin-skills.service";
 import { ManageAdminRolesService } from "./application/manage-admin-roles.service";
+import { ManageAdminScriptsService } from "./application/manage-admin-scripts.service";
 import { ManageSkillScenariosService } from "./application/manage-skill-scenarios.service";
 import { GenerateSkillAuthoringDraftService } from "./application/generate-skill-authoring-draft.service";
 import { ManageAdminKnowledgeRetrievalPolicyService } from "./application/manage-admin-knowledge-retrieval-policy.service";
@@ -466,6 +471,8 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     AdminMemoryMaintenanceController,
     AdminSkillsController,
     AdminRolesController,
+    AdminScriptsController,
+    AdminSkillScriptsController,
     KnowledgeIndexingJobsController,
     AssistantRolesController,
     CloudpaymentsWebhookController,
@@ -580,6 +587,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     ManageAdminKnowledgeSourcesService,
     ManageAdminSkillsService,
     ManageAdminRolesService,
+    ManageAdminScriptsService,
     ManageSkillScenariosService,
     GenerateSkillAuthoringDraftService,
     ManageAdminKnowledgeRetrievalPolicyService,

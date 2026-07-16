@@ -4,6 +4,35 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-151 reusable Scripts core (Accepted / Open; Domain + Admin API local)
+
+The local Domain + Admin API block covers parser/hash/schema guards, DB
+immutability migration contracts, publish/invalidation, ordered replacement,
+archive guards, Scenario mapping, controllers, and explicit auth registration.
+Before its final deploy gate, retain that coverage and add:
+
+1. Script and immutable published ScriptVersion lifecycle, RU/EN metadata,
+   content hash, strict manifest, input/output schema, archive behavior;
+2. ordered full-replace Skill–Script links, proving no code copy and no change to
+   ADR-147 Role-only effective Skills;
+3. Scenario `scriptRef` availability/version resolution and bounded input-mapping
+   validation;
+4. active-step-only synchronous `script.execute`, validated result, and no
+   automatic Scenario advance/workflow engine;
+5. existing `SandboxJob` admission: atomic missing-key create, running poll,
+   terminal replay, and same-key version/input `idempotency_conflict`;
+6. inherited sandbox behavior: same workspace/runtime tools/egress, Stop,
+   deadline/resource/cancel/cleanup, and ADR-150 warm-pod-only install-layer
+   cold-start behavior;
+7. Admin Scripts UI at Admin Roles quality, thin MCP wrappers over real APIs, and
+   existing real chat smoke;
+8. independent allowed-model audits for schema/migration and runtime/security
+   blocks before final repository verification.
+
+Do not add acceptance for a `ScriptRun`, Tool SDK, browser executor, async
+`jobRef`/`wait`/`notify`, managed-secret redaction/TTL/revoke, or a separate
+Script sandbox contour: those are deliberately outside ADR-151.
+
 ## ADR-150 ephemeral session install layer (closed 2026-07-16)
 
 Verify:
