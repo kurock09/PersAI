@@ -3,9 +3,10 @@
 ## 2026-07-17 — ADR-151 P1 repair: runtime scriptRef materialization fail-closed gap
 
 Status: **Accepted / Open — bounded P1 repair implemented and independently
-audited CLEAN locally on branch `adr-151-reusable-scripts`, starting from
-checkpoint `1b38e9eb`. The final local ADR-151 audit/repository gate is
-satisfied; push, deploy, and founder live acceptance remain pending.**
+audited CLEAN locally at checkpoint `e324769b` on branch
+`adr-151-reusable-scripts`, starting from checkpoint `1b38e9eb`. The final
+local ADR-151 audit/repository gate is satisfied; push, deploy, and founder
+live acceptance remain pending.**
 
 Finding: `apps/api/.../skill-scenario-runtime-normalization.ts` had its own
 hand-rolled `scriptRef`/`inputMapping` normalizer that silently canonicalized
