@@ -5,6 +5,45 @@
 
 ## 2026-07-17
 
+- **ADR (ADR-151 Admin UI + MCP authoring implemented and independently
+  audited CLEAN locally; accepted/open, deploy pending).** Added a Roles-style Admin Scripts
+  page (`apps/web/app/admin/scripts/page.tsx`) with localized metadata
+  create/edit, draft/published/archived status, draft ScriptVersion authoring
+  (code/manifest/schemas/limits) with save/validate/publish, immutable
+  published-version history, typed conflict/error surfacing for every
+  documented Admin API error code, and a Skill-bindings section that
+  full-replaces one Skill's ordered Script list via the existing
+  `GET`/`PUT /admin/skills/{skillId}/scripts` routes (no invented
+  runtime-smoke route). Added a Scripts entry to the Admin navigation. Added
+  nine thin typed MCP tools to `@persai/admin-mcp`
+  (`script_list`/`script_get`/`script_upsert`/`script_version_upsert`/
+  `script_version_validate`/`script_publish`/`script_archive`/
+  `skill_scripts_list`/`skill_scripts_replace`), all resolving immutable
+  `scriptKey` like the existing `role_*` tools and auto-resolving draft
+  `versionId`/`expectedRevision`; extended the existing `skill_scenario_upsert`
+  step schema with an optional `scriptRef` field mirroring the API's discriminated
+  input-source union exactly. No contracts regenerated (no source contract
+  changed). A parent-audit repair makes Validate and Publish first PATCH the
+  exact visible editor payload, then validate/publish the returned version
+  identity (Publish uses the returned revision), preserving typed conflict
+  reload behavior. The first independent Admin/MCP audit returned DIRTY; its
+  follow-up corrections add Ajv Draft-2020-12/size/depth parity plus exact
+  manifest and Scenario mapping bounds to MCP and local UI validation, and
+  generation guards that ignore stale Script-version and Skill-binding
+  responses. A second independent audit found remaining mutation ownership,
+  explicit version-loading, trim normalization, and Script metadata validation
+  gaps. The final correction pass guards every Script/version/binding mutation
+  by selection generation + identity, prevents stale requests from owning
+  loading/saving flags, hides version authoring until the current load settles,
+  mirrors all canonical metadata bounds, and forwards MCP-normalized strings
+  exactly (while preserving untrimmed code/entry-command fields). The final P2
+  repair disables the complete checkbox/reorder/save binding control group for
+  the whole full-replace request and applies the server-returned order before
+  re-enabling it. 18 web tests and 22 MCP tests are green; touched-package
+  typecheck/lint and formatting are green. The final targeted allowed-model
+  re-audit returned CLEAN; authenticated Admin UI, real Cursor MCP, and
+  model-driven warm-session chat smoke remain deploy/live acceptance gates.
+
 - **ADR (ADR-151 Scenario + Runtime implementation independently audited
   CLEAN locally).** Made authored Script refs
   fail materialization closed; removed optional runtime `scriptRef`

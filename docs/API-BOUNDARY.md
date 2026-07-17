@@ -47,8 +47,13 @@ Primary public API surface:
   (assistant → effective Skill → version-published → hash/key match →
   Script-not-archived → SkillScript-still-linked); this is not published in
   the public OpenAPI surface and is bearer-guarded by the same internal
-  runtime-to-API token as other `internal/runtime/*` boundaries. MCP Script
-  wrappers and Admin UI remain pending.
+  runtime-to-API token as other `internal/runtime/*` boundaries. The
+  Roles-style Admin Scripts UI and thin operator-auth MCP Script wrappers are
+  implemented locally on the ADR-151 branch. Their first and second independent
+  Admin/MCP audits returned DIRTY; after canonical schema/trim parity, complete
+  local validation, guarded loading/mutation ownership, and binding-control
+  corrections, the final targeted re-audit returned CLEAN. Deployment and live
+  acceptance remain pending.
 - future ADR-080 admin authoring routes for Skill knowledge cards, Skill draft enrichment, and Product KB text entries stay under `/api/v1/admin/skills*` and `/api/v1/admin/knowledge-sources*`
 - admin document-processing provider settings under `/api/v1/admin/tools/document-processing*`
 - admin billing-provider credential settings under `/api/v1/admin/tools/billing`

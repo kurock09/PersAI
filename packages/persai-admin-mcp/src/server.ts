@@ -10,6 +10,12 @@ import {
   saveAttachmentBytes,
   SMOKE_DELIVERY_AGENT_GUIDE
 } from "./chat-deliverables.js";
+import {
+  assertScenarioScriptInputMapping,
+  assertScriptEnvironment,
+  assertScriptJsonSchema,
+  SCRIPT_WORKING_DIRECTORY_MAX_CHARS
+} from "./script-authoring-validation.js";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -72,6 +78,74 @@ const scenarioLocaleMapSchema = z
   .catchall(z.string().min(1).max(500))
   .describe("Locale map. Both 'ru' and 'en' keys are REQUIRED by the API; other locales allowed.");
 
+/**
+ * ADR-151 — Script `key` is immutable and machine-readable, exactly like Role `key`.
+ * name/description locale maps strictly require both `ru` and `en` (matches
+ * `localizedInput` in apps/api's script-management.types.ts), unlike Skill's
+ * any-locale-key map.
+ */
+const scriptKeySchema = z
+  .string()
+  .trim()
+  .min(2)
+  .max(64)
+  .regex(/^[a-z][a-z0-9_]{1,63}$/, "must match ^[a-z][a-z0-9_]{1,63}$");
+
+const scriptInputNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/, "must match ^[A-Za-z_][A-Za-z0-9_.-]{0,127}$")
+  .refine(
+    (name) => !["__proto__", "constructor", "prototype"].includes(name),
+    "must not be __proto__, constructor, or prototype"
+  );
+const scriptInputMappingKeySchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/, "must match ^[A-Za-z_][A-Za-z0-9_.-]{0,127}$")
+  .refine(
+    (name) => !["__proto__", "constructor", "prototype"].includes(name),
+    "must not be __proto__, constructor, or prototype"
+  );
+
+/**
+ * ADR-151 — a bound Script step reads its inputs only from one of these three
+ * sources: an inline literal (JSON value, nesting bounded server-side), the
+ * current user message text, or a same-turn tool's prior input by name.
+ */
+const scenarioScriptInputSourceSchema = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("literal"), value: z.unknown() }).strict(),
+  z.object({ source: z.literal("current_user_message") }).strict(),
+  z.object({ source: z.literal("tool_input"), name: scriptInputNameSchema }).strict()
+]);
+
+/**
+ * ADR-151 — binds a Scenario step to a published Script by its stable `scriptKey`
+ * (never `scriptId`). `inputMapping` keys are the Script's own `inputSchema`
+ * property names (bounded to 32 entries server-side); values describe where
+ * each input value comes from at runtime.
+ */
+const scenarioScriptRefSchema = z
+  .object({
+    scriptKey: scriptKeySchema,
+    inputMapping: z
+      .record(scriptInputMappingKeySchema, scenarioScriptInputSourceSchema)
+      .superRefine((mapping, context) => {
+        try {
+          assertScenarioScriptInputMapping(mapping);
+        } catch (error) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: error instanceof Error ? error.message : String(error)
+          });
+        }
+      })
+  })
+  .strict();
+
 const scenarioStepSchema = z.object({
   number: z.number().int().nonnegative().describe("1-based step order."),
   directive: z
@@ -85,7 +159,13 @@ const scenarioStepSchema = z.object({
   expectedUserResponse: z.string().min(1).max(400).nullable().optional(),
   nextStepTrigger: z.string().min(1).max(400).nullable().optional(),
   recoveryGuidance: z.string().min(1).max(400).nullable().optional(),
-  firstStepPreview: z.string().min(1).max(200).nullable().optional()
+  firstStepPreview: z.string().min(1).max(200).nullable().optional(),
+  scriptRef: scenarioScriptRefSchema
+    .nullable()
+    .optional()
+    .describe(
+      "Bind this step to a published Script by scriptKey (from script_list/script_get), or omit/null for an ordinary step."
+    )
 });
 
 export async function resolveAssistantPublishBody(
@@ -153,9 +233,114 @@ const orderedUniqueSkillIdsSchema = z
       message: "skillIds must not contain duplicates"
     }
   );
+const orderedUniqueScriptIdsSchema = z
+  .array(z.string().uuid())
+  .max(100)
+  .refine(
+    (scriptIds) =>
+      new Set(scriptIds.map((scriptId) => scriptId.toLowerCase())).size === scriptIds.length,
+    {
+      message: "scriptIds must not contain duplicates"
+    }
+  );
+
+const scriptNameSchema = z
+  .object({
+    ru: z.string().trim().min(1).max(500),
+    en: z.string().trim().min(1).max(500)
+  })
+  .strict();
+const scriptDescriptionSchema = z
+  .object({
+    ru: z.string().trim().min(1).max(2_000),
+    en: z.string().trim().min(1).max(2_000)
+  })
+  .strict();
+const scriptCoreBodySchema = z
+  .object({
+    name: scriptNameSchema,
+    description: scriptDescriptionSchema,
+    category: z.string().trim().min(1).max(64),
+    icon: z.string().trim().min(1).max(64).nullable(),
+    color: z.string().trim().min(1).max(32).nullable(),
+    displayOrder: z.number().int().min(-1_000_000).max(1_000_000)
+  })
+  .strict();
+const scriptEnvironmentSchema = z.custom<Record<string, string>>(
+  (value) => {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return false;
+    }
+    try {
+      assertScriptEnvironment(value as Record<string, unknown>);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  { message: "manifest.environment violates the canonical Script environment contract" }
+);
+const scriptManifestSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    workingDirectory: z.string().trim().min(1).max(SCRIPT_WORKING_DIRECTORY_MAX_CHARS).nullable(),
+    environment: scriptEnvironmentSchema
+  })
+  .strict();
+const scriptJsonSchema = (path: "inputSchema" | "outputSchema") =>
+  z.record(z.string(), z.unknown()).superRefine((schema, context) => {
+    try {
+      assertScriptJsonSchema(schema, path);
+    } catch (error) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+const scriptLimitsSchema = z
+  .object({
+    timeoutMs: z.number().int().min(100).max(1_800_000),
+    maxMemoryMb: z.number().int().min(16).max(32_768),
+    maxCpuMillicores: z.number().int().min(10).max(16_000),
+    maxOutputBytes: z.number().int().min(1).max(100_000_000)
+  })
+  .strict();
+const scriptVersionBodySchema = z
+  .object({
+    code: z.string().min(1).max(1_000_000),
+    manifest: scriptManifestSchema,
+    inputSchema: scriptJsonSchema("inputSchema"),
+    outputSchema: scriptJsonSchema("outputSchema"),
+    runtime: z
+      .string()
+      .trim()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z][a-z0-9_.-]{0,63}$/, "must match ^[a-z][a-z0-9_.-]{0,63}$"),
+    entryCommand: z.string().min(1).max(4_096),
+    limits: scriptLimitsSchema
+  })
+  .strict();
 
 export const adminSkillMcpInputSchemas = {
   skillList: z.object({}).strict()
+} as const;
+
+export const adminScriptMcpInputSchemas = {
+  scriptList: z.object({}).strict(),
+  scriptGet: z.object({ scriptKey: scriptKeySchema }).strict(),
+  scriptUpsert: z.object({ scriptKey: scriptKeySchema, body: scriptCoreBodySchema }).strict(),
+  scriptVersionUpsert: z
+    .object({ scriptKey: scriptKeySchema, body: scriptVersionBodySchema })
+    .strict(),
+  scriptVersionValidate: z.object({ scriptKey: scriptKeySchema }).strict(),
+  scriptPublish: z.object({ scriptKey: scriptKeySchema }).strict(),
+  scriptArchive: z.object({ scriptKey: scriptKeySchema }).strict(),
+  skillScriptsList: z.object({ skillId: z.string().uuid() }).strict(),
+  skillScriptsReplace: z
+    .object({ skillId: z.string().uuid(), scriptIds: orderedUniqueScriptIdsSchema })
+    .strict()
 } as const;
 
 export const adminRoleMcpInputSchemas = {
@@ -250,6 +435,173 @@ export async function requestAssistantRoleAssign(
     method: "PUT",
     path: `/api/v1/assistant/${assistantId}/role`,
     body: { roleKey }
+  });
+}
+
+type ScriptHttpClient = Pick<PersaiOperatorClient, "requestJson">;
+
+export async function requestScriptList(client: ScriptHttpClient): Promise<unknown> {
+  return client.requestJson({ method: "GET", path: "/api/v1/admin/scripts" });
+}
+
+async function findAdminScriptByKey(
+  client: ScriptHttpClient,
+  scriptKey: string
+): Promise<Record<string, unknown> | null> {
+  const payload = asRecord(await requestScriptList(client));
+  const scripts = Array.isArray(payload?.scripts) ? payload.scripts : [];
+  for (const item of scripts) {
+    const script = asRecord(item);
+    if (script !== null && script.key === scriptKey && typeof script.id === "string") {
+      return script;
+    }
+  }
+  return null;
+}
+
+export async function resolveAdminScriptByKey(
+  client: ScriptHttpClient,
+  scriptKey: string
+): Promise<Record<string, unknown>> {
+  const script = await findAdminScriptByKey(client, scriptKey);
+  if (script === null) {
+    throw new Error(`Script key "${scriptKey}" was not found.`);
+  }
+  return script;
+}
+
+export async function requestScriptGet(
+  client: ScriptHttpClient,
+  scriptKey: string
+): Promise<unknown> {
+  const script = await resolveAdminScriptByKey(client, scriptKey);
+  const scriptId = script.id as string;
+  const [scriptPayload, versionsPayload] = await Promise.all([
+    client.requestJson({ method: "GET", path: `/api/v1/admin/scripts/${scriptId}` }),
+    client.requestJson({ method: "GET", path: `/api/v1/admin/scripts/${scriptId}/versions` })
+  ]);
+  return {
+    script: asRecord(scriptPayload)?.script ?? null,
+    versions: asRecord(versionsPayload)?.versions ?? []
+  };
+}
+
+export async function requestScriptUpsert(
+  client: ScriptHttpClient,
+  scriptKey: string,
+  body: Record<string, unknown>
+): Promise<unknown> {
+  const existing = await findAdminScriptByKey(client, scriptKey);
+  return existing !== null
+    ? client.requestJson({
+        method: "PATCH",
+        path: `/api/v1/admin/scripts/${existing.id as string}`,
+        body
+      })
+    : client.requestJson({
+        method: "POST",
+        path: "/api/v1/admin/scripts",
+        body: { key: scriptKey, ...body }
+      });
+}
+
+async function resolveDraftScriptVersion(
+  client: ScriptHttpClient,
+  scriptId: string
+): Promise<Record<string, unknown> | null> {
+  const payload = asRecord(
+    await client.requestJson({ method: "GET", path: `/api/v1/admin/scripts/${scriptId}/versions` })
+  );
+  const versions = Array.isArray(payload?.versions) ? payload.versions : [];
+  return versions.map(asRecord).find((version) => version?.status === "draft") ?? null;
+}
+
+/**
+ * Create the Script's first draft version, or update its existing draft with an
+ * auto-resolved `expectedRevision` — mirrors `requestRoleUpsert`'s create-vs-update
+ * resolution so callers never need to track internal versionId/revision state.
+ */
+export async function requestScriptVersionUpsert(
+  client: ScriptHttpClient,
+  scriptKey: string,
+  body: Record<string, unknown>
+): Promise<unknown> {
+  const script = await resolveAdminScriptByKey(client, scriptKey);
+  const scriptId = script.id as string;
+  const draft = await resolveDraftScriptVersion(client, scriptId);
+  return draft && typeof draft.id === "string"
+    ? client.requestJson({
+        method: "PATCH",
+        path: `/api/v1/admin/scripts/${scriptId}/versions/${draft.id}`,
+        body: { ...body, expectedRevision: draft.revision }
+      })
+    : client.requestJson({
+        method: "POST",
+        path: `/api/v1/admin/scripts/${scriptId}/versions`,
+        body
+      });
+}
+
+export async function requestScriptVersionValidate(
+  client: ScriptHttpClient,
+  scriptKey: string
+): Promise<unknown> {
+  const script = await resolveAdminScriptByKey(client, scriptKey);
+  const scriptId = script.id as string;
+  const draft = await resolveDraftScriptVersion(client, scriptId);
+  if (draft === null || typeof draft.id !== "string") {
+    throw new Error(`Script "${scriptKey}" has no draft version to validate.`);
+  }
+  return client.requestJson({
+    method: "POST",
+    path: `/api/v1/admin/scripts/${scriptId}/versions/${draft.id}/validate`
+  });
+}
+
+export async function requestScriptPublish(
+  client: ScriptHttpClient,
+  scriptKey: string
+): Promise<unknown> {
+  const script = await resolveAdminScriptByKey(client, scriptKey);
+  const scriptId = script.id as string;
+  const draft = await resolveDraftScriptVersion(client, scriptId);
+  if (draft === null || typeof draft.id !== "string") {
+    throw new Error(`Script "${scriptKey}" has no draft version to publish.`);
+  }
+  return client.requestJson({
+    method: "POST",
+    path: `/api/v1/admin/scripts/${scriptId}/versions/${draft.id}/publish`,
+    body: { expectedRevision: draft.revision }
+  });
+}
+
+export async function requestScriptArchive(
+  client: ScriptHttpClient,
+  scriptKey: string
+): Promise<unknown> {
+  const script = await resolveAdminScriptByKey(client, scriptKey);
+  return client.requestJson({
+    method: "DELETE",
+    path: `/api/v1/admin/scripts/${script.id as string}`
+  });
+}
+
+export async function requestSkillScriptsList(
+  client: ScriptHttpClient,
+  skillId: string
+): Promise<unknown> {
+  return client.requestJson({ method: "GET", path: `/api/v1/admin/skills/${skillId}/scripts` });
+}
+
+export async function requestSkillScriptsReplace(
+  client: ScriptHttpClient,
+  skillId: string,
+  scriptIds: string[]
+): Promise<unknown> {
+  return client.requestJson({
+    method: "PUT",
+    path: `/api/v1/admin/skills/${skillId}/scripts`,
+    body: { scriptIds }
   });
 }
 
@@ -635,6 +987,158 @@ export function createPersaiAdminMcpServer(
               ? "Some jobIds may be outside the admin jobs list page; retry with skillId or wait for list visibility."
               : null
         });
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "script_list",
+    {
+      description: "List all platform-global reusable Scripts via GET /api/v1/admin/scripts.",
+      inputSchema: adminScriptMcpInputSchemas.scriptList
+    },
+    async () => {
+      try {
+        const payload = await requestScriptList(client);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "script_get",
+    {
+      description:
+        "Fetch one Script by immutable scriptKey with its full ScriptVersion history (draft + published).",
+      inputSchema: adminScriptMcpInputSchemas.scriptGet
+    },
+    async ({ scriptKey }) => {
+      try {
+        const payload = await requestScriptGet(client, scriptKey);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "script_upsert",
+    {
+      description:
+        "Create or update a Script's core metadata (name/description/category/icon/color/displayOrder) by immutable scriptKey. Create uses POST /admin/scripts; update resolves scriptId then PATCH /admin/scripts/{scriptId}. Does not touch code/manifest/schemas — use script_version_upsert for that.",
+      inputSchema: adminScriptMcpInputSchemas.scriptUpsert
+    },
+    async ({ scriptKey, body }) => {
+      try {
+        const payload = await requestScriptUpsert(client, scriptKey, body);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "script_version_upsert",
+    {
+      description:
+        "Author a Script's draft ScriptVersion (code/manifest/inputSchema/outputSchema/runtime/entryCommand/limits) by scriptKey. Creates the first draft if none exists, or updates the existing draft with an auto-resolved expectedRevision. Published versions are immutable — this never touches them.",
+      inputSchema: adminScriptMcpInputSchemas.scriptVersionUpsert
+    },
+    async ({ scriptKey, body }) => {
+      try {
+        const payload = await requestScriptVersionUpsert(client, scriptKey, body);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "script_version_validate",
+    {
+      description:
+        "Validate a Script's current draft ScriptVersion executable contract (JSON Schema Draft 2020-12 input/output, manifest, limits) without publishing it.",
+      inputSchema: adminScriptMcpInputSchemas.scriptVersionValidate
+    },
+    async ({ scriptKey }) => {
+      try {
+        const payload = await requestScriptVersionValidate(client, scriptKey);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "script_publish",
+    {
+      description:
+        "Publish a Script's current draft ScriptVersion by scriptKey (auto-resolves versionId/expectedRevision). The published version becomes permanently immutable.",
+      inputSchema: adminScriptMcpInputSchemas.scriptPublish
+    },
+    async ({ scriptKey }) => {
+      try {
+        const payload = await requestScriptPublish(client, scriptKey);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "script_archive",
+    {
+      description:
+        "Archive a Script by scriptKey via DELETE /admin/scripts/{scriptId}. Fails with admin_script_in_use while a live Skill or Scenario references it.",
+      inputSchema: adminScriptMcpInputSchemas.scriptArchive
+    },
+    async ({ scriptKey }) => {
+      try {
+        const payload = await requestScriptArchive(client, scriptKey);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "skill_scripts_list",
+    {
+      description:
+        "List a Skill's full ordered list of linked (published) Scripts via GET /admin/skills/{skillId}/scripts.",
+      inputSchema: adminScriptMcpInputSchemas.skillScriptsList
+    },
+    async ({ skillId }) => {
+      try {
+        const payload = await requestSkillScriptsList(client, skillId);
+        return toolText(payload);
+      } catch (error) {
+        return toolError(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "skill_scripts_replace",
+    {
+      description:
+        "Full-replace a Skill's ordered list of linked Scripts via PUT /admin/skills/{skillId}/scripts. Never merges — pass the complete desired scriptIds order. All scriptIds must reference published Scripts.",
+      inputSchema: adminScriptMcpInputSchemas.skillScriptsReplace
+    },
+    async ({ skillId, scriptIds }) => {
+      try {
+        const payload = await requestSkillScriptsReplace(client, skillId, scriptIds);
+        return toolText(payload);
       } catch (error) {
         return toolError(error);
       }

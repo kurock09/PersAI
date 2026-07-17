@@ -2,9 +2,9 @@
 
 ## Status
 
-**Accepted / Open — Domain + Admin API and Scenario + Runtime blocks
-implemented and independently audited locally (Admin UI, MCP, deploy, and live
-acceptance pending).**
+**Accepted / Open — Domain + Admin API, Scenario + Runtime, and Admin UI + MCP
+authoring blocks implemented and independently audited locally (final
+repository gate, deploy, and live acceptance pending).**
 Founder-approved architecture checkpoint started 2026-07-16 on baseline
 `36947f7544918c0fddadae6ec17f75883b1b1365` (`adr-151-reusable-scripts`).
 The local Domain + Admin API block includes schema/migration, lifecycle,
@@ -64,9 +64,68 @@ ADR-149 tool-abort suite. An independent allowed-model runtime/security
 re-audit returned CLEAN after exercising those package gates and focused
 runtime/sandbox assertions. Remaining live-only probes are real Kubernetes
 policy/cleanup behavior, true concurrent PostgreSQL idempotency races, and a
-deployed model-driven warm-session `script.execute` turn. Do not claim an
-Admin page, MCP Script tool, deployment, or live acceptance until those later
-blocks pass their own gates.
+deployed model-driven warm-session `script.execute` turn.
+
+A later session (2026-07-17) implemented the **Admin + MCP block** locally on
+top of the audited Domain+API and Scenario+Runtime checkpoints:
+
+- an Admin Scripts page (`apps/web/app/admin/scripts/page.tsx`) patterned after
+  the existing Admin Roles page — master-detail list/create/edit of localized
+  Script metadata over the immutable `key`, `draft`/`published`/`archived`
+  status display, draft ScriptVersion authoring (code, manifest, environment,
+  input/output JSON Schema, runtime, entry command, limits) with save/validate/
+  publish actions, immutable published-version history, typed conflict/error
+  surfacing (`admin_script_key_conflict`, `admin_script_in_use`,
+  `admin_script_version_revision_conflict`, `admin_script_version_immutable`,
+  `admin_script_archived`), and a Skill-bindings section using the existing
+  `GET`/`PUT .../skills/{skillId}/scripts` routes to manage one Skill's full
+  ordered Script list at a time. No second executor, no runtime smoke route
+  was invented — the Admin API's existing `.../versions/{versionId}/validate`
+  route is the only preview/validation surface; live model-driven
+  `script.execute` remains an Admin-adjacent runtime capability, not something
+  this page fakes;
+- a `Code2`-icon Scripts entry added to the Admin navigation
+  (`apps/web/app/admin/layout.tsx`), between Skills and Roles, consistent with
+  existing Admin information architecture and its Clerk-gated layout auth;
+- nine thin typed MCP tools added to `@persai/admin-mcp`
+  (`packages/persai-admin-mcp/src/server.ts`): `script_list`, `script_get`,
+  `script_upsert`, `script_version_upsert`, `script_version_validate`,
+  `script_publish`, `script_archive`, `skill_scripts_list`,
+  `skill_scripts_replace` — all resolving the immutable `scriptKey` through
+  `GET /api/v1/admin/scripts` exactly like the existing `role_*` tools resolve
+  `roleKey`, then calling the canonical Admin HTTP routes with no duplicated
+  business logic. `script_version_upsert`/`script_version_validate`/
+  `script_publish` auto-resolve the Script's current draft
+  `versionId`/`expectedRevision` so callers never track internal IDs. The
+  existing `skill_scenario_upsert` tool's step schema gained an optional
+  `scriptRef: { scriptKey, inputMapping }` field (mirroring
+  `apps/api`'s `SkillScenarioScriptRef`/`SkillScenarioScriptInputSource` exactly,
+  including the `literal`/`current_user_message`/`tool_input` discriminated
+  union, forbidden-key rejection, 32-entry/16,384-byte mapping bounds, and
+  literal depth 8) — no new Scenario-authoring tool was added;
+- focused tests: 18 web tests (`apps/web/app/admin/scripts/page.test.tsx`)
+  covering draft/payload round-tripping, key/localization validation, EN/RU
+  rendering, Script create, draft-version creation, Skill-binding full
+  replace, the key-conflict error path, and exact PATCH-before-validate /
+  PATCH-before-publish sequencing (including publication with the revision
+  returned by PATCH), canonical local ScriptVersion validation, and
+  deterministic stale Script/Skill load and mutation response races, plus
+  guarded version-loading UX; 22 MCP tests
+  (`packages/persai-admin-mcp/test/admin-scripts.test.ts`) covering every
+  `request*` helper's exact HTTP path/body, fail-closed missing-key/no-draft
+  paths, tool registration, the typed API error contour, Zod authoring parity
+  (including the required-exact core body, Ajv Draft-2020-12 schema
+  validity/size/depth, manifest environment/working-directory limits, and
+  forbidden-key/runtime-pattern rejection), and the `skill_scenario_upsert`
+  `scriptRef` step end-to-end with byte/depth bounds.
+
+The first and second independent allowed-model Admin/MCP audits returned
+**DIRTY**. The correction passes added canonical schema/trim normalization
+parity, complete local metadata/version validation, stale async load and
+mutation ownership, guarded version loading, and a full binding-control lock.
+The final targeted re-audit returned **CLEAN** after 18 focused web tests,
+39 full Admin MCP package tests (22 Script-focused), package lint/typecheck,
+and diff/format checks. This block has not been deployed or live-accepted.
 
 ## Context
 
@@ -292,7 +351,10 @@ sandbox job path. No direct MCP execution path is introduced.
    sandbox delegation. Requires an independent allowed-model audit for
    runtime/security work.
 3. **Admin + MCP:** Admin Scripts page matching Admin Roles, thin MCP wrappers,
-   and existing real chat smoke.
+   and existing real chat smoke. **Implemented locally 2026-07-17** (Admin
+   Scripts page + navigation entry + nine MCP tools + `scriptRef` scenario
+   authoring + focused web/MCP tests); independent audit, deploy, and live
+   chat-smoke acceptance still pending.
 4. **Final audits/gates:** independent schema and runtime/security audits,
    focused tests, full repository verification, deployment, and founder live
    acceptance.

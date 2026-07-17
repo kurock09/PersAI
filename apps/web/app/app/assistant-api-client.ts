@@ -19,6 +19,15 @@ import {
   type AdminRoleUpdateRequest,
   type AdminSkillState,
   type AdminSkillUpsertRequest,
+  type AdminScriptCreateRequest,
+  type AdminScriptUpdateRequest,
+  type AdminScriptVersionCreateRequest,
+  type AdminScriptVersionUpdateRequest,
+  type AdminScriptVersionPublishRequest,
+  type AdminSkillScriptsReplaceRequest,
+  type ScriptState,
+  type ScriptVersionState,
+  type SkillScriptLinkState,
   type AssistantRoleSelectionResponse,
   type AssistantRoleState,
   type GetAssistantRolesResponse,
@@ -145,6 +154,18 @@ import {
   deleteAdminRole as deleteAdminRoleContract,
   putAdminRoleSkills as putAdminRoleSkillsContract,
   postAdminRolePreview as postAdminRolePreviewContract,
+  getAdminScripts as getAdminScriptsContract,
+  getAdminScript as getAdminScriptContract,
+  postAdminScript as postAdminScriptContract,
+  patchAdminScript as patchAdminScriptContract,
+  deleteAdminScript as deleteAdminScriptContract,
+  getAdminScriptVersions as getAdminScriptVersionsContract,
+  postAdminScriptVersion as postAdminScriptVersionContract,
+  patchAdminScriptVersion as patchAdminScriptVersionContract,
+  postAdminScriptVersionValidate as postAdminScriptVersionValidateContract,
+  postAdminScriptVersionPublish as postAdminScriptVersionPublishContract,
+  getAdminSkillScripts as getAdminSkillScriptsContract,
+  putAdminSkillScripts as putAdminSkillScriptsContract,
   getAssistantTelegramIntegration as getAssistantTelegramIntegrationContract,
   getAdminAbuseControlsAssistants as getAdminAbuseControlsAssistantsContract,
   patchAssistantTelegramConfig as patchAssistantTelegramConfigContract,
@@ -5718,6 +5739,15 @@ export type {
   AdminRolePreviewState,
   AdminSkillState,
   AdminSkillUpsertRequest,
+  AdminScriptCreateRequest,
+  AdminScriptUpdateRequest,
+  AdminScriptVersionCreateRequest,
+  AdminScriptVersionUpdateRequest,
+  AdminScriptVersionPublishRequest,
+  AdminSkillScriptsReplaceRequest,
+  ScriptState,
+  ScriptVersionState,
+  SkillScriptLinkState,
   AssistantRoleSelectionResponse as AssistantRoleSelectionState,
   GetAssistantRolesResponse as AssistantRolesState,
   KnowledgeIndexingJobState,
@@ -6062,6 +6092,167 @@ export async function previewAdminRole(
     throw new Error("Unexpected non-success response for POST /admin/roles/preview.");
   }
   return response.data.preview;
+}
+
+export async function getAdminScripts(token: string): Promise<ScriptState[]> {
+  const response = await getAdminScriptsContract({
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for GET /admin/scripts.");
+  }
+  return response.data.scripts;
+}
+
+export async function getAdminScript(token: string, scriptId: string): Promise<ScriptState> {
+  const response = await getAdminScriptContract(scriptId, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for GET /admin/scripts/{scriptId}.");
+  }
+  return response.data.script;
+}
+
+export async function createAdminScript(
+  token: string,
+  payload: AdminScriptCreateRequest
+): Promise<ScriptState> {
+  const response = await postAdminScriptContract(payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 201) {
+    throw new Error("Unexpected non-success response for POST /admin/scripts.");
+  }
+  return response.data.script;
+}
+
+export async function updateAdminScript(
+  token: string,
+  scriptId: string,
+  payload: AdminScriptUpdateRequest
+): Promise<ScriptState> {
+  const response = await patchAdminScriptContract(scriptId, payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for PATCH /admin/scripts/{scriptId}.");
+  }
+  return response.data.script;
+}
+
+export async function archiveAdminScript(token: string, scriptId: string): Promise<ScriptState> {
+  const response = await deleteAdminScriptContract(scriptId, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for DELETE /admin/scripts/{scriptId}.");
+  }
+  return response.data.script;
+}
+
+export async function getAdminScriptVersions(
+  token: string,
+  scriptId: string
+): Promise<ScriptVersionState[]> {
+  const response = await getAdminScriptVersionsContract(scriptId, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for GET /admin/scripts/{scriptId}/versions.");
+  }
+  return response.data.versions;
+}
+
+export async function createAdminScriptVersion(
+  token: string,
+  scriptId: string,
+  payload: AdminScriptVersionCreateRequest
+): Promise<ScriptVersionState> {
+  const response = await postAdminScriptVersionContract(scriptId, payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 201) {
+    throw new Error("Unexpected non-success response for POST /admin/scripts/{scriptId}/versions.");
+  }
+  return response.data.version;
+}
+
+export async function updateAdminScriptVersion(
+  token: string,
+  scriptId: string,
+  versionId: string,
+  payload: AdminScriptVersionUpdateRequest
+): Promise<ScriptVersionState> {
+  const response = await patchAdminScriptVersionContract(scriptId, versionId, payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error(
+      "Unexpected non-success response for PATCH /admin/scripts/{scriptId}/versions/{versionId}."
+    );
+  }
+  return response.data.version;
+}
+
+export async function validateAdminScriptVersion(
+  token: string,
+  scriptId: string,
+  versionId: string
+): Promise<ScriptVersionState> {
+  const response = await postAdminScriptVersionValidateContract(scriptId, versionId, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error(
+      "Unexpected non-success response for POST /admin/scripts/{scriptId}/versions/{versionId}/validate."
+    );
+  }
+  return response.data.version;
+}
+
+export async function publishAdminScriptVersion(
+  token: string,
+  scriptId: string,
+  versionId: string,
+  payload: AdminScriptVersionPublishRequest
+): Promise<{ script: ScriptState; version: ScriptVersionState }> {
+  const response = await postAdminScriptVersionPublishContract(scriptId, versionId, payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error(
+      "Unexpected non-success response for POST /admin/scripts/{scriptId}/versions/{versionId}/publish."
+    );
+  }
+  return { script: response.data.script, version: response.data.version };
+}
+
+export async function getAdminSkillScripts(
+  token: string,
+  skillId: string
+): Promise<SkillScriptLinkState[]> {
+  const response = await getAdminSkillScriptsContract(skillId, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for GET /admin/skills/{skillId}/scripts.");
+  }
+  return response.data.scripts;
+}
+
+export async function replaceAdminSkillScripts(
+  token: string,
+  skillId: string,
+  payload: AdminSkillScriptsReplaceRequest
+): Promise<SkillScriptLinkState[]> {
+  const response = await putAdminSkillScriptsContract(skillId, payload, {
+    headers: getAuthHeaders(token)
+  });
+  if (response.status !== 200) {
+    throw new Error("Unexpected non-success response for PUT /admin/skills/{skillId}/scripts.");
+  }
+  return response.data.scripts;
 }
 
 export async function uploadAdminSkillDocument(

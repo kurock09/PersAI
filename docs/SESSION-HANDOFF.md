@@ -1,5 +1,134 @@
 # SESSION-HANDOFF
 
+## 2026-07-17 — ADR-151 Admin UI + MCP authoring implemented locally
+
+Status: **Accepted / Open — Admin UI + MCP authoring block implemented and
+independently audited CLEAN locally on branch `adr-151-reusable-scripts` from
+clean checkpoint `3dbd762f` (built on the audited Scenario+Runtime checkpoint
+`535fb93e`). Final repository gate, deploy, and live acceptance remain. No
+deploy or push was made.**
+
+What changed:
+
+- **Admin Scripts page** (`apps/web/app/admin/scripts/page.tsx`), patterned
+  after the existing Admin Roles page: master-detail list/select/create/edit
+  of localized (RU/EN) Script metadata over the immutable `key`;
+  `draft`/`published`/`archived` status display; draft ScriptVersion authoring
+  (code, manifest working-directory/environment JSON, input/output JSON
+  Schema, runtime, entry command, resource limits) with save/validate/publish
+  actions; immutable published-version history; honest typed conflict/error
+  surfacing for every documented Admin API error code
+  (`admin_script_key_conflict`, `admin_script_in_use`, `admin_script_archived`,
+  `admin_script_draft_exists`, `admin_script_version_revision_conflict`,
+  `admin_script_version_immutable`, `admin_skill_script_not_published`,
+  `admin_skill_script_scenario_reference`); and a Skill-bindings section that
+  loads one Skill's ordered Script list on demand and full-replaces it via the
+  existing `GET`/`PUT /api/v1/admin/skills/{skillId}/scripts` routes. No
+  second executor or invented runtime-smoke route was added — the only
+  preview/validation surface is the Admin API's existing
+  `POST .../versions/{versionId}/validate`; deployed model-driven
+  `script.execute` stays a live-only follow-up, not something faked here.
+- **Admin navigation entry**: a `Code2`-icon "Scripts" item added to
+  `apps/web/app/admin/layout.tsx` between Skills and Roles, reusing the
+  layout's existing Clerk-gated auth and localized-label pattern.
+- **Nine thin typed MCP tools** added to `@persai/admin-mcp`
+  (`packages/persai-admin-mcp/src/server.ts`): `script_list`, `script_get`,
+  `script_upsert`, `script_version_upsert`, `script_version_validate`,
+  `script_publish`, `script_archive`, `skill_scripts_list`,
+  `skill_scripts_replace`. All resolve the immutable `scriptKey` through
+  `GET /api/v1/admin/scripts` exactly like the existing `role_*` tools resolve
+  `roleKey`, then call the canonical Admin HTTP routes — no server-side
+  package factory, code generator, or duplicated business logic.
+  `script_version_upsert`/`script_version_validate`/`script_publish`
+  auto-resolve the Script's current draft `versionId`/`expectedRevision` so
+  callers never need to track internal IDs (mirrors the existing
+  create-vs-update auto-resolution already used by `role_upsert`). The
+  existing `skill_scenario_upsert` tool's step schema gained an optional
+  `scriptRef: { scriptKey, inputMapping }` field mirroring `apps/api`'s
+  `SkillScenarioScriptRef`/`SkillScenarioScriptInputSource` exactly (the
+  `literal`/`current_user_message`/`tool_input` discriminated union,
+  `__proto__`/`constructor`/`prototype` forbidden-key rejection, and the
+  32-entry/16,384-byte mapping bounds plus literal depth 8) — no new
+  Scenario-authoring tool was added.
+- **Independent-audit corrections**: both MCP and web authoring now use Ajv
+  8.18 Draft 2020-12 with the API's exact strict/compile validation, local-ref
+  rule, 65,536-byte/16-depth schema limits, object-only input schema, manifest
+  working-directory/environment constraints, executable text/resource bounds,
+  and Scenario mapping byte/literal-depth limits. Monotonic selection
+  generations plus selected-Script identity and unmount guards prevent stale
+  Script-version or Skill-binding responses from overwriting the current UI.
+  Every Script core/version/binding mutation now captures generation + identity
+  and owns success/error/finally state only while current; selection changes
+  safely reset flags. Version authoring is absent until the current guarded
+  versions load settles. MCP string schemas trim exactly where the API parser
+  trims and preserve code/entry-command whitespace where it does not.
+- Contracts were **not** regenerated — no OpenAPI/schema source changed in
+  this slice; the web page consumes the Script contract types/wrappers that
+  already existed in `assistant-api-client.ts` from the prior Admin API slice
+  (that file gained an `export type { ... }` re-export for the Script types so
+  the new page module could import them, plus a small ICU-escaping fix in
+  `messages/en.json`/`messages/ru.json` for a literal `{"FOO": "bar"}` example
+  that next-intl's ICU parser had been misreading as an argument placeholder).
+
+Files touched:
+
+- `apps/web/app/admin/scripts/page.tsx` (new)
+- `apps/web/app/admin/scripts/page.test.tsx` (new)
+- `apps/web/app/admin/scripts/script-authoring-validation.ts` (new)
+- `apps/web/app/admin/layout.tsx`
+- `apps/web/app/app/assistant-api-client.ts` (Script type re-exports only —
+  the wrapper functions themselves were added in a prior session)
+- `apps/web/app/app/assistant-api-client.test.ts` (reformatted only by
+  Prettier; no behavior change)
+- `apps/web/messages/en.json`, `apps/web/messages/ru.json`
+- `packages/persai-admin-mcp/src/server.ts`
+- `packages/persai-admin-mcp/src/script-authoring-validation.ts` (new)
+- `packages/persai-admin-mcp/test/admin-scripts.test.ts` (new)
+- `packages/persai-admin-mcp/README.md`
+- `docs/ADR/151-reusable-scripts-core-and-mcp-authoring.md`
+- `docs/API-BOUNDARY.md`
+- `AGENTS.md`, `.cursor/rules/persai-session-continuity.mdc`
+- `apps/web/package.json`, `packages/persai-admin-mcp/package.json`,
+  `pnpm-lock.yaml` (direct Ajv 8.18 dependencies)
+
+Tests run (all green):
+
+- `@persai/admin-mcp` — `typecheck`, `lint`, full `test` suite (39 tests,
+  22 for Scripts).
+- `@persai/web` — `typecheck`, `lint`, and targeted `vitest run` for
+  `app/admin/scripts/page.test.tsx` (18 tests, including canonical local
+  metadata/version validation, stale Script/Skill load and mutation guards,
+  guarded version-loading UX, and the parent-audit
+  PATCH-before-validate/publish sequencing repair) and
+  `app/app/assistant-api-client.test.ts` (76 tests, unaffected).
+- `@persai/api` — `typecheck` (unaffected; confirms no regression from the
+  Script type re-export).
+- repo-wide `corepack pnpm run format:check` — clean after one
+  `prettier --write` pass on the 6 touched/created files it flagged.
+
+Residuals / honest gaps:
+
+- The first and second independent Admin/MCP audits were DIRTY. After all
+  corrections, the final targeted allowed-model re-audit returned CLEAN and
+  the local Admin/MCP audit requirement is satisfied.
+- No repository-wide `pnpm -r --if-present run lint` / full-verification run
+  was executed this session — only the two touched packages' focused
+  lint/typecheck/tests plus the repo-wide format check, per the explicit task
+  scope ("focused tests/typechecks/lints for touched packages").
+- Live model-driven MCP smoke of the new Script tools (e.g. a real
+  `script_upsert` → `script_version_upsert` → `script_publish` →
+  `skill_scripts_replace` round trip against a running API) was not performed
+  — that requires a deployed backend and is out of scope for a local-only
+  slice.
+- Git state at end of session: working tree has the files listed above
+  modified/added, uncommitted, on `adr-151-reusable-scripts`. No commit, push,
+  or deploy was made, per explicit instruction.
+
+**Next recommended step:** run the final ADR-151 repository verification gate,
+then deploy and complete founder live acceptance, including an authenticated
+Admin Scripts UI pass, a real Cursor MCP session exercising all nine tools, and
+the existing real-chat model-driven warm-session `script.execute` smoke.
+
 ## 2026-07-17 — ADR-151 Scenario + Runtime audit repairs verified locally
 
 Status: **Accepted / Open — runtime implementation and its independent

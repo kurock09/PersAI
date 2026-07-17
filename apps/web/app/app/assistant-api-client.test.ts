@@ -36,6 +36,18 @@ import {
   archiveAdminRole,
   replaceAdminRoleSkills,
   previewAdminRole,
+  getAdminScripts,
+  getAdminScript,
+  createAdminScript,
+  updateAdminScript,
+  archiveAdminScript,
+  getAdminScriptVersions,
+  createAdminScriptVersion,
+  updateAdminScriptVersion,
+  validateAdminScriptVersion,
+  publishAdminScriptVersion,
+  getAdminSkillScripts,
+  replaceAdminSkillScripts,
   updateAssistantRole,
   postAssistantPublish,
   createWorkspaceVideoClonedVoice,
@@ -73,7 +85,19 @@ const contractMocks = vi.hoisted(() => {
     patchAdminRole: vi.fn(),
     deleteAdminRole: vi.fn(),
     putAdminRoleSkills: vi.fn(),
-    postAdminRolePreview: vi.fn()
+    postAdminRolePreview: vi.fn(),
+    getAdminScripts: vi.fn(),
+    getAdminScript: vi.fn(),
+    postAdminScript: vi.fn(),
+    patchAdminScript: vi.fn(),
+    deleteAdminScript: vi.fn(),
+    getAdminScriptVersions: vi.fn(),
+    postAdminScriptVersion: vi.fn(),
+    patchAdminScriptVersion: vi.fn(),
+    postAdminScriptVersionValidate: vi.fn(),
+    postAdminScriptVersionPublish: vi.fn(),
+    getAdminSkillScripts: vi.fn(),
+    putAdminSkillScripts: vi.fn()
   };
 });
 
@@ -104,7 +128,19 @@ vi.mock("@persai/contracts", async () => {
     patchAdminRole: contractMocks.patchAdminRole,
     deleteAdminRole: contractMocks.deleteAdminRole,
     putAdminRoleSkills: contractMocks.putAdminRoleSkills,
-    postAdminRolePreview: contractMocks.postAdminRolePreview
+    postAdminRolePreview: contractMocks.postAdminRolePreview,
+    getAdminScripts: contractMocks.getAdminScripts,
+    getAdminScript: contractMocks.getAdminScript,
+    postAdminScript: contractMocks.postAdminScript,
+    patchAdminScript: contractMocks.patchAdminScript,
+    deleteAdminScript: contractMocks.deleteAdminScript,
+    getAdminScriptVersions: contractMocks.getAdminScriptVersions,
+    postAdminScriptVersion: contractMocks.postAdminScriptVersion,
+    patchAdminScriptVersion: contractMocks.patchAdminScriptVersion,
+    postAdminScriptVersionValidate: contractMocks.postAdminScriptVersionValidate,
+    postAdminScriptVersionPublish: contractMocks.postAdminScriptVersionPublish,
+    getAdminSkillScripts: contractMocks.getAdminSkillScripts,
+    putAdminSkillScripts: contractMocks.putAdminSkillScripts
   };
 });
 
@@ -324,6 +360,191 @@ describe("admin Role generated-client wrappers", () => {
     expect(contractMocks.deleteAdminRole).toHaveBeenCalledWith(role.id, options);
     expect(contractMocks.putAdminRoleSkills).toHaveBeenCalledWith(role.id, skillPayload, options);
     expect(contractMocks.postAdminRolePreview).toHaveBeenCalledWith(previewPayload, options);
+  });
+});
+
+describe("admin Script generated-client wrappers", () => {
+  const script = {
+    id: "00000000-0000-4000-8000-000000000501",
+    key: "send_report",
+    name: { en: "Send report", ru: "Отправить отчёт" },
+    description: { en: "Sends a report.", ru: "Отправляет отчёт." },
+    status: "draft" as const,
+    category: "automation",
+    icon: null,
+    color: null,
+    displayOrder: 10,
+    currentPublishedVersionId: null,
+    createdByUserId: "user-1",
+    updatedByUserId: null,
+    createdAt: "2026-07-17T00:00:00.000Z",
+    updatedAt: "2026-07-17T00:00:00.000Z"
+  };
+  const version = {
+    id: "00000000-0000-4000-8000-000000000601",
+    scriptId: script.id,
+    version: 1,
+    status: "draft" as const,
+    code: "print('hi')",
+    manifest: { schemaVersion: 1 as const, workingDirectory: null, environment: {} },
+    inputSchema: { type: "object" },
+    outputSchema: { type: "object" },
+    runtime: "python3",
+    entryCommand: "python3 {entry}",
+    limits: { timeoutMs: 5_000, maxMemoryMb: 256, maxCpuMillicores: 500, maxOutputBytes: 65_536 },
+    contentHash: null,
+    revision: 1,
+    createdByUserId: "user-1",
+    publishedByUserId: null,
+    createdAt: "2026-07-17T00:00:00.000Z",
+    updatedAt: "2026-07-17T00:00:00.000Z",
+    publishedAt: null
+  };
+  const link = { scriptId: script.id, displayOrder: 0, createdAt: script.createdAt, script };
+
+  it("maps list/get/create/update/archive/version/publish/skill-link calls to generated clients", async () => {
+    contractMocks.getAdminScripts.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, scripts: [script] }
+    });
+    contractMocks.getAdminScript.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, script }
+    });
+    contractMocks.postAdminScript.mockResolvedValue({
+      status: 201,
+      data: { requestId: null, script }
+    });
+    contractMocks.patchAdminScript.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, script }
+    });
+    contractMocks.deleteAdminScript.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, script: { ...script, status: "archived" } }
+    });
+    contractMocks.getAdminScriptVersions.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, versions: [version] }
+    });
+    contractMocks.postAdminScriptVersion.mockResolvedValue({
+      status: 201,
+      data: { requestId: null, version }
+    });
+    contractMocks.patchAdminScriptVersion.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, version }
+    });
+    contractMocks.postAdminScriptVersionValidate.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, valid: true, version }
+    });
+    contractMocks.postAdminScriptVersionPublish.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, script: { ...script, status: "published" }, version }
+    });
+    contractMocks.getAdminSkillScripts.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, scripts: [link] }
+    });
+    contractMocks.putAdminSkillScripts.mockResolvedValue({
+      status: 200,
+      data: { requestId: null, scripts: [link] }
+    });
+
+    const createPayload = {
+      key: script.key,
+      name: script.name,
+      description: script.description,
+      category: script.category,
+      icon: null,
+      color: null,
+      displayOrder: script.displayOrder
+    };
+    const corePayload = {
+      name: script.name,
+      description: script.description,
+      category: script.category,
+      icon: null,
+      color: null,
+      displayOrder: script.displayOrder
+    };
+    const versionPayload = {
+      code: version.code,
+      manifest: version.manifest,
+      inputSchema: version.inputSchema,
+      outputSchema: version.outputSchema,
+      runtime: version.runtime,
+      entryCommand: version.entryCommand,
+      limits: version.limits
+    };
+    const versionUpdatePayload = { ...versionPayload, expectedRevision: 1 };
+    const publishPayload = { expectedRevision: 1 };
+    const skillId = "00000000-0000-4000-8000-000000000701";
+    const skillsPayload = { scriptIds: [script.id] };
+
+    await expect(getAdminScripts("token")).resolves.toEqual([script]);
+    await expect(getAdminScript("token", script.id)).resolves.toEqual(script);
+    await expect(createAdminScript("token", createPayload)).resolves.toEqual(script);
+    await expect(updateAdminScript("token", script.id, corePayload)).resolves.toEqual(script);
+    await expect(archiveAdminScript("token", script.id)).resolves.toMatchObject({
+      status: "archived"
+    });
+    await expect(getAdminScriptVersions("token", script.id)).resolves.toEqual([version]);
+    await expect(createAdminScriptVersion("token", script.id, versionPayload)).resolves.toEqual(
+      version
+    );
+    await expect(
+      updateAdminScriptVersion("token", script.id, version.id, versionUpdatePayload)
+    ).resolves.toEqual(version);
+    await expect(validateAdminScriptVersion("token", script.id, version.id)).resolves.toEqual(
+      version
+    );
+    await expect(
+      publishAdminScriptVersion("token", script.id, version.id, publishPayload)
+    ).resolves.toMatchObject({ version });
+    await expect(getAdminSkillScripts("token", skillId)).resolves.toEqual([link]);
+    await expect(replaceAdminSkillScripts("token", skillId, skillsPayload)).resolves.toEqual([
+      link
+    ]);
+
+    const options = expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer token" })
+    });
+    expect(contractMocks.getAdminScripts).toHaveBeenCalledWith(options);
+    expect(contractMocks.getAdminScript).toHaveBeenCalledWith(script.id, options);
+    expect(contractMocks.postAdminScript).toHaveBeenCalledWith(createPayload, options);
+    expect(contractMocks.patchAdminScript).toHaveBeenCalledWith(script.id, corePayload, options);
+    expect(contractMocks.deleteAdminScript).toHaveBeenCalledWith(script.id, options);
+    expect(contractMocks.getAdminScriptVersions).toHaveBeenCalledWith(script.id, options);
+    expect(contractMocks.postAdminScriptVersion).toHaveBeenCalledWith(
+      script.id,
+      versionPayload,
+      options
+    );
+    expect(contractMocks.patchAdminScriptVersion).toHaveBeenCalledWith(
+      script.id,
+      version.id,
+      versionUpdatePayload,
+      options
+    );
+    expect(contractMocks.postAdminScriptVersionValidate).toHaveBeenCalledWith(
+      script.id,
+      version.id,
+      options
+    );
+    expect(contractMocks.postAdminScriptVersionPublish).toHaveBeenCalledWith(
+      script.id,
+      version.id,
+      publishPayload,
+      options
+    );
+    expect(contractMocks.getAdminSkillScripts).toHaveBeenCalledWith(skillId, options);
+    expect(contractMocks.putAdminSkillScripts).toHaveBeenCalledWith(
+      skillId,
+      skillsPayload,
+      options
+    );
   });
 });
 
