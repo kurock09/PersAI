@@ -2,9 +2,9 @@
 
 ## Status
 
-**Accepted / Open — implementation, independent audits, local/GitHub gates,
-migration, and deployment satisfied at release `f0944d31` / GitOps pin
-`95c7d68d`; founder live acceptance pending.**
+**Closed 2026-07-17 — implementation, independent audits, migration,
+local/GitHub gates, deployment, MCP authoring, model-driven Script execution,
+approved-account Admin UI, and founder live acceptance satisfied.**
 Founder-approved architecture checkpoint started 2026-07-16 on baseline
 `36947f7544918c0fddadae6ec17f75883b1b1365` (`adr-151-reusable-scripts`).
 The local Domain + Admin API block includes schema/migration, lifecycle,
@@ -354,11 +354,11 @@ SkillScenarioStep JSON
 full-replace. `SandboxJob` remains the canonical operational/cancel/result
 record; there is no duplicate Script-run lifecycle.
 
-## API and runtime target
+## API and runtime
 
-The future public/admin API will expose Script catalog lifecycle, ordered
-Skill–Script replacement, and Scenario script-reference authoring. Exact
-OpenAPI request/response names belong to the domain/API implementation block.
+The public/admin API exposes Script catalog lifecycle, ordered Skill–Script
+replacement, and Scenario script-reference authoring through generated OpenAPI
+contracts.
 
 Runtime adds one model-facing synchronous `script` tool with
 `action: "execute"` only for the active Scenario step and only when the
@@ -377,10 +377,10 @@ sandbox job path. No direct MCP execution path is introduced.
    sandbox delegation. Requires an independent allowed-model audit for
    runtime/security work.
 3. **Admin + MCP:** Admin Scripts page matching Admin Roles, thin MCP wrappers,
-   and existing real chat smoke. **Implemented locally 2026-07-17** (Admin
-   Scripts page + navigation entry + nine MCP tools + `scriptRef` scenario
-   authoring + focused web/MCP tests); independent audit, deploy, and live
-   chat-smoke acceptance still pending.
+   and existing real chat smoke. **Complete:** Admin Scripts page + navigation
+   entry + nine MCP tools + `scriptRef` scenario authoring + focused web/MCP
+   tests, independent audit, deployment, approved-account UI acceptance, and
+   live chat smoke.
 4. **Final audits/gates:** independent schema and runtime/security audits,
    focused tests, full repository verification, deployment, and founder live
    acceptance.
@@ -428,3 +428,22 @@ Implementation must add focused coverage for:
    chat smoke;
 8. the repository verification gate in `AGENTS.md` before the final deployment
    gate.
+
+## Closure evidence
+
+- Release `f0944d31` / GitOps pin `95c7d68d` deployed the domain, migration,
+  Admin/MCP, bundle, runtime, and sandbox foundation; deployed repair
+  `5fb61f3c` closed the `job.files` receipt discriminator defect.
+- MCP created `adr151_live_echo`, rejected draft binding, validated and
+  published immutable v1 (`dc53ce96-7296-4fe7-9b0b-cbe1638862f7`, hash prefix
+  `32c1c478a`), linked it to two Skills, authored a structured Scenario
+  reference, and published the Assistant bundle.
+- Final runtime release `43f653b4` was CI-green, Argo Synced/Healthy, and 2/2
+  Ready. Strict live turn `adr151-live-turn-adr156-2` completed
+  `skill → todo_write → script → todo_write → skill` and reproduced exact
+  `original`, `uppercase`, `tag`, and `invocationKey` Script output fields in
+  the final answer.
+- The approved-account Admin Scripts page loaded without 403, showed published
+  immutable v1/hash and its ordered Skill binding, with no visible errors.
+- ADR-156 owns and closes the global observation-window correction discovered
+  during this acceptance. ADR-147/149/150 remain unchanged.

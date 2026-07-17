@@ -2,8 +2,8 @@
 
 ## Status
 
-**Accepted / Open — founder-approved, implemented, and independently audited
-CLEAN locally 2026-07-17; deploy and live acceptance pending.**
+**Closed 2026-07-17 — founder-approved, implemented, independently audited
+CLEAN, deployed, and founder-live-accepted.**
 
 ## Context
 
@@ -65,6 +65,16 @@ out of scope.
 - Existing browser/shell/files/generic compactor tests remain green.
 - Metrics reflect effective tiers and source exchanges remain canonical/full.
 
-## Residual
+## Closure evidence
 
-Runtime deploy and founder live re-smoke remain required before closure.
+- Commit `43f653b4` passed CI and image publish; Argo was Synced/Healthy and
+  runtime was 2/2 Ready on exact image `43f653b49bd5938a79af82cf635176475f472531`.
+- Strict live request `82498e42-6656-40e0-8b33-42ea49061c87` progressed through
+  projection metrics `1/0`, `2/0`, `3/0`, `3/1`, then `3 full / 2 compact /
+0 masked`, matching the five-call in-turn sequence.
+- `adr151-live-turn-adr156-2` executed
+  `skill → todo_write → script → todo_write → skill`; the final model answer
+  reproduced all four exact structured Script output fields without
+  Script-specific projection logic.
+- Cross-turn `1 full + 4 compact` remains locked by focused boundary tests.
+  Canonical storage remains full and closed ADR-143 is not reopened.

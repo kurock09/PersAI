@@ -23,8 +23,12 @@
   of scope. Updated real turn-execution fixtures for six-exchange and parallel
   three-tool in-turn windows. Focused tests, full runtime suite, complete repo
   typecheck, repo/runtime lint, format, and diff checks passed; independent
-  allowed-model audit returned CLEAN with no P0/P1/P2 findings. No commit, push,
-  or deploy; ADR-151/156 remain open pending deploy/live.
+  allowed-model audit returned CLEAN with no P0/P1/P2 findings. Commit
+  `43f653b4` passed CI/image publish and deployed 2/2 on exact runtime image;
+  strict live `skill → todo_write → script → todo_write → skill` reproduced all
+  four exact Script output fields while logs ended at
+  `fullCount=3 compactCount=2 maskedCount=0`. Approved-account Admin Scripts UI
+  acceptance also passed. ADR-151 and ADR-156 closed 2026-07-17.
 
 - **ADR (ADR-151 live P1 repair: Script result file-extraction
   discriminator).** Fixed the post-tool receipt seam where

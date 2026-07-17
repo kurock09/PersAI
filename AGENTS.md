@@ -47,20 +47,21 @@ Additional orchestration program **closed 2026-07-16:** `docs/ADR/149-durable-st
 
 Additional orchestration program **closed 2026-07-16:** `docs/ADR/150-ephemeral-session-install-layer.md` (session `.local` / `.npm-global` / `node_modules` warm-pod ephemeral only; pushed `314ee37a`; founder-accepted closed. Supersedes ADR-148 install-tree GCS persistence only; do not reopen).
 
-Additional active orchestration program: `docs/ADR/151-reusable-scripts-core-and-mcp-authoring.md` (**Accepted / Open; implementation, audits, local/GitHub gates, migration, and deployment satisfied** at release `f0944d31` / GitOps pin `95c7d68d`; founder live acceptance remains pending). Live MCP authoring created, validated, published, and linked one immutable Script to two Skills, then authored its structured Scenario reference. The first model-driven run exposed and the deployed repair `5fb61f3c` closed a post-tool `job.files` discriminator crash while preserving exact warm-sandbox execution. A second live run completed end to end but exposed the global observation-window issue now owned by ADR-156. Scope remains platform-global reusable Script + immutable ScriptVersion, ordered Skill↔Script links, bounded active-step `scriptRef`, synchronous warm-sandbox `script.execute`, existing `SandboxJob`, Roles-style Admin UI, and nine thin MCP tools. ADR-147 remains unchanged. No ScriptRun, nested PersAI/LLM, Tool SDK, browser executor, async/jobRef/wait/notify, Script-specific sandbox contour, or managed secrets.
+Additional orchestration program **closed 2026-07-17:** `docs/ADR/151-reusable-scripts-core-and-mcp-authoring.md` (release `f0944d31` / GitOps pin `95c7d68d`, deployed `job.files` repair `5fb61f3c`, and final runtime observation release `43f653b4`). MCP authoring, immutable publish, two-Skill reuse, structured Scenario reference, exact warm-sandbox execution, strict model-driven final-output smoke, and approved-account Admin Scripts UI acceptance all passed. Scope is platform-global reusable Script + immutable ScriptVersion, ordered Skill↔Script links, bounded active-step `scriptRef`, synchronous warm-sandbox `script.execute`, existing `SandboxJob`, Roles-style Admin UI, and nine thin MCP tools. ADR-147 remains unchanged. No ScriptRun, nested PersAI/LLM, Tool SDK, browser executor, async/jobRef/wait/notify, Script-specific sandbox contour, or managed secrets. Do not reopen ADR-151 for new scope.
 
 ADR-151 Admin/MCP final status: the first and second independent audits returned
 DIRTY; all findings were corrected, and the final targeted allowed-model
 re-audit returned CLEAN. Deployment is complete; founder live acceptance remains
-pending.
+accepted; ADR-151 is closed.
 
-Additional active follow-through: `docs/ADR/156-mode-aware-tool-observation-windows.md`
-(Accepted/Open 2026-07-17) globally sets model-facing observation windows to
+Additional follow-through **closed 2026-07-17:** `docs/ADR/156-mode-aware-tool-observation-windows.md`
+globally sets model-facing observation windows to
 in-turn newest 3 full / next 3 compact and cross-turn newest 1 full / next 4
 compact, with older exchanges masked and errors never bare-mask. It adds no
 tool-specific exception, preserves full canonical storage, and does not reopen
 closed ADR-143. Dynamic/token-threshold compaction is out of scope. Independent
-allowed-model audit returned CLEAN; deploy and live acceptance remain pending.
+allowed-model audit, exact-image deploy, projection-metric smoke, and founder
+live acceptance passed. Do not reopen ADR-156 for new scope.
 
 Additional orchestration program **superseded by ADR-140 (do not implement new scope):** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` and `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`.
 

@@ -2,10 +2,9 @@
 
 ## 2026-07-17 — ADR-156 global mode-aware observation windows
 
-Status: **Accepted / Open — founder-approved ADR-156 implemented and
-independently audited CLEAN locally from baseline `80d1fc9a`; deploy and live
-re-test remain pending. No commit, push, or deploy was made. ADR-151 remains
-open for its live acceptance; closed ADR-143 was not reopened.**
+Status: **ADR-151 and ADR-156 closed 2026-07-17 after CI, exact-image deploy,
+strict model-driven Script smoke, projection-metric evidence, and
+approved-account Admin Scripts UI acceptance. Closed ADR-143 was not reopened.**
 
 Live evidence and exact root cause:
 
@@ -56,13 +55,24 @@ Checks passed:
 - `git diff --check`
 - independent allowed-model audit: CLEAN, no P0/P1/P2 findings.
 
-Residuals / next step:
+Deploy and live acceptance:
 
-- Deploy runtime and repeat the same model-driven Script → `todo_write` →
-  `skill` smoke, verifying the global three-full in-turn window preserves the
-  exact Script fields through the final answer. Complete approved-account Admin
-  UI acceptance afterward. ADR-151 and ADR-156 remain Accepted/Open until their
-  founder-visible acceptance succeeds.
+- Commit `43f653b4` passed CI and Dev Image Publish. Argo was Synced/Healthy at
+  revision `439d5407e915cb541511e8a85535cdab9917cdab`; runtime was 2/2 Ready on
+  exact image `43f653b49bd5938a79af82cf635176475f472531`; public health/readiness
+  returned HTTP 200.
+- Strict chat turn `adr151-live-turn-adr156-2` completed
+  `skill → todo_write → script → todo_write → skill`. Its final answer
+  reproduced exact `original`, `uppercase`, `tag: ADR151_LIVE`, and
+  `invocationKey` fields. Runtime request
+  `82498e42-6656-40e0-8b33-42ea49061c87` logged final projection
+  `fullCount=3 compactCount=2 maskedCount=0`.
+- Approved-account read-only Admin Scripts acceptance passed: catalog loaded
+  without 403; `adr151_live_echo` showed published immutable v1/hash
+  `32c1c478a1d9`, and its ordered Skill binding rendered with no visible errors.
+- ADR-151 and ADR-156 are closed. No additional implementation residual remains
+  in either program; future Tool SDK/browser/async/managed-secret scope stays
+  with future ADRs.
 
 ## 2026-07-17 — ADR-151 live P1 repair: Script result file-extraction discriminator
 
