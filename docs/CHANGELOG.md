@@ -25,7 +25,10 @@
   Focused tests, full runtime suite, runtime typecheck/lint, repo format check,
   and diff check passed; final independent allowed-model audit returned CLEAN
   with no P0/P1/P2 findings. ADR-151 remains Accepted/Open pending redeploy and
-  founder re-smoke.
+  founder re-smoke. The first push's full CI then caught two test-only
+  TypeScript property-access errors in the new masked assertions; they now use
+  structural no-output checks, and the complete repo typecheck, focused test,
+  and runtime lint pass after correction.
 
 - **ADR (ADR-151 live P1 repair: Script result file-extraction
   discriminator).** Fixed the post-tool receipt seam where

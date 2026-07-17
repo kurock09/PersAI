@@ -462,7 +462,7 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
       _observationTier: "masked"
     });
     assert.equal(warningProjection[0]!.toolResult.content.includes(secretOutputValue), false);
-    assert.equal(maskedWarning.output, undefined);
+    assert.equal("output" in maskedWarning, false);
 
     const reasonProjection = projectToolExchangesForModel([
       createExchange({
@@ -491,7 +491,7 @@ export async function runProjectToolExchangesForModelTest(): Promise<void> {
       _observationTier: "masked"
     });
     assert.equal(reasonProjection[0]!.toolResult.content.includes(secretOutputValue), false);
-    assert.equal(maskedReason.output, undefined);
+    assert.equal("output" in maskedReason, false);
   }
 
   // ── Generic × full / compact / masked ─────────────────────────────────────

@@ -54,6 +54,16 @@ Checks passed:
 - `git diff --check`
 - final independent allowed-model audit: CLEAN, no P0/P1/P2 findings.
 
+GitHub correction note:
+
+- The first projection-repair push `41fa0a69` built/pinned its runtime image,
+  but full CI caught two test-only TypeScript errors in the newly added masked
+  assertions (`maskedResult.output` on an inferred no-output object). The
+  assertions now use the structural `"output" in maskedResult` check. The
+  complete repo `corepack pnpm run typecheck`, focused projection test, and
+  runtime lint pass after that correction; no production source behavior
+  changed in the correction.
+
 Residuals / next step:
 
 - Redeploy runtime and repeat the same model-driven Script → `todo_write` →
