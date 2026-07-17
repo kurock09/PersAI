@@ -3,7 +3,7 @@
 ## 2026-07-17 — ADR-151 Scenario + Runtime audit repairs verified locally
 
 Status: **Accepted / Open — runtime implementation and its independent
-runtime/security re-audit are locally CLEAN at checkpoint `db1f7205`; Admin
+runtime/security re-audit are locally CLEAN at checkpoint `535fb93e`; Admin
 UI/MCP, deploy, and live acceptance remain pending.** The block started from
 the audited Domain + Admin API checkpoint `cbeaccb4`; no push or deployment was
 made.
