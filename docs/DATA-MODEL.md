@@ -221,8 +221,7 @@ Assistant-private uploaded knowledge-source rows now also expose the persisted e
 
 Enabled Skill prompt materialization is runtime-bundle state, not a separate persisted Skill prompt table. **ADR-147 closed truth**: the materializer reads `Assistant.roleId -> AssistantRoleSkill -> active Skill` and writes both the bounded `Enabled Skills` block and the `<assistant_role><mission>...</mission></assistant_role>` cache-prefix block into the materialized runtime bundle. The bundle also carries non-model `effectiveRoleId` so runtime Skill-state persistence can reject stale role snapshots honestly. Setup/recreate publish supplies exact `{assistantId, expectedRoleKey, roleKey}` and reuses the same transactional Role assignment primitive inside publish itself; expected Role drift returns stable 409 before any published-version/apply mutation. Removed direct assignment rows do not exist in deployed schema truth.
 
-**ADR-151 accepted/open (Domain + Admin API + Scenario/Runtime block
-implemented locally):** platform-global `Script` records have immutable
+**ADR-151 closed (2026-07-17):** platform-global `Script` records have immutable
 stable keys, localized metadata, lifecycle, and audit; immutable published
 `ScriptVersion` records carry code, strict manifest, validated input/output
 schemas, runtime/entry command, limits, and content hash. Ordered

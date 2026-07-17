@@ -34,8 +34,8 @@ Primary public API surface:
 - admin memory backfill routes under `/api/v1/admin/memory-backfill*` (assistant-scoped dry-run preview + step-up confirmed apply for legacy durable-memory cleanup)
 - admin Skill routes under `/api/v1/admin/skills*`
 - ADR-147 S4 admin Role routes under `/api/v1/admin/roles*` (list/create, static `POST /preview`, get/patch/delete by `roleId`, full-replace `PUT /{roleId}/skills`)
-- ADR-151 Domain + Admin API is implemented locally: `/api/v1/admin/scripts*`
-  owns platform-global Script catalog/version lifecycle, validation, publish,
+- ADR-151 closed API: `/api/v1/admin/scripts*` owns platform-global Script
+  catalog/version lifecycle, validation, publish,
   and archive; `GET`/`PUT /api/v1/admin/skills/{skillId}/scripts` read and
   full-replace ordered Skill links; Scenario authoring accepts bounded structured
   `scriptRef` input mapping (`{scriptKey, inputMapping}` only — no version is
@@ -48,12 +48,13 @@ Primary public API surface:
   Script-not-archived → SkillScript-still-linked); this is not published in
   the public OpenAPI surface and is bearer-guarded by the same internal
   runtime-to-API token as other `internal/runtime/*` boundaries. The
-  Roles-style Admin Scripts UI and thin operator-auth MCP Script wrappers are
-  implemented locally on the ADR-151 branch. Their first and second independent
+  Roles-style Admin Scripts UI and nine thin operator-auth MCP Script wrappers
+  are deployed production functionality. Their first and second independent
   Admin/MCP audits returned DIRTY; after canonical schema/trim parity, complete
   local validation, guarded loading/mutation ownership, and binding-control
-  corrections, the final targeted re-audit returned CLEAN. Deployment and live
-  acceptance remain pending.
+  corrections, the final targeted re-audit returned CLEAN. Release `f0944d31`
+  / GitOps pin `95c7d68d`, the `5fb61f3c` deployed repair, and final runtime
+  release `43f653b4` completed deployment and founder live acceptance.
 - future ADR-080 admin authoring routes for Skill knowledge cards, Skill draft enrichment, and Product KB text entries stay under `/api/v1/admin/skills*` and `/api/v1/admin/knowledge-sources*`
 - admin document-processing provider settings under `/api/v1/admin/tools/document-processing*`
 - admin billing-provider credential settings under `/api/v1/admin/tools/billing`
@@ -165,8 +166,7 @@ retired fail-closed on cleanup-proof failure. Sessionless jobs still retire.
 mirror, hydrate, runtime manifest upsert, Files gallery, `files.list`, and
 `files.search`. Ordinary work-artifact persistence is unchanged.
 
-**ADR-151 (Accepted / Open; Domain + Admin API + Scenario/Runtime block
-implemented and independently audited CLEAN locally):** the runtime
+**ADR-151 (closed 2026-07-17):** the runtime
 boundary is one synchronous model-mediated `script.execute`, projected to the
 model as the tool name `script` (`{action:"execute", input:object}`) only
 when the exact current active Scenario step carries a materialized

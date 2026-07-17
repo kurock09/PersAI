@@ -62,12 +62,15 @@ runtime gate includes production-dispatch coverage proving live todo/Skill
 re-authorization and `refreshVolatilePrefix` add/remove behavior, plus the
 ADR-149 tool-abort suite. An independent allowed-model runtime/security
 re-audit returned CLEAN after exercising those package gates and focused
-runtime/sandbox assertions. Remaining live-only probes are real Kubernetes
-policy/cleanup behavior, true concurrent PostgreSQL idempotency races, and a
-deployed model-driven warm-session `script.execute` turn.
+runtime/sandbox assertions. **Historical checkpoint:** its then-remaining
+live-only probes were real Kubernetes policy/cleanup behavior, true concurrent
+PostgreSQL idempotency races, and a deployed model-driven warm-session
+`script.execute` turn; the Closure evidence records their completed final
+acceptance.
 
-A later session (2026-07-17) implemented the **Admin + MCP block** locally on
-top of the audited Domain+API and Scenario+Runtime checkpoints:
+A later session (2026-07-17) implemented the **Admin + MCP block** locally,
+before its subsequent deployment and live acceptance, on top of the audited
+Domain+API and Scenario+Runtime checkpoints:
 
 - an Admin Scripts page (`apps/web/app/admin/scripts/page.tsx`) patterned after
   the existing Admin Roles page — master-detail list/create/edit of localized
@@ -125,9 +128,11 @@ parity, complete local metadata/version validation, stale async load and
 mutation ownership, guarded version loading, and a full binding-control lock.
 The final targeted re-audit returned **CLEAN** after 18 focused web tests,
 39 full Admin MCP package tests (22 Script-focused), package lint/typecheck,
-and diff/format checks. This block has not been deployed or live-accepted.
+and diff/format checks. **Historical checkpoint:** at this point the block had
+not yet been deployed or live-accepted; the Closure evidence records the
+subsequent production acceptance.
 
-A later bounded P1 repair (2026-07-17) closed a gap in the runtime
+Historical bounded P1 repair (2026-07-17) closed a gap in the runtime
 materialization path: `skill-scenario-runtime-normalization.ts`'s hand-rolled
 raw-`scriptRef` normalizer duplicated (imperfectly) the canonical Admin-side
 `scriptRef` parser and silently canonicalized a malformed persisted non-null
@@ -150,14 +155,15 @@ still resolves to `null` with zero Script lookups. Five new focused tests in
 `normalizeSkillScenarioSteps` → `materializeScenarioStepScriptRefs` path
 directly for malformed top-level refs, non-object refs, malformed nested
 mapping sources, malformed mapping shapes, and explicit null/absent success.
-This is a bounded correctness repair, not a scope change: status remains
-Accepted/Open, and no CLEAN/deploy/live claim is made for it.
+This was a bounded correctness repair, not a scope change. **Historical
+checkpoint:** it remained Accepted/Open before the later final CLEAN audit,
+deployment, and founder acceptance recorded in Closure evidence.
 
-## Context
+## Historical context at ADR initiation
 
-PersAI has reusable Skills, structured Skill Scenarios, a role-only effective
-Skill derivation (ADR-147), and a warm session sandbox with durable existing
-`SandboxJob` telemetry (ADRs 148–150). It does not yet have a first-class,
+At ADR initiation, PersAI had reusable Skills, structured Skill Scenarios, a
+role-only effective Skill derivation (ADR-147), and a warm session sandbox with
+durable existing `SandboxJob` telemetry (ADRs 148–150), but no first-class,
 versioned, reusable Script domain.
 
 The platform needs deterministic pre-authored code that can be shared by
@@ -367,7 +373,7 @@ internal operation code is `script.execute`. It resolves/persists the exact
 version, validates inputs and results, and delegates execution to the normal
 sandbox job path. No direct MCP execution path is introduced.
 
-## Execution blocks
+## Historical execution blocks (completed)
 
 1. **Domain + API:** schema/migration, Script/version lifecycle, ordered links,
    Scenario reference validation, OpenAPI/contracts, and Admin API. Requires an
@@ -409,7 +415,7 @@ Residuals deliberately deferred:
 - session-installed dependencies are warm-pod-local and may disappear at cold
   start per ADR-150.
 
-## Verification target
+## Historical verification target (satisfied)
 
 Implementation must add focused coverage for:
 

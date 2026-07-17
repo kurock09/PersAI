@@ -4,7 +4,7 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
-## ADR-151 reusable Scripts core (Accepted / Open; Domain + Admin API + Scenario/Runtime block local)
+## ADR-151 reusable Scripts core (closed 2026-07-17)
 
 The local Domain + Admin API block covers parser/hash/schema guards, DB
 immutability migration contracts, publish/invalidation, ordered replacement,
@@ -96,13 +96,18 @@ additionally covers:
   chunks while the stream continues draining; no false-positive limit trip
   when total bytes stay within bound.
 
-Before the later final deploy gate, retain all of the above plus:
+Closure verification retained all of the above plus:
 
 1. Admin Scripts UI at Admin Roles quality, thin MCP wrappers over real APIs, and
    existing real chat smoke;
 2. an independent allowed-model runtime/security audit of the `script` tool
    dispatch, sandbox admission, and artifact-API authorization before final
    repository verification.
+
+Closure evidence: release `f0944d31` / GitOps pin `95c7d68d`, the deployed
+`5fb61f3c` receipt repair, and final runtime release `43f653b4` passed the
+final allowed-model audit, strict model-driven Script smoke, and
+approved-account Admin Scripts UI founder acceptance. ADR-151 is closed.
 
 Do not add acceptance for a `ScriptRun`, Tool SDK, browser executor, async
 `jobRef`/`wait`/`notify`, managed-secret redaction/TTL/revoke, or a separate

@@ -113,10 +113,9 @@ ephemeral only — not mirrored to GCS, not hydrated, not shown in Files /
 ADR-146 stays closed; ADR-148 supersedes only the over-broad per-job retirement
 behavior and must not be reopened for new scope.
 
-**ADR-151 accepted/open (Domain + Admin API + Scenario/Runtime block
-implemented locally; audit/deploy/live pending):** platform-global reusable
-Scripts are immutable-versioned ordinary code, not nested PersAI agents. The
-local control plane owns Script, immutable published ScriptVersion, ordered
+**ADR-151 closed (2026-07-17):** platform-global reusable Scripts are
+immutable-versioned ordinary code, not nested PersAI agents. The control plane
+owns Script, immutable published ScriptVersion, ordered
 SkillScript, bounded Scenario `scriptRef`, and nullable SandboxJob invocation
 identity schema. `RuntimeBundleSkillScenarioStep.scriptRef` is required
 nullable (no legacy optional dual-read). Bundle materialization resolves an authored
@@ -179,7 +178,10 @@ version/input-hash/runtime/limits), and idempotent admission/replay. Tool SDK,
 browser executor, async/jobRef/wait/notify, and managed secrets are explicitly
 outside ADR-151 (ADRs 152/153); before ADR-153, credentials placed in
 code/input are unmanaged and receive no redaction, TTL, revoke, or log-history
-promise. Independent audit and deploy/live acceptance remain pending.
+promise. Release `f0944d31` / GitOps pin `95c7d68d`, the deployed `5fb61f3c`
+`job.files` repair, and final runtime release `43f653b4` passed the final
+allowed-model audit, strict model-driven Script smoke, and approved-account
+Admin Scripts UI founder acceptance. ADR-151 is closed.
 
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 
