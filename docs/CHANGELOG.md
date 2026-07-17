@@ -5,6 +5,16 @@
 
 ## 2026-07-17
 
+- **ADR (ADR-152 opened; documentation only).** Founder approved the bounded
+  Browser Script SDK and Durable Job Wait/Notify architecture on clean baseline
+  `8fd0159593112b9679fa782b53ea525d786da6a3`. Scope is narrow
+  profile-backed Script `snapshot`/`act` through the existing local browser
+  bridge and universal model-visible `await` (`wait`/durable `notify`) for
+  canonical media/document jobs. It explicitly excludes a general-purpose SDK,
+  Document SDK, headless fallback, durable Script-execution restart, and managed
+  credential scope. This entry records no implementation, migration, deploy,
+  or live-validation claim.
+
 - **ADR (ADR-156 founder-approved global mode-aware tool observation
   windows).** Added a concise follow-through ADR without reopening closed
   ADR-143. `tool-observation-policy.ts` now assigns all tools by mode with no

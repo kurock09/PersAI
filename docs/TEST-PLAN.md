@@ -4,6 +4,48 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
+## ADR-152 Browser Script SDK and Durable Job Wait/Notify (approved; unimplemented)
+
+Before one coordinated deploy, implementation must prove all 18 approved
+founder gates enumerated in
+`docs/ADR/152-browser-script-sdk-and-durable-job-wait-notify.md` under
+**Production exit gates**, including the explicit Document SDK N/A/no-surface
+proof. It must additionally prove:
+
+1. `await wait` returns already-terminal facts without blocking, clamps to 60s,
+   allows only one blocking wait/job/turn, returns pending on timeout without
+   cancelling canonical work, and rejects repeated polling with `notify`
+   guidance; Stop aborts wait/turn but not media/document work.
+2. `await notify` is current-turn terminal, creates no additional provider loop,
+   and later dispatches exactly one fresh-hydrated continuation in the original
+   chat/channel. Completion-before-call returns terminal inline without a
+   continuation. Unattended continuation depth is hard-bounded at four.
+3. Handle mapping rejects foreign/tampered indistinguishably as not-found,
+   rechecks canonical ownership and state, and proves unique `jobRef` plus
+   unique `(kind, canonicalJobId)`. Initial adapter coverage is only media and
+   document jobs; `delivered` is the only terminal success.
+4. Completion-versus-subscribe CAS/reconciliation proves attachment-first
+   delivery occurs once, subscribed jobs skip legacy isolated `maybeFrame`,
+   the full continuation is the only model narrator, and unsubscribed framing
+   remains byte-compatible.
+5. Scheduler claim/retry/reconciliation uses `SchedulerLease`, same-row CAS,
+   live session lease/receipt gates, durable busy requeue, and dispatch-time
+   Assistant/workspace/user/entitlement/chat/channel revalidation.
+6. Browser manifest capability is exactly
+   `{browser:{actions:["snapshot","act"]}}`; absent capability/profile,
+   Telegram, foreign profile, unavailable bridge, observer lock, exact-device
+   affinity, abort, quota/policy/progress/telemetry behavior all fail closed or
+   preserve current `open_in_app` semantics. No headless fallback is exercised.
+7. Broker tests prove one outstanding request/job, TTL routing across replicas,
+   page payload exclusion from Postgres/SandboxJob/GCS/logs, and Redis outage
+   fails the active browser Script closed while ordinary Script execution stays
+   unaffected.
+8. Independent second allowed-model audits are required for wait/notify,
+   browser, and final integration, followed by the full repository gate, one
+   push, exact-image deploy, and founder live acceptance. Document SDK,
+   general-purpose SDK, managed secrets, and durable Script-execution restart
+   must have no acceptance surface.
+
 ## ADR-151 reusable Scripts core (closed 2026-07-17)
 
 The local Domain + Admin API block covers parser/hash/schema guards, DB

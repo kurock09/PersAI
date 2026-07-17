@@ -1,5 +1,40 @@
 # SESSION-HANDOFF
 
+## 2026-07-17 — ADR-152 Browser Script SDK and Durable Job Wait/Notify opened
+
+Status: **Founder-approved architecture checkpoint; docs-only opening on clean
+baseline `8fd0159593112b9679fa782b53ea525d786da6a3`. No product implementation,
+migration, deployment, or live evidence is claimed.**
+
+S0 evidence and decision:
+
+- S0 rejected a general PersAI Tool SDK and a Document SDK. The approved scope
+  is only profile-backed Script browser `snapshot`/`act` through the existing
+  RuntimeBrowserToolService → API local bridge → exact user device, plus the
+  universal model-visible `await` tool for canonical long jobs.
+- `await wait` is terminal-before-call, capped at 60 seconds, one blocking wait
+  per job per turn, and never cancels canonical work. `await notify` is durable
+  and terminal for the current provider loop; later terminal facts create one
+  fresh-hydrated continuation in the exact originating chat/channel without
+  re-delivering files.
+- One additive `assistant_async_job_handles` mapping/continuation row will
+  resolve opaque server-minted `jr1` handles only to owned media/document
+  canonical jobs. Completion delivery stays attachment-first; subscribed jobs
+  skip the existing isolated completion framing so the new continuation is the
+  sole model narrator.
+- Browser scope is exact manifest capability
+  `{browser:{actions:["snapshot","act"]}}`, required structured profile input,
+  existing local bridge/device affinity/observer lock, and a narrow ephemeral
+  broker. No headless fallback, credentials, bridge identifiers, page-payload
+  persistence, durable arbitrary-code resume, or new sandbox contour.
+- ADR-140/142/149/151/156 remain closed and unchanged. ADR-153 remains the
+  managed-credentials program.
+
+Next recommended step: complete an independent documentation audit, then begin
+the first implementation checkpoint only (contracts, durable handle, and
+bounded `await wait`) with a permitted implementation subagent. Do not deploy
+an intermediate checkpoint.
+
 ## 2026-07-17 — ADR-156 global mode-aware observation windows
 
 Status: **ADR-151 and ADR-156 closed 2026-07-17 after CI, exact-image deploy,

@@ -40,6 +40,27 @@ PersAI is the source of truth for:
 - integration state such as Telegram binding/config, including assistant-scoped Telegram access mode in binding metadata (`owner_only` by default, or `group_members` for linked group member access) and Telegram chat/sender metadata on group user messages
 - ADR-097 document-domain persistence (`assistant_documents`, `assistant_document_versions`, `assistant_document_render_jobs`, `assistant_document_provider_mappings`, `assistant_document_delivered_files`, `assistant_document_revision_logs`) for stable `doc_id`, version graph, render-job lifecycle, provider reconciliation metadata, delivery linkage, and revision history
 
+### ADR-152 proposed additive job-handle truth
+
+ADR-152 is approved but not implemented. It specifies one additive table,
+`assistant_async_job_handles`, and no companion subscription/claim table. A row
+contains a stored server-minted opaque
+`jr1.<kind>.<192-bit-random-base64url>` `jobRef`; canonical kind/id; assistant,
+workspace, user, chat, channel, thread, and source-turn ownership; lifecycle
+state `none | subscribed | ready | claimed | dispatched | completed | failed |
+cancelled`; terminal snapshot; narration owner/decision; claim token/TTL/retry
+fields; and deterministic continuation `clientTurnId`. `jobRef` is unique, as
+is `(kind, canonicalJobId)`.
+
+The row maps only canonical `assistant_media_jobs` and
+`assistant_document_render_jobs` initially and also records continuation state.
+Canonical rows remain source of truth: handle resolution always rechecks the
+canonical job and all ownership. `delivered` is the only terminal-success
+adapter state; `completion_pending` and `ready_for_delivery` are pending.
+`assistant_background_task_runs` is excluded until an immutable exposed run
+exists; recurring task rows are not handles. This introduces no ScriptRun,
+browser payload storage, or durable arbitrary-code-resume state.
+
 ## Runtime-plane ownership
 
 The native runtime path uses PersAI-owned runtime state models for:

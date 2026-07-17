@@ -191,6 +191,33 @@ direct MCP execution boundary, no browser/Tool SDK/async `jobRef`/`wait`/
 Until ADR-153, code/input credentials are unmanaged values with no promised
 redaction, TTL, revoke, or log-history protection.
 
+**ADR-152 (approved, not implemented):** adds no public execute endpoint.
+Runtime will project one model tool, `await`, over server-minted opaque
+assistant-owned job refs. `await({action:"wait",jobRef,timeoutMs})` resolves
+terminal state first, caps waits at 60 seconds, permits one blocking wait per
+job/turn, and does not cancel the canonical job. `notify` writes durable
+same-row subscription state and ends the current provider loop; a terminal
+completion later re-enters only the original active chat/channel with fresh
+runtime hydration and no duplicated attachment delivery. A future internal
+runtime/API boundary resolves handles against canonical owned
+`assistant_media_jobs` and `assistant_document_render_jobs` only, returning
+foreign/tampered handles as not found. It will revalidate ownership,
+entitlement, active chat, and channel binding before continuation dispatch.
+The adapter boundary is extensible to later canonical long jobs, but current
+`assistant_background_task_runs` has no immutable exposed run identity and is
+therefore deliberately deferred until that prerequisite exists; recurring
+`assistant_background_tasks` rows never qualify as `jobRef`s.
+
+The only Script browser boundary is a capability-gated
+`{browser:{actions:["snapshot","act"]}}` request through the existing
+`RuntimeBrowserToolService` and ADR-140 profile/bridge seams. A structured
+profile input is mandatory; Script code cannot list profiles, start login,
+open live views, request user action, select another device, use a bridge URL,
+or receive bridge/internal credentials. Telegram and unavailable/foreign
+profiles preserve existing fail-closed or `open_in_app` responses. The
+job-scoped broker is ephemeral live-exec stdin/stdout coordination, not a
+public browser service or a durable Script resume API.
+
 - The web client performs a best-effort latest-history refresh on `focus`, `visibilitychange` back to visible, and `pageshow`, so a passive disconnect that already committed server-side is reconciled without requiring a manual page reload.
 - the hard-stop route is idempotent with explicit outcomes. Terminal attempt `errorCode: "user_stopped"` on successful Stop; next-turn hydration includes explicit user-stop fact.
 - **ADR-149 S2:** web stream uses `PERSAI_RUNTIME_TURN_WALL_CLOCK_MS` (default 30 min) + progress-only idle stall `PERSAI_RUNTIME_TURN_IDLE_STALL_MS` (default 5 min). Stall → public `turn_idle_stall`; wall clock → `runtime_timeout`. `video_generate` worker timeout no longer inflates the whole turn ceiling. Cadence `slow_avg` / `silent` remain disabled.

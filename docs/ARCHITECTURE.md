@@ -183,6 +183,37 @@ promise. Release `f0944d31` / GitOps pin `95c7d68d`, the deployed `5fb61f3c`
 allowed-model audit, strict model-driven Script smoke, and approved-account
 Admin Scripts UI founder acceptance. ADR-151 is closed.
 
+**ADR-152 (approved, not implemented):** the next bounded architecture adds
+only a Script browser SDK and durable canonical-job observation. Script browser
+capability is exactly `{browser:{actions:["snapshot","act"]}}`: a required
+structured profile input reaches the existing `RuntimeBrowserToolService`, API
+local bridge, and exact user device with existing affinity, observer lock,
+abort, policy/quota, progress, and telemetry. It has no headless fallback,
+browser list/login/open-live/user-action SDK methods, or Script-visible bridge
+credentials/identifiers. A narrow job-scoped TTL Redis broker extends live-exec
+stdin/stdout framing; it is not a second browser runtime, permits one
+outstanding request/job, and fails an active Script closed on loss/restart.
+Browser page payloads never persist to Postgres, SandboxJob, GCS, or logs.
+
+The universal model-visible `await` tool will observe only owned canonical
+media/document jobs through opaque server-minted `jr1` handles mapped by one
+additive `assistant_async_job_handles` table. `wait` is terminal-before-call,
+capped at 60 seconds, one blocking wait/job/turn, and never cancels canonical
+work; `notify` creates durable subscription and ends the provider loop, later
+dispatching exactly one fresh-hydrated continuation in the original chat/channel
+without re-delivering files. Existing attachment-first delivery remains sole
+file delivery owner. Subscribed completion skips legacy isolated completion
+framing; unsubscribed behavior remains byte-compatible. The continuation chain
+is bounded to four unattended continuations per originating user turn.
+The canonical-job adapter contract is extensible, but background work is
+deliberately deferred: current `assistant_background_task_runs` lacks an
+immutable exposed run identity suitable for handle minting/resolution, and a
+recurring `assistant_background_tasks` row never qualifies as a job reference.
+Document SDK is NO-GO because nested document SandboxJobs contend for the outer
+Script's workspace queue/lease and deterministically time out within a bound.
+This is not a general-purpose SDK, durable Script-execution restart, or
+managed-secret program; ADR-153 owns credential guarantees.
+
 Model-facing `files.*`, `grep`, and `glob` are **storage-plane** tools: runtime writes/reads committed bytes via GCS + `workspace_file_metadata` + internal API (`apps/api`), not sandbox `toolCode: "files"`.
 
 **ADR-146 closed target (Slices 0–6 landed, deployed, and live-accepted

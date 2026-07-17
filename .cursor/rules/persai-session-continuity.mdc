@@ -18,6 +18,15 @@ alwaysApply: true
   Dynamic/token-threshold compaction is out of scope. Independent allowed-model
   audit, exact-image deploy, projection-metric smoke, and founder live
   acceptance passed. Do not reopen ADR-156.
+- **ADR-152** Browser Script SDK and Durable Job Wait/Notify is the current
+  founder-approved parent-orchestrated program (opened 2026-07-17; docs-only
+  opening). It adds only narrow profile-backed Script browser `snapshot`/`act`
+  through the existing local bridge and universal `await` `wait`/`notify` for
+  canonical media/document jobs. It adds no general-purpose SDK; Document SDK
+  is NO-GO. Parent audits/commits only; implementation subagents may use only
+  `gpt-5.6-terra-medium` or `claude-sonnet-5-thinking-high`. The next checkpoint
+  is a docs audit, then implementation beginning with contracts, durable handle,
+  and bounded `await wait`; no intermediate deploy.
 - Treat `docs/SESSION-HANDOFF.md` as the source of truth for the latest completed checkpoint and the user's next stated priority.
 - Treat `docs/CHANGELOG.md` as the source of truth for what has actually landed.
 - If ADR, handoff, changelog, and code disagree, stop and reconcile docs before code changes.

@@ -63,6 +63,8 @@ closed ADR-143. Dynamic/token-threshold compaction is out of scope. Independent
 allowed-model audit, exact-image deploy, projection-metric smoke, and founder
 live acceptance passed. Do not reopen ADR-156 for new scope.
 
+Additional active parent-orchestrated program: `docs/ADR/152-browser-script-sdk-and-durable-job-wait-notify.md` (founder-approved architecture checkpoint, opened 2026-07-17; documentation only at opening). Scope is only narrow profile-backed Script browser `snapshot`/`act` through the existing local bridge and universal model-visible `await` with bounded `wait`/durable `notify` for canonical media/document jobs. It adds no general-purpose SDK; Document SDK is NO-GO; durable restart of Script execution, headless fallback, and managed secrets remain out of scope. Use only `gpt-5.6-terra-medium` or `claude-sonnet-5-thinking-high` implementation subagents; parent audits/commits only. Follow checkpoints with no intermediate deploy: contracts+handle/wait, durable notify, browser SDK/broker, Admin/MCP manifest authoring/contracts, then independent audits/full gate/one push/deploy/live acceptance. ADR-151 and ADR-156 remain closed.
+
 Additional orchestration program **superseded by ADR-140 (do not implement new scope):** `docs/ADR/138-browser-persistent-profiles-and-live-login.md` and `docs/ADR/139-browserless-capability-policy-stealth-proxy-elements-and-recovery.md`.
 
 ## Repo rules
