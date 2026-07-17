@@ -1,5 +1,49 @@
 # SESSION-HANDOFF
 
+## 2026-07-17 — ADR-151 live P1 repair: Script result file-extraction discriminator
+
+Status: **Accepted / Open — bounded runtime repair is implemented and
+independently audited CLEAN locally on baseline `9c142517`; redeploy and live
+re-test remain pending.**
+
+Live finding and repair:
+
+- Completed `script.execute` SandboxJobs returned the exact validated structured
+  `RuntimeScriptToolResult.output`, but receipt construction then threw
+  `Cannot read properties of undefined (reading 'files')`.
+- `TurnExecutionService.isSandboxToolPayload` used
+  `executionMode === "sandbox"` as the produced-file discriminator. That also
+  matched `RuntimeScriptToolResult`, whose deliberate contract is
+  `toolCode: "script.execute"` with `jobId` and structured `output`, not a
+  sandbox `job`; `resolveProducedFileJob` consequently returned `undefined`
+  and `extractProducedFileHandles` dereferenced `job.files`.
+- The discriminator now requires the structural `job` + `paths` fields of a
+  produced-file sandbox result, so Script results bypass extraction while
+  ordinary `exec`/`shell` jobs retain their existing `job.files` projection.
+  No Script fields, aliases, or executor behavior changed.
+- `apps/runtime/test/turn-execution.service.test.ts` adds regression assertions
+  at the real post-tool `extractProducedFileHandles` seam: a completed exact
+  Script result returns no file handles without throwing; an ordinary completed
+  shell job still produces its sandbox file handle. The existing
+  `runAdr151TurnDispatchIntegrationTest` export is already listed in the real
+  isolated runtime package suite.
+
+Checks passed:
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/turn-execution.service.test.ts runAdr151TurnDispatchIntegrationTest`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+- full `corepack pnpm --filter @persai/runtime run test`
+- repo-wide `corepack pnpm run format:check` (independent audit)
+- `git diff --check`
+- independent allowed-model runtime audit: CLEAN, no P0/P1/P2 findings.
+
+Residuals / next step:
+
+- Redeploy and repeat the founder's same model-driven warm-session Script chat
+  smoke; then complete approved-account Admin UI acceptance. ADR-151 remains
+  Accepted/Open until founder-visible acceptance succeeds.
+
 ## 2026-07-17 — ADR-151 deployed; founder live acceptance pending
 
 Status: **Accepted / Open — local and GitHub gates, migration, image

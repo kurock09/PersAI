@@ -5,6 +5,25 @@
 
 ## 2026-07-17
 
+- **ADR (ADR-151 live P1 repair: Script result file-extraction
+  discriminator).** Fixed the post-tool receipt seam where
+  `TurnExecutionService.isSandboxToolPayload` treated every
+  `executionMode: "sandbox"` payload as a produced-file
+  `RuntimeSandboxToolResult`. A completed `script.execute` result intentionally
+  carries exact structured `output` and a `jobId`, not a `job`; the old
+  discriminator therefore returned `undefined` from `resolveProducedFileJob`
+  and crashed on `job.files` during receipt construction. The produced-file
+  discriminator now requires the sandbox result's structural `job` + `paths`
+  fields, leaving ordinary `exec`/`shell` sandbox job file projection unchanged.
+  Focused runtime coverage exercises
+  the actual post-tool `extractProducedFileHandles` seam for both a completed
+  Script result (no throw/no handles) and an ordinary shell job (its file
+  handle remains); it is included in the existing real isolated runtime
+  package gate. Focused test, full runtime suite, runtime typecheck/lint,
+  repo-wide format check, and `git diff --check` passed; independent
+  allowed-model runtime audit returned CLEAN with no P0/P1/P2 findings.
+  ADR-151 remains Accepted/Open pending redeploy and founder live acceptance.
+
 - **ADR (ADR-151 P1 repair: runtime scriptRef materialization fail-closed
   gap; independently audited CLEAN locally).** Fixed
   `skill-scenario-runtime-normalization.ts`'s hand-rolled `scriptRef`

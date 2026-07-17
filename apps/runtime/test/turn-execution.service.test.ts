@@ -2247,6 +2247,7 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
       toolBudgetSnapshot: unknown,
       turnState: unknown
     ): Promise<void>;
+    extractProducedFileHandles(payload: unknown): RuntimeFileHandle[];
   };
   const request = createRuntimeTurnRequest();
   const execution = {
@@ -2339,8 +2340,67 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
     execution.providerRequest.tools.some((tool) => tool.name === "script"),
     false
   );
+  assert.deepEqual(
+    privateAccess.extractProducedFileHandles({
+      toolCode: "script.execute",
+      executionMode: "sandbox",
+      action: "completed",
+      reason: null,
+      warning: null,
+      scriptKey: "dispatch_script",
+      versionNumber: 1,
+      jobId: "sandbox-job-script-1",
+      output: { echoed: "exact structured output" }
+    }),
+    [],
+    "completed Script results must bypass the post-tool produced-file extraction seam"
+  );
+  assert.deepEqual(
+    privateAccess.extractProducedFileHandles({
+      toolCode: "shell",
+      executionMode: "sandbox",
+      action: "completed",
+      reason: null,
+      warning: null,
+      paths: ["/workspace/assistants/assistant-handle/sessions/session-id/report.txt"],
+      job: {
+        jobId: "sandbox-job-shell-1",
+        status: "completed",
+        toolCode: "shell",
+        reason: null,
+        warning: null,
+        violationCode: null,
+        violationMessage: null,
+        exitCode: 0,
+        stdout: null,
+        stderr: null,
+        content: null,
+        files: [
+          {
+            relativePath: "report.txt",
+            displayName: "report.txt",
+            mimeType: "text/plain",
+            sizeBytes: 64,
+            logicalSizeBytes: 64,
+            storagePath: "/workspace/assistants/assistant-handle/sessions/session-id/report.txt"
+          }
+        ]
+      }
+    }),
+    [
+      {
+        storagePath: "/workspace/assistants/assistant-handle/sessions/session-id/report.txt",
+        mimeType: "text/plain",
+        sizeBytes: 64,
+        displayName: "report.txt",
+        workspaceId: "",
+        authorLabel: "sandbox"
+      }
+    ],
+    "ordinary sandbox jobs must retain produced-file extraction"
+  );
   console.log(
-    "[adr151-turn-dispatch] live dispatch reauthorization and volatile script projection assertions passed"
+    "[adr151-turn-dispatch] live dispatch, produced-file extraction, and volatile script projection assertions passed"
   );
 }
 

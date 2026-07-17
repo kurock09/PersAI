@@ -6220,7 +6220,9 @@ export class TurnExecutionService {
       payload !== null &&
       typeof payload === "object" &&
       "executionMode" in payload &&
-      payload.executionMode === "sandbox"
+      payload.executionMode === "sandbox" &&
+      "job" in payload &&
+      "paths" in payload
     );
   }
 
