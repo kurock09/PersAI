@@ -2,8 +2,9 @@
 
 ## Status
 
-**Accepted / Open — implementation, independent audits, and local repository
-gate satisfied; deploy and founder live acceptance pending.**
+**Accepted / Open — implementation, independent audits, local/GitHub gates,
+migration, and deployment satisfied at release `f0944d31` / GitOps pin
+`95c7d68d`; founder live acceptance pending.**
 Founder-approved architecture checkpoint started 2026-07-16 on baseline
 `36947f7544918c0fddadae6ec17f75883b1b1365` (`adr-151-reusable-scripts`).
 The local Domain + Admin API block includes schema/migration, lifecycle,

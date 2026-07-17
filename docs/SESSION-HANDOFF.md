@@ -1,5 +1,53 @@
 # SESSION-HANDOFF
 
+## 2026-07-17 — ADR-151 deployed; founder live acceptance pending
+
+Status: **Accepted / Open — local and GitHub gates, migration, image
+publication, and deployment are complete. Release `f0944d31`, migration-approved
+GitOps pin `95c7d68d`; founder live acceptance remains pending.**
+
+Deployment evidence:
+
+- GitHub CI run `29583600622` passed its full-check path.
+- Dev Image Publish run `29583600604` built all five affected images and passed
+  the protected `persai-dev-migrations` approval before pinning.
+- Argo CD is `Synced / Healthy` at exact revision
+  `95c7d68da265d1fb0f1ba3cb4f4437e53629f017`.
+- `api`, `web`, `runtime`, `provider-gateway`, and `sandbox` are each 2/2 Ready
+  on exact image tag `f0944d31a052c7a340e1f5ec0e7f544189ec3b16`.
+- Public `https://persai.dev/api/{health,ready}` returned HTTP 200. Internal
+  runtime, provider-gateway, and sandbox readiness returned HTTP 200.
+- Live Prisma migration
+  `20260716220000_adr151_scripts_domain` has non-null `finished_at`, null
+  `rolled_back_at`; `scripts`, `script_versions`, and `skill_scripts` exist.
+
+Live acceptance progress and blocker:
+
+- The retained authenticated browser account is not an approved Admin account:
+  `GET /api/v1/admin/scripts` returned stable 403 `forbidden` with
+  `Admin access is restricted to approved accounts.` Authenticated Admin Scripts
+  UI acceptance therefore requires founder takeover with an approved account.
+- After founder reload, a fresh Agent chat advertised all nine Script MCP tools.
+  MCP created `adr151_live_echo`, proved a draft cannot bind
+  (`admin_skill_script_not_published`), validated and published immutable v1
+  (`dc53ce96-7296-4fe7-9b0b-cbe1638862f7`, content hash
+  `32c1c478a…`), linked the same Script to two Skills, authored an active
+  structured Scenario `scriptRef`, and published the Assistant bundle.
+- Three real model-driven chat attempts projected and executed `script.execute`
+  successfully in the same warm pod `ses-9d8d675f9b99a3920927adc0d40b11ba`.
+  Each `SandboxJob` completed with `exitCode=0`, exact validated input/output,
+  and no violation. However every turn receipt then failed with
+  `turn_execution_failed: Cannot read properties of undefined (reading
+'files')`. Root cause is the post-tool produced-file extractor treating every
+  `executionMode:"sandbox"` payload as `RuntimeSandboxToolResult`; the new
+  `RuntimeScriptToolResult` deliberately has structured `output` and no `job`
+  field. This is a P1 live seam defect; ADR-151 remains open.
+
+**Next recommended step:** apply one bounded runtime discriminator repair with
+focused regression coverage and independent allowed-model audit, redeploy, and
+repeat the same live chat smoke. Then complete approved-account Admin UI
+acceptance and close ADR-151 only if all founder-visible checks pass.
+
 ## 2026-07-17 — ADR-151 P1 repair: runtime scriptRef materialization fail-closed gap
 
 Status: **Accepted / Open — bounded P1 repair implemented and independently
