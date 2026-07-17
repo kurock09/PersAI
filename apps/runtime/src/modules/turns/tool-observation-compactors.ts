@@ -10,6 +10,7 @@ import type { ToolObservationTier } from "./tool-observation-policy";
 export const TOOL_OBSERVATION_STDOUT_TAIL_CHARS = 500;
 export const TOOL_OBSERVATION_STDERR_TAIL_CHARS = 500;
 export const TOOL_OBSERVATION_GENERIC_GIST_CHARS = 400;
+export const TOOL_OBSERVATION_SCRIPT_OUTPUT_MAX_SERIALIZED_CHARS = 2_000;
 
 type JsonObject = Record<string, unknown>;
 
@@ -172,6 +173,65 @@ function compactFiles(parsed: JsonObject, isError: boolean): JsonObject {
   };
 }
 
+function compactScriptOutput(output: unknown): unknown {
+  const serialized = JSON.stringify(output);
+  if (
+    serialized === undefined ||
+    serialized.length <= TOOL_OBSERVATION_SCRIPT_OUTPUT_MAX_SERIALIZED_CHARS
+  ) {
+    return output;
+  }
+
+  let prefixLength = TOOL_OBSERVATION_SCRIPT_OUTPUT_MAX_SERIALIZED_CHARS;
+  while (prefixLength >= 0) {
+    const candidate = {
+      __truncated: true,
+      originalSerializedChars: serialized.length,
+      omittedSerializedChars: serialized.length - prefixLength,
+      jsonPrefix: serialized.slice(0, prefixLength)
+    };
+    if (JSON.stringify(candidate).length <= TOOL_OBSERVATION_SCRIPT_OUTPUT_MAX_SERIALIZED_CHARS) {
+      return candidate;
+    }
+    prefixLength -= 1;
+  }
+
+  return {
+    __truncated: true,
+    originalSerializedChars: serialized.length,
+    omittedSerializedChars: serialized.length,
+    jsonPrefix: ""
+  };
+}
+
+function compactScript(parsed: JsonObject, isError: boolean): JsonObject {
+  return {
+    toolCode: "script.execute",
+    ...(asString(parsed.executionMode) !== null
+      ? { executionMode: asString(parsed.executionMode) }
+      : {}),
+    ...(asString(parsed.action) !== null ? { action: asString(parsed.action) } : {}),
+    ...("reason" in parsed && (asString(parsed.reason) !== null || parsed.reason === null)
+      ? { reason: parsed.reason }
+      : {}),
+    ...("warning" in parsed && (asString(parsed.warning) !== null || parsed.warning === null)
+      ? { warning: parsed.warning }
+      : {}),
+    ...("scriptKey" in parsed && (asString(parsed.scriptKey) !== null || parsed.scriptKey === null)
+      ? { scriptKey: parsed.scriptKey }
+      : {}),
+    ...("versionNumber" in parsed &&
+    (asNumber(parsed.versionNumber) !== null || parsed.versionNumber === null)
+      ? { versionNumber: parsed.versionNumber }
+      : {}),
+    ...("jobId" in parsed && (asString(parsed.jobId) !== null || parsed.jobId === null)
+      ? { jobId: parsed.jobId }
+      : {}),
+    ...("output" in parsed ? { output: compactScriptOutput(parsed.output) } : {}),
+    ...(isError ? { isError: true } : {})
+  };
+}
+
 function compactGeneric(parsed: JsonObject | null, toolCode: string, isError: boolean): JsonObject {
   if (parsed === null) {
     return {
@@ -296,6 +356,12 @@ export function compactOrMaskToolResultContent(params: {
       return compactGeneric(null, toolCode, params.isError);
     }
     return compactFiles(parsed, params.isError);
+  }
+  if (toolCode === "script.execute") {
+    if (parsed === null) {
+      return compactGeneric(null, toolCode, params.isError);
+    }
+    return compactScript(parsed, params.isError);
   }
   return compactGeneric(parsed, toolCode, params.isError);
 }

@@ -50,6 +50,19 @@ additionally covers:
   projection-time state; `refreshVolatilePrefix` adds/removes the dynamic
   `script` tool as todo/Skill state changes; projection also requires
   `bundle.runtime.sandbox.enabled === true`.
+- **Post-tool receipt and observation projection**
+  (`apps/runtime/test/turn-execution.service.test.ts` and
+  `apps/runtime/test/project-tool-exchanges-for-model.test.ts`): a completed
+  `RuntimeScriptToolResult` passes through the real produced-file extraction
+  seam without being mistaken for an `exec`/`shell` sandbox job, throws no
+  `job.files` error, and produces no file handles, while ordinary sandbox-job
+  file extraction remains unchanged. ADR-143 compact projection retains exact
+  small structured Script output plus action/reason/warning and Script identity;
+  oversized output becomes deterministic valid marked JSON under the explicit
+  2,000-character serialized output cap. Masked Script projection retains only
+  the stable tool/action/reason-or-warning gist and never leaks structured
+  output. Canonical stored exchanges remain full, and existing generic/browser/
+  shell/files compact behavior remains unchanged.
 - **Sandbox admission/idempotency**
   (`apps/sandbox/test/script-execute-idempotency.test.ts`): atomic
   create-by-`(assistantId, scriptInvocationKey)` runs before ordinary

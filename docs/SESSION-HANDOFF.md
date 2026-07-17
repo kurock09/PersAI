@@ -1,5 +1,66 @@
 # SESSION-HANDOFF
 
+## 2026-07-17 — ADR-151 second live repair: compact Script output retention
+
+Status: **Accepted / Open — the first runtime receipt repair is deployed and
+the second bounded live seam repair is implemented and independently audited
+CLEAN locally from baseline `c654d02f`; redeploy and live re-test remain
+pending.**
+
+Live evidence and exact root cause:
+
+- After the first repair deployed, the model-driven Script turn completed and
+  canonical `RuntimeTurnReceipt.toolExchanges` stored the exact structured
+  Script output. The model saw that full output on the immediate post-Script
+  iteration, then called `todo_write` and `skill`; its final answer fabricated
+  fields.
+- ADR-143's later-iteration projection resolved payload
+  `toolCode: "script.execute"` through `compactGeneric`. That reducer replaces
+  object-valued fields with presence metadata, so `output` became
+  `outputPresent: true` once the Script exchange moved from `full` to `compact`.
+  Canonical storage remained correct; only the model-facing compact projection
+  lost the values.
+
+Bounded repair:
+
+- `tool-observation-compactors.ts` now routes `script.execute` through a
+  dedicated compact reducer. It retains `executionMode`, `action`, `reason`,
+  `warning`, `scriptKey`, `versionNumber`, and `jobId`, and preserves a small
+  structured `output` exactly.
+- Script output has an explicit 2,000-character serialized compact-output cap.
+  Oversized output becomes deterministic valid JSON:
+  `{__truncated:true, originalSerializedChars, omittedSerializedChars,
+jsonPrefix}`; the complete replacement object's serialization is at most the
+  cap. Mask behavior is unchanged, and error observations remain compact with
+  their diagnostic action/reason/warning and Script identity.
+- Existing projection coverage now proves exact small structured output
+  retention, deterministic bounded oversized output, useful Script error
+  diagnostics, explicit masked-tier action/reason-or-warning gist behavior
+  without structured-output leakage, unchanged generic/browser/shell/files
+  behavior, and non-mutation of the canonical full Script exchange.
+  `docs/TEST-PLAN.md` now records both live seam regressions. The existing
+  `runProjectToolExchangesForModelTest` is already wired into
+  `apps/runtime/test/run-suite-isolated.ts`; the turn-execution focused export
+  still proves stored exchanges remain canonical full.
+
+Checks passed:
+
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/project-tool-exchanges-for-model.test.ts runProjectToolExchangesForModelTest`
+- `corepack pnpm --filter @persai/runtime exec tsx test/run-one.ts test/turn-execution.service.test.ts runTurnExecutionServiceTest`
+- `corepack pnpm --filter @persai/runtime run typecheck`
+- `corepack pnpm --filter @persai/runtime run lint`
+- full `corepack pnpm --filter @persai/runtime run test`
+- `corepack pnpm run format:check`
+- `git diff --check`
+- final independent allowed-model audit: CLEAN, no P0/P1/P2 findings.
+
+Residuals / next step:
+
+- Redeploy runtime and repeat the same model-driven Script → `todo_write` →
+  `skill` smoke, verifying the final answer uses the exact Script fields.
+  Complete approved-account Admin UI acceptance afterward. ADR-151 remains
+  Accepted/Open until founder-visible acceptance succeeds.
+
 ## 2026-07-17 — ADR-151 live P1 repair: Script result file-extraction discriminator
 
 Status: **Accepted / Open — bounded runtime repair is implemented and
