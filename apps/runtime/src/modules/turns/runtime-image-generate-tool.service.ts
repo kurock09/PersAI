@@ -318,6 +318,7 @@ export class RuntimeImageGenerateToolService {
             reason: null,
             warning: null,
             jobId: enqueueOutcome.jobId,
+            jobRef: enqueueOutcome.jobRef,
             canSendFileNow: false,
             messageToUser: this.buildPendingDeliveryMessageToUser(request.count),
             expectedResultCount: request.count

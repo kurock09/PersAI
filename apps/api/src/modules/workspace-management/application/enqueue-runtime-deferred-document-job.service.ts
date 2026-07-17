@@ -15,6 +15,7 @@ import { ReadInternalRuntimeQuotaStatusService } from "./read-internal-runtime-q
 import { ResolveInternalRuntimeToolDailyPolicyService } from "./resolve-internal-runtime-tool-daily-policy.service";
 import { PlatformRuntimeProviderSecretStoreService } from "./platform-runtime-provider-secret-store.service";
 import { GammaThemePickerService } from "./gamma/gamma-theme-picker.service";
+import { WorkspaceManagementPrismaService } from "../infrastructure/persistence/workspace-management-prisma.service";
 const MAX_OPEN_DOCUMENT_JOBS_PER_CHAT = 2;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -52,8 +53,40 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     private readonly readInternalRuntimeQuotaStatusService: ReadInternalRuntimeQuotaStatusService,
     private readonly resolveInternalRuntimeToolDailyPolicyService: ResolveInternalRuntimeToolDailyPolicyService,
     private readonly platformRuntimeProviderSecretStoreService: PlatformRuntimeProviderSecretStoreService,
-    private readonly gammaThemePickerService: GammaThemePickerService
+    private readonly gammaThemePickerService: GammaThemePickerService,
+    private readonly prisma: WorkspaceManagementPrismaService
   ) {}
+
+  async resolveJobRef(renderJobId: string): Promise<string> {
+    const row = await this.prisma.assistantAsyncJobHandle.findUniqueOrThrow({
+      where: {
+        kind_canonicalJobId: { kind: "document", canonicalJobId: renderJobId }
+      },
+      select: { jobRef: true }
+    });
+    return row.jobRef;
+  }
+
+  async execute(input: EnqueueRuntimeDeferredDocumentJobInput): Promise<
+    | {
+        accepted: true;
+        docId: string;
+        versionId: string;
+        renderJobId: string;
+        jobRef: string;
+        documentType: "presentation";
+      }
+    | {
+        accepted: false;
+        code: string;
+        message: string;
+        guidance?: string | null;
+      }
+  > {
+    const outcome = await this.executeCanonical(input);
+    if (!outcome.accepted) return outcome;
+    return { ...outcome, jobRef: await this.resolveJobRef(outcome.renderJobId) };
+  }
 
   parseInput(payload: unknown): EnqueueRuntimeDeferredDocumentJobInput {
     const row = this.objectValue(payload, "payload");
@@ -125,7 +158,7 @@ export class EnqueueRuntimeDeferredDocumentJobService {
     return refs;
   }
 
-  async execute(input: EnqueueRuntimeDeferredDocumentJobInput): Promise<
+  private async executeCanonical(input: EnqueueRuntimeDeferredDocumentJobInput): Promise<
     | {
         accepted: true;
         docId: string;

@@ -5,6 +5,26 @@
 
 ## 2026-07-17
 
+- **ADR-152 checkpoint 1 implemented locally and independently audited CLEAN
+  (not deployed/live-accepted).**
+  Added one additive `assistant_async_job_handles` table and transactional
+  canonical media/document insert triggers for opaque 192-bit `jr1` handles;
+  unique `jobRef` and `(kind, canonicalJobId)` mapping; owned API-side canonical
+  resolver; async media/presentation receipt `jobRef`; and universal
+  model-visible `await.wait` with status-only zero, 60-second cap, one blocking
+  wait/job/turn, timeout-without-cancel, and Stop-aware abort. The cap is one
+  overall deadline including slow status RPCs; pre-ownership expiry is typed
+  without asserting existence. Internal channel parsing is strict, and future
+  production rollout is locked migration → API → runtime. `notify`, durable
+  continuation scheduling, browser Script SDK/broker, Admin/MCP browser
+  authoring, Document SDK, secrets, and deploy work remain unimplemented.
+  Final Sonnet re-audit returned CLEAN after two repair rounds. Parent reran the
+  complete runtime isolated suite (exit 0), focused async-handle API tests,
+  API/runtime typecheck+lint, Prisma format/validate/generate, root format, and
+  diff check; all passed. A clean disposable `pgvector/pgvector:pg16` applied all
+  191 migrations and proved both trigger mappings and duplicate rejection before
+  cleanup.
+
 - **ADR (ADR-152 opened; documentation only).** Founder approved the bounded
   Browser Script SDK and Durable Job Wait/Notify architecture on clean baseline
   `8fd0159593112b9679fa782b53ea525d786da6a3`. Scope is narrow

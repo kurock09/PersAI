@@ -421,6 +421,7 @@ export function projectRuntimeNativeTools(
   if (bundle.runtime.sandbox?.enabled === true && options?.activeScriptRef) {
     projectedTools.push(createScriptToolDefinition(options.activeScriptRef));
   }
+  projectedTools.push(createAwaitToolDefinition());
 
   const projection: RuntimeNativeToolProjection = {
     tools: projectedTools,
@@ -428,6 +429,29 @@ export function projectRuntimeNativeTools(
     knowledgeFetchSources: projectedKnowledgeFetchSources
   };
   return applyWireExpandedCatalogToolProjection(bundle, projection, options);
+}
+
+function createAwaitToolDefinition(): ProviderGatewayToolDefinition {
+  return {
+    name: "await",
+    description:
+      "Read or briefly wait for an owned asynchronous media/document job by its opaque jobRef. One call observes server-side; timeout never cancels the job.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["action", "jobRef"],
+      properties: {
+        action: { type: "string", enum: ["wait"], description: 'Must be "wait".' },
+        jobRef: { type: "string", description: "Exact opaque jobRef from a pending tool receipt." },
+        timeoutMs: {
+          type: "integer",
+          minimum: 0,
+          maximum: 60_000,
+          description: "0 performs a status-only read; positive values block up to 60 seconds."
+        }
+      }
+    }
+  };
 }
 
 function applyWireExpandedCatalogToolProjection(

@@ -66,6 +66,10 @@ ADR-109 and ADR-111 add one bounded HeyGen-backed product seam inside the active
 - ADR-147 Slice S2 local truth: runtime bundles now carry non-model `effectiveRoleId`; `skill.engage` / `skill.release` persistence validates internal UUIDs before raw casts, sends `expectedRoleId`, and returns honest `stale_assistant_role_snapshot` results instead of claiming durable state after a role change or role-skill drift. Skill-related mutations share the absent-link-safe order `Skill -> AssistantRole -> Assistant -> AssistantChat -> AssistantRoleSkill` (sorted ids for every multi-row class). Scenario mutation locks its parent Skill before discovering/revalidating linked Roles and taking its Assistant snapshot; release uses an unlocked Skill candidate only to enter that order, then revalidates locked chat state before writing. Future Role-Skill replacement must lock every involved Skill before any Role. Role PUT touches no Skill/link and remains a valid Role→Assistant subsequence with bounded Assistant revalidation retry.
 - runtime session and turn state
 - native execution health/readiness
+- ADR-152 checkpoint 1 model-visible `await.wait`: one bounded observation call
+  through the API-owned canonical resolver, with status-only zero timeout,
+  60-second cap, one blocking wait per job per turn, and Stop aborting only the
+  wait/turn. No runtime Prisma access or parallel job registry is introduced.
 
 ### Provider plane
 

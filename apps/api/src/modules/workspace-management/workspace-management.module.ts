@@ -50,6 +50,7 @@ import { InternalRuntimeKnowledgeController } from "./interface/http/internal-ru
 import { InternalRuntimeMemoryController } from "./interface/http/internal-runtime-memory.controller";
 import { InternalRuntimeCompactionEnqueueController } from "./interface/http/internal-runtime-compaction-enqueue.controller";
 import { InternalRuntimeDocumentJobsEnqueueController } from "./interface/http/internal-runtime-document-jobs-enqueue.controller";
+import { InternalRuntimeAsyncJobsController } from "./interface/http/internal-runtime-async-jobs.controller";
 import { InternalRuntimeDocumentInspectController } from "./interface/http/internal-runtime-document-inspect.controller";
 import { InternalRuntimeDocumentRegisterVersionController } from "./interface/http/internal-runtime-document-register-version.controller";
 import { InternalRuntimeFilesController } from "./interface/http/internal-runtime-files-controller";
@@ -307,6 +308,7 @@ import { PrismaWorkspaceVideoPersonaRepository } from "./infrastructure/persiste
 import { WORKSPACE_VIDEO_CLONED_VOICE_REPOSITORY } from "./domain/workspace-video-cloned-voice.repository";
 import { PrismaWorkspaceVideoClonedVoiceRepository } from "./infrastructure/persistence/prisma-workspace-video-cloned-voice.repository";
 import { EnqueueRuntimeDeferredMediaJobService } from "./application/enqueue-runtime-deferred-media-job.service";
+import { ResolveAssistantAsyncJobService } from "./application/resolve-assistant-async-job.service";
 import { CheckpointMediaJobAcceptedProviderTaskService } from "./application/checkpoint-media-job-accepted-provider-task.service";
 import { InternalRuntimeDocumentJobClientService } from "./application/internal-runtime-document-job.client.service";
 import { InternalRuntimeMediaJobClientService } from "./application/internal-runtime-media-job.client.service";
@@ -492,6 +494,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     InternalRuntimeCrossSessionMarkFiredController,
     InternalRuntimeCompactionEnqueueController,
     InternalRuntimeDocumentJobsEnqueueController,
+    InternalRuntimeAsyncJobsController,
     InternalRuntimeDocumentInspectController,
     InternalRuntimeDocumentRegisterVersionController,
     InternalRuntimeFilesController,
@@ -670,6 +673,7 @@ import { TelegramAlbumFinalizerSchedulerService } from "./application/telegram-a
     KlingVoiceCatalogService,
     HeyGenVoiceCatalogService,
     EnqueueRuntimeDeferredMediaJobService,
+    ResolveAssistantAsyncJobService,
     CheckpointMediaJobAcceptedProviderTaskService,
     InternalRuntimeCompactionClientService,
     InternalRuntimeBackgroundTaskClientService,

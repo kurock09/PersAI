@@ -518,6 +518,7 @@ export class RuntimeVideoGenerateToolService {
               reason: null,
               warning: talkingAvatarNormalized.warning,
               jobId: enqueueOutcome.jobId,
+              jobRef: enqueueOutcome.jobRef,
               canSendFileNow: false,
               messageToUser:
                 "Accepted. The talking-avatar video cannot be attached in this reply; it is being prepared and will be delivered in a separate message when ready.",
@@ -823,6 +824,7 @@ export class RuntimeVideoGenerateToolService {
             reason: null,
             warning: normalizedRequest.warning,
             jobId: enqueueOutcome.jobId,
+            jobRef: enqueueOutcome.jobRef,
             canSendFileNow: false,
             messageToUser:
               "Accepted. The video cannot be attached in this reply; it is being prepared and will be delivered in a separate message when ready.",

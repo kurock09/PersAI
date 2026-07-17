@@ -1,5 +1,45 @@
 # SESSION-HANDOFF
 
+## 2026-07-17 — ADR-152 checkpoint 1 implemented locally
+
+Status: **Opaque canonical media/document handles, owned resolver, and bounded
+model-visible `await.wait` are implemented locally and independently audited
+CLEAN. Not deployed or live-accepted.**
+
+- One additive `assistant_async_job_handles` table owns both mapping and future
+  continuation fields. Canonical insert triggers mint
+  `jr1.<media|document>.<192-bit base64url>` in the same transaction; no second
+  registry exists.
+- API owns resolution and canonical status truth. Runtime receives only opaque
+  identity, normalized status, and bounded terminal facts.
+- Async media and deferred presentation receipts carry `jobRef` without
+  removing legacy fields. Inline document inspect/render/convert remain
+  unchanged and carry no async handle.
+- `await` projects only `wait`; zero is status-only, positive values clamp to
+  60 seconds, one blocking wait/job/turn is enforced in ephemeral turn state,
+  timeout does not cancel work, and Stop aborts the wait.
+- Durable `notify`, continuation scheduler, browser SDK/broker, Admin/MCP
+  browser authoring, Document SDK, secrets, and deploy changes are untouched.
+- Future deploy must be ordered migration → all API replicas → runtime. New
+  runtime requires both `jobRef` enqueue receipts and the status seam; it must
+  never overlap an old API replica. Rollback is runtime-first and keeps the
+  additive table. No compatibility alias or handleless fallback is permitted.
+- Post-audit regressions are corrected locally: universal projection fixtures
+  now model 25 tools (24 plan-visible plus `await`), positive waits use one
+  end-to-end RPC-inclusive deadline, channel parsing is strict, and the complete
+  runtime isolated suite is green.
+- Clean migration/trigger proof passed in disposable
+  `pgvector/pgvector:pg16`: all 191 migrations applied/current; one media and
+  one document insert each minted exactly one correctly shaped owned handle;
+  duplicate canonical mapping was rejected; container removed.
+- Final Sonnet re-audit returned CLEAN after two repair rounds. Parent reran the
+  complete runtime isolated suite (exit 0), focused async-handle API tests,
+  API/runtime typecheck and lint, Prisma format/validate/generate, root format,
+  and `git diff --check`; all passed.
+
+Next recommended step: commit checkpoint 1, then implement checkpoint 2
+(`notify`) without intermediate deploy.
+
 ## 2026-07-17 — ADR-152 Browser Script SDK and Durable Job Wait/Notify opened
 
 Status: **Founder-approved architecture checkpoint; docs-only opening on clean

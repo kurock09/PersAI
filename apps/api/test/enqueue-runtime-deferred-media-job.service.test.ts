@@ -64,7 +64,7 @@ function buildService(overrides: {
         if (enqueueThrows) {
           throw new Error("simulated job insert failure");
         }
-        return { id: "job-1" };
+        return { id: "job-1", jobRef: `jr1.media.${"D".repeat(32)}` };
       }
     } as never,
     {
@@ -217,6 +217,7 @@ async function run(): Promise<void> {
     const result = await service.execute(imageGenerateInput(2, "message-1"));
 
     assert.equal(result.accepted, true, "count=2 with quota should be accepted");
+    assert.equal(result.accepted ? result.jobRef : null, `jr1.media.${"D".repeat(32)}`);
     assert.equal(reserveCalls.length, 1, "reserve called exactly once (single seam)");
     assert.equal(reserveCalls[0]!.units, 2, "reserve units must equal requested count (2)");
     assert.equal(reserveCalls[0]!.toolCode, "image_generate");

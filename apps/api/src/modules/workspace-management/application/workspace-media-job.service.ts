@@ -361,35 +361,42 @@ export class AssistantMediaJobService {
     sourceClientTurnId?: string | null;
     assistantAcknowledgementMessageId?: string | null;
     request: AssistantMediaJobRequestPayload;
-  }): Promise<{ id: string; status: "queued" }> {
-    const created = await this.prisma.assistantMediaJob.create({
-      data: {
-        assistantId: input.assistantId,
-        userId: input.userId,
-        workspaceId: input.workspaceId,
-        chatId: input.chatId,
-        surface: input.surface,
-        kind: input.kind,
-        status: "queued",
-        sourceUserMessageId: input.sourceUserMessageId,
-        ...(input.sourceClientTurnId === undefined
-          ? {}
-          : { sourceClientTurnId: input.sourceClientTurnId }),
-        ...(input.assistantAcknowledgementMessageId === undefined
-          ? {}
-          : { assistantAcknowledgementMessageId: input.assistantAcknowledgementMessageId }),
-        requestJson: input.request as never
-      },
-      select: {
-        id: true,
-        status: true
-      }
+  }): Promise<{ id: string; status: "queued"; jobRef: string }> {
+    return this.prisma.$transaction(async (tx) => {
+      const created = await tx.assistantMediaJob.create({
+        data: {
+          assistantId: input.assistantId,
+          userId: input.userId,
+          workspaceId: input.workspaceId,
+          chatId: input.chatId,
+          surface: input.surface,
+          kind: input.kind,
+          status: "queued",
+          sourceUserMessageId: input.sourceUserMessageId,
+          ...(input.sourceClientTurnId === undefined
+            ? {}
+            : { sourceClientTurnId: input.sourceClientTurnId }),
+          ...(input.assistantAcknowledgementMessageId === undefined
+            ? {}
+            : { assistantAcknowledgementMessageId: input.assistantAcknowledgementMessageId }),
+          requestJson: input.request as never
+        },
+        select: {
+          id: true,
+          status: true
+        }
+      });
+      const handle = await tx.assistantAsyncJobHandle.findUniqueOrThrow({
+        where: {
+          kind_canonicalJobId: {
+            kind: "media",
+            canonicalJobId: created.id
+          }
+        },
+        select: { jobRef: true }
+      });
+      return { id: created.id, status: "queued" as const, jobRef: handle.jobRef };
     });
-
-    return {
-      id: created.id,
-      status: "queued"
-    };
   }
 
   async attachAcknowledgementMessageId(input: {

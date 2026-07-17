@@ -568,6 +568,18 @@ export async function runNativeToolProjectionTest(): Promise<void> {
   });
 
   const projected = projectRuntimeNativeTools(artifact.bundle);
+  const awaitTool = projected.tools.find((tool) => tool.name === "await");
+  assert.ok(awaitTool, "await must be universally model-visible");
+  assert.deepEqual(
+    (awaitTool.inputSchema as { properties: { action: { enum: string[] } } }).properties.action
+      .enum,
+    ["wait"]
+  );
+  assert.equal(
+    projected.tools.some((tool) => tool.name === "wait_job"),
+    false
+  );
+  assert.equal(JSON.stringify(awaitTool.inputSchema).includes("notify"), false);
   const activeScriptRef = {
     scriptKey: "projection_script",
     scriptId: "script-projection",

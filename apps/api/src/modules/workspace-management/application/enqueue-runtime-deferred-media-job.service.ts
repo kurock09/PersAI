@@ -112,6 +112,7 @@ export class EnqueueRuntimeDeferredMediaJobService {
     | {
         accepted: true;
         jobId: string;
+        jobRef: string;
         kind: "image" | "video";
       }
     | EnqueueRuntimeDeferredMediaJobRejection
@@ -243,7 +244,7 @@ export class EnqueueRuntimeDeferredMediaJobService {
       runtimeSessionId: input.runtimeSessionId,
       directToolExecution: input.directToolExecution
     };
-    let created: { id: string };
+    let created: { id: string; jobRef: string };
     try {
       created = await this.assistantMediaJobService.enqueue({
         assistantId: input.assistantId,
@@ -268,6 +269,7 @@ export class EnqueueRuntimeDeferredMediaJobService {
     return {
       accepted: true,
       jobId: created.id,
+      jobRef: created.jobRef,
       kind
     };
   }

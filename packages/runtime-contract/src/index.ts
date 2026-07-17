@@ -365,6 +365,20 @@ export interface RuntimeScriptToolResult {
   output: unknown;
 }
 
+export interface RuntimeAwaitToolResult {
+  toolCode: "await";
+  executionMode: "inline";
+  action: "status" | "waited" | "skipped";
+  reason: string | null;
+  warning: string | null;
+  jobRef: string;
+  kind: "media" | "document" | null;
+  status: "pending" | "completed" | "failed" | "cancelled" | null;
+  terminal: boolean;
+  errorCode: string | null;
+  message: string | null;
+}
+
 /**
  * ADR-151 — deterministic canonical JSON serialization used on both sides of
  * the `scriptInvocationKey` idempotency boundary: the runtime derives the key
@@ -2037,6 +2051,8 @@ export interface RuntimeImageGenerateToolResult {
   warning: string | null;
   guidance?: string | null;
   jobId?: string | null;
+  /** Opaque ADR-152 async handle; never a canonical database identifier. */
+  jobRef?: string | null;
   canSendFileNow?: false;
   messageToUser?: string | null;
   expectedResultCount?: number | null;
@@ -2086,6 +2102,8 @@ export interface RuntimeImageEditToolResult {
   warning: string | null;
   guidance?: string | null;
   jobId?: string | null;
+  /** Opaque ADR-152 async handle; never a canonical database identifier. */
+  jobRef?: string | null;
   canSendFileNow?: false;
   messageToUser?: string | null;
   expectedResultCount?: number | null;
@@ -2354,6 +2372,8 @@ export interface RuntimeVideoGenerateToolResult {
   providerStatus?: Record<string, unknown> | null;
   guidance?: string | null;
   jobId?: string | null;
+  /** Opaque ADR-152 async handle; never a canonical database identifier. */
+  jobRef?: string | null;
   canSendFileNow?: false;
   messageToUser?: string | null;
   requestedCount?: number | null;
@@ -2393,6 +2413,8 @@ export interface RuntimeDocumentToolResult {
   warning: string | null;
   guidance?: string | null;
   jobId?: string | null;
+  /** Opaque ADR-152 async handle; never a canonical database identifier. */
+  jobRef?: string | null;
   versionId?: string | null;
   canSendFileNow?: boolean;
   messageToUser?: string | null;

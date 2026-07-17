@@ -53,6 +53,13 @@ import { RUNTIME_CONFIG } from "../../runtime-config";
 
 const INTERNAL_API_TIMEOUT_MS = 10_000;
 
+export class AsyncJobStatusDeadlineExceededError extends Error {
+  constructor() {
+    super("Async job status observation deadline expired.");
+    this.name = "AsyncJobStatusDeadlineExceededError";
+  }
+}
+
 type JsonResponse = {
   ok: boolean;
   status: number;
@@ -613,6 +620,7 @@ export class PersaiInternalApiClientService {
     | {
         accepted: true;
         jobId: string;
+        jobRef: string;
         kind: "image" | "video";
       }
     | {
@@ -635,10 +643,16 @@ export class PersaiInternalApiClientService {
     });
     const payload = this.asObject(response.body);
     if (response.ok) {
-      if (payload?.ok === true && payload.accepted === true && typeof payload.jobId === "string") {
+      if (
+        payload?.ok === true &&
+        payload.accepted === true &&
+        typeof payload.jobId === "string" &&
+        typeof payload.jobRef === "string"
+      ) {
         return {
           accepted: true,
           jobId: payload.jobId,
+          jobRef: payload.jobRef,
           kind: payload.kind === "video" ? "video" : "image"
         };
       }
@@ -675,6 +689,7 @@ export class PersaiInternalApiClientService {
     | {
         accepted: true;
         jobId: string;
+        jobRef: string;
         docId: string;
         versionId: string;
         documentType: "presentation";
@@ -703,6 +718,7 @@ export class PersaiInternalApiClientService {
         payload?.ok === true &&
         payload.accepted === true &&
         typeof payload.renderJobId === "string" &&
+        typeof payload.jobRef === "string" &&
         typeof payload.docId === "string" &&
         typeof payload.versionId === "string" &&
         payload.documentType === "presentation"
@@ -710,6 +726,7 @@ export class PersaiInternalApiClientService {
         return {
           accepted: true,
           jobId: payload.renderJobId,
+          jobRef: payload.jobRef,
           docId: payload.docId,
           versionId: payload.versionId,
           documentType: payload.documentType
@@ -742,6 +759,77 @@ export class PersaiInternalApiClientService {
     throw new BadRequestException(
       error.message ?? "PersAI internal API rejected deferred document enqueue."
     );
+  }
+
+  async resolveAsyncJobStatus(input: {
+    jobRef: string;
+    assistantId: string;
+    workspaceId: string;
+    chatId: string;
+    channel: "web" | "telegram" | "max_ru";
+    threadKey: string;
+    abortSignal?: AbortSignal;
+    timeoutMs?: number;
+  }): Promise<
+    | { found: false; code: "job_not_found" }
+    | {
+        found: true;
+        jobRef: string;
+        kind: "media" | "document";
+        status: "pending" | "completed" | "failed" | "cancelled";
+        terminal: boolean;
+        errorCode: string | null;
+        message: string | null;
+      }
+  > {
+    const response = await this.fetchJson(
+      "/api/v1/internal/runtime/async-jobs/status",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.PERSAI_INTERNAL_API_TOKEN}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          jobRef: input.jobRef,
+          assistantId: input.assistantId,
+          workspaceId: input.workspaceId,
+          chatId: input.chatId,
+          channel: input.channel,
+          threadKey: input.threadKey
+        }),
+        ...(input.abortSignal === undefined ? {} : { signal: input.abortSignal })
+      },
+      input.timeoutMs === undefined
+        ? undefined
+        : {
+            timeoutMs: input.timeoutMs,
+            timeoutError: () => new AsyncJobStatusDeadlineExceededError()
+          }
+    );
+    const row = this.asObject(response.body);
+    if (!response.ok || row === null) {
+      throw new ServiceUnavailableException("Async job status is temporarily unavailable.");
+    }
+    if (row.found === false) return { found: false, code: "job_not_found" };
+    if (
+      row.found !== true ||
+      typeof row.jobRef !== "string" ||
+      (row.kind !== "media" && row.kind !== "document") ||
+      !["pending", "completed", "failed", "cancelled"].includes(String(row.status)) ||
+      typeof row.terminal !== "boolean"
+    ) {
+      throw new BadGatewayException("PersAI internal API returned an invalid async job status.");
+    }
+    return {
+      found: true,
+      jobRef: row.jobRef,
+      kind: row.kind,
+      status: row.status as "pending" | "completed" | "failed" | "cancelled",
+      terminal: row.terminal,
+      errorCode: typeof row.errorCode === "string" ? row.errorCode : null,
+      message: typeof row.message === "string" ? row.message : null
+    };
   }
 
   async registerChatAttachment(
@@ -2553,13 +2641,22 @@ export class PersaiInternalApiClientService {
     return new URL(pathname, baseUrl).toString();
   }
 
-  private async fetchJson(urlPath: string, init: RequestInit): Promise<JsonResponse> {
+  private async fetchJson(
+    urlPath: string,
+    init: RequestInit,
+    options?: { timeoutMs: number; timeoutError: () => Error }
+  ): Promise<JsonResponse> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), INTERNAL_API_TIMEOUT_MS);
+    const timeoutMs = options?.timeoutMs ?? INTERNAL_API_TIMEOUT_MS;
+    const timeoutId = setTimeout(() => controller.abort(), Math.max(0, timeoutMs));
+    const signal =
+      init.signal === undefined || init.signal === null
+        ? controller.signal
+        : AbortSignal.any([controller.signal, init.signal]);
     try {
       const response = await fetch(this.buildUrl(urlPath), {
         ...init,
-        signal: controller.signal
+        signal
       });
       return {
         ok: response.ok,
@@ -2567,9 +2664,13 @@ export class PersaiInternalApiClientService {
         body: await this.readBody(response)
       };
     } catch (error) {
+      if (init.signal?.aborted === true) {
+        throw new DOMException("Aborted", "AbortError");
+      }
       if (this.isAbortError(error)) {
+        if (options !== undefined) throw options.timeoutError();
         throw new ServiceUnavailableException(
-          `PersAI internal API request timed out after ${INTERNAL_API_TIMEOUT_MS}ms.`
+          `PersAI internal API request timed out after ${String(timeoutMs)}ms.`
         );
       }
       throw error;

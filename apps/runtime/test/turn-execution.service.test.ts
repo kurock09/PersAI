@@ -38,6 +38,7 @@ import type {
   RuntimeTodoItem,
   RuntimeWorkerToolsConfig
 } from "@persai/runtime-contract";
+import { buildAdr135PowerConfigBundle } from "./adr135-power-config-fixture";
 import type { RuntimeBundleCacheEntry } from "../src/modules/bundles/bundle.types";
 import type { RuntimeBundleRegistryService } from "../src/modules/bundles/runtime-bundle-registry.service";
 import { RuntimeObservabilityService } from "../src/modules/observability/runtime-observability.service";
@@ -2227,6 +2228,7 @@ export async function runAdr151TurnDispatchIntegrationTest(): Promise<void> {
     new BuildActiveScenarioBlockService(),
     { buildBlocks: () => [] } as never,
     null as never,
+    null as never,
     null as never
   );
   const privateAccess = service as unknown as {
@@ -2516,7 +2518,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     new BuildActiveScenarioBlockService(),
     new BuildSystemReminderBlocksService(),
     runtimeObservabilityService,
-    runtimeExecutionAdmissionService
+    runtimeExecutionAdmissionService,
+    null as never
   );
 
   const request = createRuntimeTurnRequest();
@@ -2594,7 +2597,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "memory_write",
       "quota_status",
       "knowledge_search",
-      "knowledge_fetch"
+      "knowledge_fetch",
+      "await"
     ]
   );
   assert.equal(providerGatewayClient.calls[0]?.toolChoice, "auto");
@@ -2730,7 +2734,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     new BuildActiveScenarioBlockService(),
     new BuildSystemReminderBlocksService(),
     runtimeObservabilityService,
-    runtimeExecutionAdmissionService
+    runtimeExecutionAdmissionService,
+    null as never
   );
   providerGatewayClient.calls = [];
   turnAcceptanceService.result = createAcceptedTurn();
@@ -2809,7 +2814,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
     new BuildActiveScenarioBlockService(),
     new BuildSystemReminderBlocksService(),
     runtimeObservabilityService,
-    runtimeExecutionAdmissionService
+    runtimeExecutionAdmissionService,
+    null as never
   );
   providerGatewayClient.calls = [];
   turnAcceptanceService.result = createAcceptedTurn();
@@ -4974,7 +4980,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "files",
       "grep",
       "glob",
-      "shell"
+      "shell",
+      "await"
     ]
   );
   assert.match(
@@ -5352,7 +5359,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "files",
       "grep",
       "glob",
-      "shell"
+      "shell",
+      "await"
     ]
   );
   assert.equal(providerGatewayClient.streamCalls.at(-1)?.toolHistory?.length, 1);
@@ -5997,7 +6005,8 @@ export async function runTurnExecutionServiceTest(): Promise<void> {
       "files",
       "grep",
       "glob",
-      "shell"
+      "shell",
+      "await"
     ]
   );
   assert.deepEqual(providerGatewayClient.webFetchCalls.at(-1), {
@@ -9065,7 +9074,8 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
     new BuildActiveScenarioBlockService(),
     new BuildSystemReminderBlocksService(),
     runtimeObservabilityService,
-    runtimeExecutionAdmissionService
+    runtimeExecutionAdmissionService,
+    null as never
   );
   return {
     service,
@@ -9076,7 +9086,102 @@ export function buildTurnExecutionHarness(): TurnExecutionHarness {
   };
 }
 
-function buildMinimalTurnExecutionService(): TurnExecutionService {
+export async function runTurnExecutionAwaitDispatchTest(): Promise<void> {
+  const calls: Array<Record<string, unknown>> = [];
+  const awaitService = {
+    async executeToolCall(input: Record<string, unknown>) {
+      calls.push(input);
+      return {
+        payload: {
+          toolCode: "await",
+          executionMode: "inline",
+          action: "status",
+          reason: null,
+          warning: null,
+          jobRef: `jr1.media.${"A".repeat(32)}`,
+          kind: "media",
+          status: "pending",
+          terminal: false,
+          errorCode: null,
+          message: null
+        },
+        isError: false
+      };
+    }
+  };
+  const service = buildMinimalTurnExecutionService(awaitService);
+  const accessor = service as unknown as {
+    createTurnExecutionState(): {
+      currentChatId: string | null;
+      blockingWaitedJobRefs: Set<string>;
+    };
+    executeProjectedToolCall(
+      execution: unknown,
+      acceptedTurn: unknown,
+      input: unknown,
+      toolCall: ProviderGatewayToolCall,
+      currentUserMessageId: string | null,
+      currentArtifacts: unknown[],
+      currentFileHandles: unknown[],
+      availableWorkingFileHandles: unknown[],
+      turnState: unknown
+    ): Promise<{ payload: Record<string, unknown> }>;
+  };
+  const bundle = buildAdr135PowerConfigBundle("platform_default");
+  const execution = {
+    bundle,
+    projectedTools: {
+      tools: [{ name: "await", description: "Wait.", inputSchema: {} }],
+      knowledgeSearchSources: [],
+      knowledgeFetchSources: []
+    }
+  };
+  const acceptedTurn = {
+    session: {
+      conversation: { channel: "web", externalThreadKey: "thread-1" }
+    }
+  };
+  const toolCall = {
+    id: "await-call",
+    name: "await",
+    arguments: { action: "wait", jobRef: `jr1.media.${"A".repeat(32)}`, timeoutMs: 0 }
+  };
+  const turnState = accessor.createTurnExecutionState();
+  const missingChat = await accessor.executeProjectedToolCall(
+    execution,
+    acceptedTurn,
+    {} as never,
+    toolCall,
+    null,
+    [],
+    [],
+    [],
+    turnState
+  );
+  assert.equal(missingChat.payload.reason, "job_not_found");
+  assert.equal(calls.length, 0);
+
+  turnState.currentChatId = "chat-1";
+  const dispatched = await accessor.executeProjectedToolCall(
+    execution,
+    acceptedTurn,
+    {} as never,
+    toolCall,
+    null,
+    [],
+    [],
+    [],
+    turnState
+  );
+  assert.equal(dispatched.payload.status, "pending");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.chatId, "chat-1");
+  assert.equal(calls[0]?.channel, "web");
+  assert.equal(calls[0]?.threadKey, "thread-1");
+  assert.equal(calls[0]?.blockingWaitedJobRefs, turnState.blockingWaitedJobRefs);
+}
+
+function buildMinimalTurnExecutionService(runtimeAwaitToolService?: unknown): TurnExecutionService {
   return new TurnExecutionService(
     null as never, // runtimeBundleRegistryService
     null as never, // providerGatewayClientService
@@ -9108,7 +9213,8 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
     null as never, // buildActiveScenarioBlockService
     null as never, // buildSystemReminderBlocksService
     null as never, // runtimeObservabilityService
-    null as never // runtimeExecutionAdmissionService
+    null as never, // runtimeExecutionAdmissionService
+    runtimeAwaitToolService as never
   );
 }
 

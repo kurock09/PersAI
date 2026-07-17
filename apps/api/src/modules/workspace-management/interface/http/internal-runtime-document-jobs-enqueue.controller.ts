@@ -24,6 +24,7 @@ export class InternalRuntimeDocumentJobsEnqueueController {
         docId: string;
         versionId: string;
         renderJobId: string;
+        jobRef: string;
         documentType: "presentation";
       }
     | {
@@ -37,10 +38,7 @@ export class InternalRuntimeDocumentJobsEnqueueController {
     this.assertAuthorized(req);
     const input = this.enqueueRuntimeDeferredDocumentJobService.parseInput(body);
     const outcome = await this.enqueueRuntimeDeferredDocumentJobService.execute(input);
-    return {
-      ok: true,
-      ...outcome
-    };
+    return { ok: true, ...outcome };
   }
 
   private assertAuthorized(req: InternalRequestLike): void {

@@ -121,6 +121,7 @@ describe("RuntimeImageGenerateToolService", () => {
           return {
             accepted: true,
             jobId: "media-job-1",
+            jobRef: `jr1.media.${"A".repeat(32)}`,
             kind: "image"
           };
         },

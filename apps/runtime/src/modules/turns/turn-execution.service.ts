@@ -52,6 +52,7 @@ import {
   type RuntimeOutputArtifact,
   type RuntimeSandboxToolResult,
   type RuntimeScriptToolResult,
+  type RuntimeAwaitToolResult,
   type RuntimeScheduledActionToolResult,
   type RuntimeBackgroundTaskToolResult,
   type RuntimeSkillDecisionState,
@@ -128,6 +129,7 @@ import { RuntimeSkillToolService, type RuntimeSkillToolResult } from "./runtime-
 import { RuntimeQuotaStatusToolService } from "./runtime-quota-status-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
 import { RuntimeScriptToolService } from "./runtime-script-tool.service";
+import { RuntimeAwaitToolService } from "./runtime-await-tool.service";
 import { createTurnToolProgressSink, type TurnToolProgressSink } from "./tool-progress-sink";
 import { RuntimeGrepGlobToolService } from "./runtime-grep-glob-tool.service";
 import { RuntimeBackgroundTaskToolService } from "./runtime-background-task-tool.service";
@@ -319,6 +321,7 @@ type TurnExecutionState = {
   wireExpandedCatalogToolCodes: Set<string>;
   /** ADR-135 S6 — per-turn catalog projection observability counters. */
   catalogToolMetrics: CatalogToolTurnMetrics;
+  blockingWaitedJobRefs: Set<string>;
 };
 
 type ToolExecutionOutcome = {
@@ -339,6 +342,7 @@ type ToolExecutionOutcome = {
     | RuntimeImageGenerateToolResult
     | RuntimeSandboxToolResult
     | RuntimeScriptToolResult
+    | RuntimeAwaitToolResult
     | RuntimeScheduledActionToolResult
     | RuntimeBackgroundTaskToolResult
     | RuntimeTtsToolResult
@@ -436,6 +440,7 @@ const GLOB_TOOL_CODE = "glob";
 const EXEC_TOOL_CODE = "exec";
 const SHELL_TOOL_CODE = "shell";
 const SCRIPT_TOOL_CODE = "script";
+const AWAIT_TOOL_CODE = "await";
 const SAFE_PARALLEL_TOOL_CODES = new Set<string>([
   WEB_SEARCH_TOOL_CODE,
   WEB_FETCH_TOOL_CODE,
@@ -556,7 +561,8 @@ export class TurnExecutionService {
     private readonly buildActiveScenarioBlockService: BuildActiveScenarioBlockService,
     private readonly buildSystemReminderBlocksService: BuildSystemReminderBlocksService,
     private readonly runtimeObservabilityService: RuntimeObservabilityService,
-    private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService
+    private readonly runtimeExecutionAdmissionService: RuntimeExecutionAdmissionService,
+    private readonly runtimeAwaitToolService: RuntimeAwaitToolService
   ) {}
 
   async createTurn(input: RuntimeTurnRequest): Promise<RuntimeTurnResult> {
@@ -3587,6 +3593,38 @@ export class TurnExecutionService {
         });
         return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
       }
+      case AWAIT_TOOL_CODE: {
+        if (currentChatId === null) {
+          return this.createToolExecutionOutcome(
+            toolCall,
+            {
+              toolCode: "await",
+              executionMode: "inline",
+              action: "skipped",
+              reason: "job_not_found",
+              warning: "Job was not found.",
+              jobRef: "",
+              kind: null,
+              status: null,
+              terminal: false,
+              errorCode: null,
+              message: null
+            },
+            true
+          );
+        }
+        const result = await this.runtimeAwaitToolService.executeToolCall({
+          toolCall,
+          assistantId: execution.bundle.metadata.assistantId,
+          workspaceId: execution.bundle.metadata.workspaceId,
+          chatId: currentChatId,
+          channel: acceptedTurn.session.conversation.channel,
+          threadKey: acceptedTurn.session.conversation.externalThreadKey,
+          blockingWaitedJobRefs: turnState.blockingWaitedJobRefs,
+          ...(abortSignal === undefined ? {} : { abortSignal })
+        });
+        return this.createToolExecutionOutcome(toolCall, result.payload, result.isError);
+      }
       case GREP_TOOL_CODE: {
         const result = await this.runtimeGrepGlobToolService.executeGrepToolCall({
           bundle: execution.bundle,
@@ -4311,6 +4349,7 @@ export class TurnExecutionService {
       | RuntimeImageGenerateToolResult
       | RuntimeSandboxToolResult
       | RuntimeScriptToolResult
+      | RuntimeAwaitToolResult
       | RuntimeScheduledActionToolResult
       | RuntimeBackgroundTaskToolResult
       | RuntimeTtsToolResult
@@ -5365,7 +5404,8 @@ export class TurnExecutionService {
       currentChatId: null,
       workspaceId: "",
       wireExpandedCatalogToolCodes: new Set<string>(),
-      catalogToolMetrics: createEmptyCatalogToolTurnMetrics()
+      catalogToolMetrics: createEmptyCatalogToolTurnMetrics(),
+      blockingWaitedJobRefs: new Set<string>()
     };
   }
 

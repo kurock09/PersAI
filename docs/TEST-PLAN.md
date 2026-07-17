@@ -4,13 +4,30 @@ This document defines the current verification baseline for the active PersAI-na
 
 ADR-072 is closed as the historical native migration ADR. Current continuation work should be checked against `docs/ADR/078-consolidated-follow-through-program.md`. `Step 15a` is cancelled and is not an active verification track. ADR-087 defines the unified quota-advisory and paid light-mode target state. ADR-088 defines the unified notification platform target state.
 
-## ADR-152 Browser Script SDK and Durable Job Wait/Notify (approved; unimplemented)
+## ADR-152 Browser Script SDK and Durable Job Wait/Notify (checkpoint 1 local)
 
 Before one coordinated deploy, implementation must prove all 18 approved
 founder gates enumerated in
 `docs/ADR/152-browser-script-sdk-and-durable-job-wait-notify.md` under
 **Production exit gates**, including the explicit Document SDK N/A/no-surface
 proof. It must additionally prove:
+
+Checkpoint-1 local coverage now proves opaque 192-bit handle shape and
+uniqueness/idempotency SQL, transactional media/document mint triggers, owned
+canonical status mapping, uniform malformed/foreign failure, exact `await`
+contract with no `notify`/`wait_job`, terminal-before-block, status-only zero,
+timeout pending, completion at the timeout boundary, failed/cancelled mapping,
+one blocking wait per job per turn, and Abort/Stop without canonical mutation.
+Deterministic clock coverage also proves slow initial and final status RPCs
+cannot extend a positive wait beyond its overall deadline, while caller Stop
+remains distinguishable from internal deadline expiry. Universal-tool fixture
+coverage is 25 projected tools (24 plan-visible plus `await`).
+An isolated `pgvector/pgvector:pg16` proof applied all 191 migrations and
+reported current, then inserted a minimal owned graph plus one media and one
+document canonical job. Both triggers produced exactly one correctly shaped,
+owned `jr1` handle; duplicate `(kind, canonicalJobId)` insertion failed unique.
+The disposable container was removed.
+Deployment/live acceptance and every `notify`/browser gate remain pending.
 
 1. `await wait` returns already-terminal facts without blocking, clamps to 60s,
    allows only one blocking wait/job/turn, returns pending on timeout without

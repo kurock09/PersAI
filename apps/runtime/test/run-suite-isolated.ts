@@ -71,6 +71,14 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runRuntimeBrowserToolServiceTest"
   },
   {
+    modulePath: "./runtime-await-tool.service.test.ts",
+    exportName: "runRuntimeAwaitToolServiceTest"
+  },
+  {
+    modulePath: "./persai-internal-api-async-job-status.test.ts",
+    exportName: "runPersaiInternalApiAsyncJobStatusTest"
+  },
+  {
     modulePath: "./runtime-video-generate-tool.service.test.ts",
     exportName: "runRuntimeVideoGenerateToolServiceTest"
   },
@@ -147,6 +155,10 @@ const TESTS: Array<{ modulePath: string; exportName: string }> = [
     exportName: "runProjectToolExchangesForModelTest"
   },
   { modulePath: "./turn-execution.service.test.ts", exportName: "runTurnExecutionServiceTest" },
+  {
+    modulePath: "./turn-execution.service.test.ts",
+    exportName: "runTurnExecutionAwaitDispatchTest"
+  },
   {
     modulePath: "./turn-execution.service.test.ts",
     exportName: "runAdr151TurnDispatchIntegrationTest"

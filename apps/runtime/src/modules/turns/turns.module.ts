@@ -35,6 +35,11 @@ import { RuntimeMediaJobRunService } from "./runtime-media-job-run.service";
 import { RuntimeScheduledActionToolService } from "./runtime-scheduled-action-tool.service";
 import { RuntimeSandboxToolService } from "./runtime-sandbox-tool.service";
 import { RuntimeScriptToolService } from "./runtime-script-tool.service";
+import {
+  DEFAULT_RUNTIME_AWAIT_CLOCK,
+  RUNTIME_AWAIT_CLOCK,
+  RuntimeAwaitToolService
+} from "./runtime-await-tool.service";
 import { RuntimeGrepGlobToolService } from "./runtime-grep-glob-tool.service";
 import { RuntimeTtsToolService } from "./runtime-tts-tool.service";
 import { RuntimeVideoGenerateToolService } from "./runtime-video-generate-tool.service";
@@ -91,6 +96,8 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeScheduledActionToolService,
     RuntimeSandboxToolService,
     RuntimeScriptToolService,
+    RuntimeAwaitToolService,
+    { provide: RUNTIME_AWAIT_CLOCK, useValue: DEFAULT_RUNTIME_AWAIT_CLOCK },
     RuntimeGrepGlobToolService,
     RuntimeTtsToolService,
     SandboxClientService,
@@ -137,6 +144,7 @@ import { TurnRoutingService } from "./turn-routing.service";
     RuntimeScheduledActionToolService,
     RuntimeSandboxToolService,
     RuntimeScriptToolService,
+    RuntimeAwaitToolService,
     RuntimeGrepGlobToolService,
     RuntimeTtsToolService,
     SandboxClientService,

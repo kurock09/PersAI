@@ -110,6 +110,15 @@ All volatile-context blocks are marked `cacheRole: "volatile_context"` on the me
 
 ## Runtime-related boundaries
 
+ADR-152 checkpoint 1 adds no public endpoint. Runtime uses the bearer-protected
+internal `POST /api/v1/internal/runtime/async-jobs/status` seam with current
+assistant/workspace/chat/channel/thread ownership. It returns only opaque
+`jobRef`, canonical kind, normalized status, and bounded safe terminal facts;
+malformed, tampered, and foreign handles all return the same not-found result.
+The model-visible `await` tool currently projects only `action="wait"` (zero is
+status-only, positive timeout is capped at 60 seconds). `notify` is not yet
+projected or executable.
+
 ### Native Tool Runtime instruction ownership
 
 ADR-117 defines one owner per model/provider instruction concern:

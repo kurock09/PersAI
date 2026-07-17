@@ -589,7 +589,7 @@ class FakePersaiInternalApiClientService {
       request: { mode?: string };
     };
   }): Promise<
-    | { accepted: true; jobId: string; kind: "image" | "video" }
+    | { accepted: true; jobId: string; jobRef: string; kind: "image" | "video" }
     | { accepted: false; code: string; message: string; guidance: string | null }
   > {
     if (this.enqueueThrow !== null) {
@@ -605,7 +605,12 @@ class FakePersaiInternalApiClientService {
     if (this.enqueueOverride !== null) {
       return this.enqueueOverride;
     }
-    return { accepted: true, jobId: this.nextJobId, kind: "video" };
+    return {
+      accepted: true,
+      jobId: this.nextJobId,
+      jobRef: `jr1.media.${"C".repeat(32)}`,
+      kind: "video"
+    };
   }
 }
 

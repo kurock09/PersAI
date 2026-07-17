@@ -102,7 +102,14 @@ function buildService(
       }
     } as never,
     {} as never,
-    noopGammaThemePickerMock()
+    noopGammaThemePickerMock(),
+    {
+      assistantAsyncJobHandle: {
+        async findUniqueOrThrow() {
+          return { jobRef: `jr1.document.${"E".repeat(32)}` };
+        }
+      }
+    } as never
   );
 }
 
@@ -149,6 +156,7 @@ async function runCreatePresentationDefaultsToPdf(): Promise<void> {
     docId: PRESENTATION_DOC_ID,
     versionId: PRESENTATION_VERSION_ID,
     renderJobId: "render-1",
+    jobRef: `jr1.document.${"E".repeat(32)}`,
     documentType: "presentation"
   });
   assert.equal(captured?.documentType, "presentation");
@@ -212,6 +220,7 @@ async function runPresentationRevisionAccepted(): Promise<void> {
 
   assert.equal(result.accepted, true);
   assert.equal(result.accepted ? result.documentType : null, "presentation");
+  assert.equal(result.accepted ? result.jobRef : null, `jr1.document.${"E".repeat(32)}`);
   assert.equal(captured?.provider, "gamma");
   assert.equal(captured?.outputFormat, "pdf");
   assert.equal(
@@ -339,6 +348,7 @@ async function runExplicitPptxExportQueuesGammaRender(): Promise<void> {
   });
 
   assert.equal(result.accepted, true);
+  assert.equal(result.accepted ? result.jobRef : null, `jr1.document.${"E".repeat(32)}`);
   assert.equal(captured?.provider, "gamma");
   assert.equal(captured?.outputFormat, "pptx");
   assert.equal(captured?.preserveCurrentVersionStatus, true);

@@ -40,9 +40,9 @@ PersAI is the source of truth for:
 - integration state such as Telegram binding/config, including assistant-scoped Telegram access mode in binding metadata (`owner_only` by default, or `group_members` for linked group member access) and Telegram chat/sender metadata on group user messages
 - ADR-097 document-domain persistence (`assistant_documents`, `assistant_document_versions`, `assistant_document_render_jobs`, `assistant_document_provider_mappings`, `assistant_document_delivered_files`, `assistant_document_revision_logs`) for stable `doc_id`, version graph, render-job lifecycle, provider reconciliation metadata, delivery linkage, and revision history
 
-### ADR-152 proposed additive job-handle truth
+### ADR-152 checkpoint-1 additive job-handle truth
 
-ADR-152 is approved but not implemented. It specifies one additive table,
+ADR-152 checkpoint 1 is implemented locally. It adds one table,
 `assistant_async_job_handles`, and no companion subscription/claim table. A row
 contains a stored server-minted opaque
 `jr1.<kind>.<192-bit-random-base64url>` `jobRef`; canonical kind/id; assistant,
@@ -60,6 +60,11 @@ adapter state; `completion_pending` and `ready_for_delivery` are pending.
 `assistant_background_task_runs` is excluded until an immutable exposed run
 exists; recurring task rows are not handles. This introduces no ScriptRun,
 browser payload storage, or durable arbitrary-code-resume state.
+
+Canonical inserts mint the mapping transactionally through one database trigger
+function attached to both canonical job tables. The handle row has ordinary
+Assistant/Workspace/Chat foreign keys, while polymorphic `canonicalJobId`
+deliberately has no FK; the owned resolver rechecks the selected canonical row.
 
 ## Runtime-plane ownership
 

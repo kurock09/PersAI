@@ -397,7 +397,12 @@ describe("RuntimeImageEditToolService", () => {
           directToolExecution: { toolCode: string; request: { count?: number } };
         }) {
           enqueueCalls.push(input.directToolExecution);
-          return { accepted: true, jobId: "media-job-7", kind: "image" };
+          return {
+            accepted: true,
+            jobId: "media-job-7",
+            jobRef: `jr1.media.${"B".repeat(32)}`,
+            kind: "image"
+          };
         },
         ...createOutboundManifestApiStub()
       } as never,

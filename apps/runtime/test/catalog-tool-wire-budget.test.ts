@@ -24,8 +24,12 @@ export async function runCatalogToolWireBudgetTest(): Promise<void> {
   assertAdr135PowerConfigFixtureCoverage(baselineProjection.tools.map((tool) => tool.name));
   assert.equal(
     baselineProjection.tools.length,
-    PLAN_VISIBLE_MODEL_TOOL_CODES.length,
-    "power-config fixture must project all 24 plan-visible model tools"
+    PLAN_VISIBLE_MODEL_TOOL_CODES.length + 1,
+    "power-config fixture must project all 24 plan-visible model tools plus universal await (25 total)"
+  );
+  assert.deepEqual(
+    baselineProjection.tools.map((tool) => tool.name).sort(),
+    [...PLAN_VISIBLE_MODEL_TOOL_CODES, "await"].sort()
   );
   assert.equal(
     platformProjection.tools.length,

@@ -86,6 +86,7 @@ function buildMinimalTurnExecutionService(): TurnExecutionService {
     null as never,
     null as never,
     null as never,
+    null as never,
     null as never
   );
 }

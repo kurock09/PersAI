@@ -2,10 +2,11 @@
 
 ## Status
 
-**Approved architecture checkpoint, open for staged implementation.** S0 evidence
-and founder approval are recorded in `docs/SESSION-HANDOFF.md`. This ADR is
-documentation-only at its opening; it claims no implementation, migration,
-deployment, or live acceptance.
+**Approved architecture checkpoint, open for staged implementation.** Checkpoint
+1 (opaque media/document handles, owned canonical resolver, and bounded
+`await.wait`) is implemented locally and independently audited CLEAN; it is not
+deployed or live-accepted. Durable `notify`, continuation scheduling, and the
+browser Script SDK/broker remain unimplemented.
 
 ## Decision
 
@@ -165,6 +166,19 @@ authorize intermediate deploys:
 4. Admin/MCP manifest authoring and contracts;
 5. independent audits, full gate, one push, deploy, and live acceptance.
 
+Checkpoint 1 uses `timeoutMs=0` as a status-only read and clamps positive waits
+to 60 seconds. The runtime observes canonical API-owned rows at a bounded
+low-frequency interval within one model tool call; it introduces no event bus or
+parallel registry. Handle minting is an insert trigger in the same transaction
+as each canonical media/document job insert, so every creation path—including
+replay-safe canonical creation paths—uses the unique mapping row.
+The positive timeout is one overall deadline including the initial and final
+status RPCs. Caller Stop remains an `AbortError`; internal deadline expiry after
+ownership was established returns the last safe pending receipt. Expiry before
+the first ownership read returns typed
+`wait_deadline_expired_before_status` with null kind/status, revealing no job
+existence.
+
 Independent second allowed-model audits are required for wait/notify, browser,
 and final integration. The parent agent audits and commits only; product
 implementation is delegated only to `gpt-5.6-terra-medium` or
@@ -177,9 +191,19 @@ preserving existing canonical jobs and handles. Existing file delivery remains
 intact, and unsubscribed legacy framing remains unchanged. No destructive
 rollback migration, compatibility alias, or TODO scaffold is permitted.
 
+Mixed-version production ordering is mandatory: apply the additive migration,
+then roll API until every API replica mints/returns `jobRef` and serves the
+owned status seam, and only then roll runtime replicas that require `jobRef` and
+project `await`. Old runtime safely ignores the additive receipt field; new
+runtime must never run against old API. Rollback reverses application order
+(runtime first, then API) and retains the additive table/mapping rows.
+
 ## Production exit gates
 
 The approved founder gates are:
+
+0. Migration → API → runtime rollout ordering is enforced; no new runtime
+   replica can receive a handleless async enqueue response.
 
 1. A published Script automates a real browser loop through the local bridge.
 2. Script receives no bridge token and cannot bypass profile ownership.

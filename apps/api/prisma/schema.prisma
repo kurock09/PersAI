@@ -127,6 +127,22 @@ enum AssistantDocumentRenderJobStatus {
   canceled
 }
 
+enum AssistantAsyncJobHandleKind {
+  media
+  document
+}
+
+enum AssistantAsyncJobHandleState {
+  none
+  subscribed
+  ready
+  claimed
+  dispatched
+  completed
+  failed
+  cancelled
+}
+
 enum AssistantChatMessageAuthor {
   user
   assistant
@@ -809,6 +825,7 @@ model Workspace {
   workspaceVideoClonedVoices        WorkspaceVideoClonedVoice[]
   safetyModerationReviewJobs        SafetyModerationReviewJob[]
   assistantBrowserProfiles          AssistantBrowserProfile[]
+  asyncJobHandles                   AssistantAsyncJobHandle[]
 
   @@map("workspaces")
 }
@@ -926,6 +943,7 @@ model Assistant {
   supportTickets                       SupportTicket[]
   webChatTurnAttempts                  AssistantWebChatTurnAttempt[]
   mediaJobs                            AssistantMediaJob[]
+  asyncJobHandles                      AssistantAsyncJobHandle[]
   voiceTranscriptionEvents             AssistantVoiceTranscriptionEvent[]
   telegramAlbumCollectors              AssistantTelegramAlbumCollector[]
   documents                            AssistantDocument[]
@@ -2245,6 +2263,7 @@ model AssistantChat {
   telegramAlbumCollectors     AssistantTelegramAlbumCollector[]
   documents                   AssistantDocument[]
   documentRenderJobs          AssistantDocumentRenderJob[]
+  asyncJobHandles             AssistantAsyncJobHandle[]
   moderationCases             ModerationCase[]
   safetyModerationReviewJobs  SafetyModerationReviewJob[]
   todos                       AssistantChatTodo[]
@@ -2414,6 +2433,42 @@ model AssistantMediaJob {
   @@index([workspaceId, status, updatedAt])
   @@index([status, updatedAt])
   @@map("assistant_media_jobs")
+}
+
+/// ADR-152: one durable opaque mapping and future continuation state row for
+/// canonical asynchronous jobs. Canonical media/document rows remain status truth.
+model AssistantAsyncJobHandle {
+  id                       String                       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  jobRef                   String                       @unique @map("job_ref") @db.VarChar(96)
+  kind                     AssistantAsyncJobHandleKind
+  canonicalJobId           String                       @map("canonical_job_id") @db.Uuid
+  assistantId              String                       @map("assistant_id") @db.Uuid
+  workspaceId              String                       @map("workspace_id") @db.Uuid
+  userId                   String                       @map("user_id") @db.Uuid
+  chatId                   String                       @map("chat_id") @db.Uuid
+  channel                  AssistantChatSurface
+  threadKey                String?                      @map("thread_key") @db.VarChar(255)
+  sourceClientTurnId       String?                      @map("source_client_turn_id") @db.VarChar(128)
+  sourceUserMessageId      String?                      @map("source_user_message_id") @db.Uuid
+  state                    AssistantAsyncJobHandleState @default(none)
+  terminalSnapshotJson     Json?                        @map("terminal_snapshot_json") @db.JsonB
+  narrationOwner           String?                      @map("narration_owner") @db.VarChar(32)
+  narrationDecision        String?                      @map("narration_decision") @db.VarChar(64)
+  continuationClientTurnId String?                      @map("continuation_client_turn_id") @db.VarChar(128)
+  claimToken               String?                      @map("claim_token") @db.VarChar(64)
+  claimExpiresAt           DateTime?                    @map("claim_expires_at") @db.Timestamptz(6)
+  retryCount               Int                          @default(0) @map("retry_count")
+  nextRetryAt              DateTime?                    @map("next_retry_at") @db.Timestamptz(6)
+  createdAt                DateTime                     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                DateTime                     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  assistant                Assistant                    @relation(fields: [assistantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  workspace                Workspace                    @relation(fields: [workspaceId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chat                     AssistantChat                @relation(fields: [chatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([kind, canonicalJobId])
+  @@index([assistantId, workspaceId, userId, chatId])
+  @@index([state, nextRetryAt])
+  @@map("assistant_async_job_handles")
 }
 
 model AssistantTelegramAlbumCollector {

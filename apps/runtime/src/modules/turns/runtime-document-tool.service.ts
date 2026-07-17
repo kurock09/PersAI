@@ -312,6 +312,7 @@ export class RuntimeDocumentToolService {
           guidance:
             "The presentation job is accepted but not delivered yet. Do not send or claim the final file until backend delivery completes.",
           jobId: enqueueOutcome.jobId,
+          jobRef: enqueueOutcome.jobRef,
           versionId: enqueueOutcome.versionId,
           canSendFileNow: false,
           messageToUser:

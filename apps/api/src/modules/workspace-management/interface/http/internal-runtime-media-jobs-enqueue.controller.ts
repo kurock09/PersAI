@@ -14,6 +14,7 @@ type EnqueueResponse =
       ok: true;
       accepted: true;
       jobId: string;
+      jobRef: string;
       kind: "image" | "video";
     }
   | ({ ok: true } & EnqueueRuntimeDeferredMediaJobRejection);
