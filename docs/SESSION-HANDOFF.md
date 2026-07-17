@@ -3,10 +3,10 @@
 ## 2026-07-17 — ADR-151 Admin UI + MCP authoring implemented locally
 
 Status: **Accepted / Open — Admin UI + MCP authoring block implemented and
-independently audited CLEAN locally on branch `adr-151-reusable-scripts` from
-clean checkpoint `3dbd762f` (built on the audited Scenario+Runtime checkpoint
-`535fb93e`). Final repository gate, deploy, and live acceptance remain. No
-deploy or push was made.**
+independently audited CLEAN locally at checkpoint `9f45118f` on branch
+`adr-151-reusable-scripts`, built from clean documentation checkpoint
+`3dbd762f` and audited Scenario+Runtime checkpoint `535fb93e`. Final repository
+gate, deploy, and live acceptance remain. No deploy or push was made.**
 
 What changed:
 
