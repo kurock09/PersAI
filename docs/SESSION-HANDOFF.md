@@ -1,5 +1,104 @@
 # SESSION-HANDOFF
 
+## 2026-07-17 — ADR-151 P1 repair: runtime scriptRef materialization fail-closed gap
+
+Status: **Accepted / Open — bounded P1 repair implemented and independently
+audited CLEAN locally on branch `adr-151-reusable-scripts`, starting from
+checkpoint `1b38e9eb`. The final local ADR-151 audit/repository gate is
+satisfied; push, deploy, and founder live acceptance remain pending.**
+
+Finding: `apps/api/.../skill-scenario-runtime-normalization.ts` had its own
+hand-rolled `scriptRef`/`inputMapping` normalizer that silently canonicalized
+a malformed persisted non-null `scriptRef` (or a malformed nested mapping
+entry) to `null`/dropped-entry before
+`apps/api/.../script-ref-materialization.ts` ever saw it. That let bundle
+materialization succeed as if the authored reference had been explicitly
+absent — the opposite of ADR-151's stated invariant that a malformed
+authored reference must fail closed. The existing `adr151-script-domain`
+malformed-ref test only proved fail-closed behavior for the Admin-state
+serializer (`toAdminSkillScenarioState`), not the actual runtime
+normalize+materialize path used by
+`resolveAssistantRoleEffectiveSkillsPrompt` (called from both
+`materialize-assistant-published-version.service.ts` for real bundle
+publish and `manage-admin-roles.service.ts` for Admin Role preview).
+
+What changed:
+
+- `skill-scenario-runtime-normalization.ts`: `normalizeSkillScenarioSteps`
+  no longer parses/validates `scriptRef` at all. It now carries the raw
+  persisted value through unparsed (`row.scriptRef ?? null`, so explicit
+  `null`/absent stays `null` and every other value — well-formed or
+  malformed — is deferred). The old hand-rolled `normalizeRawScriptRef`/
+  `normalizeRawScriptInputSource` duplicate parsers were deleted.
+- `skill-scenario.types.ts`: exported the existing internal `parseScriptRef`
+  function so it is the one canonical parser both the Admin authoring path
+  and the runtime materialization boundary call — no duplicated business
+  logic between the two paths.
+- `script-ref-materialization.ts`: `materializeScenarioStepScriptRefs` is now
+  explicitly the canonical materialization boundary. It parses every step's
+  raw `scriptRef` with the canonical `parseScriptRef` before any database
+  round-trip; a parse failure (malformed non-null `scriptRef`, or a
+  malformed nested `inputMapping`/source entry) throws the existing typed
+  `ScriptRefMaterializationError` (same
+  `script_ref_materialization_unresolvable` code) instead of a generic
+  `Error`/`TypeError`, or being silently dropped. `ScriptRefMaterializationError`
+  gained an optional `detail` field carrying the underlying parser message
+  for diagnostics; existing 2-argument construction and the `.code` check
+  are unchanged/backward compatible.
+- `apps/api/test/script-ref-materialization.test.ts`: added 5 new focused
+  tests going through the exact production
+  `normalizeSkillScenarioSteps` → `materializeScenarioStepScriptRefs` path:
+  explicit null/absent → `null` with zero Script lookups; malformed
+  non-string top-level `scriptKey` fails closed; a non-object `scriptRef`
+  (string/number/array) fails closed; a malformed nested mapping `source`
+  fails closed with the parser's detail message surfaced on the typed error;
+  and a non-object `inputMapping` shape fails closed. All assert zero Prisma
+  calls for malformed input (fails before any DB round-trip).
+- Added a short addendum to
+  `docs/ADR/151-reusable-scripts-core-and-mcp-authoring.md` describing this
+  gap and repair; status remains Accepted/Open pending deploy/live acceptance.
+
+Files touched:
+
+- `apps/api/src/modules/workspace-management/application/script-ref-materialization.ts`
+- `apps/api/src/modules/workspace-management/application/skill-scenario-runtime-normalization.ts`
+- `apps/api/src/modules/workspace-management/application/skill-scenario.types.ts`
+- `apps/api/test/script-ref-materialization.test.ts`
+- `docs/ADR/151-reusable-scripts-core-and-mcp-authoring.md`
+- `docs/SESSION-HANDOFF.md`, `docs/CHANGELOG.md`
+
+Tests run (all green):
+
+- `apps/api/test/script-ref-materialization.test.ts` (13 tests, 5 new).
+- `apps/api/test/adr151-script-domain.test.ts` (6 tests, unaffected —
+  Admin-state serializer path already fails closed).
+- `apps/api/test/manage-admin-scripts.service.test.ts` (8 tests, unaffected).
+- `apps/api/test/materialize-assistant-published-version.service.test.ts`
+  (unaffected `normalizeSkillScenarioSteps` cases still pass).
+- `apps/api/test/assistant-role-prompt.test.ts` (3 tests, unaffected —
+  proves Admin preview stays byte-identical to the production Role pipeline).
+- `@persai/api` `typecheck` — clean.
+- `@persai/api` `lint` (`eslint --max-warnings=0`) — clean.
+- repo-wide `corepack pnpm run format:check` — clean, no reformatting needed.
+
+Residuals / honest gaps:
+
+- The complete pre-repair local gate passed repository lint/format, required
+  API/web typechecks, API/runtime/sandbox suites, Admin MCP, and ADR-151 focused
+  tests. After this repair, affected focused materialization tests (13/13), API
+  typecheck/lint, touched formatting, and diff checks were rerun and passed.
+  The full parallel web run had three unrelated timing-sensitive failures;
+  their three files passed isolated single-worker 145/145.
+- This repair does not change, re-open, or re-litigate the Admin+MCP block's
+  CLEAN audit status, nor the Domain+API/Scenario+Runtime blocks' prior
+  audits recorded below; it only closes a runtime materialization
+  fail-closed gap discovered adjacent to that work.
+- No push or deploy was made.
+
+**Next recommended step:** obtain founder release approval, push/deploy, then
+complete authenticated Admin UI, real Cursor MCP nine-tool, concurrent
+PostgreSQL, Kubernetes warm-pod, and model-driven chat acceptance.
+
 ## 2026-07-17 — ADR-151 Admin UI + MCP authoring implemented locally
 
 Status: **Accepted / Open — Admin UI + MCP authoring block implemented and

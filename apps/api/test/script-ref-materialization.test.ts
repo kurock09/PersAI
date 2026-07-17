@@ -235,3 +235,106 @@ void test("materializeScenarioStepScriptRefs pin reflects the query's answer at 
   // Bundle A's already-returned pin object is untouched by the later republish.
   assert.equal(bundleA!.scriptRef?.scriptVersionId, oldVersionId);
 });
+
+void test("materializeScenarioStepScriptRefs leaves an explicit null or absent scriptRef as null, through the exact normalize+materialize bundle path", async () => {
+  const { prisma, calls } = buildPrisma(() => ({
+    script: {
+      id: scriptId,
+      currentPublishedVersion: {
+        id: versionId,
+        version: 1,
+        contentHash: "a".repeat(64),
+        inputSchema: { type: "object" }
+      }
+    }
+  }));
+  const steps = normalizeSkillScenarioSteps([
+    { number: 1, directive: "Explicit null.", scriptRef: null },
+    { number: 2, directive: "Absent field entirely." }
+  ]);
+  const materialized = await materializeScenarioStepScriptRefs({ prisma, skillId, steps });
+  assert.equal(materialized[0]!.scriptRef, null);
+  assert.equal(materialized[1]!.scriptRef, null);
+  assert.deepEqual(calls, [], "no Script lookup happens when nothing was authored");
+});
+
+void test("materializeScenarioStepScriptRefs fails closed on a persisted malformed non-null top-level scriptRef, instead of canonicalizing it to null", async () => {
+  const { prisma, calls } = buildPrisma(() => {
+    throw new Error("must not query Prisma for a malformed scriptRef");
+  });
+  // scriptKey is not a string at all — this is what the pre-repair hand-rolled
+  // runtime normalizer used to silently canonicalize to `null`.
+  const steps = normalizeSkillScenarioSteps([
+    { number: 1, directive: "Corrupt ref.", scriptRef: { scriptKey: 12345, inputMapping: {} } }
+  ]);
+  await assert.rejects(
+    materializeScenarioStepScriptRefs({ prisma, skillId, steps }),
+    (error: unknown) =>
+      error instanceof ScriptRefMaterializationError &&
+      error.code === "script_ref_materialization_unresolvable" &&
+      error.skillId === skillId
+  );
+  assert.deepEqual(calls, [], "materialization fails before any Script lookup");
+});
+
+void test("materializeScenarioStepScriptRefs fails closed on a scriptRef that is a non-object (string/number/array), instead of canonicalizing it to null", async () => {
+  const { prisma } = buildPrisma(() => {
+    throw new Error("must not query Prisma for a malformed scriptRef");
+  });
+  for (const malformed of ["sample_script", 42, ["sample_script"]]) {
+    const steps = normalizeSkillScenarioSteps([
+      { number: 1, directive: "Corrupt ref.", scriptRef: malformed }
+    ]);
+    await assert.rejects(
+      materializeScenarioStepScriptRefs({ prisma, skillId, steps }),
+      ScriptRefMaterializationError
+    );
+  }
+});
+
+void test("materializeScenarioStepScriptRefs fails closed on a malformed nested inputMapping source, instead of silently dropping the bad entry", async () => {
+  const { prisma, calls } = buildPrisma(() => {
+    throw new Error("must not query Prisma for a malformed scriptRef");
+  });
+  const steps = normalizeSkillScenarioSteps([
+    {
+      number: 1,
+      directive: "Corrupt mapping entry.",
+      scriptRef: {
+        scriptKey: "sample_script",
+        inputMapping: {
+          // "source" is not one of literal/current_user_message/tool_input.
+          bad: { source: "json_path", path: "$.user" },
+          good: { source: "current_user_message" }
+        }
+      }
+    }
+  ]);
+  await assert.rejects(
+    materializeScenarioStepScriptRefs({ prisma, skillId, steps }),
+    (error: unknown) =>
+      error instanceof ScriptRefMaterializationError &&
+      error.skillId === skillId &&
+      error.scriptKey === "sample_script" &&
+      typeof error.detail === "string" &&
+      /must be literal, current_user_message, or tool_input/.test(error.detail)
+  );
+  assert.deepEqual(calls, [], "materialization fails before any Script lookup");
+});
+
+void test("materializeScenarioStepScriptRefs fails closed on a malformed inputMapping shape (not an object), instead of dropping the whole mapping", async () => {
+  const { prisma } = buildPrisma(() => {
+    throw new Error("must not query Prisma for a malformed scriptRef");
+  });
+  const steps = normalizeSkillScenarioSteps([
+    {
+      number: 1,
+      directive: "Corrupt mapping shape.",
+      scriptRef: { scriptKey: "sample_script", inputMapping: "not-an-object" }
+    }
+  ]);
+  await assert.rejects(
+    materializeScenarioStepScriptRefs({ prisma, skillId, steps }),
+    ScriptRefMaterializationError
+  );
+});

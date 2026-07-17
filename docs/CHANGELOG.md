@@ -5,6 +5,28 @@
 
 ## 2026-07-17
 
+- **ADR (ADR-151 P1 repair: runtime scriptRef materialization fail-closed
+  gap; independently audited CLEAN locally).** Fixed
+  `skill-scenario-runtime-normalization.ts`'s hand-rolled `scriptRef`
+  normalizer, which silently canonicalized a malformed persisted non-null
+  `scriptRef` (or a malformed nested `inputMapping`/source entry) to
+  `null`/dropped-entry before `script-ref-materialization.ts` saw it, letting
+  bundle materialization succeed as if the reference were explicitly absent.
+  The runtime normalization pass now carries the raw persisted value through
+  unparsed; `script-ref-materialization.ts` is the canonical materialization
+  boundary and parses every non-null `scriptRef` with the exact same
+  exported `parseScriptRef` the Admin authoring path uses (no duplicated
+  parsing logic), throwing the existing typed `ScriptRefMaterializationError`
+  (same `script_ref_materialization_unresolvable` code, now with an optional
+  `detail` message) for any malformed shape before any database round-trip.
+  Explicit null/absent `scriptRef` is unchanged. Added 5 new focused tests to
+  `script-ref-materialization.test.ts` covering malformed top-level refs,
+  non-object refs, malformed nested mapping sources/shapes, and explicit
+  null/absent success, all through the production
+  `normalizeSkillScenarioSteps` → `materializeScenarioStepScriptRefs` path.
+  Targeted re-audit and affected post-repair gates passed; the final local
+  ADR-151 audit/repository gate is satisfied.
+
 - **ADR (ADR-151 Admin UI + MCP authoring implemented and independently
   audited CLEAN locally; accepted/open, deploy pending).** Added a Roles-style Admin Scripts
   page (`apps/web/app/admin/scripts/page.tsx`) with localized metadata

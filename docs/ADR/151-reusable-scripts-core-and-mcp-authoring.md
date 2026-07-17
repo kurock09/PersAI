@@ -2,9 +2,8 @@
 
 ## Status
 
-**Accepted / Open — Domain + Admin API, Scenario + Runtime, and Admin UI + MCP
-authoring blocks implemented and independently audited locally (final
-repository gate, deploy, and live acceptance pending).**
+**Accepted / Open — implementation, independent audits, and local repository
+gate satisfied; deploy and founder live acceptance pending.**
 Founder-approved architecture checkpoint started 2026-07-16 on baseline
 `36947f7544918c0fddadae6ec17f75883b1b1365` (`adr-151-reusable-scripts`).
 The local Domain + Admin API block includes schema/migration, lifecycle,
@@ -126,6 +125,32 @@ mutation ownership, guarded version loading, and a full binding-control lock.
 The final targeted re-audit returned **CLEAN** after 18 focused web tests,
 39 full Admin MCP package tests (22 Script-focused), package lint/typecheck,
 and diff/format checks. This block has not been deployed or live-accepted.
+
+A later bounded P1 repair (2026-07-17) closed a gap in the runtime
+materialization path: `skill-scenario-runtime-normalization.ts`'s hand-rolled
+raw-`scriptRef` normalizer duplicated (imperfectly) the canonical Admin-side
+`scriptRef` parser and silently canonicalized a malformed persisted non-null
+`scriptRef` or a malformed nested `inputMapping`/source entry to `null`,
+letting bundle materialization succeed as if the authored reference were
+explicitly absent — even though the existing `adr151-script-domain` test only
+proved this fail-closed invariant for the Admin-state serializer
+(`toAdminSkillScenarioState`), not the actual runtime normalize+materialize
+path used by `resolveAssistantRoleEffectiveSkillsPrompt`/bundle construction.
+The repair makes the runtime normalization pass carry the raw persisted value
+through unparsed and makes `script-ref-materialization.ts` the single
+canonical materialization boundary: it now parses every non-null `scriptRef`
+with the exact same exported `parseScriptRef` the Admin path uses (no
+duplicated parsing logic) and throws the existing typed
+`ScriptRefMaterializationError` (same `script_ref_materialization_unresolvable`
+code, now with an optional `detail` message) for any malformed shape, before
+any database round-trip. Explicit `null`/absent `scriptRef` is unaffected and
+still resolves to `null` with zero Script lookups. Five new focused tests in
+`script-ref-materialization.test.ts` exercise the production
+`normalizeSkillScenarioSteps` → `materializeScenarioStepScriptRefs` path
+directly for malformed top-level refs, non-object refs, malformed nested
+mapping sources, malformed mapping shapes, and explicit null/absent success.
+This is a bounded correctness repair, not a scope change: status remains
+Accepted/Open, and no CLEAN/deploy/live claim is made for it.
 
 ## Context
 

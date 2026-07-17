@@ -343,7 +343,14 @@ function parseStep(value: unknown, idx: number): SkillScenarioStepState {
   };
 }
 
-function parseScriptRef(value: unknown, path: string): SkillScenarioScriptRef | null {
+/**
+ * ADR-151 — the single canonical `scriptRef` parser. Both the Admin authoring
+ * path (`normalizeScriptRef` below) and the runtime materialization boundary
+ * (`script-ref-materialization.ts`) call this exact function so a persisted
+ * value is judged malformed/well-formed identically in both places; neither
+ * path re-implements this validation.
+ */
+export function parseScriptRef(value: unknown, path: string): SkillScenarioScriptRef | null {
   if (value === undefined || value === null) {
     return null;
   }
